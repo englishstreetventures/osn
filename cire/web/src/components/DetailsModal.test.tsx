@@ -1,6 +1,7 @@
 import { render, cleanup, fireEvent, screen } from "@solidjs/testing-library";
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
+import { resetConsentForTest, seedConsentForTest } from "../lib/consent/testing";
 import { DetailsModal } from "./DetailsModal";
 import type { EventSummary } from "./types";
 
@@ -144,5 +145,86 @@ describe("DetailsModal", () => {
 
     expect(queryByLabelText("Evil swatch")).toBeNull();
     expect(getByLabelText("Safe swatch")).toBeTruthy();
+  });
+});
+
+/**
+ * End-to-end check of the consent posture through the REAL modal tree, rather
+ * than through each embed component in isolation.
+ *
+ * This is the integration the unit tests don't cover: `MapPreview` and
+ * `PinterestBoard` each pass on their own, but what a guest actually meets is
+ * the details sheet with both mounted inside it, hydrating together off one
+ * shared store. If the defaults, the gate and the hydration order ever disagree,
+ * this is where it shows up.
+ */
+describe("DetailsModal — third-party embeds are on by default", () => {
+  const MAPS_KEY = "test-embed-key";
+  const PINTEREST_URL =
+    "https://www.pinterest.com.au/example/catholic-wedding-guest-moodboard/";
+
+  const richEvent: EventSummary = {
+    ...baseEvent,
+    pinterestUrl: PINTEREST_URL,
+    dressCodeDescription: "Festive Indian",
+  };
+
+  /** The injected Pinterest tracker, if the embed decided to load it. */
+  const trackerScript = () =>
+    document.querySelector<HTMLScriptElement>('script[src*="pinit_main.js"]');
+
+  beforeEach(() => {
+    resetConsentForTest();
+    vi.stubEnv("PUBLIC_GOOGLE_MAPS_EMBED_KEY", MAPS_KEY);
+  });
+
+  afterEach(() => {
+    cleanup();
+    for (const script of document.querySelectorAll('script[src*="pinit_main.js"]')) {
+      script.remove();
+    }
+    vi.unstubAllEnvs();
+    resetConsentForTest();
+  });
+
+  it("renders BOTH the Google map and the Pinterest board for a guest with no consent cookie", () => {
+    const { container } = renderModal(richEvent);
+
+    // The venue map: a live Google Maps Embed iframe, not the CSS fallback card.
+    const iframe = container.querySelector("iframe");
+    expect(iframe).not.toBeNull();
+    expect(iframe!.getAttribute("src") ?? "").toContain(
+      "https://www.google.com/maps/embed/v1/place?",
+    );
+
+    // The moodboard: the widget anchor mounted and the tracker requested.
+    expect(container.querySelector('a[data-pin-do="embedBoard"]')).not.toBeNull();
+    expect(trackerScript()).not.toBeNull();
+
+    // And no permission notice standing in for either of them.
+    expect(container.textContent ?? "").not.toContain("Allow third-party content");
+  });
+
+  it("blocks BOTH once the guest switches third-party content off", () => {
+    seedConsentForTest({ embeds: false });
+    const { container } = renderModal(richEvent);
+
+    expect(container.querySelector("iframe")).toBeNull();
+    expect(container.querySelector("a[data-pin-do]")).toBeNull();
+    expect(trackerScript()).toBeNull();
+  });
+
+  it("keeps the venue and the moodboard reachable even when both embeds are off", () => {
+    // Refusing costs the rich embeds and nothing else: the CSS map card still
+    // names the venue and links out, and the moodboard link-out is still there.
+    seedConsentForTest({ embeds: false });
+    const { container, getByText } = renderModal(richEvent);
+
+    expect(getByText("12 Banksia Lane, Strathfield")).toBeTruthy();
+    const moodboardLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="' + PINTEREST_URL + '"]',
+    );
+    expect(moodboardLink).not.toBeNull();
+    expect(moodboardLink!.textContent).toContain("View moodboard on Pinterest");
   });
 });

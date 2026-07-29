@@ -444,7 +444,11 @@ describe("passkey register step-up gate (S-H1)", () => {
       const alice = yield* auth.registerProfile("pk-add-ok@example.com", "pkaddok");
       yield* seedPasskey(alice.accountId);
       yield* auth.beginStepUpOtp(alice.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(alice.accountId, cap.latest()!);
+      const { stepUpToken } = yield* auth.completeStepUpOtp(
+        alice.accountId,
+        cap.latest()!,
+        "passkey_register",
+      );
       const result = yield* auth.beginPasskeyRegistration(alice.accountId, stepUpToken);
       expect(result.options.challenge).toBeTruthy();
     }).pipe(Effect.provide(cap.layer));
@@ -476,7 +480,11 @@ describe("passkey count cap (MAX_PASSKEYS_PER_ACCOUNT)", () => {
       // S-H1: begin requires step-up once the account has ≥1 passkey.
       // Mint one via the OTP ceremony.
       yield* auth.beginStepUpOtp(alice.accountId);
-      const { stepUpToken } = yield* auth.completeStepUpOtp(alice.accountId, cap.latest()!);
+      const { stepUpToken } = yield* auth.completeStepUpOtp(
+        alice.accountId,
+        cap.latest()!,
+        "passkey_register",
+      );
       const result = yield* auth.beginPasskeyRegistration(alice.accountId, stepUpToken);
       expect(result.options.challenge).toBeTruthy();
     }).pipe(Effect.provide(cap.layer));

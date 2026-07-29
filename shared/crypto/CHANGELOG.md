@@ -1,5 +1,12 @@
 # @osn/crypto
 
+## 0.9.1
+
+### Patch Changes
+
+- Updated dependencies [55a8ea8]
+  - @osn/db@0.20.0
+
 ## 0.9.0
 
 ### Minor Changes

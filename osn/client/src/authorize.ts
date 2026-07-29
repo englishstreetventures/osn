@@ -66,6 +66,12 @@ export interface AuthorizeClientInfo {
   name: string;
   logoUrl: string | null;
   firstParty: boolean;
+  /**
+   * The host the authorization code will be delivered to for this request. A
+   * verifiable identity signal shown next to the self-asserted `name`, so a
+   * user can tell a genuine first-party app from a look-alike third party.
+   */
+  redirectDomain: string;
 }
 
 export interface AuthorizeContext {

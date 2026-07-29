@@ -1,6 +1,7 @@
 import { it, expect, describe } from "@effect/vitest";
-import { users } from "@osn/db/schema";
+import { sessions, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { beforeAll } from "vitest";
 
@@ -197,6 +198,98 @@ describe("session binding (osn_sid)", () => {
         claims.sessionBinding!,
       );
       expect(resolved).toBeNull();
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("auth_time survives silent rotation — max_age reflects real presence", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("sid-authtime@example.com", "sidauthtime");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const { db } = yield* Db;
+      const sid = auth.hashSessionToken(tokens.refreshToken);
+      // Simulate a device that authenticated long ago and has silently
+      // refreshed since: age its authentication time well into the past.
+      const aged = Math.floor(Date.now() / 1000) - 100_000;
+      yield* Effect.promise(() =>
+        db.update(sessions).set({ authenticatedAt: aged }).where(eq(sessions.id, sid)),
+      );
+
+      const rotated = yield* auth.refreshTokens(tokens.refreshToken);
+      const info = yield* auth.verifyRefreshToken(rotated.refreshToken);
+
+      // The rotated-in row keeps the original authentication time; a background
+      // refresh must NOT reset auth_time to "now" and satisfy a relying party's
+      // max_age with zero user presence.
+      expect(info.authenticatedAt).toBe(aged);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
+describe("classifyCallerSession (destructive-path resolution)", () => {
+  it.effect("returns `none` when neither a cookie nor a binding is presented", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("cls-none@example.com", "clsnone");
+      yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const r = yield* auth.classifyCallerSession(profile.accountId, profile.id, {});
+      // Genuinely credential-less: the H1 account-wide wipe is the intended
+      // outcome (there is no "self" to preserve).
+      expect(r._tag).toBe("none");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("returns `resolved` when the binding names a live session", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("cls-live@example.com", "clslive");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const claims = yield* auth.verifyAccessToken(tokens.accessToken);
+      const r = yield* auth.classifyCallerSession(profile.accountId, profile.id, {
+        sessionBinding: claims.sessionBinding,
+      });
+      expect(r).toEqual({
+        _tag: "resolved",
+        sessionHash: auth.hashSessionToken(tokens.refreshToken),
+      });
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("returns `stale` when a binding is presented but its session is gone (S-M2)", () =>
+    Effect.gen(function* () {
+      const profile = yield* auth.registerProfile("cls-stale@example.com", "clsstale");
+      const tokens = yield* auth.issueTokens(
+        profile.id,
+        profile.accountId,
+        profile.email,
+        profile.handle,
+        profile.displayName,
+      );
+      const claims = yield* auth.verifyAccessToken(tokens.accessToken);
+      // The session rotates out / is revoked while the 5-min access token is
+      // still live: the binding now matches no row.
+      yield* auth.invalidateSession(tokens.refreshToken);
+
+      const r = yield* auth.classifyCallerSession(profile.accountId, profile.id, {
+        sessionBinding: claims.sessionBinding,
+      });
+      // Must NOT collapse to `none` — that was the S-M2 account-wide wipe.
+      expect(r._tag).toBe("stale");
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

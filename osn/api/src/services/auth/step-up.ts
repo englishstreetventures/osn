@@ -393,7 +393,11 @@ export function createStepUpModule(ctx: AuthContext) {
     stepUpToken: string,
   ): Effect.Effect<void, AuthError> =>
     Effect.gen(function* () {
-      yield* verifyStepUpToken(stepUpToken, accountId, passkeyDeleteAllowedAmr);
+      // Purpose-bound (confused-deputy guard): a token minted for a different
+      // ceremony (recovery generate, email change) cannot be replayed here.
+      // Rename shares this verifier, so the client mints `passkey_delete` for
+      // both rename and delete.
+      yield* verifyStepUpToken(stepUpToken, accountId, passkeyDeleteAllowedAmr, "passkey_delete");
     });
 
   /**
@@ -408,7 +412,15 @@ export function createStepUpModule(ctx: AuthContext) {
     stepUpToken: string,
   ): Effect.Effect<void, AuthError> =>
     Effect.gen(function* () {
-      yield* verifyStepUpToken(stepUpToken, accountId, passkeyRegisterAllowedAmr);
+      // Purpose-bound: only a token minted for passkey enrolment is accepted,
+      // so a recovery-generate or email-change token can't bind an attacker
+      // authenticator via a replay.
+      yield* verifyStepUpToken(
+        stepUpToken,
+        accountId,
+        passkeyRegisterAllowedAmr,
+        "passkey_register",
+      );
     });
 
   /**

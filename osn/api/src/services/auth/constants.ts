@@ -180,7 +180,38 @@ export function isReservedOidcClientId(clientId: string): boolean {
  */
 export const MAX_OIDC_CLIENTS_PER_ACCOUNT = 5;
 
+/**
+ * Cap on TOTAL client rows an account may accumulate, including disabled ones.
+ * Disabling frees a live slot but the row (with its attacker-chosen name + logo
+ * URL) persists, so without this a script could churn create/disable and store
+ * unbounded attacker-controlled strings under one account. Set well above the
+ * live cap so it only bites abuse, never a normal owner cycling a few apps.
+ */
+export const MAX_OIDC_CLIENT_ROWS_PER_ACCOUNT = 50;
+
 /** Bounds on client registration inputs — see `validateClientRegistration`. */
 export const OIDC_CLIENT_NAME_MAX_LENGTH = 64;
 export const OIDC_CLIENT_MAX_REDIRECT_URIS = 8;
 export const OIDC_CLIENT_URI_MAX_LENGTH = 512;
+
+/**
+ * Display names a self-serve client may not impersonate. The consent screen
+ * shows a self-asserted name; without this a third party could register
+ * "Musubi" (or a homograph) to phish a user into releasing their profile to a
+ * look-alike of a first-party app. Compared against the caller's name after
+ * confusable-skeleton folding (see `validateClientRegistration`), so "Musubi",
+ * "MUSUBI", "M U S U B I", and "Musub1" all collide. First-party clients are
+ * hand-seeded, never registered through this path, so they are unaffected.
+ */
+export const RESERVED_OIDC_CLIENT_NAMES: readonly string[] = [
+  "osn",
+  "musubi",
+  "musubi social",
+  "musubi id",
+  "osn settings",
+  "musubi settings",
+  "pulse",
+  "zap",
+  "cire",
+  "cireweddings",
+];

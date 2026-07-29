@@ -158,7 +158,14 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
     currentSessionHash: string | null,
   ): Effect.Effect<{ email: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      yield* verifyStepUpToken(stepUpToken, accountId, new Set(["webauthn", "otp"]));
+      // Purpose-bound: a token minted for another ceremony (recovery generate,
+      // passkey delete) cannot be replayed to complete an email swap.
+      yield* verifyStepUpToken(
+        stepUpToken,
+        accountId,
+        new Set(["webauthn", "otp"]),
+        "email_change",
+      );
 
       const pending = yield* Effect.promise(() => stores.pendingEmailChanges.get(accountId));
       if (!pending || Date.now() > pending.expiresAt) {

@@ -2,7 +2,7 @@ import { useAuth } from "@osn/client/solid";
 import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
 import { Badge } from "@osn/ui/ui/badge";
 import { Button } from "@osn/ui/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@osn/ui/ui/dialog";
+import { Dialog, DialogHeader, DialogTitle } from "@osn/ui/ui/dialog";
 import { Input } from "@osn/ui/ui/input";
 import { Label } from "@osn/ui/ui/label";
 import { Textarea } from "@osn/ui/ui/textarea";
@@ -10,6 +10,7 @@ import { useParams, useNavigate } from "@solidjs/router";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
+import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { orgClient } from "../lib/api";
 import { safeAvatarUrl } from "../lib/utils";
 
@@ -98,7 +99,7 @@ export function OrgDetailPage() {
   }
 
   return (
-    <main class="mx-auto w-full max-w-2xl px-8 py-8">
+    <main class="mx-auto w-full max-w-2xl px-4 py-6 md:px-8 md:py-8">
       <Show
         when={!org.loading && org()}
         fallback={
@@ -111,7 +112,7 @@ export function OrgDetailPage() {
         {(orgData) => (
           <>
             {/* Header */}
-            <div class="mb-8 flex items-start justify-between">
+            <div class="mb-8 flex flex-wrap items-start justify-between gap-3">
               <div class="flex items-center gap-4">
                 <Avatar class="h-14 w-14">
                   <Show when={safeAvatarUrl(orgData().avatarUrl)}>
@@ -138,12 +139,17 @@ export function OrgDetailPage() {
                 <Button
                   variant="secondary"
                   size="sm"
-                  class="text-body rounded-pill"
+                  class="text-body rounded-pill max-md:h-10"
                   onClick={openEdit}
                 >
                   Edit
                 </Button>
-                <Button variant="ghost" size="sm" class="text-destructive" onClick={handleDelete}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  class="text-destructive max-md:h-10"
+                  onClick={handleDelete}
+                >
                   Delete
                 </Button>
               </div>
@@ -167,7 +173,7 @@ export function OrgDetailPage() {
                 <div class="flex flex-col gap-1">
                   <For each={members()?.members}>
                     {(member) => (
-                      <div class="hover:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
+                      <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
                         <Avatar class="h-8 w-8">
                           <Show when={safeAvatarUrl(member.profile.avatarUrl)}>
                             {(url) => (
@@ -198,7 +204,7 @@ export function OrgDetailPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            class="text-muted-foreground text-body h-7"
+                            class="text-muted-foreground text-body h-7 max-md:h-10"
                             onClick={() => removeMember(member.profile.id, member.profile.handle)}
                           >
                             Remove
@@ -216,7 +222,7 @@ export function OrgDetailPage() {
 
       {/* Edit dialog */}
       <Dialog open={showEdit()} onOpenChange={setShowEdit}>
-        <DialogContent class="rounded-card max-w-sm">
+        <ResponsiveDialogContent class="max-w-sm">
           <DialogHeader>
             <DialogTitle>Edit organisation</DialogTitle>
           </DialogHeader>
@@ -244,17 +250,22 @@ export function OrgDetailPage() {
                 type="button"
                 variant="secondary"
                 size="sm"
-                class="text-body rounded-pill"
+                class="text-body rounded-pill max-md:h-10"
                 onClick={() => setShowEdit(false)}
               >
                 Cancel
               </Button>
-              <Button type="submit" size="sm" class="text-body rounded-pill" disabled={saving()}>
+              <Button
+                type="submit"
+                size="sm"
+                class="text-body rounded-pill max-md:h-10"
+                disabled={saving()}
+              >
                 {saving() ? "Saving..." : "Save"}
               </Button>
             </div>
           </form>
-        </DialogContent>
+        </ResponsiveDialogContent>
       </Dialog>
     </main>
   );

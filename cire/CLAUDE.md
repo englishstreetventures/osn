@@ -41,6 +41,7 @@ Update the relevant shard when: a task is completed, a new concern is discovered
 | ------------------------------- | --------------------------------------------- |
 | Understand monorepo layout      | `[[wiki/architecture/monorepo-structure]]`    |
 | Check PR/branch conventions     | `[[wiki/conventions/contributing]]`           |
+| Add a third-party embed / script to the guest site | `[[wiki/architecture/consent]]` |
 | Understand observability rules  | `[[wiki/observability/overview]]`             |
 | Look up review finding IDs      | `[[wiki/conventions/review-findings]]`        |
 | Debug a production issue        | Browse `wiki/runbooks/`                       |

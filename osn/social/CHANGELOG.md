@@ -1,5 +1,95 @@
 # @osn/social
 
+## 0.9.0
+
+### Minor Changes
+
+- 55a8ea8: Security + UX hardening across the auth stack (review of PRs #315–#324).
+
+  **Identity / OIDC provider (`@osn/api`, `@osn/db`)**
+
+  - Pairwise-`sub` isolation: a self-serve OIDC client's sector is now its
+    server-generated `client_id`, not the first redirect-URI host (attacker-chosen
+    and unverified), so colluding clients can no longer share a sector to correlate
+    the same user across apps.
+  - `auth_time` survives silent session rotation: sessions gain an immutable
+    `authenticated_at` (new column, copied forward on every refresh), so a relying
+    party's `max_age`/`prompt=login` reflects the real passkey ceremony instead of
+    the last background token refresh.
+  - Consent-screen anti-impersonation: client names are NFKC-normalised, reject
+    bidi/zero-width/control characters, and are blocked when they fold to a
+    confusable skeleton of a first-party app name (Musubi, OSN, Pulse, Zap, Cire).
+  - Step-up tokens are bound to their ceremony purpose at every gate (passkey
+    register/delete, email change, security-event ack), closing cross-ceremony
+    replay of a still-unconsumed token.
+  - Destructive passkey routes fail closed (409) on a presented-but-stale session
+    binding instead of degrading to an account-wide session wipe (S-M2).
+  - Minor OIDC hardening: generic token-endpoint errors (no internal cause on the
+    wire), RFC 9207 `iss` on authorization responses, required browser-binding on
+    every parked request (S-L4), a total-rows cap on client registration, and a
+    branded HTML error page for pre-validation `/authorize` failures.
+
+  **Client + UI (`@osn/client`, `@osn/ui`, `@osn/social`)**
+
+  - New OIDC connections SDK; Settings → "Connected apps" now lists and revokes
+    real connections (GDPR Art. 7(3)) instead of a hardcoded list.
+  - The security-events banner is mounted (recovery-code generate/consume events
+    now reach the user in-app), and the consent screen surfaces a verifiable
+    identity signal (verified-app badge / third-party redirect host).
+  - Consent UX: a `login_required` re-auth loop is capped, the profile picker gets
+    a decline path, and a trailing-slash `/authorize/` no longer escapes the bare
+    layout. CSP tightened (object-src/base-uri/form-action).
+  - Recovery codes are guarded against silent loss on navigation after the old set
+    is revoked; the rotation warning uses the component-library dialog; the
+    step-up dialog explains why re-auth is needed; a failed passkey ceremony maps
+    to an actionable recovery message.
+
+### Patch Changes
+
+- Updated dependencies [55a8ea8]
+  - @osn/client@2.8.0
+  - @osn/ui@1.7.0
+
+## 0.8.0
+
+### Minor Changes
+
+- 0d00266: Mobile UX overhaul — the app was desktop-only (fixed 240px rail at every
+  viewport width, ~135px of content on a phone). Now responsive at a single
+  `md` (768px) breakpoint, per the audit + plan in
+  `wiki/apps/social-mobile-ux.md`:
+
+  - **Shell** — below `md` the rail is replaced by a fixed bottom tab bar
+    (`MobileNav`, four destinations, 20px icons) and a top bar
+    (`MobileTopBar`: wordmark, theme toggle, account control). Nav items are
+    shared via `components/nav.tsx`; the account dropdown and auth/switcher
+    dialogs are extracted (`AccountMenu`, `AuthDialogs`,
+    `ProfileSwitcherDialog`). Only the active shell mounts — `Layout` gates on
+    a synchronously-initialised `md` matchMedia signal, so one shell chunk is
+    fetched, one shell hydrates, and exactly one auth-dialog surface exists at
+    any width (P-W1/P-I1/P-I2 + S-L1 from the prep-pr reviews). `/` now
+    highlights Connections in both shells; nav icons are `aria-hidden`
+    (C-L1). The bare `/authorize` route keeps no shell.
+  - **Viewport** — `h-dvh` everywhere (`h-screen` gone), `viewport-fit=cover`
+    - `pt-safe`/`pb-safe`/`px-safe`/`pb-nav` utilities, paired `theme-color`
+      metas kept in sync with the resolved theme.
+  - **Dialogs** — `ResponsiveDialogContent` renders every app dialog as a
+    full-width bottom sheet below `md` (`rounded-t-card`,
+    `max-h-[85dvh] overflow-y-auto`, `pb-safe`); the shared centered card at
+    `md+`. `@osn/ui` primitives untouched.
+  - **Touch** — form controls render 16px below 768px (kills iOS focus
+    auto-zoom; documented type-scale exception), row actions bump `h-7 →
+max-md:h-10`, tabs get `max-md:min-h-11` + `overflow-x-auto`, rows gain
+    `active:` feedback, `touch-action: manipulation`, page padding
+    `px-4 py-6 md:px-8 md:py-8`, toasts top-center on mobile.
+  - **Guardrails** — `DESIGN.md` gains a Responsive layout section locking the
+    breakpoint policy; new tests for `MobileNav`/`isNavActive`,
+    `MobileTopBar`, `ProfileSwitcherDialog` (success/failure/no-op switch
+    paths), `AuthDialogs` (close-on-session invariant),
+    `ResponsiveDialogContent` (sheet-class contract) and the `theme-color`
+    meta sync; verified headless-Chromium at 320/390/768/1280 widths with
+    zero horizontal overflow in both themes.
+
 ## 0.7.3
 
 ### Patch Changes

@@ -164,6 +164,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             familyId: fam,
             expiresAt: nowSec + refreshTokenTtl,
             createdAt: nowSec,
+            // First authentication on this device. Copied forward on every
+            // rotation so `auth_time`/`max_age` stay honest across silent refresh.
+            authenticatedAt: nowSec,
             uaLabel: sessionMeta?.uaLabel ?? null,
             ipHash: sessionMeta?.ip ? hashIp(sessionMeta.ip) : null,
             lastUsedAt: nowSec,
@@ -244,16 +247,17 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         });
       }
 
-      // `authenticatedAt` is the session row's creation time — the moment the
-      // user actually authenticated on this device. The sliding-window extend
-      // above never touches `createdAt`, so this is the honest `auth_time` for
-      // the OIDC provider (S-H1 oidc); a 29-day-old session reads as 29 days
-      // old, not as "just signed in".
+      // `authenticatedAt` is the moment the user actually authenticated on this
+      // device, copied forward across every rotation (falling back to
+      // `createdAt` for legacy rows). It is the honest `auth_time` for the OIDC
+      // provider (S-H1 oidc): a 29-day-old passkey ceremony reads as 29 days
+      // old even after dozens of silent refreshes, so a relying party's
+      // `max_age` reflects real user presence, not the last background refresh.
       return {
         accountId: session.accountId,
         familyId: session.familyId,
         sessionId,
-        authenticatedAt: session.createdAt,
+        authenticatedAt: session.authenticatedAt ?? session.createdAt,
       };
     });
 
@@ -529,6 +533,14 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             familyId,
             expiresAt: nowSec + refreshTokenTtl,
             createdAt: nowSec,
+            // Preserve the device's original authentication time across the
+            // rotation. `createdAt` is the new row's insert time (this grant),
+            // but `authenticatedAt` must reflect the real passkey/OTP ceremony
+            // so a background silent refresh can't reset `auth_time` to "now"
+            // and satisfy a relying party's `max_age` with zero user presence.
+            // Fall back to the old row's `createdAt` for sessions minted before
+            // the column existed.
+            authenticatedAt: old?.authenticatedAt ?? old?.createdAt ?? nowSec,
             uaLabel: old?.uaLabel ?? null,
             ipHash: old?.ipHash ?? null,
             lastUsedAt: nowSec,

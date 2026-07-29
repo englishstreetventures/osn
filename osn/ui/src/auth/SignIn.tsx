@@ -104,7 +104,22 @@ export function SignIn(props: SignInProps) {
       const { session } = await client.passkeyComplete({ identifier: trimmed, assertion });
       await finishWithSession(session);
     } catch (err) {
-      reportError(err, "Sign-in failed");
+      // A `NotAllowedError` from the WebAuthn ceremony is the browser's opaque
+      // "timed out or not allowed" — the same error it raises when the passkey
+      // was registered under a since-retired RP ID. After the 2026-07-27 move
+      // to the `musubi.social` RP, pre-migration credentials no longer assert
+      // here, so point the user straight at the recovery escape hatch (the
+      // "Lost your passkey?" link below) rather than echoing the raw message.
+      if (err instanceof Error && err.name === "NotAllowedError") {
+        reportError(
+          new Error(
+            "That passkey didn't work. Passkeys created before the move to musubi.social no longer sign in here — use a recovery code instead (“Lost your passkey?” below).",
+          ),
+          "Sign-in failed",
+        );
+      } else {
+        reportError(err, "Sign-in failed");
+      }
     } finally {
       setBusy(false);
     }

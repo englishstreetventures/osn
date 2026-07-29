@@ -1,7 +1,7 @@
 import { useAuth } from "@osn/client/solid";
 import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
 import { Button } from "@osn/ui/ui/button";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@osn/ui/ui/dialog";
+import { Dialog, DialogHeader, DialogTitle } from "@osn/ui/ui/dialog";
 import { Input } from "@osn/ui/ui/input";
 import { Label } from "@osn/ui/ui/label";
 import { Textarea } from "@osn/ui/ui/textarea";
@@ -9,6 +9,7 @@ import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
+import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { orgClient } from "../lib/api";
 import { safeAvatarUrl } from "../lib/utils";
 
@@ -51,14 +52,14 @@ export function OrganisationsPage() {
   }
 
   return (
-    <main class="mx-auto w-full max-w-2xl px-8 py-8">
+    <main class="mx-auto w-full max-w-2xl px-4 py-6 md:px-8 md:py-8">
       <div class="mb-6 flex items-center justify-between">
         <div>
           <h1 class="text-foreground text-display font-medium">Organisations</h1>
           <p class="text-muted-foreground text-body mt-1">Groups and teams you belong to.</p>
         </div>
         <Show when={session()}>
-          <Button size="sm" onClick={() => setShowCreate(true)}>
+          <Button size="sm" class="max-md:h-10" onClick={() => setShowCreate(true)}>
             Create
           </Button>
         </Show>
@@ -95,7 +96,7 @@ export function OrganisationsPage() {
                 {(org) => (
                   <A
                     href={`/organisations/${org.id}`}
-                    class="border-border hover:bg-muted/30 rounded-card flex items-center gap-3 border px-4 py-3 transition-colors"
+                    class="border-border hover:bg-muted/30 active:bg-muted/30 rounded-card flex items-center gap-3 border px-4 py-3 transition-colors"
                   >
                     <Avatar class="h-10 w-10">
                       <Show when={safeAvatarUrl(org.avatarUrl)}>
@@ -142,7 +143,7 @@ export function OrganisationsPage() {
 
       {/* Create org dialog */}
       <Dialog open={showCreate()} onOpenChange={setShowCreate}>
-        <DialogContent class="rounded-card max-w-sm">
+        <ResponsiveDialogContent class="max-w-sm">
           <DialogHeader>
             <DialogTitle>Create organisation</DialogTitle>
           </DialogHeader>
@@ -185,7 +186,7 @@ export function OrganisationsPage() {
                 type="button"
                 variant="secondary"
                 size="sm"
-                class="text-body rounded-pill"
+                class="text-body rounded-pill max-md:h-10"
                 onClick={() => setShowCreate(false)}
               >
                 Cancel
@@ -193,14 +194,14 @@ export function OrganisationsPage() {
               <Button
                 type="submit"
                 size="sm"
-                class="text-body rounded-pill"
+                class="text-body rounded-pill max-md:h-10"
                 disabled={creating() || !handle() || !name()}
               >
                 {creating() ? "Creating..." : "Create"}
               </Button>
             </div>
           </form>
-        </DialogContent>
+        </ResponsiveDialogContent>
       </Dialog>
     </main>
   );

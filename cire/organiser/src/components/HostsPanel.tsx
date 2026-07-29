@@ -302,7 +302,7 @@ export default function HostsPanel(props: HostsPanelProps) {
         description={
           props.canManage
             ? "Invite a partner or planner to help. Add them by their OSN handle — editors can change everything here, viewers can only look around, and only you, the owner, manage who hosts it."
-            : "These organisers help host this wedding — editors can make changes, viewers can only look around. The owner manages who's on this list."
+            : "These co-hosts help run this wedding — editors can make changes, viewers can only look around. The owner manages who's on this list."
         }
       />
 

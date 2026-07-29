@@ -100,12 +100,21 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
             // authenticated — enrolment took the O4 branch and logged the
             // account out of every device.
             const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
-            const callerSessionHash = await run(
-              auth.resolveCallerSession(principal.accountId, principal.profileId, {
+            const caller = await run(
+              auth.classifyCallerSession(principal.accountId, principal.profileId, {
                 cookieSessionHash: cookieToken ? auth.hashSessionToken(cookieToken) : null,
                 sessionBinding: principal.sessionBinding,
               }),
             );
+            // S-M2: a presented-but-stale binding (session rotated out or
+            // LRU-evicted) must NOT degrade to the account-wide wipe. Fail
+            // closed and ask the caller to re-authenticate so the enrolment's
+            // H1 sweep can spare a real "self".
+            if (caller._tag === "stale") {
+              set.status = 409;
+              return { error: "session_stale", message: "Re-authenticate and try again." };
+            }
+            const callerSessionHash = caller._tag === "resolved" ? caller.sessionHash : null;
             const result = await run(
               auth.completePasskeyRegistration(
                 principal.accountId,

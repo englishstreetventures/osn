@@ -493,6 +493,34 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
+      # Secret preflight: osn-api fails CLOSED at boot/request time when a
+      # required secret is missing (e.g. the OSN_PAIRWISE_SALT check), so a
+      # `wrangler deploy` can report success while every route 503s — exactly
+      # the #315 outage. Assert the required secrets are configured on the prod
+      # Worker BEFORE promoting the new code. Read-only (`wrangler secret list`);
+      # never prints values. Add a name here whenever a new fail-closed secret
+      # gate lands.
+      - name: Preflight — required prod secrets are set
+        run: |
+          set -euo pipefail
+          required="OSN_PAIRWISE_SALT"
+          set_names="$(bunx wrangler secret list --env production | grep -oE '"name" *: *"[^"]+"' | sed -E 's/.*"name" *: *"([^"]+)".*/\1/')"
+          missing=""
+          for name in $required; do
+            if ! printf '%s\n' "$set_names" | grep -qx "$name"; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::osn-api is missing required prod secret(s):$missing — set them with 'wrangler secret put <NAME> --env production' before deploying. osn-api fails closed on these, so deploying now would 503 every route."
+            exit 1
+          fi
+          echo "All required osn-api prod secrets are set."
+        working-directory: osn/api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Deploy osn/api Worker
         run: bunx wrangler deploy --env production
         working-directory: osn/api

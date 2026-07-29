@@ -33,13 +33,24 @@ export interface StepUpDialogProps {
   runPasskeyCeremony?: (options: unknown) => Promise<unknown>;
   /**
    * Passkey-only mode: suppress the OTP ("email me a code") factor entirely
-   * and drive the passkey ceremony directly. Used where transactional email
-   * is degraded (the cire organiser portal runs with
-   * `OSN_EMAIL_OPTIONAL=true`), so offering OTP would send the user down a
-   * dead-end path that never receives a code. With this set the dialog
-   * auto-starts the passkey ceremony on mount and offers a retry on failure.
+   * and drive the passkey ceremony directly. Set this for accounts whose host
+   * has no deliverable transactional email, so offering OTP would send the
+   * user down a dead-end path that never receives a code. With this set the
+   * dialog auto-starts the passkey ceremony on mount and offers a retry on
+   * failure — and, with no factor picker, the "choose a method" helper line is
+   * suppressed too.
    */
   passkeyOnly?: boolean;
+  /**
+   * Optional heading override. Defaults to "Confirm it's you".
+   */
+  title?: string;
+  /**
+   * Optional one-liner explaining WHY re-authentication is needed (e.g.
+   * "to generate recovery codes"). Rendered under the heading so the user
+   * isn't asked to re-auth without context.
+   */
+  reason?: string;
   /**
    * Ceremony the minted token is for. Endpoints that name a purpose reject
    * tokens minted for a different one, so a token this dialog produces for
@@ -122,10 +133,17 @@ export function StepUpDialog(props: StepUpDialogProps) {
 
   return (
     <div class="flex flex-col gap-3 p-4">
-      <h2 class="text-lg font-semibold">Confirm it's you</h2>
-      <p class="text-muted-foreground text-sm">
-        This action needs a fresh authentication. Choose a method below.
-      </p>
+      <h2 class="text-lg font-semibold">{props.title ?? "Confirm it's you"}</h2>
+      <Show when={props.reason}>
+        {(reason) => <p class="text-muted-foreground text-sm">Re-authenticate {reason()}.</p>}
+      </Show>
+      {/* Passkey-only mode has no factor picker, so the "choose a method"
+          helper line would be misleading — the ceremony auto-starts. */}
+      <Show when={!props.passkeyOnly}>
+        <p class="text-muted-foreground text-sm">
+          This action needs a fresh authentication. Choose a method below.
+        </p>
+      </Show>
       <Show when={error()}>{(msg) => <p class="text-destructive text-sm">{msg()}</p>}</Show>
       <Show when={!props.passkeyOnly && mode() === "choose"}>
         <div class="flex flex-col gap-2">

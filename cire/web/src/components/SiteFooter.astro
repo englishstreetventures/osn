@@ -2,6 +2,15 @@
 // Site-wide footer. Links to the legal pages so the privacy notice + terms are
 // reachable from every page (compliance blocker C-H4: privacy notice must be
 // published and linked at point of collection).
+//
+// It also carries the standing "Privacy choices" control. Consent has to be as
+// easy to withdraw as it was to give, and the banner is by definition gone once
+// a guest has decided — so a permanent, findable entry point into the
+// preferences dialog is what makes the earlier "you can change this later"
+// promise true. The footer is the one component every document shell already
+// renders, which makes it the right home.
+import { ConsentPreferencesLink } from './consent/ConsentBanner'
+
 interface Props {
   /**
    * Closing line for the invite — the couple's title. Given, the footer signs
@@ -20,6 +29,8 @@ const { closing } = Astro.props
     <a href="/privacy">Privacy Notice</a>
     <span aria-hidden="true">&middot;</span>
     <a href="/terms">Terms</a>
+    <span aria-hidden="true">&middot;</span>
+    <ConsentPreferencesLink client:idle label="Privacy Choices" class="consent-link" />
   </nav>
 </footer>
 
@@ -60,5 +71,35 @@ const { closing } = Astro.props
   .site-footer a:focus-visible {
     color: var(--color-gold, oklch(74.99% 0.0854 82.08));
     border-bottom-color: currentColor;
+  }
+
+  /* The consent control is a <button> (it opens a dialog rather than navigating)
+     rendered by a Solid island, so it needs `:global` to be reached from this
+     scoped block — Astro's scope attribute is only stamped on markup in this
+     template, not on DOM the island creates at hydration. It is styled to sit
+     in the row as a peer of the two legal links: the guest should not have to
+     recognise a different affordance to find their privacy choices. */
+  .site-footer :global(.consent-link) {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid transparent;
+    padding: 0;
+    cursor: pointer;
+    transition:
+      color 0.2s ease,
+      border-color 0.2s ease;
+  }
+
+  .site-footer :global(.consent-link:hover),
+  .site-footer :global(.consent-link:focus-visible) {
+    color: var(--color-gold, oklch(74.99% 0.0854 82.08));
+    border-bottom-color: currentColor;
+  }
+
+  /* Keep the island from introducing a line box of its own inside the flex row. */
+  .site-footer nav :global(astro-island) {
+    display: contents;
   }
 </style>

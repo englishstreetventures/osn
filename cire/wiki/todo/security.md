@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-28
+last-reviewed: 2026-07-29
 ---
 
 # Security Backlog
@@ -95,3 +95,23 @@ Deferred / adjudicated (not blocking):
 - [x] **ENQ-C-M1** — FIXED on-branch: `weddings.display_name` is now disclosed to vendors as `weddingName` in `GET /api/vendor/enquiries`; added the recipient row to `wiki/compliance/data-map.md` (S4 section). Lawful (Art. 6(1)(b), pre-contractual) + tenancy-scoped to the vendor's own org's listings.
 - [ ] **ENQ-S-L1** — (pre-existing, PR B) `MessageDto.senderProfileId` (raw OSN `usr_*` id) is returned to the vendor for bubble alignment. Replace with a role label (`couple`/`vendor`) to remove the cross-tenant correlation handle.
 - [ ] **ENQ-S-L2** (EAA) — `EnquireDialog` (organiser compose modal) lacks an Escape handler + focus-trap. Prefer wrapping in Kobalte `Dialog.Root` (consistent with the component-library convention) — same gap exists in `ImageCropModal`, so fix both together.
+
+### Host-dashboard UI polish — profile menu review notes (`claude/cire-dashboard-ui-polish`)
+
+From the /prep-pr Step 6 security review (2026-07-28). One Low finding:
+
+- [x] **PM-S-L1** (fixed on branch) — the new `ProfileMenu.tsx` rendered `session.avatarUrl` straight into `<img src>`; the value originates from the OSN OIDC `picture` claim and crosses every hop (`oidc-login.ts` → `organiser_identities` → `/api/auth/session` → `@shared/rp-auth` `fetchSession`) with no scheme/origin validation, and the organiser CSP has no `img-src` directive. Low today (the value is effectively always null and only ever shown to the data subject), but a latent unvalidated-remote-fetch/attribute-injection sink the moment osn-api ships user-settable avatars. **Fixed at the sink:** `httpsAvatarUrl()` renders the `<img>` only for a parseable absolute `https:` URL, else the initial fallback (test covers `http:`, `javascript:`, and garbage). **Residuals, deliberately deferred:** normalise the URL once in `@shared/rp-auth`'s `fetchSession` so every relying party inherits the guard (touches a shared package — separate PR), and add `img-src` when the full organiser CSP lands (fold into **VP-S-L3** above — remember `blob:` for the crop editor previews).
+
+### Site-wide consent framework (`claude/site-wide-consent-framework-jys0q2`)
+
+From the /prep-pr Step 6 security review (2026-07-29). **No Critical, no High.** The
+gate was confirmed to prevent the third-party request rather than merely hide output
+(`<ConsentGate>` doesn't render children, so `PinterestEmbed`'s `onMount` injection never
+runs), nothing security-relevant is trusted from the consent cookie, and no CSP change
+was needed or made.
+
+- [x] **CON-S-L2** (fixed on branch) — `vendor.privacyUrl` rendered into `<a href>` by both the preferences dialog and `/privacy` with no scheme validation. Not exploitable today (values hardcoded) but the registry is the documented "add a vendor here" extension point, so a `javascript:`/`data:` URL added later became a same-origin script sink. `vendors.test.ts` now fails the run unless every `privacyUrl` is `https://`.
+- [x] **CON-S-L3** (fixed on branch) — the prototype-pollution regression test was a **false negative**: it passed `__proto__` in an object *literal*, where it is a prototype setter rather than an own property, so `Object.entries` never saw it and the test would have passed against unsafe code. Now driven through `JSON.parse` / `decodeConsentRecord`, which is the shape a tampered cookie actually delivers. (The code was, and is, genuinely safe.)
+- [x] **CON-S-L4** (fixed on branch) — `decidedAt` is documented as the Art. 7(1) audit trail but was accepted as any string. Now fails closed on an unparsable date, an empty string, a non-string, or anything over 40 chars — the same treatment the version fields already got.
+- [ ] **CON-S-M1** — **withdrawing consent does not tear down third-party code that already ran.** Flipping a category off unmounts the embed and removes the injected `<script>` (asserted by test), but `pinit_main.js`'s already-executed globals, listeners and any storage it set survive the rest of the visit. Under the new **opt-out** defaults this is the *common* path, not an edge case: the banner appears after the embeds have loaded, so "Reject all" is nearly always clicked with third-party contexts live. **Partially addressed on branch** — the preferences dialog now states the residual plainly ("to also clear content already loaded during this visit, reload the page"). The full fix is a `location.reload()` on a granted→revoked transition for any category with `enforcement: "gated"` vendors. Deliberately not done here: a reload is user-visible and can discard in-progress page state, and it must only fire when the cookie write actually succeeded (else the refusal is lost on reload). See `[[consent]]`.
+- [ ] **CON-S-L1** — `cire_consent` is not `__Host-`-prefixed, so a script on a sibling `*.cireweddings.com` origin can set a `Domain=.cireweddings.com` cookie of the same name; `readConsentCookieValue` returns the first match and browser ordering between domain and host-only cookies of equal path is unspecified. A guest's stored *refusal* could be silently overridden back to "allowed". Integrity attack on a privacy decision, not a credential. Fix: write `__Host-cire_consent` when `secure` (the attributes already satisfy the prefix), fall back to the bare name on http dev, read both preferring the prefixed one. See `[[consent]]`.

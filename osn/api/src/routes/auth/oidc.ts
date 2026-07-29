@@ -57,6 +57,68 @@ const clientKindOf = (client: { isFirstParty: boolean }) =>
   client.isFirstParty ? "first_party" : "third_party";
 
 /**
+ * The host a redirect URI delivers to, for the consent screen to display as a
+ * verifiable identity signal. The URI has already passed exact-match
+ * registration, so it always parses; the fallback only guards against a
+ * malformed hand-seeded row.
+ */
+const redirectHost = (redirectUri: string): string => {
+  try {
+    return new URL(redirectUri).host;
+  } catch {
+    return redirectUri;
+  }
+};
+
+/**
+ * A minimal, self-contained HTML error page for the top-level `/authorize`
+ * navigation. RFC 6749 forbids redirecting before the client + redirect URI
+ * are validated, so a misconfigured relying party lands here directly — the
+ * one place a real page matters, since the user is stranded with no way back
+ * to the app. Renders ONLY a fixed message keyed off the (enum) error code:
+ * never any relying-party-supplied value (client_id, redirect_uri, state),
+ * which would make this a reflected-content sink.
+ */
+const AUTHORIZE_ERROR_COPY: Record<string, string> = {
+  invalid_client:
+    "We don't recognise the app that sent you here, so we can't continue the sign-in.",
+  invalid_request:
+    "This sign-in link is malformed or has expired. Return to the app and try again.",
+  rate_limited: "Too many sign-in attempts. Please wait a moment and try again.",
+};
+
+const renderAuthorizeErrorPage = (code: string): string => {
+  const message = AUTHORIZE_ERROR_COPY[code] ?? AUTHORIZE_ERROR_COPY["invalid_request"]!;
+  // `code` is one of our own enum values; escape defensively anyway.
+  const safeCode = code.replace(/[^a-z_]/g, "");
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sign-in error</title>
+<style>
+:root{color-scheme:light dark}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;background:#fafafa;color:#1a1a1a}
+@media(prefers-color-scheme:dark){body{background:#0d0d0d;color:#ededed}}
+main{max-width:26rem;padding:2rem;text-align:center}
+h1{font-size:1.25rem;margin:0 0 .5rem}
+p{margin:0 0 .5rem;color:#666}
+@media(prefers-color-scheme:dark){p{color:#a0a0a0}}
+code{font-size:.8125rem;opacity:.6}
+</style>
+</head>
+<body><main>
+<h1>Can't complete sign-in</h1>
+<p>${message}</p>
+<p><code>${safeCode}</code></p>
+</main></body>
+</html>`;
+};
+
+/**
  * Pulls an `OidcError` out of an Effect failure. `Either` keeps the failure
  * typed, but the union also carries `DatabaseError`, and only the OIDC arm has
  * a wire code the relying party is allowed to see.
@@ -114,15 +176,16 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
 
   /**
    * S-M1: does this browser hold the binding cookie for the parked request?
-   * An undefined stored hash (request parked by a pre-upgrade instance)
-   * matches unconditionally so a mid-deploy flow still completes.
+   * Every parked request carries a binding hash (S-L4), so there is no
+   * "no hash → accept" path — a missing or wrong cookie always fails.
    */
   const bindingMatches = (
-    bindingHash: string | undefined,
+    bindingHash: string,
     cookieHeader: string | undefined,
     requestId: string,
   ): boolean => {
-    if (bindingHash === undefined) return true;
+    // S-L4: every parked request carries a binding hash now, so there is no
+    // "no hash → accept" path that a future writer could trip into.
     const secret = readBindingCookie(cookieHeader, requestId, cookieConfig);
     if (secret === null) return false;
     // Constant-time, matching the repo rule for hash comparisons — both sides
@@ -181,8 +244,12 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
           rl.oidcAuthorize,
         );
         if (rlErr) {
+          // Top-level navigation: a JSON blob would strand the user. Render the
+          // branded error page instead (the XHR context/decision routes below
+          // keep returning JSON).
           set.status = 429;
-          return rlErr;
+          set.headers["content-type"] = "text/html; charset=utf-8";
+          return renderAuthorizeErrorPage("rate_limited");
         }
 
         const q = query as Record<string, string | undefined>;
@@ -209,11 +276,15 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             set.status = status;
             return body;
           }
-          // No trusted redirect URI exists yet, so this is rendered. The client
-          // kind is unknowable for the same reason — the client is unknown.
+          // No trusted redirect URI exists yet, so this is rendered — never
+          // redirected (open-redirect guard). The client kind is unknowable for
+          // the same reason. This is a top-level browser navigation, so render
+          // a branded HTML page (keyed only off our own error code, never any
+          // RP-supplied value) rather than stranding the user on raw JSON.
           metricOidcAuthorize({ result: authorizeResultOf(oidc.code), clientKind: "third_party" });
           set.status = oidc.code === "invalid_client" ? 401 : 400;
-          return { error: oidc.code, error_description: oidc.description };
+          set.headers["content-type"] = "text/html; charset=utf-8";
+          return renderAuthorizeErrorPage(oidc.code);
         }
 
         const outcome = validated.right;
@@ -336,6 +407,11 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
                 name: client.name,
                 logoUrl: client.logoUrl,
                 firstParty: client.isFirstParty,
+                // The host the code will actually be delivered to for THIS
+                // request. A verifiable signal the consent screen shows next to
+                // the (self-asserted, spoofable) name so a user can tell a
+                // genuine first-party app from a look-alike third party.
+                redirectDomain: redirectHost(parked.redirectUri),
               },
               scopes: parked.scope.split(" ").filter((s) => s.length > 0),
               signedIn: accountId !== null,

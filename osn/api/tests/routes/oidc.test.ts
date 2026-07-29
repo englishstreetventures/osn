@@ -135,7 +135,11 @@ async function signIn(h: Harness, email: string, handle: string): Promise<string
  * ago" device can be simulated without waiting.
  */
 function ageSessions(h: Harness, seconds: number): void {
-  h.sqlite.run(`UPDATE sessions SET created_at = created_at - ${seconds}`);
+  // `authenticated_at` is the real auth_time (survives rotation); `created_at`
+  // is kept in lockstep so the aged session is internally consistent.
+  h.sqlite.run(
+    `UPDATE sessions SET created_at = created_at - ${seconds}, authenticated_at = COALESCE(authenticated_at, created_at) - ${seconds}`,
+  );
 }
 
 function authorizeUrl(params: Record<string, string>): string {
@@ -164,8 +168,11 @@ describe("GET /authorize", () => {
 
     expect(res.status).toBe(401);
     expect(res.headers.get("location")).toBeNull();
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("invalid_client");
+    // A top-level navigation renders a branded HTML page, not raw JSON.
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const body = await res.text();
+    expect(body).toContain("invalid_client");
+    expect(body).toContain("<!doctype html>");
   });
 
   it("renders (never redirects) an unregistered redirect_uri", async () => {
@@ -178,8 +185,11 @@ describe("GET /authorize", () => {
     expect(res.status).toBe(400);
     // The open-redirect guard: nothing may point a browser at an unvalidated URI.
     expect(res.headers.get("location")).toBeNull();
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("invalid_request");
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const body = await res.text();
+    expect(body).toContain("invalid_request");
+    // Never reflect the attacker-supplied redirect URI into the page.
+    expect(body).not.toContain("attacker.example");
   });
 
   it("sets cache-control: no-store", async () => {
@@ -201,6 +211,8 @@ describe("GET /authorize", () => {
     expect(loc.origin + loc.pathname).toBe(REDIRECT_URI);
     expect(loc.searchParams.get("error")).toBe("unsupported_response_type");
     expect(loc.searchParams.get("state")).toBe("st_123");
+    // RFC 9207: the issuer identifier rides along on the error redirect too.
+    expect(loc.searchParams.get("iss")).toBeTruthy();
   });
 
   it("rejects a plain code_challenge_method", async () => {
@@ -348,7 +360,7 @@ describe("GET /authorize/context", () => {
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      client: { clientId: string; name: string; firstParty: boolean };
+      client: { clientId: string; name: string; firstParty: boolean; redirectDomain: string };
       scopes: string[];
       signedIn: boolean;
       profiles: { id: string }[];
@@ -356,6 +368,8 @@ describe("GET /authorize/context", () => {
     };
     expect(body.client.clientId).toBe("cid_rp");
     expect(body.client.firstParty).toBe(false);
+    // Verifiable identity signal: the host the code is delivered to.
+    expect(body.client.redirectDomain).toBe("rp.example.com");
     expect(body.scopes).toEqual(["openid", "profile"]);
     expect(body.signedIn).toBe(true);
     expect(body.profiles).toHaveLength(1);
@@ -944,7 +958,9 @@ describe("auth freshness (S-H1)", () => {
 
     // Simulate the fresh sign-in the screen would drive: the session row is
     // re-created (created_at moves past the park instant). Same request id.
-    h.sqlite.run(`UPDATE sessions SET created_at = created_at + 120`);
+    h.sqlite.run(
+      `UPDATE sessions SET created_at = created_at + 120, authenticated_at = COALESCE(authenticated_at, created_at) + 120`,
+    );
     const freshAttempt = await decide();
     expect(freshAttempt.status).toBe(200);
   });
@@ -982,7 +998,9 @@ describe("auth freshness (S-H1)", () => {
     expect(staleAttempt.status).toBe(400);
     expect(((await staleAttempt.json()) as { error: string }).error).toBe("login_required");
 
-    h.sqlite.run(`UPDATE sessions SET created_at = created_at + 120`);
+    h.sqlite.run(
+      `UPDATE sessions SET created_at = created_at + 120, authenticated_at = COALESCE(authenticated_at, created_at) + 120`,
+    );
     expect((await decide()).status).toBe(200);
   });
 
@@ -1056,7 +1074,8 @@ describe("token typing (S-M2)", () => {
 
     expect(res.status).toBe(401);
     expect(res.headers.get("location")).toBeNull();
-    expect(((await res.json()) as { error: string }).error).toBe("invalid_client");
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(await res.text()).toContain("invalid_client");
   });
 });
 
@@ -1377,7 +1396,9 @@ describe("security-review fixes (prep-pr round)", () => {
     expect(((await stale.json()) as { error: string }).error).toBe("login_required");
 
     // A session created after the park (a real re-login) is accepted.
-    h.sqlite.run(`UPDATE sessions SET created_at = created_at + 120`);
+    h.sqlite.run(
+      `UPDATE sessions SET created_at = created_at + 120, authenticated_at = COALESCE(authenticated_at, created_at) + 120`,
+    );
     expect((await decide()).status).toBe(200);
   });
 

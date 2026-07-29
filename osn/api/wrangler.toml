@@ -225,20 +225,21 @@ crons = ["0 */6 * * *"]
 # only bridge across the flip — codes were minted for both prod accounts before
 # it.
 #
-# Known breakage, accepted: the cire origins (host./vendor./invite.) run direct
-# `@osn/client` passkey ceremonies today. They are a different registrable domain
-# from `musubi.social`, so those ceremonies become illegal at this deploy and cire
-# sign-in stops until cire moves to the OIDC redirect flow (PR C — cutover step
-# 6, deliberately deferred behind this change). They stay in OSN_CORS_ORIGIN, not
-# OSN_ORIGIN: bearer-token calls to this Worker still need CORS, and will still
-# need it once the redirect flow lands.
+# The cire origins (host./vendor./invite.) no longer call this Worker from the
+# browser: since PR #322 the OIDC code exchange runs server-side (cire-api →
+# id.musubi.social) and account-linking goes through cire-api, so no cireweddings
+# surface makes a credentialed fetch here. OSN_CORS_ORIGIN is therefore trimmed to
+# the apex alone; the same list feeds the CSRF origin guard, so leaving the stale
+# cire entries in would have handed any XSS on a cireweddings surface credentialed
+# access it no longer needs. Re-add an origin only if it genuinely fetches this
+# Worker from a browser.
 [env.production.vars]
 OSN_ENV = "production"
 OSN_RP_ID = "musubi.social"
 OSN_RP_NAME = "OSN"
 OSN_ORIGIN = "https://musubi.social"
 OSN_ISSUER_URL = "https://id.musubi.social"
-OSN_CORS_ORIGIN = "https://musubi.social,https://host.cireweddings.com,https://vendor.cireweddings.com,https://invite.cireweddings.com"
+OSN_CORS_ORIGIN = "https://musubi.social"
 # Sender stays on cireweddings.com: Resend has no verified musubi.social domain, and
 # a sender it cannot authenticate fails closed — which would take OTP with it,
 # and OTP step-up is exactly the route back in after a recovery-code login. Move

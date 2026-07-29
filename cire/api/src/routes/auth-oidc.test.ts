@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
+import { createRateLimiter } from "@shared/rate-limit";
+
 import { createApp } from "../app";
 import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
@@ -33,6 +35,17 @@ const freshDb = (): Db => {
   return db;
 };
 
+// The default OIDC limiters are module-level singletons shared across every
+// createApp in this file, so the suite's many redirect-leg hits would exhaust
+// them and 429. Inject high-cap limiters (as the claim/rsvp tests do) so the
+// rate limit is only asserted where a test sets its own tight bucket.
+const permissiveLimiters = () => ({
+  oidcStartLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+  oidcSessionLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+});
+const mkApp = (db: Db, opts: Parameters<typeof createApp>[1] = {}) =>
+  createApp(db, { ...permissiveLimiters(), ...opts });
+
 /** Reads one named cookie out of a response's repeated `Set-Cookie` headers. */
 const setCookie = (res: Response, name: string): string | undefined =>
   res.headers.getSetCookie().find((c) => c.startsWith(`${name}=`));
@@ -59,7 +72,7 @@ async function signIn(
   const config = issuer.config();
   const { tx, state, nonce } = await startedTx(config);
   const idToken = await issuer.signIdToken({ nonce, ...overrides });
-  const app = createApp(db, {
+  const app = mkApp(db, {
     oidc: { ...config, _fetch: stubTokenEndpoint(() => tokenResponse(idToken)).fetch },
   });
   const res = await appRequest(app, `/api/auth/oidc/callback?code=c&state=${state}`, {
@@ -72,17 +85,20 @@ async function signIn(
 }
 
 describe("GET /api/auth/oidc/start", () => {
-  it("answers 503 when the tier has no OIDC credentials", async () => {
-    // `createApp`'s default — a tier that was never given a client secret must
-    // not half-work; it must say sign-in is unavailable.
-    const app = createApp(freshDb());
+  it("sends the browser to the login page when the tier has no OIDC credentials", async () => {
+    // A tier that was never given a client secret must not half-work. On a
+    // top-level "Sign in" navigation that means a redirect to the login page
+    // with a marker, not a raw 503 the browser would render in the address bar.
+    const app = mkApp(freshDb());
     const res = await appRequest(app, `/api/auth/oidc/start?return_to=${TEST_RETURN_TO}`);
-    expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({ error: "sign_in_unavailable" });
+    expect(res.status).toBe(302);
+    expect(new URL(res.headers.get("location")!).searchParams.get("auth_error")).toBe(
+      "sign_in_unavailable",
+    );
   });
 
   it("rejects a return_to outside the allowlist without redirecting", async () => {
-    const app = createApp(freshDb(), { oidc: issuer.config() });
+    const app = mkApp(freshDb(), { oidc: issuer.config() });
     const res = await appRequest(app, "/api/auth/oidc/start?return_to=https://evil.test/steal");
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: "invalid_return_to" });
@@ -90,13 +106,13 @@ describe("GET /api/auth/oidc/start", () => {
   });
 
   it("rejects a missing return_to", async () => {
-    const app = createApp(freshDb(), { oidc: issuer.config() });
+    const app = mkApp(freshDb(), { oidc: issuer.config() });
     const res = await appRequest(app, "/api/auth/oidc/start");
     expect(res.status).toBe(400);
   });
 
   it("redirects to the issuer and remembers the transaction", async () => {
-    const app = createApp(freshDb(), { oidc: issuer.config() });
+    const app = mkApp(freshDb(), { oidc: issuer.config() });
     const res = await appRequest(app, `/api/auth/oidc/start?return_to=${TEST_RETURN_TO}`);
     expect(res.status).toBe(302);
 
@@ -116,7 +132,7 @@ describe("GET /api/auth/oidc/start", () => {
   });
 
   it("carries prompt=create through to the issuer", async () => {
-    const app = createApp(freshDb(), { oidc: issuer.config() });
+    const app = mkApp(freshDb(), { oidc: issuer.config() });
     const res = await appRequest(
       app,
       `/api/auth/oidc/start?return_to=${TEST_RETURN_TO}&prompt=create`,
@@ -129,7 +145,7 @@ describe("GET /api/auth/oidc/start", () => {
   it("drops any other prompt rather than forwarding it", async () => {
     // `none` is the one that matters: forwarded, it would ask the issuer for a
     // silent grant with no screen at all, from a query string anyone can write.
-    const app = createApp(freshDb(), { oidc: issuer.config() });
+    const app = mkApp(freshDb(), { oidc: issuer.config() });
     for (const prompt of ["none", "login", "select_account", "consent"]) {
       const res = await appRequest(
         app,
@@ -140,8 +156,21 @@ describe("GET /api/auth/oidc/start", () => {
     }
   });
 
+  it("rate-limits the redirect leg (429 once the per-IP bucket is spent)", async () => {
+    // A tight bucket overrides the permissive default from mkApp.
+    const app = createApp(freshDb(), {
+      oidc: issuer.config(),
+      oidcStartLimiter: createRateLimiter({ maxRequests: 1, windowMs: 60_000 }),
+      oidcSessionLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+    });
+    const first = await appRequest(app, `/api/auth/oidc/start?return_to=${TEST_RETURN_TO}`);
+    expect(first.status).toBe(302);
+    const second = await appRequest(app, `/api/auth/oidc/start?return_to=${TEST_RETURN_TO}`);
+    expect(second.status).toBe(429);
+  });
+
   it("marks the cookie Secure on an https tier only", async () => {
-    const insecure = createApp(freshDb(), { oidc: issuer.config() });
+    const insecure = mkApp(freshDb(), { oidc: issuer.config() });
     const insecureRes = await appRequest(
       insecure,
       `/api/auth/oidc/start?return_to=${TEST_RETURN_TO}`,
@@ -149,7 +178,7 @@ describe("GET /api/auth/oidc/start", () => {
     expect(setCookie(insecureRes, OIDC_TX_COOKIE_NAME)).not.toContain("Secure");
 
     const webOrigin = "https://host.example.test";
-    const secure = createApp(freshDb(), {
+    const secure = mkApp(freshDb(), {
       webOrigin,
       oidc: issuer.config({ allowedReturnOrigins: [webOrigin] }),
     });
@@ -161,16 +190,19 @@ describe("GET /api/auth/oidc/start", () => {
 });
 
 describe("GET /api/auth/oidc/callback", () => {
-  it("answers 503 when the tier has no OIDC credentials", async () => {
-    const app = createApp(freshDb());
+  it("sends the browser to the login page when the tier has no OIDC credentials", async () => {
+    const app = mkApp(freshDb());
     const res = await appRequest(app, "/api/auth/oidc/callback?code=c&state=s");
-    expect(res.status).toBe(503);
+    expect(res.status).toBe(302);
+    expect(new URL(res.headers.get("location")!).searchParams.get("auth_error")).toBe(
+      "sign_in_unavailable",
+    );
   });
 
   it("sends the browser home with a marker when the issuer refused", async () => {
     const config = issuer.config();
     const { tx } = await startedTx(config);
-    const app = createApp(freshDb(), { oidc: config });
+    const app = mkApp(freshDb(), { oidc: config });
     const res = await appRequest(app, "/api/auth/oidc/callback?error=access_denied", {
       headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
     });
@@ -184,18 +216,22 @@ describe("GET /api/auth/oidc/callback", () => {
     expect(setCookie(res, OIDC_TX_COOKIE_NAME)).toContain("Max-Age=0");
   });
 
-  it("answers 400 when the issuer refused and there is no transaction to land", async () => {
-    const app = createApp(freshDb(), { oidc: issuer.config() });
+  it("sends the browser to the login page when the issuer refused with no transaction to land", async () => {
+    const app = mkApp(freshDb(), { oidc: issuer.config() });
     const res = await appRequest(app, "/api/auth/oidc/callback?error=access_denied");
-    expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "sign_in_declined" });
+    // No trusted return_to survives (no tx cookie), so it lands on the
+    // allowlisted login page rather than rendering JSON.
+    expect(res.status).toBe(302);
+    expect(new URL(res.headers.get("location")!).searchParams.get("auth_error")).toBe(
+      "sign_in_declined",
+    );
     expect(setCookie(res, OIDC_TX_COOKIE_NAME)).toContain("Max-Age=0");
   });
 
   it("refuses a mismatched state and sets no session", async () => {
     const config = issuer.config();
     const { tx } = await startedTx(config);
-    const app = createApp(freshDb(), { oidc: config });
+    const app = mkApp(freshDb(), { oidc: config });
     const res = await appRequest(app, "/api/auth/oidc/callback?code=c&state=forged", {
       headers: { cookie: `${OIDC_TX_COOKIE_NAME}=${tx}` },
     });
@@ -211,7 +247,7 @@ describe("GET /api/auth/oidc/callback", () => {
     const config = issuer.config();
     const { tx, state, nonce } = await startedTx(config);
     const idToken = await issuer.signIdToken({ nonce, osnProfileId: null });
-    const app = createApp(freshDb(), {
+    const app = mkApp(freshDb(), {
       oidc: { ...config, _fetch: stubTokenEndpoint(() => tokenResponse(idToken)).fetch },
     });
     const res = await appRequest(app, `/api/auth/oidc/callback?code=c&state=${state}`, {
@@ -229,7 +265,7 @@ describe("GET /api/auth/oidc/callback", () => {
     const config = issuer.config();
     const { tx, state, nonce } = await startedTx(config);
     const idToken = await issuer.signIdToken({ nonce });
-    const app = createApp(freshDb(), {
+    const app = mkApp(freshDb(), {
       oidc: { ...config, _fetch: stubTokenEndpoint(() => tokenResponse(idToken)).fetch },
     });
     const res = await appRequest(app, `/api/auth/oidc/callback?code=c&state=${state}`, {
@@ -253,14 +289,14 @@ describe("GET /api/auth/session", () => {
   it("reports signed out rather than 401 when there is no cookie", async () => {
     // The organiser shell probes this on every page load; a signed-out visitor
     // is the expected case, not an error.
-    const app = createApp(freshDb(), { oidc: issuer.config() });
+    const app = mkApp(freshDb(), { oidc: issuer.config() });
     const res = await appRequest(app, "/api/auth/session");
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ signedIn: false });
   });
 
   it("reports signed out for a token that was never issued", async () => {
-    const app = createApp(freshDb(), { oidc: issuer.config() });
+    const app = mkApp(freshDb(), { oidc: issuer.config() });
     const res = await appRequest(app, "/api/auth/session", {
       headers: { cookie: `${ORGANISER_COOKIE_NAME}=nosuchtoken` },
     });
@@ -271,7 +307,7 @@ describe("GET /api/auth/session", () => {
   it("returns the profile snapshot for a live session", async () => {
     const db = freshDb();
     const token = await signIn(db);
-    const app = createApp(db, { oidc: issuer.config() });
+    const app = mkApp(db, { oidc: issuer.config() });
     const res = await appRequest(app, "/api/auth/session", {
       headers: { cookie: `${ORGANISER_COOKIE_NAME}=${token}` },
     });
@@ -289,7 +325,7 @@ describe("GET /api/auth/session", () => {
   });
 
   it("ignores a guest cookie — the two session systems do not cross", async () => {
-    const app = createApp(freshDb(), { oidc: issuer.config() });
+    const app = mkApp(freshDb(), { oidc: issuer.config() });
     const res = await appRequest(app, "/api/auth/session", {
       headers: { cookie: `${GUEST_COOKIE_NAME}=somethingelse` },
     });
@@ -301,7 +337,7 @@ describe("POST /api/auth/signout", () => {
   it("kills the session and clears the cookie", async () => {
     const db = freshDb();
     const token = await signIn(db);
-    const app = createApp(db, { oidc: issuer.config() });
+    const app = mkApp(db, { oidc: issuer.config() });
 
     const out = await appRequest(app, "/api/auth/signout", {
       method: "POST",
@@ -318,7 +354,7 @@ describe("POST /api/auth/signout", () => {
   });
 
   it("answers 200 with no cookie — signing out is idempotent", async () => {
-    const app = createApp(freshDb(), { oidc: issuer.config() });
+    const app = mkApp(freshDb(), { oidc: issuer.config() });
     const res = await appRequest(app, "/api/auth/signout", { method: "POST" });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
@@ -329,7 +365,7 @@ describe("POST /api/auth/signout", () => {
     const db = freshDb();
     const browser = await signIn(db);
     const phone = await signIn(db);
-    const app = createApp(db, { oidc: issuer.config() });
+    const app = mkApp(db, { oidc: issuer.config() });
 
     await appRequest(app, "/api/auth/signout", {
       method: "POST",
@@ -346,7 +382,7 @@ describe("POST /api/auth/signout", () => {
     const db = freshDb();
     const browser = await signIn(db);
     const phone = await signIn(db);
-    const app = createApp(db, { oidc: issuer.config() });
+    const app = mkApp(db, { oidc: issuer.config() });
 
     const out = await appRequest(app, "/api/auth/signout?all=1", {
       method: "POST",
@@ -366,7 +402,7 @@ describe("POST /api/auth/signout", () => {
     const db = freshDb();
     const mine = await signIn(db);
     const theirs = await signIn(db, { osnProfileId: "usr_someone_else", sub: "pw_someone_else" });
-    const app = createApp(db, { oidc: issuer.config() });
+    const app = mkApp(db, { oidc: issuer.config() });
 
     await appRequest(app, "/api/auth/signout?all=1", {
       method: "POST",

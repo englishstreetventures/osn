@@ -1,6 +1,7 @@
 ---
 import '../styles/global.css'
 import SiteFooter from '../components/SiteFooter.astro'
+import { ConsentBanner } from '../components/consent/ConsentBanner'
 
 interface Props {
   title: string
@@ -33,6 +34,10 @@ const { title } = Astro.props
       <slot />
     </main>
     <SiteFooter />
+    {/* Site-wide consent surface. `client:idle` so it never competes with the
+        invite's first paint — nothing third-party can load before it hydrates
+        anyway, since every ConsentGate defaults to denied until then. */}
+    <ConsentBanner client:idle />
     <style is:global>
       .legal {
         max-width: 46rem;

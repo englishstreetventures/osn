@@ -32,6 +32,8 @@ export function createWellKnownRoutes(ctx: AuthRouteContext) {
         subject_types_supported: ["pairwise"],
         id_token_signing_alg_values_supported: ["ES256"],
         code_challenge_methods_supported: ["S256"],
+        // RFC 9207: authorization responses carry an `iss` parameter.
+        authorization_response_iss_parameter_supported: true,
         token_endpoint_auth_methods_supported: [
           "client_secret_basic",
           "client_secret_post",

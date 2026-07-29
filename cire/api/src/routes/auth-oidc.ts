@@ -1,3 +1,4 @@
+import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect } from "effect";
 import { Elysia } from "elysia";
 
@@ -12,6 +13,7 @@ import {
   parseOrganiserSessionToken,
 } from "../lib/cookie";
 import { metricOidcLogin } from "../metrics";
+import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { runCire } from "../observability";
 import { beginLogin, completeLogin, readReturnTo } from "../services/oidc-login";
 import type { OidcConfig } from "../services/oidc-login";
@@ -50,17 +52,23 @@ const redirect = (location: string, cookies: string[]): Response => {
   return new Response(null, { status: 302, headers });
 };
 
-const errorRedirect = (returnTo: string | null, reason: string, secure: boolean): Response => {
+/**
+ * Terminal sign-in failure on a top-level browser navigation. Rather than
+ * render raw JSON the user would see in the address bar, bounce to a page the
+ * SPA controls — the organiser's `return_to` when we still trust one, else the
+ * login page — with `?auth_error=<code>` for it to turn into a friendly
+ * message. `loginFallbackUrl` is a server-configured, allowlisted origin, so
+ * this is never an open redirect even when the transaction cookie (the usual
+ * source of `returnTo`) is missing, expired, or forged.
+ */
+const errorRedirect = (
+  returnTo: string | null,
+  loginFallbackUrl: string,
+  reason: string,
+  secure: boolean,
+): Response => {
   const clear = clearOidcTxCookie({ secure });
-  if (!returnTo) {
-    const headers = new Headers({
-      "content-type": "application/json",
-      "cache-control": "no-store",
-    });
-    headers.append("set-cookie", clear);
-    return new Response(JSON.stringify({ error: reason }), { status: 400, headers });
-  }
-  const url = new URL(returnTo);
+  const url = new URL(returnTo ?? loginFallbackUrl);
   url.searchParams.set("auth_error", reason);
   return redirect(url.toString(), [clear]);
 };
@@ -70,10 +78,37 @@ export interface AuthOidcRouteOptions {
   oidc: OidcConfig | null;
   /** Cookie `Secure` flag — set for every https tier. */
   secureCookies: boolean;
+  /**
+   * Absolute URL of the organiser login page (an allowlisted origin). Terminal
+   * callback/start failures with no trusted `return_to` land here with an
+   * `?auth_error` marker instead of rendering JSON to the browser.
+   */
+  loginFallbackUrl: string;
+  /**
+   * Tight per-IP limiter for the pre-auth redirect legs (`/oidc/start`,
+   * `/oidc/callback`). Fail-closed on an unresolved IP (429), like every other
+   * cire limited route.
+   */
+  startLimiter: RateLimiterBackend;
+  /**
+   * Looser per-IP limiter for the session probe + sign-out. `/session` is
+   * polled on every organiser page load, so it needs a far more generous bucket
+   * than the redirect legs.
+   */
+  sessionLimiter: RateLimiterBackend;
 }
 
-export const createAuthOidcRoutes = (db: Db, { oidc, secureCookies }: AuthOidcRouteOptions) =>
-  new Elysia({ prefix: PREFIX })
+export const createAuthOidcRoutes = (
+  db: Db,
+  { oidc, secureCookies, loginFallbackUrl, startLimiter, sessionLimiter }: AuthOidcRouteOptions,
+) => {
+  // Two sibling instances under the same prefix, each carrying its own scoped
+  // rate-limit middleware — the same isolation pattern the organiser read/write
+  // route factories use so one surface's limiter never gates the other. The
+  // redirect legs (pre-auth, issuer-facing) get the tight bucket; the
+  // high-frequency `/session` probe + sign-out get the loose one.
+  const redirectLegs = new Elysia({ prefix: PREFIX })
+    .use(rateLimitMiddleware(startLimiter))
     // ---------------------------------------------------------------------
     // GET /api/auth/oidc/start?return_to=…&prompt=create — leg 1.
     //
@@ -88,11 +123,11 @@ export const createAuthOidcRoutes = (db: Db, { oidc, secureCookies }: AuthOidcRo
     // ---------------------------------------------------------------------
     .get("/oidc/start", async ({ query }) => {
       if (!oidc) {
+        // A top-level navigation from the "Sign in" button — send the browser
+        // to the login page with a marker, not a raw 503 JSON body it would
+        // render in the address bar.
         metricOidcLogin("bad_request");
-        return new Response(JSON.stringify({ error: "sign_in_unavailable" }), {
-          status: 503,
-          headers: { "content-type": "application/json" },
-        });
+        return errorRedirect(null, loginFallbackUrl, "sign_in_unavailable", secureCookies);
       }
       const returnTo = typeof query["return_to"] === "string" ? query["return_to"] : "";
       const started = await beginLogin(
@@ -125,10 +160,7 @@ export const createAuthOidcRoutes = (db: Db, { oidc, secureCookies }: AuthOidcRo
     .get("/oidc/callback", async ({ query, request }) => {
       if (!oidc) {
         metricOidcLogin("bad_request");
-        return new Response(JSON.stringify({ error: "sign_in_unavailable" }), {
-          status: 503,
-          headers: { "content-type": "application/json" },
-        });
+        return errorRedirect(null, loginFallbackUrl, "sign_in_unavailable", secureCookies);
       }
       const tx = parseOidcTxCookie(request.headers.get("cookie"));
 
@@ -138,7 +170,12 @@ export const createAuthOidcRoutes = (db: Db, { oidc, secureCookies }: AuthOidcRo
       // happen.
       if (typeof query["error"] === "string") {
         metricOidcLogin("provider_error");
-        return errorRedirect(readReturnTo(oidc, tx), "sign_in_declined", secureCookies);
+        return errorRedirect(
+          await readReturnTo(oidc, tx),
+          loginFallbackUrl,
+          "sign_in_declined",
+          secureCookies,
+        );
       }
 
       const result = await completeLogin(oidc, {
@@ -149,7 +186,7 @@ export const createAuthOidcRoutes = (db: Db, { oidc, secureCookies }: AuthOidcRo
 
       if (!result.ok) {
         metricOidcLogin(result.reason);
-        return errorRedirect(result.returnTo, "sign_in_failed", secureCookies);
+        return errorRedirect(result.returnTo, loginFallbackUrl, "sign_in_failed", secureCookies);
       }
 
       const session = await runCire(
@@ -162,7 +199,7 @@ export const createAuthOidcRoutes = (db: Db, { oidc, secureCookies }: AuthOidcRo
         // D1 refused the insert. Nothing to sign the user in with, and a retry
         // is a single click, so send them back with the same generic marker.
         metricOidcLogin("exchange_failed");
-        return errorRedirect(result.returnTo, "sign_in_failed", secureCookies);
+        return errorRedirect(result.returnTo, loginFallbackUrl, "sign_in_failed", secureCookies);
       }
 
       metricOidcLogin("callback_ok");
@@ -173,7 +210,10 @@ export const createAuthOidcRoutes = (db: Db, { oidc, secureCookies }: AuthOidcRo
         }),
         clearOidcTxCookie({ secure: secureCookies }),
       ]);
-    })
+    });
+
+  const sessionRoutes = new Elysia({ prefix: PREFIX })
+    .use(rateLimitMiddleware(sessionLimiter))
     // ---------------------------------------------------------------------
     // GET /api/auth/session — who is signed in.
     //
@@ -233,3 +273,6 @@ export const createAuthOidcRoutes = (db: Db, { oidc, secureCookies }: AuthOidcRo
       set.headers["set-cookie"] = clearOrganiserSessionCookie({ secure: secureCookies });
       return { ok: true };
     });
+
+  return new Elysia().use(redirectLegs).use(sessionRoutes);
+};

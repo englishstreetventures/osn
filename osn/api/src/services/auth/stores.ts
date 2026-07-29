@@ -131,10 +131,12 @@ export interface PendingAuthorizeRequest {
    * SHA-256 hex of the browser-binding secret handed out as a short-TTL
    * HttpOnly cookie alongside the interaction redirect (S-M1 oidc). The
    * decision (and context read) must present the matching cookie, so a leaked
-   * or guessed request id is useless in any other browser. Optional so parked
-   * requests written by a pre-upgrade instance still resolve mid-deploy.
+   * or guessed request id is useless in any other browser. Required: every
+   * parked request carries one (S-L4 — the mid-deploy `undefined` tolerance
+   * was removed once #316 shipped, so a writer that omits it can no longer
+   * silently disable the binding check).
    */
-  bindingHash?: string;
+  bindingHash: string;
   /** Milliseconds. */
   expiresAt: number;
 }

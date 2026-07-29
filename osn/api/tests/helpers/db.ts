@@ -91,6 +91,7 @@ export function createTestLayerWithSqlite() {
       family_id TEXT NOT NULL,
       expires_at INTEGER NOT NULL,
       created_at INTEGER NOT NULL,
+      authenticated_at INTEGER,
       ua_label TEXT,
       ip_hash TEXT,
       last_used_at INTEGER

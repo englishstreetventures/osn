@@ -1,5 +1,6 @@
 export * from "./account";
 export * from "./authorize";
+export * from "./connections";
 export * from "./errors";
 export * from "./graph";
 export * from "./login";

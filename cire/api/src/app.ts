@@ -18,6 +18,7 @@ import { createAuthOidcRoutes } from "./routes/auth-oidc";
 import { createBudgetReadRoutes, createBudgetWriteRoutes } from "./routes/budget";
 import { createClaimRoutes } from "./routes/claim";
 import { createCspReportRoutes } from "./routes/csp-report";
+import { createInternalRevokeRoutes } from "./routes/internal-revoke";
 import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/invite";
 import { createOrganiserChangeRoutes } from "./routes/organiser-changes";
 import { createOrganiserEnquiriesRoutes } from "./routes/organiser-enquiries";
@@ -146,6 +147,27 @@ const defaultDirectoryLimiter = createRateLimiter({ maxRequests: 60, windowMs: 6
  * amplifier. Keys on `osnProfileId` so each organiser has an independent bucket.
  */
 const defaultEnquiryLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
+/**
+ * Default per-IP limiter for the pre-auth OIDC redirect legs (`/oidc/start`,
+ * `/oidc/callback`). Tighter than the session probe below — these are the
+ * issuer-facing, unauthenticated legs, and a single sign-in only spends two of
+ * them. 15/min leaves generous headroom for a human retrying while capping a
+ * script hammering the issuer through us.
+ */
+const defaultOidcStartLimiter = createRateLimiter({ maxRequests: 15, windowMs: 60_000 });
+/**
+ * Default per-IP limiter for the OIDC session probe + sign-out. `GET /session`
+ * runs on every organiser page load, so this bucket is deliberately loose
+ * (60/min) — its job is only to cap a scripted flood, not normal navigation.
+ */
+const defaultOidcSessionLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
+/**
+ * Default per-IP limiter for the internal back-channel revoke endpoint.
+ * Server-to-server (osn-api) + shared-secret gated, so this only caps abuse if
+ * the URL is probed; 30/min is far more than the infrequent revoke/delete
+ * events ever need.
+ */
+const defaultInternalRevokeLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 
 export interface AppOptions {
   /** Primary origin (used for the session cookie's `secure` flag). */
@@ -221,6 +243,20 @@ export interface AppOptions {
    * `CIRE_OIDC_CLIENT_SECRET`.
    */
   oidc?: OidcConfig | null;
+  /** Override the OIDC start/callback rate limiter (useful for testing). */
+  oidcStartLimiter?: RateLimiterBackend;
+  /** Override the OIDC session/signout rate limiter (useful for testing). */
+  oidcSessionLimiter?: RateLimiterBackend;
+  /**
+   * Shared secret for the internal back-channel organiser-session revoke
+   * endpoint (`POST /internal/revoke-organiser-sessions`). osn-api presents it
+   * as `Authorization: Bearer` on connection-revoke / account-delete. Absent ⇒
+   * the endpoint is DISABLED (503). Built from `CIRE_INTERNAL_REVOKE_SECRET` in
+   * `index.ts`; tests inject a literal.
+   */
+  internalRevokeSecret?: string | null;
+  /** Override the internal revoke rate limiter (useful for testing). */
+  internalRevokeLimiter?: RateLimiterBackend;
   /**
    * Resolves an OSN profile id to its account id (server-to-server, ARC) for
    * the optional guest account-linking POST. When omitted, the link endpoint
@@ -344,6 +380,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
     osnAudience = "osn-access",
     osnTestKey,
     oidc = null,
+    oidcStartLimiter = defaultOidcStartLimiter,
+    oidcSessionLimiter = defaultOidcSessionLimiter,
+    internalRevokeSecret = null,
+    internalRevokeLimiter = defaultInternalRevokeLimiter,
     resolveOsnAccountId,
     resolveOsnProfileByHandle,
     resolveOsnProfileDisplays,
@@ -479,6 +519,18 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // `onBeforeHandle({ as: "global" })` applies to routes mounted after it on
       // the chain, so ordering this `.use` first keeps the guard off this route.)
       .use(createCspReportRoutes({ limiter: cspReportLimiter }))
+      // Internal back-channel organiser-session revocation (osn-api → cire on
+      // connection-revoke / account-delete). Mounted BEFORE the origin guard for
+      // the same reason as the CSP collector: it is a server-to-server POST with
+      // no browser `Origin`, so the CSRF guard would 403 it. It is authenticated
+      // by a shared bearer secret (constant-time compared), not by Origin, and
+      // is disabled (503) when no secret is configured.
+      .use(
+        createInternalRevokeRoutes(db, {
+          revokeSecret: internalRevokeSecret,
+          limiter: internalRevokeLimiter,
+        }),
+      )
       // C5 / S-L3: CSRF origin guard on every state-changing method, using the
       // same allowlist CORS echoes. Mounted before the route factories so it
       // gates the whole app. Empty allowlist (dev) disables it.
@@ -491,6 +543,12 @@ export function createApp(db: Db, options: AppOptions = {}) {
         createAuthOidcRoutes(db, {
           oidc,
           secureCookies: webOrigin.startsWith("https://"),
+          // Where a terminal callback/start failure lands when there is no
+          // trusted `return_to` — the organiser login page (an allowlisted
+          // origin), so the SPA can render a friendly message from `?auth_error`.
+          loginFallbackUrl: `${organiserOrigin.replace(/\/+$/, "")}/login`,
+          startLimiter: oidcStartLimiter,
+          sessionLimiter: oidcSessionLimiter,
         }),
       )
       // Public bare-domain resolver for the guest site (`/` → /<slug>). No auth

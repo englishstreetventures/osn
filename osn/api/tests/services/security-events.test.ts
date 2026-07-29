@@ -1,5 +1,6 @@
 import { it, expect, describe } from "@effect/vitest";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
+import type { StepUpPurpose } from "@shared/observability/metrics";
 import { Effect, Layer } from "effect";
 import { beforeAll } from "vitest";
 
@@ -71,11 +72,13 @@ const mintStepUp = (
   auth: ReturnType<typeof createAuthService>,
   accountId: string,
   capture: ReturnType<typeof makeEmailCapture>,
+  // The ack gates are purpose-bound; default to the ceremony these tests drive.
+  purpose: StepUpPurpose = "security_event_ack",
 ) =>
   Effect.gen(function* () {
     yield* auth.beginStepUpOtp(accountId);
     const code = capture.latest()!;
-    const { stepUpToken } = yield* auth.completeStepUpOtp(accountId, code);
+    const { stepUpToken } = yield* auth.completeStepUpOtp(accountId, code, purpose);
     return stepUpToken;
   });
 

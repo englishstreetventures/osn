@@ -8,6 +8,7 @@ packages:
 related:
   - "[[osn-core]]"
   - "[[authorize-ui]]"
+  - "[[social-mobile-ux]]"
   - "[[oidc-provider]]"
   - "[[production-deploy]]"
   - "[[musubi-identity-migration]]"
@@ -15,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-07-27
+last-reviewed: 2026-07-28
 ---
 
 # Social
@@ -46,6 +47,13 @@ No Tauri wrapper yet — the app ships as a web build only. Tauri wrapping is tr
 
 `BARE_ROUTES` in `src/App.tsx` is the allow-list that strips the sidebar. Add
 a route there only when leaving the flow would be a security problem.
+
+The app has two shells split at the `md` (768 px) breakpoint: the 240 px
+left rail on desktop, and a bottom-tab-bar + top-bar shell on mobile
+(`MobileNav` / `MobileTopBar`, nav items shared via `nav.tsx`; dialogs render
+as bottom sheets through `ResponsiveDialogContent`). The mobile UX audit and
+the design rules the responsive work follows live in [[social-mobile-ux]] and
+`DESIGN.md` §Responsive layout.
 
 ## Client surface
 

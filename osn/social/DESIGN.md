@@ -12,7 +12,8 @@ for attention. It is scoped to `@osn/social` only — it lives in
 
 ## Genre
 
-modern-minimal (utility app · left-rail workbench)
+modern-minimal (utility app · left-rail workbench on desktop · bottom-tab
+shell on mobile)
 
 ## Typography
 
@@ -32,6 +33,12 @@ modern-minimal (utility app · left-rail workbench)
   | `text-body`    | 13 / 18 | nav, tabs, buttons, body copy, inputs, subtitles |
   | `text-meta`    | 12 / 16 | handles, timestamps, captions, badges, helper text |
 
+- **Mobile input exception** — form controls (`input`, `select`, `textarea`)
+  render at **16px** below 768px (app-scoped rule in `App.css`). Mobile Safari
+  zooms the page when a focused control is under 16px; this is the one
+  sanctioned deviation from the four-size scale. Never fix the zoom with
+  `maximum-scale` — that breaks accessibility zoom.
+
 ## Ink hierarchy (near-monochrome)
 
 Three greys carry all hierarchy. The only chromatic colour is the destructive red.
@@ -50,11 +57,14 @@ Three greys carry all hierarchy. The only chromatic colour is the destructive re
 - **16px** (`rounded-card`) — card surfaces, bordered rows, dialogs, empty states
 - **pill** (`rounded-pill`) — CTA buttons (filled `default`/`secondary`/
   `destructive`) and badges. Ghost/link text buttons stay flat.
+- **Sheets** — below `md`, dialogs render as bottom sheets: `rounded-t-card`
+  with square bottom corners, pinned to the bottom edge (see Responsive layout).
 
 ## Icons
 
 - **14px** (`h-3.5 w-3.5`) — sidebar navigation icons
-- **20px** (`h-5 w-5`) — card / content icons (row chevrons, etc.)
+- **20px** (`h-5 w-5`) — card / content icons (row chevrons, etc.) and the
+  mobile bottom-tab-bar icons
 - Inline SVG, `stroke="currentColor"`; resting icons inherit `text-subtle`.
 
 ## Theme (light / dark)
@@ -73,9 +83,37 @@ only when the OS explicitly asks for light, or the user opts into light.
 
 ## Layout
 
-- App shell = fixed **240px left rail** (`Sidebar.tsx`) + scrollable content.
-- Content column centered at `max-w-2xl`, `px-8 py-8`.
+- Desktop shell (`md+`) = fixed **240px left rail** (`Sidebar.tsx`) +
+  scrollable content.
+- Content column centered at `max-w-2xl`, `px-4 py-6 md:px-8 md:py-8`.
 - Page head = `text-display` title + optional `text-body` muted subtitle.
+
+## Responsive layout
+
+One breakpoint: **`md` (768px)**. Below it the app is a mobile shell; at and
+above it, the desktop rail. Never introduce additional breakpoints without
+amending this file.
+
+- **Mobile shell** = `MobileTopBar` (wordmark · theme toggle · account
+  control) above the scroll column + `MobileNav` (fixed bottom tab bar, the
+  four primary destinations, 20px icons + `text-meta` labels). Nav items are
+  defined once in `nav.tsx` and shared by both shells.
+- **Viewport** = `h-dvh` (never `h-screen`/`100vh` — iOS toolbars),
+  `viewport-fit=cover` with `pt-safe`/`pb-safe`/`px-safe` utilities padding
+  the fixed chrome out of the notch and home-indicator regions. The scroll
+  column pads with `pb-nav` so content clears the tab bar.
+- **Dialogs** = `ResponsiveDialogContent`: bottom sheet below `md`
+  (full-width, `rounded-t-card`, `max-h-[85dvh] overflow-y-auto`,
+  `pb-safe`), the shared centered card at `md+`. All app dialogs go through
+  it; never mount a raw `DialogContent` in a screen.
+- **Touch targets** = ≥40px visual / 44px effective on mobile. The mechanism
+  is `max-md:` call-site utilities (e.g. `h-7 max-md:h-10` on row actions,
+  `max-md:min-h-11` on tabs); rows keep `hover:` classes and add matching
+  `active:` classes for touch feedback. Tab rows scroll (`overflow-x-auto`)
+  rather than wrap or shrink.
+- **Toasts** = top-center below `md` (clear of keyboard + tab bar),
+  bottom-right at `md+`.
+- The bare `/authorize` route renders with **no shell at any width**.
 
 ## Motion
 

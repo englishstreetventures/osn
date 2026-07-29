@@ -1,6 +1,7 @@
 ---
 import '../styles/global.css'
 import SiteFooter from './SiteFooter.astro'
+import { ConsentBanner } from './consent/ConsentBanner'
 
 interface Props {
   /** Heading line — defaults to the unknown-invite message. */
@@ -46,5 +47,9 @@ const {
       </p>
     </main>
     <SiteFooter />
+    {/* Site-wide consent surface. `client:idle` so it never competes with the
+        invite's first paint — nothing third-party can load before it hydrates
+        anyway, since every ConsentGate defaults to denied until then. */}
+    <ConsentBanner client:idle />
   </body>
 </html>

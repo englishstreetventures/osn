@@ -5,7 +5,6 @@ import { Avatar, AvatarFallback } from "@osn/ui/ui/avatar";
 import { Button } from "@osn/ui/ui/button";
 import {
   Dialog,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
@@ -14,6 +13,7 @@ import {
 import { createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
+import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { graphClient } from "../lib/api";
 
 type Tab = "all" | "pending" | "blocked";
@@ -125,7 +125,7 @@ export function ConnectionsPage() {
   }
 
   return (
-    <main class="mx-auto w-full max-w-2xl px-8 py-8">
+    <main class="mx-auto w-full max-w-2xl px-4 py-6 md:px-8 md:py-8">
       <div class="mb-6">
         <h1 class="text-foreground text-display font-medium">Connections</h1>
         <p class="text-muted-foreground text-body mt-1">People in your social network on OSN.</p>
@@ -140,13 +140,13 @@ export function ConnectionsPage() {
         }
       >
         {/* Tab bar */}
-        <div class="border-border mb-6 flex gap-1 border-b">
+        <div class="border-border mb-6 flex gap-1 overflow-x-auto border-b whitespace-nowrap">
           <For each={TABS}>
             {(t) => (
               <button
                 type="button"
                 class={clsx(
-                  "border-b-2 px-3 pb-2.5 text-body font-medium transition-colors",
+                  "border-b-2 px-3 pb-2.5 text-body font-medium transition-colors max-md:min-h-11",
                   tab() === t.value
                     ? "border-foreground text-foreground"
                     : "text-muted-foreground hover:text-foreground border-transparent",
@@ -171,7 +171,7 @@ export function ConnectionsPage() {
               <div class="flex flex-col gap-1">
                 <For each={connections()?.connections}>
                   {(conn: ConnectionEntry) => (
-                    <div class="hover:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
+                    <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
                       <Avatar class="h-9 w-9">
                         <AvatarFallback class="text-meta">
                           {conn.handle.slice(0, 2).toUpperCase()}
@@ -189,7 +189,7 @@ export function ConnectionsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          class="text-destructive text-body h-7"
+                          class="text-destructive text-body h-7 max-md:h-10"
                           onClick={() => requestRemove(conn)}
                         >
                           Remove
@@ -213,7 +213,7 @@ export function ConnectionsPage() {
               <div class="flex flex-col gap-1">
                 <For each={pending()?.pending}>
                   {(req: PendingRequestEntry) => (
-                    <div class="hover:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
+                    <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
                       <Avatar class="h-9 w-9">
                         <AvatarFallback class="text-meta">
                           {req.handle.slice(0, 2).toUpperCase()}
@@ -230,7 +230,7 @@ export function ConnectionsPage() {
                       <div class="flex items-center gap-1.5">
                         <Button
                           size="sm"
-                          class="text-body rounded-pill h-7"
+                          class="text-body rounded-pill h-7 max-md:h-10"
                           onClick={() => acceptRequest(req.handle)}
                         >
                           Accept
@@ -238,7 +238,7 @@ export function ConnectionsPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          class="text-muted-foreground text-body h-7"
+                          class="text-muted-foreground text-body h-7 max-md:h-10"
                           onClick={() => rejectRequest(req.handle)}
                         >
                           Decline
@@ -261,7 +261,7 @@ export function ConnectionsPage() {
             if (!open) setRemoveTarget(null);
           }}
         >
-          <DialogContent class="rounded-card max-w-sm">
+          <ResponsiveDialogContent class="max-w-sm">
             <DialogHeader>
               <DialogTitle>
                 Remove {removeTarget()?.displayName || `@${removeTarget()?.handle}`} as a friend?
@@ -274,7 +274,7 @@ export function ConnectionsPage() {
                   type="button"
                   variant="secondary"
                   size="sm"
-                  class="text-body rounded-pill"
+                  class="text-body rounded-pill max-md:h-10"
                   onClick={() => setRemoveTarget(null)}
                 >
                   Cancel
@@ -283,7 +283,7 @@ export function ConnectionsPage() {
                   type="button"
                   variant="destructive"
                   size="sm"
-                  class="text-body rounded-pill"
+                  class="text-body rounded-pill max-md:h-10"
                   onClick={() => {
                     void confirmRemove();
                   }}
@@ -292,7 +292,7 @@ export function ConnectionsPage() {
                 </Button>
               </DialogFooter>
             </div>
-          </DialogContent>
+          </ResponsiveDialogContent>
         </Dialog>
 
         {/* Blocked */}
@@ -305,7 +305,7 @@ export function ConnectionsPage() {
               <div class="flex flex-col gap-1">
                 <For each={blocked()?.blocks}>
                   {(profile: ProfileEntry) => (
-                    <div class="hover:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
+                    <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
                       <Avatar class="h-9 w-9">
                         <AvatarFallback class="text-meta">
                           {profile.handle.slice(0, 2).toUpperCase()}
@@ -317,7 +317,7 @@ export function ConnectionsPage() {
                       <Button
                         variant="secondary"
                         size="sm"
-                        class="text-body rounded-pill h-7"
+                        class="text-body rounded-pill h-7 max-md:h-10"
                         onClick={() => unblock(profile.handle)}
                       >
                         Unblock
