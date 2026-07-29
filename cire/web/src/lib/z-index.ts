@@ -16,8 +16,10 @@
  * | `EVENT_CARD`    | 10  | An event card's own local stacking context.             |
  * | `MODAL`         | 100 | `AnimatedModal` backdrop + panel (details / RSVP).      |
  * | `MODAL_POPOVER` | 110 | Popover launched *from inside* a modal (AddToCalendar). |
+ * | `CONSENT`       | 200 | Site-wide consent banner (`ConsentBanner`).             |
+ * | `CONSENT_DIALOG`| 210 | Consent preferences dialog, opened from the banner.     |
  *
- * ## The invariant
+ * ## The invariants
  *
  * A popover launched from inside a modal MUST sit ABOVE that modal, i.e.
  * `MODAL_POPOVER > MODAL`. The Add-to-Calendar menu is triggered from within
@@ -26,6 +28,15 @@
  * modal's. If this ordering inverts, the popover disappears behind the modal.
  * `z-index.test.ts` asserts the inequality so the regression can't recur
  * unnoticed.
+ *
+ * The consent layers sit above EVERYTHING, deliberately and with a wide gap.
+ * The banner is the guest's only route to granting — or later withdrawing —
+ * permission for third-party content, and the gated embeds themselves live
+ * inside the details modal. So "manage privacy choices", clicked from a blocked
+ * embed inside that modal, must open a dialog that is not buried behind it. A
+ * consent control the guest cannot reach is worse than no control at all,
+ * because the stored record would then assert a freely-given choice they had no
+ * practical way to change.
  *
  * ## Tailwind v4 note
  *
@@ -48,6 +59,10 @@ export const Z_LAYER = {
   MODAL: 100,
   /** Popover launched from inside a modal (e.g. Add-to-Calendar). Must be > MODAL. */
   MODAL_POPOVER: 110,
+  /** Site-wide consent banner. Above every page overlay, including modals. */
+  CONSENT: 200,
+  /** Consent preferences dialog. Must be > CONSENT (it is opened from it). */
+  CONSENT_DIALOG: 210,
 } as const;
 
 export type ZLayer = keyof typeof Z_LAYER;
@@ -61,4 +76,6 @@ export const Z_CLASS = {
   EVENT_CARD: "z-10",
   MODAL: "z-100",
   MODAL_POPOVER: "z-110",
+  CONSENT: "z-200",
+  CONSENT_DIALOG: "z-210",
 } as const satisfies Record<ZLayer, string>;

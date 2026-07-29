@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 
+import { ConsentGate } from "./consent/ConsentGate";
 import { resolveMapsEmbedUrl, resolveMapsUrl, venueLine } from "./event-details";
 import type { EventSummary } from "./types";
 
@@ -13,18 +14,37 @@ interface MapPreviewProps {
  * Two render paths share one footer (venue line + "Open in Maps" action):
  *
  *  - **Real map** — when `PUBLIC_GOOGLE_MAPS_EMBED_KEY` is configured at build
- *    time AND the event has a venue address, the top of the card is a Google
- *    Maps Embed API `place` iframe keyed on the free-text address (no lat/lng,
- *    no geocoding, no schema change). The key is referrer-restricted at the
- *    Maps Platform console, which is what makes baking it into static HTML safe.
- *    The iframe is sandboxed and uses a strict referrer policy so the
- *    slug-bearing invite path is never leaked to Google (see S-L1 / S-L2).
+ *    time AND the event has a venue address AND the guest has allowed
+ *    third-party content, the top of the card is a Google Maps Embed API
+ *    `place` iframe keyed on the free-text address (no lat/lng, no geocoding,
+ *    no schema change). The key is referrer-restricted at the Maps Platform
+ *    console, which is what makes baking it into static HTML safe. The iframe
+ *    is sandboxed and uses a strict referrer policy so the slug-bearing invite
+ *    path is never leaked to Google (see S-L1 / S-L2).
  *
- *  - **CSS card (fallback)** — when no key is configured, or there is no address
- *    to query, the top is a self-contained CSS-drawn "cartographic" card (gold
- *    contour rings + street grid + marker pin) that ships no image, needs no
- *    secret, and makes no network request. This keeps the page working before
- *    any key exists, so shipping the key is a pure enhancement.
+ *  - **CSS card (fallback)** — when no key is configured, when there is no
+ *    address to query, OR when the guest has not allowed third-party content,
+ *    the top is a self-contained CSS-drawn "cartographic" card (gold contour
+ *    rings + street grid + marker pin) that ships no image, needs no secret,
+ *    and makes no network request. This keeps the page working before any key
+ *    exists, so shipping the key is a pure enhancement.
+ *
+ * CONSENT (added 2026-07-29): the iframe loads `www.google.com/maps/embed`,
+ * which hands Google the guest's IP and user-agent — the same class of transfer
+ * to the same class of US recipient that the Pinterest moodboard was already
+ * gated for, but which shipped ungated here simply because this component was
+ * written without one. It now sits behind the site-wide `embeds` category (see
+ * `lib/consent/`).
+ *
+ * The un-consented fallback is the CSS card rather than the generic "content
+ * blocked" placeholder, deliberately: the card is a genuinely useful thing to
+ * put where a map goes — it names the venue and still opens the guest's own maps
+ * app via the footer link, which is a plain outbound navigation the guest
+ * initiates and so needs no consent. A guest who refuses loses the interactive
+ * tiles and nothing else. The cost is that the card gives no hint that a richer
+ * map is available; the standing "Privacy choices" control in the site footer
+ * is the route back, rather than a permission prompt sitting in the layout of
+ * every venue on the invite.
  *
  * The whole component renders nothing when there is no usable maps target at all
  * (no `mapsUrl` and no address) — no dead button, no broken tile.
@@ -45,7 +65,15 @@ export function MapPreview(props: MapPreviewProps) {
     <Show when={mapsHref()}>
       {(href) => (
         <Show when={embedSrc()} fallback={<MapCard href={href()} venue={venue()} />}>
-          {(src) => <MapEmbed href={href()} venue={venue()} src={src()} />}
+          {(src) => (
+            <ConsentGate
+              category="embeds"
+              vendor="google-maps"
+              fallback={<MapCard href={href()} venue={venue()} />}
+            >
+              <MapEmbed href={href()} venue={venue()} src={src()} />
+            </ConsentGate>
+          )}
         </Show>
       )}
     </Show>

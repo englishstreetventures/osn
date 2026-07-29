@@ -5,6 +5,7 @@ import InviteHeader from './InviteHeader'
 import InvitePage from './InvitePage'
 import { paletteRootVars, styleAttr } from '../../components/invite-theme'
 import SiteFooter from '../../components/SiteFooter.astro'
+import { ConsentBanner } from '../../components/consent/ConsentBanner'
 import type { InviteDesignProps } from '../types'
 
 type Props = InviteDesignProps
@@ -68,5 +69,9 @@ const preloadHeroHref = heroBase ? `${heroBase}${heroSep}variant=hero-bg` : null
     {/* Sign the invite off in the couple's name, so the last thing a guest
         reads is who invited them and not the legal links. */}
     <SiteFooter closing={initialInvite?.hero.title ?? null} />
+    {/* Site-wide consent surface. `client:idle` so it never competes with the
+        invite's first paint — nothing third-party can load before it hydrates
+        anyway, since every ConsentGate defaults to denied until then. */}
+    <ConsentBanner client:idle />
   </body>
 </html>

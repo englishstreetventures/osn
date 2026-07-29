@@ -3,6 +3,18 @@
 // "server"`. Only the invite + bare-domain routes need per-request SSR.
 export const prerender = true
 import LegalLayout from '../layouts/LegalLayout.astro'
+import { ConsentPreferencesLink } from '../components/consent/ConsentBanner'
+import { CATEGORY_META } from '../lib/consent/categories'
+import { thirdPartyVendors } from '../lib/consent/vendors'
+
+// The third-party list below is GENERATED from the consent vendor registry
+// rather than written out by hand. Prose drifts: the previous version of this
+// page described the Pinterest embed and said nothing at all about the Google
+// Maps embed or Google Fonts, because those were added to the site without
+// anyone remembering this file existed. Deriving it means the notice cannot
+// disagree with the code — a vendor added to the registry appears here on the
+// next build, and one that is removed disappears.
+const vendors = thirdPartyVendors()
 ---
 <LegalLayout title="Privacy Notice">
   <div class="draft-banner">
@@ -94,6 +106,81 @@ import LegalLayout from '../layouts/LegalLayout.astro'
     provides our website hosting, database, and security on our behalf. Cloudflare
     may process and store data in the course of providing that service. We don’t
     transfer your information to anyone else except where we’re required to by law.
+  </p>
+
+  <h2>Cookies and content from other companies</h2>
+  <p>
+    We don’t use advertising or tracking cookies, and we don’t use analytics. The
+    storage we do use falls into a few groups, and you control all but the first.
+    <strong>Third-party content and preferences are on by default</strong> — you
+    can switch them off at any time, and analytics stays off unless you turn it on.
+  </p>
+  <ul>
+    {Object.values(CATEGORY_META).map((category) => (
+      <li>
+        <strong>{category.title}</strong>
+        {category.required ? ' (always on)' : ''} — {category.summary}
+      </li>
+    ))}
+  </ul>
+
+  <h3>The other companies involved</h3>
+  <p>
+    Some parts of the invite are served by other companies. When one of them
+    loads, that company receives your IP address and browser details, because
+    that is inherent in your browser fetching something from their servers.
+  </p>
+  <ul>
+    {vendors.map((vendor) => (
+      <li>
+        <strong>{vendor.name}</strong> — {vendor.purpose}
+        {vendor.transfer ? <> Data goes to {vendor.transfer}.</> : null}
+        {vendor.enforcement === 'gated' ? (
+          <> <em>On by default; stops loading if you switch off third-party content.</em></>
+        ) : (
+          <> <em>Loads on every visit — see the note below.</em></>
+        )}
+        {vendor.privacyUrl ? (
+          <> <a href={vendor.privacyUrl} rel="noreferrer">Their privacy policy</a>.</>
+        ) : null}
+      </li>
+    ))}
+  </ul>
+  <p class="owner-note">
+    <strong>Note for the site owner:</strong> the entries marked “loads on every
+    visit” are not covered by the consent choice. Today that is Google Fonts,
+    which is requested from the page <code>&lt;head&gt;</code> before any choice
+    can be applied. The fix is to self-host the two font files so Google drops
+    out of this list entirely, rather than to put the site’s typography behind a
+    switch — tracked in <code>wiki/todo/web.md</code>. Until then this page says
+    so plainly instead of implying the toggle covers it.
+  </p>
+
+  <h3>Changing your mind</h3>
+  <p>
+    You can review or change these choices at any time — there is a
+    <strong>Privacy Choices</strong> link in the footer of every page, and here:
+  </p>
+  <p>
+    <ConsentPreferencesLink client:idle label="Open my privacy choices" />
+  </p>
+  <p>
+    Turning something off stops it loading from then on. Anything already sent
+    while it was switched on has already left your browser and we can’t recall it.
+    Because third-party content is on by default, that means the venue map and the
+    moodboard will have loaded at least once before you switch them off — we’d
+    rather say so than imply otherwise.
+  </p>
+  <p class="owner-note">
+    <strong>Note for the site owner:</strong> defaulting third-party content
+    <em>on</em> is a deliberate choice suited to a private, personal event, and it
+    fits the Australian framing set out at the top of this notice. It is
+    <strong>not</strong> what the EU/UK ePrivacy rules expect — they require
+    consent <em>before</em> a non-essential third party loads. If a meaningful
+    number of guests are in the EU or UK, flip <code>defaultGranted</code> to
+    <code>false</code> for the third-party-content category in
+    <code>cire/web/src/lib/consent/categories.ts</code> and update the two
+    paragraphs above; nothing else needs to change.
   </p>
 
   <h2>How long we keep it</h2>

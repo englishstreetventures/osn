@@ -4,7 +4,7 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-27
+last-reviewed: 2026-07-29
 ---
 
 # Performance Backlog
@@ -173,3 +173,16 @@ Deferred (not blocking at Phase-1 scale — single wedding, low organiser traffi
 - [ ] **ENQ-P-W1** — (pre-existing, PR B) `POST /api/vendor/enquiries/:id/quote` issues two independent single-row lookups (`vendors.name`, `weddings.currency`) sequentially; parallelise with `Effect.all([...], {concurrency:"unbounded"})`.
 - [ ] **ENQ-P-W3** — organiser `EnquiryInbox.formatMinor` / `EnquiryThread.fmtMinor` build a fresh `Intl.NumberFormat` per call inside `<For>` rows (N formatters per render). Cache in a module-level `Map<currency, NumberFormat>`.
 - [ ] **ENQ-P-I1** — organiser `EnquiriesView.handleSend` unconditionally `invalidateEnquiries` + reloads the whole inbox after every reply; only `lastMessageAt`/`status` on the one row changes. Use `upsertCachedEnquiry` optimistically, full reload only on error.
+
+**Site-wide consent framework (`claude/site-wide-consent-framework-jys0q2`) — perf review (2026-07-29).**
+Bundle deltas below are **measured** (both branches built, emitted client chunks diffed), not estimated.
+No Critical. Invite page: +5.6 KB gz, 2 extra module requests, all post-`client:idle`. Confirmed:
+all three consent islands on a page share ONE `component-url` (no duplication), the cookie is parsed
+exactly once per page load (`hydrateConsent` early-returns and runs untracked in `onMount`), the
+fixed-position banner adds no layout shift, and the Maps iframe timing is effectively unchanged.
+
+- [ ] **CON-P-W1** — Pinterest's tracker now loads by **default** on every details-sheet open, where it previously required an explicit click. `pinit_main.js` is cache-busted per anchor id (`?_=${id}`) so it re-fetches per mount, then pulls a widget iframe and `i.pinimg.com` board images, plus a MutationObserver and a connection-scaled timer. This is a direct consequence of the opt-out decision, not a defect — recorded so it is signed off as a **perf** decision and not only a compliance one. Cheap mitigation if the cost bites: keep the category opt-out for Google Maps but put Pinterest back behind an in-place "load moodboard" affordance; the outbound fallback link already carries the content. See `[[consent]]`.
+- [ ] **CON-P-I1** — `/privacy`, `/terms` and 404 go from **zero client JS** to ~18 KB gz + 5 modules (Solid core 9.9 + store 2.2 + renderer 0.7 + banner 3.0 + consent-lib 2.3), plus ~5 KB inline island runtime and +457 B gz render-blocking CSS. ~14 KB of that is the Solid runtime, paid so a footer button and a banner can hydrate. Deferred to `requestIdleCallback`, so no FCP/LCP impact, and these are low-traffic pages — acceptable as-is. If it ever matters: make the footer control a plain `<button>` in the `.astro` template with a tiny `is:inline` script, leaving only the banner as an island.
+- [ ] **CON-P-I3** — `clearLegacyPinterestConsent()` runs a synchronous `localStorage.removeItem` on every page load, forever, to delete a key that is gone after the first visit. Drop the legacy cleanup once the 6-month migration window (matching `CONSENT_COOKIE_MAX_AGE_SECONDS`) has passed.
+- [x] **CON-P-I2** (reviewed, no change — deliberate) — `ConsentPreferences` is statically imported into the banner chunk, so ~1.5 KB gz downloads at idle for a dialog most guests never open. `lazy()` would defer it but add a network round-trip between the click and the dialog appearing, on the one control whose entire purpose is to be reachable. Not worth the trade.
+- [x] **CON-P-I4** (reviewed, no change — noise) — the fresh `Object.fromEntries` allocation in `defaultGrants`/`preDecisionGrants`/`normaliseGrants`, `vendorById`'s linear find over 6 entries, and the re-filter in `ConsentPreferences`. A page has at most two live gates and the `Show` memo recomputes twice in a page's lifetime: ~4 allocations of a 4-key object total. Do not "optimise" these.
