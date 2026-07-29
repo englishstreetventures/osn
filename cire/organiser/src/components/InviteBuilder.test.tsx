@@ -141,6 +141,53 @@ describe("InviteBuilder theme", () => {
     expect(body.value).toBe("system-sans");
   });
 
+  it("seeds the typography selects from the loaded theme (0048)", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        ...EMPTY_CUSTOMISATION,
+        theme: {
+          ...EMPTY_CUSTOMISATION.theme,
+          headingSize: "large",
+          headingWeight: "bold",
+          headingStyle: "italic",
+          bodyWeight: "light",
+          bodyStyle: "italic",
+        },
+      }),
+    );
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+
+    await waitFor(() => {
+      const size = screen.getByLabelText("Heading size") as HTMLSelectElement;
+      expect(size.value).toBe("large");
+    });
+    expect((screen.getByLabelText("Heading weight") as HTMLSelectElement).value).toBe("bold");
+    expect((screen.getByLabelText("Heading style") as HTMLSelectElement).value).toBe("italic");
+    expect((screen.getByLabelText("Body weight") as HTMLSelectElement).value).toBe("light");
+    expect((screen.getByLabelText("Body style") as HTMLSelectElement).value).toBe("italic");
+  });
+
+  it("PUTs the typography keys with the theme body, collapsing 'default' to null", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
+
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    await waitFor(() => screen.getByText("Save invite"));
+
+    fireEvent.change(screen.getByLabelText("Heading style"), { target: { value: "italic" } });
+    fireEvent.change(screen.getByLabelText("Body weight"), { target: { value: "light" } });
+    fireEvent.click(screen.getByText("Save invite"));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    const sent = sentBody("/theme");
+    expect(sent.headingStyle).toBe("italic");
+    expect(sent.bodyWeight).toBe("light");
+    // Untouched options collapse to null ("default" ⇒ keep the pack's look).
+    expect(sent.headingSize).toBeNull();
+    expect(sent.headingWeight).toBeNull();
+    expect(sent.bodyStyle).toBeNull();
+  });
+
   it("PUTs only the theme body when only theme fields changed (font enum + scheme)", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // theme save
@@ -429,6 +476,30 @@ describe("InviteBuilder theme", () => {
       expect(heroPreview()!.style.getPropertyValue("--color-gold")).toBe(
         derivePalette({ ...PALETTE_PRESETS.evergreen, gilt: "#112233" })["--color-gold"],
       ),
+    );
+    // Live preview must not trigger a network save.
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates the live previews' typography vars as a select changes (no save needed)", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load only
+
+    const { container } = render(() => (
+      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+    ));
+    await waitFor(() => screen.getByText("Save invite"));
+
+    const heroPreview = () =>
+      container.querySelector('[aria-label="Hero preview"]') as HTMLElement | null;
+    await waitFor(() => expect(heroPreview()).not.toBeNull());
+    // Default pick ⇒ no override var — the preview falls back to the pack look.
+    expect(heroPreview()!.style.getPropertyValue("--invite-heading-weight")).toBe("");
+
+    // The pick resolves through the SAME shared value map the guest uses, so
+    // the preview cannot show a weight the guest would not render.
+    fireEvent.change(screen.getByLabelText("Heading weight"), { target: { value: "bold" } });
+    await waitFor(() =>
+      expect(heroPreview()!.style.getPropertyValue("--invite-heading-weight")).toBe("700"),
     );
     // Live preview must not trigger a network save.
     expect(authFetchMock).toHaveBeenCalledTimes(1);

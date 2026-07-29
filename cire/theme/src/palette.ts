@@ -217,7 +217,11 @@ export function fontChoiceHasStack(choice: FontChoice): boolean {
 /** Resolve a font-choice key to its CSS stack, or `null` to keep the default. */
 export function fontStack(choice: string | null | undefined): string | null {
   if (!choice || choice === "default") return null;
-  return (FONT_STACKS as Record<string, string>)[choice] ?? null;
+  // Object.hasOwn so prototype-chain keys ("constructor", …) stay unknown
+  // rather than leaking an inherited function through the closed map (S-L1).
+  return Object.hasOwn(FONT_STACKS, choice)
+    ? (FONT_STACKS as Record<string, string>)[choice]
+    : null;
 }
 
 // ── Derivation ────────────────────────────────────────────────────────────────

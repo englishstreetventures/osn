@@ -991,6 +991,11 @@ describe("invite write rate limiting (IB-S-L1)", () => {
 interface ThemeShape {
   headingFont: string | null;
   bodyFont: string | null;
+  headingSize: string | null;
+  headingWeight: string | null;
+  headingStyle: string | null;
+  bodyWeight: string | null;
+  bodyStyle: string | null;
   palettePreset: string | null;
   palette: {
     ground: string | null;
@@ -1011,6 +1016,11 @@ describe("PUT /invite/theme (organiser)", () => {
   const validTheme = {
     headingFont: "cormorant",
     bodyFont: "system-sans",
+    headingSize: "large",
+    headingWeight: "bold",
+    headingStyle: "italic",
+    bodyWeight: null,
+    bodyStyle: "normal",
     palettePreset: "jewel",
     paletteGround: "#1b172a",
     paletteCard: "oklch(25.5% 0.052 300)",
@@ -1073,6 +1083,13 @@ describe("PUT /invite/theme (organiser)", () => {
       details: null,
       welcome: "raised",
     });
+    // Typography option keys (0048) round-trip as keys — the guest site
+    // resolves them to CSS values, the API never stores a raw value.
+    expect(body.theme.headingSize).toBe("large");
+    expect(body.theme.headingWeight).toBe("bold");
+    expect(body.theme.headingStyle).toBe("italic");
+    expect(body.theme.bodyWeight).toBeNull();
+    expect(body.theme.bodyStyle).toBe("normal");
   });
 
   it("defaults to a null theme when never customised", async () => {
@@ -1095,6 +1112,11 @@ describe("PUT /invite/theme (organiser)", () => {
       details: null,
       welcome: null,
     });
+    expect(body.theme.headingSize).toBeNull();
+    expect(body.theme.headingWeight).toBeNull();
+    expect(body.theme.headingStyle).toBeNull();
+    expect(body.theme.bodyWeight).toBeNull();
+    expect(body.theme.bodyStyle).toBeNull();
   });
 
   it("rejects a colour outside the allow-list with 400 (CSS-injection guard)", async () => {
@@ -1149,6 +1171,26 @@ describe("PUT /invite/theme (organiser)", () => {
       }),
     });
     expect(res.status).toBe(400);
+  });
+
+  it("rejects an unknown typography key with 400 (heading size, weight, style)", async () => {
+    const { app } = buildApp();
+    for (const patch of [
+      { headingSize: "huge" },
+      // A raw CSS value where a key belongs — the enum must reject it even
+      // though it LOOKS like what the key resolves to.
+      { headingWeight: "700" },
+      { headingStyle: "oblique 14deg" },
+      { bodyWeight: "semibold" },
+      { bodyStyle: "italic; background:url(https://evil.example/x)" },
+    ]) {
+      const res = await appRequest(app, `${orgBase}/theme`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
+        body: JSON.stringify({ ...validTheme, ...patch }),
+      });
+      expect(res.status).toBe(400);
+    }
   });
 
   it("rejects an unknown section tone with 400", async () => {
@@ -1206,6 +1248,11 @@ describe("hero display sliders (migration 0018)", () => {
   const validTheme = {
     headingFont: "default",
     bodyFont: "default",
+    headingSize: null,
+    headingWeight: null,
+    headingStyle: null,
+    bodyWeight: null,
+    bodyStyle: null,
     palettePreset: null,
     paletteGround: null,
     paletteCard: null,

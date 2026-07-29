@@ -2,11 +2,15 @@ import { DESIGNS } from "@cire/invite-designs";
 import {
   derivePalette,
   FONT_CHOICES,
+  FONT_STYLE_CHOICES,
+  FONT_WEIGHT_CHOICES,
   fontStack,
+  HEADING_SIZE_CHOICES,
   type PalettePresetKey,
   type PaletteSeeds,
   SECTION_TONES,
   type SectionTone,
+  typographyVars,
 } from "@cire/theme";
 import { useAuth } from "@shared/rp-auth/solid";
 import { createMemo, createResource, createSignal, For, lazy, Show, Suspense } from "solid-js";
@@ -46,9 +50,35 @@ const FONT_LABELS: Record<string, string> = {
 };
 const FONT_OPTIONS = FONT_CHOICES.map((value) => ({ value, label: FONT_LABELS[value] ?? value }));
 
+/**
+ * Typography-option dropdowns (0048). Same shape as the fonts: the KEYS come
+ * from the closed enums in `@cire/theme`, only the labels live here. "Default"
+ * always means "whatever the design pack does".
+ */
+const label = (value: string, labels: Record<string, string>) => ({
+  value,
+  label: labels[value] ?? value,
+});
+const HEADING_SIZE_OPTIONS = HEADING_SIZE_CHOICES.map((v) =>
+  label(v, { default: "Default", small: "Small", large: "Large" }),
+);
+const FONT_WEIGHT_OPTIONS = FONT_WEIGHT_CHOICES.map((v) =>
+  label(v, { default: "Default", light: "Light", regular: "Regular", bold: "Bold" }),
+);
+const FONT_STYLE_OPTIONS = FONT_STYLE_CHOICES.map((v) =>
+  label(v, { default: "Default", normal: "Normal", italic: "Italic" }),
+);
+
 interface InviteTheme {
   headingFont: string | null;
   bodyFont: string | null;
+  // Global typography options (0048). Optional on the wire so a mid-deploy
+  // payload from an older API seeds them as "default" instead of crashing.
+  headingSize?: string | null;
+  headingWeight?: string | null;
+  headingStyle?: string | null;
+  bodyWeight?: string | null;
+  bodyStyle?: string | null;
   /** Which curated scheme the organiser started from. */
   palettePreset: string | null;
   /** The five colour seeds; every other colour is derived from them. */
@@ -198,6 +228,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // a tone (null ⇒ the page ground).
   const [headingFont, setHeadingFont] = createSignal("default");
   const [bodyFont, setBodyFont] = createSignal("default");
+  // Typography options (0048) — closed enum keys, "default" ⇒ the pack's look.
+  const [headingSize, setHeadingSize] = createSignal("default");
+  const [headingWeight, setHeadingWeight] = createSignal("default");
+  const [headingStyle, setHeadingStyle] = createSignal("default");
+  const [bodyWeight, setBodyWeight] = createSignal("default");
+  const [bodyStyle, setBodyStyle] = createSignal("default");
   const [palette, setPalette] = createSignal<PaletteState>({ preset: null, seeds: {} });
   const [tones, setTones] = createSignal<Record<ThemeSection, SectionTone | null>>({
     hero: null,
@@ -226,6 +262,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     setInviteMessage(d.inviteMessage ?? "");
     setHeadingFont(d.theme.headingFont ?? "default");
     setBodyFont(d.theme.bodyFont ?? "default");
+    setHeadingSize(d.theme.headingSize ?? "default");
+    setHeadingWeight(d.theme.headingWeight ?? "default");
+    setHeadingStyle(d.theme.headingStyle ?? "default");
+    setBodyWeight(d.theme.bodyWeight ?? "default");
+    setBodyStyle(d.theme.bodyStyle ?? "default");
     setPalette({
       preset: (d.theme.palettePreset as PalettePresetKey | null) ?? null,
       seeds: {
@@ -268,6 +309,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   const themePayload = () => ({
     headingFont: fontOrDefault(headingFont()),
     bodyFont: fontOrDefault(bodyFont()),
+    headingSize: fontOrDefault(headingSize()),
+    headingWeight: fontOrDefault(headingWeight()),
+    headingStyle: fontOrDefault(headingStyle()),
+    bodyWeight: fontOrDefault(bodyWeight()),
+    bodyStyle: fontOrDefault(bodyStyle()),
     palettePreset: palette().preset,
     paletteGround: palette().seeds.ground ?? null,
     paletteCard: palette().seeds.card ?? null,
@@ -307,6 +353,18 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     if (heading) vars["--font-display"] = heading;
     const body = fontStack(fontOrDefault(bodyFont()));
     if (body) vars["--font-body"] = body;
+    // Typography options ride the same token map — resolved by the SAME shared
+    // function the guest site uses, so the preview cannot lie about a weight.
+    Object.assign(
+      vars,
+      typographyVars({
+        headingSize: fontOrDefault(headingSize()),
+        headingWeight: fontOrDefault(headingWeight()),
+        headingStyle: fontOrDefault(headingStyle()),
+        bodyWeight: fontOrDefault(bodyWeight()),
+        bodyStyle: fontOrDefault(bodyStyle()),
+      }),
+    );
     return vars;
   });
 
@@ -658,6 +716,36 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 <div class="grid grid-cols-1 gap-4 @lg/panel:grid-cols-2">
                   <FontField label="Heading font" value={headingFont()} onChange={setHeadingFont} />
                   <FontField label="Body font" value={bodyFont()} onChange={setBodyFont} />
+                  <ChoiceField
+                    label="Heading size"
+                    options={HEADING_SIZE_OPTIONS}
+                    value={headingSize()}
+                    onChange={setHeadingSize}
+                  />
+                  <ChoiceField
+                    label="Heading weight"
+                    options={FONT_WEIGHT_OPTIONS}
+                    value={headingWeight()}
+                    onChange={setHeadingWeight}
+                  />
+                  <ChoiceField
+                    label="Heading style"
+                    options={FONT_STYLE_OPTIONS}
+                    value={headingStyle()}
+                    onChange={setHeadingStyle}
+                  />
+                  <ChoiceField
+                    label="Body weight"
+                    options={FONT_WEIGHT_OPTIONS}
+                    value={bodyWeight()}
+                    onChange={setBodyWeight}
+                  />
+                  <ChoiceField
+                    label="Body style"
+                    options={FONT_STYLE_OPTIONS}
+                    value={bodyStyle()}
+                    onChange={setBodyStyle}
+                  />
                 </div>
                 <PaletteField value={palette()} onChange={setPalette} />
               </fieldset>
@@ -1005,16 +1093,29 @@ function SectionPreview(props: {
         >
           {props.eyebrow}
         </span>
+        {/* The heading sample follows the typography variables with the guest
+            packs' literal fallbacks (300 / normal) — it used to be decoratively
+            italic, which would now lie about an explicit "Normal" pick. */}
         <span
-          style={{ color: "var(--color-text)", "font-family": "var(--font-display)" }}
-          class="text-[1.5rem] leading-none font-light italic"
+          style={{
+            color: "var(--color-text)",
+            "font-family": "var(--font-display)",
+            "font-size": "calc(1.5rem * var(--invite-heading-scale, 1))",
+            "font-weight": "var(--invite-heading-weight, 300)",
+            "font-style": "var(--invite-heading-style, normal)",
+          }}
+          class="leading-none"
         >
           {props.heading}
         </span>
         {/* Body sample in the body font on the section surface, so the font and
             the text-on-surface contrast are both visible. */}
         <span
-          style={{ color: "var(--color-text-muted)" }}
+          style={{
+            color: "var(--color-text-muted)",
+            "font-weight": "var(--invite-body-weight, 400)",
+            "font-style": "var(--invite-body-style, normal)",
+          }}
           class="max-w-full text-[0.62rem] break-words"
         >
           {props.body}
@@ -1171,9 +1272,17 @@ function HeroPreview(props: {
               : undefined
           }
         >
+          {/* Follows the typography variables with the guest hero's literal
+              fallbacks (300 / normal) so a weight/style/size pick shows here. */}
           <span
-            class="max-w-full text-center text-[clamp(1.5rem,7vw,2.75rem)] leading-none font-light break-words italic"
-            style={{ color: "var(--color-gold)", "font-family": "var(--font-display)" }}
+            class="max-w-full text-center leading-none break-words"
+            style={{
+              color: "var(--color-gold)",
+              "font-family": "var(--font-display)",
+              "font-size": "calc(clamp(1.5rem,7vw,2.75rem) * var(--invite-heading-scale, 1))",
+              "font-weight": "var(--invite-heading-weight, 300)",
+              "font-style": "var(--invite-heading-style, normal)",
+            }}
           >
             {titleText()}
           </span>
@@ -1241,6 +1350,23 @@ function DesignThumbnail(props: { id: string }) {
 
 function FontField(props: { label: string; value: string; onChange: (v: string) => void }) {
   return (
+    <ChoiceField
+      label={props.label}
+      options={FONT_OPTIONS}
+      value={props.value}
+      onChange={props.onChange}
+    />
+  );
+}
+
+/** A labelled dropdown over a closed option set (fonts, typography options). */
+function ChoiceField(props: {
+  label: string;
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
     <label class="flex flex-col gap-1.5">
       <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
         {props.label}
@@ -1250,7 +1376,7 @@ function FontField(props: { label: string; value: string; onChange: (v: string) 
         onChange={(e) => props.onChange(e.currentTarget.value)}
         class="border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-3 py-2 text-[0.88rem] outline-none"
       >
-        <For each={FONT_OPTIONS}>{(opt) => <option value={opt.value}>{opt.label}</option>}</For>
+        <For each={props.options}>{(opt) => <option value={opt.value}>{opt.label}</option>}</For>
       </select>
     </label>
   );

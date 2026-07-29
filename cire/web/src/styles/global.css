@@ -64,7 +64,12 @@
     background: var(--color-bg);
     color: var(--color-text);
     font-family: var(--font-body);
-    font-weight: 400;
+    /* Organiser typography options (0048): body weight/style cascade from here
+       by inheritance; heading elements pin their own weight/style explicitly,
+       so an italic body never drags the headings along. Unset vars keep
+       today's look. */
+    font-weight: var(--invite-body-weight, 400);
+    font-style: var(--invite-body-style, normal);
     line-height: 1.5;
     /* dvh, not vh: on iOS Safari the address bar makes 100vh taller than the
        visible viewport, so a vh floor adds phantom scroll on every page. */

@@ -188,7 +188,7 @@ export default function InvitePage(props: InvitePageProps) {
               <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
                 {detailsEyebrow()}
               </p>
-              <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light">
+              <h2 class="font-display text-text mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                 {detailsHeading()}
               </h2>
               <div class="flex flex-col gap-5 text-left">

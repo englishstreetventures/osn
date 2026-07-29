@@ -223,6 +223,38 @@ describe("InviteHeader render", () => {
     );
   });
 
+  it("hero title consumes the typography variables with pack-literal fallbacks (T-S1)", async () => {
+    const initial: InviteCustomisation = {
+      hero: { title: "A & B", subtitle: null, imageUrl: null },
+      story: { eyebrow: null, heading: null, body: null, imageUrl: null },
+      heroDisplay: DEFAULT_HERO_DISPLAY,
+      theme: EMPTY_THEME,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new Error("offline"))),
+    );
+
+    const { container } = render(() => (
+      <InviteHeader apiUrl="https://api.test" slug="s" initial={initial} />
+    ));
+
+    // The organiser's heading options reach the guest only through these var()
+    // references (0048) — a refactor back to `font-light`/`italic` literals or
+    // a typo'd var name silently kills the feature while everything else stays
+    // green, so pin the class contract here. happy-dom can't compute the
+    // calc(clamp()*var()) value, so assert the references, not resolved pixels.
+    await waitFor(() => {
+      const title = Array.from(container.querySelectorAll("span")).find(
+        (el) => el.textContent === "A & B",
+      );
+      expect(title).toBeDefined();
+      expect(title!.className).toContain("[font-weight:var(--invite-heading-weight,300)]");
+      expect(title!.className).toContain("[font-style:var(--invite-heading-style,normal)]");
+      expect(title!.className).toContain("*var(--invite-heading-scale,1))]");
+    });
+  });
+
   it("renders NOTHING for the hero when it has no image, title or subtitle", async () => {
     // A fully-empty hero must not paint an empty full-screen section. The story
     // is also empty here, so the whole component renders no <section> at all.

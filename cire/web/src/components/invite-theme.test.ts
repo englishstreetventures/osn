@@ -59,6 +59,51 @@ describe("paletteRootVars", () => {
     }
   });
 
+  it("resolves typography option keys to fixed CSS values (0048)", () => {
+    const vars = paletteRootVars({
+      ...themed,
+      headingSize: "small",
+      headingWeight: "bold",
+      headingStyle: "italic",
+      bodyWeight: "light",
+      bodyStyle: "italic",
+    });
+    expect(vars["--invite-heading-scale"]).toBe("0.85");
+    expect(vars["--invite-heading-weight"]).toBe("700");
+    expect(vars["--invite-heading-style"]).toBe("italic");
+    expect(vars["--invite-body-weight"]).toBe("300");
+    expect(vars["--invite-body-style"]).toBe("italic");
+  });
+
+  it("omits the typography variables for unknown, default or absent keys", () => {
+    // `themed` predates the options entirely (fields absent) — nothing emitted.
+    const absent = paletteRootVars(themed);
+    // A raw CSS value where a key belongs must not pass through.
+    const garbage = paletteRootVars({
+      ...themed,
+      headingSize: "12rem",
+      headingWeight: "900",
+      headingStyle: "oblique 14deg; background:url(https://evil.example/x)",
+      bodyWeight: "default",
+      bodyStyle: null,
+    });
+    for (const vars of [absent, garbage]) {
+      expect(vars["--invite-heading-scale"]).toBeUndefined();
+      expect(vars["--invite-heading-weight"]).toBeUndefined();
+      expect(vars["--invite-heading-style"]).toBeUndefined();
+      expect(vars["--invite-body-weight"]).toBeUndefined();
+      expect(vars["--invite-body-style"]).toBeUndefined();
+    }
+  });
+
+  it("keeps the typography variables through the style-attribute filter", () => {
+    const attr = styleAttr(
+      paletteRootVars({ ...themed, headingStyle: "italic", bodyWeight: "light" }),
+    );
+    expect(attr).toContain("--invite-heading-style:italic");
+    expect(attr).toContain("--invite-body-weight:300");
+  });
+
   it("renders a chosen preset when the organiser edited no seed", () => {
     // Caught on a live preview: the API returns `palettePreset: "chapel"` with
     // five null seeds, and the guest rendered evergreen.

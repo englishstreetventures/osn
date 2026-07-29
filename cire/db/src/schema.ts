@@ -722,6 +722,17 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   // + CSS-injection risk on the static guest site). NULL ⇒ the built-in token.
   themeHeadingFont: text("theme_heading_font"),
   themeBodyFont: text("theme_body_font"),
+  // Global typography OPTIONS (migration 0048) — heading size/weight/style +
+  // body weight/style. Closed enum keys from `@cire/theme`
+  // (`HEADING_SIZE_CHOICES` / `FONT_WEIGHT_CHOICES` / `FONT_STYLE_CHOICES`),
+  // validated in `cire/api/src/schemas/invite.ts`; the key resolves to a fixed
+  // CSS value in `@cire/theme`, never free text. NULL ⇒ the design pack's
+  // built-in look.
+  themeHeadingSize: text("theme_heading_size"),
+  themeHeadingWeight: text("theme_heading_weight"),
+  themeHeadingStyle: text("theme_heading_style"),
+  themeBodyWeight: text("theme_body_weight"),
+  themeBodyStyle: text("theme_body_style"),
   // The invite COLOUR SCHEME (migration 0044) — five seeds, named by their role
   // on the invite, from which every other colour is derived by `derivePalette`
   // in `@cire/theme`. This replaced the eight per-section accent/surface columns

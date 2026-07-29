@@ -204,7 +204,7 @@ export default function InvitePage(props: InvitePageProps) {
               <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
                 Your Invitation
               </p>
-              <h2 class="font-display text-text mb-5 text-[clamp(1.5rem,4vw,2rem)] leading-[1.15] font-light">
+              <h2 class="font-display text-text mb-5 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                 Enter Your Code
               </h2>
               <p class="text-text-muted mb-8 text-[0.92rem] leading-[1.6] font-light">
@@ -268,7 +268,7 @@ export default function InvitePage(props: InvitePageProps) {
                 when={isIndividual()}
                 fallback={
                   <>
-                    <h2 class="font-display text-gold mb-3 text-[clamp(1.5rem,4vw,2rem)] leading-[1.15] font-light">
+                    <h2 class="font-display text-gold mb-3 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                       Welcome, the {claimResult()?.familyName} Family
                     </h2>
                     <p class="text-text-muted mb-2 text-[0.92rem] leading-[1.6] font-light">
@@ -287,7 +287,7 @@ export default function InvitePage(props: InvitePageProps) {
                   </>
                 }
               >
-                <h2 class="font-display text-gold mb-3 text-[clamp(1.5rem,4vw,2rem)] leading-[1.15] font-light">
+                <h2 class="font-display text-gold mb-3 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                   Dear {individualName()}
                 </h2>
                 <p class="text-text-muted mb-8 text-[0.92rem] leading-[1.6] font-light">
@@ -318,7 +318,7 @@ export default function InvitePage(props: InvitePageProps) {
                 <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
                   {detailsEyebrow()}
                 </p>
-                <h2 class="font-display text-text mb-5 text-[clamp(1.75rem,4vw,2.5rem)] leading-[1.15] font-light">
+                <h2 class="font-display text-text mb-5 text-[calc(clamp(1.75rem,4vw,2.5rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                   {detailsHeading()}
                 </h2>
                 <hr class="border-border mb-10 h-0 w-full border-t" aria-hidden="true" />

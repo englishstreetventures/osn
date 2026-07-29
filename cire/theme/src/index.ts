@@ -41,6 +41,7 @@ const COLOR_PATTERNS = [
 
 export * from "./color";
 export * from "./palette";
+export * from "./typography";
 
 export function isSafeCssColor(value: string): boolean {
   if (typeof value !== "string") return false;

@@ -6,6 +6,8 @@ import {
   type PaletteSeeds,
   type SectionTone,
   sectionToneVars,
+  TYPOGRAPHY_VAR_KEYS,
+  typographyVars,
 } from "@cire/theme";
 
 import { isValidColor } from "./dress-code-render";
@@ -26,6 +28,16 @@ import { isValidColor } from "./dress-code-render";
 export interface InviteTheme {
   headingFont: string | null;
   bodyFont: string | null;
+  /**
+   * Global typography options (0048) — closed enum KEYS, resolved to fixed CSS
+   * values by `@cire/theme` (`typographyVars`); an unknown/absent key emits
+   * nothing and the design pack's built-in look wins.
+   */
+  headingSize?: string | null;
+  headingWeight?: string | null;
+  headingStyle?: string | null;
+  bodyWeight?: string | null;
+  bodyStyle?: string | null;
   palettePreset?: string | null;
   palette?: Partial<Record<keyof PaletteSeeds, string | null>> | null;
   tones?: Partial<Record<ThemeSection, string | null>> | null;
@@ -86,6 +98,22 @@ export function paletteRootVars(theme: InviteTheme | null | undefined): Record<s
     vars["--default-font-family"] = body;
   }
 
+  // Typography options (heading scale/weight/style + body weight/style) ride
+  // along the same way: emitted only when set, values from the closed maps in
+  // `@cire/theme` — never from the payload. The heading variables are consumed
+  // by the packs' heading elements; the body pair is applied by `global.css`'s
+  // `body` rule and cascades by inheritance.
+  Object.assign(
+    vars,
+    typographyVars({
+      headingSize: theme?.headingSize ?? null,
+      headingWeight: theme?.headingWeight ?? null,
+      headingStyle: theme?.headingStyle ?? null,
+      bodyWeight: theme?.bodyWeight ?? null,
+      bodyStyle: theme?.bodyStyle ?? null,
+    }),
+  );
+
   return vars;
 }
 
@@ -121,6 +149,7 @@ const ALLOWED_THEME_VAR_KEYS: ReadonlySet<string> = new Set<string>([
   "--font-body",
   "--default-font-family",
   "--invite-section-bg",
+  ...TYPOGRAPHY_VAR_KEYS,
 ]);
 
 /** Drop any key outside the theme-variable allow-list (undefined stays undefined). */
