@@ -79,6 +79,8 @@ async function mintStepUpToken(
   freshApp: ReturnType<typeof createAuthRoutes>,
   accessToken: string,
   captured: { last?: string },
+  /** Binds the token to a purpose-gated ceremony (e.g. `email_change`). */
+  purpose?: string,
 ): Promise<string> {
   await freshApp.handle(
     new Request("http://localhost/step-up/otp/begin", {
@@ -93,7 +95,7 @@ async function mintStepUpToken(
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ code: captured.last }),
+      body: JSON.stringify({ code: captured.last, purpose }),
     }),
   );
   const json = (await completeRes.json()) as { step_up_token: string };
@@ -2130,7 +2132,7 @@ describe("auth routes", () => {
       const beginOtp = captured.last!;
 
       // 2. Mint a step-up token for the complete step.
-      const stepUpToken = await mintStepUpToken(freshApp, accessToken, captured);
+      const stepUpToken = await mintStepUpToken(freshApp, accessToken, captured, "email_change");
 
       // 3. Complete — atomic swap.
       const completeRes = await freshApp.handle(
@@ -2315,7 +2317,7 @@ describe("auth routes", () => {
         latestCode,
         generatedEventId,
       } = await setupWithRecovery();
-      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode);
+      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode, "security_event_ack");
       const ackRes = await freshApp.handle(
         new Request(`http://localhost/account/security-events/${generatedEventId}/ack`, {
           method: "POST",
@@ -2341,7 +2343,7 @@ describe("auth routes", () => {
 
     it("POST /account/security-events/:id/ack rejects malformed ids via path regex", async () => {
       const { app: freshApp, accessToken, latestCode } = await setupWithRecovery();
-      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode);
+      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode, "security_event_ack");
       const res = await freshApp.handle(
         new Request("http://localhost/account/security-events/not-a-valid-id/ack", {
           method: "POST",
@@ -2359,7 +2361,7 @@ describe("auth routes", () => {
 
     it("POST /account/security-events/:id/ack for a nonexistent id returns 200 with acknowledged:false", async () => {
       const { app: freshApp, accessToken, latestCode } = await setupWithRecovery();
-      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode);
+      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode, "security_event_ack");
       const res = await freshApp.handle(
         new Request("http://localhost/account/security-events/sev_000000000000/ack", {
           method: "POST",
@@ -2398,7 +2400,7 @@ describe("auth routes", () => {
         );
       }
 
-      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode);
+      const stepUpToken = await mintStepUp(freshApp, accessToken, latestCode, "security_event_ack");
       const ackAllRes = await freshApp.handle(
         new Request("http://localhost/account/security-events/ack-all", {
           method: "POST",

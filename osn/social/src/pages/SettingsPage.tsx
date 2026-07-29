@@ -14,6 +14,10 @@ import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
 // Code-split the Security section so `@simplewebauthn/browser` is only
 // fetched when the user opens that tab (P-I1).
 const SecuritySection = lazy(() => import("../components/SecuritySection"));
+const ConnectedAppsSection = lazy(() =>
+  import("../components/ConnectedAppsSection").then((m) => ({ default: m.ConnectedAppsSection })),
+);
+const SecurityEventsBannerMount = lazy(() => import("../components/SecurityEventsBannerMount"));
 
 type Section = "profile" | "account" | "security" | "apps";
 
@@ -77,6 +81,17 @@ export function SettingsPage() {
           </div>
         }
       >
+        {/* Security-event banner — surfaces recovery-code generate/consume and
+            other security events in-app (the channel that survives email
+            filtering). Lazy so @simplewebauthn stays out of the main bundle. */}
+        <Show when={accessToken()}>
+          <div class="mb-4">
+            <Suspense>
+              <SecurityEventsBannerMount accessToken={accessToken()!} />
+            </Suspense>
+          </div>
+        </Show>
+
         {/* Profile onboarding banner */}
         <div class="mb-4">
           <ProfileOnboarding checkHandle={registrationClient.checkHandle} dismissible />
@@ -196,39 +211,14 @@ export function SettingsPage() {
         {/* Connected apps section */}
         <Show when={section() === "apps"}>
           <Card class="rounded-card flex flex-col gap-4 p-5">
-            <p class="text-muted-foreground text-body">
-              Apps connected to your OSN account can access parts of your identity and social graph.
-            </p>
-
-            {/* Static list of known apps for now */}
-            <div class="flex flex-col gap-2">
-              <div class="border-border rounded-card flex items-center justify-between border px-4 py-3">
-                <div>
-                  <p class="text-foreground text-title font-medium">Pulse</p>
-                  <p class="text-subtle text-meta">
-                    Events platform — reads your profile and connections
-                  </p>
-                </div>
-                <Button variant="secondary" size="sm" class="text-body rounded-pill h-7" disabled>
-                  Connected
-                </Button>
-              </div>
-              <div class="border-border rounded-card flex items-center justify-between border px-4 py-3">
-                <div>
-                  <p class="text-foreground text-title font-medium">Zap</p>
-                  <p class="text-subtle text-meta">
-                    Messaging — reads your profile and connections
-                  </p>
-                </div>
-                <Button variant="secondary" size="sm" class="text-body rounded-pill h-7" disabled>
-                  Connected
-                </Button>
-              </div>
-            </div>
-
-            <p class="text-subtle text-meta">
-              App authorization management and scope controls coming soon.
-            </p>
+            <Show
+              when={accessToken()}
+              fallback={<p class="text-subtle text-meta">Sign in to manage your connected apps.</p>}
+            >
+              <Suspense fallback={<p class="text-subtle text-meta">Loading…</p>}>
+                <ConnectedAppsSection accessToken={accessToken()!} />
+              </Suspense>
+            </Show>
           </Card>
         </Show>
       </Show>

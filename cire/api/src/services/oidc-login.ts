@@ -92,18 +92,89 @@ interface TxState {
   x: number;
 }
 
-const encodeTx = (state: TxState): string => {
-  const bytes = new TextEncoder().encode(JSON.stringify(state));
-  return btoa(String.fromCharCode(...bytes))
+// ---------------------------------------------------------------------------
+// Transaction cookie integrity (HMAC-SHA256).
+//
+// The `cire_oidc_tx` cookie carries the whole login transaction — `state`,
+// `nonce`, PKCE verifier and return destination. It is host-scoped to cire-api,
+// but a sibling `*.cireweddings.com` origin (or any code able to write a cookie
+// the browser will send here) could otherwise PLANT a transaction of its own:
+// a base64url JSON blob with no integrity protection is forgeable by anyone.
+// A planted transaction fixates the victim's sign-in on the ATTACKER's `state`
+// / `nonce` / verifier, so the code the victim's issuer mints exchanges into
+// the attacker's identity and the victim ends up signed into the attacker's
+// account (a classic OAuth session-fixation / login-CSRF).
+//
+// So the payload is authenticated: `<b64url(json)>.<b64url(hmac)>`, where the
+// MAC is HMAC-SHA256 over the base64url PAYLOAD string under a key derived from
+// a server-side secret. `decodeTx` recomputes the MAC and rejects on mismatch
+// with a constant-time compare — a forged or tampered cookie decodes to `null`
+// and the flow fails closed with `state_mismatch`.
+//
+// KEY: derived (HKDF-SHA256, fixed info string) from the OIDC client secret
+// (`CIRE_OIDC_CLIENT_SECRET`) rather than reusing it raw — the client secret is
+// already threaded into every place that touches this cookie (`OidcConfig`),
+// present exactly when the OIDC routes are, and never leaves the server. No new
+// secret to provision.
+const TX_HMAC_INFO = new TextEncoder().encode("cire-oidc-tx-hmac-v1");
+
+const bytesToB64url = (bytes: Uint8Array): string =>
+  btoa(String.fromCharCode(...bytes))
     .replace(/\+/g, "-")
     .replace(/\//g, "_")
     .replace(/=+$/, "");
+
+const b64urlToBytes = (raw: string): Uint8Array =>
+  Uint8Array.from(atob(raw.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+
+/** HKDF-SHA256 derive a dedicated HMAC key from the OIDC client secret. */
+async function deriveTxHmacKey(secret: string): Promise<CryptoKey> {
+  const ikm = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    "HKDF",
+    false,
+    ["deriveKey"],
+  );
+  return crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: TX_HMAC_INFO },
+    ikm,
+    { name: "HMAC", hash: "SHA-256", length: 256 },
+    false,
+    ["sign"],
+  );
+}
+
+/** MAC over the base64url payload, as a base64url string. */
+async function txMac(payload: string, secret: string): Promise<string> {
+  const key = await deriveTxHmacKey(secret);
+  const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return bytesToB64url(new Uint8Array(sig));
+}
+
+export const encodeTx = async (state: TxState, secret: string): Promise<string> => {
+  const payload = bytesToB64url(new TextEncoder().encode(JSON.stringify(state)));
+  const mac = await txMac(payload, secret);
+  return `${payload}.${mac}`;
 };
 
-const decodeTx = (raw: string): TxState | null => {
+export const decodeTx = async (raw: string, secret: string): Promise<TxState | null> => {
+  const dot = raw.indexOf(".");
+  if (dot <= 0 || dot === raw.length - 1) return null;
+  const payload = raw.slice(0, dot);
+  const presentedMac = raw.slice(dot + 1);
+
+  let expectedMac: string;
   try {
-    const padded = raw.replace(/-/g, "+").replace(/_/g, "/");
-    const json = new TextDecoder().decode(Uint8Array.from(atob(padded), (c) => c.charCodeAt(0)));
+    expectedMac = await txMac(payload, secret);
+  } catch {
+    return null;
+  }
+  // Constant-time — a MAC comparison must not leak a byte-by-byte prefix match.
+  if (!timingSafeEqualString(expectedMac, presentedMac)) return null;
+
+  try {
+    const json = new TextDecoder().decode(b64urlToBytes(payload));
     const parsed: unknown = JSON.parse(json);
     if (typeof parsed !== "object" || parsed === null) return null;
     const tx = parsed as Partial<TxState>;
@@ -187,14 +258,17 @@ export async function beginLogin(
 
   return {
     authorizeUrl: authorizeUrl.toString(),
-    tx: encodeTx({
-      v: 1,
-      s: state,
-      n: nonce,
-      cv: codeVerifier,
-      r: returnTo,
-      x: Date.now() + TX_TTL_SECONDS * 1000,
-    }),
+    tx: await encodeTx(
+      {
+        v: 1,
+        s: state,
+        n: nonce,
+        cv: codeVerifier,
+        r: returnTo,
+        x: Date.now() + TX_TTL_SECONDS * 1000,
+      },
+      config.clientSecret,
+    ),
     txMaxAgeSeconds: TX_TTL_SECONDS,
   };
 }
@@ -205,8 +279,8 @@ export async function beginLogin(
  * issuer-said-no path, where there is no code to exchange but the browser
  * still has to land somewhere.
  */
-export function readReturnTo(config: OidcConfig, tx: string | null): string | null {
-  const state = tx ? decodeTx(tx) : null;
+export async function readReturnTo(config: OidcConfig, tx: string | null): Promise<string | null> {
+  const state = tx ? await decodeTx(tx, config.clientSecret) : null;
   if (!state) return null;
   return isAllowedReturnTo(state.r, config.allowedReturnOrigins) ? state.r : null;
 }
@@ -230,7 +304,7 @@ export async function completeLogin(
   config: OidcConfig,
   input: CallbackInput,
 ): Promise<OidcComplete> {
-  const tx = input.tx ? decodeTx(input.tx) : null;
+  const tx = input.tx ? await decodeTx(input.tx, config.clientSecret) : null;
   // Re-validate the destination out of the untrusted cookie before it is used
   // for anything, including an error redirect.
   const returnTo = tx && isAllowedReturnTo(tx.r, config.allowedReturnOrigins) ? tx.r : null;

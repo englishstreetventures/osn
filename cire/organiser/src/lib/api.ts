@@ -20,6 +20,18 @@ export function isAuthExpired(err: unknown): boolean {
   return String(err).includes("AuthExpiredError");
 }
 
+/**
+ * Bounce to the login page on an expired session, remembering where the user
+ * was so the post-login resume can send them back instead of always dumping
+ * them on the dashboard. Only the same-origin path+query+hash is carried (as a
+ * `returnTo` param) — never an absolute URL — so this can never become an open
+ * redirect. `/login` itself is never remembered (it would just loop).
+ */
 export function redirectToLogin(): void {
-  window.location.href = "/login";
+  const here = window.location.pathname + window.location.search + window.location.hash;
+  const target =
+    window.location.pathname === "/login"
+      ? "/login"
+      : `/login?returnTo=${encodeURIComponent(here)}`;
+  window.location.href = target;
 }

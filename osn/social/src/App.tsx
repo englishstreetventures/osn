@@ -49,7 +49,11 @@ const BARE_ROUTES = new Set(["/authorize"]);
  */
 function Layout(props: { children?: import("solid-js").JSX.Element }) {
   const location = useLocation();
-  const bare = () => BARE_ROUTES.has(location.pathname);
+  // Normalise a trailing slash before the lookup: the router matches
+  // `/authorize/` to the consent route, but an exact-string `BARE_ROUTES` miss
+  // would render it inside the full app shell — sidebar nav mid-consent and an
+  // AuthProvider mount that rotates the refresh session.
+  const bare = () => BARE_ROUTES.has(location.pathname.replace(/(.)\/$/, "$1"));
   const isMobile = useIsMobile();
   return (
     <div class="px-safe flex h-dvh flex-col overflow-hidden md:flex-row">

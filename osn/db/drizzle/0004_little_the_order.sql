@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `authenticated_at` integer;

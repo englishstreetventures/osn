@@ -177,7 +177,9 @@ export function TurnstileWidget(props: TurnstileWidgetProps) {
         </span>
         <Show when={failed()}>
           <p class="text-destructive mt-2 text-xs" role="alert">
-            Couldn&apos;t load the verification challenge. Refresh and try again.
+            Couldn&apos;t load the verification challenge. Refresh and try again. If it keeps
+            failing (an ad blocker or network filter may be blocking it), recovery-code sign-in
+            still works — it isn&apos;t gated by this challenge.
           </p>
         </Show>
       </div>

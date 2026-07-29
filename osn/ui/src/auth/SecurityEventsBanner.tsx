@@ -126,6 +126,7 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
           onToken={onStepUpToken}
           onCancel={() => setStepUpOpen(false)}
           runPasskeyCeremony={props.runPasskeyCeremony}
+          purpose="security_event_ack"
         />
       </Show>
     </>

@@ -68,7 +68,8 @@ describe("passkey management routes", () => {
     const { profile, tokens } = await seedAccount();
     const accessToken = tokens.accessToken;
 
-    const mintOtpStepUp = async (): Promise<string> => {
+    // Rename and delete share the purpose-bound delete gate.
+    const mintOtpStepUp = async (purpose = "passkey_delete"): Promise<string> => {
       await appWithOtp.handle(
         new Request("http://localhost/step-up/otp/begin", {
           method: "POST",
@@ -88,7 +89,7 @@ describe("passkey management routes", () => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${accessToken}`,
           },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify({ code, purpose }),
         }),
       );
       const { step_up_token } = (await stepUpRes.json()) as { step_up_token: string };
@@ -259,6 +260,27 @@ describe("passkey management routes", () => {
       expect(json.remaining).toBe(1);
     });
 
+    it("rejects a step-up token minted for another ceremony (purpose binding)", async () => {
+      const { app: verifiedApp, accessToken, profile, mintOtpStepUp } = await setupStepUp();
+      const pk = await seedPasskey(profile.accountId);
+      await seedPasskey(profile.accountId);
+      // A token minted for recovery-code generation must not be replayable at
+      // the passkey-delete gate.
+      const wrongPurpose = await mintOtpStepUp("recovery_generate");
+
+      const res = await verifiedApp.handle(
+        new Request(`http://localhost/passkeys/${pk}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "X-Step-Up-Token": wrongPurpose,
+          },
+        }),
+      );
+      // Wrong-purpose step-up fails verification (never reaches the delete).
+      expect(res.status).toBe(400);
+    });
+
     // S-L3: a Bearer-only delete (no session cookie) must still identify the
     // caller's own session, via the access token's `osn_sid` binding. Before that
     // fallback existed this branch nuked EVERY session on the account — the
@@ -302,6 +324,31 @@ describe("passkey management routes", () => {
       expect(err._tag).toBe("AuthError");
     });
 
+    // S-M2: a presented-but-stale binding must fail closed (409), never
+    // collapse into the account-wide session wipe.
+    it("fails closed (409) when the caller's session binding is stale", async () => {
+      const { app: verifiedApp, accessToken, tokens, profile, mintOtpStepUp } = await setupStepUp();
+      const pk = await seedPasskey(profile.accountId);
+      await seedPasskey(profile.accountId);
+      // The caller's session is revoked / rotated out while the 5-min access
+      // token is still valid, so its `osn_sid` now names no live row.
+      await Effect.runPromise(
+        svc.invalidateSession(tokens.refreshToken).pipe(Effect.provide(layer)),
+      );
+      const stepUp = await mintOtpStepUp();
+
+      const res = await verifiedApp.handle(
+        new Request(`http://localhost/passkeys/${pk}`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "X-Step-Up-Token": stepUp,
+          },
+        }),
+      );
+      expect(res.status).toBe(409);
+    });
+
     // S-L4: default config rejects OTP step-up for delete. The dedicated
     // passkey-only AMR config knob is the intended production posture.
     it("rejects OTP step-up when passkeyDeleteAllowedAmr omits it", async () => {
@@ -332,7 +379,7 @@ describe("passkey management routes", () => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${tokens.accessToken}`,
           },
-          body: JSON.stringify({ code }),
+          body: JSON.stringify({ code, purpose: "passkey_delete" }),
         }),
       );
       const { step_up_token } = (await stepUpRes.json()) as { step_up_token: string };

@@ -24,6 +24,15 @@ import type { SessionSummary } from "./types";
  * keeping the digest comparison uniform means that stays true if `osn_sid`
  * ever becomes settable from another surface.
  */
+/**
+ * How a destructive "revoke every OTHER session" path should treat the caller.
+ * See {@link createSessionsModule}'s `classifyCallerSession`.
+ */
+export type CallerSessionResolution =
+  | { readonly _tag: "resolved"; readonly sessionHash: string }
+  | { readonly _tag: "none" }
+  | { readonly _tag: "stale" };
+
 function matchBinding(
   sessionIds: readonly string[],
   profileId: string,
@@ -117,13 +126,44 @@ export function createSessionsModule() {
     profileId: string,
     caller: { cookieSessionHash?: string | null; sessionBinding?: string | null },
   ): Effect.Effect<string | null, DatabaseError, Db> =>
+    classifyCallerSession(accountId, profileId, caller).pipe(
+      Effect.map((r) => (r._tag === "resolved" ? r.sessionHash : null)),
+    );
+
+  /**
+   * The three-way classification behind {@link resolveCallerSession}, for the
+   * destructive "revoke every OTHER session" paths (passkey register/delete)
+   * that must NOT degrade to an account-wide wipe on ambiguity (S-M2):
+   *
+   *  - `resolved`  — a cookie or `osn_sid` binding names a live session. Keep
+   *    it, revoke the rest.
+   *  - `none`      — neither a cookie nor a binding was presented at all. A
+   *    genuinely credential-less-but-authenticated call (legacy access token
+   *    with no `osn_sid`, no cookie): there is no "self" to preserve, so the
+   *    H1 account-wide wipe is the correct, intended outcome.
+   *  - `stale`     — a cookie and/or binding WAS presented but matches no live
+   *    row. The caller plainly has a session; it has just rotated out or been
+   *    LRU-evicted past `MAX_SESSIONS_PER_ACCOUNT`. Treating this as `none`
+   *    and wiping the account was the S-M2 bug — a narrower door onto the same
+   *    "logged out everywhere" failure `osn_sid` exists to prevent. Destructive
+   *    callers must fail closed here (re-authenticate) instead of wiping.
+   */
+  const classifyCallerSession = (
+    accountId: string,
+    profileId: string,
+    caller: { cookieSessionHash?: string | null; sessionBinding?: string | null },
+  ): Effect.Effect<CallerSessionResolution, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { cookieSessionHash, sessionBinding } = caller;
-      if (!cookieSessionHash && !sessionBinding) return null;
+      if (!cookieSessionHash && !sessionBinding) return { _tag: "none" } as const;
       const ids = yield* liveSessionIds(accountId);
-      if (cookieSessionHash && ids.includes(cookieSessionHash)) return cookieSessionHash;
-      return sessionBinding ? matchBinding(ids, profileId, sessionBinding) : null;
-    }).pipe(Effect.withSpan("auth.session.resolve_caller"));
+      if (cookieSessionHash && ids.includes(cookieSessionHash)) {
+        return { _tag: "resolved", sessionHash: cookieSessionHash } as const;
+      }
+      const bound = sessionBinding ? matchBinding(ids, profileId, sessionBinding) : null;
+      if (bound) return { _tag: "resolved", sessionHash: bound } as const;
+      return { _tag: "stale" } as const;
+    }).pipe(Effect.withSpan("auth.session.classify_caller"));
 
   /**
    * Invalidates ALL sessions for an account. Used when a security event
@@ -272,6 +312,7 @@ export function createSessionsModule() {
     invalidateSession,
     resolveSessionByBinding,
     resolveCallerSession,
+    classifyCallerSession,
     invalidateAccountSessions,
     invalidateOtherAccountSessions,
     listAccountSessions,

@@ -1,14 +1,17 @@
 /*
-  Content-Security-Policy: frame-ancestors 'none'
+  Content-Security-Policy: frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
 
 # Framing is the one thing a consent screen must never allow, so it is covered
-# twice (frame-ancestors + X-Frame-Options).
+# twice (frame-ancestors + X-Frame-Options). object-src/base-uri/form-action are
+# safe to pin here: the app embeds no plugins, needs no <base>, and only ever
+# submits forms to its own origin (the consent decision goes to the issuer over
+# fetch, not a form POST), so these cost nothing and shrink the injection surface.
 #
-# No script-src/connect-src yet, for the same reason cire/organiser has none:
-# the app talks to the OSN issuer, whose origin differs per environment, and a
-# wrong connect-src breaks sign-in outright. Building the policy from
-# VITE_OSN_ISSUER_URL is tracked as S-L3 in wiki/TODO.md.
+# No script-src/connect-src yet: the app fetches the OSN issuer, whose origin
+# differs per environment, and a wrong connect-src breaks sign-in outright. Those
+# two need a build-time policy generated from VITE_OSN_ISSUER_URL against the
+# emitted bundle — tracked as S-L3 in wiki/TODO.md.

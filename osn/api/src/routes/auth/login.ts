@@ -5,8 +5,17 @@ import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
 
 export function createPasskeyLoginRoutes(ctx: AuthRouteContext) {
-  const { auth, run, rateLimit, turnstileGate, socketIpOf, sessionMetaFrom, rl, cookieConfig } =
-    ctx;
+  const {
+    auth,
+    run,
+    handleError,
+    rateLimit,
+    turnstileGate,
+    socketIpOf,
+    sessionMetaFrom,
+    rl,
+    cookieConfig,
+  } = ctx;
   return (
     new Elysia()
       // =========================================================================
@@ -57,8 +66,11 @@ export function createPasskeyLoginRoutes(ctx: AuthRouteContext) {
             const result = await run(auth.beginPasskeyLogin(body.identifier ?? null));
             return result;
           } catch (e) {
-            set.status = 400;
-            return { error: String(e) };
+            // S-H5/S-M6: never leak the raw cause. `handleError` logs the real
+            // error server-side (Effect logging) and returns an opaque code.
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
           }
         },
         {
@@ -109,8 +121,11 @@ export function createPasskeyLoginRoutes(ctx: AuthRouteContext) {
               profile: result.profile,
             };
           } catch (e) {
-            set.status = 400;
-            return { error: String(e) };
+            // S-H5/S-M6: never leak the raw cause. `handleError` logs the real
+            // error server-side (Effect logging) and returns an opaque code.
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
           }
         },
         {

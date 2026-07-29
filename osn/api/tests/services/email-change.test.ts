@@ -61,7 +61,11 @@ const setup = (
     const profile = yield* auth.registerProfile(email, handle);
     yield* auth.beginStepUpOtp(profile.accountId);
     const stepUpCode = captured.latest()!;
-    const { stepUpToken } = yield* auth.completeStepUpOtp(profile.accountId, stepUpCode);
+    const { stepUpToken } = yield* auth.completeStepUpOtp(
+      profile.accountId,
+      stepUpCode,
+      "email_change",
+    );
     return { auth, profile, stepUpToken };
   });
 
@@ -151,7 +155,11 @@ describe("beginEmailChange + completeEmailChange", () => {
       const issueStepUp = Effect.gen(function* () {
         yield* auth.beginStepUpOtp(profile.accountId);
         const code = captured.latest()!;
-        const { stepUpToken } = yield* auth.completeStepUpOtp(profile.accountId, code);
+        const { stepUpToken } = yield* auth.completeStepUpOtp(
+          profile.accountId,
+          code,
+          "email_change",
+        );
         return stepUpToken;
       });
 

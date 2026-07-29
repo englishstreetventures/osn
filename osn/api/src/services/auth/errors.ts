@@ -54,5 +54,8 @@ export type OidcErrorCode =
  */
 export class OidcError extends Data.TaggedError("OidcError")<{
   readonly code: OidcErrorCode;
+  /** Safe to return to the relying party — never interpolate internal detail. */
   readonly description: string;
+  /** Internal-only cause, for logs. Never serialised onto the wire. */
+  readonly cause?: unknown;
 }> {}

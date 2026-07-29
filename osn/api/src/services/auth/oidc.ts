@@ -35,12 +35,14 @@ import {
   AUTHORIZE_REQUEST_TTL_MS,
   ID_TOKEN_TTL_SEC,
   isReservedOidcClientId,
+  MAX_OIDC_CLIENT_ROWS_PER_ACCOUNT,
   MAX_OIDC_CLIENTS_PER_ACCOUNT,
   OIDC_CLIENT_MAX_REDIRECT_URIS,
   OIDC_CLIENT_NAME_MAX_LENGTH,
   OIDC_CLIENT_URI_MAX_LENGTH,
   OIDC_MAX_AGE_CEILING_SEC,
   OIDC_PARAM_MAX_LENGTH,
+  RESERVED_OIDC_CLIENT_NAMES,
 } from "./constants";
 import type { AuthContext } from "./context";
 import { DatabaseError, OidcError, type OidcErrorCode } from "./errors";
@@ -319,6 +321,104 @@ const generateBindingSecret = (): string => {
  * deny-list cannot collide by construction — `findClient` still enforces it
  * as defence in depth for hand-seeded rows.
  */
+/**
+ * True when a name carries a character that lets it lie about its identity on
+ * the consent screen without changing how it reads: bidirectional
+ * overrides/embeddings (which reverse or reorder glyphs), zero-width
+ * joiners/spaces, the BOM, and C0/C1 control codes. A legitimate app name
+ * needs none of them. Codepoint tests avoid a control-character regex literal.
+ */
+function hasDeceptiveNameChar(name: string): boolean {
+  for (const ch of name) {
+    const cp = ch.codePointAt(0)!;
+    if (cp <= 0x1f || (cp >= 0x7f && cp <= 0x9f)) return true; // C0 / DEL / C1 controls
+    if (cp >= 0x200b && cp <= 0x200f) return true; // zero-width + LTR/RTL marks
+    if (cp >= 0x202a && cp <= 0x202e) return true; // bidi embeddings/overrides
+    if (cp >= 0x2060 && cp <= 0x2064) return true; // word-joiner + invisibles
+    if (cp >= 0x2066 && cp <= 0x206f) return true; // bidi isolates + deprecated formats
+    if (cp === 0xfeff) return true; // BOM / zero-width no-break space
+  }
+  return false;
+}
+
+/**
+ * Look-alikes folded to their Latin twin so a name built from them collides
+ * with the reserved skeleton. Covers ASCII digit/symbol substitutions AND the
+ * common Cyrillic/Greek homoglyphs (all lowercase — the skeleton lowercases
+ * first), because Unicode normalisation never crosses scripts: "Мusubi" with a
+ * Cyrillic М would otherwise survive NFKC unchanged and slip through.
+ */
+const CONFUSABLE_FOLD: Record<string, string> = {
+  // Digits / symbols
+  "0": "o",
+  "1": "l",
+  "3": "e",
+  "4": "a",
+  "5": "s",
+  "6": "g",
+  "7": "t",
+  "8": "b",
+  "9": "g",
+  "|": "l",
+  "!": "i",
+  $: "s",
+  "@": "a",
+  // Cyrillic → Latin
+  а: "a",
+  в: "b",
+  с: "c",
+  ԁ: "d",
+  е: "e",
+  һ: "h",
+  і: "i",
+  ј: "j",
+  ӏ: "l",
+  м: "m",
+  н: "h",
+  о: "o",
+  р: "p",
+  ѕ: "s",
+  т: "t",
+  ԛ: "q",
+  ԝ: "w",
+  х: "x",
+  у: "y",
+  ѵ: "v",
+  // Greek → Latin
+  α: "a",
+  β: "b",
+  ε: "e",
+  ι: "i",
+  κ: "k",
+  ν: "v",
+  ο: "o",
+  ρ: "p",
+  τ: "t",
+  υ: "u",
+  χ: "x",
+  ω: "w",
+};
+
+/**
+ * Folds a name to a confusable skeleton for impersonation checks: NFKC,
+ * lowercase, strip combining marks (so accented Latin like "Músübi" collapses
+ * to base Latin), map digit/symbol/Cyrillic/Greek look-alikes to their Latin
+ * twin, then drop every remaining non-`[a-z]`. "Musubi", "MUSUBI",
+ * "M-u-s-u-b-i", "Musub1", "Мусубі" (Cyrillic) and "Músübi" all fold to
+ * `musubi`.
+ */
+export function clientNameSkeleton(name: string): string {
+  const base = name.normalize("NFKC").toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "");
+  return [...base]
+    .map((ch) => CONFUSABLE_FOLD[ch] ?? ch)
+    .join("")
+    .replace(/[^a-z]/g, "");
+}
+
+const RESERVED_NAME_SKELETONS: ReadonlySet<string> = new Set(
+  RESERVED_OIDC_CLIENT_NAMES.map(clientNameSkeleton),
+);
+
 export function validateClientRegistration(input: {
   name: string;
   redirectUris: string[];
@@ -326,9 +426,17 @@ export function validateClientRegistration(input: {
 }):
   | { ok: true; name: string; redirectUris: string[]; logoUrl: string | null }
   | { ok: false; message: string } {
-  const name = input.name.trim();
+  // NFKC first so length + skeleton see the same canonical form the consent
+  // screen renders (compatibility characters collapse to their base glyphs).
+  const name = input.name.normalize("NFKC").trim();
   if (name.length === 0 || name.length > OIDC_CLIENT_NAME_MAX_LENGTH) {
     return { ok: false, message: `name must be 1–${OIDC_CLIENT_NAME_MAX_LENGTH} characters` };
+  }
+  if (hasDeceptiveNameChar(name)) {
+    return { ok: false, message: "name must not contain control or direction-override characters" };
+  }
+  if (RESERVED_NAME_SKELETONS.has(clientNameSkeleton(name))) {
+    return { ok: false, message: "name is reserved and cannot be used" };
   }
 
   const uris = [...new Set(input.redirectUris)];
@@ -511,10 +619,14 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
    *  - `client_id` is server-generated, so it can never collide with a
    *    reserved audience and carries no user-chosen content;
    *  - the secret is returned exactly once and stored only as SHA-256;
-   *  - `sector_identifier` is derived from the first redirect URI's host —
-   *    self-serve clients cannot choose their sector, because choosing a
-   *    shared sector is how two colluding clients would defeat pairwise
-   *    subject isolation;
+   *  - `sector_identifier` is the server-generated `client_id` itself, so a
+   *    self-serve client gets a sector no one else can share. Deriving it from
+   *    a redirect-URI host (as an earlier cut did) was unsafe: the host is
+   *    attacker-chosen and unverified, so two colluding clients could register
+   *    the same first host and collapse to one `sub` per user — exactly the
+   *    cross-app correlation pairwise subjects exist to prevent. A genuinely
+   *    shared sector remains possible only for hand-seeded first-party clients,
+   *    whose `sector_identifier` an operator sets deliberately;
    *  - `is_first_party` is never settable here. First-party status is a
    *    hand-seeded trust decision, not a registration input.
    */
@@ -523,20 +635,18 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
   ): Effect.Effect<ClientRegistrationResult, OidcError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
-      const live = yield* Effect.tryPromise({
+      // One scan covers both caps: live rows (the active-slot cap) and total
+      // rows including disabled ones (the anti-churn storage cap).
+      const rows = yield* Effect.tryPromise({
         try: () =>
           db
-            .select({ id: oauthClients.id })
+            .select({ disabledAt: oauthClients.disabledAt })
             .from(oauthClients)
-            .where(
-              and(
-                eq(oauthClients.ownerAccountId, input.ownerAccountId),
-                isNull(oauthClients.disabledAt),
-              ),
-            ),
+            .where(eq(oauthClients.ownerAccountId, input.ownerAccountId)),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      if (live.length >= MAX_OIDC_CLIENTS_PER_ACCOUNT) {
+      const liveCount = rows.filter((r) => r.disabledAt === null).length;
+      if (liveCount >= MAX_OIDC_CLIENTS_PER_ACCOUNT) {
         return yield* Effect.fail(
           new OidcError({
             code: "invalid_request",
@@ -544,11 +654,25 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
           }),
         );
       }
+      if (rows.length >= MAX_OIDC_CLIENT_ROWS_PER_ACCOUNT) {
+        // Disabling frees a live slot but the row persists; the total cap stops
+        // create/disable churn from storing unbounded attacker-chosen strings.
+        return yield* Effect.fail(
+          new OidcError({
+            code: "invalid_request",
+            description: "Too many client registrations for this account",
+          }),
+        );
+      }
 
       const clientId = genId("cid_");
       const clientSecret = input.confidential ? generateClientSecret() : null;
       const nowSec = Math.floor(Date.now() / 1000);
-      const sectorIdentifier = new URL(input.redirectUris[0]!).host;
+      // Server-assigned sector: the client_id itself. A self-serve client can
+      // never share a sector with another (that is reserved for hand-seeded
+      // first-party clients), so its pairwise `sub` is unique per client and
+      // colluding third parties cannot correlate the same user across apps.
+      const sectorIdentifier = clientId;
 
       yield* Effect.tryPromise({
         try: () =>
@@ -1052,7 +1176,11 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
             catch: (cause) =>
               new OidcError({
                 code: "server_error",
-                description: `Failed to sign ID token: ${cause}`,
+                // Generic on the wire — the cause (key-import messages, stack
+                // fragments) must not leak to the relying party. Kept internally
+                // for logs via `cause`.
+                description: "Failed to issue tokens",
+                cause,
               }),
           }),
           accessToken: Effect.tryPromise({
@@ -1068,7 +1196,8 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
             catch: (cause) =>
               new OidcError({
                 code: "server_error",
-                description: `Failed to sign access token: ${cause}`,
+                description: "Failed to issue tokens",
+                cause,
               }),
           }),
         },
@@ -1190,15 +1319,20 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       };
     });
 
-  /** Builds the success redirect back to the relying party. */
+  /**
+   * Builds the success redirect back to the relying party. Echoes the issuer
+   * identifier (RFC 9207) so an RP that receives the code can confirm which
+   * provider issued it and defend against mix-up attacks.
+   */
   const buildCodeRedirect = (redirectUri: string, code: string, state: string | null): string => {
     const url = new URL(redirectUri);
     url.searchParams.set("code", code);
+    url.searchParams.set("iss", config.issuerUrl);
     if (state !== null) url.searchParams.set("state", state);
     return url.toString();
   };
 
-  /** Builds the failure redirect back to the relying party. */
+  /** Builds the failure redirect back to the relying party (with `iss`, RFC 9207). */
   const buildErrorRedirect = (
     redirectUri: string,
     code: OidcErrorCode,
@@ -1208,6 +1342,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
     const url = new URL(redirectUri);
     url.searchParams.set("error", code);
     url.searchParams.set("error_description", description);
+    url.searchParams.set("iss", config.issuerUrl);
     if (state !== null) url.searchParams.set("state", state);
     return url.toString();
   };
@@ -1405,14 +1540,14 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
 
       // S-M1 oidc: the decision must come from the browser that parked the
       // request. Checked BEFORE the request is consumed, so a forged attempt
-      // does not burn the real user's pending flow. The hash is absent only
-      // for requests parked by a pre-upgrade instance mid-deploy. The error
-      // is byte-identical to the unknown-id case: a caller without the
-      // binding cookie must not learn that the id exists.
+      // does not burn the real user's pending flow. Every parked request now
+      // carries a binding hash (S-L4 — the mid-deploy tolerance was removed),
+      // so the binding is always enforced. The error is byte-identical to the
+      // unknown-id case: a caller without the binding cookie must not learn
+      // that the id exists.
       if (
-        parked.bindingHash !== undefined &&
-        (input.bindingSecret === null ||
-          !hexEqual(sha256Hex(input.bindingSecret), parked.bindingHash))
+        input.bindingSecret === null ||
+        !hexEqual(sha256Hex(input.bindingSecret), parked.bindingHash)
       ) {
         return yield* Effect.fail(
           new OidcError({ code: "invalid_request", description: "Unknown or expired request" }),
@@ -1424,8 +1559,8 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       // the request was parked — and `max_age` is re-checked outright, because
       // a user can sit on the consent screen while their session ages past it.
       const nowSec = Math.floor(Date.now() / 1000);
-      // `!= null` on purpose: both fields read as undefined off a request
-      // parked by a pre-upgrade instance, and undefined must mean "no demand".
+      // `!= null`: both fields are `number | null`, and null means "the request
+      // made no freshness demand".
       const tooOld =
         (parked.requireAuthAfter != null && input.authTime < parked.requireAuthAfter) ||
         (parked.maxAge != null && nowSec - input.authTime > parked.maxAge);

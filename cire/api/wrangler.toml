@@ -43,6 +43,14 @@ OSN_AUDIENCE = "osn-access"
 CIRE_API_ORIGIN = "http://localhost:8787"
 CIRE_OIDC_CLIENT_ID = "cid_cire"
 ZAP_API_URL = "http://localhost:3002"
+# Internal back-channel organiser-session revoke endpoint
+# (POST /internal/revoke-organiser-sessions). osn-api presents this shared
+# secret as `Authorization: Bearer` on connection-revoke / account-delete so a
+# revoked OSN connection kills the cire organiser session promptly instead of
+# waiting out its 7-day TTL. NEVER a committed var — locally put
+# CIRE_INTERNAL_REVOKE_SECRET in `.dev.vars` (gitignored); in a deployed tier use
+# `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET`. Absent ⇒ the endpoint is
+# disabled (503). The SAME value must be provisioned on the osn-api side.
 
 # ── GrowthBook feature flags (KEY-OPTIONAL) ──────────────────────────────────
 # GROWTHBOOK_CLIENT_KEY UNSET ⇒ @shared/feature-flags serves every flag's coded
@@ -138,6 +146,10 @@ OSN_AUDIENCE = "osn-access"
 CIRE_API_ORIGIN = "https://api.cireweddings.com"
 CIRE_OIDC_CLIENT_ID = "cid_cire"
 ZAP_API_URL = "https://zap.cireweddings.com"
+# Internal back-channel organiser-session revoke secret (see the top-level [vars]
+# note). Provision as a secret, matching the value osn-api holds:
+#   bunx wrangler secret put CIRE_INTERNAL_REVOKE_SECRET --env production
+# Absent ⇒ POST /internal/revoke-organiser-sessions answers 503 (disabled).
 # GrowthBook feature flags (KEY-OPTIONAL) — see the top-level [vars] note. Named
 # envs do NOT inherit top-level [vars], so GROWTHBOOK_API_HOST is redeclared
 # here; set GROWTHBOOK_CLIENT_KEY (var or `wrangler secret put ... --env

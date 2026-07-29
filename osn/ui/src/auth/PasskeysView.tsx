@@ -286,14 +286,21 @@ export function PasskeysView(props: PasskeysViewProps) {
         </div>
       </details>
       <Show when={pending()}>
-        <StepUpDialog
-          client={props.stepUpClient}
-          accessToken={props.accessToken}
-          onToken={handleStepUp}
-          onCancel={cancelStepUp}
-          runPasskeyCeremony={props.runPasskeyCeremony}
-          passkeyOnly={props.passkeyOnly}
-        />
+        {(action) => (
+          <StepUpDialog
+            client={props.stepUpClient}
+            accessToken={props.accessToken}
+            onToken={handleStepUp}
+            onCancel={cancelStepUp}
+            runPasskeyCeremony={props.runPasskeyCeremony}
+            passkeyOnly={props.passkeyOnly}
+            // Bind the minted token to the exact ceremony. Enrolment mints
+            // `passkey_register`; rename and delete share the delete gate and
+            // both mint `passkey_delete`. The server rejects a token minted for
+            // any other purpose at these endpoints.
+            purpose={action().kind === "add" ? "passkey_register" : "passkey_delete"}
+          />
+        )}
       </Show>
     </div>
   );

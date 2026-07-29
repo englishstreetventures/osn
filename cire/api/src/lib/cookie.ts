@@ -43,7 +43,12 @@ export interface SessionCookieOptions {
  * programmer error; services aren't.
  */
 function buildCookie(name: string, value: string, opts: SessionCookieOptions): string {
-  if (!/^[A-Za-z0-9_-]+$/.test(value)) {
+  // `.` is permitted (and cookie-safe per RFC 6265 cookie-octet): the OIDC
+  // transaction cookie is `<b64url payload>.<b64url HMAC>`, so its value carries
+  // one dot separating the payload from its integrity tag. Opaque session tokens
+  // (guest + organiser) never contain a dot; the guard still rejects the unsafe
+  // set (`; , " \` and whitespace) that would corrupt a Set-Cookie header.
+  if (!/^[A-Za-z0-9._-]+$/.test(value)) {
     throw new TypeError(`${name} value contains invalid chars`);
   }
   const parts = [
@@ -104,7 +109,11 @@ export function parseOrganiserSessionToken(cookieHeader: string | null): string 
   return parseCookie(cookieHeader, ORGANISER_COOKIE_NAME);
 }
 
-/** The transaction payload is base64url-encoded JSON, so it stays cookie-safe. */
+/**
+ * The transaction value is `<base64url JSON>.<base64url HMAC>` — HMAC-signed by
+ * `oidc-login.ts` so a planted/tampered cookie is rejected (session-fixation
+ * guard). Both halves are base64url and the single dot is cookie-safe.
+ */
 export function buildOidcTxCookie(value: string, opts: SessionCookieOptions): string {
   return buildCookie(OIDC_TX_COOKIE_NAME, value, opts);
 }

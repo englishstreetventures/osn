@@ -117,6 +117,7 @@ export function ChangeEmailForm(props: ChangeEmailFormProps) {
           client={props.stepUpClient}
           accessToken={props.accessToken}
           runPasskeyCeremony={props.runPasskeyCeremony}
+          purpose="email_change"
           onToken={(tok) => {
             setStepUp(tok);
             setPhase("enter_code");

@@ -240,6 +240,17 @@ export const sessions = sqliteTable(
     /** Unix seconds */
     createdAt: integer("created_at").notNull(),
     /**
+     * Unix seconds — the moment the user actually authenticated on this device
+     * (passkey/OTP ceremony). Unlike `createdAt`, this is copied forward across
+     * every refresh rotation, so it survives the silent token rotation that
+     * `authFetch` performs roughly every access-token expiry. It is the honest
+     * `auth_time` for the OIDC provider and the basis for `max_age`/`prompt=login`
+     * freshness: a background refresh must not make a weeks-old passkey ceremony
+     * read as "just signed in". Nullable for rows created before this column
+     * existed — read paths fall back to `createdAt`.
+     */
+    authenticatedAt: integer("authenticated_at"),
+    /**
      * Coarse UA label, e.g. "Firefox on macOS". Derived from the User-Agent
      * header at session-issue time and never stored raw — we keep
      * cardinality bounded to ~browser × OS so Settings UI can render a

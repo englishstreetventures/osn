@@ -15,7 +15,28 @@ const authConfig: RpAuthConfig = { apiBase: CIRE_API_URL };
 const ERROR_COPY: Record<string, string> = {
   sign_in_declined: "Sign-in was cancelled. Nothing was shared with Cire.",
   sign_in_failed: "Sign-in did not go through. Try again.",
+  sign_in_unavailable: "Sign-in is temporarily unavailable. Please try again shortly.",
 };
+
+/**
+ * Where to land after signing in. A 401 mid-session sends the user here with a
+ * `?returnTo=<path>` so they resume on the page they were on. Only a same-origin
+ * PATH is honoured (never an absolute URL, and never `/login` itself) — anything
+ * else falls back to the dashboard root, so this can't be turned into an open
+ * redirect via a crafted link.
+ */
+function resumeTarget(): string {
+  const root = new URL("/", window.location.origin).toString();
+  const raw = new URLSearchParams(window.location.search).get("returnTo");
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) return root;
+  try {
+    const url = new URL(raw, window.location.origin);
+    if (url.origin !== window.location.origin || url.pathname === "/login") return root;
+    return url.toString();
+  } catch {
+    return root;
+  }
+}
 
 /**
  * Login page island. The portal no longer runs the passkey ceremony itself:
@@ -42,9 +63,9 @@ const ERROR_COPY: Record<string, string> = {
 export default function SignInPanel() {
   const [error, setError] = createSignal<string | null>(null);
 
-  // Land on the dashboard, not back on /login — the login page bounces a
-  // signed-in organiser straight off again.
-  const home = () => new URL("/", window.location.origin).toString();
+  // Where a signed-in organiser belongs: the page a 401 bounced them off of
+  // (via `?returnTo`), or the dashboard root. Never back to /login.
+  const home = () => resumeTarget();
   const signIn = () => startSignIn(authConfig, home());
   const createAccount = () => startCreateAccount(authConfig, home());
 

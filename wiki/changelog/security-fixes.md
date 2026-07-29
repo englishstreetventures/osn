@@ -7,12 +7,25 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-07-26
+last-reviewed: 2026-07-29
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## Auth PR review (#315–#324) — OIDC + step-up + session hardening (2026-07-29)
+
+Findings from a security + UX review of the auth PRs merged 2026-07-24…27.
+
+- **Pairwise-`sub` isolation was defeatable** — a self-serve OIDC client's `sector_identifier` was the host of its first redirect URI, which is attacker-chosen and never verified, so two colluding clients registering the same first host collapsed to one `sub` per user. **Fixed** — the sector is now the server-generated `client_id` itself; a shared sector is reserved for hand-seeded first-party clients. See [[oidc-provider]].
+- **`auth_time` reset by silent rotation** — `max_age`/`prompt=login` freshness was defeated because `refreshTokens` stamped the rotated-in session `created_at = now`, and the client silently refreshes every ~5 min, so a weeks-old passkey ceremony read as "just signed in". **Fixed** — `sessions.authenticated_at` (new column) is copied forward across every rotation and is the honest `auth_time`. See [[sessions]].
+- **Consent-screen impersonation** — a self-registered client could take a first-party app's name (or a homograph) with a copied logo, and the card showed no verifiable signal. **Fixed** — names are NFKC-normalised, reject bidi/zero-width/control chars, and are blocked when they fold to a confusable skeleton of a reserved first-party name; the card now shows a verified-app badge or a "third-party · sends you to <host>" line. See [[oidc-provider]].
+- **Step-up purpose binding was one-directional** — passkey register/delete, email change, and security-event ack verified tokens by audience + AMR + single-use jti but not purpose, so a `recovery_generate` token could be replayed at a passkey-delete gate before its jti was consumed. **Fixed** — every gate requires its own purpose; every client dialog mints the matching one. See [[step-up]].
+- **S-M2 (osn-sid-rotated-session)** — a presented-but-stale `osn_sid` collapsed passkey register/delete into an account-wide session wipe. **Fixed** — `classifyCallerSession` splits `resolved`/`none`/`stale`; the destructive routes fail closed (409) on `stale`. See [[sessions]].
+- **Minor OIDC hardening** — token-endpoint errors no longer interpolate the internal cause onto the wire; authorization responses carry RFC 9207 `iss`; the browser-binding hash is required on every parked request (the mid-deploy "no hash → accept" tolerance is gone); client registration caps total rows (not just live) per account; pre-validation `/authorize` failures render a branded HTML page instead of raw JSON.
+- **cire organiser OIDC** — the four organiser auth routes are now rate-limited (fail-closed), the OIDC transaction cookie is HMAC-signed (a sibling-host cookie can't fixate the login), and terminal callback failures redirect to the allowlisted login page with `?auth_error` instead of rendering JSON. A fail-closed `POST /internal/revoke-organiser-sessions` back-channel lets an OSN revoke kill the cire session early (osn-api caller wiring still open — see Security Backlog). See [[cire-auth]].
+- **Rows-affected guard** — a driver-independent test in `@shared/db-utils` now fails the build if any Worker `src/` reads `.changes`/`.rowsAffected` directly instead of `rowsChanged()`, closing the CI blind spot behind the D1 outage above.
 
 ## Rows-affected read on D1 — every refresh killed its own session (2026-07-26)
 

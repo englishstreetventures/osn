@@ -1,7 +1,14 @@
 import type { RecoveryClient, StepUpClient, StepUpToken } from "@osn/client";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { Button } from "../components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "../components/ui/dialog";
 import { StepUpDialog } from "./StepUpDialog";
 
 /**
@@ -44,8 +51,9 @@ export interface RecoveryCodesViewProps {
   runPasskeyCeremony?: (options: unknown) => Promise<unknown>;
   /**
    * Force the step-up ceremony to use the passkey factor only, suppressing
-   * the OTP ("email me a code") option. Set this in hosts where transactional
-   * email is degraded, so the user is never offered a code that won't arrive.
+   * the OTP ("email me a code") option. Set this for accounts whose host has
+   * no deliverable transactional email, so the user is never offered a code
+   * that won't arrive.
    */
   passkeyOnly?: boolean;
   /** Fires once the user has acknowledged saving the codes. */
@@ -66,7 +74,56 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
   const [error, setError] = createSignal<string | null>(null);
   const [acknowledged, setAcknowledged] = createSignal(false);
   const [pending, setPending] = createSignal(false);
+  const [confirmRotate, setConfirmRotate] = createSignal(false);
   const [reloadKey, setReloadKey] = createSignal(0);
+
+  // The freshly-shown codes are the ONLY copy the client ever holds, and the
+  // previous set is already revoked server-side by the time they render — so
+  // reloading, closing the tab, or switching the Settings hash-tab before the
+  // user saves loses the codes silently. Warn while they're on screen and
+  // unacknowledged.
+  const unsaved = () => codes() !== null && !acknowledged();
+  const NAV_WARNING = "You haven't saved your new recovery codes yet. Leave without saving them?";
+
+  function handleBeforeUnload(e: BeforeUnloadEvent) {
+    if (!unsaved()) return;
+    e.preventDefault();
+    // Legacy browsers gate the native prompt on a set `returnValue`.
+    e.returnValue = "";
+  }
+
+  // In-app tab switches move the URL hash rather than unload the page, so
+  // `beforeunload` never fires for them. Re-entrancy flag: reverting the hash
+  // itself emits another `hashchange` we must ignore.
+  let revertingHash = false;
+  let lastHash = typeof location !== "undefined" ? location.hash : "";
+  function handleNavGuard() {
+    if (revertingHash) {
+      revertingHash = false;
+      lastHash = location.hash;
+      return;
+    }
+    if (unsaved() && !window.confirm(NAV_WARNING)) {
+      // User chose to stay — undo the navigation so the codes stay on screen.
+      revertingHash = true;
+      location.hash = lastHash;
+      return;
+    }
+    lastHash = location.hash;
+  }
+
+  onMount(() => {
+    if (typeof window === "undefined") return;
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("hashchange", handleNavGuard);
+    window.addEventListener("popstate", handleNavGuard);
+  });
+  onCleanup(() => {
+    if (typeof window === "undefined") return;
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+    window.removeEventListener("hashchange", handleNavGuard);
+    window.removeEventListener("popstate", handleNavGuard);
+  });
 
   // Fails soft: a status read that errors leaves the count unknown rather than
   // stranding the user on an error screen with no way to make codes.
@@ -101,13 +158,19 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
 
   function requestGenerate() {
     if (locked()) return;
-    if (
-      mayHaveCodes() &&
-      !window.confirm("Generate a new set? Your existing recovery codes stop working immediately.")
-    ) {
+    setError(null);
+    // Rotation is destructive — the existing set is revoked the moment the new
+    // one is minted. Gate it behind an explicit confirmation dialog. A brand-new
+    // account (no codes to lose) skips straight to the ceremony.
+    if (mayHaveCodes()) {
+      setConfirmRotate(true);
       return;
     }
-    setError(null);
+    setPending(true);
+  }
+
+  function confirmRotation() {
+    setConfirmRotate(false);
     setPending(true);
   }
 
@@ -238,6 +301,28 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
           </Button>
         </div>
       </Show>
+      <Dialog open={confirmRotate()} onOpenChange={setConfirmRotate}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Generate a new set?</DialogTitle>
+          </DialogHeader>
+          <div class="flex flex-col gap-2 p-4">
+            <p class="text-muted-foreground text-sm">
+              Your existing recovery codes stop working immediately — any copy you've saved
+              elsewhere becomes useless.
+            </p>
+            <p class="text-muted-foreground text-sm">
+              You'll be asked to confirm with your passkey before the new codes are generated.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmRotate(false)}>
+              Cancel
+            </Button>
+            <Button onClick={confirmRotation}>Generate new set</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Show when={pending()}>
         <StepUpDialog
           client={props.stepUpClient}
@@ -246,6 +331,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
           onCancel={cancelStepUp}
           runPasskeyCeremony={props.runPasskeyCeremony}
           passkeyOnly={props.passkeyOnly}
+          reason="to generate recovery codes"
           purpose="recovery_generate"
         />
       </Show>

@@ -46,6 +46,9 @@ export const CIRE_METRICS = {
   organiserSessionCreated: "cire.organiser_session.created",
   // Scheduled expired-organiser-session sweep (cron).
   organiserSessionSwept: "cire.organiser_session.swept",
+  // Back-channel revocation of an organiser's sessions (OSN-side revoke /
+  // account-delete calling the internal endpoint).
+  organiserSessionRevoked: "cire.organiser_session.revoked",
   // OIDC sign-in outcomes, one per completed leg of the redirect flow.
   oidcLogin: "cire.oidc.login",
   // Scheduled guest-data retention sweep (cron) — deletes guest PII 1 year
@@ -222,6 +225,8 @@ type SessionCreatedAttrs = { result: "ok" | "error" };
 type SessionSweptAttrs = { result: "ok" | "error" };
 type OrganiserSessionCreatedAttrs = { result: "ok" | "error" };
 type OrganiserSessionSweptAttrs = { result: "ok" | "error" };
+/** Back-channel revocation (OSN-side revoke / account-delete) outcome. */
+type OrganiserSessionRevokedAttrs = { result: "ok" | "error" | "unauthorised" | "disabled" };
 /**
  * Which leg of the OIDC redirect flow ended, and how. Closed set — never carry
  * a client id, profile id, or the provider's error string, all of which are
@@ -341,6 +346,13 @@ const oidcLogin = createCounter<OidcLoginAttrs>({
   name: CIRE_METRICS.oidcLogin,
   description: "OSN OIDC sign-in legs, by outcome",
   unit: "{attempt}",
+});
+
+const organiserSessionRevoked = createCounter<OrganiserSessionRevokedAttrs>({
+  name: CIRE_METRICS.organiserSessionRevoked,
+  description:
+    "Back-channel organiser-session revocations via the internal endpoint (OSN-side revoke / account-delete), by outcome",
+  unit: "{revocation}",
 });
 
 const guestDataSwept = createCounter<GuestDataSweptAttrs>({
@@ -561,6 +573,11 @@ export const metricOrganiserSessionCreated = (result: "ok" | "error"): void =>
 /** Same shape as `metricSessionSwept`, for the organiser table. */
 export const metricOrganiserSessionSwept = (result: "ok" | "error", count = 1): void =>
   organiserSessionSwept.add(count, { result });
+
+/** Record a back-channel revocation attempt on the internal endpoint. */
+export const metricOrganiserSessionRevoked = (
+  result: OrganiserSessionRevokedAttrs["result"],
+): void => organiserSessionRevoked.inc({ result });
 
 /** Record one leg of an OIDC sign-in. See `OidcLoginOutcome` for the values. */
 export const metricOidcLogin = (outcome: OidcLoginOutcome): void => oidcLogin.inc({ outcome });

@@ -64,6 +64,13 @@ export interface Env {
   OSN_API_URL?: string;
   CIRE_API_ARC_PRIVATE_KEY?: string;
   CIRE_API_ARC_KEY_ID?: string;
+  // Shared secret for the internal back-channel organiser-session revoke
+  // endpoint (POST /internal/revoke-organiser-sessions). osn-api presents it as
+  // `Authorization: Bearer` on connection-revoke / account-delete so a revoked
+  // OSN connection kills the cire organiser session promptly instead of waiting
+  // out its 7-day TTL. A wrangler secret (`wrangler secret put
+  // CIRE_INTERNAL_REVOKE_SECRET`). Absent ⇒ the endpoint is disabled (503).
+  CIRE_INTERNAL_REVOKE_SECRET?: string;
   // Optional — base URL of zap-api for the vendor enquiry c2b chat bridge.
   // Absent (or combined with a missing ARC key) ⇒ vendor chat disabled (503).
   // The ARC signing key is shared with the osn-api bridge above; no new key
@@ -328,6 +335,11 @@ const handler: ExportedHandler<Env> = {
           osnJwksUrl: env.OSN_JWKS_URL,
           osnAudience: env.OSN_AUDIENCE,
           oidc,
+          // Back-channel revoke endpoint: enabled only when the shared secret is
+          // set (else it answers 503). No new rate limiter wired here — the
+          // in-memory default in createApp is generous enough for the
+          // infrequent revoke/delete calls.
+          internalRevokeSecret: env.CIRE_INTERNAL_REVOKE_SECRET ?? null,
           resolveOsnAccountId,
           resolveOsnProfileByHandle,
           resolveOsnProfileDisplays,

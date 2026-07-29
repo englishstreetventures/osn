@@ -148,22 +148,42 @@ describe("RecoveryCodesView", () => {
     });
   });
 
-  it("asks for confirmation before rotating an existing set", async () => {
+  it("asks for confirmation before rotating an existing set (cancel leaves it untouched)", async () => {
     stub.getRecoveryCodesStatus.mockResolvedValue({
       active: 10,
       total: 10,
       generatedAt: 1_750_000_000,
     });
-    // Declining the prompt must leave the existing set untouched.
-    const confirmSpy = vi.fn().mockReturnValue(false);
-    vi.stubGlobal("confirm", confirmSpy);
+    renderView();
+
+    // Clicking the primary button opens a confirmation dialog rather than
+    // starting the ceremony — the existing set must not be rotated yet.
+    await clickGenerate(/Generate new codes/i);
+    await waitFor(() => expect(screen.getByText(/Generate a new set\?/i)).toBeTruthy());
+    expect(stepUp.passkeyBegin).not.toHaveBeenCalled();
+
+    // Declining the dialog leaves the existing set untouched — the ceremony
+    // never starts.
+    fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
+    expect(stepUp.passkeyBegin).not.toHaveBeenCalled();
+    expect(stub.generateRecoveryCodes).not.toHaveBeenCalled();
+  });
+
+  it("proceeds with the ceremony once the rotation dialog is confirmed", async () => {
+    stub.getRecoveryCodesStatus.mockResolvedValue({
+      active: 10,
+      total: 10,
+      generatedAt: 1_750_000_000,
+    });
+    stub.generateRecoveryCodes.mockResolvedValue({ codes: sampleCodes });
     renderView();
 
     await clickGenerate(/Generate new codes/i);
+    await waitFor(() => screen.getByRole("button", { name: /Generate new set/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Generate new set/i }));
 
-    expect(confirmSpy).toHaveBeenCalled();
-    expect(stepUp.passkeyBegin).not.toHaveBeenCalled();
-    expect(stub.generateRecoveryCodes).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.getByText(sampleCodes[0]!)).toBeTruthy());
+    expect(stepUp.passkeyBegin).toHaveBeenCalled();
   });
 
   it("Done button is disabled until the 'I've saved' checkbox is ticked", async () => {
@@ -229,7 +249,11 @@ describe("RecoveryCodesView", () => {
     await waitFor(() => {
       expect(screen.getByText(/Couldn't check whether you have recovery codes/i)).toBeTruthy();
     });
+    // An unreadable count is treated conservatively as "might have codes", so
+    // the rotation dialog gates generation — confirm it to proceed.
     await clickGenerate();
+    await waitFor(() => screen.getByRole("button", { name: /Generate new set/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Generate new set/i }));
     await waitFor(() => screen.getByText(sampleCodes[0]!));
   });
 
@@ -238,16 +262,16 @@ describe("RecoveryCodesView", () => {
   // one prompt standing between the user and a destroyed set.
   it("still warns before rotating when the status read fails", async () => {
     stub.getRecoveryCodesStatus.mockRejectedValue(new Error("offline"));
-    const confirmSpy = vi.fn().mockReturnValue(false);
-    vi.stubGlobal("confirm", confirmSpy);
     renderView();
 
     await waitFor(() => {
       expect(screen.getByText(/Couldn't check whether you have recovery codes/i)).toBeTruthy();
     });
+    // An unreadable count is treated as "might have codes", so the confirmation
+    // dialog must still gate the ceremony.
     await clickGenerate();
+    await waitFor(() => expect(screen.getByText(/Generate a new set\?/i)).toBeTruthy());
 
-    expect(confirmSpy).toHaveBeenCalled();
     expect(stepUp.passkeyBegin).not.toHaveBeenCalled();
     expect(stub.generateRecoveryCodes).not.toHaveBeenCalled();
   });

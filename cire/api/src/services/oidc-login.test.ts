@@ -15,7 +15,14 @@ import {
   tokenResponse,
 } from "../test-helpers/oidc-issuer";
 import type { OidcTestIssuer } from "../test-helpers/oidc-issuer";
-import { beginLogin, completeLogin, isAllowedReturnTo, readReturnTo } from "./oidc-login";
+import {
+  beginLogin,
+  completeLogin,
+  decodeTx,
+  encodeTx,
+  isAllowedReturnTo,
+  readReturnTo,
+} from "./oidc-login";
 import type { OidcConfig } from "./oidc-login";
 
 let issuer: OidcTestIssuer;
@@ -24,37 +31,20 @@ beforeAll(async () => {
 });
 
 /**
- * The transaction cookie is base64url JSON. Tests decode a REAL one rather than
- * hand-rolling the shape, so a field rename breaks here loudly instead of
- * silently testing a payload production no longer writes.
+ * Forge a tx cookie with an arbitrary (possibly invalid) payload shape but a
+ * VALID HMAC, so a test exercises the payload-shape / expiry checks rather than
+ * tripping the MAC check first. Reuses the production `encodeTx` (which signs)
+ * with a cast so a v:9-style shape can be built.
  */
-interface TxShape {
-  v: number;
-  s: string;
-  n: string;
-  cv: string;
-  r: string;
-  x: number;
-}
+const forgeTx = (shape: Record<string, unknown>, secret: string): Promise<string> =>
+  encodeTx(shape as unknown as Parameters<typeof encodeTx>[0], secret);
 
-const decodeTx = (tx: string): TxShape =>
-  JSON.parse(
-    new TextDecoder().decode(
-      Uint8Array.from(atob(tx.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)),
-    ),
-  ) as TxShape;
-
-const encodeTx = (tx: TxShape): string =>
-  btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(tx))))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/, "");
-
-/** A started login: the tx cookie plus the `state` the issuer would echo back. */
+/** A started login: the decoded tx plus the `state` the issuer would echo back. */
 async function startLogin(config: OidcConfig, returnTo = TEST_RETURN_TO) {
   const started = await beginLogin(config, returnTo);
   if (!started) throw new Error("beginLogin refused an allowed return_to");
-  const tx = decodeTx(started.tx);
+  const tx = await decodeTx(started.tx, config.clientSecret);
+  if (!tx) throw new Error("decodeTx rejected a freshly minted transaction");
   return { started, tx, cookie: started.tx };
 }
 
@@ -143,7 +133,8 @@ describe("beginLogin", () => {
 
   it("produces a cookie-safe transaction value", async () => {
     const { cookie } = await startLogin(issuer.config());
-    expect(cookie).toMatch(/^[A-Za-z0-9_-]+$/);
+    // `payload.mac` — base64url segments joined by a dot, all cookie-safe.
+    expect(cookie).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
   });
 });
 
@@ -151,21 +142,74 @@ describe("readReturnTo", () => {
   it("returns the remembered destination", async () => {
     const config = issuer.config();
     const { cookie } = await startLogin(config, `${TEST_RETURN_ORIGIN}/vendors`);
-    expect(readReturnTo(config, cookie)).toBe(`${TEST_RETURN_ORIGIN}/vendors`);
+    expect(await readReturnTo(config, cookie)).toBe(`${TEST_RETURN_ORIGIN}/vendors`);
   });
 
-  it("returns null for a missing or malformed cookie", () => {
+  it("returns null for a missing or malformed cookie", async () => {
     const config = issuer.config();
-    expect(readReturnTo(config, null)).toBeNull();
-    expect(readReturnTo(config, "not-base64url-json")).toBeNull();
-    expect(readReturnTo(config, encodeTx({ v: 9, s: "", n: "", cv: "", r: "", x: 0 }))).toBeNull();
+    expect(await readReturnTo(config, null)).toBeNull();
+    expect(await readReturnTo(config, "not-base64url-json")).toBeNull();
+    // Wrong schema version, even with a valid MAC.
+    expect(
+      await readReturnTo(
+        config,
+        await forgeTx({ v: 9, s: "", n: "", cv: "", r: "", x: 0 }, config.clientSecret),
+      ),
+    ).toBeNull();
   });
 
   it("returns null when the remembered origin is no longer allowed", async () => {
     const { cookie } = await startLogin(issuer.config());
     // Same cookie, a config whose allowlist has since dropped that origin.
     const narrowed = issuer.config({ allowedReturnOrigins: ["https://other.test"] });
-    expect(readReturnTo(narrowed, cookie)).toBeNull();
+    expect(await readReturnTo(narrowed, cookie)).toBeNull();
+  });
+});
+
+describe("tx cookie integrity (HMAC)", () => {
+  const state = { v: 1 as const, s: "st", n: "no", cv: "cv", r: TEST_RETURN_TO, x: Date.now() };
+
+  it("round-trips a freshly signed transaction", async () => {
+    const secret = TEST_CLIENT_SECRET;
+    const decoded = await decodeTx(await encodeTx(state, secret), secret);
+    expect(decoded).toEqual(state);
+  });
+
+  it("carries a MAC — the value is `<payload>.<mac>`", async () => {
+    const cookie = await encodeTx(state, TEST_CLIENT_SECRET);
+    expect(cookie.split(".")).toHaveLength(2);
+    expect(cookie).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+  });
+
+  it("rejects a tampered payload (session-fixation guard)", async () => {
+    const secret = TEST_CLIENT_SECRET;
+    const cookie = await encodeTx(state, secret);
+    const [payload, mac] = cookie.split(".");
+    // Re-point the return destination while keeping the original MAC.
+    const forgedPayload = btoa(
+      String.fromCharCode(...new TextEncoder().encode(JSON.stringify({ ...state, s: "attacker" }))),
+    )
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(await decodeTx(`${forgedPayload}.${mac}`, secret)).toBeNull();
+    // A flipped MAC is rejected too.
+    const flipped = mac!.slice(0, -1) + (mac!.endsWith("A") ? "B" : "A");
+    expect(await decodeTx(`${payload}.${flipped}`, secret)).toBeNull();
+  });
+
+  it("rejects a cookie signed under a different secret", async () => {
+    const cookie = await encodeTx(state, "secret-one");
+    expect(await decodeTx(cookie, "secret-two")).toBeNull();
+  });
+
+  it("rejects an unsigned legacy cookie (no MAC segment)", async () => {
+    // The old format was bare base64url JSON with no `.mac` — a hard cutover.
+    const bare = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(state))))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(await decodeTx(bare, TEST_CLIENT_SECRET)).toBeNull();
   });
 });
 
@@ -202,7 +246,7 @@ describe("completeLogin — transaction checks", () => {
   it("fails with state_mismatch once the transaction has expired", async () => {
     const config = issuer.config();
     const { tx } = await startLogin(config);
-    const stale = encodeTx({ ...tx, x: Date.now() - 1_000 });
+    const stale = await encodeTx({ ...tx, x: Date.now() - 1_000 }, config.clientSecret);
     const result = await completeLogin(config, { code: "c", state: tx.s, tx: stale });
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");

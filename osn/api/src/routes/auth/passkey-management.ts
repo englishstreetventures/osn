@@ -139,12 +139,19 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
             // self to preserve" branch and logged the account out of every
             // device.
             const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
-            const currentHash = await run(
-              auth.resolveCallerSession(profile.accountId, claims.profileId, {
+            const caller = await run(
+              auth.classifyCallerSession(profile.accountId, claims.profileId, {
                 cookieSessionHash: cookieToken ? auth.hashSessionToken(cookieToken) : null,
                 sessionBinding: claims.sessionBinding,
               }),
             );
+            // S-M2: never let a presented-but-stale binding collapse into the
+            // account-wide session wipe. Fail closed instead.
+            if (caller._tag === "stale") {
+              set.status = 409;
+              return { error: "session_stale", message: "Re-authenticate and try again." };
+            }
+            const currentHash = caller._tag === "resolved" ? caller.sessionHash : null;
             const result = await run(
               auth.deletePasskey(
                 profile.accountId,

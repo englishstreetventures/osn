@@ -93,7 +93,12 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
     stepUpToken: string,
   ): Effect.Effect<{ acknowledged: boolean }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      yield* verifyStepUpToken(stepUpToken, accountId, recoveryGenerateAllowedAmr);
+      yield* verifyStepUpToken(
+        stepUpToken,
+        accountId,
+        recoveryGenerateAllowedAmr,
+        "security_event_ack",
+      );
 
       if (!/^sev_[a-f0-9]{12}$/.test(eventId)) {
         return { acknowledged: false };
@@ -144,7 +149,12 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
     stepUpToken: string,
   ): Effect.Effect<{ acknowledged: number }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      yield* verifyStepUpToken(stepUpToken, accountId, recoveryGenerateAllowedAmr);
+      yield* verifyStepUpToken(
+        stepUpToken,
+        accountId,
+        recoveryGenerateAllowedAmr,
+        "security_event_ack",
+      );
 
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1000);
