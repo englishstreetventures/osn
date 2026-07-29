@@ -63,7 +63,7 @@ export function SettingsPage() {
   );
 
   return (
-    <main class="mx-auto w-full max-w-2xl px-8 py-8">
+    <main class="mx-auto w-full max-w-2xl px-4 py-6 md:px-8 md:py-8">
       <div class="mb-6">
         <h1 class="text-foreground text-display font-medium">Settings</h1>
         <p class="text-muted-foreground text-body mt-1">Manage your OSN identity and account.</p>
@@ -83,13 +83,13 @@ export function SettingsPage() {
         </div>
 
         {/* Section tabs */}
-        <div class="border-border mb-6 flex gap-1 border-b">
+        <div class="border-border mb-6 flex gap-1 overflow-x-auto border-b whitespace-nowrap">
           <For each={SECTIONS}>
             {(s) => (
               <button
                 type="button"
                 class={clsx(
-                  "border-b-2 px-3 pb-2.5 text-body font-medium transition-colors",
+                  "border-b-2 px-3 pb-2.5 text-body font-medium transition-colors max-md:min-h-11",
                   section() === s.value
                     ? "border-foreground text-foreground"
                     : "text-muted-foreground hover:text-foreground border-transparent",

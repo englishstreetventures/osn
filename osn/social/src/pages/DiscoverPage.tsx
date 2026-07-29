@@ -36,7 +36,7 @@ export function DiscoverPage() {
   }
 
   return (
-    <main class="mx-auto w-full max-w-2xl px-8 py-8">
+    <main class="mx-auto w-full max-w-2xl px-4 py-6 md:px-8 md:py-8">
       <div class="mb-6">
         <h1 class="text-foreground text-display font-medium">Discover</h1>
         <p class="text-muted-foreground text-body mt-1">
@@ -105,7 +105,7 @@ export function DiscoverPage() {
                       </span>
                       <Button
                         size="sm"
-                        class="text-body rounded-pill h-7"
+                        class="text-body rounded-pill h-7 max-md:h-10"
                         disabled={sending().has(suggestion.handle)}
                         onClick={() => connect(suggestion.handle)}
                       >

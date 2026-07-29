@@ -237,7 +237,7 @@ export function AuthorizePage() {
   }
 
   return (
-    <main class="mx-auto flex min-h-screen w-full max-w-md flex-col justify-center px-6 py-10">
+    <main class="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-6 py-10">
       <Switch>
         <Match when={screen() === "loading"}>
           <p class="text-muted-foreground text-body text-center">Checking this request…</p>

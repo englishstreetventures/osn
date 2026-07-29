@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
 
-import { resolveTheme } from "../src/lib/theme";
+import { resolveTheme, setThemePref } from "../src/lib/theme";
 
 const originalMatchMedia = window.matchMedia;
 
@@ -46,5 +46,27 @@ describe("resolveTheme — system default, dark fallback, light only on an expli
     // prefers-color-scheme: light does not match → dark
     stubPrefersLight(false);
     expect(resolveTheme("system")).toBe("dark");
+  });
+});
+
+describe("setThemePref — theme-color meta sync", () => {
+  // The hex values must stay pinned to the static metas in index.html; a
+  // drift leaves iOS Safari chrome mismatching the app on a forced theme.
+  it("collapses every theme-color meta to the resolved theme's colour", () => {
+    stubPrefersLight(false);
+    const metas = [document.createElement("meta"), document.createElement("meta")];
+    for (const meta of metas) {
+      meta.setAttribute("name", "theme-color");
+      document.head.appendChild(meta);
+    }
+    try {
+      setThemePref("dark");
+      expect(metas.map((m) => m.getAttribute("content"))).toEqual(["#1c1c1c", "#1c1c1c"]);
+      setThemePref("light");
+      expect(metas.map((m) => m.getAttribute("content"))).toEqual(["#ffffff", "#ffffff"]);
+    } finally {
+      for (const meta of metas) meta.remove();
+      setThemePref("system");
+    }
   });
 });

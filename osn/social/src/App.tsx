@@ -1,6 +1,7 @@
 import { AuthProvider } from "@osn/client/solid";
+import { clsx } from "@osn/ui/lib/utils";
 import { Route, Router, useLocation } from "@solidjs/router";
-import { lazy, Show } from "solid-js";
+import { createSignal, lazy, onCleanup, onMount, Show } from "solid-js";
 import { Toaster } from "solid-toast";
 
 import { OSN_ISSUER_URL } from "./lib/auth";
@@ -10,6 +11,9 @@ import "./App.css";
 // Split out of the entry chunk: the consent screen never renders it, and that
 // route is a cold cross-origin landing where the shell is dead weight.
 const Sidebar = lazy(() => import("./components/Sidebar").then((m) => ({ default: m.Sidebar })));
+const MobileChrome = lazy(() =>
+  import("./components/MobileChrome").then((m) => ({ default: m.MobileChrome })),
+);
 
 const ConnectionsPage = lazy(() =>
   import("./pages/ConnectionsPage").then((m) => ({ default: m.ConnectionsPage })),
@@ -46,26 +50,65 @@ const BARE_ROUTES = new Set(["/authorize"]);
 function Layout(props: { children?: import("solid-js").JSX.Element }) {
   const location = useLocation();
   const bare = () => BARE_ROUTES.has(location.pathname);
+  const isMobile = useIsMobile();
   return (
-    <div class="flex h-screen overflow-hidden">
+    <div class="px-safe flex h-dvh flex-col overflow-hidden md:flex-row">
       <Show
         when={bare()}
         fallback={
           <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
-            <Sidebar />
-            <Content>{props.children}</Content>
+            {/* Mount only the active shell (P-W1): one chunk fetched, one
+                shell hydrating, and a single mounted auth-dialog surface at
+                any width (S-L1). The CSS hidden classes on each shell remain
+                as a paint-level fallback around the breakpoint flip. */}
+            <Show when={isMobile()} fallback={<Sidebar />}>
+              <MobileChrome />
+            </Show>
+            <Content padForMobileNav>{props.children}</Content>
           </AuthProvider>
         }
       >
         <Content>{props.children}</Content>
       </Show>
-      <Toaster position="bottom-right" />
+      <Toaster
+        position={isMobile() ? "top-center" : "bottom-right"}
+        containerStyle={
+          isMobile()
+            ? // Clear the mobile top bar (3rem) plus the notch inset.
+              { top: "calc(3rem + env(safe-area-inset-top, 0px) + 8px)" }
+            : undefined
+        }
+      />
     </div>
   );
 }
 
-function Content(props: { children?: import("solid-js").JSX.Element }) {
-  return <div class="flex flex-1 flex-col overflow-y-auto">{props.children}</div>;
+/** Tracks the `md` breakpoint so shell mounting and JS-positioned chrome (the
+ *  toaster) follow the same mobile/desktop split as the CSS. Client-only SPA,
+ *  so the signal initialises synchronously — correct from the first render
+ *  (P-I2), no post-mount flip. */
+function useIsMobile() {
+  const mq = window.matchMedia("(max-width: 767px)");
+  const [isMobile, setIsMobile] = createSignal(mq.matches);
+  onMount(() => {
+    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener?.("change", onChange);
+    onCleanup(() => mq.removeEventListener?.("change", onChange));
+  });
+  return isMobile;
+}
+
+function Content(props: { children?: import("solid-js").JSX.Element; padForMobileNav?: boolean }) {
+  return (
+    <div
+      class={clsx(
+        "flex flex-1 flex-col overflow-y-auto",
+        props.padForMobileNav && "pb-nav md:pb-0",
+      )}
+    >
+      {props.children}
+    </div>
+  );
 }
 
 export default function App() {

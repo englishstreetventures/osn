@@ -39,6 +39,13 @@ function apply(theme: ResolvedTheme): void {
   const root = document.documentElement;
   root.classList.toggle("dark", theme === "dark");
   root.style.colorScheme = theme;
+  // The static theme-color metas in index.html follow the OS; when the user
+  // forces a theme the browser chrome (iOS Safari toolbars) must follow the
+  // app, so collapse both metas to the resolved colour.
+  const colour = theme === "dark" ? "#1c1c1c" : "#ffffff";
+  for (const meta of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) {
+    meta.content = colour;
+  }
 }
 
 const [themePref, setThemePrefSignal] = createSignal<ThemePref>(readPref());
