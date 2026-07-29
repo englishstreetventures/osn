@@ -47,9 +47,9 @@ const ORIGINS = {
   googleMapsFrame: "https://www.google.com", // /maps/embed iframe host
   googleMapsImg: "https://maps.gstatic.com", // map tiles / static assets
   googleMapsImg2: "https://maps.googleapis.com", // map tile requests
-  // Google Fonts (Cormorant Garamond + Lato), loaded in the Astro head.
-  fontsStyle: "https://fonts.googleapis.com", // the @font-face stylesheet
-  fontsFile: "https://fonts.gstatic.com", // the woff2 font files
+  // No Google Fonts origins any more (C-L33): Cormorant Garamond + Lato are
+  // SELF-HOSTED via Fontsource (`src/styles/fonts-base.ts` / `fonts-invite.ts`)
+  // and served as hashed same-origin `/_astro/*` assets — covered by 'self'.
   // Cloudflare Turnstile (guest claim flow — LoginSection -> TurnstileWidget).
   turnstile: "https://challenges.cloudflare.com", // api.js + challenge iframe
 } as const;
@@ -81,12 +81,12 @@ export const REPORTING_ENDPOINT_NAME = "csp-endpoint" as const;
  *
  *  - `script-src` keeps `'unsafe-inline'`. Astro's SSR island hydration emits
  *    small inline `<script>` blocks (the `<astro-island>` custom-element
- *    definition + the per-directive `client:load` / `client:visible` bootstrap),
- *    and the font `<link rel="preload" ... onload="...">` in the document heads
- *    is an inline event-handler attribute. Neither can be covered by a hash or
- *    nonce from a single response header (event-handler attributes are never
- *    hash-eligible, and Astro's own CSP hashing only works via a `<meta>` tag
- *    that cannot express `frame-ancestors` and would conflict with this header).
+ *    definition + the per-directive `client:load` / `client:visible` bootstrap).
+ *    These cannot be covered by a hash or nonce from a single response header
+ *    (Astro's own CSP hashing only works via a `<meta>` tag that cannot express
+ *    `frame-ancestors` and would conflict with this header). (The other former
+ *    consumer — the Google Fonts `<link ... onload="...">` swap handler — is
+ *    gone: fonts are self-hosted now, C-L33.)
  *    `'unsafe-inline'` is therefore required for hydration to work — but
  *    `script-src` stays host-restricted (no wildcard; only `'self'` + the two
  *    audited third-party script hosts), so injected *external* scripts are still
@@ -104,15 +104,15 @@ export const REPORTING_ENDPOINT_NAME = "csp-endpoint" as const;
  */
 export const CSP_DIRECTIVES: Record<string, readonly string[]> = {
   "default-src": ["'self'"],
-  // Astro island hydration inline scripts + the font-link onload handler need
-  // 'unsafe-inline'; hosts are still tightly allowlisted (no wildcard).
+  // Astro island hydration inline scripts need 'unsafe-inline'; hosts are
+  // still tightly allowlisted (no wildcard).
   "script-src": ["'self'", "'unsafe-inline'", ORIGINS.pinterestScript, ORIGINS.turnstile],
-  // Google Fonts stylesheet + Astro/Tailwind inline styles.
-  "style-src": ["'self'", "'unsafe-inline'", ORIGINS.fontsStyle],
+  // Astro/Tailwind inline styles (fonts are self-hosted → 'self' covers them).
+  "style-src": ["'self'", "'unsafe-inline'"],
   // Inline element style attributes (the invite theme vars). Low-risk.
   "style-src-attr": ["'unsafe-inline'"],
-  // Google Fonts woff2 files.
-  "font-src": ["'self'", ORIGINS.fontsFile],
+  // Self-hosted Fontsource woff2 files under /_astro/*.
+  "font-src": ["'self'"],
   // First-party invite/event image bytes (served from cire-api), Pinterest pin
   // thumbnails, Google Maps tiles, plus data:/blob: (inline SVG/blur placeholders).
   "img-src": [

@@ -8,7 +8,7 @@ related:
   - "[[compliance/retention]]"
   - "[[compliance/dpia/cire-guest-data]]"
   - "[[compliance/dsar]]"
-last-reviewed: 2026-07-24
+last-reviewed: 2026-07-28
 ---
 
 # Compliance Fixes — Completed
@@ -32,6 +32,7 @@ label disambiguates the cire dietary-consent finding from the root **C-H2**
 | **C-M1 (oidc)** | DSAR export omitted the account's OIDC consents | GDPR Art. 15 | `GET /account/export` now streams an `oidc_consents` section (clientId, clientName via left-join, profileId, scope, grantedAt, revokedAt — revoked grants included as withdrawal history); section advertised in the header line; P6 invariant upheld (no accountId). Contract updated in [[compliance/dsar]]. | 2026-07-24 | [[compliance/dsar]], [[oidc-provider]] |
 | **C-M2 (oidc)** | Expired-authorization-code retention enforced in code but absent from the schedule | GDPR Art. 5(1)(e) | Retention rows written: `oauth_authorization_codes` (60 s TTL, deleted on redemption, `runExpiredAuthCodeSweep` scheduled reap, also purged on consent revoke + account erasure); `oauth_consents` (until account deletion or explicit withdrawal; revoked rows kept as the withdrawal record). | 2026-07-24 | [[compliance/retention]], [[oidc-provider]] |
 | **C-M3 (oidc)** | Art. 7(3) — withdrawing an app's authorization must be as easy as granting it | GDPR Art. 7(3) | `DELETE /oidc/connections/:clientId` (access-token authed, rate-limited) revokes the consent AND deletes any authorization code in flight for the pair, so withdrawal is effective immediately — not after the 60 s code window drains. `GET /oidc/connections` lists live grants (client name/logo, profile, scope, granted-at). The settings-screen surface remains open as **C-M3-ui (oidc)**. | 2026-07-24 | [[compliance/gdpr]], [[oidc-provider]] |
+| **C-L33** | Browser-loaded Google Fonts sent visitor IP + UA to Google LLC (US) on every cire page view with no subprocessor row (cf. LG München I 3 O 17493/20) | GDPR Art. 28 + Art. 44-49, ePrivacy | **Flow deleted, not papered**: Cormorant Garamond + Lato are self-hosted via Fontsource on all four cire surfaces (`cire/web` incl. legal + 404, `cire/organiser`, `cire/vendor`, `cire/landing`) — hashed same-origin `/_astro/*` assets, latin + latin-ext, `font-display: swap` preserved. The `fonts.googleapis.com` / `fonts.gstatic.com` preconnects and CSP allowances are removed (guest-site CSP test now asserts their ABSENCE). Reconciled with the site-wide consent framework (#329, which had declared Google Fonts its one ungated vendor): the `google-fonts` consent-vendor entry is deleted, `CONSENT_POLICY_VERSION` bumped to `2026-07-30`, the `/privacy` owner-note replaced, and the subprocessor row #329 added is retired to Removed processors (Fonts half of C-M20). The osn/pulse landings still use Google Fonts — open as C-L34. | 2026-07-30 | [[compliance/subprocessors]], [[apps/cire]] |
 
 ## Partial closes still tracked open
 

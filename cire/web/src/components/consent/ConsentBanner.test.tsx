@@ -213,13 +213,15 @@ describe("ConsentPreferences dialog", () => {
     expect(text).toContain("Google Maps");
   });
 
-  it("names the vendors the switch does NOT govern, rather than hiding them", () => {
-    // Google Fonts loads from the document head before any choice can apply.
-    // Listing it under the toggle would overstate what the toggle does; omitting
-    // it would understate what the site loads.
+  it("no longer lists Google Fonts — the one ungated embed left by self-hosting (C-L33)", () => {
+    // Google Fonts loaded from the document head before any choice could apply,
+    // so the dialog disclosed it as ungated. Self-hosting removed the vendor;
+    // the dialog must stop naming it. The "Loads on every visit" section itself
+    // remains for `necessary` (Turnstile is `always` there by design).
     const text = dialog()!.textContent ?? "";
+    expect(text).not.toContain("Google Fonts");
     expect(text).toContain("Loads on every visit");
-    expect(text).toContain("Google Fonts");
+    expect(text).toContain("Turnstile");
   });
 
   it("offers accept-all and reject-all from inside the dialog too", () => {

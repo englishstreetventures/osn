@@ -6,7 +6,7 @@ related:
   - "[[invite-builder]]"
   - "[[web]]"
   - "[[security]]"
-last-reviewed: 2026-07-29
+last-reviewed: 2026-07-30
 ---
 
 # Site-wide consent framework
@@ -47,7 +47,7 @@ preferences dialog and so could never be withdrawn.
 |---|---|---|
 | `necessary` | yes, locked | `cire_session` claim cookie, Turnstile, the consent record itself |
 | `functional` | no | Remembered UI preferences |
-| `embeds` | no | Pinterest moodboard, Google Maps venue embed, Google Fonts (see below) |
+| `embeds` | no | Pinterest moodboard, Google Maps venue embed |
 | `analytics` | no | Nothing today — the slot exists so adding analytics later is a config line, not a new framework |
 
 There is deliberately **no `marketing` / `advertising` category**. We don't do
@@ -143,12 +143,17 @@ voice.
   click-opened details sheet, so they never appear in server-rendered HTML and a
   client-side gate is sufficient. (With `embeds` on by default, "gated" means
   *switchable*, not *withheld by default*.)
-- `"always"` — loads regardless. **Google Fonts only**, because the font
-  `<link>` sits in the `<head>` of the server-rendered document. The right fix
-  is to delete the vendor (self-host the two woff2 families), not to put the
-  site's typography behind a switch and swap the typeface mid-visit. Tracked in
-  `[[web]]`. Until then the dialog and `/privacy` both say "loads on every
-  visit" rather than implying the toggle covers it.
+- `"always"` — loads regardless. Today only the `necessary` entries (the
+  first-party session/consent storage plus Turnstile, which has no toggle to
+  misrepresent). **Google Fonts used to be the one `embeds` vendor here** —
+  the font `<link>` sat in the `<head>` of the server-rendered document, where
+  no client-side gate can apply — until the faces were **self-hosted via
+  Fontsource** (C-L33, 2026-07-30): the vendor entry was deleted, the ungated
+  disclosure in the dialog and `/privacy` disappeared with it, and
+  `CONSENT_POLICY_VERSION` was bumped so stored decisions re-prompt against
+  the reduced disclosure. Deleting the vendor — not putting typography behind
+  a switch that would swap the typeface mid-visit — is the precedent for any
+  future head-level third party.
 
 ## Storage
 
@@ -243,4 +248,5 @@ once more — the honest cost of consolidating the gates.
   no third-party embeds, and its users are authenticated hosts rather than
   guests. If it ever gains one, promote `lib/consent/` to a `@cire/consent`
   package rather than copying it.
-- **Google Fonts** — see `enforcement: "always"` above.
+- **Webfonts** — no longer a third party at all: self-hosted same-origin via
+  Fontsource (C-L33), so there is nothing for the framework to govern.

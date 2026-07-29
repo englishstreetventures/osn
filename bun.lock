@@ -63,6 +63,8 @@
       "name": "@cire/landing",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.1",
+        "@fontsource/cormorant-garamond": "^5.3.0",
+        "@fontsource/lato": "^5.3.0",
         "@tailwindcss/vite": "^4.3.0",
         "astro": "^7.1.1",
         "motion": "^12.40.0",
@@ -86,6 +88,8 @@
         "@astrojs/solid-js": "^7.0.1",
         "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
+        "@fontsource/cormorant-garamond": "^5.3.0",
+        "@fontsource/lato": "^5.3.0",
         "@kobalte/core": "^0.13.11",
         "@shared/rp-auth": "workspace:*",
         "@tailwindcss/vite": "^4.3.0",
@@ -116,6 +120,8 @@
       "dependencies": {
         "@astrojs/solid-js": "^7.0.1",
         "@cire/theme": "workspace:*",
+        "@fontsource/cormorant-garamond": "^5.3.0",
+        "@fontsource/lato": "^5.3.0",
         "@kobalte/core": "^0.13.11",
         "@shared/rp-auth": "workspace:*",
         "@tailwindcss/vite": "^4.3.0",
@@ -141,6 +147,8 @@
         "@astrojs/solid-js": "^7.0.1",
         "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
+        "@fontsource/cormorant-garamond": "^5.3.0",
+        "@fontsource/lato": "^5.3.0",
         "@shared/rp-auth": "workspace:*",
         "@tailwindcss/vite": "^4.3.0",
         "astro": "^7.1.1",
@@ -160,7 +168,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.13.0",
+      "version": "3.14.1",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@osn/db": "workspace:*",
@@ -247,7 +255,7 @@
     },
     "osn/social": {
       "name": "@osn/social",
-      "version": "0.7.0",
+      "version": "0.7.3",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -299,7 +307,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.24.9",
+      "version": "0.24.10",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -327,7 +335,7 @@
     },
     "pulse/app": {
       "name": "@pulse/app",
-      "version": "0.16.13",
+      "version": "0.16.14",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -399,7 +407,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.8.11",
+      "version": "0.9.0",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -479,7 +487,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.2.11",
+      "version": "0.3.0",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "^6.2.3",
@@ -517,7 +525,7 @@
     },
     "shared/rp-auth": {
       "name": "@shared/rp-auth",
-      "version": "0.0.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -552,7 +560,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.8.7",
+      "version": "0.8.8",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -939,6 +947,10 @@
     "@floating-ui/dom": ["@floating-ui/dom@1.7.6", "", { "dependencies": { "@floating-ui/core": "^1.7.5", "@floating-ui/utils": "^0.2.11" } }, "sha512-9gZSAI5XM36880PPMm//9dfiEngYoC6Am2izES1FF406YFsjvyBMmeJ2g4SAju3xWwtuynNRFL2s9hgxpLI5SQ=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.11", "", {}, "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="],
+
+    "@fontsource/cormorant-garamond": ["@fontsource/cormorant-garamond@5.3.0", "", {}, "sha512-weuGsCirGVWBWqpt6YUp0yLThTe4G8YO45noq8wxeJCRvEpq5lFrxNMFSTxcyOyV5k5otzJ8guDzYegdYlcLMQ=="],
+
+    "@fontsource/lato": ["@fontsource/lato@5.3.0", "", {}, "sha512-0WhF/4rhrw+ErIyneKvhHn2YAl+xf8GDtllgOgOzDmeaSlLQtjpChXaQOpWhG2BchQW0WJy2zLV12Hdg0ndOMw=="],
 
     "@growthbook/growthbook": ["@growthbook/growthbook@1.6.5", "", { "dependencies": { "dom-mutator": "^0.6.0" } }, "sha512-mUaMsgeUTpRIUOTn33EUXHRK6j7pxBjwqH4WpQyq+pukjd1AIzWlEa6w7i6bInJUcweGgP2beXZmaP6b6UPn7A=="],
 

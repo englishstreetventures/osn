@@ -40,7 +40,11 @@ export const CONSENT_RECORD_VERSION = 1;
  * guest's decision was taken against which disclosure. Bumping re-prompts
  * everyone exactly once, which is the intended cost.
  */
-export const CONSENT_POLICY_VERSION = "2026-07-29";
+// Bumped 2026-07-30: Google Fonts left the disclosed vendor list (self-hosted,
+// C-L33). Strictly a REDUCTION in what the site loads, but the stored decision
+// was taken against a disclosure that named Google Fonts as ungated, so the
+// re-prompt keeps the audit trail honest.
+export const CONSENT_POLICY_VERSION = "2026-07-30";
 
 export type ConsentGrants = Record<ConsentCategory, boolean>;
 

@@ -130,13 +130,17 @@ describe("category partitioning", () => {
     expect(ids).toContain("google-maps");
   });
 
-  it("lists Google Fonts as loading regardless of the toggle", () => {
-    // Honesty check. Fonts load from the document <head>, before any consent can
-    // be applied, so the dialog must not imply the switch controls them. If this
-    // ever flips to `gated` (or the vendor is removed by self-hosting), this
-    // test is the prompt to update the privacy-page note that says so.
-    const ids = ungatedVendorsInCategory("embeds").map((vendor) => vendor.id);
-    expect(ids).toEqual(["google-fonts"]);
+  it("has no ungated vendor left in a TOGGLEABLE category (fonts self-hosted, C-L33)", () => {
+    // Honesty check, inverted from its original form: Google Fonts was the one
+    // `embeds` vendor loading from the document <head> before any consent could
+    // apply. Self-hosting removed it, so every vendor under a toggle is now
+    // genuinely governed by it — a future head-level vendor showing up here is
+    // the prompt to restore the privacy-page "loads on every visit" note.
+    // `necessary` is exempt: it has no toggle to misrepresent (Turnstile is
+    // `always` there by design, and disclosed as such).
+    for (const category of CONSENT_CATEGORIES.filter((c) => c !== "necessary")) {
+      expect(ungatedVendorsInCategory(category)).toEqual([]);
+    }
   });
 
   it("splits every category's vendors into exactly gated + ungated", () => {

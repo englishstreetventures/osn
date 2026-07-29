@@ -1,5 +1,7 @@
 ---
 import '../styles/global.css'
+// Self-hosted webfonts (C-L33) — no Google Fonts request.
+import '../lib/fonts'
 import { VineCanvas } from '../components/VineCanvas'
 import SiteNav from '../components/SiteNav.astro'
 import SiteFooter from '../components/SiteFooter.astro'
@@ -45,18 +47,10 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : As
     <meta name="twitter:description" content={description} />
     <meta name="theme-color" content="#0d1f17" />
 
-    {/* Same font strategy as cire/web so the marketing site and the invites it
-        advertises render in the exact same type. */}
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="preload"
-      as="style"
-      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400;700&display=swap"
-      onload="this.onload=null;this.rel='stylesheet'"
-    />
+    {/* Fonts are self-hosted (C-L33) via the same Fontsource faces as
+        cire/web, so the marketing site and the invites it advertises render
+        in the exact same type — see src/lib/fonts.ts. */}
     <noscript>
-      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400;700&display=swap" rel="stylesheet" />
       {/* No JS ⇒ the scroll-reveal observer never runs, so reveal everything up
           front rather than leaving it hidden (SEO + accessibility). */}
       <style is:inline>[data-reveal]{opacity:1 !important;transform:none !important}</style>

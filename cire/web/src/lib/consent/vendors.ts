@@ -25,17 +25,21 @@ import type { ConsentCategory } from "./categories";
  *    grants its category. Pinterest and Google Maps are both gated: their
  *    components mount inside the click-opened details sheet, so nothing is in
  *    the server-rendered HTML and a client-side gate is genuinely sufficient.
- *  - `"always"` — loads on every visit regardless of the guest's choice. Only
- *    Google Fonts, and only because the font `<link>` lives in the `<head>` of
- *    the server-rendered document: gating it would either swap the typeface
- *    mid-visit (a jarring, consent-triggered redesign) or leave the prerendered
- *    legal pages inconsistent with the SSR'd invite. The right fix is to remove
- *    the vendor rather than gate it — self-host the two woff2 families and
- *    Google drops out of this table entirely. Tracked in `wiki/todo/web.md`.
+ *  - `"always"` — loads on every visit regardless of the guest's choice. Today
+ *    only `necessary`-category entries (the first-party session/consent
+ *    storage, and Turnstile — which guards the claim form and has no toggle to
+ *    misrepresent). Google Fonts used to sit here under `embeds` — the font
+ *    `<link>` lived in the `<head>` of the server-rendered document, where
+ *    gating would either swap the typeface mid-visit or leave the prerendered
+ *    legal pages inconsistent with the SSR'd invite — until the fonts were
+ *    SELF-HOSTED (C-L33): the right fix for a head-level vendor is removal, not
+ *    a toggle that can't govern it, and that is the precedent for any future
+ *    head-level third party someone proposes adding.
  *
  * The preferences dialog surfaces this distinction rather than hiding it: an
- * `"always"` vendor is listed with a plain "loads on every visit" note instead
- * of being tucked under a toggle that doesn't govern it.
+ * `"always"` vendor with an external origin would be listed with a plain
+ * "loads on every visit" note instead of being tucked under a toggle that
+ * doesn't govern it.
  */
 export type ConsentEnforcement = "gated" | "always";
 
@@ -95,18 +99,10 @@ export const CONSENT_VENDORS: readonly ConsentVendor[] = [
     privacyUrl: "https://www.cloudflare.com/privacypolicy/",
     transfer: "Cloudflare, Inc. (US)",
   },
-  {
-    id: "google-fonts",
-    name: "Google Fonts",
-    category: "embeds",
-    purpose: "Serves the two typefaces the invite is set in.",
-    origins: ["https://fonts.googleapis.com", "https://fonts.gstatic.com"],
-    // See the module doc: `<head>`-level, so not gated. Being replaced by
-    // self-hosted font files rather than moved behind the toggle.
-    enforcement: "always",
-    privacyUrl: "https://policies.google.com/privacy",
-    transfer: "Google LLC (US)",
-  },
+  // No Google Fonts entry any more: the two typefaces are SELF-HOSTED via
+  // Fontsource (C-L33 — hashed same-origin /_astro/* assets), so no request
+  // leaves the origin and there is no vendor to declare. Do not re-add a
+  // head-level font CDN; see the module doc's `"always"` note.
   {
     id: "google-maps",
     name: "Google Maps",
@@ -154,7 +150,10 @@ export function gatedVendorsInCategory(category: ConsentCategory): readonly Cons
 /**
  * Vendors in a category that load regardless of the toggle — listed separately
  * and labelled, so the dialog never implies a switch governs something it
- * doesn't. Today this is Google Fonts only.
+ * doesn't. Empty for every TOGGLEABLE category since the fonts moved
+ * same-origin (C-L33) — asserted by the tests; `necessary` keeps Turnstile,
+ * which has no toggle. This is the honest-disclosure path any future
+ * head-level vendor must go through.
  */
 export function ungatedVendorsInCategory(category: ConsentCategory): readonly ConsentVendor[] {
   return vendorsInCategory(category).filter(

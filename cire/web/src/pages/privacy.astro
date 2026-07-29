@@ -138,7 +138,10 @@ const vendors = thirdPartyVendors()
         {vendor.enforcement === 'gated' ? (
           <> <em>On by default; stops loading if you switch off third-party content.</em></>
         ) : (
-          <> <em>Loads on every visit — see the note below.</em></>
+          /* Turnstile (necessary — no toggle exists for it) renders this
+             branch. Google Fonts used to as well, until it was removed by
+             self-hosting (C-L33). */
+          <> <em>Loads on every visit, whatever you choose.</em></>
         )}
         {vendor.privacyUrl ? (
           <> <a href={vendor.privacyUrl} rel="noreferrer">Their privacy policy</a>.</>
@@ -146,14 +149,9 @@ const vendors = thirdPartyVendors()
       </li>
     ))}
   </ul>
-  <p class="owner-note">
-    <strong>Note for the site owner:</strong> the entries marked “loads on every
-    visit” are not covered by the consent choice. Today that is Google Fonts,
-    which is requested from the page <code>&lt;head&gt;</code> before any choice
-    can be applied. The fix is to self-host the two font files so Google drops
-    out of this list entirely, rather than to put the site’s typography behind a
-    switch — tracked in <code>wiki/todo/web.md</code>. Until then this page says
-    so plainly instead of implying the toggle covers it.
+  <p>
+    The typefaces the invite is set in are served from this site itself — no
+    font request goes to Google or any other third party.
   </p>
 
   <h3>Changing your mind</h3>

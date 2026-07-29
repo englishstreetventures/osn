@@ -40,11 +40,13 @@ const FOCUSABLE_SELECTOR = [
  * confirmed. Nothing here persists without the explicit Save (or one of the two
  * one-click actions, which are unambiguous by construction).
  *
- * Vendors that the toggle does NOT govern (`enforcement: "always"` — today only
- * Google Fonts, loaded from the document head) are listed separately under an
- * explicit "loads on every visit" heading. Hiding them would leave the dialog
- * quietly overstating what the switch controls; listing them under the switch
- * as though it applied would do the same thing more loudly.
+ * Vendors that the toggle does NOT govern (`enforcement: "always"` with an
+ * external origin) are listed separately under an explicit "loads on every
+ * visit" heading. Hiding them would leave the dialog quietly overstating what
+ * the switch controls; listing them under the switch as though it applied
+ * would do the same thing more loudly. Under the toggleable categories the
+ * list is EMPTY today — Google Fonts was the one such vendor until the faces
+ * moved same-origin (C-L33); `necessary` still discloses Turnstile this way.
  */
 export function ConsentPreferences() {
   const titleId = createUniqueId();

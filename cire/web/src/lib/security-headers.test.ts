@@ -38,9 +38,13 @@ describe("buildCsp", () => {
     expect(csp).toMatch(/img-src[^;]*https:\/\/maps\.googleapis\.com/);
   });
 
-  it("allowlists Google Fonts (stylesheet + font files)", () => {
-    expect(csp).toMatch(/style-src[^;]*https:\/\/fonts\.googleapis\.com/);
-    expect(csp).toMatch(/font-src[^;]*https:\/\/fonts\.gstatic\.com/);
+  it("does NOT allowlist Google Fonts — the faces are self-hosted (C-L33)", () => {
+    // Cormorant Garamond + Lato ship as hashed same-origin Fontsource assets;
+    // a regression that re-adds the Google hosts would re-open the personal-data
+    // flow to fonts.googleapis.com/fonts.gstatic.com. 'self' must be enough.
+    expect(csp).not.toMatch(/fonts\.googleapis\.com/);
+    expect(csp).not.toMatch(/fonts\.gstatic\.com/);
+    expect(csp).toMatch(/font-src 'self'/);
   });
 
   it("allowlists Cloudflare Turnstile (script + challenge frame)", () => {

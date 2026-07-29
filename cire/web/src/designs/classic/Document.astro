@@ -1,5 +1,9 @@
 ---
 import '../../styles/global.css'
+// Self-hosted webfonts (C-L33) — every face the typography options can ask
+// for, bundled as hashed same-origin assets; no Google Fonts request.
+import '../../styles/fonts-invite'
+import cormorant300Url from '@fontsource/cormorant-garamond/files/cormorant-garamond-latin-300-normal.woff2?url'
 import { inviteTitle } from '../../lib/invite-title'
 import InviteHeader from './InviteHeader'
 import InvitePage from './InvitePage'
@@ -42,17 +46,11 @@ const preloadHeroHref = heroBase ? `${heroBase}${heroSep}variant=hero-bg` : null
     {/* S-L1: keep the ?code= preview credential out of cross-origin Referer headers. */}
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>{pageTitle}</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="preload"
-      as="style"
-      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400;1,700&family=Lato:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap"
-      onload="this.onload=null;this.rel='stylesheet'"
-    />
-    <noscript>
-      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400;1,700&family=Lato:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap" rel="stylesheet" />
-    </noscript>
+    {/* The hero title's default face (Cormorant 300 upright, latin) — the one
+        face painted above the fold. Fonts are self-hosted, so this preload is
+        same-origin; `crossorigin` is still required (font fetches are always
+        CORS-mode, and a mismatched preload is re-downloaded, not reused). */}
+    <link rel="preload" as="font" type="font/woff2" href={cormorant300Url} crossorigin />
     {preloadHeroHref && <link rel="preload" as="image" href={preloadHeroHref} />}
   </head>
   <body>
