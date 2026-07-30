@@ -260,7 +260,7 @@ export default function ImportPanel(props: { weddingId: string }) {
         <CsvFormatHelp />
 
         <form class="flex flex-col gap-4" onSubmit={handlePreview}>
-          <div class="grid grid-cols-1 gap-4 @xl/panel:grid-cols-2">
+          <div class="auto-grid [--auto-grid-min:20rem]">
             <label class="flex flex-col gap-1.5">
               <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
                 events.csv
@@ -739,7 +739,7 @@ function CsvFormatHelp() {
       </summary>
 
       <div class="border-border/60 flex flex-col gap-5 border-t px-4 py-5">
-        <ol class="grid grid-cols-1 gap-4 @xl/panel:grid-cols-3">
+        <ol class="auto-grid items-start [--auto-grid-min:17rem]">
           <StepCard n={1} title="New here?">
             <p class="text-text-muted text-[0.8rem]">
               Download a starter template above — it has the correct headers and example rows, so

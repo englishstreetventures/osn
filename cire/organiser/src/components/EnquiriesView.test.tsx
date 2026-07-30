@@ -129,7 +129,142 @@ describe("EnquiriesView", () => {
     expect(await screen.findByText(/Enquiries aren't end-to-end encrypted/i)).toBeInTheDocument();
   });
 
-  it("clicking Back returns to the inbox", async () => {
+  it("offers the detail-column placeholder until an enquiry is picked", async () => {
+    const EnquiriesView = await importComponent();
+    setCachedEnquiries("wed_1", [makeItem()]);
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+    await screen.findByText("Blue Roses");
+    expect(screen.getByText(/pick an enquiry/i)).toBeInTheDocument();
+  });
+
+  // A draft belongs to ONE enquiry. Side by side you can click another row
+  // mid-reply without going Back, which keeps the thread's `Show` truthy — an
+  // unkeyed one would hand vendor A's half-typed reply to vendor B.
+  it("gives a freshly selected enquiry an empty send box", async () => {
+    const EnquiriesView = await importComponent();
+    setCachedEnquiries("wed_1", [
+      makeItem(),
+      makeItem({ id: "enq_2", vendorName: "Southbank Strings" }),
+    ]);
+    authFetch.mockImplementation(
+      () => new Response(JSON.stringify({ messages: [] }), { status: 200 }),
+    );
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Blue Roses/ }));
+    const draft = await screen.findByPlaceholderText(/write a reply/i);
+    fireEvent.input(draft, { target: { value: "pricing note meant for Blue Roses" } });
+    expect((draft as HTMLTextAreaElement).value).toBe("pricing note meant for Blue Roses");
+
+    fireEvent.click(screen.getByRole("button", { name: /Southbank Strings/ }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Southbank Strings/ })).toHaveAttribute(
+        "aria-current",
+        "true",
+      ),
+    );
+    expect((screen.getByPlaceholderText(/write a reply/i) as HTMLTextAreaElement).value).toBe("");
+  });
+
+  // Same root cause as the draft: the resource yields its previous value while
+  // the new enquiry's fetch is in flight, so the messages have to be checked
+  // against the open enquiry rather than rendered on trust.
+  it("never shows the previous enquiry's messages while the next one loads", async () => {
+    const EnquiriesView = await importComponent();
+    setCachedEnquiries("wed_1", [
+      makeItem(),
+      makeItem({ id: "enq_2", vendorName: "Southbank Strings" }),
+    ]);
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ messages: [makeMessage({ body: "BLUE-ROSES-ONLY" })] }), {
+        status: 200,
+      }),
+    );
+    // The second thread's fetch never settles, so the loading window stays open
+    // for the assertion — no timers involved.
+    authFetch.mockImplementationOnce(() => new Promise(() => {}));
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /Blue Roses/ }));
+    expect(await screen.findByText("BLUE-ROSES-ONLY")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Southbank Strings/ }));
+    await screen.findByText(/loading messages/i);
+    expect(screen.queryByText("BLUE-ROSES-ONLY")).not.toBeInTheDocument();
+  });
+
+  // A selection the refreshed list no longer contains resolves to the
+  // placeholder, not to a thread with no subject.
+  it("falls back to the placeholder when the open enquiry leaves the list", async () => {
+    const EnquiriesView = await importComponent();
+    setCachedEnquiries("wed_1", [makeItem()]);
+    authFetch.mockImplementation(
+      () => new Response(JSON.stringify({ messages: [] }), { status: 200 }),
+    );
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Blue Roses/ }));
+    await screen.findByText(/Enquiries aren't end-to-end encrypted/i);
+
+    setCachedEnquiries("wed_1", []);
+    await waitFor(() => expect(screen.getByText(/pick an enquiry/i)).toBeInTheDocument());
+    expect(screen.queryByText(/Enquiries aren't end-to-end encrypted/i)).not.toBeInTheDocument();
+  });
+
+  // The inbox is mounted throughout a reply now, so the post-send refresh has to
+  // reach the signal it is actually subscribed to. Deleting the cache entry
+  // (what `invalidateEnquiries` does) mints a new signal and leaves the row
+  // showing its pre-reply status forever.
+  it("updates the inbox row's status after a reply is sent", async () => {
+    const EnquiriesView = await importComponent();
+    setCachedEnquiries("wed_1", [makeItem({ status: "open" })]);
+    // 1: thread messages. 2: POST reply. 3: inbox refresh (now "quoted").
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ messages: [] }), { status: 200 }),
+    );
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: makeMessage() }), { status: 200 }),
+    );
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ enquiries: [makeItem({ status: "quoted" })] }), {
+        status: 200,
+      }),
+    );
+    authFetch.mockImplementation(
+      () => new Response(JSON.stringify({ messages: [] }), { status: 200 }),
+    );
+
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Blue Roses/ }));
+    const draft = await screen.findByPlaceholderText(/write a reply/i);
+    fireEvent.input(draft, { target: { value: "Sounds good, please send a quote." } });
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+
+    expect(await screen.findByText("Quoted")).toBeInTheDocument();
+  });
+
+  // The master-detail contract: opening a thread no longer UNMOUNTS the inbox.
+  // On a wide panel the two sit side by side; on a narrow one the inbox is
+  // hidden with `@max-3xl/enquiries:hidden`, which happy-dom never applies — so
+  // here we can assert the row survived, and that it is marked as the open one.
+  it("keeps the inbox mounted, and marked, while a thread is open", async () => {
+    const EnquiriesView = await importComponent();
+    setCachedEnquiries("wed_1", [makeItem()]);
+    authFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ messages: [] }), { status: 200 }),
+    );
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+    fireEvent.click(await screen.findByText("Blue Roses"));
+    await screen.findByText(/Enquiries aren't end-to-end encrypted/i);
+    const row = screen.getByRole("button", { name: /Blue Roses/ });
+    expect(row).toBeInTheDocument();
+    expect(row).toHaveAttribute("aria-current", "true");
+  });
+
+  // Renamed from "clicking Back returns to the inbox": the inbox row now
+  // survives the thread either way, so its mere presence proves nothing. What
+  // Back actually does is clear the selection — observable as the unmarked row
+  // and the returned placeholder.
+  it("clicking Back clears the selection and unmarks the row", async () => {
     const EnquiriesView = await importComponent();
     setCachedEnquiries("wed_1", [makeItem()]);
     authFetch.mockResolvedValueOnce(
@@ -140,8 +275,10 @@ describe("EnquiriesView", () => {
     // Wait for thread to render.
     await screen.findByText(/Enquiries aren't end-to-end encrypted/i);
     fireEvent.click(screen.getByRole("button", { name: /back/i }));
-    // Back to inbox.
-    expect(await screen.findByText("Blue Roses")).toBeInTheDocument();
+    // Thread closed, row no longer the open one, detail column back to its
+    // placeholder.
     expect(screen.queryByText(/Enquiries aren't end-to-end encrypted/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Blue Roses/ })).not.toHaveAttribute("aria-current");
+    expect(screen.getByText(/pick an enquiry/i)).toBeInTheDocument();
   });
 });

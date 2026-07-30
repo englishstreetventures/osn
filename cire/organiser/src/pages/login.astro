@@ -13,7 +13,9 @@ import SignInPanel from '../components/SignInPanel'
     <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400;1,700&family=Lato:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <main class="mx-auto max-w-[480px] px-8 py-24">
+    <!-- Same `page-frame` gutters as the dashboard, with its own measure: a
+         sign-in card has one job and doesn't grow with the screen. -->
+    <main class="page-frame py-24 [--page-max:30rem]">
       <header class="mb-8 flex flex-col gap-2 text-center">
         <p class="font-body text-[0.72rem] uppercase tracking-[0.2em] text-gold">
           Cire · Host Dashboard

@@ -127,6 +127,75 @@
   }
 }
 
+/* ── Fluid layout primitives ────────────────────────────────────────────────
+ * The portal has two jobs to do with width, and they want different tools.
+ *
+ * 1. *Composition* — rail or sheet, one column or two, agenda above the stats
+ *    or beside them — switches on **container queries** (`@container/frame`,
+ *    `/shell`, `/panel`, `/builder`, `/fields`). Each surface measures the box
+ *    it was actually given, so a panel that is 600px wide behaves like a phone
+ *    even on a 2560px monitor, and the same component reused in a narrower
+ *    slot needs no new props.
+ *
+ * 2. *How much room the page takes, and how many cards fit in a row* — the two
+ *    utilities below. Both are intrinsic (`clamp`, `auto-fit`), so there is no
+ *    breakpoint list to extend the next time monitors get wider.
+ *
+ * The rule of thumb: a container query when the layout *changes shape*, an
+ * intrinsic value when it only needs to *scale*.
+ */
+
+/**
+ * The page's own width. The masthead and everything under it both wear it, so
+ * the header's hairline reads as a margin line rather than a floating divider.
+ *
+ * Nothing here steps: gutters grow with the frame's inline size, and the
+ * measure runs to 100rem — wide enough for the rail, a full-width panel and the
+ * invite builder's live preview side by side, short enough that a table row is
+ * still scannable in one sweep. The old fixed 1100px cap threw away half of a
+ * widescreen. `--page-max` is the knob for a surface that wants its own measure
+ * (the login card sets a much narrower one).
+ */
+@utility page-frame {
+  width: 100%;
+  max-width: var(--page-max, 100rem);
+  margin-inline: auto;
+  padding-inline: clamp(1.25rem, 3cqi, 3.5rem);
+}
+
+/**
+ * A grid that works out its own column count: as many whole columns of at least
+ * `--auto-grid-min` as fit, then equal shares of the remainder. Deliberately
+ * *not* a container query — an intrinsic grid never needs a
+ * `@6xl/panel:grid-cols-5` bolted on later, and it stays correct when the same
+ * list is dropped into a narrower slot.
+ *
+ * `min(100%, …)` keeps the single-column case from overflowing a container
+ * narrower than the minimum.
+ *
+ * Two invariants, both load-bearing:
+ *
+ * - **No `col-span-*` on a child.** Under `auto-fit` a span wider than the
+ *   resolved column count creates an implicit column and breaks the row. When
+ *   one cell must be wider than the others, use an explicit container-query grid.
+ * - **The track minimum must stay a fixed length.** `minmax(min(100%, <length>),
+ *   1fr)` never asks a child for its intrinsic contribution — which is exactly
+ *   what makes it safe to put `container-type: inline-size` (e.g. an event
+ *   card's `@container/card`) on an `auto-grid` child. Swapping the minimum for
+ *   `min-content` / `max-content` / `auto` would ask an inline-size container
+ *   for a contribution it cannot give, collapsing the track to zero width.
+ *
+ * `styles/layout-utilities.test.ts` guards both utility names and every custom
+ * property above against a silent rename or typo: Tailwind ignores an unknown
+ * class, and CSS ignores a custom property nobody reads — so the failure mode is
+ * 17 grids quietly collapsing to one column with the suite green.
+ */
+@utility auto-grid {
+  display: grid;
+  gap: var(--auto-grid-gap, 1rem);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--auto-grid-min, 18rem)), 1fr));
+}
+
 /* ── Nav sheet motion ───────────────────────────────────────────────────────
  * The mobile module sheet is a Kobalte dialog. Kobalte keeps a closing dialog
  * mounted until its *animation* ends (not its transition), so the enter/exit

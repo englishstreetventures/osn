@@ -3,7 +3,7 @@ title: "Cire Wiki — Map of Content"
 tags: [index]
 aliases: [home, map of content, MOC]
 related: []
-last-reviewed: 2026-07-29
+last-reviewed: 2026-07-30
 ---
 
 # Cire Wiki
@@ -21,6 +21,7 @@ Map of Content for the Cire wedding invite project.
 - [[platform-plan]] — build plan for the wedding-management platform (guests/events decoupled from the invite, vendors + availability, pricing estimates, budget, checklist, seating, comms)
 - [[guest-event-editor]] — plan for the interactive events + guests editor alongside the CSV schema (round-trip export, before-image revert, shared pre-save checks)
 - [[consent]] — site-wide cookie/third-party consent: categories, the vendor registry, the `cire_consent` record, and how to add a gated third party
+- [[host-portal-layout]] — how the organiser portal decides widths: the `page-frame` measure, intrinsic `auto-grid` card grids, the named container queries and every layout switch they drive
 
 ## Systems
 

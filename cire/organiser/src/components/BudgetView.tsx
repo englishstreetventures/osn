@@ -466,107 +466,114 @@ export default function BudgetView(props: BudgetViewProps) {
         when={grouped().length > 0}
         fallback={<p class="text-text-muted text-[0.85rem] italic">No budget items yet.</p>}
       >
-        <For each={grouped()}>
-          {(group) => {
-            const subtotalEst = () => group.items.reduce((s, it) => s + (it.estimateMinor ?? 0), 0);
-            const subtotalActual = () => group.items.reduce((s, it) => s + itemSpend(it), 0);
-            return (
-              <section class="flex flex-col gap-2">
-                <div class="flex items-baseline justify-between">
-                  <h3 class="text-gold-dim font-body text-[0.7rem] tracking-[0.18em] uppercase">
-                    {categoryLabel(group.category.key)}
-                  </h3>
-                  <span class="text-text-muted text-[0.75rem]">
-                    est {fmtMinor(subtotalEst(), currency())} · spent{" "}
-                    {fmtMinor(subtotalActual(), currency())}
-                  </span>
-                </div>
-                <ul class="flex flex-col gap-1">
-                  <For each={group.items}>
-                    {(item, i) => (
-                      <li class="border-border bg-surface/10 flex flex-col gap-2 rounded-sm border px-3 py-2">
-                        <div class="flex flex-wrap items-center gap-3">
-                          <span class="text-text min-w-[8rem] flex-1 text-[0.9rem]">
-                            {item.name}
-                          </span>
-                          <MoneyCell
-                            label="Est"
-                            minor={item.estimateMinor}
-                            currency={currency()}
-                            canEdit={props.canEdit}
-                            onCommit={(raw) => patchItemMoney(item, "estimateMinor", raw)}
-                          />
-                          <MoneyCell
-                            label="Quote"
-                            minor={item.quotedMinor}
-                            currency={currency()}
-                            canEdit={props.canEdit}
-                            onCommit={(raw) => patchItemMoney(item, "quotedMinor", raw)}
-                          />
-                          <MoneyCell
-                            label="Actual"
-                            minor={item.actualMinor}
-                            currency={currency()}
-                            canEdit={props.canEdit}
-                            onCommit={(raw) => patchItemMoney(item, "actualMinor", raw)}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setExpanded(expanded() === item.id ? null : item.id)}
-                            class="text-text-muted hover:text-text px-1 text-[0.78rem]"
-                          >
-                            payments ({paymentsFor(item.id).length})
-                          </button>
-                          <Show when={props.canEdit}>
-                            <div class="flex items-center gap-1">
-                              <button
-                                type="button"
-                                aria-label="Move up"
-                                disabled={i() === 0}
-                                onClick={() => move(group.category.key, i(), -1)}
-                                class="text-text-muted hover:text-text px-1 disabled:opacity-30"
-                              >
-                                ↑
-                              </button>
-                              <button
-                                type="button"
-                                aria-label="Move down"
-                                disabled={i() === group.items.length - 1}
-                                onClick={() => move(group.category.key, i(), 1)}
-                                class="text-text-muted hover:text-text px-1 disabled:opacity-30"
-                              >
-                                ↓
-                              </button>
-                              <button
-                                type="button"
-                                aria-label="Delete item"
-                                onClick={() => deleteItem(item)}
-                                class="text-text-muted hover:text-error px-1"
-                              >
-                                ✕
-                              </button>
-                            </div>
+        {/* Categories pair up on a wide panel. The minimum is generous (32rem)
+            because a budget row carries a name plus three money cells and the
+            payments toggle — below that it wraps and stops being a table-like
+            row, so the grid keeps one column until two really fit. */}
+        <div class="auto-grid items-start [--auto-grid-gap:1.5rem] [--auto-grid-min:32rem]">
+          <For each={grouped()}>
+            {(group) => {
+              const subtotalEst = () =>
+                group.items.reduce((s, it) => s + (it.estimateMinor ?? 0), 0);
+              const subtotalActual = () => group.items.reduce((s, it) => s + itemSpend(it), 0);
+              return (
+                <section class="flex flex-col gap-2">
+                  <div class="flex items-baseline justify-between">
+                    <h3 class="text-gold-dim font-body text-[0.7rem] tracking-[0.18em] uppercase">
+                      {categoryLabel(group.category.key)}
+                    </h3>
+                    <span class="text-text-muted text-[0.75rem]">
+                      est {fmtMinor(subtotalEst(), currency())} · spent{" "}
+                      {fmtMinor(subtotalActual(), currency())}
+                    </span>
+                  </div>
+                  <ul class="flex flex-col gap-1">
+                    <For each={group.items}>
+                      {(item, i) => (
+                        <li class="border-border bg-surface/10 flex flex-col gap-2 rounded-sm border px-3 py-2">
+                          <div class="flex flex-wrap items-center gap-3">
+                            <span class="text-text min-w-[8rem] flex-1 text-[0.9rem]">
+                              {item.name}
+                            </span>
+                            <MoneyCell
+                              label="Est"
+                              minor={item.estimateMinor}
+                              currency={currency()}
+                              canEdit={props.canEdit}
+                              onCommit={(raw) => patchItemMoney(item, "estimateMinor", raw)}
+                            />
+                            <MoneyCell
+                              label="Quote"
+                              minor={item.quotedMinor}
+                              currency={currency()}
+                              canEdit={props.canEdit}
+                              onCommit={(raw) => patchItemMoney(item, "quotedMinor", raw)}
+                            />
+                            <MoneyCell
+                              label="Actual"
+                              minor={item.actualMinor}
+                              currency={currency()}
+                              canEdit={props.canEdit}
+                              onCommit={(raw) => patchItemMoney(item, "actualMinor", raw)}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setExpanded(expanded() === item.id ? null : item.id)}
+                              class="text-text-muted hover:text-text px-1 text-[0.78rem]"
+                            >
+                              payments ({paymentsFor(item.id).length})
+                            </button>
+                            <Show when={props.canEdit}>
+                              <div class="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  aria-label="Move up"
+                                  disabled={i() === 0}
+                                  onClick={() => move(group.category.key, i(), -1)}
+                                  class="text-text-muted hover:text-text px-1 disabled:opacity-30"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label="Move down"
+                                  disabled={i() === group.items.length - 1}
+                                  onClick={() => move(group.category.key, i(), 1)}
+                                  class="text-text-muted hover:text-text px-1 disabled:opacity-30"
+                                >
+                                  ↓
+                                </button>
+                                <button
+                                  type="button"
+                                  aria-label="Delete item"
+                                  onClick={() => deleteItem(item)}
+                                  class="text-text-muted hover:text-error px-1"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            </Show>
+                          </div>
+                          <Show when={expanded() === item.id}>
+                            <PaymentPanel
+                              item={item}
+                              payments={paymentsFor(item.id)}
+                              currency={currency()}
+                              canEdit={props.canEdit}
+                              onAdd={addPayment}
+                              onTogglePaid={togglePaid}
+                              onDelete={deletePayment}
+                            />
                           </Show>
-                        </div>
-                        <Show when={expanded() === item.id}>
-                          <PaymentPanel
-                            item={item}
-                            payments={paymentsFor(item.id)}
-                            currency={currency()}
-                            canEdit={props.canEdit}
-                            onAdd={addPayment}
-                            onTogglePaid={togglePaid}
-                            onDelete={deletePayment}
-                          />
-                        </Show>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              </section>
-            );
-          }}
-        </For>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                </section>
+              );
+            }}
+          </For>
+        </div>
       </Show>
     </div>
   );

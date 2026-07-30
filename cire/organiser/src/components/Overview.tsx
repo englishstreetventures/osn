@@ -452,7 +452,9 @@ export default function Overview(props: {
       <Show when={data.loading}>
         <div class="flex flex-col gap-4">
           <div class="bg-surface h-[120px] animate-pulse rounded-sm" />
-          <div class="grid gap-4 @lg/panel:grid-cols-2 @3xl/panel:grid-cols-3">
+          {/* Same intrinsic grid as the real cards, so the skeleton has the
+              same column count at every width. */}
+          <div class="auto-grid [--auto-grid-min:15rem]">
             <For each={[1, 2, 3]}>
               {() => <div class="bg-surface h-[130px] animate-pulse rounded-sm" />}
             </For>
@@ -477,9 +479,18 @@ export default function Overview(props: {
         </Show>
 
         <Show when={!isFresh()}>
-          <div class="flex flex-col gap-4">
+          {/* Narrow: agenda above the stat cards, one column each. Wide: the
+              agenda becomes a fixed-measure left column and the stat cards fill
+              the rest — a full-width list of six dated rows across 1300px is
+              mostly empty space, and the cards are what benefit from the room.
+              A container query (not `auto-grid`) because this changes the
+              layout's *shape*, not just its column count. */}
+          <div class="flex flex-col gap-4 @4xl/panel:grid @4xl/panel:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)] @4xl/panel:items-start">
             <WhatsNext />
-            <div class="grid gap-4 @lg/panel:grid-cols-2 @3xl/panel:grid-cols-3">
+            {/* The cards themselves need no breakpoints: as many ≥15rem columns
+                as fit, so the widescreen fills rows instead of leaving three
+                stretched cards on a 1300px row. */}
+            <div class="auto-grid [--auto-grid-min:15rem]">
               {/* ── Countdown ─────────────────────────────────────────────── */}
               <div class={cardBaseAccent}>
                 <p class={cardEyebrow}>Countdown</p>

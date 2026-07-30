@@ -20,10 +20,13 @@ import OrganiserApp from '../components/OrganiserApp'
     -->
     <div class="@container/frame">
       <!-- The masthead is a full-bleed band with a hairline under it; the
-           content below shares its max width so the rule reads as a margin
-           line, not a floating divider. -->
+           content below shares the same `page-frame` measure so the rule reads
+           as a margin line, not a floating divider. `page-frame` (global.css)
+           replaces the old fixed 1100px cap: gutters and measure both scale
+           with the frame, so a widescreen gets a wide dashboard instead of a
+           narrow column between two empty margins. -->
       <header class="border-border border-b">
-        <div class="@2xl/frame:px-8 @2xl/frame:py-8 mx-auto flex max-w-[1100px] flex-col gap-2 px-5 py-6">
+        <div class="page-frame @2xl/frame:py-8 flex flex-col gap-2 py-6">
           <p class="font-body text-gold text-[0.7rem] uppercase tracking-[0.24em]">
             Cire
           </p>
@@ -33,7 +36,7 @@ import OrganiserApp from '../components/OrganiserApp'
         </div>
       </header>
 
-      <main class="@2xl/frame:px-8 @2xl/frame:py-10 mx-auto max-w-[1100px] px-5 py-8">
+      <main class="page-frame @2xl/frame:py-10 py-8">
         <OrganiserApp client:only="solid-js" />
       </main>
     </div>

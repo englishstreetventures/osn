@@ -222,7 +222,7 @@ export default function EventTable(props: EventTableProps) {
       />
 
       <Show when={loading()}>
-        <div class="flex flex-col gap-3">
+        <div class="auto-grid [--auto-grid-min:26rem]">
           <For each={[1, 2, 3, 4]}>
             {() => <div class="bg-surface h-[140px] animate-pulse rounded-sm" />}
           </For>
@@ -251,10 +251,18 @@ export default function EventTable(props: EventTableProps) {
           replaces the current one
         </p>
 
-        <ul class="flex flex-col gap-4">
+        {/* Event cards two-up (and more) once the panel allows: a schedule is
+            read by scanning, and a stack of full-width cards on a widescreen
+            means scrolling past mostly-empty rows. `items-start` keeps a card
+            with a photo from stretching its neighbour. */}
+        <ul class="auto-grid items-start [--auto-grid-min:26rem]">
           <For each={events()}>
             {(event) => (
-              <li class="border-border bg-surface/30 flex flex-col gap-3 rounded-sm border p-5">
+              // `@container/card` — the details grid inside must measure the
+              // CARD, not the panel. Querying the panel was already slightly
+              // wrong; with two cards per row it would put two columns of
+              // details into a half-width card.
+              <li class="border-border bg-surface/30 @container/card flex flex-col gap-3 rounded-sm border p-5">
                 <header class="flex flex-col gap-1">
                   <span class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">
                     {event.slug}
@@ -265,7 +273,7 @@ export default function EventTable(props: EventTableProps) {
                   </p>
                 </header>
 
-                <dl class="font-body grid grid-cols-1 gap-x-6 gap-y-2 text-[0.88rem] @xl/panel:grid-cols-2">
+                <dl class="font-body grid grid-cols-1 gap-x-6 gap-y-2 text-[0.88rem] @md/card:grid-cols-2">
                   <Show when={event.address}>
                     <Detail label="Address" value={event.address!} />
                   </Show>
@@ -440,7 +448,7 @@ function EventImageField(props: {
 
 function Detail(props: { label: string; value: string; span?: boolean }) {
   return (
-    <div class={props.span ? "@xl/panel:col-span-2" : ""}>
+    <div class={props.span ? "@md/card:col-span-2" : ""}>
       <dt class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
         {props.label}
       </dt>

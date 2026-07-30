@@ -1448,3 +1448,106 @@ describe("InviteBuilder UX guards", () => {
     expect(nav.textContent).toContain("Closing");
   });
 });
+
+/**
+ * Which preview layer is MOUNTED (perf P-I1). Both layers used to be mounted at
+ * every width with a container query hiding one, so the idle layer still took
+ * every token write on every keystroke and colour drag. The builder now measures
+ * its own container and mounts only the matching layer.
+ *
+ * happy-dom runs no layout, so a real `ResizeObserver` would never report a
+ * width — these tests supply one that reports the width under test, which is the
+ * only way to exercise the decision at all. The no-observer case is the fallback
+ * every other test in this file relies on.
+ */
+describe("InviteBuilder preview layer", () => {
+  afterEach(() => {
+    cleanup();
+    authFetchMock.mockReset();
+    redirectSpy.mockReset();
+    toastSuccess.mockReset();
+    toastError.mockReset();
+    vi.unstubAllGlobals();
+  });
+
+  /** A ResizeObserver that reports one fixed CONTENT-box width on observe —
+   *  the same box a container query evaluates. */
+  function stubResizeObserver(width: number) {
+    class FixedWidthResizeObserver {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe() {
+        this.callback(
+          [{ contentRect: { width } } as unknown as ResizeObserverEntry],
+          this as unknown as ResizeObserver,
+        );
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", FixedWidthResizeObserver);
+  }
+
+  const renderBuilder = async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    await waitFor(() => screen.getByText("Save invite"));
+  };
+
+  /** The inline per-section previews, counted inside the five section cards that
+   *  carry one. Scoped rather than counted globally because `PaletteField`'s
+   *  swatch strip — always mounted, in the Look card — uses the same label. */
+  const inlinePreviewCount = () =>
+    ["invite-hero", "invite-story", "invite-welcome", "invite-events", "invite-closing"]
+      .map((id) => within(document.getElementById(id)!).queryAllByText("Live preview").length)
+      .reduce((total, n) => total + n, 0);
+
+  it("mounts only the composed pane on a wide builder", async () => {
+    // 1200px content box, past the 56rem (896px) `@4xl/builder` crossover.
+    stubResizeObserver(1200);
+    await renderBuilder();
+
+    expect(screen.getByLabelText("Invite preview")).toBeInTheDocument();
+    expect(inlinePreviewCount()).toBe(0);
+  });
+
+  it("mounts only the inline previews on a narrow builder", async () => {
+    stubResizeObserver(600);
+    await renderBuilder();
+
+    expect(screen.queryByLabelText("Invite preview")).not.toBeInTheDocument();
+    expect(inlinePreviewCount()).toBe(5);
+  });
+
+  it("keeps the crossover on the same content box as @4xl/builder", async () => {
+    // Exactly 56rem at the root 16px `global.css` pins: the container query is
+    // `width >= 56rem`, so this width is WIDE. One pixel less is not.
+    stubResizeObserver(896);
+    await renderBuilder();
+    expect(screen.getByLabelText("Invite preview")).toBeInTheDocument();
+
+    cleanup();
+    authFetchMock.mockReset();
+    stubResizeObserver(895);
+    await renderBuilder();
+    expect(screen.queryByLabelText("Invite preview")).not.toBeInTheDocument();
+  });
+
+  it("mounts both layers when the width cannot be measured", async () => {
+    // No ResizeObserver (and a 0-width report means `display: none`, not narrow)
+    // — unmounting a layer we can't measure could leave the organiser with no
+    // preview at all, so the CSS classes stay in charge and both are mounted.
+    vi.stubGlobal("ResizeObserver", undefined);
+    await renderBuilder();
+
+    expect(screen.getByLabelText("Invite preview")).toBeInTheDocument();
+    expect(inlinePreviewCount()).toBe(5);
+  });
+
+  it("treats a zero-width report as unmeasured, not narrow", async () => {
+    stubResizeObserver(0);
+    await renderBuilder();
+
+    expect(screen.getByLabelText("Invite preview")).toBeInTheDocument();
+    expect(inlinePreviewCount()).toBe(5);
+  });
+});

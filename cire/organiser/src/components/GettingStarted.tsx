@@ -264,7 +264,7 @@ export default function GettingStarted(props: {
             />
           </div>
 
-          <ol class="grid grid-cols-1 gap-2.5 @lg/panel:grid-cols-2">
+          <ol class="auto-grid [--auto-grid-gap:0.625rem] [--auto-grid-min:18rem]">
             <For each={steps()}>
               {(step, i) => (
                 <li>

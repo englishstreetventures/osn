@@ -97,6 +97,28 @@ interface InviteBuilderProps {
   entitlements: string[];
 }
 
+/**
+ * The builder's wide threshold, mirroring the `@4xl/builder` container query
+ * that swaps the inline per-section previews for the composed pane. Container
+ * queries have no `matchMedia` equivalent, so the number has to exist in JS as
+ * well to decide what to MOUNT — this constant is the only place it appears, and
+ * it is compared against the same content box the query measures.
+ */
+const WIDE_BUILDER_REM = 56;
+
+/** Which preview layer is mounted. `unknown` means "not measured yet, or not
+ *  measurable" and mounts both — see {@link watchBuilderWidth}. */
+type PreviewLayer = "unknown" | "narrow" | "wide";
+
+/** The document's root font size, since a `rem` threshold in a container query
+ *  resolves against the root, not the container. `global.css` pins this to 16px,
+ *  but reading it keeps the two in step if that ever changes. */
+function rootFontPx(): number {
+  if (typeof document === "undefined") return 16;
+  const size = Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
+  return Number.isFinite(size) && size > 0 ? size : 16;
+}
+
 /** The section-nav jump targets, in guest scroll order (+ the two non-page
  *  cards). Ids double as the fieldset anchors. */
 const NAV_SECTIONS = [
@@ -222,6 +244,44 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     );
     return vars;
   });
+
+  /**
+   * Which preview layer to mount (perf P-I1). Both layers used to be mounted at
+   * all times with a container query hiding one, so the hidden layer still took
+   * every token write on every keystroke and colour-drag frame — five `style`
+   * spreads of ~25 custom properties, landing on subtrees that render nothing.
+   * That was cheap while the composed pane was unreachable (the old 1100px page
+   * cap kept the builder below `@4xl`); now that the pane is the wide default,
+   * the waste moved to whichever layer is idle.
+   *
+   * Measured off the builder container itself, exactly like the module nav's
+   * rail/sheet swap: a `ResizeObserver`'s `contentRect` IS the content box a
+   * container query evaluates, so the mount crossover cannot drift from the CSS
+   * one.
+   *
+   * `unknown` mounts BOTH. Without a `ResizeObserver`, or before the first
+   * measurement, or while the builder sits in a `display: none` ancestor, we
+   * genuinely don't know which side we're on — and unmounting a layer we can't
+   * measure would leave an organiser with no preview at all. Each layer keeps
+   * its container-query classes as the visual authority, so in a browser the two
+   * never both show, including during that first frame.
+   */
+  const [previewLayer, setPreviewLayer] = createSignal<PreviewLayer>("unknown");
+  const showInlinePreviews = () => previewLayer() !== "wide";
+  const showPreviewPane = () => previewLayer() !== "narrow";
+
+  const watchBuilderWidth = (el: HTMLElement) => {
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const width = entry?.contentRect.width ?? 0;
+      // 0 means `display: none` or not laid out — not a measurement, so stay
+      // `unknown` rather than deciding the builder is narrow.
+      if (width === 0) return;
+      setPreviewLayer(width >= WIDE_BUILDER_REM * rootFontPx() ? "wide" : "narrow");
+    });
+    observer.observe(el);
+    onCleanup(() => observer.disconnect());
+  };
 
   /** The surface a section's tone paints, for its preview card. */
   const toneSurface = (section: ThemeSection): string => {
@@ -484,7 +544,12 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   };
 
   return (
-    <section class="border-border bg-surface/30 @container/builder flex flex-col gap-8 rounded-sm border p-6">
+    // The ref measures the same box `@container/builder` does — see
+    // `watchBuilderWidth`.
+    <section
+      ref={watchBuilderWidth}
+      class="border-border bg-surface/30 @container/builder flex flex-col gap-8 rounded-sm border p-6"
+    >
       <header class="flex flex-col gap-1">
         <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">Invite Builder</p>
         <h2 class="font-display text-text text-[1.4rem] font-light">Customise your invite</h2>
@@ -540,7 +605,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
               </div>
             </nav>
 
-            <div class="flex flex-col gap-8 @4xl/builder:flex-row @4xl/builder:items-start">
+            {/* Form and preview side by side from `@4xl/builder` up — a
+                threshold the panel could never actually reach while the page was
+                capped at 1100px, so the composed preview was effectively dead
+                code on the very screens it was written for. */}
+            <div class="flex flex-col gap-8 @4xl/builder:flex-row @4xl/builder:items-start @6xl/builder:gap-10">
               <div class="flex min-w-0 flex-1 flex-col gap-8">
                 {/* ── Design ─────────────────────────────────────────── */}
                 <SectionCard id="invite-design" legend="Design">
@@ -560,7 +629,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   onReset={resetLook}
                   description="Two fonts and five colours set the whole invite. Each section below picks how light or dark it sits — not its own colours."
                 >
-                  <div class="grid grid-cols-1 gap-4 @lg/builder:grid-cols-2">
+                  {/* `auto-grid`, not a `@lg/builder` step: these fields sit in
+                      the form column, which is narrower than the builder
+                      container once the preview pane appears — an intrinsic grid
+                      measures the box the fields are actually in. */}
+                  <div class="auto-grid [--auto-grid-min:15rem]">
                     <ChoiceField
                       label="Heading font"
                       options={FONT_OPTIONS}
@@ -583,7 +656,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* Most couples pick a preset and stop — the five fine
                       typography knobs stay one click away. */}
                   <Disclosure summary="Fine-tune typography" hint="size, weight and italics">
-                    <div class="grid grid-cols-1 gap-4 @lg/builder:grid-cols-2">
+                    <div class="auto-grid [--auto-grid-min:15rem]">
                       <ChoiceField
                         label="Heading size"
                         options={HEADING_SIZE_OPTIONS}
@@ -622,18 +695,21 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 <SectionCard id="invite-hero" legend="Hero" shown={heroShown()} onReset={resetHero}>
                   {/* Preview FIRST — the display sliders below act on it, and
                       on small screens a preview below the sliders scrolls out
-                      of view exactly when it's needed. */}
-                  <HeroPreview
-                    imageUrl={d().hero.imageUrl}
-                    crop={d().hero.imageCrop}
-                    cropMobile={d().hero.imageCropMobile ?? null}
-                    title={draft.heroTitle}
-                    heroBlur={draft.heroBlur}
-                    backdropOpacity={draft.titleBackdropOpacity}
-                    backdropBlur={draft.titleBackdropBlur}
-                    tokens={previewTokens()}
-                    surface={toneSurface("hero")}
-                  />
+                      of view exactly when it's needed. Mounted only when this
+                      layer is the visible one (see `previewLayer`). */}
+                  <Show when={showInlinePreviews()}>
+                    <HeroPreview
+                      imageUrl={d().hero.imageUrl}
+                      crop={d().hero.imageCrop}
+                      cropMobile={d().hero.imageCropMobile ?? null}
+                      title={draft.heroTitle}
+                      heroBlur={draft.heroBlur}
+                      backdropOpacity={draft.titleBackdropOpacity}
+                      backdropBlur={draft.titleBackdropBlur}
+                      tokens={previewTokens()}
+                      surface={toneSurface("hero")}
+                    />
+                  </Show>
                   <ImageField
                     label="Hero background image"
                     slot="hero"
@@ -741,14 +817,16 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     tokens={previewTokens()}
                     onChange={(v) => setDraft("tones", "story", v)}
                   />
-                  <SectionPreview
-                    label="Our Story"
-                    tokens={previewTokens()}
-                    surface={toneSurface("story")}
-                    eyebrow={sampleCopy(draft.storyEyebrow, DEFAULTS.storyEyebrow, 40)}
-                    heading={sampleCopy(draft.storyHeading, DEFAULTS.storyHeading, 60)}
-                    body={sampleCopy(draft.storyBody, DEFAULTS.storyBody)}
-                  />
+                  <Show when={showInlinePreviews()}>
+                    <SectionPreview
+                      label="Our Story"
+                      tokens={previewTokens()}
+                      surface={toneSurface("story")}
+                      eyebrow={sampleCopy(draft.storyEyebrow, DEFAULTS.storyEyebrow, 40)}
+                      heading={sampleCopy(draft.storyHeading, DEFAULTS.storyHeading, 60)}
+                      body={sampleCopy(draft.storyBody, DEFAULTS.storyBody)}
+                    />
+                  </Show>
                 </SectionCard>
 
                 {/* ── Code Entry & Welcome ───────────────────────────── */}
@@ -770,14 +848,16 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     tokens={previewTokens()}
                     onChange={(v) => setDraft("tones", "welcome", v)}
                   />
-                  <SectionPreview
-                    label="Code Entry & Welcome"
-                    tokens={previewTokens()}
-                    surface={toneSurface("welcome")}
-                    eyebrow="Your Invitation"
-                    heading="Enter Your Code"
-                    body={sampleCopy(draft.welcomeMessage, DEFAULTS.welcomeMessage)}
-                  />
+                  <Show when={showInlinePreviews()}>
+                    <SectionPreview
+                      label="Code Entry & Welcome"
+                      tokens={previewTokens()}
+                      surface={toneSurface("welcome")}
+                      eyebrow="Your Invitation"
+                      heading="Enter Your Code"
+                      body={sampleCopy(draft.welcomeMessage, DEFAULTS.welcomeMessage)}
+                    />
+                  </Show>
                 </SectionCard>
 
                 {/* ── Events section ─────────────────────────────────── */}
@@ -806,14 +886,16 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     tokens={previewTokens()}
                     onChange={(v) => setDraft("tones", "details", v)}
                   />
-                  <SectionPreview
-                    label="Events Section"
-                    tokens={previewTokens()}
-                    surface={toneSurface("details")}
-                    eyebrow={sampleCopy(draft.detailsEyebrow, DEFAULTS.detailsEyebrow, 40)}
-                    heading={sampleCopy(draft.detailsHeading, DEFAULTS.detailsHeading, 60)}
-                    body="Event names, dates and the Respond buttons follow these colours."
-                  />
+                  <Show when={showInlinePreviews()}>
+                    <SectionPreview
+                      label="Events Section"
+                      tokens={previewTokens()}
+                      surface={toneSurface("details")}
+                      eyebrow={sampleCopy(draft.detailsEyebrow, DEFAULTS.detailsEyebrow, 40)}
+                      heading={sampleCopy(draft.detailsHeading, DEFAULTS.detailsHeading, 60)}
+                      body="Event names, dates and the Respond buttons follow these colours."
+                    />
+                  </Show>
                 </SectionCard>
 
                 {/* ── Closing section ────────────────────────────────── */}
@@ -846,17 +928,19 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   {/* No colour picker of its own — the closing section reuses the
                       Code Entry & Welcome surface, so the couple's two direct
                       addresses to their guests match. */}
-                  <SectionPreview
-                    label="Closing Section"
-                    tokens={previewTokens()}
-                    surface={toneSurface("welcome")}
-                    imageUrl={d().footer?.imageUrl ?? null}
-                    body={
-                      draft.footerMessage.trim().length > 0
-                        ? sampleCopy(draft.footerMessage, "")
-                        : "Your closing note appears here."
-                    }
-                  />
+                  <Show when={showInlinePreviews()}>
+                    <SectionPreview
+                      label="Closing Section"
+                      tokens={previewTokens()}
+                      surface={toneSurface("welcome")}
+                      imageUrl={d().footer?.imageUrl ?? null}
+                      body={
+                        draft.footerMessage.trim().length > 0
+                          ? sampleCopy(draft.footerMessage, "")
+                          : "Your closing note appears here."
+                      }
+                    />
+                  </Show>
                   <p class="font-body text-text-muted text-[0.78rem] italic">
                     Uses the colours you picked for Code Entry &amp; Welcome — the closing note is
                     you speaking to your guests, same as the greeting.
@@ -882,37 +966,42 @@ export default function InviteBuilder(props: InviteBuilderProps) {
               </div>
 
               {/* ── Persistent composed preview (wide layouts) ─────────── */}
-              <aside class="hidden w-80 shrink-0 @4xl/builder:block">
-                <div class="sticky top-12">
-                  <PreviewPane
-                    tokens={previewTokens()}
-                    toneSurface={toneSurface}
-                    hero={{
-                      shown: heroShown(),
-                      imageUrl: d().hero.imageUrl,
-                      crop: d().hero.imageCrop,
-                      cropMobile: d().hero.imageCropMobile ?? null,
-                      title: draft.heroTitle,
-                      heroBlur: draft.heroBlur,
-                      backdropOpacity: draft.titleBackdropOpacity,
-                      backdropBlur: draft.titleBackdropBlur,
-                    }}
-                    story={{
-                      shown: storyShown(),
-                      eyebrow: draft.storyEyebrow,
-                      heading: draft.storyHeading,
-                      body: draft.storyBody,
-                    }}
-                    welcome={{ message: draft.welcomeMessage }}
-                    events={{ eyebrow: draft.detailsEyebrow, heading: draft.detailsHeading }}
-                    closing={{
-                      shown: footerShown(),
-                      message: draft.footerMessage,
-                      imageUrl: d().footer?.imageUrl ?? null,
-                    }}
-                  />
-                </div>
-              </aside>
+              {/* The miniature earns more room as the builder widens — at 20rem
+                  the hero's type is guesswork; by 24rem the tone rhythm down the
+                  page is legible, which is the whole point of the pane. */}
+              <Show when={showPreviewPane()}>
+                <aside class="hidden w-80 shrink-0 @4xl/builder:block @6xl/builder:w-96">
+                  <div class="sticky top-12">
+                    <PreviewPane
+                      tokens={previewTokens()}
+                      toneSurface={toneSurface}
+                      hero={{
+                        shown: heroShown(),
+                        imageUrl: d().hero.imageUrl,
+                        crop: d().hero.imageCrop,
+                        cropMobile: d().hero.imageCropMobile ?? null,
+                        title: draft.heroTitle,
+                        heroBlur: draft.heroBlur,
+                        backdropOpacity: draft.titleBackdropOpacity,
+                        backdropBlur: draft.titleBackdropBlur,
+                      }}
+                      story={{
+                        shown: storyShown(),
+                        eyebrow: draft.storyEyebrow,
+                        heading: draft.storyHeading,
+                        body: draft.storyBody,
+                      }}
+                      welcome={{ message: draft.welcomeMessage }}
+                      events={{ eyebrow: draft.detailsEyebrow, heading: draft.detailsHeading }}
+                      closing={{
+                        shown: footerShown(),
+                        message: draft.footerMessage,
+                        imageUrl: d().footer?.imageUrl ?? null,
+                      }}
+                    />
+                  </div>
+                </aside>
+              </Show>
             </div>
 
             {/* ── Save bar — sticky so it's reachable from any section ── */}

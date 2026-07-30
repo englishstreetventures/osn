@@ -179,7 +179,11 @@ export default function SettingsPanel(props: SettingsPanelProps) {
             <p class={hintClass}>Only the wedding&apos;s owner can change these settings.</p>
           </Show>
 
-          <div class="grid gap-4 @lg/panel:grid-cols-2">
+          {/* Fields flow into as many ≥17rem columns as fit — a date input or a
+              three-letter currency code stretched across half a widescreen looks
+              broken, and stepping at `@lg/panel` capped the form at two columns
+              no matter how much room it had. */}
+          <div class="auto-grid items-start [--auto-grid-min:17rem]">
             <label class="flex flex-col gap-1.5">
               <span class={labelClass}>Wedding name</span>
               <input

@@ -32,7 +32,10 @@ export default function WeddingList(props: {
       </Show>
 
       <Show when={!isEmpty()}>
-        <ul class="grid grid-cols-1 gap-4 @lg/page:grid-cols-2">
+        {/* Intrinsic columns rather than a `@lg/page` step: an organiser with
+            six weddings gets three or four per row on a widescreen, and one on
+            a phone, with no breakpoint list to keep in sync. */}
+        <ul class="auto-grid [--auto-grid-min:20rem]">
           <For each={props.weddings}>
             {(wedding) => (
               <li class="flex">

@@ -233,77 +233,85 @@ export default function ChecklistView(props: ChecklistViewProps) {
         </form>
       </Show>
 
-      <For each={grouped()}>
-        {(group) => (
-          <section class="flex flex-col gap-2">
-            <h3 class="text-gold-dim font-body text-[0.7rem] tracking-[0.18em] uppercase">
-              {group.bucket.label}
-            </h3>
-            <Show
-              when={group.items.length > 0}
-              fallback={<p class="text-text-muted text-[0.8rem] italic">Nothing here yet.</p>}
-            >
-              <ul class="flex flex-col gap-1">
-                <For each={group.items}>
-                  {(task, i) => (
-                    <li class="border-border bg-surface/10 flex items-center gap-3 rounded-sm border px-3 py-2">
-                      <input
-                        type="checkbox"
-                        aria-label={task.title}
-                        checked={task.status === "done"}
-                        disabled={!props.canEdit}
-                        onChange={() => props.canEdit && toggleDone(task)}
-                      />
-                      <span
-                        class={`flex-1 text-[0.9rem] ${
-                          task.status === "done" ? "text-text-muted line-through" : "text-text"
-                        }`}
-                      >
-                        {task.title}
-                        <Show when={task.dueAt}>
-                          <span class="text-text-muted ml-2 text-[0.72rem]">
-                            · due {task.dueAt}
-                          </span>
+      {/* Lead-time buckets side by side once there's room: each bucket is a
+          short list, so a single column left most of a widescreen empty while
+          pushing "6+ months out" below the fold. Column count is intrinsic —
+          `auto-grid` fits as many ≥22rem buckets as the panel allows, and the
+          reorder arrows stay within their own bucket either way.
+          `items-start` so a long bucket doesn't stretch its neighbours. */}
+      <div class="auto-grid items-start [--auto-grid-gap:1.5rem] [--auto-grid-min:22rem]">
+        <For each={grouped()}>
+          {(group) => (
+            <section class="flex flex-col gap-2">
+              <h3 class="text-gold-dim font-body text-[0.7rem] tracking-[0.18em] uppercase">
+                {group.bucket.label}
+              </h3>
+              <Show
+                when={group.items.length > 0}
+                fallback={<p class="text-text-muted text-[0.8rem] italic">Nothing here yet.</p>}
+              >
+                <ul class="flex flex-col gap-1">
+                  <For each={group.items}>
+                    {(task, i) => (
+                      <li class="border-border bg-surface/10 flex items-center gap-3 rounded-sm border px-3 py-2">
+                        <input
+                          type="checkbox"
+                          aria-label={task.title}
+                          checked={task.status === "done"}
+                          disabled={!props.canEdit}
+                          onChange={() => props.canEdit && toggleDone(task)}
+                        />
+                        <span
+                          class={`flex-1 text-[0.9rem] ${
+                            task.status === "done" ? "text-text-muted line-through" : "text-text"
+                          }`}
+                        >
+                          {task.title}
+                          <Show when={task.dueAt}>
+                            <span class="text-text-muted ml-2 text-[0.72rem]">
+                              · due {task.dueAt}
+                            </span>
+                          </Show>
+                        </span>
+                        <Show when={props.canEdit}>
+                          <div class="flex items-center gap-1">
+                            <button
+                              type="button"
+                              aria-label="Move up"
+                              disabled={i() === 0}
+                              onClick={() => move(group.bucket.key, i(), -1)}
+                              class="text-text-muted hover:text-text px-1 disabled:opacity-30"
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Move down"
+                              disabled={i() === group.items.length - 1}
+                              onClick={() => move(group.bucket.key, i(), 1)}
+                              class="text-text-muted hover:text-text px-1 disabled:opacity-30"
+                            >
+                              ↓
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Delete task"
+                              onClick={() => deleteTask(task)}
+                              class="text-text-muted hover:text-error px-1"
+                            >
+                              ✕
+                            </button>
+                          </div>
                         </Show>
-                      </span>
-                      <Show when={props.canEdit}>
-                        <div class="flex items-center gap-1">
-                          <button
-                            type="button"
-                            aria-label="Move up"
-                            disabled={i() === 0}
-                            onClick={() => move(group.bucket.key, i(), -1)}
-                            class="text-text-muted hover:text-text px-1 disabled:opacity-30"
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="Move down"
-                            disabled={i() === group.items.length - 1}
-                            onClick={() => move(group.bucket.key, i(), 1)}
-                            class="text-text-muted hover:text-text px-1 disabled:opacity-30"
-                          >
-                            ↓
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="Delete task"
-                            onClick={() => deleteTask(task)}
-                            class="text-text-muted hover:text-error px-1"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      </Show>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </Show>
-          </section>
-        )}
-      </For>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </Show>
+            </section>
+          )}
+        </For>
+      </div>
     </div>
   );
 }

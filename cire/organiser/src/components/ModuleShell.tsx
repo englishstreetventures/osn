@@ -135,7 +135,10 @@ export default function ModuleShell(props: ModuleShellProps) {
     // element and is queried by the inner one: an element can't respond to a
     // container it declares itself.
     <div class="@container/shell">
-      <div class="flex flex-col gap-5 @2xl/shell:flex-row @2xl/shell:gap-8">
+      {/* The gap opens up as the shell widens — at 1600px a rail 32px from a
+          1300px panel reads as one crowded block; the extra air is what makes
+          the two halves legible as separate things. */}
+      <div class="flex flex-col gap-5 @2xl/shell:flex-row @2xl/shell:gap-8 @5xl/shell:gap-10">
         <ModuleSidebar active={props.module} onSelect={props.onModule} />
 
         <div class="@container/panel min-w-0 flex-1">

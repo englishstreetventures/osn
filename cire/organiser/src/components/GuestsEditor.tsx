@@ -259,7 +259,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
             viewport, so it would ride inside the panel instead of the window. */}
         <Portal>
           <div class="border-border bg-surface/95 fixed inset-x-0 bottom-0 z-40 border-t backdrop-blur">
-            <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+            <div class="page-frame flex flex-wrap items-center justify-between gap-3 py-3">
               <span class="font-body text-text-muted text-[0.82rem]">
                 <Show when={hasErrors()} fallback="You have unsaved changes.">
                   <span class="text-error">
@@ -296,7 +296,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
               </div>
             </div>
             <Show when={saveError()}>
-              <p class="border-error/20 bg-error/5 text-error mx-auto max-w-5xl border-t px-4 py-2 text-[0.82rem]">
+              <p class="border-error/20 bg-error/5 text-error page-frame border-t py-2 text-[0.82rem]">
                 {saveError()}
               </p>
             </Show>

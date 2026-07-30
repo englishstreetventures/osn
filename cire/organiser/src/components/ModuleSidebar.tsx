@@ -95,9 +95,14 @@ export default function ModuleSidebar(props: {
   return (
     <>
       {/* ── Wide container: persistent rail ────────────────────────────── */}
+      {/* Sticky from the rail breakpoint up: on a tall panel (the invite
+          builder, a long guest table) the modules used to scroll away, which is
+          the one thing a persistent rail exists not to do. `self-start` keeps it
+          from being stretched to the panel's height by the flex row — a
+          full-height flex item has nothing to slide against. */}
       <nav
         aria-label="Wedding modules"
-        class="hidden w-52 shrink-0 flex-col gap-0.5 @2xl/shell:flex"
+        class="hidden w-52 shrink-0 flex-col gap-0.5 @2xl/shell:sticky @2xl/shell:top-6 @2xl/shell:flex @2xl/shell:self-start @5xl/shell:w-56"
       >
         <For each={MODULE_NAV}>
           {(mod) => {
