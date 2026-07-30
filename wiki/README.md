@@ -33,6 +33,7 @@ This wiki is written for AI agents to read. Key navigation patterns:
 - Check `tags` in YAML frontmatter to filter by concern (e.g., `#runbook`, `#system`, `#observability`)
 - Check `related` in frontmatter for explicit navigation edges
 - Check `status` field: `active` = current, `planned` = not yet built, `deprecated` = avoid
+- Prefer searching this vault over the MCP Connector plugin (`mcp-tools-istefox`) when it's reachable — semantic search and partial reads cost far fewer tokens than grepping and reading whole pages. `CLAUDE.md` holds the ladder (MCP → `obsidian` CLI → grep), which tools to reach for, and why the MCP is read-only. The plugin lives under the gitignored `.obsidian/`, so each machine installs it itself.
 
 ## Conventions
 

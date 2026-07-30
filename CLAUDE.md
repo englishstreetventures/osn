@@ -80,26 +80,72 @@ Phase 1 surfaces:
 
 ### Searching the wiki
 
-Check for Obsidian CLI first (requires Obsidian app running):
+Three ways, in order. Try each; drop to the next when it isn't there.
+
+**1. Obsidian MCP (`mcp__obsidian-wiki__*`) — preferred, local sessions only.** The MCP Connector plugin (`mcp-tools-istefox`) serving the `wiki` vault. Reachable when the `mcp__obsidian-wiki__*` tools are listed and a call returns; an error ending `is Obsidian open with the vault loaded?` means it isn't — drop to step 2.
+
+Where it exists:
+
+| Where you're running | Obsidian MCP? |
+|---|---|
+| Claude Code on Aniket's Mac, Obsidian open with the `wiki` vault | Yes — registered at user scope |
+| Claude Code on that Mac, Obsidian shut | No — the server can't resolve a port |
+| Claude Desktop | Only if the `.mcpb` is installed there as well; the Claude Code registration doesn't carry over |
+| Remote or cloud session, cloud agent, CI, another machine | **Never.** It reaches a local Obsidian over `127.0.0.1`. Skip to step 3 — the `obsidian` CLI is local-only too. |
+
+Don't hunt for it, retry it, or ask for it to be started when the tools aren't listed. Absent means absent: go to grep.
+
+| To... | Call |
+|---|---|
+| Search by meaning, not wording | `search_vault_smart` (semantic index over the vault) |
+| Search for an exact string | `search_vault_simple` (substring + surrounding context) |
+| Read one page / up to 20 pages | `get_vault_file`, `get_vault_files` |
+| Read one heading, field, or the outline only | `get_vault_file_partial`, `get_note_outline` |
+| Follow the graph | `get_backlinks`, `get_outgoing_links` |
+| Find pages by tag | `get_files_by_tag`, `list_tags` |
+| Orient in an unfamiliar area | `get_vault_overview`, `list_vault_files` |
+
+Some tools start inactive — `tool_catalog` lists them, `activate_tools` promotes several in one call.
+
+**It always shows you `main`, not your branch.** The vault path is baked into the connector as the `main` worktree's `wiki/`. Obsidian stays open on that one vault; nobody re-points it per branch. Two consequences:
+
+- **Read only.** The write tools (`create_vault_file`, `patch_vault_file`, `search_and_replace`, …) would edit `main`'s working tree, not your branch. Retrieve over MCP; edit wiki pages in your own worktree with Edit/Write.
+- **Your branch's own wiki edits are invisible to it.** Before trusting a page the branch might have changed, run the guard — one command, not a re-read of the wiki:
+
+  ```bash
+  git diff --name-only origin/main...HEAD -- wiki/   # pages this branch changed
+  ```
+
+  Empty output (the usual case) → MCP results are authoritative, use them. Any page you need in that list → read the branch copy with Read; MCP has the pre-branch version.
+
+Keep the vault fresh, since a stale `main` worktree means stale answers. Obsidian re-indexes on file change, and a fast-forward of a clean worktree is safe:
 
 ```bash
-# 1. Check availability
-which obsidian 2>/dev/null && OBSCLI=obsidian || OBSCLI=""
+git -C ~/.work/osn.git/main pull --ff-only
+```
 
-# 2a. If available — use obsidian CLI (vault-aware, follows [[wikilinks]])
+If it refuses, leave it alone — never force or reset another worktree. Grep your own `wiki/` instead.
+
+That's the whole protocol: freshen, one guard command, then lean on semantic search instead of grepping and reading whole pages.
+
+**2. Obsidian CLI** — same limits: local machine, app running:
+
+```bash
+which obsidian 2>/dev/null || echo "not installed"
 obsidian search query="arc tokens"                     # full-text search
 obsidian search:context query="arc tokens"             # search with line context
 obsidian tag name=systems verbose                      # list files tagged #systems
 obsidian read path=wiki/systems/arc-tokens.md          # read a page
 obsidian backlinks file=arc-tokens                     # find pages linking to it
 obsidian files folder=wiki/systems                     # list files in a folder
+```
 
-# 2b. Fallback — grep over markdown files (always works)
+**3. grep** — works everywhere, including remote and CI. Reads your worktree's own `wiki/`:
+
+```bash
 grep -r "arc token" wiki/ --include="*.md" -l          # find matching pages
 grep -r "arc token" wiki/ --include="*.md" -n          # with line numbers
 ```
-
-Note: `obsidian` CLI talks to running Obsidian app — fall back to grep if not open.
 
 ### Wiki maintenance rules
 
@@ -231,3 +277,15 @@ bunx tauri build         # Build app
 bun add solid-js --cwd osn/landing
 bun add drizzle-orm --cwd pulse/db
 ```
+
+## Cloudflare Workers debugging
+
+- Multi-service request misbehaving in prod → `wrangler tail` the actual failing service FIRST, before any architecture speculation.
+- Never `source` a secrets file to set a JSON/JWK-shaped secret — bash brace-expansion mangles `{"a":"b"}` unquoted. Extract with grep/sed, pipe via `printf`:
+  ```bash
+  VAL=$(grep -m1 '^KEY=' "$SF" | sed 's/^[^=]*=//'); printf '%s' "$VAL" | wrangler secret put KEY --env production
+  ```
+- `wrangler secret put/delete` doesn't cycle warm isolates — redeploy (`wrangler deploy --env production`) after a secret change when behavior must flip now.
+- First-ever deploy of a Worker (even with existing `wrangler.toml`) can crash at deploy-time module eval: `fileURLToPath(import.meta.url)` at module top level, or module-top-level `process.env` reads/validation, both undefined/unpopulated during workerd's deploy eval. Fix: defer both into request-time/lazy thunks. Verify with a real `wrangler deploy`, not `--dry-run` (dry-run doesn't catch these).
+- Named envs don't inherit top-level routes — add `[[env.production.routes]]` with `custom_domain = true` for a never-deployed named env.
+- Changing a shared package's schema (e.g. a DB package other services import) → run the FULL monorepo test suite before merging, not just that package's own tests.
