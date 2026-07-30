@@ -4,7 +4,7 @@ tags: [todo, deferred]
 related:
   - "[[index]]"
   - "[[platform-plan]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-30
 ---
 
 # Deferred Decisions
@@ -33,6 +33,8 @@ Open architectural questions with options + a trigger for revisiting. When a dec
 | Account-linking ARC key provisioning + rotation | Stable `CIRE_API_ARC_PRIVATE_KEY` secret pre-registered in osn-api `service_accounts` (shipped) vs. lazy self-registration per isolate vs. KV-persisted rotating key | Before production launch of linking — wire the secret + osn-side registration; decide rotation story (Workers have no startup hook) |
 | Workerd metric/trace **export** | otel-cf-workers vs. Workers Analytics Engine vs. stay no-op | cire now defines spans + `cire/api/src/metrics.ts` counters/histograms (recording call-sites correct, no-op until an exporter exists). Decide the reader before relying on cire dashboards. See `[[observability/overview]]` |
 | `OSN_API_URL` https enforcement (linking) | Enforce `https://` for the ARC call in prod (like `graphBridge.ts` module-load guard) vs. trust deploy config | Before production launch — Workers has no module-load env, so guard must live in `index.ts` config wiring |
+| Invite builder draft→publish model | Today two persistence models coexist (text/theme via Save; images/crops/design instantly live — see `[[architecture/invite-builder]]`), so a mid-redesign invite can go live half-updated. Options: draft columns + a Publish action on `wedding_invite_customisations` vs. a shadow draft row vs. keep the marked split (current, 2026-07-30 UX pass added badges + remove-confirm). | If an organiser reports a half-updated live invite, or when the builder next grows a surface that writes instantly |
+| Invite builder concurrent-edit guard | The organiser GET payload exposes no row version, so two co-editors are last-write-wins with no warning. Cheap fix: return `updatedAt` from `GET /invite`, compare on save, warn on mismatch. | With the first multi-editor wedding complaint, or alongside the draft→publish decision above |
 
 ## Resolved
 

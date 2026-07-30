@@ -1,0 +1,1020 @@
+/**
+ * Invite builder — lets the signed-in organiser customise the guest invite. It
+ * is structured as one card per guest-page section, **in the order a guest
+ * scrolls them** (Hero → Our Story → Code Entry & Welcome → Events → Closing),
+ * and each card owns EVERYTHING about its section: image, copy, colours, and a
+ * live preview. Global typography sits first (it applies to every section),
+ * the copyable invite message last (it is not part of the guest page). One
+ * sticky "Save invite" action persists the lot — the API's text/theme endpoint
+ * split is an implementation detail the organiser never sees. The event +
+ * guest source of truth stays in the CSV import; this only layers presentation.
+ *
+ * State shape: ONE `createStore` draft (`model.ts`) plus reactive snapshots of
+ * the last server-acknowledged payloads. Dirty state is therefore a memo the
+ * UI can render — the save bar shows live "Unsaved changes", the save button
+ * disables when clean, `beforeunload` + the dashboard's navigation guard
+ * (`lib/unsaved-guard`) protect a dirty draft from being lost.
+ *
+ * Two persistence models coexist deliberately: text/theme wait for Save;
+ * images, crops and the design selection apply immediately (marked with an
+ * "applies immediately" badge, and image removal asks first). A draft→publish
+ * model that would unify them needs API support — tracked in the cire wiki.
+ */
+
+import {
+  derivePalette,
+  fontStack,
+  paletteAdjustments,
+  SECTION_TONES,
+  type SectionTone,
+  typographyVars,
+} from "@cire/theme";
+import { useAuth } from "@shared/rp-auth/solid";
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
+import { createStore } from "solid-js/store";
+import { toast } from "solid-toast";
+
+import { apiUrl, isAuthExpired, redirectToLogin } from "../../lib/api";
+import type { ImageCrop } from "../../lib/image-crop";
+import { isFooterEmpty, isHeroEmpty, isStoryEmpty } from "../../lib/invite-emptiness";
+import { CIRE_WEB_URL } from "../../lib/osn";
+import { registerUnsavedGuard } from "../../lib/unsaved-guard";
+import PaletteField, { resolvedSeeds } from "../PaletteField";
+import DesignPicker from "./DesignPicker";
+import {
+  ChoiceField,
+  Disclosure,
+  SectionCard,
+  SliderField,
+  TextAreaField,
+  TextField,
+} from "./fields";
+import ImageField from "./ImageField";
+import {
+  BACKDROP_BLUR_MAX,
+  BACKDROP_BLUR_MIN,
+  BACKDROP_OPACITY_MAX,
+  BACKDROP_OPACITY_MIN,
+  COPY_CAPS,
+  DEFAULTS,
+  draftFromCustomisation,
+  emptyDraft,
+  FONT_OPTIONS,
+  FONT_STYLE_OPTIONS,
+  FONT_WEIGHT_OPTIONS,
+  fontOrDefault,
+  HEADING_SIZE_OPTIONS,
+  HERO_BLUR_DEFAULT,
+  HERO_BLUR_MAX,
+  HERO_BLUR_MIN,
+  type ImageSlot,
+  type InviteCustomisation,
+  sampleCopy,
+  SLOT_LABELS,
+  textPayload,
+  themePayload,
+  type ThemeSection,
+} from "./model";
+import PreviewPane from "./PreviewPane";
+import { HeroPreview, SectionPreview } from "./previews";
+
+export { isDesignLocked } from "./model";
+
+interface InviteBuilderProps {
+  weddingId: string;
+  /** The wedding's slug — builds the public guest-invite preview link. */
+  weddingSlug: string;
+  /** The wedding's entitlement keys — locks premium designs in the selector. */
+  entitlements: string[];
+}
+
+/** The section-nav jump targets, in guest scroll order (+ the two non-page
+ *  cards). Ids double as the fieldset anchors. */
+const NAV_SECTIONS = [
+  { id: "invite-design", label: "Design" },
+  { id: "invite-look", label: "Look" },
+  { id: "invite-hero", label: "Hero" },
+  { id: "invite-story", label: "Our Story" },
+  { id: "invite-welcome", label: "Welcome" },
+  { id: "invite-events", label: "Events" },
+  { id: "invite-closing", label: "Closing" },
+  { id: "invite-message", label: "Message" },
+] as const;
+
+export default function InviteBuilder(props: InviteBuilderProps) {
+  const { authFetch } = useAuth();
+
+  const base = () => `/api/organiser/weddings/${props.weddingId}/invite`;
+
+  const [data, { mutate, refetch }] = createResource<InviteCustomisation>(async () => {
+    const res = await authFetch(apiUrl(base()));
+    if (res.status === 401) {
+      redirectToLogin();
+      throw new Error("unauthorised");
+    }
+    if (!res.ok) throw new Error(`Could not load invite (${res.status}).`);
+    return (await res.json()) as InviteCustomisation;
+  });
+
+  // The whole editable state as one draft store (see model.ts), seeded once
+  // when the resource first resolves. Image URLs/crops are NOT drafted — they
+  // save instantly and live on `data`.
+  const [draft, setDraft] = createStore(emptyDraft());
+  const [seeded, setSeeded] = createSignal(false);
+  const [saving, setSaving] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+  // Upload/remove failures surface inside their own section, not the save bar.
+  const [slotErrors, setSlotErrors] = createStore<Record<ImageSlot, string | null>>({
+    hero: null,
+    story: null,
+    footer: null,
+  });
+
+  // Serialised snapshots of the last state the server has (seeded on load,
+  // refreshed after each successful PUT). REACTIVE signals — the dirty memos
+  // below are what let the save bar render live state; the old non-reactive
+  // `let` snapshots made an "Unsaved changes" indicator impossible.
+  const [savedText, setSavedText] = createSignal("");
+  const [savedTheme, setSavedTheme] = createSignal("");
+
+  // Seed the draft once, when the resource first resolves (an effect, not a
+  // render-path side effect). Later mutations from image/design saves refresh
+  // `data` but never clobber the organiser's in-progress buffers.
+  createEffect(() => {
+    const d = data();
+    if (!d || seeded()) return;
+    const next = draftFromCustomisation(d);
+    setDraft(next);
+    setSavedText(JSON.stringify(textPayload(next)));
+    setSavedTheme(JSON.stringify(themePayload(next)));
+    setSeeded(true);
+  });
+
+  // Live dirty state per half. Each half is compared against the last
+  // server-acknowledged snapshot — a copy-only save must not bump the theme
+  // row's `updatedAt` (it doubles as the guest image-cache version, so a
+  // gratuitous bump busts the per-variant transform cache and makes guests
+  // re-download the hero for zero visual change — P-W1, see
+  // [[free-tier-limits]]).
+  const textDirty = createMemo(
+    () => seeded() && JSON.stringify(textPayload(draft)) !== savedText(),
+  );
+  const themeDirty = createMemo(
+    () => seeded() && JSON.stringify(themePayload(draft)) !== savedTheme(),
+  );
+  const isDirty = () => textDirty() || themeDirty();
+
+  // A dirty draft is guarded twice: the dashboard's SPA navigation asks before
+  // switching away (unsaved-guard), and the browser asks on tab close/reload.
+  onMount(() => {
+    const unregister = registerUnsavedGuard(isDirty);
+    onCleanup(unregister);
+  });
+  // The beforeunload listener exists ONLY while dirty — a persistently
+  // registered one makes the page ineligible for the back/forward cache in
+  // Firefox/Safari even with a clean form (P-I3).
+  createEffect(() => {
+    if (!isDirty()) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
+  });
+
+  // The live scheme as a CSS-variable map, derived by the SAME function the
+  // guest site uses (`derivePalette` in `@cire/theme`). There is no
+  // organiser-side colour maths any more, so the preview cannot disagree with
+  // what a guest sees. Memoised: many preview readers, and the trigger is a
+  // colour-picker DRAG (pointermove) — without a memo each frame ran the full
+  // derivation once per reader. The seeds + adjustments memos are shared with
+  // PaletteField via props, so the whole builder derives exactly once per
+  // frame (P-W1).
+  const paletteSeeds = createMemo(() => resolvedSeeds(draft.palette));
+  const seedAdjustments = createMemo(() => paletteAdjustments(paletteSeeds()));
+  const previewTokens = createMemo((): Record<string, string> => {
+    const vars: Record<string, string> = derivePalette(paletteSeeds());
+    const heading = fontStack(fontOrDefault(draft.headingFont));
+    if (heading) vars["--font-display"] = heading;
+    const body = fontStack(fontOrDefault(draft.bodyFont));
+    if (body) vars["--font-body"] = body;
+    // Typography options ride the same token map — resolved by the SAME shared
+    // function the guest site uses, so the preview cannot lie about a weight.
+    Object.assign(
+      vars,
+      typographyVars({
+        headingSize: fontOrDefault(draft.headingSize),
+        headingWeight: fontOrDefault(draft.headingWeight),
+        headingStyle: fontOrDefault(draft.headingStyle),
+        bodyWeight: fontOrDefault(draft.bodyWeight),
+        bodyStyle: fontOrDefault(draft.bodyStyle),
+      }),
+    );
+    return vars;
+  });
+
+  /** The surface a section's tone paints, for its preview card. */
+  const toneSurface = (section: ThemeSection): string => {
+    switch (draft.tones[section]) {
+      case "card":
+        return "var(--color-surface)";
+      case "raised":
+        return "var(--color-surface-raised)";
+      default:
+        return "var(--color-bg)";
+    }
+  };
+
+  // Live "what a guest will see" gates, mirroring the guest invite's emptiness
+  // predicates. Driven by the draft buffers (so the badge flips the instant the
+  // organiser types) plus the loaded image URL (image upload/remove refetches
+  // `data`). The hero/story sections are HIDDEN on the live invite when these
+  // report empty — the badges surface that before the organiser saves.
+  const heroShown = () =>
+    !isHeroEmpty({
+      imageUrl: data()?.hero.imageUrl,
+      title: draft.heroTitle,
+      subtitle: draft.heroSubtitle,
+    });
+  const storyShown = () =>
+    !isStoryEmpty({
+      heading: draft.storyHeading,
+      body: draft.storyBody,
+      imageUrl: data()?.story.imageUrl,
+    });
+  // The footer has no defaults, so its badge asks "is there anything personal
+  // here at all?" — a note, an image, or both. Neither ⇒ the guest sees the
+  // plain footer (names over the legal links).
+  const footerShown = () =>
+    !isFooterEmpty({ message: draft.footerMessage, imageUrl: data()?.footer?.imageUrl });
+
+  /** Shown-state per nav item, mirroring the section badges in the jump list. */
+  const navShown = (id: string): boolean | undefined => {
+    switch (id) {
+      case "invite-hero":
+        return heroShown();
+      case "invite-story":
+        return storyShown();
+      case "invite-closing":
+        return footerShown();
+      default:
+        return undefined;
+    }
+  };
+
+  /** Anchor-free jump — the dashboard routes on `location.hash`, so a real
+   *  `#invite-hero` link would clobber the route and navigate away. */
+  function jumpTo(id: string) {
+    document.getElementById(id)?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }
+
+  /**
+   * The single save. The API keeps its two endpoints (`/text` + `/theme`) but
+   * the organiser sees ONE action. Dirty halves run sequentially (text then
+   * theme); each successful response refreshes its snapshot and mutates the
+   * loaded data immediately (so a text success followed by a theme failure
+   * leaves the UI consistent with what the server actually saved), and
+   * whichever half fails surfaces its own error. Wired as the form's submit
+   * handler so Enter in any field saves too.
+   */
+  async function saveInvite(e?: Event) {
+    e?.preventDefault();
+    if (saving()) return;
+    setError(null);
+
+    const textBody = JSON.stringify(textPayload(draft));
+    const themeBody = JSON.stringify(themePayload(draft));
+    const textIsDirty = textBody !== savedText();
+    const themeIsDirty = themeBody !== savedTheme();
+    // Unreachable via the UI (the button disables when clean) — belt & braces
+    // against a programmatic submit.
+    if (!textIsDirty && !themeIsDirty) return;
+
+    setSaving(true);
+    try {
+      if (textIsDirty) {
+        const textRes = await authFetch(apiUrl(`${base()}/text`), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: textBody,
+        });
+        if (!textRes.ok) {
+          const body = (await textRes.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? `Save failed (${textRes.status})`);
+        }
+        setSavedText(textBody);
+        mutate((await textRes.json()) as InviteCustomisation);
+      }
+
+      if (themeIsDirty) {
+        const themeRes = await authFetch(apiUrl(`${base()}/theme`), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: themeBody,
+        });
+        if (!themeRes.ok) {
+          const body = (await themeRes.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? `Save failed (${themeRes.status})`);
+        }
+        setSavedTheme(themeBody);
+        mutate((await themeRes.json()) as InviteCustomisation);
+      }
+      toast.success("Invite saved");
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      setError(err instanceof Error ? err.message : "Save failed.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Fires immediately on card click — no dirty-tracking, one PUT per selection.
+  const [savingDesign, setSavingDesign] = createSignal(false);
+
+  const selectDesign = async (designId: string) => {
+    if (savingDesign() || (data()?.designId ?? "classic") === designId) return;
+    setSavingDesign(true);
+    try {
+      const res = await authFetch(apiUrl(`${base()}/design`), {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ designId }),
+      });
+      if (!res.ok) throw new Error(`Design save failed (${res.status})`);
+      mutate((await res.json()) as InviteCustomisation);
+      toast.success("Design updated");
+    } catch (err) {
+      if (isAuthExpired(err)) {
+        redirectToLogin();
+        return;
+      }
+      toast.error("Could not update the design");
+    } finally {
+      setSavingDesign(false);
+    }
+  };
+
+  // The wedding's public guest-invite URL — same path-routed pattern used by
+  // PreviewInviteButton / buildInviteMessage (the guest site is SSR +
+  // path-routed, so the slug must be in the PATH; the bare origin would
+  // resolve to whatever wedding is primary, not necessarily this one).
+  const guestBaseUrl = () => `${CIRE_WEB_URL}/${encodeURIComponent(props.weddingSlug)}`;
+
+  /** The "Preview live" link target for a design card — the guest invite URL
+   *  with `?design=<id>` appended (`&` if a query is already present). */
+  function designPreviewHref(designId: string): string {
+    const url = guestBaseUrl();
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}design=${encodeURIComponent(designId)}`;
+  }
+
+  async function uploadImage(slot: ImageSlot, file: File) {
+    setSlotErrors(slot, null);
+    try {
+      const res = await authFetch(apiUrl(`${base()}/image/${slot}`), {
+        method: "POST",
+        body: file,
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `Upload failed (${res.status})`);
+      }
+      await refetch();
+      toast.success(`${SLOT_LABELS[slot]} image updated`);
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      setSlotErrors(slot, err instanceof Error ? err.message : "Upload failed.");
+    }
+  }
+
+  async function removeImage(slot: ImageSlot) {
+    // Removal hits the LIVE invite immediately (no save bar, no undo) — the
+    // one destructive control in the builder, so it asks first.
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        `Remove the ${SLOT_LABELS[slot].toLowerCase()} image? It disappears from your live invite immediately.`,
+      )
+    ) {
+      return;
+    }
+    setSlotErrors(slot, null);
+    try {
+      const res = await authFetch(apiUrl(`${base()}/image/${slot}`), { method: "DELETE" });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `Remove failed (${res.status})`);
+      }
+      mutate((await res.json()) as InviteCustomisation);
+      toast.success("Image removed");
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      setSlotErrors(slot, err instanceof Error ? err.message : "Remove failed.");
+    }
+  }
+
+  // Save (or reset, with `crop: null`) a slot's crop rectangle. `screen` picks
+  // which of the hero's two rectangles a save targets (0046): "desktop" (the
+  // default, and the only option for the story slot) or the hero's "mobile"
+  // phone rectangle. Mutates the loaded data with the returned customisation so
+  // the thumbnail re-renders the new crop. Throws on failure so the modal can
+  // keep itself open and surface a retry.
+  async function saveCrop(slot: ImageSlot, crop: ImageCrop | null, screen?: "desktop" | "mobile") {
+    const res = await authFetch(apiUrl(`${base()}/image/${slot}/crop`), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(screen ? { crop, screen } : { crop }),
+    });
+    if (res.status === 401) {
+      redirectToLogin();
+      throw new Error("unauthorised");
+    }
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error ?? `Save failed (${res.status})`);
+    }
+    mutate((await res.json()) as InviteCustomisation);
+    const noun = screen === "mobile" ? "Phone crop" : "Crop";
+    toast.success(crop ? `${noun} saved` : `${noun} reset`);
+  }
+
+  // Per-section resets — draft-only changes (nothing saved), so no confirm.
+  const resetLook = () =>
+    setDraft({
+      headingFont: "default",
+      bodyFont: "default",
+      headingSize: "default",
+      headingWeight: "default",
+      headingStyle: "default",
+      bodyWeight: "default",
+      bodyStyle: "default",
+      palette: { preset: null, seeds: {} },
+    });
+  const resetHero = () => {
+    setDraft({
+      heroTitle: "",
+      heroSubtitle: "",
+      heroBlur: HERO_BLUR_DEFAULT,
+      titleBackdropOpacity: 0,
+      titleBackdropBlur: 0,
+    });
+    setDraft("tones", "hero", null);
+  };
+  const resetStory = () => {
+    setDraft({ storyEyebrow: "", storyHeading: "", storyBody: "" });
+    setDraft("tones", "story", null);
+  };
+  const resetWelcome = () => {
+    setDraft({ welcomeMessage: "" });
+    setDraft("tones", "welcome", null);
+  };
+  const resetEvents = () => {
+    setDraft({ detailsEyebrow: "", detailsHeading: "" });
+    setDraft("tones", "details", null);
+  };
+
+  return (
+    <section class="border-border bg-surface/30 @container/builder flex flex-col gap-8 rounded-sm border p-6">
+      <header class="flex flex-col gap-1">
+        <p class="font-body text-gold text-[0.72rem] tracking-[0.2em] uppercase">Invite Builder</p>
+        <h2 class="font-display text-text text-[1.4rem] font-light">Customise your invite</h2>
+        <p class="font-body text-text-muted text-[0.82rem]">
+          Each card below is one section of the guest invite, in the order guests see them — images,
+          copy and colours together. Events and guests still come from your spreadsheet import.
+        </p>
+      </header>
+
+      <Show
+        when={data()}
+        fallback={
+          <p class="font-body text-text-muted animate-pulse text-[0.88rem] tracking-[0.1em] uppercase">
+            Loading invite…
+          </p>
+        }
+      >
+        {(d) => (
+          <form onSubmit={(e) => void saveInvite(e)} class="flex flex-col gap-6">
+            {/* ── Section jump list — sticky, mirrors the Shown/Hidden badges ── */}
+            <nav
+              aria-label="Invite sections"
+              class="border-border bg-bg/90 sticky top-0 z-20 -mx-6 border-b px-6 py-2 backdrop-blur"
+            >
+              <div class="flex gap-1 overflow-x-auto">
+                <For each={[...NAV_SECTIONS]}>
+                  {(item) => {
+                    const shown = () => navShown(item.id);
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => jumpTo(item.id)}
+                        class="font-body text-text-muted hover:text-text hover:bg-surface/60 flex shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1 text-[0.72rem] tracking-[0.08em] uppercase transition-colors"
+                      >
+                        <Show when={shown() !== undefined}>
+                          <span
+                            aria-hidden
+                            class="inline-block h-1.5 w-1.5 rounded-full"
+                            classList={{
+                              "bg-gold": shown() === true,
+                              "bg-text-muted/50": shown() === false,
+                            }}
+                          />
+                        </Show>
+                        {item.label}
+                        <Show when={shown() === false}>
+                          <span class="sr-only">(hidden — empty)</span>
+                        </Show>
+                      </button>
+                    );
+                  }}
+                </For>
+              </div>
+            </nav>
+
+            <div class="flex flex-col gap-8 @4xl/builder:flex-row @4xl/builder:items-start">
+              <div class="flex min-w-0 flex-1 flex-col gap-8">
+                {/* ── Design ─────────────────────────────────────────── */}
+                <SectionCard id="invite-design" legend="Design">
+                  <DesignPicker
+                    entitlements={props.entitlements}
+                    currentId={d().designId ?? "classic"}
+                    saving={savingDesign()}
+                    onSelect={(id) => void selectDesign(id)}
+                    previewHref={designPreviewHref}
+                  />
+                </SectionCard>
+
+                {/* ── Look (global): typography + the colour scheme ──── */}
+                <SectionCard
+                  id="invite-look"
+                  legend="Look"
+                  onReset={resetLook}
+                  description="Two fonts and five colours set the whole invite. Each section below picks how light or dark it sits — not its own colours."
+                >
+                  <div class="grid grid-cols-1 gap-4 @lg/builder:grid-cols-2">
+                    <ChoiceField
+                      label="Heading font"
+                      options={FONT_OPTIONS}
+                      value={draft.headingFont}
+                      onChange={(v) => setDraft("headingFont", v)}
+                    />
+                    <ChoiceField
+                      label="Body font"
+                      options={FONT_OPTIONS}
+                      value={draft.bodyFont}
+                      onChange={(v) => setDraft("bodyFont", v)}
+                    />
+                  </div>
+                  <PaletteField
+                    value={draft.palette}
+                    onChange={(next) => setDraft("palette", next)}
+                    tokens={previewTokens()}
+                    adjustments={seedAdjustments()}
+                  />
+                  {/* Most couples pick a preset and stop — the five fine
+                      typography knobs stay one click away. */}
+                  <Disclosure summary="Fine-tune typography" hint="size, weight and italics">
+                    <div class="grid grid-cols-1 gap-4 @lg/builder:grid-cols-2">
+                      <ChoiceField
+                        label="Heading size"
+                        options={HEADING_SIZE_OPTIONS}
+                        value={draft.headingSize}
+                        onChange={(v) => setDraft("headingSize", v)}
+                      />
+                      <ChoiceField
+                        label="Heading weight"
+                        options={FONT_WEIGHT_OPTIONS}
+                        value={draft.headingWeight}
+                        onChange={(v) => setDraft("headingWeight", v)}
+                      />
+                      <ChoiceField
+                        label="Heading style"
+                        options={FONT_STYLE_OPTIONS}
+                        value={draft.headingStyle}
+                        onChange={(v) => setDraft("headingStyle", v)}
+                      />
+                      <ChoiceField
+                        label="Body weight"
+                        options={FONT_WEIGHT_OPTIONS}
+                        value={draft.bodyWeight}
+                        onChange={(v) => setDraft("bodyWeight", v)}
+                      />
+                      <ChoiceField
+                        label="Body style"
+                        options={FONT_STYLE_OPTIONS}
+                        value={draft.bodyStyle}
+                        onChange={(v) => setDraft("bodyStyle", v)}
+                      />
+                    </div>
+                  </Disclosure>
+                </SectionCard>
+
+                {/* ── Hero ───────────────────────────────────────────── */}
+                <SectionCard id="invite-hero" legend="Hero" shown={heroShown()} onReset={resetHero}>
+                  {/* Preview FIRST — the display sliders below act on it, and
+                      on small screens a preview below the sliders scrolls out
+                      of view exactly when it's needed. */}
+                  <HeroPreview
+                    imageUrl={d().hero.imageUrl}
+                    crop={d().hero.imageCrop}
+                    cropMobile={d().hero.imageCropMobile ?? null}
+                    title={draft.heroTitle}
+                    heroBlur={draft.heroBlur}
+                    backdropOpacity={draft.titleBackdropOpacity}
+                    backdropBlur={draft.titleBackdropBlur}
+                    tokens={previewTokens()}
+                    surface={toneSurface("hero")}
+                  />
+                  <ImageField
+                    label="Hero background image"
+                    slot="hero"
+                    url={d().hero.imageUrl}
+                    crop={d().hero.imageCrop}
+                    cropMobile={d().hero.imageCropMobile ?? null}
+                    error={slotErrors.hero}
+                    onSelect={(f) => void uploadImage("hero", f)}
+                    onRemove={() => void removeImage("hero")}
+                    onSaveCrop={(c) => saveCrop("hero", c)}
+                    onSaveCropMobile={(c) => saveCrop("hero", c, "mobile")}
+                  />
+                  <TextField
+                    label="Couple title"
+                    placeholder={DEFAULTS.heroTitle}
+                    value={draft.heroTitle}
+                    maxLength={COPY_CAPS.heroTitle}
+                    onInput={(v) => setDraft("heroTitle", v)}
+                  />
+                  <TextField
+                    label="Subtitle"
+                    placeholder={DEFAULTS.heroSubtitle}
+                    value={draft.heroSubtitle}
+                    maxLength={COPY_CAPS.heroSubtitle}
+                    onInput={(v) => setDraft("heroSubtitle", v)}
+                  />
+                  <ToneField
+                    value={draft.tones.hero}
+                    tokens={previewTokens()}
+                    hint="Used behind the title panel and wherever the photo doesn't reach."
+                    onChange={(v) => setDraft("tones", "hero", v)}
+                  />
+                  <Disclosure summary="Hero display" hint="photo blur and the title panel">
+                    <SliderField
+                      label="Hero image blur"
+                      hint="0 is a sharp photo; higher is a softer, dreamier backdrop."
+                      min={HERO_BLUR_MIN}
+                      max={HERO_BLUR_MAX}
+                      value={draft.heroBlur}
+                      valueText={(v) => (v === 0 ? "0 — sharp photo" : `${v} — softer backdrop`)}
+                      onInput={(v) => setDraft("heroBlur", v)}
+                    />
+                    <SliderField
+                      label="Title backdrop opacity"
+                      hint="A panel behind the title so it reads over a busy photo. 0 is no panel."
+                      min={BACKDROP_OPACITY_MIN}
+                      max={BACKDROP_OPACITY_MAX}
+                      value={draft.titleBackdropOpacity}
+                      valueText={(v) => (v === 0 ? "0 — no panel" : `${v} percent opaque`)}
+                      onInput={(v) => setDraft("titleBackdropOpacity", v)}
+                    />
+                    <SliderField
+                      label="Title backdrop blur"
+                      hint="Frosts the photo behind the title panel (px)."
+                      min={BACKDROP_BLUR_MIN}
+                      max={BACKDROP_BLUR_MAX}
+                      value={draft.titleBackdropBlur}
+                      valueText={(v) => (v === 0 ? "0 — no frosting" : `${v} pixels of frost`)}
+                      onInput={(v) => setDraft("titleBackdropBlur", v)}
+                    />
+                  </Disclosure>
+                </SectionCard>
+
+                {/* ── Our Story ──────────────────────────────────────── */}
+                <SectionCard
+                  id="invite-story"
+                  legend="Our Story"
+                  shown={storyShown()}
+                  onReset={resetStory}
+                >
+                  <ImageField
+                    label="Story photo"
+                    slot="story"
+                    url={d().story.imageUrl}
+                    crop={d().story.imageCrop}
+                    error={slotErrors.story}
+                    onSelect={(f) => void uploadImage("story", f)}
+                    onRemove={() => void removeImage("story")}
+                    onSaveCrop={(c) => saveCrop("story", c)}
+                  />
+                  <TextField
+                    label="Eyebrow"
+                    placeholder={DEFAULTS.storyEyebrow}
+                    value={draft.storyEyebrow}
+                    maxLength={COPY_CAPS.storyEyebrow}
+                    onInput={(v) => setDraft("storyEyebrow", v)}
+                  />
+                  <TextField
+                    label="Heading"
+                    placeholder={DEFAULTS.storyHeading}
+                    value={draft.storyHeading}
+                    maxLength={COPY_CAPS.storyHeading}
+                    onInput={(v) => setDraft("storyHeading", v)}
+                  />
+                  <TextAreaField
+                    label="Story"
+                    rows={6}
+                    placeholder={DEFAULTS.storyBody}
+                    value={draft.storyBody}
+                    maxLength={COPY_CAPS.storyBody}
+                    onInput={(v) => setDraft("storyBody", v)}
+                  />
+                  <ToneField
+                    value={draft.tones.story}
+                    tokens={previewTokens()}
+                    onChange={(v) => setDraft("tones", "story", v)}
+                  />
+                  <SectionPreview
+                    label="Our Story"
+                    tokens={previewTokens()}
+                    surface={toneSurface("story")}
+                    eyebrow={sampleCopy(draft.storyEyebrow, DEFAULTS.storyEyebrow, 40)}
+                    heading={sampleCopy(draft.storyHeading, DEFAULTS.storyHeading, 60)}
+                    body={sampleCopy(draft.storyBody, DEFAULTS.storyBody)}
+                  />
+                </SectionCard>
+
+                {/* ── Code Entry & Welcome ───────────────────────────── */}
+                <SectionCard
+                  id="invite-welcome"
+                  legend="Code Entry & Welcome"
+                  onReset={resetWelcome}
+                  description="The invite-code entry form, and the greeting a guest sees under their name after entering their code. Leave the greeting blank to use the default. Like the rest of the invite copy, the greeting is part of the public invite page — don't put anything private in it."
+                >
+                  <TextField
+                    label="Welcome greeting"
+                    placeholder={DEFAULTS.welcomeMessage}
+                    value={draft.welcomeMessage}
+                    maxLength={COPY_CAPS.welcomeMessage}
+                    onInput={(v) => setDraft("welcomeMessage", v)}
+                  />
+                  <ToneField
+                    value={draft.tones.welcome}
+                    tokens={previewTokens()}
+                    onChange={(v) => setDraft("tones", "welcome", v)}
+                  />
+                  <SectionPreview
+                    label="Code Entry & Welcome"
+                    tokens={previewTokens()}
+                    surface={toneSurface("welcome")}
+                    eyebrow="Your Invitation"
+                    heading="Enter Your Code"
+                    body={sampleCopy(draft.welcomeMessage, DEFAULTS.welcomeMessage)}
+                  />
+                </SectionCard>
+
+                {/* ── Events section ─────────────────────────────────── */}
+                <SectionCard
+                  id="invite-events"
+                  legend="Events Section"
+                  onReset={resetEvents}
+                  description="The header above the guest's event list. The colours also style the event cards, their buttons and the event pop-ups. The events themselves come from your spreadsheet import."
+                >
+                  <TextField
+                    label="Events eyebrow"
+                    placeholder={DEFAULTS.detailsEyebrow}
+                    value={draft.detailsEyebrow}
+                    maxLength={COPY_CAPS.detailsEyebrow}
+                    onInput={(v) => setDraft("detailsEyebrow", v)}
+                  />
+                  <TextField
+                    label="Events heading"
+                    placeholder={DEFAULTS.detailsHeading}
+                    value={draft.detailsHeading}
+                    maxLength={COPY_CAPS.detailsHeading}
+                    onInput={(v) => setDraft("detailsHeading", v)}
+                  />
+                  <ToneField
+                    value={draft.tones.details}
+                    tokens={previewTokens()}
+                    onChange={(v) => setDraft("tones", "details", v)}
+                  />
+                  <SectionPreview
+                    label="Events Section"
+                    tokens={previewTokens()}
+                    surface={toneSurface("details")}
+                    eyebrow={sampleCopy(draft.detailsEyebrow, DEFAULTS.detailsEyebrow, 40)}
+                    heading={sampleCopy(draft.detailsHeading, DEFAULTS.detailsHeading, 60)}
+                    body="Event names, dates and the Respond buttons follow these colours."
+                  />
+                </SectionCard>
+
+                {/* ── Closing section ────────────────────────────────── */}
+                <SectionCard
+                  id="invite-closing"
+                  legend="Closing Section"
+                  shown={footerShown()}
+                  description={
+                    'The last section of the invite — your own sign-off, below the events and above the page footer. A small decorative image (a monogram, motif or signature) and a closing line like "Looking forward to celebrating with you" or "No boxed gifts please". Add either, both, or neither: leave them empty and the whole section is skipped, so the invite ends on your events exactly as it does now. Guests see this only after they enter their code. The image is decorative — anything that needs to be read (including by a screen reader) should go in the note.'
+                  }
+                >
+                  <ImageField
+                    label="Closing image"
+                    slot="footer"
+                    url={d().footer?.imageUrl ?? null}
+                    crop={d().footer?.imageCrop ?? null}
+                    error={slotErrors.footer}
+                    onSelect={(f) => void uploadImage("footer", f)}
+                    onRemove={() => void removeImage("footer")}
+                    onSaveCrop={(c) => saveCrop("footer", c)}
+                  />
+                  <TextAreaField
+                    label="Closing note (optional)"
+                    rows={3}
+                    placeholder="Looking forward to celebrating with you"
+                    value={draft.footerMessage}
+                    maxLength={COPY_CAPS.footerMessage}
+                    onInput={(v) => setDraft("footerMessage", v)}
+                  />
+                  {/* No colour picker of its own — the closing section reuses the
+                      Code Entry & Welcome surface, so the couple's two direct
+                      addresses to their guests match. */}
+                  <SectionPreview
+                    label="Closing Section"
+                    tokens={previewTokens()}
+                    surface={toneSurface("welcome")}
+                    imageUrl={d().footer?.imageUrl ?? null}
+                    body={
+                      draft.footerMessage.trim().length > 0
+                        ? sampleCopy(draft.footerMessage, "")
+                        : "Your closing note appears here."
+                    }
+                  />
+                  <p class="font-body text-text-muted text-[0.78rem] italic">
+                    Uses the colours you picked for Code Entry &amp; Welcome — the closing note is
+                    you speaking to your guests, same as the greeting.
+                  </p>
+                </SectionCard>
+
+                {/* ── Invite message (not on the guest page) ─────────── */}
+                <SectionCard
+                  id="invite-message"
+                  legend="Invite message"
+                  description="Not part of the invite page — this is the first line of the message you copy from the Guests tab to send a household. Leave it blank to use the default. The guest-site link and the household's code are added automatically on the two lines below it."
+                >
+                  <TextAreaField
+                    label="Invite message (optional)"
+                    rows={4}
+                    placeholder="You're invited to our wedding! View your invitation and RSVP below."
+                    value={draft.inviteMessage}
+                    maxLength={COPY_CAPS.inviteMessage}
+                    hint="The wedding link and family code are appended automatically — don't include them here."
+                    onInput={(v) => setDraft("inviteMessage", v)}
+                  />
+                </SectionCard>
+              </div>
+
+              {/* ── Persistent composed preview (wide layouts) ─────────── */}
+              <aside class="hidden w-80 shrink-0 @4xl/builder:block">
+                <div class="sticky top-12">
+                  <PreviewPane
+                    tokens={previewTokens()}
+                    toneSurface={toneSurface}
+                    hero={{
+                      shown: heroShown(),
+                      imageUrl: d().hero.imageUrl,
+                      crop: d().hero.imageCrop,
+                      cropMobile: d().hero.imageCropMobile ?? null,
+                      title: draft.heroTitle,
+                      heroBlur: draft.heroBlur,
+                      backdropOpacity: draft.titleBackdropOpacity,
+                      backdropBlur: draft.titleBackdropBlur,
+                    }}
+                    story={{
+                      shown: storyShown(),
+                      eyebrow: draft.storyEyebrow,
+                      heading: draft.storyHeading,
+                      body: draft.storyBody,
+                    }}
+                    welcome={{ message: draft.welcomeMessage }}
+                    events={{ eyebrow: draft.detailsEyebrow, heading: draft.detailsHeading }}
+                    closing={{
+                      shown: footerShown(),
+                      message: draft.footerMessage,
+                      imageUrl: d().footer?.imageUrl ?? null,
+                    }}
+                  />
+                </div>
+              </aside>
+            </div>
+
+            {/* ── Save bar — sticky so it's reachable from any section ── */}
+            <div class="border-border bg-bg/90 sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 rounded-b-sm border-t px-6 py-4 backdrop-blur">
+              <Show when={error()}>
+                <p
+                  class="border-error/20 bg-error/5 text-error rounded-sm border p-3 text-[0.85rem]"
+                  role="alert"
+                >
+                  {error()}
+                </p>
+              </Show>
+              <div class="flex flex-wrap items-center gap-4">
+                <button
+                  type="submit"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void saveInvite();
+                  }}
+                  disabled={saving() || !isDirty()}
+                  class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-5 py-2.5 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
+                >
+                  {saving() ? "Saving…" : "Save invite"}
+                </button>
+                <Show
+                  when={isDirty()}
+                  fallback={
+                    <span class="font-body text-text-muted text-[0.75rem]">All changes saved</span>
+                  }
+                >
+                  <span role="status" class="font-body text-gold text-[0.75rem]">
+                    Unsaved changes
+                  </span>
+                </Show>
+                <span class="font-body text-text-muted text-[0.75rem]">
+                  Copy, colours, fonts and hero display save together. Images, crops and the design
+                  apply as soon as you change them.
+                </span>
+              </div>
+            </div>
+          </form>
+        )}
+      </Show>
+    </section>
+  );
+}
+
+/** Plain-English names for the three surfaces a section can sit on. */
+const TONE_LABELS: Record<SectionTone, string> = {
+  ground: "Page",
+  card: "Card",
+  raised: "Raised",
+};
+
+/**
+ * Which surface this section sits on — the whole of a section's colour choice
+ * now that the scheme is global. Three steps in one family always read as a
+ * deliberate rhythm down the page, where three freely-picked colours usually
+ * did not; and there is no way to land on an unreadable pairing, because all
+ * three surfaces are derived against the same text colour.
+ *
+ * The buttons render AS their surface (the derived tokens are scoped onto the
+ * group), so the choice is visual — these are literally colours, not words.
+ */
+function ToneField(props: {
+  value: SectionTone | null;
+  hint?: string;
+  tokens: Record<string, string>;
+  onChange: (v: SectionTone | null) => void;
+}) {
+  const current = () => props.value ?? "ground";
+  const surfaceFor: Record<SectionTone, string> = {
+    ground: "var(--color-bg)",
+    card: "var(--color-surface)",
+    raised: "var(--color-surface-raised)",
+  };
+  return (
+    <div class="flex flex-col gap-1.5">
+      <span class="font-body text-text-muted text-[0.8rem]">Section background</span>
+      <div
+        class="flex flex-wrap gap-2"
+        role="group"
+        aria-label="Section background"
+        style={props.tokens}
+      >
+        <For each={SECTION_TONES}>
+          {(tone) => (
+            <button
+              type="button"
+              aria-pressed={current() === tone}
+              onClick={() => props.onChange(tone === "ground" ? null : tone)}
+              class="border-border hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 font-body aria-pressed:border-gold aria-pressed:ring-gold/60 rounded-sm border px-3 py-1.5 text-[0.78rem] transition outline-none focus-visible:ring-2 aria-pressed:ring-1"
+              style={{ "background-color": surfaceFor[tone], color: "var(--color-text)" }}
+            >
+              {TONE_LABELS[tone]}
+            </button>
+          )}
+        </For>
+      </div>
+      <Show when={props.hint}>
+        <span class="font-body text-text-muted text-[0.72rem] italic">{props.hint}</span>
+      </Show>
+    </div>
+  );
+}

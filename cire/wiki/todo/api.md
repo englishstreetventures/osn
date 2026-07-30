@@ -4,12 +4,14 @@ tags: [todo, api]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-07-27
+last-reviewed: 2026-07-30
 ---
 
 # cire/api
 
 Backend feature work. The Elysia + Effect + Drizzle layer in `cire/api`.
+
+- [ ] **Invite image upload should return the full customisation** (P-I2, invite-builder UX pass 2026-07-30) — `POST /api/organiser/weddings/:weddingId/invite/image/:slot` returns only `{ slot, imageUrl }`, so the organiser builder must follow every upload with a full `GET /invite` refetch (two sequential round-trips behind a 5 MB body; remove/crop/design already mutate from their own full-customisation response). Mirror the DELETE handler's `getForWeddingId` tail in the upload route, then switch the builder's `uploadImage` from `refetch()` to `mutate()`. See [[perf]] and the root wiki's `[[invite-builder]]`.
 
 - [x] **Invite design selector — `PUT /invite/design` + entitlement gate** (`feat/invite-design-selector`, 2026-07-22) — new `@cire/invite-designs` catalog (`DESIGNS`, `DesignId`, `isDesignId`, `DEFAULT_DESIGN_ID`); both invite GETs now surface `designId`; `PUT /api/organiser/weddings/:weddingId/invite/design` (`weddingEditor`) validates the id against the catalog (unknown → 422) and gates `premium` tiers on the `premium_templates` entitlement (403). `inviteService.setDesign` bumps `updatedAt` only, never `imagesUpdatedAt` (WT-P-I1). `AppOptions.inviteDesigns` / the organiser route factory's 5th param inject a test catalog for premium-gate tests. See `[[invite-designs]]`.
 - [x] **Feature flags — GrowthBook (key-optional, fail-safe)** (`feat/cire-growthbook-flags`) — new `@shared/feature-flags` package + wiring into `cire/api`. GrowthBook evaluated offline at the edge (`initSync` on a cached SDK payload — no Node APIs, no per-request network). Key-optional (mirrors `@shared/turnstile`): `GROWTHBOOK_CLIENT_KEY` unset ⇒ every flag reads its coded default from the typed `FLAGS` registry with zero network, so it ships/deploys inert until the key is set. Fail-safe ladder (fresh fetch → last-good cached payload → registry default; never throws, never blocks a request on GrowthBook). Two-layer cache (per-isolate memo + optional shared `KV_GB_PAYLOAD`, 60s TTL). Provider built once per isolate in `index.ts`, injected into the route factories (and decorated onto the Elysia context as `flags`). **First gate — OSN account linking**: `cire.account-linking` (default off) gates `GET`/`POST /api/account/link` (503 "disabled" when off); the guest `PulseAccountLink` section already hides on a 503 probe, so linking stays hidden with no frontend change, independent of the ARC keys (POST guard is defense in depth). Also adds `createStaticFlags(overrides)` (network-free provider for tests). `wrangler.toml` carries `GROWTHBOOK_API_HOST` + commented `GROWTHBOOK_CLIENT_KEY`/`KV_GB_PAYLOAD` setup (top-level + `env.production`). GROWTHBOOK_CLIENT_KEY secret set on cire-api-production (2026-07-22). Follow-up: to REVEAL linking, create the `cire.account-linking` feature in the GrowthBook dashboard and turn it on. See `[[feature-flags]]`.

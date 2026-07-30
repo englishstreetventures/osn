@@ -106,6 +106,9 @@ vi.mock("./SecurityPanel", () => ({
   default: () => <div data-testid="security-panel">passkeys</div>,
 }));
 
+// The unsaved-changes guard is real (unmocked) — the veto tests below register
+// a guard directly, standing in for any mounted dirty form (the invite builder).
+import { registerUnsavedGuard } from "../lib/unsaved-guard";
 import OrganiserApp from "./OrganiserApp";
 
 function listResponse(
@@ -139,6 +142,7 @@ describe("OrganiserApp Dashboard", () => {
     cleanup();
     authFetchMock.mockReset();
     redirectSpy.mockReset();
+    vi.unstubAllGlobals();
     // The dashboard mirrors its state into the URL hash — reset it so one test's
     // deep link doesn't seed the next.
     history.replaceState(null, "", window.location.pathname + window.location.search);
@@ -345,6 +349,68 @@ describe("OrganiserApp Dashboard", () => {
     fireEvent.click(screen.getByRole("button", { name: /All weddings/i }));
     expect(screen.getByTestId("wedding-list")).toBeTruthy();
     expect(window.location.hash).toBe("#/weddings");
+  });
+
+  // ── Unsaved-changes navigation veto (lib/unsaved-guard) ─────────────────────
+
+  it("vetoes navigation while a dirty guard declines, proceeds when accepted", async () => {
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    fireEvent.click(screen.getByText("select-first"));
+    expect(window.location.hash).toBe("#/w/wed_a");
+
+    // A mounted write surface with unsaved edits registers a dirty check
+    // (happy-dom ships no window.confirm — stub it, declined).
+    const confirmSpy = vi.fn().mockReturnValue(false);
+    vi.stubGlobal("confirm", confirmSpy);
+    const unregister = registerUnsavedGuard(() => true);
+    try {
+      // Declined ⇒ the route AND the hash stay untouched.
+      fireEvent.click(screen.getByText("go-guests"));
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(window.location.hash).toBe("#/w/wed_a");
+      expect(screen.getByTestId("module-shell").getAttribute("data-module")).toBe("overview");
+
+      // Accepted ⇒ navigation proceeds normally.
+      confirmSpy.mockReturnValue(true);
+      fireEvent.click(screen.getByText("go-guests"));
+      expect(window.location.hash).toBe("#/w/wed_a/guests");
+      expect(screen.getByTestId("module-shell").getAttribute("data-module")).toBe("guests");
+
+      // Navigating to the SAME route never prompts — the guard is consulted
+      // only when the route would actually change (re-clicking the active
+      // module must not spam confirms).
+      confirmSpy.mockClear();
+      confirmSpy.mockReturnValue(false);
+      fireEvent.click(screen.getByText("go-guests"));
+      expect(confirmSpy).not.toHaveBeenCalled();
+      expect(window.location.hash).toBe("#/w/wed_a/guests");
+    } finally {
+      unregister();
+    }
+  });
+
+  it("never prompts when the registered guard reports clean", async () => {
+    authFetchMock.mockResolvedValue(
+      listResponse([{ id: "wed_a", slug: "a", displayName: "Alice & Bob" }]),
+    );
+    render(() => <OrganiserApp />);
+    await waitFor(() => expect(screen.getByTestId("wedding-list")).toBeTruthy());
+    fireEvent.click(screen.getByText("select-first"));
+
+    const confirmSpy = vi.fn().mockReturnValue(false);
+    vi.stubGlobal("confirm", confirmSpy);
+    const unregister = registerUnsavedGuard(() => false);
+    try {
+      fireEvent.click(screen.getByText("go-guests"));
+      expect(window.location.hash).toBe("#/w/wed_a/guests");
+      expect(confirmSpy).not.toHaveBeenCalled();
+    } finally {
+      unregister();
+    }
   });
 
   it("re-syncs on a browser Back/Forward style hashchange", async () => {

@@ -4,12 +4,21 @@ tags: [todo, performance]
 related:
   - "[[index]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-29
+last-reviewed: 2026-07-30
 ---
 
 # Performance Backlog
 
 See [[review-findings]] for severity prefix conventions.
+
+### Invite builder UX pass — review findings (claude/invite-builder-structure-review-ali18d, 2026-07-30)
+
+Raised by the pre-merge performance review of the builder restructure. See the root wiki's `[[invite-builder]]`.
+
+- [x] **P-W1** — palette derivation ran 2–3× per colour-drag frame across the builder/PaletteField boundary: the orchestrator's `previewTokens` memo AND `PaletteField`'s internal `derivePalette`/`paletteAdjustments` memos each re-derived the same five seeds per pointermove (each `derivePalette` is ~10 `ensureContrast` walks of up to 50 OKLCH iterations, worst-case exactly mid-drag through muddy seeds). **Fixed on branch:** the orchestrator owns the single seeds → tokens → adjustments memo chain and shares it into `PaletteField` via new optional `tokens`/`adjustments` props; a standalone mount still derives internally.
+- [x] **P-I3** — the `beforeunload` listener was registered for the builder's whole mounted lifetime, making the page bfcache-ineligible in Firefox/Safari even with a completely clean form. **Fixed on branch:** the listener now exists only while the form is dirty (a `createEffect` on the dirty memo adds/removes it on transitions).
+- [ ] **P-I1** — both preview layers (the inline per-section previews and the composed sticky pane) are permanently mounted; the CSS-hidden one still does reactive work + style writes on every keystroke and drag frame. **Accepted for now**: the trees are small, `display: none` subtrees skip layout/paint, and both layers share one image cache entry — and container queries have no `matchMedia`-style JS API, so conditional mounting needs a `ResizeObserver` on the `@container/builder` element. Revisit with a `ResizeObserver`-driven `<Show>` pair if the builder grows more sections or drags measure janky.
+- [ ] **P-I2** — image upload pays two round-trips (`POST /invite/image/:slot` then a full `GET /invite` refetch) where remove/crop/design all mutate from their own response, purely because the upload route returns only `{ slot, imageUrl }`. Fix lives in `@cire/api` — see the matching item in [[api]].
 
 ### Closing section — review findings (claude/cire-footer-customisation-xkc09y, 2026-07-29)
 

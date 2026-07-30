@@ -2,12 +2,17 @@
 title: "Security Fixes"
 tags: [changelog]
 related: [[TODO]], [[index]]
-last-reviewed: 2026-07-28
+last-reviewed: 2026-07-30
 ---
 
 # Security Fixes
 
 Archive of completed security findings, moved here from the Security Backlog in [[TODO]] (and the `wiki/todo/security.md` shard).
+
+### Invite builder UX pass — review findings (fixed on claude/invite-builder-structure-review-ali18d, 2026-07-30)
+
+- [x] **S-L1** (css-url-escaping) — `cropBackgroundStyle` interpolated its `imageUrl` argument into the CSS `url("…")` string context unescaped, in BOTH lockstep copies (`cire/web/src/components/image-crop.ts` + the organiser mirror `cire/organiser/src/lib/image-crop.ts`), and the builder restructure added three new consumers of the sink. Not exploitable today — every caller passes a server-built path (`imagePath()` `encodeURIComponent`s the slug, the version is numeric) and Solid sets style objects per-property, containing a hostile value to one declaration — but the helper's contract is "any string", so the sink now defends itself. **Fixed in the same branch:** both copies escape backslash/double-quote and strip control characters (`cssUrlValue`) before interpolation, making the documented CSS-injection gate hold for URLs the way it already held for colours. See the root wiki's `[[invite-builder]]`.
+- [x] **C-L1** (prohibited ARIA on crop thumbnails) — the WYSIWYG crop-thumbnail `<div aria-label="… (cropped)">`s carried `aria-label` on an implicit `generic` role, which the ARIA spec prohibits and most screen readers ignore (WCAG 4.1.2). **Fixed:** `role="img"` on both labelled thumbnail divs so the labels are valid and reliably announced.
 
 ## Migrated from security.md (archived 2026-06-21)
 

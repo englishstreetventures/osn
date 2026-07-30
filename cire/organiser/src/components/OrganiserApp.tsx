@@ -21,6 +21,7 @@ import {
   serializeRoute,
 } from "../lib/dashboard-route";
 import { CIRE_API_URL } from "../lib/osn";
+import { confirmNavigation } from "../lib/unsaved-guard";
 import type { WeddingSummary } from "./CreateWeddingForm";
 import ModuleShell from "./ModuleShell";
 import PreviewInviteButton from "./PreviewInviteButton";
@@ -185,6 +186,11 @@ function Dashboard() {
   // stays the source of truth and a manual edit or browser Back/Forward
   // re-syncs via the hashchange listener below.
   function setRoute(next: DashboardRoute, mode: "push" | "replace" = "replace") {
+    // A mounted write surface with unsaved edits (the invite builder) gets to
+    // veto in-app navigation — switching module/sub/view unmounts it and would
+    // silently discard the draft. Browser Back/Forward bypasses this (see
+    // lib/unsaved-guard); beforeunload covers tab close/reload.
+    if (serializeRoute(next) !== serializeRoute(route()) && !confirmNavigation()) return;
     setRouteSignal(next);
     if (typeof window === "undefined") return;
     const hash = serializeRoute(next);

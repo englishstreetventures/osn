@@ -78,6 +78,9 @@ vi.mock("./ImageCropModal", () => ({
   ),
 }));
 
+// Real (unmocked) — the guard-lifecycle test asserts the builder's dirty state
+// reaches the process-global registry the dashboard consults.
+import { confirmNavigation } from "../lib/unsaved-guard";
 import InviteBuilder, { isDesignLocked } from "./InviteBuilder";
 
 function json(body: unknown, status = 200) {
@@ -248,20 +251,39 @@ describe("InviteBuilder theme", () => {
     expect(String(authFetchMock.mock.calls[2][0])).toMatch(/\/invite\/theme$/);
     expect(sentBody("/text").heroTitle).toBe("Anita & Ben");
     expect(sentBody("/theme").headingFont).toBe("georgia");
+
+    // A successful save refreshes both snapshots — the bar returns to clean
+    // (button disabled, saved indicator) rather than showing a stale dirty flag.
+    await waitFor(() =>
+      expect((screen.getByText("Save invite") as HTMLButtonElement).disabled).toBe(true),
+    );
+    screen.getByText("All changes saved");
   });
 
-  it("skips the network entirely on a no-op save", async () => {
+  it("disables Save on a clean form and shows the live dirty indicator on edit", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load only
 
     render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
     await waitFor(() => screen.getByText("Save invite"));
 
-    fireEvent.click(screen.getByText("Save invite"));
-
-    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("No changes to save"));
-    // No PUT fired — a gratuitous save must not bump `updatedAt` (it would bust
-    // the guest image-transform caches for zero change, P-W1).
+    // Clean form ⇒ the button is disabled and the bar reports saved state — a
+    // gratuitous save must not bump `updatedAt` (it would bust the guest
+    // image-transform caches for zero change, P-W1).
+    const save = screen.getByText("Save invite") as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    screen.getByText("All changes saved");
+    fireEvent.click(save);
     expect(authFetchMock).toHaveBeenCalledTimes(1);
+
+    // An edit flips the reactive dirty state: indicator + enabled save.
+    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "A & B" } });
+    await waitFor(() => expect(save.disabled).toBe(false));
+    screen.getByText("Unsaved changes");
+
+    // Reverting the edit returns the form to clean — no stale dirty flag.
+    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "" } });
+    await waitFor(() => expect(save.disabled).toBe(true));
+    screen.getByText("All changes saved");
   });
 
   it("seeds the scheme from the loaded theme and PUTs an edited seed", async () => {
@@ -569,8 +591,12 @@ describe("InviteBuilder theme", () => {
     // The seed NAME, not the old "text" label — and not the raw key either,
     // which is what the notice falls back to when the label map loses a role.
     expect(notice.textContent).toContain("ink");
-    // The organiser's own pick is still saveable — nothing is blocked.
-    expect((screen.getByText("Save invite") as HTMLButtonElement).disabled).toBe(false);
+    // The organiser's own pick is still saveable — nothing is blocked (the
+    // save enables as soon as the form is dirty).
+    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "A & B" } });
+    await waitFor(() =>
+      expect((screen.getByText("Save invite") as HTMLButtonElement).disabled).toBe(false),
+    );
 
     // Clearing the three edited seeds back to the preset's colours clears the
     // notice live, with no save. (Clearing only the text seed is not enough —
@@ -967,26 +993,70 @@ describe("design selector", () => {
     const radio = screen.getByRole("radio", { name: /Gala/ });
     expect(radio.contains(galaLink!)).toBe(false);
 
-    // Clicking it must never fire a design save.
+    // Clicking it must never fire a design save. preventDefault first so
+    // happy-dom doesn't actually fetch the guest URL (ECONNREFUSED noise in
+    // every test run).
+    galaLink!.addEventListener("click", (e) => e.preventDefault());
     fireEvent.click(galaLink!);
     expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/design"))).toBe(false);
     expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("ArrowRight from classic selects gala, skipping the locked card in between", async () => {
+  it("a failed design save keeps the current selection and toasts the error", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+    authFetchMock.mockResolvedValueOnce(json({}, 500)); // design PUT fails
+
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+
+    const gala = await waitFor(() => screen.getByRole("radio", { name: /Gala/ }));
+    fireEvent.click(gala);
+
+    // The design save bypasses the save bar, so the toast is the ONLY failure
+    // feedback — and the server-acknowledged selection must not move.
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith("Could not update the design"));
+    expect(screen.getByRole("radio", { name: /Classic/ }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    expect(gala.getAttribute("aria-checked")).toBe("false");
+  });
+
+  it("ArrowRight lands on the locked card (perceivable, unselectable); the next step selects gala", async () => {
     authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
     authFetchMock.mockResolvedValueOnce(json({ ...EMPTY_CUSTOMISATION, designId: "gala" })); // design save
 
     render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
 
     const classic = await waitFor(() => screen.getByRole("radio", { name: /Classic/ }));
-    fireEvent.keyDown(classic, { key: "ArrowRight" });
+    // Locked cards are aria-disabled (never `disabled`) so they stay in the
+    // accessibility tree and keyboard focus can reach them — a screen-reader
+    // user can discover that premium designs exist and hear why they're off.
+    const premium = screen.getByRole("radio", { name: /Test Premium/ });
+    expect(premium.getAttribute("aria-disabled")).toBe("true");
 
+    // Focus MOVES onto the locked card, but selection never follows it there.
+    fireEvent.keyDown(classic, { key: "ArrowRight" });
+    await waitFor(() => expect(document.activeElement).toBe(premium));
+    expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/design"))).toBe(false);
+
+    // The next step lands on gala and selects it (radio semantics resume).
+    fireEvent.keyDown(premium, { key: "ArrowRight" });
     await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     expect(sentBody("/design")).toEqual({ designId: "gala" });
 
     const gala = screen.getByRole("radio", { name: /Gala/ });
     await waitFor(() => expect(document.activeElement).toBe(gala));
+  });
+
+  it("clicking a locked design is a no-op (server-enforced; the card only signals)", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+
+    const premium = await waitFor(() => screen.getByRole("radio", { name: /Test Premium/ }));
+    fireEvent.click(premium);
+
+    expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/design"))).toBe(false);
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("Home and End jump to the first and last unlocked cards", async () => {
@@ -1028,9 +1098,14 @@ describe("design selector", () => {
     const tabbable = () => radios.filter((r) => r.getAttribute("tabindex") === "0");
     expect(tabbable()).toEqual([classic]);
 
+    // First step: the locked card becomes the single tab stop (no save)…
     fireEvent.keyDown(classic, { key: "ArrowRight" });
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    const premium = screen.getByRole("radio", { name: /Test Premium/ });
+    await waitFor(() => expect(tabbable()).toEqual([premium]));
 
+    // …second step: gala, with the selection save.
+    fireEvent.keyDown(premium, { key: "ArrowRight" });
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
     const gala = screen.getByRole("radio", { name: /Gala/ });
     await waitFor(() => expect(tabbable()).toEqual([gala]));
     expect(tabbable().length).toBe(1);
@@ -1116,6 +1191,60 @@ describe("InviteBuilder hero phone crop (migration 0046)", () => {
     );
   });
 
+  it("crop reset PUTs an explicit null — desktop and phone nouns both toast", async () => {
+    authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES)); // initial load
+    authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES)); // desktop reset
+    authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES)); // phone reset
+
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+
+    // Desktop reset: `crop: null` must reach the API as an explicit null (not
+    // be dropped by serialisation), with no `screen` key.
+    const cropButtons = await waitFor(() => screen.getAllByRole("button", { name: "Crop" }));
+    fireEvent.click(cropButtons[0]);
+    await waitFor(() => screen.getByTestId("mock-crop-modal"));
+    fireEvent.click(screen.getByRole("button", { name: "mock-reset" }));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Crop reset"));
+    expect(lastSentBody("/image/hero/crop")).toEqual({ crop: null });
+
+    // Phone reset: same explicit null, routed to the mobile rectangle.
+    fireEvent.click(screen.getByRole("button", { name: "Phone crop" }));
+    const modal = await waitFor(() => screen.getByTestId("mock-crop-modal"));
+    expect(modal.getAttribute("data-slot")).toBe("hero-mobile");
+    fireEvent.click(screen.getByRole("button", { name: "mock-reset" }));
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Phone crop reset"));
+    expect(lastSentBody("/image/hero/crop")).toEqual({ crop: null, screen: "mobile" });
+  });
+
+  it("shows the phone framing in the hero preview via the device toggle", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        ...WITH_IMAGES,
+        hero: { ...WITH_IMAGES.hero, imageCropMobile: { x: 0.6, y: 0, w: 0.3, h: 0.9 } },
+      }),
+    );
+    const { container } = render(() => (
+      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+    ));
+    await waitFor(() => screen.getByText("Save invite"));
+
+    const preview = () => container.querySelector('[aria-label="Hero preview"]') as HTMLElement;
+    // Desktop framing by default; the phone toggle sits beside the preview.
+    const toggles = screen.getAllByRole("group", { name: "Preview device" });
+    expect(toggles.length).toBeGreaterThanOrEqual(1);
+    const phoneButtons = screen.getAllByRole("button", { name: "Phone" });
+    fireEvent.click(phoneButtons[0]);
+
+    // The phone frame renders the hero's PHONE rectangle with the same
+    // background-fraction technique as the guest site (no plain <img> cover) —
+    // the whole reason the second crop rectangle exists (0046). The fraction
+    // layer is the one carrying background-size (the base gradient does not).
+    await waitFor(() => {
+      const cropLayer = preview().querySelector("div[style*='background-size']");
+      expect(cropLayer).not.toBeNull();
+    });
+  });
+
   it("renders the phone thumbnail only when a phone crop is saved", async () => {
     authFetchMock.mockResolvedValueOnce(
       json({
@@ -1137,5 +1266,161 @@ describe("InviteBuilder hero phone crop (migration 0046)", () => {
     render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
     await waitFor(() => screen.getByRole("button", { name: "Phone crop" }));
     expect(screen.queryByLabelText("Hero background image (phone crop)")).toBeNull();
+  });
+});
+
+describe("InviteBuilder UX guards", () => {
+  afterEach(() => {
+    cleanup();
+    authFetchMock.mockReset();
+    redirectSpy.mockReset();
+    toastSuccess.mockReset();
+    toastError.mockReset();
+    vi.unstubAllGlobals();
+  });
+
+  const WITH_HERO_IMAGE = {
+    ...EMPTY_CUSTOMISATION,
+    hero: {
+      title: null,
+      subtitle: null,
+      imageUrl: "/api/organiser/weddings/wed_1/invite/image/hero?v=1",
+      imageCrop: null,
+    },
+  };
+
+  it("shows a live character counter on capped notes, enforced at the input", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+
+    const note = (await waitFor(() =>
+      screen.getByLabelText("Closing note (optional)"),
+    )) as HTMLTextAreaElement;
+    // The counter mirrors the server cap in cire/api schemas/invite.ts, so the
+    // organiser never discovers the limit via a 400 at save time.
+    screen.getByText("0/300");
+    fireEvent.input(note, { target: { value: "No boxed gifts" } });
+    await waitFor(() => screen.getByText("14/300"));
+    expect(note.getAttribute("maxlength")).toBe("300");
+  });
+
+  it("asks before removing an image and skips the DELETE when declined", async () => {
+    authFetchMock.mockResolvedValueOnce(json(WITH_HERO_IMAGE));
+    // happy-dom ships no window.confirm — stub it (declined).
+    const confirmSpy = vi.fn().mockReturnValue(false);
+    vi.stubGlobal("confirm", confirmSpy);
+
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+
+    const remove = await waitFor(() => screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(remove);
+
+    // Removal hits the LIVE invite immediately, so it is confirm-gated — a
+    // declined confirm must fire no DELETE.
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("removes the image after an accepted confirm", async () => {
+    authFetchMock.mockResolvedValueOnce(json(WITH_HERO_IMAGE)); // initial load
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // DELETE
+    vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
+
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+
+    fireEvent.click(await waitFor(() => screen.getByRole("button", { name: "Remove" })));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(2));
+    const [url, init] = authFetchMock.mock.calls[1];
+    expect(String(url)).toMatch(/\/invite\/image\/hero$/);
+    expect(init.method).toBe("DELETE");
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith("Image removed"));
+  });
+
+  it("surfaces an upload failure inside its own section, not the save bar", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+    authFetchMock.mockResolvedValueOnce(json({ error: "Image too large (max 5 MB)" }, 413)); // upload
+
+    const { container } = render(() => (
+      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+    ));
+    await waitFor(() => screen.getByText("Save invite"));
+
+    const input = container.querySelector('#invite-hero input[type="file"]') as HTMLInputElement;
+    const file = new File(["x"], "hero.jpg", { type: "image/jpeg" });
+    Object.defineProperty(input, "files", { value: [file] });
+    fireEvent.change(input);
+
+    const alert = await waitFor(() => screen.getByText("Image too large (max 5 MB)"));
+    // The error renders next to the control that failed — inside the hero
+    // section card — not in the distant save bar.
+    expect(document.getElementById("invite-hero")!.contains(alert)).toBe(true);
+  });
+
+  it("wires the dirty state into the navigation guard across its lifecycle", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // initial load
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION)); // text save
+    const confirmSpy = vi.fn().mockReturnValue(false);
+    vi.stubGlobal("confirm", confirmSpy);
+
+    const { unmount } = render(() => (
+      <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />
+    ));
+    await waitFor(() => screen.getByText("Save invite"));
+
+    // Clean load ⇒ navigation allowed without prompting.
+    expect(confirmNavigation()).toBe(true);
+    expect(confirmSpy).not.toHaveBeenCalled();
+
+    // Dirty ⇒ the registered guard prompts; a declined confirm vetoes.
+    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "A & B" } });
+    await waitFor(() => screen.getByText("Unsaved changes"));
+    expect(confirmNavigation()).toBe(false);
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+
+    // Saved ⇒ clean again, no prompt.
+    fireEvent.click(screen.getByText("Save invite"));
+    await waitFor(() => screen.getByText("All changes saved"));
+    expect(confirmNavigation()).toBe(true);
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+
+    // Unmounted ⇒ the guard unregisters; a dead builder can never veto
+    // unrelated navigation, even mid-edit.
+    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "X" } });
+    await waitFor(() => screen.getByText("Unsaved changes"));
+    unmount();
+    expect(confirmNavigation()).toBe(true);
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces a remove failure inside its own section, not the save bar", async () => {
+    authFetchMock.mockResolvedValueOnce(json(WITH_HERO_IMAGE)); // initial load
+    authFetchMock.mockResolvedValueOnce(json({ error: "Remove failed upstream" }, 500)); // DELETE
+    vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
+
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+
+    fireEvent.click(await waitFor(() => screen.getByRole("button", { name: "Remove" })));
+
+    const alert = await waitFor(() => screen.getByText("Remove failed upstream"));
+    expect(document.getElementById("invite-hero")!.contains(alert)).toBe(true);
+    expect(toastSuccess).not.toHaveBeenCalledWith("Image removed");
+  });
+
+  it("renders the composed preview pane and the section jump list", async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    await waitFor(() => screen.getByText("Save invite"));
+
+    // The persistent composed preview (sticky pane at wide widths) exists and
+    // composes the guest page; hidden sections read as placeholders.
+    const pane = screen.getByLabelText("Invite preview");
+    expect(pane.textContent).toContain("Enter Your Code");
+    expect(pane.textContent).toContain("hidden until it has content");
+
+    // The sticky jump list mirrors the section order.
+    const nav = screen.getByRole("navigation", { name: "Invite sections" });
+    expect(nav.textContent).toContain("Hero");
+    expect(nav.textContent).toContain("Closing");
   });
 });

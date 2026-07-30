@@ -88,6 +88,23 @@ export function cropAspectRatio(crop: ImageCrop | null | undefined, fallback: nu
  * hidden`. Returns `null` when the crop is absent/identity, so the caller falls
  * back to a plain `<img object-cover>`.
  */
+/**
+ * Escape a URL for interpolation inside a CSS `url("…")` string context
+ * (S-L1): backslash + double-quote are escaped and control characters
+ * stripped, so the value can never terminate the string no matter where a
+ * caller sourced it. Today every caller passes a server-built path, but the
+ * helper's contract is "any string" — the sink defends itself.
+ */
+function cssUrlValue(imageUrl: string): string {
+  let out = "";
+  for (const ch of imageUrl) {
+    if (ch.charCodeAt(0) < 0x20) continue; // strip control characters
+    if (ch === "\\" || ch === '"') out += "\\";
+    out += ch;
+  }
+  return out;
+}
+
 export function cropBackgroundStyle(
   imageUrl: string,
   crop: ImageCrop | null | undefined,
@@ -104,7 +121,7 @@ export function cropBackgroundStyle(
   const posX = w >= 1 ? "0" : ((x / (1 - w)) * 100).toFixed(4);
   const posY = h >= 1 ? "0" : ((y / (1 - h)) * 100).toFixed(4);
   return {
-    "background-image": `url("${imageUrl}")`,
+    "background-image": `url("${cssUrlValue(imageUrl)}")`,
     "background-repeat": "no-repeat",
     "background-size": `${size}%`,
     "background-position": `${posX}% ${posY}%`,
@@ -133,7 +150,7 @@ export function heroCropBackgroundStyle(
   const cx = clamp01(x + w / 2);
   const cy = clamp01(y + h / 2);
   return {
-    "background-image": `url("${imageUrl}")`,
+    "background-image": `url("${cssUrlValue(imageUrl)}")`,
     "background-repeat": "no-repeat",
     "background-size": "cover",
     "background-position": `${(cx * 100).toFixed(4)}% ${(cy * 100).toFixed(4)}%`,

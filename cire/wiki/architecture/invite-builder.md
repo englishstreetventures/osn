@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-templates]]"
-last-reviewed: 2026-07-29
+last-reviewed: 2026-07-30
 ---
 
 # Invite Builder
@@ -599,36 +599,72 @@ renders (default `cire-wedding`, the bootstrap wedding slug).
 
 ## Organiser UI
 
-`cire/organiser/src/components/InviteBuilder.tsx`, mounted as the **"Invite"**
-tab in `DashboardTabs.tsx`. `useAuth().authFetch` drives the organiser
+`cire/organiser/src/components/invite/` (2026-07-30 split — the former
+1,650-line `InviteBuilder.tsx` is now a directory; the old
+`components/InviteBuilder.tsx` path survives as a re-export so import sites
+and tests are unchanged). `useAuth().authFetch` drives the organiser
 endpoints; `solid-toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 401 handling — same patterns as `ImportPanel`.
 
-**Structure (2026-07-10 restructure): one card per guest-page section, in the
-order guests scroll them, each owning everything about its section.** A global
-**Look** fieldset (two font `<select>`s plus the five typography-option
-`<select>`s — heading size/weight/style, body weight/style — all closed
-mirrors of the `@cire/theme` enums, and the colour scheme) comes first, then
-**Hero** (image + crop, title/subtitle,
-accent + background pickers, the three hero-display sliders, and one WYSIWYG
-preview compositing all of it), **Our Story** (image, eyebrow/heading/body,
-colours, preview), **Code Entry & Welcome** (welcome greeting, colours,
-preview), **Events Section** (eyebrow/heading, colours, preview), and finally
-the copyable **Invite message** (explicitly flagged as not part of the guest
-page). Each section preview (`SectionPreview`) is wired with the same
-`--invite-*` variables the guest consumes (`lib/invite-theme-preview`) and is
-driven by the live copy buffers, so copy AND colour changes are visible
-instantly; the hero's preview additionally composites the uploaded photo, a
-client-side CSS blur (never a Cloudflare Images call) and the title panel,
-tinted by the picked Background colour (falling back to the guest's black
-panel default, not the surface token).
+| File | Owns |
+| --- | --- |
+| `invite/InviteBuilder.tsx` | Orchestration: resource, draft store, save/upload/crop actions, layout |
+| `invite/model.ts` | Wire types, closed option sets, `COPY_CAPS` (client mirror of `InviteTextBody`), the `InviteDraft` shape + pure `textPayload`/`themePayload` builders |
+| `invite/fields.tsx` | `TextField` / `TextAreaField` (live counters) / `ChoiceField` / `SliderField` (`aria-valuetext`) / `SegmentBadge` (`role="status"`) / `SectionCard` / `Disclosure` / `InstantBadge` |
+| `invite/previews.tsx` | `HeroSample`+`HeroPreview` (crop-aware, desktop/phone toggle), `SectionSample`+`SectionPreview`, `DeviceToggle` |
+| `invite/PreviewPane.tsx` | The composed whole-invite preview (sticky side pane at wide widths) |
+| `invite/DesignPicker.tsx` | Design radiogroup, roving tabindex, `aria-disabled` locked cards, thumbnails |
+| `invite/ImageField.tsx` | Upload/crop/remove per slot, inline per-slot errors, remove confirm lives in the builder |
+| `lib/unsaved-guard.ts` | Cross-component dirty registry; `OrganiserApp.setRoute` confirms before SPA navigation |
 
-**One save, dirty-checked per half.** A sticky bottom bar carries a single
-**"Save invite"** button (plus the error message, so a failure surfaces next
-to the action that caused it). Each half is compared against the last
-server-acknowledged snapshot (seeded on load, refreshed per successful PUT)
-and **skipped when unchanged**: a copy-only edit PUTs only `/invite/text`, a
-colour-only edit only `/invite/theme`, and a no-op save makes no network call.
+**Structure: one card per guest-page section, in the order guests scroll
+them, each owning everything about its section.** **Design** first, then a
+global **Look** fieldset (two font `<select>`s and the colour scheme visible;
+the five typography-option `<select>`s — heading size/weight/style, body
+weight/style, all closed mirrors of the `@cire/theme` enums — behind a
+"Fine-tune typography" disclosure), then **Hero** (preview at the TOP of the
+card so the sliders below act on something visible; image + two crops,
+title/subtitle, tone, and the three hero-display sliders behind a "Hero
+display" disclosure), **Our Story**, **Code Entry & Welcome**, **Events
+Section**, **Closing Section**, and finally the copyable **Invite message**
+(explicitly flagged as not part of the guest page). A **sticky section jump
+list** (buttons calling `scrollIntoView`, never `#hash` anchors — the
+dashboard routes on `location.hash`) mirrors the sections' Shown/Hidden badge
+state as dots, doubling as a completeness checklist.
+
+**Two preview layers, one markup source.** Inline per-section previews
+(`SectionPreview`/`HeroPreview`) render under each card on narrow layouts;
+at the builder's wide container breakpoint they hide and a **sticky composed
+`PreviewPane`** takes over — the whole guest page as one continuous column
+(hero → story → welcome → events → closing) on its tone surfaces, with a
+desktop/phone frame toggle, so the tone rhythm down the page is visible while
+editing. Both layers share `HeroSample`/`SectionSample` and are styled with
+the SAME derived tokens the guest consumes (`derivePalette` +
+`typographyVars` from `@cire/theme`, resolved once in the `previewTokens`
+memo — and shared into `PaletteField` via its `tokens`/`adjustments` props,
+so the whole builder derives exactly once per colour-drag frame). Both
+layers stay permanently mounted with a CSS-only container-query switch — a
+deliberate trade (one markup source, no `ResizeObserver`) accepted as
+`P-I1` in `wiki/todo/perf.md` (cire wiki). The `url("…")` sink both layers'
+crop rendering shares (`cropBackgroundStyle`, lockstep organiser + guest
+copies) escapes its URL argument at the sink (S-L1). The hero preview is **crop-aware** (saved rectangles render via the
+guest's background-fraction technique — the framing never lies) and the phone
+frame uses the hero's phone rectangle, falling back to the desktop crop
+exactly as the guest site does. Tone pickers render **as their surface**
+(swatch buttons on the scoped tokens), not as text-only chips.
+
+**One save, dirty-checked per half — and dirty state is REACTIVE.** The draft
+lives in one `createStore` (`InviteDraft`); each half's serialised payload is
+compared in a memo against the last server-acknowledged snapshot (a signal,
+seeded on load, refreshed per successful PUT). That memo drives the sticky
+save bar: the button **disables when clean**, a live **"Unsaved changes" /
+"All changes saved"** indicator replaces the old click-to-find-out toast, and
+a dirty draft is guarded against loss twice — `beforeunload` on tab
+close/reload, and `lib/unsaved-guard` lets `OrganiserApp.setRoute`
+`confirm()` before any in-app navigation unmounts the builder (browser
+Back/Forward deliberately bypasses it). Each dirty half is **skipped when
+unchanged**: a copy-only edit PUTs only `/invite/text`, a colour-only edit
+only `/invite/theme`, and a no-op save is unreachable from the UI.
 This keeps writes proportional to actual changes (P-W1) and pairs with the
 server-side split below: since migration `0029` the guest image-cache
 version is a dedicated `images_updated_at` column — bumped only by image
@@ -643,6 +679,29 @@ two-endpoint split is an implementation detail the organiser never sees.
 buttons with the hero sliders saved by the distant theme button — the source
 of a "saved but didn't stick" class of confusion.) A text-half failure stops
 before the theme PUT and shows that error; a theme-half failure shows its own.
+The builder is wrapped in a real `<form onSubmit>`, so Enter in any field
+saves.
+
+**Two persistence models, marked.** Text/theme wait for Save; images, crops
+and the design selection apply to the LIVE invite immediately. Every
+instant-apply control carries an "applies immediately" badge, image
+**removal is confirm-gated** (the one destructive, undo-less control), and an
+upload/remove failure surfaces **inside its own section card**
+(`role="alert"` next to the control), not in the distant save bar — only save
+failures live there. Copy fields enforce the server caps client-side
+(`maxlength` + live counters from `COPY_CAPS`, kept in lockstep with
+`InviteTextBody`), so the 300-char closing-note limit is a counter, not a 400.
+A true draft→publish model that would unify the two persistence models needs
+API/schema support — tracked in `wiki/todo/deferred.md` (cire wiki), along
+with an `updatedAt` concurrent-edit guard (the GET payload doesn't expose a
+row version yet).
+
+**Locked designs are perceivable.** Premium cards without the entitlement use
+`aria-disabled` — never `disabled` — so they stay in the accessibility tree:
+keyboard arrows land on them (announcing "Locked"), Tab order keeps one stop,
+selection and click no-op, and the server enforces the entitlement regardless.
+Per-section **"Reset section"** actions revert a card's saveable fields to
+defaults as a draft change (nothing saved until the save bar says so).
 
 Per-section colours use the popover accent/surface pickers (`ColorPicker.tsx`,
 Kobalte ColorArea + hue slider + labelled hex field) each with a "Use default"

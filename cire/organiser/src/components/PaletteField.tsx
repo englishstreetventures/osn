@@ -3,6 +3,7 @@ import {
   derivePalette,
   PALETTE_PRESET_KEYS,
   PALETTE_PRESETS,
+  type PaletteAdjustment,
   type PalettePresetKey,
   type PaletteSeeds,
   paletteAdjustments,
@@ -64,16 +65,28 @@ export function resolvedSeeds(state: PaletteState): PaletteSeeds {
 export default function PaletteField(props: {
   value: PaletteState;
   onChange: (next: PaletteState) => void;
+  /** The derived token map, when the parent already owns it. The invite
+   *  builder derives once per drag frame and shares (P-W1: without this the
+   *  same five seeds were derived 2–3× per pointermove across the
+   *  builder/field boundary); a standalone mount derives internally. */
+  tokens?: Record<string, string>;
+  /** The contrast-adjustment list, same sharing contract as `tokens`. */
+  adjustments?: PaletteAdjustment[];
 }) {
   const base = () => PALETTE_PRESETS[props.value.preset ?? DEFAULT_PRESET];
   // Memoised for the same reason as the builder's previewTokens: the trigger is
   // a pointer-rate drag, and `tokens` + `adjusted` would each re-parse the same
-  // five seeds independently on every frame.
+  // five seeds independently on every frame. The internal memos short-circuit
+  // when the parent supplies the shared result.
   const seeds = createMemo(() => resolvedSeeds(props.value));
-  const tokens = createMemo(() => derivePalette(seeds()));
+  const internalTokens = createMemo(() => (props.tokens ? undefined : derivePalette(seeds())));
+  const tokens = () => props.tokens ?? internalTokens()!;
   // Which of the organiser's colours had to move to stay legible. Empty is the
   // normal case, and its emptiness is the signal that nothing needs explaining.
-  const adjusted = createMemo(() => paletteAdjustments(seeds()));
+  const internalAdjusted = createMemo(() =>
+    props.adjustments ? undefined : paletteAdjustments(seeds()),
+  );
+  const adjusted = () => props.adjustments ?? internalAdjusted()!;
 
   /** Pick a preset: adopt its five colours wholesale, dropping earlier nudges. */
   const choosePreset = (key: PalettePresetKey) => props.onChange({ preset: key, seeds: {} });
