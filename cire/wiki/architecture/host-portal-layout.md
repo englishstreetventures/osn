@@ -150,6 +150,21 @@ component was previously reading a container it did not live in.
   `PreviewPane` beside the form (sticky, `w-80`, `w-96` from `@6xl/builder`). This
   code predates this pass; it was simply unreachable under the old page cap.
 
+  The builder itself shows **one section at a time** (2026-07-30) — a real tab
+  switcher (`activeSection` signal + `role="tablist"`/`role="tab"` pills), not
+  the old vertical stack of all eight `SectionCard`s with a `scrollIntoView`
+  jump nav bolted on top. Inactive cards stay MOUNTED (`SectionCard`'s `hidden`
+  prop sets the native `hidden` attribute) rather than unmounting — draft
+  state, dirty tracking and the inline previews are builder-wide, and
+  unmounting would have thrown all of that away on every tab switch for no
+  reason. Below `@4xl/builder`, where the sticky pane can't show, a "Preview"
+  button next to the tabs opens the same `PreviewPane` in `PreviewModal.tsx`
+  (a `<Portal>` dialog) instead — one composed-preview markup source, two
+  presentations, fed by five small per-slot prop helpers (`heroPreviewProps`,
+  `storyPreviewProps`, …) called at each consumer's own JSX prop position, NOT
+  spread from one pre-built object — see `[[invite-builder]]` for why the
+  spread version silently broke live updates.
+
   It is also the one place that **measures instead of only querying**. The two
   preview layers — five inline per-section previews, and the composed pane — used
   to both be mounted at every width with the container query hiding one, so the
@@ -214,6 +229,16 @@ component are in the DOM during tests and neither is hidden. Scope queries to th
 landmark you mean (the nav tests do this for the rail vs the sheet, the
 checklist/budget tests for each bucket or category `<section>`) rather than
 asserting on visibility. Do not assert on class strings.
+
+The invite builder's section tabs are a different case worth knowing:
+`SectionCard`'s inactive-section `hidden` attribute is a REAL DOM attribute
+(not a CSS class happy-dom ignores), and `@testing-library/dom`'s `getByRole`
+excludes hidden elements from the accessibility tree even in happy-dom —
+`getByLabelText`/`getByText` do not. So `InviteBuilder.test.tsx` needs its
+`openSection("Hero")` helper (clicks the named tab) before any `getByRole`
+query against a non-default section's controls, but the many tests that only
+read/type into fields via `getByLabelText` across several sections in one flow
+needed no change at all.
 
 What that leaves testable, and where it lives:
 

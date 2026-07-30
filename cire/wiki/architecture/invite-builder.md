@@ -608,50 +608,136 @@ endpoints; `solid-toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 
 | File | Owns |
 | --- | --- |
-| `invite/InviteBuilder.tsx` | Orchestration: resource, draft store, save/upload/crop actions, layout |
+| `invite/InviteBuilder.tsx` | Orchestration: resource, draft store, save/upload/crop actions, layout, section tab state |
 | `invite/model.ts` | Wire types, closed option sets, `COPY_CAPS` (client mirror of `InviteTextBody`), the `InviteDraft` shape + pure `textPayload`/`themePayload` builders |
-| `invite/fields.tsx` | `TextField` / `TextAreaField` (live counters) / `ChoiceField` / `SliderField` (`aria-valuetext`) / `SegmentBadge` (`role="status"`) / `SectionCard` / `Disclosure` / `InstantBadge` |
+| `invite/fields.tsx` | `TextField` / `TextAreaField` (live counters) / `ChoiceField` / `SliderField` (`aria-valuetext`) / `SegmentBadge` (`role="status"`) / `SectionCard` (`hidden` prop) / `Disclosure` / `InstantBadge` |
 | `invite/previews.tsx` | `HeroSample`+`HeroPreview` (crop-aware, desktop/phone toggle), `SectionSample`+`SectionPreview`, `DeviceToggle` |
-| `invite/PreviewPane.tsx` | The composed whole-invite preview (sticky side pane at wide widths) |
+| `invite/PreviewPane.tsx` | The composed whole-invite preview markup (exports `PreviewPaneProps`) — sticky side pane at wide widths |
+| `invite/PreviewModal.tsx` | The SAME composed preview in a mobile modal, opened by the "Preview" button beside the section tabs |
 | `invite/DesignPicker.tsx` | Design radiogroup, roving tabindex, `aria-disabled` locked cards, thumbnails |
 | `invite/ImageField.tsx` | Upload/crop/remove per slot, inline per-slot errors, remove confirm lives in the builder |
 | `lib/unsaved-guard.ts` | Cross-component dirty registry; `OrganiserApp.setRoute` confirms before SPA navigation |
 
 **Structure: one card per guest-page section, in the order guests scroll
-them, each owning everything about its section.** **Design** first, then a
-global **Look** fieldset (two font `<select>`s and the colour scheme visible;
-the five typography-option `<select>`s — heading size/weight/style, body
-weight/style, all closed mirrors of the `@cire/theme` enums — behind a
-"Fine-tune typography" disclosure), then **Hero** (preview at the TOP of the
-card so the sliders below act on something visible; image + two crops,
-title/subtitle, tone, and the three hero-display sliders behind a "Hero
-display" disclosure), **Our Story**, **Code Entry & Welcome**, **Events
-Section**, **Closing Section**, and finally the copyable **Invite message**
-(explicitly flagged as not part of the guest page). A **sticky section jump
-list** (buttons calling `scrollIntoView`, never `#hash` anchors — the
-dashboard routes on `location.hash`) mirrors the sections' Shown/Hidden badge
-state as dots, doubling as a completeness checklist.
+them, each owning everything about its section — shown ONE AT A TIME, tabbed,
+not stacked.** **Design** first, then a global **Look** fieldset (two font
+`<select>`s and the colour scheme visible; the five typography-option
+`<select>`s — heading size/weight/style, body weight/style, all closed
+mirrors of the `@cire/theme` enums — behind a "Fine-tune typography"
+disclosure), then **Hero** (preview at the TOP of the card so the sliders
+below act on something visible; image + two crops, title/subtitle, tone, and
+the three hero-display sliders behind a "Hero display" disclosure), **Our
+Story**, **Code Entry & Welcome**, **Events Section**, **Closing Section**,
+and finally the copyable **Invite message** (explicitly flagged as not part
+of the guest page).
 
-**Two preview layers, one markup source.** Inline per-section previews
-(`SectionPreview`/`HeroPreview`) render under each card on narrow layouts;
-at the builder's wide container breakpoint they hide and a **sticky composed
-`PreviewPane`** takes over — the whole guest page as one continuous column
-(hero → story → welcome → events → closing) on its tone surfaces, with a
-desktop/phone frame toggle, so the tone rhythm down the page is visible while
-editing. Both layers share `HeroSample`/`SectionSample` and are styled with
-the SAME derived tokens the guest consumes (`derivePalette` +
-`typographyVars` from `@cire/theme`, resolved once in the `previewTokens`
-memo — and shared into `PaletteField` via its `tokens`/`adjustments` props,
-so the whole builder derives exactly once per colour-drag frame). Both
-layers stay permanently mounted with a CSS-only container-query switch — a
-deliberate trade (one markup source, no `ResizeObserver`) accepted as
-`P-I1` in `wiki/todo/perf.md` (cire wiki). The `url("…")` sink both layers'
-crop rendering shares (`cropBackgroundStyle`, lockstep organiser + guest
-copies) escapes its URL argument at the sink (S-L1). The hero preview is **crop-aware** (saved rectangles render via the
+**The section nav is a real tab switcher (2026-07-30), not a scroll-jump
+list.** The builder used to stack all eight cards in one long vertical page
+with a sticky pill row that called `scrollIntoView` on click (`#hash` anchors
+were never an option — the dashboard routes on `location.hash`, so a real
+`#invite-hero` link would clobber it). That made the builder page longer than
+it needed to be on every screen, and pinned the composed preview to a fixed
+scroll position an organiser had to scroll back up to see. Now `activeSection`
+(a signal in `InviteBuilder.tsx`) tracks which ONE section is showing; the nav
+pills set it instead of scrolling, and mirror the sections' Shown/Hidden badge
+state as dots, same as before.
+
+**The ARIA tabs contract is complete, not just the roles.** The first cut
+declared `role="tablist"`/`role="tab"`/`aria-selected` on the nav but left the
+panel side of the relationship unwired — no `aria-controls`, no
+`role="tabpanel"`, no `aria-labelledby`, and every tab sat in the normal `Tab`
+sequence instead of a roving tabindex, which is worse than not using the role
+at all: assistive tech is told "this is a tabs widget" and then doesn't get
+tabs-widget behaviour (a security-review compliance finding, C-M1). Fixed to
+the full [WAI-ARIA APG tabs pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/),
+hand-wired rather than migrated to Kobalte's `Tabs` primitive (a bigger,
+riskier change to the `SectionCard`/`hidden`-attribute mount-persistence this
+PR relies on, for a widget this codebase already hand-rolls elsewhere — see
+`DesignPicker`'s roving-tabindex radiogroup, the pattern this mirrors):
+
+- Each tab: `id={`${item.id}-tab`}`, `aria-controls={item.id}` (the panel's
+  DOM id — already the fieldset's `id` prop), `tabIndex={active() ? 0 : -1}`.
+- Each panel (`SectionCard`'s `<fieldset>`): `role="tabpanel"`,
+  `aria-labelledby={`${props.id}-tab`}` — unconditional, since `SectionCard`
+  has exactly one consumer (the eight tab sections), so there's no case where
+  the tabpanel semantics would be wrong.
+- Keyboard: `ArrowRight`/`ArrowLeft` step (wrapping), `Home`/`End` jump to the
+  first/last tab — the APG "automatic activation" model, where moving focus
+  ALSO activates the section (same model `DesignPicker`'s arrows use for
+  selection). `sectionTabRefs` (a `Map<string, HTMLButtonElement>`) is the
+  imperative-focus mechanism, since Solid has no roving-tabindex primitive.
+
+**Sections stay MOUNTED — only visually hidden.** `SectionCard` (`fields.tsx`)
+takes a `hidden` prop and applies it as the native HTML `hidden` attribute on
+the `<fieldset>`, rather than the tab switch unmounting/remounting cards. This
+matters for three things at once: the draft store and dirty-tracking are
+builder-wide, not per-section, so nothing about them changes; every inline
+preview (`HeroPreview`/`SectionPreview`) keeps updating live regardless of
+which tab is active, so switching tabs never shows stale content; and it keeps
+`InviteBuilder.test.tsx` unchanged for the many tests that read fields across
+several sections in one flow — `getByLabelText`/`getByText` don't filter on
+the `hidden` attribute, so those pass untouched. `getByRole` DOES exclude
+hidden elements from the accessibility tree, so tests reaching for a hidden
+section's button/role now switch tabs first (`openSection("Hero")` test
+helper) — the one place this change touched the test file beyond the section
+itself.
+
+**Two preview layers, one markup source — plus a third presentation of the
+composed one.** Inline per-section previews (`SectionPreview`/`HeroPreview`)
+render under each card on narrow layouts; at the builder's wide container
+breakpoint they hide and a **sticky composed `PreviewPane`** takes over — the
+whole guest page as one continuous column (hero → story → welcome → events →
+closing) on its tone surfaces, with a desktop/phone frame toggle, so the tone
+rhythm down the page is visible while editing. Both layers share
+`HeroSample`/`SectionSample` and are styled with the SAME derived tokens the
+guest consumes (`derivePalette` + `typographyVars` from `@cire/theme`,
+resolved once in the `previewTokens` memo — and shared into `PaletteField`
+via its `tokens`/`adjustments` props, so the whole builder derives exactly
+once per colour-drag frame). Both layers stay permanently mounted with a
+CSS-only container-query switch — a deliberate trade (one markup source, no
+`ResizeObserver`) accepted as `P-I1` in `wiki/todo/perf.md` (cire wiki). The
+`url("…")` sink both layers' crop rendering shares (`cropBackgroundStyle`,
+lockstep organiser + guest copies) escapes its URL argument at the sink
+(S-L1). The hero preview is **crop-aware** (saved rectangles render via the
 guest's background-fraction technique — the framing never lies) and the phone
 frame uses the hero's phone rectangle, falling back to the desktop crop
 exactly as the guest site does. Tone pickers render **as their surface**
 (swatch buttons on the scoped tokens), not as text-only chips.
+
+**Mobile preview modal (2026-07-30).** Below `@4xl/builder` there is no room
+for the sticky side pane, and the inline per-section previews only ever show
+the ACTIVE section. A "Preview" button next to the section tabs (hidden once
+the sticky pane can show instead — the same `@4xl/builder` CSS threshold, so
+the two never both offer a way in) opens `invite/PreviewModal.tsx`: the exact
+same `PreviewPane` in a `<Portal>` dialog, so there is still only one composed
+markup source, just two presentations of it. `InviteBuilder.tsx` shares the
+`hero`/`story`/`welcome`/`events`/`closing` slot values between the sticky
+`<aside>` and the modal via five small per-slot helpers
+(`heroPreviewProps(d)`, `storyPreviewProps()`, …), each called at its own JSX
+prop position on BOTH consumers — e.g. `hero={heroPreviewProps(d)}` on both
+`<PreviewPane>` and `<PreviewModal>` — so a change to one slot's shape can't
+silently skip the other consumer. **Not** a single function returning the
+whole `PreviewPaneProps` object spread with `{...}` onto each consumer — that
+was the first cut, and it shipped a real live-preview regression (caught by
+`InviteBuilder.test.tsx`'s "opens the composed preview in a modal…" test, not
+by inspection): Solid's compiler makes an individual JSX prop reactive by
+wrapping its expression in a getter, so `hero={heroPreviewProps(d)}`
+re-evaluates every time `props.hero` is read inside a tracking scope. A
+spread of an already-computed plain object has no such getter — the object
+is built once, when the `<Show>` render-prop runs, and both the aside AND
+the modal would freeze at whatever the form looked like on first render.
+
+**Mobile preview proportions (2026-07-30 fix).** `HeroSample`'s title used
+`font-size: clamp(1.25rem, 6vw, 2rem)` — `vw` resolves against the real
+browser viewport, which is correct for the guest site's actual full-bleed hero
+but wrong for a preview: the organiser's screen is wide even when previewing
+the "Phone" frame, so the title rendered pinned at the clamp's 2rem ceiling
+regardless of how small the preview box (a 12rem phone toggle, a 10rem inline
+card) actually was — badly out of proportion with everything else in the
+frame. Fixed by making `HeroSample`'s own root the query container
+(`class="@container"`, unnamed — no descendant needs to name it) and switching
+the clamp to `9cqi`, so the title scales off the box it is actually rendered
+into. `previews.test.tsx` pins the new curve.
 
 **Every preview sample follows the typography variables — none hardcodes a
 look.** A sample that pins `font-light italic` in a class renders the same

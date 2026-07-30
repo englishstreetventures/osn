@@ -17,7 +17,7 @@ import type { ImageCrop } from "../../lib/image-crop";
 import { DEFAULTS, sampleCopy, type ThemeSection } from "./model";
 import { DeviceToggle, HeroSample, type PreviewDevice, SectionSample } from "./previews";
 
-export default function PreviewPane(props: {
+export interface PreviewPaneProps {
   tokens: Record<string, string>;
   toneSurface: (section: ThemeSection) => string;
   hero: {
@@ -34,7 +34,9 @@ export default function PreviewPane(props: {
   welcome: { message: string };
   events: { eyebrow: string; heading: string };
   closing: { shown: boolean; message: string; imageUrl: string | null };
-}) {
+}
+
+export default function PreviewPane(props: PreviewPaneProps) {
   const [device, setDevice] = createSignal<PreviewDevice>("desktop");
   const heroCrop = () =>
     device() === "phone" ? (props.hero.cropMobile ?? props.hero.crop) : props.hero.crop;

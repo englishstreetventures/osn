@@ -92,8 +92,14 @@ export function HeroSample(props: {
   };
   const titleText = () => (props.title.trim().length > 0 ? props.title : DEFAULTS.heroTitle);
   return (
+    // `@container` (unnamed — no descendant needs to name it) so the title
+    // below scales off THIS box's own width, not the real browser viewport.
+    // The frame is a small fixed-size preview (a 12rem phone toggle, a 10rem
+    // inline card) sitting inside a much wider organiser screen — `vw` used to
+    // resolve against that wide screen, so the title read wildly oversized for
+    // the tiny box it was actually in.
     <div
-      class={`relative flex items-center justify-center overflow-hidden ${props.class ?? "h-44"}`}
+      class={`@container relative flex items-center justify-center overflow-hidden ${props.class ?? "h-44"}`}
       style={{
         "background-color": props.surface,
         "background-image": PREVIEW_HERO_GRADIENT,
@@ -154,7 +160,7 @@ export function HeroSample(props: {
           style={{
             color: "var(--color-gold)",
             "font-family": "var(--font-display)",
-            "font-size": headingSizeCss("clamp(1.25rem,6vw,2rem)"),
+            "font-size": headingSizeCss("clamp(1.25rem,9cqi,2rem)"),
             "font-weight": typographyVar("headingWeight"),
             "font-style": typographyVar("headingStyle"),
           }}

@@ -215,10 +215,13 @@ export function InstantBadge() {
 }
 
 /**
- * The chrome every builder section shares: an anchored fieldset (`id` is the
- * section-nav jump target), the micro-caps legend, the optional Shown/Hidden
- * badge + per-section reset, and the optional description paragraph. Keeping
- * this in one place is what keeps eight section cards from drifting apart.
+ * The chrome every builder section shares: a fieldset that doubles as an ARIA
+ * `tabpanel` for the section nav's `id`/`aria-labelledby` pair (`props.id` is
+ * both the fieldset's DOM id — the tab's `aria-controls` target — and half of
+ * `${id}-tab`, the tab's own id), the micro-caps legend, the optional
+ * Shown/Hidden badge + per-section reset, and the optional description
+ * paragraph. Keeping this in one place is what keeps eight section cards from
+ * drifting apart.
  */
 export function SectionCard(props: {
   id: string;
@@ -229,12 +232,20 @@ export function SectionCard(props: {
   /** Present ⇒ render a "Reset section" action that reverts the section's
    *  saveable fields to their defaults (a draft change — nothing is saved). */
   onReset?: () => void;
+  /** The builder shows one section at a time (a tab, not a scroll) — the
+   *  inactive cards stay MOUNTED (their draft state, dirty tracking and inline
+   *  previews all live regardless of visibility) and are hidden with the
+   *  native `hidden` attribute rather than unmounted. */
+  hidden?: boolean;
   children: JSX.Element;
 }) {
   return (
     <fieldset
       id={props.id}
-      class="border-border flex scroll-mt-24 flex-col gap-4 rounded-sm border p-4"
+      hidden={props.hidden}
+      role="tabpanel"
+      aria-labelledby={`${props.id}-tab`}
+      class="border-border flex flex-col gap-4 rounded-sm border p-4"
     >
       <legend class="font-body text-gold-dim px-2 text-[0.72rem] tracking-[0.1em] uppercase">
         {props.legend}

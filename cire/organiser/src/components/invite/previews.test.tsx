@@ -103,7 +103,7 @@ describe("HeroSample", () => {
 
   it("follows the heading variables on the title, fallbacks intact", () => {
     const styles = captureDeclaredStyles();
-    render(() => (
+    const { container } = render(() => (
       <HeroSample
         imageUrl={null}
         title="Anita & Ben"
@@ -116,11 +116,17 @@ describe("HeroSample", () => {
     const title = screen.getByText("Anita & Ben");
     const style = styles.of(title);
 
-    // The hero keeps its own responsive curve; only the scale is shared.
-    expect(style["font-size"]).toBe(headingSizeCss("clamp(1.25rem,6vw,2rem)"));
+    // The hero keeps its own responsive curve; only the scale is shared. `cqi`,
+    // not `vw` — the title scales off the preview frame's own width, not the
+    // real browser viewport (WT-P… mobile-preview proportions).
+    expect(style["font-size"]).toBe(headingSizeCss("clamp(1.25rem,9cqi,2rem)"));
     expect(style["font-weight"]).toBe(typographyVar("headingWeight"));
     expect(style["font-style"]).toBe(typographyVar("headingStyle"));
     expect(title.className).not.toContain("italic");
+    // `cqi` only resolves against a query container — a class-string match on
+    // the font-size alone can't catch this container being dropped (happy-dom
+    // computes no layout, so the string would still "look" right).
+    expect(container.firstElementChild?.className).toContain("@container");
     expect(title.className).not.toContain("font-light");
   });
 });
