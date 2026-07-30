@@ -420,8 +420,8 @@ export interface GuestEventDraft {
   addEvent: () => string;
   updateEvent: (key: string, patch: EventPatch) => void;
   removeEvent: (key: string) => void;
-  /** Move the event at `key` up (−1) or down (+1) one slot, rewriting sortOrder. */
-  moveEvent: (key: string, direction: -1 | 1) => void;
+  /** Move the event at index `from` to index `to`, rewriting every sortOrder. */
+  reorderEvents: (from: number, to: number) => void;
 
   // Guests-tab mutations (each records an undo checkpoint first).
   addFamily: () => string;
@@ -558,20 +558,25 @@ export function createGuestEventDraft(): GuestEventDraft {
     renumberEvents();
   }
 
-  function moveEvent(key: string, direction: -1 | 1) {
-    const ei = eventIndex(key);
-    if (ei === -1) return;
-    const target = ei + direction;
-    if (target < 0 || target >= draft.events.length) return;
+  function reorderEvents(from: number, to: number) {
+    const count = draft.events.length;
+    if (from === to || from < 0 || from >= count || to < 0 || to >= count) return;
     checkpoint();
+    // Splice AND renumber in one `produce`, not a move followed by a separate
+    // `renumberEvents()`. Solid memos are eager, so two store writes recompute
+    // `dirty`/`errors`/`warnings` twice — and all three walk every household and
+    // guest, so on a large wedding that doubling is most of the cost of a
+    // reorder. No intermediate state is observable either way.
     setDraft(
       "events",
       produce((events) => {
-        const [moved] = events.splice(ei, 1);
-        events.splice(target, 0, moved!);
+        const [moved] = events.splice(from, 1);
+        events.splice(to, 0, moved!);
+        events.forEach((e, i) => {
+          e.sortOrder = i;
+        });
       }),
     );
-    renumberEvents();
   }
 
   function familyIndex(key: string) {
@@ -688,7 +693,7 @@ export function createGuestEventDraft(): GuestEventDraft {
     addEvent,
     updateEvent,
     removeEvent,
-    moveEvent,
+    reorderEvents,
     addFamily,
     renameFamily,
     removeFamily,

@@ -327,14 +327,75 @@ describe("createGuestEventDraft — event editing (E6)", () => {
   it("reorders events and rewrites sortOrder to the new index", () => {
     createRoot((dispose) => {
       const store = loaded();
-      // Ceremony(0), Reception(1) → move Reception up.
-      const receptionKey = store.draft.events.find((e) => e.name === "Reception")!.key;
-      store.moveEvent(receptionKey, -1);
+      // Ceremony(0), Reception(1) → drag Reception to the top.
+      store.reorderEvents(1, 0);
       const wire = store.toWire();
       const reception = wire.events.find((e) => e.name === "Reception")!;
       const ceremony = wire.events.find((e) => e.name === "Ceremony")!;
       expect(reception.sortOrder).toBe(0);
       expect(ceremony.sortOrder).toBe(1);
+      expect(store.draft.events.map((e) => e.name)).toEqual(["Reception", "Ceremony"]);
+      dispose();
+    });
+  });
+
+  it("splices rather than swaps when moving across the middle of the list", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      // A 2-element list can't tell a splice from a swap, so add a third.
+      const key = store.addEvent();
+      store.updateEvent(key, {
+        name: "Brunch",
+        startAt: "2026-11-15T10:00:00+11:00",
+        timezone: "Australia/Sydney",
+      });
+      expect(store.draft.events.map((e) => e.name)).toEqual(["Ceremony", "Reception", "Brunch"]);
+
+      store.reorderEvents(0, 2);
+
+      // Splice: Ceremony lands LAST and the others close up. A swap would have
+      // produced ["Brunch", "Reception", "Ceremony"].
+      expect(store.draft.events.map((e) => e.name)).toEqual(["Reception", "Brunch", "Ceremony"]);
+      expect(store.toWire().events.map((e) => [e.name, e.sortOrder])).toEqual([
+        ["Reception", 0],
+        ["Brunch", 1],
+        ["Ceremony", 2],
+      ]);
+      dispose();
+    });
+  });
+
+  it("undo reverts a reorder including its sortOrder renumbering", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      store.reorderEvents(1, 0);
+      expect(store.draft.events.map((e) => e.name)).toEqual(["Reception", "Ceremony"]);
+
+      store.undo();
+
+      // reorderEvents is the only mutation that both checkpoints AND renumbers;
+      // a misordered checkpoint would restore the order but not the sortOrder.
+      expect(store.draft.events.map((e) => e.name)).toEqual(["Ceremony", "Reception"]);
+      expect(store.toWire().events.map((e) => [e.name, e.sortOrder])).toEqual([
+        ["Ceremony", 0],
+        ["Reception", 1],
+      ]);
+      expect(store.dirty()).toBe(false);
+      dispose();
+    });
+  });
+
+  it("ignores a reorder that is a no-op or out of bounds", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const before = store.draft.events.map((e) => e.name);
+      store.reorderEvents(0, 0);
+      store.reorderEvents(0, 5);
+      store.reorderEvents(-1, 1);
+      expect(store.draft.events.map((e) => e.name)).toEqual(before);
+      // No checkpoint was recorded, so the draft is untouched.
+      expect(store.dirty()).toBe(false);
+      expect(store.canUndo()).toBe(false);
       dispose();
     });
   });

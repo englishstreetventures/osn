@@ -2,12 +2,16 @@
 title: "Completed Features"
 tags: [changelog]
 related: [[TODO]], [[index]]
-last-reviewed: 2026-07-23
+last-reviewed: 2026-07-30
 ---
 
 # Completed Features
 
 Archive of completed feature work, moved here from [[TODO]] (and the per-area `wiki/todo/` shards) as PRs merge.
+
+### Guest event card renders date + venue purely from canonical fields (`refactor/cire-retire-deprecated-event-cols`)
+
+- [x] **Guest event card renders date + venue purely from canonical fields** (`refactor/cire-retire-deprecated-event-cols`) — `EventCard.tsx` no longer reads the deprecated `EventSummary.date` / `.location` (both removed from the type + the `/api/claim` response). The day now comes from `formatEventDay(startAt, timezone)` and the venue from `venueLine(address)` (rendered inside a `<Show>` so a venue-less event simply omits the line). `event-details.ts` `venueLine` / `resolveMapsUrl` / `resolveMapsEmbedUrl` dropped their `location` fallback (address-only); `calendar.ts` ICS/Google `location` now derives from `address`; the dead `formatDate` util + its tests were removed. `EventCard.test.tsx` proves the render is from `startAt`/`address` (and omits the line when address is null). See `[[db]]`.
 
 ### Hero phone crop — per-device framing for the full-bleed backdrop (`claude/hero-image-responsive-crop-b6b74u`)
 

@@ -158,18 +158,34 @@ describe("EventsEditor", () => {
     expect(save.disabled).toBe(true);
   });
 
-  it("reorders an event with the move controls", async () => {
+  it("exposes a focusable drag handle per event instead of arrow controls", async () => {
     primeLoad();
     render(() => <EventsEditor weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Reception")).toBeTruthy());
 
-    // Move Reception up.
-    fireEvent.click(screen.getByRole("button", { name: /Move Reception up/i }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /Save changes/i })).toBeTruthy());
+    // One grip per event, labelled by name AND position — solid-dnd announces
+    // nothing, so the label carries the position itself. Re-ordering behaviour
+    // (pointer drag + keyboard) is covered in EventsEditor.reorder.test.tsx.
+    expect(screen.getByRole("button", { name: /Reorder Ceremony, position 1 of 2/i })).toBeTruthy();
+    const grip = screen.getByRole("button", { name: /Reorder Reception, position 2 of 2/i });
+    expect(grip.tagName).toBe("BUTTON"); // tabbable ⇒ it can own the keyboard path
+    expect(grip.getAttribute("aria-describedby")).toBe("reorder-hint");
+    expect(screen.getByText(/press the up and down arrow keys/i)).toBeTruthy();
 
-    // First rendered event heading is now Reception.
-    const headings = screen.getAllByText(/Ceremony|Reception/);
-    expect(headings[0]!.textContent).toContain("Reception");
+    // The VISIBLE ▲/▼ pair is gone, but an Enter/Space-activated equivalent
+    // survives for assistive tech — NVDA/JAWS browse mode never forwards the
+    // grip's arrow keys, so removing this path entirely would be a regression.
+    // It is screen-reader-only (`sr-only`), revealed on focus.
+    const srUp = screen.getByRole("button", { name: /Move Reception up/i });
+    expect(srUp.className).toContain("sr-only");
+    expect(srUp.className).toContain("focus:not-sr-only");
+    expect(screen.queryByText("▲")).toBeNull();
+    expect(screen.queryByText("▼")).toBeNull();
+    // Disabled at the list ends so AT reports the boundary.
+    expect(
+      (screen.getByRole("button", { name: /Move Ceremony up/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect((srUp as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("adds a new event via Add event", async () => {
@@ -253,7 +269,9 @@ describe("EventsEditor", () => {
     render(() => <EventsEditor weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
 
-    fireEvent.click(screen.getByRole("button", { name: /Move Reception up/i }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+    await waitFor(() => expect(screen.getByLabelText("Event name")).toBeTruthy());
+    fireEvent.input(screen.getByLabelText("Event name"), { target: { value: "Wedding Ceremony" } });
     await waitFor(() => expect(screen.getByRole("button", { name: /Save changes/i })).toBeTruthy());
 
     authFetchMock.mockImplementation((url: string) => {
@@ -286,7 +304,9 @@ describe("EventsEditor", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
-    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: /Review changes before applying/i })).toBeTruthy(),
+    );
     fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
 
     await waitFor(() => expect(screen.getByText(/changed elsewhere/i)).toBeTruthy());

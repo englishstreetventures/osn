@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-07-29
+last-reviewed: 2026-07-30
 ---
 
 # Security Backlog
@@ -123,3 +123,26 @@ was needed or made.
 - [x] **CON-S-L4** (fixed on branch) — `decidedAt` is documented as the Art. 7(1) audit trail but was accepted as any string. Now fails closed on an unparsable date, an empty string, a non-string, or anything over 40 chars — the same treatment the version fields already got.
 - [ ] **CON-S-M1** — **withdrawing consent does not tear down third-party code that already ran.** Flipping a category off unmounts the embed and removes the injected `<script>` (asserted by test), but `pinit_main.js`'s already-executed globals, listeners and any storage it set survive the rest of the visit. Under the new **opt-out** defaults this is the *common* path, not an edge case: the banner appears after the embeds have loaded, so "Reject all" is nearly always clicked with third-party contexts live. **Partially addressed on branch** — the preferences dialog now states the residual plainly ("to also clear content already loaded during this visit, reload the page"). The full fix is a `location.reload()` on a granted→revoked transition for any category with `enforcement: "gated"` vendors. Deliberately not done here: a reload is user-visible and can discard in-progress page state, and it must only fire when the cookie write actually succeeded (else the refusal is lost on reload). See `[[consent]]`.
 - [ ] **CON-S-L1** — `cire_consent` is not `__Host-`-prefixed, so a script on a sibling `*.cireweddings.com` origin can set a `Domain=.cireweddings.com` cookie of the same name; `readConsentCookieValue` returns the first match and browser ordering between domain and host-only cookies of equal path is unspecified. A guest's stored *refusal* could be silently overridden back to "allowed". Integrity attack on a privacy decision, not a credential. Fix: write `__Host-cire_consent` when `secure` (the attributes already satisfy the prefix), fall back to the bare name on http dev, read both preferring the prefixed one. See `[[consent]]`.
+
+**Drag-to-reorder the schedule (`claude/event-reordering-drag-drop-31byc6`) — security review (2026-07-30).**
+**No Critical, no High.** Verified clean: no `innerHTML`/`set:html` anywhere in `cire/organiser/src`, so the
+event name interpolated into the grip's `aria-label` and the live region is escaped by construction;
+`maybeTransformStyle` can't reach a CSS-injection sink (its `Transform` is `{x: number, y: number}` and Solid's
+object-form `style` uses `setProperty`, not `cssText`); `{...sortable.dragActivators}` has a closed key space
+(every key is `on`-prefixed, so none can land as a DOM attribute); no authz change (the Edit sub-tab is still
+`canEdit`-gated client-side and `weddingEditor()`-gated on `changes/*`, and the arrows were never a gate);
+the library is pointer-events only, with no `dataTransfer`/`dragstart` cross-origin drag channel.
+
+- [ ] **DND-S-M1** — **`@thisbeyond/solid-dnd@0.7.5` is an unmaintained runtime dependency** (last published Nov 2023, ~2y8m) and nothing in CI will surface an advisory against it — repo-wide dep scanning is still open as **C-M7**. The realistic threat is not a bug in 14 kB of geometry code but (a) an advisory nobody is watching, and (b) npm-account takeover on a dormant package, where a fresh `0.7.6` falls inside the `^0.7.5` range. Mitigations verified and genuinely strong: **zero runtime deps** (only `peerDependencies: solid-js`), **no install scripts**, **no dangerous sinks** in the shipped bundle (`innerHTML`/`eval`/`new Function`/`document.write`/`fetch`/`XHR`/`WebSocket`/dynamic `import()`/storage/`document.cookie`/`postMessage` all zero occurrences — its whole DOM footprint is `document.addEventListener` for pointer/scroll/selection events with matching removals, one `style.setProperty("transform", …)`, and one `getSelection()?.removeAllRanges()`), **lockfile integrity pin** + `bunfig.toml` `minimumReleaseAge = 259200` so a takeover publish can't land silently, and a **blast radius of one component** (no adapter layer). **Re-evaluation triggers:** any Solid major upgrade, or `ChecklistView` adoption needing multi-container support (which the events list doesn't exercise). Name `@thisbeyond` in C-M7's dep-scan scope when that lands. See `[[architecture/drag-and-drop]]`.
+
+Accessibility/compliance findings from the same review (cire has no compliance shard; both are fixed on
+branch, so they are recorded here next to the review that found them rather than opening one):
+
+- [x] **DND-C-M1** (fixed on branch) — **the replacement keyboard path was invisible to Windows screen readers.** The grip's only keyboard affordance was a bare `ArrowUp`/`ArrowDown` `keydown` handler, and NVDA/JAWS run in browse mode by default, consuming unmodified arrow keys for their own virtual cursor — they forward them to a plain `<button>` only in focus mode, which buttons don't trigger. A screen-reader user would tab to the grip, read the `aria-describedby` hint telling them to press the arrows, press them, and get nothing, with no discoverable alternative. The ▲/▼ pair this list replaced was Enter/Space-activated, which browse mode **does** forward, so this was a straight **WCAG 2.1.1 / EN 301 549 regression** against the thing it replaced — and it silently undercut the whole point of the branch's announcement work, since a user who can't trigger a move never hears one. Fixed by keeping an Enter/Space-operable path as `sr-only` "Move X up/down" buttons per row (reusing the same `handleKeyboardMove` and live region, so wording stays consistent across all three input paths), `focus:not-sr-only` so a sighted keyboard user never focuses an invisible control (WCAG 2.4.7), and `disabled` at the list ends so AT reports the boundary. The **visible** ▲/▼ pair stays gone — the visual UI is drag-only as intended. See `[[architecture/drag-and-drop]]`.
+- [x] **DND-C-L2** (fixed on branch) — the grip was ~18 CSS px tall (`px-1` + `leading-none`, no vertical padding) on the row's only re-order affordance, under the **WCAG 2.5.8** 24 px minimum. Arguably passing via the spacing exception (rows are `gap-3`-separated and much taller than 24 px, Edit/Delete sit at the far end), and EN 301 549 still references WCAG 2.1 — so not a hard failure, but a bad touch target on the one control you have to grab. `py-2` added.
+- **DND-C-L1** — "accepted dependency risk is documented but not tracked" is closed by the **DND-S-M1** row above, which is that tracked item: it carries the re-evaluation triggers and the C-M7 dep-scan scope note. No separate row.
+
+Pre-merge compliance gates confirmed **N/A**: no new personal-data or retention-relevant field, **no new
+subprocessor** (the library makes zero outbound calls — no `fetch`/XHR/WebSocket/dynamic `import()` in its
+bundle, so no `subprocessors.md` row is owed), no consent-based processing, no UGC or ranking surface, no
+age-gate-relevant collection, no DPIA trigger.
