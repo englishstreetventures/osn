@@ -1,6 +1,6 @@
 import { directoryVendors, vendorEnquiries, vendors, weddings } from "@cire/db";
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { eq, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
@@ -191,6 +191,8 @@ export function createVendorEnquiriesRoutes(
                 .innerJoin(vendors, eq(vendorEnquiries.vendorId, vendors.id))
                 .innerJoin(weddings, eq(vendorEnquiries.weddingId, weddings.id))
                 .where(inArray(directoryVendors.ownerOrgId, callerOrgIds))
+                // Newest-first by last message, in SQL rather than a JS sort.
+                .orderBy(desc(vendorEnquiries.lastMessageAt))
                 .all(),
             );
             const all = rows as Array<{
@@ -200,14 +202,12 @@ export function createVendorEnquiriesRoutes(
               weddingName: string;
             }>;
 
-            const enquiries = all
-              .map((r) => ({
-                ...toVendorDto(r.enquiry),
-                vendorName: r.vendorName,
-                category: r.category,
-                weddingName: r.weddingName,
-              }))
-              .sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+            const enquiries = all.map((r) => ({
+              ...toVendorDto(r.enquiry),
+              vendorName: r.vendorName,
+              category: r.category,
+              weddingName: r.weddingName,
+            }));
 
             return { enquiries };
           }).pipe(

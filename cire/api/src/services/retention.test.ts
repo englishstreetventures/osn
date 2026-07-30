@@ -4,6 +4,7 @@ import {
   weddings,
   families,
   guests,
+  guestEvents,
   events,
   rsvps,
   imports,
@@ -175,6 +176,14 @@ function makeWedding(opts: {
           createdAt: now,
         })
         .run();
+      // Invitation links — the sweep deletes these explicitly too (its contract
+      // is to not depend on FK cascade), so seed one per event to exercise the
+      // guest_events delete with real rows.
+      for (let i = 0; i < opts.eventDates.length; i++) {
+        db.insert(guestEvents)
+          .values({ guestId, eventId: `${weddingId}-ev-${i}` })
+          .run();
+      }
     }
 
     const sheetKeys: string[] = [];
@@ -219,12 +228,24 @@ describe("retentionService.sweepExpiredGuestData", () => {
         });
 
         const deleted = yield* retentionService.sweepExpiredGuestData(now);
-        expect(deleted).toBeGreaterThanOrEqual(1);
+        // EXACT count — the sweep reads the guests-delete result by position in
+        // the batch result array (rsvps, guest_events, guests, …), so an
+        // off-by-one there would report an rsvp/link count instead. One guest
+        // was seeded; the metric subject must be exactly 1.
+        expect(deleted).toBe(1);
 
         const guestRows = db.select().from(guests).where(eq(guests.id, guestId)).all();
         expect(guestRows.length).toBe(0);
         const rsvpRows = db.select().from(rsvps).where(eq(rsvps.id, rsvpId)).all();
         expect(rsvpRows.length).toBe(0);
+        // The invitation links go via the sweep's own explicit delete, not FK
+        // cascade (two were seeded — one per event).
+        const linkRows = db
+          .select()
+          .from(guestEvents)
+          .where(eq(guestEvents.guestId, guestId))
+          .all();
+        expect(linkRows.length).toBe(0);
         // The family row (a guest-PII container) goes too.
         const famRows = db.select().from(families).where(eq(families.id, familyId)).all();
         expect(famRows.length).toBe(0);

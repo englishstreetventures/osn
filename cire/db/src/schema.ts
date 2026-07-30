@@ -60,7 +60,12 @@ export const weddings = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
-  (t) => [index("weddings_owner_idx").on(t.ownerOsnProfileId)],
+  (t) => [
+    index("weddings_owner_idx").on(t.ownerOsnProfileId),
+    // Serves the public primary-wedding lookup (`ORDER BY created_at DESC
+    // LIMIT 1`, no WHERE) without a full scan + sort (migration 0053).
+    index("weddings_created_at_idx").on(t.createdAt),
+  ],
 );
 
 // Co-hosts of a wedding. The creator stays the single `weddings.owner_osn_profile_id`
@@ -171,7 +176,10 @@ export const families = sqliteTable(
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [
-    index("families_family_name_idx").on(t.familyName),
+    // NO family_name index: nothing filters/sorts on it — the import diff
+    // matches on a normalised (trim+lowercase) name in JS, which a
+    // case-sensitive b-tree can't serve. The 0001-era index was dropped as
+    // dead write-amplification on the import path (migration 0053).
     index("families_wedding_idx").on(t.weddingId),
     // At most one host family per wedding. A partial unique index makes the
     // host-code find-or-create race-safe at the DB layer.
@@ -224,7 +232,10 @@ export const events = sqliteTable(
     weddingId: text("wedding_id")
       .notNull()
       .references(() => weddings.id, { onDelete: "cascade" }),
-    slug: text("slug").notNull().unique(),
+    // Unique PER WEDDING (see the index list below), not globally — slugs are
+    // minted from the event name alone, so two weddings' "Reception"s must be
+    // allowed to coexist (migration 0051 descoped the 0001-era global unique).
+    slug: text("slug").notNull(),
     name: text("name").notNull(),
     description: text("description").notNull().default(""),
     startAt: text("start_at").notNull(),
@@ -258,6 +269,12 @@ export const events = sqliteTable(
     // (`cire/api/src/schemas/invite.ts`) and applied in CSS on the guest site, so
     // the stored bytes are untouched.
     eventImageCrop: text("event_image_crop"),
+    // NULLABLE timestamps (migration 0054): legacy rows predate the columns and
+    // their creation time is unknown — a fake 1970 default would masquerade as
+    // data. The importer stamps both on create and bumps updatedAt on update;
+    // the event-image endpoints bump it on image/crop writes.
+    createdAt: integer("created_at", { mode: "timestamp" }),
+    updatedAt: integer("updated_at", { mode: "timestamp" }),
     // No location config: the free-text `address` above is the SOLE location
     // source (the only thing the guest map embed renders). The stored
     // coordinates + pricing_region a wedding could carry (migration 0030) were
@@ -269,7 +286,12 @@ export const events = sqliteTable(
   // every events read (migration 0026). Replaces the dead single-column
   // events_sort_order_idx + events_wedding_idx pair — mirrors
   // guests_family_id_sort_idx above.
-  (t) => [index("events_wedding_id_sort_idx").on(t.weddingId, t.sortOrder)],
+  (t) => [
+    index("events_wedding_id_sort_idx").on(t.weddingId, t.sortOrder),
+    // Tenant-scoped slug uniqueness (migration 0051): the import mints slugs
+    // from event names, deduped only within the wedding.
+    uniqueIndex("events_wedding_slug_unique").on(t.weddingId, t.slug),
+  ],
 );
 
 export const tasks = sqliteTable(
@@ -362,7 +384,10 @@ export const directoryVendors = sqliteTable(
   },
   (t) => [
     index("directory_vendors_owner_idx").on(t.ownerOrgId),
-    index("directory_vendors_listed_idx").on(t.listed),
+    // Browse runs `WHERE listed='live' … ORDER BY name, id` — the composite
+    // serves filter + order in one b-tree walk (migration 0053 replaced the
+    // single-column `listed` index, whose prefix this still covers).
+    index("directory_vendors_listed_name_idx").on(t.listed, t.name, t.id),
   ],
 );
 
@@ -375,10 +400,10 @@ export const directoryVendorCategories = sqliteTable(
       .references(() => directoryVendors.id, { onDelete: "cascade" }),
     category: text("category").notNull(),
   },
-  (t) => [
-    primaryKey({ columns: [t.directoryVendorId, t.category] }),
-    index("directory_vendor_categories_category_idx").on(t.category),
-  ],
+  // PK only — the browse EXISTS probe hits (directory_vendor_id, category),
+  // which the PK serves; the old single-column category index was redundant
+  // (dropped in migration 0053).
+  (t) => [primaryKey({ columns: [t.directoryVendorId, t.category] })],
 );
 
 // vendors: the wedding-scoped CRM row (organiser-private).
@@ -504,7 +529,7 @@ export const guestEvents = sqliteTable(
       .references(() => guests.id, { onDelete: "cascade" }),
     eventId: text("event_id")
       .notNull()
-      .references(() => events.id),
+      .references(() => events.id, { onDelete: "cascade" }),
   },
   (t) => [
     primaryKey({ columns: [t.guestId, t.eventId] }),
@@ -519,9 +544,12 @@ export const rsvps = sqliteTable(
     guestId: text("guest_id")
       .notNull()
       .references(() => guests.id, { onDelete: "cascade" }),
+    // Cascades since migration 0052: an event delete takes its RSVPs with it,
+    // matching guest_events — the import's explicit child deletes remain as
+    // belt-and-braces, but the wedding→events cascade no longer trips NO ACTION.
     eventId: text("event_id")
       .notNull()
-      .references(() => events.id),
+      .references(() => events.id, { onDelete: "cascade" }),
     status: text("status", {
       enum: ["attending", "declined", "maybe"],
     }).notNull(),
@@ -554,18 +582,33 @@ export const rsvps = sqliteTable(
       .default("guest"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
-  (t) => [uniqueIndex("rsvps_guest_event_uniq").on(t.guestId, t.eventId)],
+  (t) => [
+    uniqueIndex("rsvps_guest_event_uniq").on(t.guestId, t.eventId),
+    // The unique above leads on guest_id, so per-event deletes (import event
+    // removal) and the event cascade need their own probe (migration 0052).
+    index("rsvps_event_id_idx").on(t.eventId),
+  ],
 );
 
-export const sessions = sqliteTable("sessions", {
-  id: text("id").primaryKey(),
-  familyId: text("family_id")
-    .notNull()
-    .references(() => families.id, { onDelete: "cascade" }),
-  token: text("token").notNull().unique(),
-  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
-  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
-});
+export const sessions = sqliteTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    familyId: text("family_id")
+      .notNull()
+      .references(() => families.id, { onDelete: "cascade" }),
+    token: text("token").notNull().unique(),
+    expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  },
+  // Mirrors organiser_sessions (migration 0053): family_id serves the four
+  // revoke-by-family delete sites + the families cascade; expires_at serves
+  // the nightly sweep. Both were full scans before.
+  (t) => [
+    index("sessions_family_idx").on(t.familyId),
+    index("sessions_expires_idx").on(t.expiresAt),
+  ],
+);
 
 // Organiser sessions, minted by the OSN OIDC login flow (migration 0047).
 //
@@ -804,6 +847,11 @@ export const imports = sqliteTable(
     weddingId: text("wedding_id")
       .notNull()
       .references(() => weddings.id, { onDelete: "cascade" }),
+    // uploaded_at / applied_at / reverted_at are DELIBERATELY plain integers
+    // holding MILLISECOND epochs (`Date.now()`), not `mode: "timestamp"`
+    // (seconds → Date) like the rest of the schema: the ms number IS the HTTP
+    // contract — the change-list keyset cursor (`?cursor=<ms>`), the response
+    // fields, and the head-revision Math.max all consume it as a number.
     uploadedAt: integer("uploaded_at").notNull(),
     format: text("format", { enum: ["csv", "tsv"] }).notNull(),
     eventsR2Key: text("events_r2_key").notNull(),

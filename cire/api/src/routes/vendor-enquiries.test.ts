@@ -233,9 +233,11 @@ function seedProvisionedEnquiry(
     weddingId?: string;
     vendorId?: string;
     enquiryId?: string;
+    lastMessageAt?: Date;
   } = {},
 ) {
   const now = new Date();
+  const lastMessageAt = opts.lastMessageAt ?? now;
   const directoryVendorId = opts.directoryVendorId ?? DV_CLAIMED;
   const weddingId = opts.weddingId ?? BOOTSTRAP_WEDDING_ID;
   const vendorId = opts.vendorId ?? `ven_${crypto.randomUUID()}`;
@@ -269,7 +271,7 @@ function seedProvisionedEnquiry(
       status: "open",
       createdBy: COUPLE,
       quotedMinor: null,
-      lastMessageAt: now,
+      lastMessageAt,
       createdAt: now,
       updatedAt: now,
     })
@@ -314,6 +316,29 @@ describe("GET /api/vendor/enquiries", () => {
     };
     expect(typeof item.weddingName).toBe("string");
     expect(item.weddingName.length).toBeGreaterThan(0);
+  });
+
+  it("orders the inbox newest-first by lastMessageAt (SQL ORDER BY, not insert order)", async () => {
+    const { app, db } = buildApp();
+    // Insert the OLDER thread FIRST so rowid order and timestamp order diverge —
+    // the only thing that can produce newest-first is the query's ORDER BY
+    // (the JS sort it replaced is gone).
+    seedProvisionedEnquiry(db, {
+      directoryVendorId: DV_CLAIMED,
+      enquiryId: "enq_older",
+      lastMessageAt: new Date("2026-07-01T00:00:00Z"),
+    });
+    seedProvisionedEnquiry(db, {
+      directoryVendorId: DV_CLAIMED,
+      weddingId: OTHER_WEDDING_ID,
+      enquiryId: "enq_newer",
+      lastMessageAt: new Date("2026-07-20T00:00:00Z"),
+    });
+
+    const res = await req(app, "GET", "/api/vendor/enquiries", VENDOR);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { enquiries: { id: string }[] };
+    expect(body.enquiries.map((e) => e.id)).toEqual(["enq_newer", "enq_older"]);
   });
 
   it("fails closed to an empty list when the caller resolves to no orgs", async () => {

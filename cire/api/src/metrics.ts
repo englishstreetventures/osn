@@ -54,6 +54,11 @@ export const CIRE_METRICS = {
   // Scheduled guest-data retention sweep (cron) — deletes guest PII 1 year
   // after a wedding's final event.
   guestDataSwept: "cire.guest_data.swept",
+  // Scheduled expired vendor-claim-token sweep (cron).
+  vendorClaimsSwept: "cire.vendor_claims.swept",
+  // Scheduled abandoned-preview sweep (cron) — imports rows stuck in `preview`
+  // past the staleness window, plus their uploaded-sheet R2 objects.
+  stalePreviewsSwept: "cire.imports.previews_swept",
   // R2 objects reclaimed by a sweep/delete flow that orphaned them (today: the
   // retention sweep deleting expired weddings' uploaded sheets + invite images).
   r2ObjectsSwept: "cire.r2.objects.swept",
@@ -223,6 +228,10 @@ type ClaimAttemptsAttrs = { result: ClaimResult };
 type ClaimLookupDurationAttrs = { result: "ok" | "error" };
 type SessionCreatedAttrs = { result: "ok" | "error" };
 type SessionSweptAttrs = { result: "ok" | "error" };
+
+type VendorClaimsSweptAttrs = { result: "ok" | "error" };
+
+type StalePreviewsSweptAttrs = { result: "ok" | "error" };
 type OrganiserSessionCreatedAttrs = { result: "ok" | "error" };
 type OrganiserSessionSweptAttrs = { result: "ok" | "error" };
 /** Back-channel revocation (OSN-side revoke / account-delete) outcome. */
@@ -360,6 +369,20 @@ const guestDataSwept = createCounter<GuestDataSweptAttrs>({
   description:
     "Guest rows deleted by the scheduled retention sweep (1 year after a wedding's final event) — increment is the row count, so the sum tracks reclaimed guest records",
   unit: "{guest}",
+});
+
+const vendorClaimsSwept = createCounter<VendorClaimsSweptAttrs>({
+  name: CIRE_METRICS.vendorClaimsSwept,
+  description:
+    "Expired vendor-claim tokens deleted by the scheduled sweep — increment is the row count, so the sum tracks reclaimed rows",
+  unit: "{claim}",
+});
+
+const stalePreviewsSwept = createCounter<StalePreviewsSweptAttrs>({
+  name: CIRE_METRICS.stalePreviewsSwept,
+  description:
+    "Abandoned preview change rows (never applied within the staleness window) deleted by the scheduled sweep — increment is the row count",
+  unit: "{preview}",
 });
 
 const r2ObjectsSwept = createCounter<R2ObjectsSweptAttrs>({
@@ -587,6 +610,14 @@ export const metricOidcLogin = (outcome: OidcLoginOutcome): void => oidcLogin.in
  *  failed sweep records a single `error` increment. */
 export const metricGuestDataSwept = (result: "ok" | "error", count = 1): void =>
   guestDataSwept.add(count, { result });
+
+/** Same shape as `metricSessionSwept`, for expired vendor-claim tokens. */
+export const metricVendorClaimsSwept = (result: "ok" | "error", count = 1): void =>
+  vendorClaimsSwept.add(count, { result });
+
+/** Same shape as `metricSessionSwept`, for abandoned preview change rows. */
+export const metricStalePreviewsSwept = (result: "ok" | "error", count = 1): void =>
+  stalePreviewsSwept.add(count, { result });
 
 /** Record an R2-object reap: `count` is the number of objects in this request,
  *  so the counter sum tracks reclaimed objects per bucket. `ok` increments the

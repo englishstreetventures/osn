@@ -85,7 +85,11 @@ export const createVendorDirectoryReadRoutes = (
                 q: q.q ?? null,
                 location: q.location ?? null,
                 limit: clampInt(q.limit, 24, 1, 50),
-                offset: clampInt(q.offset, 0, 0, 1_000_000),
+                // OFFSET is O(offset) in SQLite — it walks and discards. The
+                // old 1e6 ceiling let a single request force a million-row
+                // walk; 10k (200 pages of 50) is far past any UI reach while
+                // the keyed-cursor rework (VD-P-I1) remains the real fix.
+                offset: clampInt(q.offset, 0, 0, 10_000),
               })
               .pipe(
                 Effect.provideService(DbService, db),

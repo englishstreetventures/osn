@@ -53,7 +53,9 @@ export const UpdateVendorBody = Schema.Struct({
 
 export const ReorderVendorsBody = Schema.Struct({
   status: Status,
-  orderedIds: Schema.Array(Schema.String.pipe(Schema.minLength(1))),
+  // Capped like tasks/budget (P-W1): the reorder builds one UPDATE per id, so
+  // an unbounded array is an unbounded write set.
+  orderedIds: Schema.Array(Schema.String.pipe(Schema.minLength(1))).pipe(Schema.maxItems(500)),
 });
 
 /** Organiser seeds a directory listing + invites a vendor by email to claim it. */

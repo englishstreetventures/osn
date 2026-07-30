@@ -114,3 +114,61 @@ describe("remintCodesService.remint", () => {
     expect(exit._tag).toBe("Failure");
   });
 });
+
+describe("remintCodesService.remint — chunking contract (>24 families)", () => {
+  it("chunks under D1's 50-statement cap without ever splitting a family's rotate+revoke pair", async () => {
+    const db = createDb(":memory:");
+    seedDb(db);
+    const now = new Date();
+    // Top the wedding up to 30 guest families, each with a live session — a
+    // write set of 1 + 30×2 = 61 statements, past the 50-statement cap that a
+    // single unchunked batch would blow.
+    const existing = guestFamilies(db, BOOTSTRAP_WEDDING_ID).length;
+    for (let i = existing; i < 30; i++) {
+      const fid = `fam_chunk_${i}`;
+      db.insert(families)
+        .values({
+          id: fid,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          publicId: `CHUNK-OLD-${i}`,
+          familyName: `Chunk ${i}`,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      db.insert(sessions)
+        .values({
+          id: `ses_chunk_${i}`,
+          familyId: fid,
+          token: `tok_chunk_${i}`,
+          expiresAt: new Date(now.getTime() + 86_400_000),
+          createdAt: now,
+        })
+        .run();
+    }
+    expect(guestFamilies(db, BOOTSTRAP_WEDDING_ID)).toHaveLength(30);
+
+    // bun:sqlite has no .batch(); graft a recording one on so the service takes
+    // the D1 batch path — sizes prove the packing, execution stays real.
+    const batchSizes: number[] = [];
+    (db as unknown as { batch: (stmts: unknown[]) => Promise<void> }).batch = async (
+      stmts: unknown[],
+    ) => {
+      batchSizes.push(stmts.length);
+      for (const s of stmts) await (s as PromiseLike<unknown>);
+    };
+
+    const result = await run(db, remintCodesService.remint(BOOTSTRAP_WEDDING_ID, "secure"));
+    expect(result.reminted).toBe(30);
+
+    // Packing: [style flip + 24 pairs] = 49, then [6 pairs] = 12. A split pair
+    // would surface as an even/odd boundary shift (e.g. a 50-statement batch).
+    expect(batchSizes).toEqual([49, 12]);
+
+    // Convergence at scale: every code rotated onto the secure shape and every
+    // session revoked.
+    const after = guestFamilies(db, BOOTSTRAP_WEDDING_ID);
+    expect(after.every((f) => !f.publicId.startsWith("CHUNK-OLD-"))).toBe(true);
+    expect(db.select().from(sessions).all()).toHaveLength(0);
+  });
+});

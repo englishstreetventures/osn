@@ -63,3 +63,36 @@ export async function commitBatch(db: Db, statements: BatchItem<"sqlite">[]): Pr
   // eslint-disable-next-line no-await-in-loop
   for (const stmt of statements) await stmt;
 }
+
+/**
+ * D1 Free-tier ceiling on statements per `batch()` invocation. Callers whose
+ * write set can grow with data volume must chunk beneath it — a single
+ * over-limit batch fails outright. Mirrored by the importer's write-set
+ * chunking (`services/import.ts`).
+ */
+export const MAX_STATEMENTS_PER_BATCH = 50;
+
+/**
+ * Commit GROUPS of statements in batches of at most `MAX_STATEMENTS_PER_BATCH`,
+ * never splitting a group across two batches. For write sets that scale with
+ * data volume (one small statement-group per row — e.g. the bulk code remint's
+ * [code update, session revoke] pair per family), this keeps each group atomic
+ * while staying under D1's per-batch ceiling. Whole-set atomicity is
+ * deliberately given up — the same trade the importer makes — so callers must
+ * be shaped to tolerate a mid-run failure (each group idempotent / re-runnable).
+ * A single group larger than the ceiling still commits (as its own oversized
+ * batch) rather than being silently split; D1 will reject it, which is the
+ * correct loud failure for an unshaped caller.
+ */
+export async function commitGroupedBatches(db: Db, groups: BatchItem<"sqlite">[][]): Promise<void> {
+  let chunk: BatchItem<"sqlite">[] = [];
+  for (const group of groups) {
+    if (chunk.length > 0 && chunk.length + group.length > MAX_STATEMENTS_PER_BATCH) {
+      // eslint-disable-next-line no-await-in-loop
+      await commitBatch(db, chunk);
+      chunk = [];
+    }
+    chunk.push(...group);
+  }
+  await commitBatch(db, chunk);
+}

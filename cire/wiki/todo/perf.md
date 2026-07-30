@@ -11,6 +11,15 @@ last-reviewed: 2026-07-30
 
 See [[review-findings]] for severity prefix conventions.
 
+### Data-layer review fixes — pre-merge review findings (claude/cire-data-layer-review-s7d6gt, 2026-07-30)
+
+Raised by the pre-merge performance review of the data-layer fix batch. See [[db]] + [[api]].
+
+- [x] **P-W1** (fixed on branch) — the reorder fix moved tasks/budget/vendors off `db.transaction()` onto ONE `commitBatch`, but the bodies allow up to 500 ids (vendors was uncapped) — over D1's 50-statement per-batch ceiling, a hard failure on a >50-row drag-and-drop save. All three now commit via `commitGroupedBatches` with singleton groups (each row's UPDATE independent; a re-sent reorder converges), and `ReorderVendorsBody` gained the same `maxItems(500)` cap as its siblings.
+- [x] **P-I2** (fixed on branch) — `applyImport` fetched the wedding's full `(id, slug)` set on every apply even when the plan created no events; now gated on `plan.eventCreates.length > 0`.
+- [ ] **P-I1** — *checked, accepted:* the two new daily sweeps are full scans (`vendor_claims.expires_at` and `imports.status='preview' AND uploaded_at<cutoff` have no index). Cron-only, and both sweeps bound their own tables' growth from now on — index write-amplification on the import hot path isn't justified (the same argument 0053 used to DROP `families_family_name_idx`). If a scan ever shows in traces: partial indexes, and collapse the preview sweep's SELECT+DELETE to `DELETE … RETURNING`.
+- [ ] **P-I3** — both enquiry inboxes remain unbounded list endpoints (no LIMIT/pagination; pre-existing — this branch only moved the sort into SQL, where `vendor_enquiries_wedding_last_msg_idx` now serves the wedding inbox). The vendor-side three-table join still materialises + sorts its full result. When vendor volume warrants: keyset pagination on `(last_message_at, id)` + a `(directory_vendor_id, last_message_at)` index.
+
 ### Invite builder UX pass — review findings (claude/invite-builder-structure-review-ali18d, 2026-07-30)
 
 Raised by the pre-merge performance review of the builder restructure. See the root wiki's `[[invite-builder]]`.
@@ -165,9 +174,9 @@ Deferred from the /prep-pr Step 6 performance review. VP-P-I2 (Google Fonts `dis
 
 Deferred (scale-dependent, not blocking at wedding-directory scale — hundreds to low-thousands of listings):
 - [ ] **VD-P-W2** — the `inWedding` correlated EXISTS subquery relies on `vendors_wedding_directory_uniq` (partial unique on `(wedding_id, directory_vendor_id) WHERE directory_vendor_id IS NOT NULL`) to serve the equality probe. The probe values are always non-null so the partial index applies; confirm with `EXPLAIN QUERY PLAN` on staging. If ever a scan, add a plain non-partial `(wedding_id, directory_vendor_id)` index, or LEFT JOIN `vendors` once instead of the per-row subquery.
-- [ ] **VD-P-I1** — OFFSET pagination is O(offset); fine at current scale (50-row cap). Switch to a keyed cursor on `(name, id)` if the directory reaches tens of thousands.
+- [ ] **VD-P-I1** — OFFSET pagination is O(offset); fine at current scale (50-row cap). Switch to a keyed cursor on `(name, id)` if the directory reaches tens of thousands. *Partially mitigated 2026-07-30 (data-layer review): the route's offset clamp tightened 1e6 → 10k, and browse's filter + `ORDER BY name, id` is now served by the `(listed, name, id)` composite (migration 0053) rather than a full sort.*
 - [ ] **VD-P-I2** — `getLiveListingById` does fetch + fetchCategories sequentially (matches `getListingByOrg`/`consumeClaim`); low-frequency write path. Parallelize if the service is extended.
-- [ ] **VD-P-I4** — `directory_vendors_listed_idx` becomes a no-op on the hot path once most rows are `live`; a partial `WHERE listed='live'` index is the future option if a scan ever shows up.
+- [x] **VD-P-I4** — ~~`directory_vendors_listed_idx` becomes a no-op on the hot path once most rows are `live`; a partial `WHERE listed='live'` index is the future option if a scan ever shows up.~~ Closed 2026-07-30 (data-layer review, migration 0053): replaced by the `(listed, name, id)` composite — even with `listed='live'` selecting ~all rows, the index now serves the `ORDER BY name, id`, which is what the page walk actually needs.
 
 ### Vendors S4 PR B — enquiry backend perf review notes (`feat/cire-vendors-enquiries`)
 

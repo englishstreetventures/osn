@@ -21,9 +21,10 @@
 import { directoryVendorCategories, directoryVendors, vendorClaims, vendors } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { commitBatch, DbService, dbQuery } from "../db";
 import { VendorNotInWedding } from "./vendors";
 
 // ── Tagged errors ────────────────────────────────────────────────────────────
@@ -214,6 +215,9 @@ function fetchCategories(dvId: string): Effect.Effect<string[], never, DbService
 
 /**
  * Replace the full category set for a directory vendor (delete all, reinsert).
+ * One atomic batch: a failure between the delete and the insert used to leave
+ * the listing with ZERO categories — live but invisible to every
+ * category-filtered browse.
  */
 function replaceCategories(
   dvId: string,
@@ -221,20 +225,19 @@ function replaceCategories(
 ): Effect.Effect<void, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    yield* dbQuery(() =>
+    const statements: BatchItem<"sqlite">[] = [
       db
         .delete(directoryVendorCategories)
-        .where(eq(directoryVendorCategories.directoryVendorId, dvId))
-        .run(),
-    );
+        .where(eq(directoryVendorCategories.directoryVendorId, dvId)),
+    ];
     if (categories.length > 0) {
-      yield* dbQuery(() =>
+      statements.push(
         db
           .insert(directoryVendorCategories)
-          .values(categories.map((c) => ({ directoryVendorId: dvId, category: c })))
-          .run(),
+          .values(categories.map((c) => ({ directoryVendorId: dvId, category: c }))),
       );
     }
+    yield* dbQuery(() => commitBatch(db, statements));
   });
 }
 

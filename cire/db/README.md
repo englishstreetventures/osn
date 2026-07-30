@@ -5,15 +5,14 @@ Drizzle schema, migrations, and dev-seed for the Cire D1 database.
 ## Layout
 
 ```
-packages/db/
+cire/db/
 ├── src/schema.ts         # Drizzle schema — single source of truth
 ├── drizzle.config.ts     # Drizzle Kit pointer to schema + migrations dir
 ├── migrations/           # Forward-only D1 migrations (committed)
 │   ├── 0001_initial.sql
-│   ├── 0002_add_rsvp_dietary.sql
-│   ├── 0003_events_metadata_and_imports.sql
-│   ├── 0004_perf_indices.sql
-│   └── meta/_journal.json
+│   ├── …                 # one file per change; wrangler applies in NAME order
+│   ├── 0054_event_timestamps.sql
+│   └── meta/             # drizzle-kit journal + latest snapshot (see below)
 └── seed/
     ├── data/             # Canonical seed data (single source of truth)
     │   ├── events.ts     # keyed-by-slug sample events
@@ -27,9 +26,8 @@ packages/db/
 
 ## Scripts
 
-Run from anywhere in the repo via the root aliases (`bun run db:push`, etc.) or
-directly inside `packages/db`. Wrangler reads `apps/api/wrangler.toml` via the
-`--config` flag baked into each script.
+Run from the repo root with `bun run --cwd cire/db <script>`. Wrangler reads
+`cire/api/wrangler.toml` via the `--config` flag baked into each script.
 
 | Script           | What it does                                                                           |
 | ---------------- | -------------------------------------------------------------------------------------- |
@@ -48,17 +46,33 @@ directly inside `packages/db`. Wrangler reads `apps/api/wrangler.toml` via the
 
 ```bash
 bun install
-bun run db:reset          # creates local D1 from scratch and seeds it
-bun --cwd apps/api run dev
+bun run --cwd cire/db db:reset   # creates local D1 from scratch and seeds it
+bun run --cwd cire/api dev
 ```
 
 **After editing `schema.ts`**
 
 ```bash
-bun run db:generate       # produces packages/db/migrations/000N_<desc>.sql
-bun run db:push           # applies it locally
-# review + commit the new migration
+bun run --cwd cire/db db:generate   # emits cire/db/migrations/00NN_<desc>.sql
+# rename to a descriptive suffix, add a rationale header comment, review the SQL
+bun run --cwd cire/db db:push       # applies it locally
+# mirror the change in cire/api/src/db/setup.ts's DDL string — the
+# ddl-lockstep test fails until all three surfaces agree
 ```
+
+### How `meta/` relates to the hand-authored migrations
+
+`wrangler d1 migrations apply` runs the `.sql` files in NAME order and tracks
+them in D1's own `d1_migrations` table — it never reads `meta/_journal.json`.
+The journal + latest snapshot exist for **drizzle-kit only**, so `db:generate`
+can diff `schema.ts` against the current shape and number the next file
+correctly. Migrations `0009`–`0050` were hand-authored while the journal was
+frozen at `0008`; it was repaired (backfilled entries + a regenerated snapshot)
+in the 2026-07-30 data-layer review. Keep it working: `db:generate` refreshes
+the journal + snapshot itself, but a **hand-written** migration must be
+accompanied by re-syncing `meta/` — easiest is to make the matching `schema.ts`
+edit first and let `db:generate` produce the SQL skeleton, then edit the SQL
+(add comments / data backfill) without changing the shape it creates.
 
 **Refresh local data after pulling**
 
@@ -89,6 +103,9 @@ Use `TESTFOR-JOY-DD44` as the dev claim code (Eli is invited to every event).
 
 ## Conventions
 
+- Every schema change touches **three surfaces together**: the migration SQL,
+  `src/schema.ts`, and the `DDL` string in `cire/api/src/db/setup.ts` —
+  `cire/api/src/db/ddl-lockstep.test.ts` diffs all three and fails on drift.
 - D1 migrations are **forward-only**. No `DOWN` blocks. To retire a column, copy data into a new table and add a `DROP TABLE` / `ALTER` migration that performs the swap.
-- After editing `schema.ts` AND any wrangler binding, regenerate types: `bunx wrangler --config apps/api/wrangler.toml types`.
+- After editing `schema.ts` AND any wrangler binding, regenerate types: `bunx wrangler --config cire/api/wrangler.toml types`.
 - The dev seed is **not** applied to remote D1. Production data flows in via the organiser spreadsheet import (`/api/organiser/import/{preview,apply}`).

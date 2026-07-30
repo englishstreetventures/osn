@@ -19,8 +19,7 @@ import { and, eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
-import type { Db } from "../db";
+import { commitBatch, DbService, dbQuery } from "../db";
 import { metricFamilyCodeRegenerated } from "../metrics";
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
@@ -94,17 +93,3 @@ export const regenerateCodeService = {
     );
   },
 };
-
-/** Atomic D1 batch (prod) / sequential bun:sqlite (tests) — the importer's path. */
-async function commitBatch(db: Db, statements: BatchItem<"sqlite">[]): Promise<void> {
-  if (statements.length === 0) return;
-  const batchable = db as {
-    batch?: (s: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]) => Promise<unknown>;
-  };
-  if (typeof batchable.batch === "function") {
-    await batchable.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
-    return;
-  }
-  // eslint-disable-next-line no-await-in-loop
-  for (const stmt of statements) await stmt;
-}

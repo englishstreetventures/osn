@@ -47,12 +47,31 @@ function normaliseName(s: string): string {
   return s.trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-function mintEventSlug(name: string): string {
-  return name
+export function mintEventSlug(name: string): string {
+  const base = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 60);
+  // A name with no slug-safe characters must not mint "" — two such events
+  // would collide on the (wedding_id, slug) unique index before the de-dupe
+  // suffix could tell them apart.
+  return base || "event";
+}
+
+/**
+ * Mint a slug for `name` that is unused within the wedding (`used` holds the
+ * wedding's surviving slugs + ones minted earlier in this apply), suffixing
+ * `-2`, `-3`, … on a clash. Slugs are unique per wedding, not globally
+ * (migration 0051), so only intra-wedding collisions need breaking — e.g. a
+ * sheet with both "Ceremony" and "Ceremony!" rows.
+ */
+export function mintUniqueEventSlug(name: string, used: Set<string>): string {
+  const base = mintEventSlug(name);
+  let slug = base;
+  for (let n = 2; used.has(slug); n += 1) slug = `${base}-${n}`;
+  used.add(slug);
+  return slug;
 }
 
 // ── Diff ──────────────────────────────────────────────────────────────────────
@@ -551,6 +570,12 @@ export function applyImport(
   importId: string,
   plan: ImportPlan,
   weddingId: string,
+  // Statements appended to the END of the write set, committing in the same
+  // final batch as the tail of the data writes. The apply route passes its
+  // `imports` status flip here so "data mutated" and "row marked applied"
+  // can't be split by a crash — the window that used to allow a second apply
+  // to overwrite the before-image with a post-change snapshot.
+  finalize: BatchItem<"sqlite">[] = [],
 ): Effect.Effect<ImportSummary, ImportError | CapacityExceeded, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
@@ -590,7 +615,9 @@ export function applyImport(
     // creates → updates → link removes → link creates).
     const statements: BatchItem<"sqlite">[] = [];
 
-    // 1. event removes (cascade rsvps + guest_events on those events)
+    // 1. event removes. The event_id FKs cascade since migration 0052, but the
+    // child deletes stay explicit so this write set does not depend on cascade
+    // being enabled on every driver (same stance as the retention sweep).
     for (const er of plan.eventRemoves) {
       statements.push(
         db.delete(rsvps).where(eq(rsvps.eventId, er.id)),
@@ -599,13 +626,33 @@ export function applyImport(
       );
     }
 
+    // Slugs already taken by this wedding's surviving events, so fresh mints
+    // can't collide on the (wedding_id, slug) unique index — within the sheet
+    // ("Ceremony" + "Ceremony!") or against events this plan keeps. Skipped
+    // when the plan creates no events (P-I2) — the set is only consulted by
+    // mintUniqueEventSlug.
+    const removedEventIds = new Set(plan.eventRemoves.map((er) => er.id));
+    const existingSlugRows =
+      plan.eventCreates.length > 0
+        ? yield* dbQuery(() =>
+            db
+              .select({ id: events.id, slug: events.slug })
+              .from(events)
+              .where(eq(events.weddingId, weddingId))
+              .all(),
+          )
+        : [];
+    const usedSlugs = new Set(
+      existingSlugRows.filter((r) => !removedEventIds.has(r.id)).map((r) => r.slug),
+    );
+
     // 2. event creates
     for (const ec of plan.eventCreates) {
       statements.push(
         db.insert(events).values({
           id: ec.id,
           weddingId,
-          slug: mintEventSlug(ec.event.name),
+          slug: mintUniqueEventSlug(ec.event.name, usedSlugs),
           name: ec.event.name,
           description: "",
           startAt: ec.event.startAt,
@@ -620,6 +667,8 @@ export function applyImport(
           pinterestUrl: pinFor(ec.id, ec.event.pinterestUrl),
           mapsUrl: ec.event.mapsUrl,
           sortOrder: ec.event.sortOrder,
+          createdAt: now,
+          updatedAt: now,
         }),
       );
     }
@@ -641,6 +690,7 @@ export function applyImport(
             pinterestUrl: pinFor(eu.id, eu.event.pinterestUrl),
             mapsUrl: eu.event.mapsUrl,
             sortOrder: eu.event.sortOrder,
+            updatedAt: now,
           })
           .where(eq(events.id, eu.id)),
       );
@@ -733,6 +783,8 @@ export function applyImport(
     if (netGuestDelta > 0) {
       yield* entitlementService.assertGuestCapacity(weddingId, netGuestDelta);
     }
+
+    statements.push(...finalize);
 
     yield* Effect.tryPromise({
       try: () => commitWriteSet(db, statements),

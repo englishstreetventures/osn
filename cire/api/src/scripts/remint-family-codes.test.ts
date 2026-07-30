@@ -136,3 +136,33 @@ describe("remintFamilyCodes", () => {
     expect(exit._tag).toBe("Failure");
   });
 });
+
+describe("remintFamilyCodes — chunking (>50 legacy families)", () => {
+  it("commits in ≤50-statement batches and converges on every legacy code", async () => {
+    const db = createDb(":memory:");
+    seedWedding(db, WED_A, "secure");
+    // 60 legacy singleton groups → batches of [50, 10] under the D1 cap.
+    for (let i = 0; i < 60; i++) {
+      seedFamily(db, `fam_leg_${i}`, WED_A, `LEGACY-${i.toString(16).padStart(8, "0")}`, `Fam${i}`);
+    }
+
+    const batchSizes: number[] = [];
+    (db as unknown as { batch: (stmts: unknown[]) => Promise<void> }).batch = async (
+      stmts: unknown[],
+    ) => {
+      batchSizes.push(stmts.length);
+      for (const s of stmts) await (s as PromiseLike<unknown>);
+    };
+
+    const result = await run(db, remintFamilyCodes(WED_A));
+    expect(result).toEqual({ reminted: 60, skipped: 0 });
+    expect(batchSizes).toEqual([50, 10]);
+
+    const rows = db
+      .select({ publicId: families.publicId })
+      .from(families)
+      .where(eq(families.weddingId, WED_A))
+      .all();
+    expect(rows.every((r) => !isLegacyCode(r.publicId))).toBe(true);
+  });
+});

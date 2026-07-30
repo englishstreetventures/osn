@@ -13,7 +13,7 @@ import { tasks } from "@cire/db";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { DbService, commitGroupedBatches, dbQuery } from "../db";
 import type { TimeframeBucket } from "../lib/checklist-buckets";
 
 /** No task with this id under this wedding (missing or another wedding's). 404-class. */
@@ -140,15 +140,6 @@ export const tasksService = {
       const db = yield* DbService;
       const { weddingId, taskId, patch } = input;
 
-      const [existing] = yield* dbQuery(() =>
-        db
-          .select()
-          .from(tasks)
-          .where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId)))
-          .all(),
-      );
-      if (!existing) return yield* Effect.fail(new TaskNotInWedding());
-
       const set: Partial<TaskRow> = {};
       if (patch.title !== undefined) set.title = patch.title;
       if (patch.timeframeBucket !== undefined) set.timeframeBucket = patch.timeframeBucket;
@@ -161,20 +152,23 @@ export const tasksService = {
         set.completedAt = patch.status === "done" ? new Date() : null;
       }
 
-      yield* dbQuery(() =>
-        db
-          .update(tasks)
-          .set(set)
-          .where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId)))
-          .run(),
-      );
-
+      // Single round trip (as hosts.setRole): RETURNING reports whether a
+      // (task, wedding) row existed — zero rows maps to TaskNotInWedding with
+      // no separate existence SELECT. An empty patch degrades to a plain read
+      // (drizzle rejects an empty SET).
       const [updated] = yield* dbQuery(() =>
-        db
-          .select()
-          .from(tasks)
-          .where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId)))
-          .all(),
+        Object.keys(set).length === 0
+          ? db
+              .select()
+              .from(tasks)
+              .where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId)))
+              .all()
+          : db
+              .update(tasks)
+              .set(set)
+              .where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId)))
+              .returning()
+              .all(),
       );
       if (!updated) return yield* Effect.fail(new TaskNotInWedding());
       return toDto(updated as TaskRow);
@@ -184,20 +178,15 @@ export const tasksService = {
   remove(weddingId: string, taskId: string): Effect.Effect<void, TaskNotInWedding, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const [existing] = yield* dbQuery(() =>
-        db
-          .select({ id: tasks.id })
-          .from(tasks)
-          .where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId)))
-          .all(),
-      );
-      if (!existing) return yield* Effect.fail(new TaskNotInWedding());
-      yield* dbQuery(() =>
+      // Single round trip: DELETE .. RETURNING reports whether a row existed.
+      const [removed] = yield* dbQuery(() =>
         db
           .delete(tasks)
           .where(and(eq(tasks.id, taskId), eq(tasks.weddingId, weddingId)))
-          .run(),
+          .returning({ id: tasks.id })
+          .all(),
       );
+      if (!removed) return yield* Effect.fail(new TaskNotInWedding());
     }).pipe(Effect.withSpan("cire.tasks.remove"));
   },
 
@@ -210,10 +199,17 @@ export const tasksService = {
       const db = yield* DbService;
       // Each id gets its array index as sort_order, scoped to (wedding, bucket)
       // so a foreign or wrong-bucket id is a no-op UPDATE rather than a write.
+      // commitGroupedBatches, not db.transaction(): D1 has no BEGIN/COMMIT —
+      // batch() is its only atomic primitive — and the body allows up to 500
+      // ids, so the write set must chunk under the 50-statement batch cap.
+      // Singleton groups: each row's UPDATE is independent (a re-sent reorder
+      // converges), so chunking loses nothing.
       yield* dbQuery(() =>
-        db.transaction((tx) => {
-          orderedIds.forEach((id, index) => {
-            tx.update(tasks)
+        commitGroupedBatches(
+          db,
+          orderedIds.map((id, index) => [
+            db
+              .update(tasks)
               .set({ sortOrder: index })
               .where(
                 and(
@@ -221,10 +217,9 @@ export const tasksService = {
                   eq(tasks.weddingId, weddingId),
                   eq(tasks.timeframeBucket, bucket),
                 ),
-              )
-              .run();
-          });
-        }),
+              ),
+          ]),
+        ),
       );
     }).pipe(Effect.withSpan("cire.tasks.reorder"));
   },

@@ -697,3 +697,65 @@ describe("enquiryService.onVendorClaimed", () => {
     expect(after.pendingBody).toBe("Are you free on our date?");
   });
 });
+
+describe("enquiryService.list", () => {
+  it("returns the couple inbox newest-first by lastMessageAt (SQL ORDER BY)", async () => {
+    const db = db0();
+    const email = fakeEmail();
+    const svc = createEnquiryService({
+      zap: null,
+      sendEmail: email.sendEmail,
+      threadBaseUrl: THREAD_BASE,
+    });
+
+    // Two threads in the SAME wedding against different listings, inserted
+    // OLDER-FIRST so rowid order and timestamp order diverge — only the
+    // query's ORDER BY (which replaced the JS sort) yields newest-first.
+    const now = new Date();
+    const seed = (n: number, dvId: string, lastMessageAt: Date) => {
+      const vid = `ven_list_${n}`;
+      db.insert(vendors)
+        .values({
+          id: vid,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          directoryVendorId: dvId,
+          name: `Vendor ${n}`,
+          category: "florist",
+          status: "researching",
+          contactName: null,
+          email: null,
+          phone: null,
+          notes: null,
+          quotedMinor: null,
+          sortOrder: 0,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+      db.insert(vendorEnquiries)
+        .values({
+          id: `enq_list_${n}`,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          directoryVendorId: dvId,
+          vendorId: vid,
+          zapChatId: null,
+          pendingBody: "buffered",
+          status: "open",
+          createdBy: ORGANISER_PROFILE_ID,
+          quotedMinor: null,
+          lastMessageAt,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    };
+    seed(1, CLAIMED_VENDOR_ID, new Date("2026-07-01T00:00:00Z"));
+    seed(2, UNCLAIMED_VENDOR_ID, new Date("2026-07-20T00:00:00Z"));
+
+    const res = await run(db, svc.list(BOOTSTRAP_WEDDING_ID));
+    if (!Exit.isSuccess(res)) throw new Error("list failed");
+    expect(res.value.map((e) => e.id)).toEqual(["enq_list_2", "enq_list_1"]);
+    // The join columns ride along.
+    expect(res.value[0]!.vendorName).toBe("Vendor 2");
+  });
+});

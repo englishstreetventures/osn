@@ -15,7 +15,10 @@
  *    single-hyphen codes). A family already on a `SURNAME-WORD-HASH` code is
  *    skipped, so a second run is a no-op. (Deliberate rotation of an
  *    already-migrated code is the per-family regenerate-code endpoint's job.)
- *  - **Atomic** — all updates commit as one D1 batch (same path as importer).
+ *  - **Chunked** — updates commit in batches under D1's 50-statement ceiling
+ *    (`commitGroupedBatches`); one statement per family, so no pair to keep
+ *    together. A mid-run failure leaves a prefix re-minted, and idempotence
+ *    (above) makes the re-run converge on the remainder.
  *  - **Collision-safe** — freshly-drawn codes are checked against codes already
  *    taken in this wedding (incl. ones minted earlier in the same run); on the
  *    astronomically rare clash it re-draws.
@@ -27,11 +30,9 @@
 
 import { families, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
-import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
-import type { Db } from "../db";
+import { commitGroupedBatches, DbService, dbQuery } from "../db";
 import { generateFamilyCode } from "../services/family-code";
 import type { CodeStyle } from "../services/family-code";
 
@@ -57,7 +58,7 @@ export interface RemintResult {
 
 /**
  * Re-mint every legacy-format family code in `weddingId` onto the wedding's
- * `code_style` tier, atomically. Already-new codes are left untouched.
+ * `code_style` tier, in chunked batches. Already-new codes are left untouched.
  */
 export function remintFamilyCodes(
   weddingId: string,
@@ -100,7 +101,11 @@ export function remintFamilyCodes(
 
     if (updates.length > 0) {
       yield* Effect.tryPromise({
-        try: () => commitBatch(db, updates),
+        try: () =>
+          commitGroupedBatches(
+            db,
+            updates.map((u) => [u]),
+          ),
         catch: (cause) => new RemintError({ reason: String(cause) }),
       }).pipe(
         Effect.tapError((err) =>
@@ -117,21 +122,4 @@ export function remintFamilyCodes(
 
     return { reminted: updates.length, skipped };
   }).pipe(Effect.withSpan("cire.familyCode.remint"));
-}
-
-/**
- * Commit the update set as one atomic D1 batch (prod) or sequentially on
- * bun:sqlite (tests/local) — the same feature-detected path the importer uses.
- */
-async function commitBatch(db: Db, statements: BatchItem<"sqlite">[]): Promise<void> {
-  if (statements.length === 0) return;
-  const batchable = db as {
-    batch?: (s: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]) => Promise<unknown>;
-  };
-  if (typeof batchable.batch === "function") {
-    await batchable.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
-    return;
-  }
-  // eslint-disable-next-line no-await-in-loop
-  for (const stmt of statements) await stmt;
 }

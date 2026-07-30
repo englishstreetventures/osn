@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS weddings (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS weddings_owner_idx ON weddings(owner_osn_profile_id);
+CREATE INDEX IF NOT EXISTS weddings_created_at_idx ON weddings(created_at);
 
 CREATE TABLE IF NOT EXISTS wedding_hosts (
   id TEXT PRIMARY KEY,
@@ -68,7 +69,6 @@ CREATE TABLE IF NOT EXISTS families (
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS families_family_name_idx ON families(family_name);
 CREATE INDEX IF NOT EXISTS families_wedding_idx ON families(wedding_id);
 CREATE UNIQUE INDEX IF NOT EXISTS families_one_host_per_wedding ON families(wedding_id) WHERE kind = 'host';
 
@@ -89,7 +89,7 @@ CREATE INDEX IF NOT EXISTS guests_family_id_sort_idx ON guests(family_id, sort_o
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
-  slug TEXT NOT NULL UNIQUE,
+  slug TEXT NOT NULL,
   name TEXT NOT NULL,
   description TEXT NOT NULL DEFAULT '',
   start_at TEXT NOT NULL,
@@ -102,13 +102,16 @@ CREATE TABLE IF NOT EXISTS events (
   maps_url TEXT,
   sort_order INTEGER NOT NULL DEFAULT 0,
   event_image_key TEXT,
-  event_image_crop TEXT
+  event_image_crop TEXT,
+  created_at INTEGER,
+  updated_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS events_wedding_id_sort_idx ON events(wedding_id, sort_order);
+CREATE UNIQUE INDEX IF NOT EXISTS events_wedding_slug_unique ON events(wedding_id, slug);
 
 CREATE TABLE IF NOT EXISTS guest_events (
   guest_id TEXT NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
-  event_id TEXT NOT NULL REFERENCES events(id),
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   PRIMARY KEY (guest_id, event_id)
 );
 CREATE INDEX IF NOT EXISTS guest_events_event_id_idx ON guest_events(event_id);
@@ -116,7 +119,7 @@ CREATE INDEX IF NOT EXISTS guest_events_event_id_idx ON guest_events(event_id);
 CREATE TABLE IF NOT EXISTS rsvps (
   id TEXT PRIMARY KEY,
   guest_id TEXT NOT NULL REFERENCES guests(id) ON DELETE CASCADE,
-  event_id TEXT NOT NULL REFERENCES events(id),
+  event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   status TEXT NOT NULL,
   dietary TEXT NOT NULL DEFAULT '',
   dietary_consent_at INTEGER,
@@ -125,6 +128,7 @@ CREATE TABLE IF NOT EXISTS rsvps (
   created_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS rsvps_guest_event_uniq ON rsvps(guest_id, event_id);
+CREATE INDEX IF NOT EXISTS rsvps_event_id_idx ON rsvps(event_id);
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -133,6 +137,8 @@ CREATE TABLE IF NOT EXISTS sessions (
   expires_at INTEGER NOT NULL,
   created_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS sessions_family_idx ON sessions(family_id);
+CREATE INDEX IF NOT EXISTS sessions_expires_idx ON sessions(expires_at);
 
 CREATE TABLE IF NOT EXISTS organiser_sessions (
   id TEXT PRIMARY KEY,
@@ -283,13 +289,12 @@ CREATE TABLE IF NOT EXISTS directory_vendors (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS directory_vendors_owner_idx ON directory_vendors(owner_org_id);
-CREATE INDEX IF NOT EXISTS directory_vendors_listed_idx ON directory_vendors(listed);
+CREATE INDEX IF NOT EXISTS directory_vendors_listed_name_idx ON directory_vendors(listed, name, id);
 CREATE TABLE IF NOT EXISTS directory_vendor_categories (
   directory_vendor_id TEXT NOT NULL REFERENCES directory_vendors(id) ON DELETE CASCADE,
   category TEXT NOT NULL,
   PRIMARY KEY (directory_vendor_id, category)
 );
-CREATE INDEX IF NOT EXISTS directory_vendor_categories_category_idx ON directory_vendor_categories(category);
 CREATE TABLE IF NOT EXISTS vendors (
   id TEXT PRIMARY KEY,
   wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,

@@ -345,11 +345,15 @@ export const createOrganiserChangeRoutes = (
                 );
 
                 // E3 checkpoint: snapshot the pre-change state at full fidelity
-                // as this change's before-image, then apply, then prune.
+                // as this change's before-image, then apply, then prune. The
+                // status flip rides in applyImport's FINAL batch (its
+                // `finalize` statements) so a crash can never leave the data
+                // mutated while the row still reads `preview` — that window
+                // allowed a second apply, whose before-image capture would
+                // overwrite this one with a post-change snapshot and destroy
+                // revertability.
                 const before = yield* captureBeforeImage(changeId, weddingId);
-                const summary = yield* applyImport(changeId, plan, weddingId);
-
-                yield* dbQuery(() =>
+                const summary = yield* applyImport(changeId, plan, weddingId, [
                   dbService
                     .update(imports)
                     .set({
@@ -358,9 +362,8 @@ export const createOrganiserChangeRoutes = (
                       beforeEventsR2Key: before.eventsKey,
                       beforeGuestsR2Key: before.guestsKey,
                     })
-                    .where(eq(imports.id, changeId))
-                    .run(),
-                );
+                    .where(eq(imports.id, changeId)),
+                ]);
 
                 yield* pruneBeforeImages(weddingId, r2 as DeletableBucket | undefined);
 

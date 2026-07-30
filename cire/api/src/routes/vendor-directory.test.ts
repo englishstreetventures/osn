@@ -256,6 +256,16 @@ describe("vendor directory browse route", () => {
     expect(Array.isArray(body.listings)).toBe(true);
   });
 
+  it("offset far past the 10k ceiling is clamped, not an error (DoS bound)", async () => {
+    // OFFSET is O(offset) in SQLite; the route clamps to 10_000 so a single
+    // request can never force a very deep walk. Pinned like the floor above.
+    const res = await req(buildApp(), `${base}?offset=999999`, VIEWER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { listings: unknown[]; total: number };
+    expect(body.listings).toHaveLength(0);
+    expect(body.total).toBeGreaterThan(0);
+  });
+
   // ── Entitlement gate (Task 4) ──────────────────────────────────────────────
 
   it("GET /directory → 402 payment_required when wedding lacks `vendors`", async () => {

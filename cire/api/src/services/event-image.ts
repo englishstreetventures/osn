@@ -17,11 +17,14 @@ import type { AssetR2Error, AssetsR2Service } from "./invite-assets";
  * the same `assets/<weddingId>/...` namespace; the column stores the **key**,
  * not a URL (mirrors `hero_image_key` / `story_image_key`).
  *
- * Cache version: events have no `updated_at` column, so the served image's
- * version is derived SERVER-SIDE from the stored key itself — the key carries a
- * fresh uuid per upload (see `invite-assets.storeAsset`), so a re-upload mints a
- * new key ⇒ a new version ⇒ the new image is never served stale, while the
- * client `?v=` is never trusted for cache keying (preserves the S-M1 invariant).
+ * Cache version: derived SERVER-SIDE from the stored key itself — the key
+ * carries a fresh uuid per upload (see `invite-assets.storeAsset`), so a
+ * re-upload mints a new key ⇒ a new version ⇒ the new image is never served
+ * stale, while the client `?v=` is never trusted for cache keying (preserves
+ * the S-M1 invariant). Deliberately NOT keyed on `events.updated_at` (added in
+ * 0054 for audit): the key changes exactly when the BYTES change, whereas
+ * updated_at also moves on crop saves, which are CSS-applied and byte-neutral
+ * (the per-wedding version had exactly that over-invalidation problem — P-I1).
  */
 
 export class EventNotFound extends Data.TaggedError("EventNotFound")<{
@@ -114,7 +117,7 @@ export const eventImageService = {
           // A fresh image invalidates the previous crop (it framed a different
           // photo), so reset it to the full-frame default on every upload.
           .update(events)
-          .set({ eventImageKey: newKey, eventImageCrop: null })
+          .set({ eventImageKey: newKey, eventImageCrop: null, updatedAt: new Date() })
           .where(and(eq(events.id, eventId), eq(events.weddingId, weddingId)))
           .run(),
       );
@@ -161,7 +164,7 @@ export const eventImageService = {
       yield* dbQuery(() =>
         db
           .update(events)
-          .set({ eventImageKey: null })
+          .set({ eventImageKey: null, updatedAt: new Date() })
           .where(and(eq(events.id, eventId), eq(events.weddingId, weddingId)))
           .run(),
       );
@@ -206,7 +209,7 @@ export const eventImageService = {
       yield* dbQuery(() =>
         db
           .update(events)
-          .set({ eventImageCrop: encoded })
+          .set({ eventImageCrop: encoded, updatedAt: new Date() })
           .where(and(eq(events.id, eventId), eq(events.weddingId, weddingId)))
           .run(),
       );

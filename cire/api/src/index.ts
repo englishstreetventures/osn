@@ -11,6 +11,7 @@ import { createD1Db, DbService } from "./db";
 import { setExecutionCtx } from "./lib/execution-ctx";
 import { runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
+import { maintenanceSweeps } from "./services/maintenance-sweeps";
 import { organiserSessionService } from "./services/organiser-session";
 import {
   createAccountResolverFromEnv,
@@ -370,7 +371,7 @@ const handler: ExportedHandler<Env> = {
   },
 
   // Cron-triggered daily maintenance (C-M2/C-M15 + retention). Configured by the
-  // single `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Three
+  // single `[triggers] crons` entry in wrangler.toml — daily 04:00 UTC. Five
   // independent sweeps share the cron:
   //
   //  1. Expired-session sweep — guest logins leave session rows that are never
@@ -386,6 +387,8 @@ const handler: ExportedHandler<Env> = {
   //     older than a 7-day grace window. Heavily guarded: aborts and deletes
   //     NOTHING if the referenced-key read fails or comes back empty against a
   //     non-empty bucket, and caps deletions per run. See asset-reconcile.ts.
+  //  4. Expired vendor-claim tokens + 5. abandoned `preview` change rows (with
+  //     their uploaded-sheet CSVs) — see services/maintenance-sweeps.ts.
   //
   // Each is its own `waitUntil` + `catchAll`, so a failure in one never aborts
   // the other and the isolate stays alive until each delete settles.
@@ -433,6 +436,32 @@ const handler: ExportedHandler<Env> = {
         retentionService.sweepExpiredGuestData(new Date(), { sheets: env.SHEETS }).pipe(
           Effect.catchAll((err) =>
             Effect.logError("scheduled guest-data retention sweep failed", { reason: err.reason }),
+          ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    // Expired vendor-claim tokens: 7-day TTL, nothing else ever deleted them.
+    ctx.waitUntil(
+      Effect.runPromise(
+        maintenanceSweeps.sweepExpiredVendorClaims().pipe(
+          Effect.catchAll((err) =>
+            Effect.logError("scheduled vendor-claim sweep failed", { reason: err.reason }),
+          ),
+          Effect.provide(dbLayer),
+        ),
+      ),
+    );
+
+    // Abandoned `preview` change rows + their uploaded-sheet CSVs (guest PII
+    // in `cire-sheets`) — previously only reclaimed when the whole wedding
+    // aged out of retention, a year+ later.
+    ctx.waitUntil(
+      Effect.runPromise(
+        maintenanceSweeps.sweepStalePreviews(new Date(), { sheets: env.SHEETS }).pipe(
+          Effect.catchAll((err) =>
+            Effect.logError("scheduled stale-preview sweep failed", { reason: err.reason }),
           ),
           Effect.provide(dbLayer),
         ),

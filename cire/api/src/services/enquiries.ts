@@ -25,10 +25,10 @@
 
 import { directoryVendors, vendorEnquiries, vendors } from "@cire/db";
 import type { SendEmailInput } from "@shared/email";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { commitBatch, DbService, dbQuery } from "../db";
 import type { ServiceCategory } from "../lib/service-categories";
 import { budgetService } from "./budget";
 import { vendorsService } from "./vendors";
@@ -384,17 +384,18 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
             .from(vendorEnquiries)
             .innerJoin(vendors, eq(vendorEnquiries.vendorId, vendors.id))
             .where(eq(vendorEnquiries.weddingId, weddingId))
+            // Newest-first by last message, in SQL — this is what the second
+            // column of vendor_enquiries_wedding_last_msg_idx exists for (a JS
+            // sort here left it earning nothing).
+            .orderBy(desc(vendorEnquiries.lastMessageAt))
             .all(),
         );
-        const items = (
-          rows as Array<{ enquiry: EnquiryRow; vendorName: string; category: string }>
-        ).map((r): EnquiryListItem => {
-          const dto = toDto(r.enquiry);
-          return Object.assign(dto, { vendorName: r.vendorName, category: r.category });
-        });
-        // Newest-first by last message.
-        items.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
-        return items;
+        return (rows as Array<{ enquiry: EnquiryRow; vendorName: string; category: string }>).map(
+          (r): EnquiryListItem => {
+            const dto = toDto(r.enquiry);
+            return Object.assign(dto, { vendorName: r.vendorName, category: r.category });
+          },
+        );
       }).pipe(Effect.withSpan("cire.enquiries.list"));
     },
 
@@ -493,25 +494,26 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
         const chatId = enquiry.zapChatId;
 
         const now = new Date();
-        // Mirror the quote into vendor_enquiries (+ status) AND the linked vendors row.
+        // Mirror the quote into vendor_enquiries (+ status) AND the linked
+        // vendors row — one atomic batch, since the two quoted_minor columns
+        // must agree (a failure between two separate updates silently diverged
+        // them).
         yield* dbQuery(() =>
-          db
-            .update(vendorEnquiries)
-            .set({
-              quotedMinor: input.amountMinor,
-              status: "quoted",
-              lastMessageAt: now,
-              updatedAt: now,
-            })
-            .where(eq(vendorEnquiries.id, enquiry.id))
-            .run(),
-        );
-        yield* dbQuery(() =>
-          db
-            .update(vendors)
-            .set({ quotedMinor: input.amountMinor, updatedAt: now })
-            .where(eq(vendors.id, enquiry.vendorId))
-            .run(),
+          commitBatch(db, [
+            db
+              .update(vendorEnquiries)
+              .set({
+                quotedMinor: input.amountMinor,
+                status: "quoted",
+                lastMessageAt: now,
+                updatedAt: now,
+              })
+              .where(eq(vendorEnquiries.id, enquiry.id)),
+            db
+              .update(vendors)
+              .set({ quotedMinor: input.amountMinor, updatedAt: now })
+              .where(eq(vendors.id, enquiry.vendorId)),
+          ]),
         );
 
         const amountFormatted = formatMinor(input.amountMinor, input.currency);

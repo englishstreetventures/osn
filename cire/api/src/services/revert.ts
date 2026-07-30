@@ -1,5 +1,6 @@
 import { imports } from "@cire/db";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, lt, ne } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -36,6 +37,7 @@ function reconcileToSnapshot(
   weddingId: string,
   eventsCsv: string,
   guestsCsv: string,
+  finalize: BatchItem<"sqlite">[] = [],
 ): Effect.Effect<ImportSummary, RevertParseError | ImportError, DbService> {
   return Effect.gen(function* () {
     const events = yield* parseEventsCsv(eventsCsv).pipe(
@@ -52,7 +54,7 @@ function reconcileToSnapshot(
     );
 
     const plan = yield* diffAgainstDb(events, families as ParsedFamily[], weddingId);
-    return yield* applyImport(targetImportId, plan, weddingId);
+    return yield* applyImport(targetImportId, plan, weddingId, finalize);
   });
 }
 
@@ -99,6 +101,17 @@ export function revertImport(
       return yield* Effect.fail(new NoPriorImport({ currentImportId: importId }));
     }
 
+    // The status flip rides in the reconcile's FINAL batch (applyImport
+    // `finalize`), mirroring the apply route: a crash can't leave the wedding
+    // reconciled while the row still reads `applied` (which would invite a
+    // second, now-wrong revert against the already-restored state).
+    const markReverted = [
+      db
+        .update(imports)
+        .set({ status: "reverted", revertedAt: Date.now() })
+        .where(eq(imports.id, current.id)),
+    ];
+
     let summary: ImportSummary;
 
     if (current.beforeEventsR2Key && current.beforeGuestsR2Key) {
@@ -107,21 +120,40 @@ export function revertImport(
       // (full-fidelity snapshot → id-matched updates preserve codes + ids).
       const eventsCsv = yield* fetchUpload(current.beforeEventsR2Key);
       const guestsCsv = yield* fetchUpload(current.beforeGuestsR2Key);
-      summary = yield* reconcileToSnapshot(current.id, weddingId, eventsCsv, guestsCsv);
+      summary = yield* reconcileToSnapshot(
+        current.id,
+        weddingId,
+        eventsCsv,
+        guestsCsv,
+        markReverted,
+      );
     } else {
       // ── Legacy fallback ────────────────────────────────────────────────────
       // No before-image (pre-E3 row): re-apply the most-recent-earlier applied
-      // import's uploaded sheets against current DB state.
-      const candidates = yield* dbQuery(() =>
+      // import's uploaded sheets against current DB state. The predicate +
+      // ORDER BY + LIMIT 1 replace the old select-all-then-JS-find, which
+      // dragged every applied row (incl. the `summary` JSON) out of D1;
+      // `imports_wedding_uploaded_at_idx` serves scope + order, status/id as
+      // residual filters.
+      const [prior] = yield* dbQuery(() =>
         db
-          .select()
+          .select({
+            id: imports.id,
+            eventsR2Key: imports.eventsR2Key,
+            guestsR2Key: imports.guestsR2Key,
+          })
           .from(imports)
-          .where(and(eq(imports.status, "applied"), eq(imports.weddingId, weddingId)))
+          .where(
+            and(
+              eq(imports.weddingId, weddingId),
+              eq(imports.status, "applied"),
+              ne(imports.id, current.id),
+              lt(imports.uploadedAt, current.uploadedAt),
+            ),
+          )
           .orderBy(desc(imports.uploadedAt))
+          .limit(1)
           .all(),
-      );
-      const prior = candidates.find(
-        (c) => c.id !== current.id && c.uploadedAt < current.uploadedAt,
       );
       if (!prior) {
         return yield* Effect.fail(new NoPriorImport({ currentImportId: importId }));
@@ -129,17 +161,8 @@ export function revertImport(
 
       const eventsCsv = yield* fetchUpload(prior.eventsR2Key);
       const guestsCsv = yield* fetchUpload(prior.guestsR2Key);
-      summary = yield* reconcileToSnapshot(prior.id, weddingId, eventsCsv, guestsCsv);
+      summary = yield* reconcileToSnapshot(prior.id, weddingId, eventsCsv, guestsCsv, markReverted);
     }
-
-    // Mark the reverted change.
-    yield* dbQuery(() =>
-      db
-        .update(imports)
-        .set({ status: "reverted", revertedAt: Date.now() })
-        .where(eq(imports.id, current.id))
-        .run(),
-    );
 
     return summary;
   }).pipe(

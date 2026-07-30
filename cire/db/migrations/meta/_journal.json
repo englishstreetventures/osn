@@ -57,6 +57,328 @@
       "when": 1781240023760,
       "tag": "0008_guest_account_links",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1781240024760,
+      "tag": "0009_invite_customisations",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1781240025760,
+      "tag": "0010_family_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1781240026760,
+      "tag": "0011_wedding_code_style",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1781240027760,
+      "tag": "0012_dietary_consent",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1781240028760,
+      "tag": "0013_wedding_hosts",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1781240029760,
+      "tag": "0014_invite_theme",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1781240030760,
+      "tag": "0015_drop_bootstrap_wedding",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1781240031760,
+      "tag": "0016_family_code_shared_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1781240032760,
+      "tag": "0017_hero_display_options",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1781240033760,
+      "tag": "0018_hero_display_sliders",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1781240034760,
+      "tag": "0019_event_image",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1781240035760,
+      "tag": "0020_family_first_opened",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1781240036760,
+      "tag": "0021_image_crop",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1781240037760,
+      "tag": "0022_guest_nickname",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1781240038760,
+      "tag": "0023_invite_message",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1781240039760,
+      "tag": "0024_family_deactivated",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1781240040760,
+      "tag": "0025_drop_deprecated_event_cols",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1781240041760,
+      "tag": "0026_events_wedding_sort_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1781240042760,
+      "tag": "0027_welcome_theme",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "6",
+      "when": 1781240043760,
+      "tag": "0028_details_welcome_copy",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "6",
+      "when": 1781240044760,
+      "tag": "0029_images_updated_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1781240045760,
+      "tag": "0030_wedding_profile",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1781240046760,
+      "tag": "0031_wedding_host_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1781240047760,
+      "tag": "0032_households_nullable_code",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1781240048760,
+      "tag": "0033_households_require_code",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1781240049760,
+      "tag": "0034_change_history",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "6",
+      "when": 1781240050760,
+      "tag": "0035_provenance",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "6",
+      "when": 1781240051760,
+      "tag": "0036_drop_event_location_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "6",
+      "when": 1781240052760,
+      "tag": "0037_rsvp_consent_source",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "6",
+      "when": 1781240053760,
+      "tag": "0038_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "6",
+      "when": 1781240054760,
+      "tag": "0039_budget",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "6",
+      "when": 1781240055760,
+      "tag": "0040_vendors",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1781240056760,
+      "tag": "0041_directory_browse",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "6",
+      "when": 1781240057760,
+      "tag": "0042_wedding_entitlements",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "6",
+      "when": 1781240058760,
+      "tag": "0043_vendor_enquiries",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1781240059760,
+      "tag": "0044_invite_palette",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "6",
+      "when": 1781240060760,
+      "tag": "0045_invite_design",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "6",
+      "when": 1781240061760,
+      "tag": "0046_hero_mobile_crop",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "6",
+      "when": 1781240062760,
+      "tag": "0047_organiser_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "6",
+      "when": 1781240063760,
+      "tag": "0048_invite_typography",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "6",
+      "when": 1781240064760,
+      "tag": "0049_invite_footer_message",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1781240065760,
+      "tag": "0050_invite_footer_image",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "6",
+      "when": 1781240066760,
+      "tag": "0051_event_slug_wedding_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "6",
+      "when": 1781240067760,
+      "tag": "0052_event_fk_cascade",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "6",
+      "when": 1781240068760,
+      "tag": "0053_index_tuning",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1781240069760,
+      "tag": "0054_event_timestamps",
+      "breakpoints": true
     }
   ]
 }

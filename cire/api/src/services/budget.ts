@@ -17,7 +17,7 @@ import { budgetItems, payments, weddings } from "@cire/db";
 import { and, asc, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { DbService, commitGroupedBatches, dbQuery } from "../db";
 import type { ServiceCategory } from "../lib/service-categories";
 
 /** No item with this id under this wedding (missing or another wedding's). 404-class. */
@@ -283,7 +283,6 @@ export const budgetService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const { weddingId, itemId, patch } = input;
-      yield* requireItem(weddingId, itemId);
 
       const set: Partial<ItemRow> = { updatedAt: new Date() };
       if (patch.category !== undefined) set.category = patch.category;
@@ -293,15 +292,19 @@ export const budgetService = {
       if (patch.actualMinor !== undefined) set.actualMinor = patch.actualMinor;
       if (patch.notes !== undefined) set.notes = patch.notes;
 
-      yield* dbQuery(() =>
+      // Single round trip (as hosts.setRole): RETURNING reports whether an
+      // (item, wedding) row existed — zero rows maps to BudgetItemNotInWedding
+      // with no separate existence SELECT.
+      const [updated] = yield* dbQuery(() =>
         db
           .update(budgetItems)
           .set(set)
           .where(and(eq(budgetItems.id, itemId), eq(budgetItems.weddingId, weddingId)))
-          .run(),
+          .returning()
+          .all(),
       );
-      const updated = yield* requireItem(weddingId, itemId);
-      return toItemDto(updated);
+      if (!updated) return yield* Effect.fail(new BudgetItemNotInWedding());
+      return toItemDto(updated as ItemRow);
     }).pipe(Effect.withSpan("cire.budget.updateItem"));
   },
 
@@ -311,14 +314,16 @@ export const budgetService = {
   ): Effect.Effect<void, BudgetItemNotInWedding, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      yield* requireItem(weddingId, itemId);
-      // Payments cascade via the FK ON DELETE CASCADE.
-      yield* dbQuery(() =>
+      // Payments cascade via the FK ON DELETE CASCADE. Single round trip:
+      // DELETE .. RETURNING reports whether a row existed.
+      const [removed] = yield* dbQuery(() =>
         db
           .delete(budgetItems)
           .where(and(eq(budgetItems.id, itemId), eq(budgetItems.weddingId, weddingId)))
-          .run(),
+          .returning({ id: budgetItems.id })
+          .all(),
       );
+      if (!removed) return yield* Effect.fail(new BudgetItemNotInWedding());
     }).pipe(Effect.withSpan("cire.budget.removeItem"));
   },
 
@@ -331,10 +336,17 @@ export const budgetService = {
       const db = yield* DbService;
       // Each id gets its array index as sort_order, scoped to (wedding, category)
       // so a foreign or wrong-category id is a no-op UPDATE rather than a write.
+      // commitGroupedBatches, not db.transaction(): D1 has no BEGIN/COMMIT —
+      // batch() is its only atomic primitive — and the body allows up to 500
+      // ids, so the write set must chunk under the 50-statement batch cap.
+      // Singleton groups: each row's UPDATE is independent (a re-sent reorder
+      // converges), so chunking loses nothing.
       yield* dbQuery(() =>
-        db.transaction((tx) => {
-          orderedIds.forEach((id, index) => {
-            tx.update(budgetItems)
+        commitGroupedBatches(
+          db,
+          orderedIds.map((id, index) => [
+            db
+              .update(budgetItems)
               .set({ sortOrder: index })
               .where(
                 and(
@@ -342,10 +354,9 @@ export const budgetService = {
                   eq(budgetItems.weddingId, weddingId),
                   eq(budgetItems.category, category),
                 ),
-              )
-              .run();
-          });
-        }),
+              ),
+          ]),
+        ),
       );
     }).pipe(Effect.withSpan("cire.budget.reorderItems"));
   },
@@ -385,15 +396,10 @@ export const budgetService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const { weddingId, itemId, paymentId, patch } = input;
+      // The item read stays: it is the tenancy gate (payments carry no
+      // wedding_id of their own). The payment SELECT + UPDATE + re-SELECT
+      // collapse to one UPDATE .. RETURNING round trip.
       yield* requireItem(weddingId, itemId);
-      const [existing] = yield* dbQuery(() =>
-        db
-          .select()
-          .from(payments)
-          .where(and(eq(payments.id, paymentId), eq(payments.budgetItemId, itemId)))
-          .all(),
-      );
-      if (!existing) return yield* Effect.fail(new PaymentNotInItem());
 
       const set: Partial<PaymentRow> = {};
       if (patch.label !== undefined) set.label = patch.label;
@@ -401,16 +407,22 @@ export const budgetService = {
       if (patch.dueAt !== undefined) set.dueAt = patch.dueAt;
       if (patch.paid !== undefined) set.paidAt = patch.paid ? new Date() : null;
 
-      yield* dbQuery(() =>
-        db
-          .update(payments)
-          .set(set)
-          .where(and(eq(payments.id, paymentId), eq(payments.budgetItemId, itemId)))
-          .run(),
-      );
+      // An empty patch degrades to a plain read (drizzle rejects an empty SET).
       const [updated] = yield* dbQuery(() =>
-        db.select().from(payments).where(eq(payments.id, paymentId)).all(),
+        Object.keys(set).length === 0
+          ? db
+              .select()
+              .from(payments)
+              .where(and(eq(payments.id, paymentId), eq(payments.budgetItemId, itemId)))
+              .all()
+          : db
+              .update(payments)
+              .set(set)
+              .where(and(eq(payments.id, paymentId), eq(payments.budgetItemId, itemId)))
+              .returning()
+              .all(),
       );
+      if (!updated) return yield* Effect.fail(new PaymentNotInItem());
       return toPaymentDto(updated as PaymentRow);
     }).pipe(Effect.withSpan("cire.budget.updatePayment"));
   },
@@ -423,21 +435,17 @@ export const budgetService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const { weddingId, itemId, paymentId } = input;
+      // Tenancy gate as in updatePayment; the delete itself is one
+      // DELETE .. RETURNING round trip.
       yield* requireItem(weddingId, itemId);
-      const [existing] = yield* dbQuery(() =>
-        db
-          .select({ id: payments.id })
-          .from(payments)
-          .where(and(eq(payments.id, paymentId), eq(payments.budgetItemId, itemId)))
-          .all(),
-      );
-      if (!existing) return yield* Effect.fail(new PaymentNotInItem());
-      yield* dbQuery(() =>
+      const [removed] = yield* dbQuery(() =>
         db
           .delete(payments)
           .where(and(eq(payments.id, paymentId), eq(payments.budgetItemId, itemId)))
-          .run(),
+          .returning({ id: payments.id })
+          .all(),
       );
+      if (!removed) return yield* Effect.fail(new PaymentNotInItem());
     }).pipe(Effect.withSpan("cire.budget.removePayment"));
   },
 };

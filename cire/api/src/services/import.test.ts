@@ -20,7 +20,7 @@ import type { ParsedEvent, ParsedFamily } from "../schemas/import";
 import { claimService } from "./claim";
 import { entitlementService } from "./entitlements";
 import { hostCodeService } from "./host-code";
-import { applyImport, diffAgainstDb } from "./import";
+import { applyImport, diffAgainstDb, mintEventSlug, mintUniqueEventSlug } from "./import";
 import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
 
 /** Build a fresh in-memory DB layer for each test. */
@@ -1064,5 +1064,236 @@ describe("applyImport — capacity enforcement", () => {
     // Atomic: still 100 guests (no partial write).
     const n = (db.$client.query("SELECT COUNT(*) AS n FROM guests").get() as { n: number }).n;
     expect(n).toBe(100);
+  });
+});
+
+describe("event slugs: tenant-scoped uniqueness (migration 0051)", () => {
+  it("mintEventSlug never mints an empty slug", () => {
+    expect(mintEventSlug("Reception")).toBe("reception");
+    expect(mintEventSlug("  Grand   Fête!  ")).toBe("grand-f-te");
+    expect(mintEventSlug("💒🎉")).toBe("event");
+  });
+
+  it("mintUniqueEventSlug suffixes -2, -3 within a wedding", () => {
+    const used = new Set<string>();
+    expect(mintUniqueEventSlug("Ceremony", used)).toBe("ceremony");
+    expect(mintUniqueEventSlug("Ceremony!", used)).toBe("ceremony-2");
+    expect(mintUniqueEventSlug("CEREMONY", used)).toBe("ceremony-3");
+  });
+
+  it("two weddings can each import an event with the same name", async () => {
+    // Regression: events_slug_unique was GLOBAL pre-0051, so the second
+    // wedding's apply failed on UNIQUE(events.slug) for the same event name.
+    const sharedDb = createDb(":memory:");
+    seedBootstrapWedding(sharedDb);
+    const other = seedOtherWedding(sharedDb);
+    const sharedLayer = Layer.succeed(DbService, sharedDb);
+
+    const receptionPlan = (id: string): ImportPlan => ({
+      eventCreates: [
+        {
+          id,
+          event: {
+            name: "Reception",
+            startAt: "2026-11-28T18:00:00+11:00",
+            endAt: "",
+            timezone: "Australia/Sydney",
+            location: null,
+            address: null,
+            dressCodeDescription: null,
+            dressCodePalette: [],
+            pinterestUrl: null,
+            mapsUrl: null,
+            sortOrder: 0,
+          },
+        },
+      ],
+      eventUpdates: [],
+      eventRemoves: [],
+      familyCreates: [],
+      familyRemoves: [],
+      guestCreates: [],
+      guestUpdates: [],
+      guestRemoves: [],
+      eventLinkCreates: [],
+      eventLinkRemoves: [],
+      warnings: [],
+    });
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* applyImport("imp_a", receptionPlan("evt_slug_a"), BOOTSTRAP_WEDDING_ID);
+        yield* applyImport("imp_b", receptionPlan("evt_slug_b"), other.weddingId);
+      }).pipe(Effect.provide(sharedLayer)),
+    );
+
+    const slugs = sharedDb
+      .select({ weddingId: events.weddingId, slug: events.slug })
+      .from(events)
+      .all()
+      .filter((r) => r.slug === "reception");
+    expect(slugs.map((r) => r.weddingId).toSorted()).toEqual(
+      [BOOTSTRAP_WEDDING_ID, other.weddingId].toSorted(),
+    );
+  });
+
+  it("a sheet with duplicate event names applies with suffixed slugs", async () => {
+    const sharedDb = createDb(":memory:");
+    seedBootstrapWedding(sharedDb);
+    const sharedLayer = Layer.succeed(DbService, sharedDb);
+    const plan: ImportPlan = {
+      eventCreates: [
+        {
+          id: "evt_dup_1",
+          event: {
+            name: "Ceremony",
+            startAt: "2026-10-31T10:00:00+11:00",
+            endAt: "",
+            timezone: "Australia/Sydney",
+            location: null,
+            address: null,
+            dressCodeDescription: null,
+            dressCodePalette: [],
+            pinterestUrl: null,
+            mapsUrl: null,
+            sortOrder: 0,
+          },
+        },
+        {
+          id: "evt_dup_2",
+          event: {
+            name: "Ceremony!",
+            startAt: "2026-11-25T09:00:00+11:00",
+            endAt: "",
+            timezone: "Australia/Sydney",
+            location: null,
+            address: null,
+            dressCodeDescription: null,
+            dressCodePalette: [],
+            pinterestUrl: null,
+            mapsUrl: null,
+            sortOrder: 1,
+          },
+        },
+      ],
+      eventUpdates: [],
+      eventRemoves: [],
+      familyCreates: [],
+      familyRemoves: [],
+      guestCreates: [],
+      guestUpdates: [],
+      guestRemoves: [],
+      eventLinkCreates: [],
+      eventLinkRemoves: [],
+      warnings: [],
+    };
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* applyImport("imp_dup_names", plan, BOOTSTRAP_WEDDING_ID);
+      }).pipe(Effect.provide(sharedLayer)),
+    );
+
+    const slugs = sharedDb.select({ slug: events.slug }).from(events).all();
+    expect(slugs.map((r) => r.slug).toSorted()).toEqual(["ceremony", "ceremony-2"]);
+  });
+});
+
+describe("applyImport: finalize statements commit with the write set or not at all", () => {
+  it("a failed commit never executes the finalize statements", async () => {
+    const sharedDb = createDb(":memory:");
+    seedBootstrapWedding(sharedDb);
+    const sharedLayer = Layer.succeed(DbService, sharedDb);
+
+    // Two family creates share a publicId — the second insert trips the UNIQUE
+    // index and fails the commit partway through.
+    const plan: ImportPlan = {
+      eventCreates: [],
+      eventUpdates: [],
+      eventRemoves: [],
+      familyCreates: [
+        { id: "fam_fin_a", publicId: "FIN-DUP", familyName: "A" },
+        { id: "fam_fin_b", publicId: "FIN-DUP", familyName: "B" },
+      ],
+      familyRemoves: [],
+      guestCreates: [],
+      guestUpdates: [],
+      guestRemoves: [],
+      eventLinkCreates: [],
+      eventLinkRemoves: [],
+      warnings: [],
+    };
+
+    // The finalize statement is what the apply route uses to flip the change
+    // row's status; here a visible sentinel write stands in for it.
+    const finalize = [
+      sharedDb
+        .update(weddings)
+        .set({ displayName: "FINALIZED" })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID)),
+    ];
+
+    const exit = await Effect.runPromiseExit(
+      applyImport("imp_finalize_fail", plan, BOOTSTRAP_WEDDING_ID, finalize).pipe(
+        Effect.provide(sharedLayer),
+      ),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+
+    // The finalize write must not have run — it rides AFTER the data writes,
+    // so a failed commit leaves it unexecuted (the apply route relies on this
+    // to keep a failed apply's change row in `preview`).
+    const [w] = sharedDb
+      .select({ displayName: weddings.displayName })
+      .from(weddings)
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .all();
+    expect(w!.displayName).not.toBe("FINALIZED");
+  });
+});
+
+describe("applyImport: event timestamps (migration 0054)", () => {
+  it("stamps created_at + updated_at on create, bumps only updated_at on update", async () => {
+    const { ev, fam } = await parsedFromCsv();
+    const sharedDb = createDb(":memory:");
+    seedBootstrapWedding(sharedDb);
+    const sharedLayer = Layer.succeed(DbService, sharedDb);
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const plan = yield* diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID);
+        yield* applyImport("imp_ts_1", plan, BOOTSTRAP_WEDDING_ID);
+      }).pipe(Effect.provide(sharedLayer)),
+    );
+
+    const created = sharedDb.select().from(events).all();
+    expect(created.length).toBeGreaterThan(0);
+    for (const row of created) {
+      expect(row.createdAt).not.toBeNull();
+      expect(row.updatedAt).not.toBeNull();
+    }
+    const reception = created.find((r) => r.name === "Reception")!;
+    const originalCreatedAt = reception.createdAt!.getTime();
+
+    // Re-import with a changed Reception sort order → an event UPDATE.
+    const evTweaked = ev.map((e) =>
+      e.name === "Reception" ? Object.assign({}, e, { sortOrder: (e.sortOrder ?? 0) + 10 }) : e,
+    );
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const plan = yield* diffAgainstDb(evTweaked, fam, BOOTSTRAP_WEDDING_ID);
+        expect(plan.eventUpdates.length).toBeGreaterThan(0);
+        yield* applyImport("imp_ts_2", plan, BOOTSTRAP_WEDDING_ID);
+      }).pipe(Effect.provide(sharedLayer)),
+    );
+
+    const after = sharedDb
+      .select()
+      .from(events)
+      .all()
+      .find((r) => r.name === "Reception")!;
+    // created_at is immutable through updates; updated_at is (re)stamped.
+    expect(after.createdAt!.getTime()).toBe(originalCreatedAt);
+    expect(after.updatedAt).not.toBeNull();
   });
 });

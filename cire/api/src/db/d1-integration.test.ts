@@ -6,10 +6,11 @@ import {
   guestEvents,
   guests,
   rsvps,
+  tasks,
   weddings,
   BOOTSTRAP_WEDDING_ID,
 } from "@cire/db";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { Miniflare } from "miniflare";
 
@@ -17,6 +18,7 @@ import type { ImportPlan } from "../schemas/import";
 import { claimService } from "../services/claim";
 import { applyImport } from "../services/import";
 import { rsvpService } from "../services/rsvp";
+import { tasksService } from "../services/tasks";
 import { createD1Db, DbService } from "./index";
 import type { Db } from "./index";
 import { DDL } from "./setup";
@@ -152,7 +154,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   // FK-safe truncate, then reseed — keeps each test isolated on the shared D1.
-  for (const table of [rsvps, guestEvents, guests, families, events, weddings]) {
+  for (const table of [rsvps, guestEvents, guests, families, events, tasks, weddings]) {
     await db.delete(table);
   }
   await seed();
@@ -274,5 +276,35 @@ describe("cire/api over real D1 (Miniflare)", () => {
     await expect(run(applyImport("imp_dup", plan, BOOTSTRAP_WEDDING_ID))).rejects.toThrow();
     expect(await db.select().from(families).where(eq(families.id, "fam_x"))).toHaveLength(0);
     expect(await db.select().from(families).where(eq(families.id, "fam_y"))).toHaveLength(0);
+  });
+
+  it("tasks.reorder commits its per-row updates over the D1 batch path", async () => {
+    // Regression guard: reorder used to run through db.transaction(), which the
+    // D1 driver implements as literal BEGIN/COMMIT (rejected by D1) with
+    // fire-and-forget .run() calls that the async driver never awaited. It now
+    // goes through commitBatch — this is the only D1 coverage of a reorder.
+    const created: string[] = [];
+    for (const title of ["first", "second", "third"]) {
+      const dto = await run(
+        tasksService.create({
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          title,
+          timeframeBucket: "12m",
+          notes: null,
+          dueAt: null,
+        }),
+      );
+      created.push(dto.id);
+    }
+
+    const reversed = created.toReversed();
+    await run(tasksService.reorder(BOOTSTRAP_WEDDING_ID, "12m", reversed));
+
+    const rows = await db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(eq(tasks.weddingId, BOOTSTRAP_WEDDING_ID))
+      .orderBy(asc(tasks.sortOrder));
+    expect(rows.map((r) => r.id)).toEqual(reversed);
   });
 });

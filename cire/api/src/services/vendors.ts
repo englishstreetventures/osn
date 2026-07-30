@@ -11,7 +11,7 @@ import { vendors } from "@cire/db";
 import { and, asc, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { DbService, dbQuery } from "../db";
+import { DbService, commitGroupedBatches, dbQuery } from "../db";
 
 /** No vendor with this id under this wedding (missing or another wedding's). 404-class. */
 export class VendorNotInWedding extends Data.TaggedError("VendorNotInWedding") {}
@@ -91,25 +91,6 @@ const toDto = (r: VendorRow): VendorDto => ({
   updatedAt: r.updatedAt.getTime(),
 });
 
-/** Load the vendor, scoped to the wedding, or fail 404-class. */
-function requireVendor(
-  weddingId: string,
-  vendorId: string,
-): Effect.Effect<VendorRow, VendorNotInWedding, DbService> {
-  return Effect.gen(function* () {
-    const db = yield* DbService;
-    const [row] = yield* dbQuery(() =>
-      db
-        .select()
-        .from(vendors)
-        .where(and(eq(vendors.id, vendorId), eq(vendors.weddingId, weddingId)))
-        .all(),
-    );
-    if (!row) return yield* Effect.fail(new VendorNotInWedding());
-    return row as VendorRow;
-  });
-}
-
 export const vendorsService = {
   list(weddingId: string): Effect.Effect<VendorDto[], never, DbService> {
     return Effect.gen(function* () {
@@ -172,7 +153,6 @@ export const vendorsService = {
   ): Effect.Effect<VendorDto, VendorNotInWedding, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      yield* requireVendor(weddingId, vendorId);
 
       const set: Partial<VendorRow> = { updatedAt: new Date() };
       if (patch.name !== undefined) set.name = patch.name;
@@ -184,28 +164,34 @@ export const vendorsService = {
       if (patch.notes !== undefined) set.notes = patch.notes;
       if (patch.quotedMinor !== undefined) set.quotedMinor = patch.quotedMinor;
 
-      yield* dbQuery(() =>
+      // Single round trip (as hosts.setRole): RETURNING reports whether a
+      // (vendor, wedding) row existed — zero rows maps to VendorNotInWedding
+      // with no separate existence SELECT.
+      const [updated] = yield* dbQuery(() =>
         db
           .update(vendors)
           .set(set)
           .where(and(eq(vendors.id, vendorId), eq(vendors.weddingId, weddingId)))
-          .run(),
+          .returning()
+          .all(),
       );
-      const updated = yield* requireVendor(weddingId, vendorId);
-      return toDto(updated);
+      if (!updated) return yield* Effect.fail(new VendorNotInWedding());
+      return toDto(updated as VendorRow);
     }).pipe(Effect.withSpan("cire.vendors.update"));
   },
 
   remove(weddingId: string, vendorId: string): Effect.Effect<void, VendorNotInWedding, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      yield* requireVendor(weddingId, vendorId);
-      yield* dbQuery(() =>
+      // Single round trip: DELETE .. RETURNING reports whether a row existed.
+      const [removed] = yield* dbQuery(() =>
         db
           .delete(vendors)
           .where(and(eq(vendors.id, vendorId), eq(vendors.weddingId, weddingId)))
-          .run(),
+          .returning({ id: vendors.id })
+          .all(),
       );
+      if (!removed) return yield* Effect.fail(new VendorNotInWedding());
     }).pipe(Effect.withSpan("cire.vendors.remove"));
   },
 
@@ -237,10 +223,17 @@ export const vendorsService = {
       const db = yield* DbService;
       // Each id gets its array index as sort_order, scoped to (wedding, status)
       // so a foreign or wrong-status id is a no-op UPDATE rather than a write.
+      // commitGroupedBatches, not db.transaction(): D1 has no BEGIN/COMMIT —
+      // batch() is its only atomic primitive — and the body allows up to 500
+      // ids, so the write set must chunk under the 50-statement batch cap.
+      // Singleton groups: each row's UPDATE is independent (a re-sent reorder
+      // converges), so chunking loses nothing.
       yield* dbQuery(() =>
-        db.transaction((tx) => {
-          orderedIds.forEach((id, index) => {
-            tx.update(vendors)
+        commitGroupedBatches(
+          db,
+          orderedIds.map((id, index) => [
+            db
+              .update(vendors)
               .set({ sortOrder: index })
               .where(
                 and(
@@ -248,10 +241,9 @@ export const vendorsService = {
                   eq(vendors.weddingId, weddingId),
                   eq(vendors.status, status),
                 ),
-              )
-              .run();
-          });
-        }),
+              ),
+          ]),
+        ),
       );
     }).pipe(Effect.withSpan("cire.vendors.reorder"));
   },

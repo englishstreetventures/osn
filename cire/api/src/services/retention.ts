@@ -1,4 +1,4 @@
-import { events, families, guests, imports, rsvps } from "@cire/db";
+import { events, families, guestEvents, guests, imports, rsvps } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
 import { inArray, lt, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
@@ -167,13 +167,29 @@ export const retentionService = {
         try: () => {
           const stmts: BatchItem<"sqlite">[] = [];
           if (familyIds.length > 0) {
-            // rsvps → guests (children) before families (parent).
+            // rsvps + guest_events → guests (children) before families (parent).
+            // guest_events included for the same reason as rsvps: the sweep's
+            // stated contract is to not depend on FK cascade, and it previously
+            // left this one child table to the cascade it said it avoided.
             stmts.push(
               db
                 .delete(rsvps)
                 .where(
                   inArray(
                     rsvps.guestId,
+                    db
+                      .select({ id: guests.id })
+                      .from(guests)
+                      .where(inArray(guests.familyId, familyIds)),
+                  ),
+                ),
+            );
+            stmts.push(
+              db
+                .delete(guestEvents)
+                .where(
+                  inArray(
+                    guestEvents.guestId,
                     db
                       .select({ id: guests.id })
                       .from(guests)
@@ -212,10 +228,11 @@ export const retentionService = {
         ),
       );
 
-      // The guests delete is the (familyIds>0 ? second : absent) statement; sum
-      // every result's changed-rows but report the guest count as the subject.
+      // The guests delete is the (familyIds>0 ? third : absent) statement
+      // (after the rsvps + guest_events child deletes); report the guest count
+      // as the subject.
       const guestsDeleted =
-        familyIds.length > 0 && Array.isArray(result) ? rowsChanged(result[1]) : 0;
+        familyIds.length > 0 && Array.isArray(result) ? rowsChanged(result[2]) : 0;
 
       yield* Effect.sync(() => metricGuestDataSwept("ok", guestsDeleted));
       yield* Effect.logInfo("guest-data retention sweep complete", {

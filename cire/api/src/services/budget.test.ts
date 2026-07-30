@@ -254,3 +254,56 @@ describe("budgetService", () => {
     );
   });
 });
+
+describe("budgetService.updatePayment — empty patch", () => {
+  it("degrades to a plain read (no drizzle empty-SET throw) and keeps PaymentNotInItem", async () => {
+    const db = db0();
+    const created = await run(db, budgetService.createItem(newItem()));
+    if (!Exit.isSuccess(created)) throw new Error("create item failed");
+    const itemId = created.value.id;
+    const pay = await run(
+      db,
+      budgetService.addPayment({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId,
+        label: "Deposit",
+        amountMinor: 100,
+        dueAt: null,
+      }),
+    );
+    if (!Exit.isSuccess(pay)) throw new Error("add payment failed");
+
+    // PATCH {} → the unchanged payment echoes back through the select branch.
+    const res = await run(
+      db,
+      budgetService.updatePayment({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId,
+        paymentId: pay.value.id,
+        patch: {},
+      }),
+    );
+    if (!Exit.isSuccess(res)) throw new Error("empty patch failed");
+    // createdAt compared loosely: the DTO from addPayment carries ms, the
+    // read-back row is stored at whole-second precision.
+    const { createdAt, ...rest } = res.value;
+    const { createdAt: createdAtBefore, ...restBefore } = pay.value;
+    expect(rest).toEqual(restBefore);
+    expect(Math.abs(createdAt - createdAtBefore)).toBeLessThan(1000);
+
+    // Unknown payment + empty patch still maps to PaymentNotInItem, not a defect.
+    const missing = await run(
+      db,
+      budgetService.updatePayment({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId,
+        paymentId: "pay_nope",
+        patch: {},
+      }),
+    );
+    expect(Exit.isFailure(missing)).toBe(true);
+    if (Exit.isFailure(missing)) {
+      expect(missing.cause.toString()).toContain("PaymentNotInItem");
+    }
+  });
+});

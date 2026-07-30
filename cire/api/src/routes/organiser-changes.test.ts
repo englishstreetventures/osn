@@ -5,10 +5,12 @@ import {
   events,
   families,
   guests,
+  imports,
   weddingEntitlements,
   weddingHosts,
   weddings,
 } from "@cire/db";
+import { eq } from "drizzle-orm";
 
 import { createApp } from "../app";
 import { createDb, seedBootstrapWedding } from "../db/setup";
@@ -489,6 +491,16 @@ describe("POST /changes/apply — 402 on capacity breach", () => {
     // Atomic: no guests were persisted.
     expect(db.select().from(guests).all()).toHaveLength(0);
     expect(db.select().from(families).all()).toHaveLength(0);
+    // And the change row still reads `preview` — the status flip rides in the
+    // write set's final batch (applyImport `finalize`), so a failed apply must
+    // never strand the row as `applied` (that re-opens the double-apply /
+    // before-image-destruction window).
+    const [row] = db
+      .select({ status: imports.status })
+      .from(imports)
+      .where(eq(imports.id, changeId))
+      .all();
+    expect(row!.status).toBe("preview");
   });
 
   it("applying a change within cap succeeds; upgraded wedding (capacity_500) admits up to 500", async () => {

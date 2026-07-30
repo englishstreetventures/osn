@@ -207,3 +207,44 @@ describe("tasksService", () => {
     expect(list.value.map((t) => t.sortOrder)).toEqual([0, 1]);
   });
 });
+
+describe("tasksService.update — empty patch", () => {
+  it("degrades to a plain read (no drizzle empty-SET throw) and preserves 404 semantics", async () => {
+    const db = db0();
+    const created = await run(
+      db,
+      tasksService.create({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: "Order flowers",
+        timeframeBucket: "6m",
+        notes: "peonies",
+        dueAt: null,
+      }),
+    );
+    if (!Exit.isSuccess(created)) throw new Error("create failed");
+
+    // PATCH {} → the unchanged row echoes back through the select branch.
+    const res = await run(
+      db,
+      tasksService.update({ weddingId: BOOTSTRAP_WEDDING_ID, taskId: created.value.id, patch: {} }),
+    );
+    if (!Exit.isSuccess(res)) throw new Error("empty patch failed");
+    // createdAt compared loosely: the DTO from create carries ms, the read-back
+    // row is stored at whole-second precision.
+    const { createdAt, ...rest } = res.value;
+    const { createdAt: createdAtBefore, ...restBefore } = created.value;
+    expect(rest).toEqual(restBefore);
+    expect(Math.abs(createdAt - createdAtBefore)).toBeLessThan(1000);
+
+    // The select branch keeps the tenancy contract: an unknown/foreign id with
+    // an empty patch still fails TaskNotInWedding, not a defect.
+    const missing = await run(
+      db,
+      tasksService.update({ weddingId: OTHER, taskId: created.value.id, patch: {} }),
+    );
+    expect(Exit.isFailure(missing)).toBe(true);
+    if (Exit.isFailure(missing)) {
+      expect(missing.cause.toString()).toContain("TaskNotInWedding");
+    }
+  });
+});

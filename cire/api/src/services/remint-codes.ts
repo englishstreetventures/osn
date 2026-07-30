@@ -12,9 +12,15 @@
  *     style, clears `code_shared_at` AND `first_opened_at` (the old shared/opened
  *     code is now dead — the rotated one has been neither sent nor opened), and
  *     revokes all of that family's guest sessions
- * — all in **one atomic D1 batch**. The atomicity is the security property: the
- * style flip, the rotated codes, and the session revocations all land in the
- * same commit, so no guest can authenticate with a stale code mid-remint.
+ * — committed as chunked batches that never split a family's [code rotate,
+ * session revoke] pair (`commitGroupedBatches`). The PER-FAMILY atomicity is
+ * the security property: a family's rotated code and its session revocations
+ * land in the same commit, so no guest keeps a live session on a rotated code.
+ * Whole-remint atomicity is deliberately traded away (the importer makes the
+ * same trade): the write set grows 2-per-family and a single D1 batch caps at
+ * 50 statements, so one giant batch would fail outright past ~24 families. A
+ * mid-run failure leaves earlier families rotated and later ones untouched —
+ * each family self-consistent — and re-running the remint converges.
  *
  * The synthetic `HOST-*` preview family is deliberately left untouched — its
  * code is not a guest claim code and is managed by the preview-code endpoint.
@@ -28,7 +34,7 @@ import { and, eq, ne } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
 
-import { commitBatch, DbService, dbQuery } from "../db";
+import { commitGroupedBatches, DbService, dbQuery } from "../db";
 import { metricWeddingReminted } from "../metrics";
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
@@ -92,20 +98,22 @@ export const remintCodesService = {
       );
       for (const r of existing) used.add(r.publicId);
 
-      const statements: BatchItem<"sqlite">[] = [
-        // Flip the wedding's style first so future per-family regenerations land
-        // on the new tier too.
-        db
-          .update(weddingsTable)
-          .set({ codeStyle, updatedAt: new Date() })
-          .where(eq(weddingsTable.id, weddingId)),
+      const groups: BatchItem<"sqlite">[][] = [
+        [
+          // Flip the wedding's style first so future per-family regenerations
+          // land on the new tier too.
+          db
+            .update(weddingsTable)
+            .set({ codeStyle, updatedAt: new Date() })
+            .where(eq(weddingsTable.id, weddingId)),
+        ],
       ];
       const now = new Date();
       for (const fam of guestFamilies) {
         let code = generateFamilyCode(fam.familyName, codeStyle);
         while (used.has(code)) code = generateFamilyCode(fam.familyName, codeStyle);
         used.add(code);
-        statements.push(
+        groups.push([
           // Rotate the code + clear the "shared" AND "first opened" markers in
           // one update: the rotated code is brand new, so it has never been sent
           // out OR opened.
@@ -113,13 +121,14 @@ export const remintCodesService = {
             .update(families)
             .set({ publicId: code, codeSharedAt: null, firstOpenedAt: null, updatedAt: now })
             .where(eq(families.id, fam.id)),
-          // Revoke every live session minted from the old code.
+          // Revoke every live session minted from the old code — same batch as
+          // the rotation, so the pair is atomic per family.
           db.delete(sessions).where(eq(sessions.familyId, fam.id)),
-        );
+        ]);
       }
 
       yield* Effect.tryPromise({
-        try: () => commitBatch(db, statements),
+        try: () => commitGroupedBatches(db, groups),
         catch: (cause) => new RemintWriteError({ reason: String(cause) }),
       }).pipe(
         Effect.tapError((err) =>
