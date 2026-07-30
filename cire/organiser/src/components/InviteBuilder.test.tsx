@@ -82,7 +82,7 @@ vi.mock("./ImageCropModal", () => ({
 // reaches the process-global registry the dashboard consults.
 import { confirmNavigation } from "../lib/unsaved-guard";
 import { captureDeclaredStyles } from "../test-support/declared-style";
-import InviteBuilder, { isDesignLocked } from "./InviteBuilder";
+import InviteBuilder, { isDesignLocked, SECTION_MENU_COLUMNS } from "./InviteBuilder";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -1578,6 +1578,293 @@ describe("InviteBuilder UX guards", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+});
+
+/**
+ * The narrow-container section menu (2026-07-30). Below `@3xl/builder` the
+ * eight tabs can't share a line, and the row used to be a horizontally
+ * scrolling strip with Closing and Message parked off the right edge. They now
+ * collapse behind a trigger naming the current section and open as a grid that
+ * shows all eight at once.
+ *
+ * ONE tablist serves both surfaces (a per-surface copy would give every panel
+ * two `aria-labelledby` candidates), so what these tests assert is the
+ * COLLAPSE: `aria-expanded` on the trigger, the `hidden` class on the tablist,
+ * and the dismiss paths. happy-dom applies no CSS, so the container-query swap
+ * itself isn't observable here — the class list is the closest honest proxy.
+ */
+describe("InviteBuilder section menu (narrow containers)", () => {
+  afterEach(() => {
+    cleanup();
+    authFetchMock.mockReset();
+    redirectSpy.mockReset();
+    toastSuccess.mockReset();
+    toastError.mockReset();
+    vi.unstubAllGlobals();
+  });
+
+  const renderBuilder = async () => {
+    authFetchMock.mockResolvedValueOnce(json(EMPTY_CUSTOMISATION));
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    await waitFor(() => screen.getByText("Save invite"));
+  };
+
+  const trigger = () => screen.getByRole("button", { name: /Choose a section/ });
+  const tablist = () => screen.getByRole("tablist");
+
+  it("names the current section and its position on the trigger, live", async () => {
+    await renderBuilder();
+
+    // Where the organiser IS, without opening anything — the one thing the
+    // scrolling strip couldn't tell them about an off-screen section.
+    expect(trigger().getAttribute("aria-label")).toBe(
+      "Invite section: Design, 1 of 8. Choose a section",
+    );
+    expect(trigger().textContent).toContain("Design");
+    expect(trigger().textContent).toContain("1/8");
+
+    // The Shown/Hidden state rides the LABEL, not just the dot: the dot is
+    // `aria-hidden` and an `aria-label` overrides subtree content, so an
+    // `sr-only` span in the button would be dropped. Without this clause the
+    // collapsed trigger conveys three things visually and two to a screen
+    // reader — and "you can read it instead of opening it" stops being true.
+    await openSection(/^Closing/);
+    expect(trigger().getAttribute("aria-label")).toBe(
+      "Invite section: Closing, 7 of 8, hidden — empty. Choose a section",
+    );
+    expect(trigger().textContent).toContain("7/8");
+
+    await openSection(/^Hero/);
+    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "Anita & Ben" } });
+    await waitFor(() =>
+      expect(trigger().getAttribute("aria-label")).toBe(
+        "Invite section: Hero, 3 of 8, shown. Choose a section",
+      ),
+    );
+  });
+
+  it("mirrors the active section's Shown/Hidden dot on the trigger, live", async () => {
+    await renderBuilder();
+    const dot = () => trigger().querySelector(".rounded-full");
+
+    // Design has no Shown/Hidden state at all — no dot to mislead with.
+    expect(dot()).toBeNull();
+
+    // Hero starts empty on `EMPTY_CUSTOMISATION`, so the guest invite hides it.
+    await openSection(/^Hero/);
+    expect(dot()!.className).toContain("bg-text-muted/50");
+
+    // The dot flips the instant an edit gives the section content — it's the
+    // whole reason the trigger can be read instead of opened.
+    fireEvent.input(screen.getByLabelText("Couple title"), { target: { value: "Anita & Ben" } });
+    await waitFor(() => expect(dot()!.className).toContain("bg-gold"));
+  });
+
+  it("collapses the tablist behind the trigger and toggles it", async () => {
+    await renderBuilder();
+
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
+    expect(trigger().getAttribute("aria-controls")).toBe(tablist().id);
+    expect(tablist().classList.contains("hidden")).toBe(true);
+
+    fireEvent.click(trigger());
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+    expect(tablist().classList.contains("hidden")).toBe(false);
+
+    // All eight reachable in one screen — the point of replacing the strip.
+    expect(within(tablist()).getAllByRole("tab")).toHaveLength(8);
+
+    fireEvent.click(trigger());
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("closes on a selection and hands focus back to the trigger", async () => {
+    await renderBuilder();
+    fireEvent.click(trigger());
+
+    fireEvent.click(within(tablist()).getByRole("tab", { name: "Message" }));
+
+    expect(document.getElementById("invite-message")!.hidden).toBe(false);
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
+    // Collapsing takes the clicked tab to `display: none` and focus with it —
+    // the trigger is where focus has to land.
+    expect(document.activeElement).toBe(trigger());
+  });
+
+  it("leaves focus alone when a tab is clicked with the menu closed (wide row)", async () => {
+    await renderBuilder();
+
+    const lookTab = screen.getByRole("tab", { name: "Look" });
+    lookTab.focus();
+    fireEvent.click(lookTab);
+
+    expect(document.getElementById("invite-look")!.hidden).toBe(false);
+    expect(document.activeElement).toBe(lookTab);
+  });
+
+  it("closes on Escape from a tab, and on a press outside the nav", async () => {
+    await renderBuilder();
+
+    fireEvent.click(trigger());
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Design" }), { key: "Escape" });
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger());
+
+    fireEvent.click(trigger());
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+    fireEvent.pointerDown(document.body);
+    await waitFor(() => expect(trigger().getAttribute("aria-expanded")).toBe("false"));
+
+    // A press INSIDE the nav (the tablist's own padding) leaves it open.
+    fireEvent.click(trigger());
+    fireEvent.pointerDown(tablist());
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+
+    // Escape works from the TRIGGER too, not just from a tab — its own handler,
+    // reached whenever the menu was opened by keyboard and focus never moved.
+    fireEvent.keyDown(trigger(), { key: "Escape" });
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("collapses the menu when the container grows past the static-row threshold", async () => {
+    // A resizable stub: happy-dom runs no layout, so the only way to exercise a
+    // container CROSSING the threshold is to drive the callback by hand.
+    let report: ((width: number) => void) | undefined;
+    class ResizableObserver {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe() {
+        report = (width) =>
+          this.callback(
+            [{ contentRect: { width } } as unknown as ResizeObserverEntry],
+            this as unknown as ResizeObserver,
+          );
+        report(600); // narrow: the menu surface
+      }
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", ResizableObserver);
+    await renderBuilder();
+
+    fireEvent.click(trigger());
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+
+    // Rotate / resize / collapse the dashboard rail — the tabs become the static
+    // row, which the open menu must not outlive. Left `true`, `selectSection`
+    // would "close" it on every wide tab click, focusing a `display: none`
+    // trigger and dropping focus to the body.
+    report!(900);
+    await waitFor(() => expect(trigger().getAttribute("aria-expanded")).toBe("false"));
+
+    // The tab click that the stale state would have broken: focus stays put.
+    const lookTab = screen.getByRole("tab", { name: "Look" });
+    lookTab.focus();
+    fireEvent.click(lookTab);
+    expect(document.activeElement).toBe(lookTab);
+    expect(document.body).not.toBe(document.activeElement);
+
+    // 48rem at the 16px root `global.css` pins — the same content box
+    // `@3xl/builder` measures, so the JS collapse can't drift from the CSS swap.
+    report!(767);
+    fireEvent.click(trigger());
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+    report!(768);
+    await waitFor(() => expect(trigger().getAttribute("aria-expanded")).toBe("false"));
+  });
+
+  it("keeps ONE tablist whose tabs stay in the DOM while collapsed", async () => {
+    await renderBuilder();
+
+    // The narrow surface re-lays-out the same tablist rather than rendering a
+    // second copy: a duplicate would give every panel two `aria-labelledby`
+    // candidates and assistive tech two tabs widgets for one set of panels.
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
+    expect(screen.getAllByRole("tab")).toHaveLength(8);
+
+    // Collapsed, the tabs are `display: none` — but they must remain IN the
+    // document, because each panel's accessible name is computed from its tab
+    // (accname follows `aria-labelledby` into hidden subtrees; it cannot follow
+    // it into an unmounted node).
+    expect(trigger().getAttribute("aria-expanded")).toBe("false");
+    for (const panel of ["invite-design", "invite-hero", "invite-message"]) {
+      const labelledBy = document.getElementById(panel)!.getAttribute("aria-labelledby")!;
+      expect(document.getElementById(labelledBy)).toBeInTheDocument();
+    }
+  });
+
+  it("steps DOWN the open grid by a row, not along it", async () => {
+    await renderBuilder();
+    fireEvent.click(trigger());
+
+    // Row-major two-column grid: Design|Look / Hero|Our Story / … — so from
+    // Design, "down" is Hero (+2), and aliasing it to Look (+1, the item to the
+    // RIGHT) would make the arrows disagree with what the organiser can see.
+    const designTab = screen.getByRole("tab", { name: "Design" });
+    fireEvent.keyDown(designTab, { key: "ArrowDown" });
+    const heroTab = screen.getByRole("tab", { name: /^Hero/ });
+    expect(document.activeElement).toBe(heroTab);
+    expect(document.getElementById("invite-hero")!.hidden).toBe(false);
+
+    fireEvent.keyDown(heroTab, { key: "ArrowUp" });
+    expect(document.activeElement).toBe(designTab);
+
+    // The horizontal pair still steps one, along the row.
+    fireEvent.keyDown(designTab, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(screen.getByRole("tab", { name: "Look" }));
+
+    // Stepping keeps the menu open — only Escape, a selection, an outside press
+    // or focus leaving the nav dismisses it.
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("leaves ArrowDown/ArrowUp to the browser on the wide static row", async () => {
+    await renderBuilder();
+
+    // Closed ⇒ the wide surface, where the tablist is one horizontal line. APG
+    // reserves Down/Up for the page there, and the row this replaced let a
+    // keyboard user scroll from a focused tab — swallowing that is a regression.
+    const designTab = screen.getByRole("tab", { name: "Design" });
+    designTab.focus();
+    const down = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      cancelable: true,
+      bubbles: true,
+    });
+    designTab.dispatchEvent(down);
+
+    expect(down.defaultPrevented).toBe(false);
+    expect(document.activeElement).toBe(designTab);
+    expect(document.getElementById("invite-design")!.hidden).toBe(false);
+  });
+
+  it("closes when focus leaves the nav, so it can't obscure the field focus lands in", async () => {
+    await renderBuilder();
+    fireEvent.click(trigger());
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+
+    // Tabbing forward out of the menu used to leave it up — an opaque overlay
+    // across the top of the active section, with focus in a form field behind
+    // it and no keyboard way to uncover it (WCAG 2.2 SC 2.4.11).
+    const outside = screen.getByRole("button", { name: "Preview" });
+    fireEvent.focusOut(tablist(), { relatedTarget: outside });
+    await waitFor(() => expect(trigger().getAttribute("aria-expanded")).toBe("false"));
+
+    // Focus moving WITHIN the nav (tab → tab, or the close's own restore to the
+    // trigger) must not dismiss it.
+    fireEvent.click(trigger());
+    fireEvent.focusOut(tablist(), { relatedTarget: trigger() });
+    expect(trigger().getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("keeps the arrow step in lockstep with the grid's column count", async () => {
+    await renderBuilder();
+
+    // `ArrowDown` steps by SECTION_MENU_COLUMNS, but the column count is a CSS
+    // fact the handler can't read back — and Tailwind only emits utilities it
+    // finds as literal source text, so the class can't be built from the
+    // constant either. This is the checkable half of that pair.
+    expect(tablist().className).toContain(`grid-cols-${SECTION_MENU_COLUMNS}`);
   });
 });
 

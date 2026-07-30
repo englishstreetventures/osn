@@ -183,6 +183,8 @@ describe("POST /api/claim", () => {
 - Page-level transitions: Astro View Transitions API
 - Component-level animations: `@motionone/solid`
 - Keep animation logic in `*.motion.ts` files co-located with components
+- **Tailwind class names must be literal source text.** The scanner reads source as text, so a computed class (`` `grid-cols-${n}` ``, or any concatenation) emits **no CSS at all** — silently, since an unknown class is simply ignored. Where a layout constant has to exist in JS too (e.g. a key handler stepping by a grid's column count), keep the literal at the usage site, export the constant, and add a static drift guard in the tests asserting they agree — the pattern `SECTION_MENU_COLUMNS` (`invite/InviteBuilder.tsx`) and the `auto-grid` / `page-frame` utilities use
+- **`createMemo` runs its computation eagerly**, unlike a plain accessor — so a memo declared above the `const` it reads throws a TDZ error at component-init, not on first read. Order memos below their dependencies
 
 ## Commands
 

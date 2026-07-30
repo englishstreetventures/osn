@@ -15,6 +15,11 @@
  * disables when clean, `beforeunload` + the dashboard's navigation guard
  * (`lib/unsaved-guard`) protect a dirty draft from being lost.
  *
+ * The section nav is one tablist with two presentations, switched by a
+ * container query: a static row of pills from `@3xl/builder` up, and below it
+ * (phones) a trigger naming the current section that opens the same tabs as a
+ * two-column grid — see {@link SECTION_MENU_ID}.
+ *
  * Two persistence models coexist deliberately: text/theme wait for Save;
  * images, crops and the design selection apply immediately (marked with an
  * "applies immediately" badge, and image removal asks first). A draft→publish
@@ -107,9 +112,39 @@ interface InviteBuilderProps {
  */
 const WIDE_BUILDER_REM = 56;
 
+/**
+ * The threshold at which the section tabs stop being a collapsible menu and
+ * become the static row, mirroring the `@3xl/builder` container query on the
+ * tablist. Like {@link WIDE_BUILDER_REM} it has to exist in JS as well — not to
+ * decide what to mount (the swap is pure CSS) but to CLOSE the menu when the
+ * container grows past it, since a menu left open across the crossover would
+ * otherwise stay "open" forever on a surface that can no longer show it.
+ */
+const SECTION_MENU_REM = 48;
+
+/**
+ * How many columns the open section menu lays out in. **Lockstep with the
+ * literal `grid-cols-2` utility on the tablist** — the column count is a CSS
+ * fact the key handler cannot read back, and `ArrowDown`/`ArrowUp` step by it
+ * so the arrows follow the visible geometry rather than the DOM order.
+ *
+ * The class stays a LITERAL at its usage site rather than being built from this
+ * constant: Tailwind extracts class names by scanning source text, so a
+ * `grid-cols-${…}` template would emit no CSS at all. Exported so a static
+ * drift guard in the tests can assert the two agree — the same treatment the
+ * `auto-grid` / `page-frame` utilities got, and the only mechanically checkable
+ * half of a CSS↔JS constant pair.
+ */
+export const SECTION_MENU_COLUMNS = 2;
+
 /** Which preview layer is mounted. `unknown` means "not measured yet, or not
  *  measurable" and mounts both — see {@link watchBuilderWidth}. */
 type PreviewLayer = "unknown" | "narrow" | "wide";
+
+/** DOM id of the section tablist — the `aria-controls` target of the narrow
+ *  container's menu trigger. A constant, not `createUniqueId()`, because the
+ *  builder is a singleton surface and the id reads in the DOM inspector. */
+const SECTION_MENU_ID = "invite-section-tablist";
 
 /** The document's root font size, since a `rem` threshold in a container query
  *  resolves against the root, not the container. `global.css` pins this to 16px,
@@ -282,6 +317,14 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       // `unknown` rather than deciding the builder is narrow.
       if (width === 0) return;
       setPreviewLayer(width >= WIDE_BUILDER_REM * rootFontPx() ? "wide" : "narrow");
+      // Collapse the section menu once the container can show the static row.
+      // Nothing else writes this signal except the trigger, so without this a
+      // menu opened narrow stays `true` for the rest of the session after a
+      // rotate/resize — and `selectSection` would then "close" it on every wide
+      // tab click, focusing a `display: none` trigger and dropping focus to the
+      // body. Measured off the same `contentRect` the container query evaluates,
+      // so the JS collapse point cannot drift from the CSS one.
+      if (width >= SECTION_MENU_REM * rootFontPx()) setSectionMenuOpen(false);
     });
     observer.observe(el);
     onCleanup(() => observer.disconnect());
@@ -293,6 +336,64 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   const [activeSection, setActiveSection] = createSignal<(typeof NAV_SECTIONS)[number]["id"]>(
     NAV_SECTIONS[0].id,
   );
+
+  /**
+   * Whether the narrow-container section menu is open (see {@link SECTION_MENU_ID}).
+   *
+   * Below `@3xl/builder` the eight tabs cannot sit on one line, and the row used
+   * to be a horizontally scrolling strip: Closing and Message lived off the right
+   * edge with nothing to say so, on the surface where an organiser is least
+   * likely to go looking. The tabs are now collapsed behind a trigger naming the
+   * current section, and open as a two-column grid that shows all eight at once —
+   * the same move `ModuleSidebar` made for the module strip. From
+   * `@3xl/builder` up the trigger is `display: none` and the same tablist is the
+   * static row it has always been, so this signal is inert there.
+   *
+   * ONE tablist serves both surfaces rather than a per-surface copy: the panels'
+   * `aria-labelledby` points at `${id}-tab`, and duplicating the tabs would give
+   * every panel two candidate labels and assistive tech two tabs widgets.
+   */
+  const [sectionMenuOpen, setSectionMenuOpen] = createSignal(false);
+  let sectionMenuTrigger: HTMLButtonElement | undefined;
+  let sectionNav: HTMLElement | undefined;
+
+  const activeIndex = () => {
+    const i = NAV_SECTIONS.findIndex((s) => s.id === activeSection());
+    return i === -1 ? 0 : i;
+  };
+  const activeLabel = () => NAV_SECTIONS[activeIndex()]!.label;
+
+  /** Close the menu, optionally handing focus back to the trigger — which is
+   *  required whenever the close was caused by something INSIDE the menu, since
+   *  collapsing it takes the focused tab to `display: none` and focus with it. */
+  const closeSectionMenu = (restoreFocus = false) => {
+    setSectionMenuOpen(false);
+    if (restoreFocus) sectionMenuTrigger?.focus();
+  };
+
+  /** Pick a section. Closing the menu is what makes the choice feel like a
+   *  choice on touch; at `@3xl/builder` and up the menu is never open, so a tab
+   *  click there keeps its focus exactly as before. */
+  const selectSection = (id: (typeof NAV_SECTIONS)[number]["id"]) => {
+    setActiveSection(id);
+    if (sectionMenuOpen()) closeSectionMenu(true);
+  };
+
+  // Dismiss the open menu on an outside press. Listener exists ONLY while open
+  // (and only on the surface that can open it), so the common case adds no
+  // document-level work. Capture phase, so a press that also triggers something
+  // else still closes the menu first.
+  createEffect(() => {
+    if (!sectionMenuOpen()) return;
+    const onPointerDown = (e: Event) => {
+      const target = e.target;
+      if (target instanceof Node && sectionNav?.contains(target)) return;
+      setSectionMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    onCleanup(() => document.removeEventListener("pointerdown", onPointerDown, true));
+  });
+
   // The composed preview, opened as a modal — the only way to reach it below
   // `@4xl/builder`, where there's no room for the sticky side pane.
   const [previewModalOpen, setPreviewModalOpen] = createSignal(false);
@@ -302,8 +403,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // so keyboard navigation moves DOM focus imperatively via these refs.
   const sectionTabRefs = new Map<string, HTMLButtonElement>();
 
-  /** The section one step (±1) from `fromId`, wrapping around. */
-  function stepSection(fromId: string, delta: 1 | -1): string | undefined {
+  /** The section `delta` steps from `fromId`, wrapping around. */
+  function stepSection(fromId: string, delta: number): string | undefined {
     const ids = NAV_SECTIONS.map((s): string => s.id);
     const from = ids.indexOf(fromId);
     const fromIndex = from === -1 ? 0 : from;
@@ -317,8 +418,30 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     sectionTabRefs.get(id)?.focus();
   }
 
-  /** Arrow-key/Home/End roving-tabindex handler for the section tablist. */
+  /**
+   * Arrow-key/Home/End roving-tabindex handler for the section tablist.
+   *
+   * `ArrowDown`/`ArrowUp` are handled ONLY while the menu is open, where the
+   * tablist is a {@link SECTION_MENU_COLUMNS}-column grid and a keyboard user
+   * reaches for the vertical arrows. On the wide static row the tablist is a
+   * single horizontal line, so APG reserves Down/Up for the browser — handling
+   * them there would swallow page scroll from a focused tab, which is a
+   * regression against the row this replaced.
+   *
+   * Open, the vertical pair steps by the COLUMN COUNT, not by one: in a
+   * row-major two-column grid the next item is to the right, and the one below
+   * is two along. Aliasing Down to Right would make the arrows disagree with
+   * what the organiser can see.
+   *
+   * Escape collapses the menu (a no-op on the static wide row).
+   */
   function onSectionTabKeyDown(e: KeyboardEvent, currentId: string) {
+    if (e.key === "Escape") {
+      if (!sectionMenuOpen()) return;
+      e.preventDefault();
+      closeSectionMenu(true);
+      return;
+    }
     let nextId: string | undefined;
     switch (e.key) {
       case "ArrowRight":
@@ -326,6 +449,14 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         break;
       case "ArrowLeft":
         nextId = stepSection(currentId, -1);
+        break;
+      case "ArrowDown":
+        if (!sectionMenuOpen()) return;
+        nextId = stepSection(currentId, SECTION_MENU_COLUMNS);
+        break;
+      case "ArrowUp":
+        if (!sectionMenuOpen()) return;
+        nextId = stepSection(currentId, -SECTION_MENU_COLUMNS);
         break;
       case "Home":
         nextId = NAV_SECTIONS[0]!.id;
@@ -387,6 +518,27 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         return footerShown();
       default:
         return undefined;
+    }
+  };
+
+  /** The ACTIVE section's Shown/Hidden state, for the collapsed menu trigger's
+   *  dot. Memoised because the trigger reads it three times (the `Show` plus
+   *  two `classList` entries) and `navShown` funnels into the draft-reading
+   *  emptiness predicates — one subscription per keystroke instead of three.
+   *  Declared here, not beside `activeIndex`/`activeLabel`: `createMemo` runs
+   *  its computation eagerly, so it has to sit below `navShown`. */
+  const activeShown = createMemo(() => navShown(activeSection()));
+
+  /** The active section's Shown/Hidden state as a clause for the trigger's
+   *  accessible name — empty for the sections that have no such state. */
+  const shownSuffix = () => {
+    switch (activeShown()) {
+      case true:
+        return ", shown";
+      case false:
+        return ", hidden — empty";
+      default:
+        return "";
     }
   };
 
@@ -683,8 +835,97 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 no room for the sticky side preview), a button that opens the
                 composed preview in a modal instead. ── */}
               <div class="border-border bg-bg/90 sticky top-0 z-20 -mx-6 flex items-center gap-2 border-b px-6 py-2 backdrop-blur">
-                <nav aria-label="Invite sections" class="min-w-0 flex-1 overflow-x-auto">
-                  <div class="flex gap-1" role="tablist">
+                {/* No `relative` here on purpose: the open menu positions
+                  against the STICKY BAR (already a positioned element, so it is
+                  the containing block), which is wider than this nav column by
+                  the Preview button — a menu boxed into the column truncates
+                  "Our Story" on a 390px phone. */}
+                <nav
+                  ref={sectionNav}
+                  aria-label="Invite sections"
+                  class="min-w-0 flex-1"
+                  // Tabbing forward out of the open menu used to leave it up,
+                  // and the menu is an opaque overlay across the top of the
+                  // active section — so focus landed in a form field the
+                  // organiser could not see, with no keyboard way to uncover it
+                  // (WCAG 2.2 SC 2.4.11 Focus Not Obscured; Escape is bound to
+                  // the tabs and the trigger, not to the field they'd reach).
+                  // Closing on focus leaving the nav is what every popover
+                  // primitive does, and it costs nothing on the wide row where
+                  // the menu is never open.
+                  onFocusOut={(e) => {
+                    if (!sectionMenuOpen()) return;
+                    const next = e.relatedTarget;
+                    if (next instanceof Node && sectionNav?.contains(next)) return;
+                    setSectionMenuOpen(false);
+                  }}
+                >
+                  {/* Narrow containers only: the current section as a menu
+                    trigger. It names where the organiser IS (label, position,
+                    Shown/Hidden dot) so the menu only has to be opened to move,
+                    never to orient — the thing the scrolling strip could not do
+                    for the sections parked off its right edge. */}
+                  <button
+                    type="button"
+                    ref={(el) => (sectionMenuTrigger = el)}
+                    aria-expanded={sectionMenuOpen()}
+                    aria-controls={SECTION_MENU_ID}
+                    // The dot is `aria-hidden`, and an `aria-label` overrides
+                    // subtree content — so an `sr-only` span inside the button
+                    // (what the tabs themselves use) would be dropped. The state
+                    // has to be folded into the label, or the collapsed trigger
+                    // tells a sighted organiser three things and a screen-reader
+                    // one only two. Wording matches `SegmentBadge`.
+                    aria-label={`Invite section: ${activeLabel()}, ${activeIndex() + 1} of ${NAV_SECTIONS.length}${shownSuffix()}. Choose a section`}
+                    onClick={() => setSectionMenuOpen(!sectionMenuOpen())}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Escape" || !sectionMenuOpen()) return;
+                      e.preventDefault();
+                      closeSectionMenu();
+                    }}
+                    class="border-border bg-surface/40 text-text hover:border-gold-dim font-body flex min-h-11 w-full items-center justify-between gap-3 rounded-sm border px-3 py-2 text-[0.75rem] tracking-[0.08em] uppercase transition-colors @3xl/builder:hidden"
+                  >
+                    <span class="flex min-w-0 items-center gap-2">
+                      <Show when={activeShown() !== undefined}>
+                        <span
+                          aria-hidden
+                          class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                          classList={{
+                            "bg-gold": activeShown() === true,
+                            "bg-text-muted/50": activeShown() === false,
+                          }}
+                        />
+                      </Show>
+                      <span class="min-w-0 truncate">{activeLabel()}</span>
+                    </span>
+                    <span
+                      aria-hidden
+                      class="text-text-muted flex shrink-0 items-center gap-2 text-[0.66rem] tracking-[0.14em] tabular-nums"
+                    >
+                      {activeIndex() + 1}/{NAV_SECTIONS.length}
+                      <span
+                        class="text-gold inline-block text-[0.8rem] tracking-normal transition-transform duration-(--dur-fast)"
+                        classList={{ "rotate-180": sectionMenuOpen() }}
+                      >
+                        ▾
+                      </span>
+                    </span>
+                  </button>
+
+                  {/* ONE tablist, two presentations. Narrow + open: a two-column
+                    grid dropped under the trigger — all eight sections on screen
+                    at once, no horizontal scroll, and absolutely positioned so
+                    opening it never shoves the form down. Narrow + closed:
+                    `display: none` (the panels' `aria-labelledby` still resolves
+                    against it — the accname spec follows hidden references).
+                    From `@3xl/builder`, where the eight fit on one line: the
+                    static row, always laid out, menu state irrelevant. */}
+                  <div
+                    id={SECTION_MENU_ID}
+                    role="tablist"
+                    classList={{ hidden: !sectionMenuOpen(), grid: sectionMenuOpen() }}
+                    class="border-border bg-bg absolute inset-x-6 top-full z-30 mt-1 max-h-[60vh] grid-cols-2 gap-1 overflow-y-auto rounded-sm border p-2 shadow-lg @3xl/builder:static @3xl/builder:mt-0 @3xl/builder:flex @3xl/builder:max-h-none @3xl/builder:flex-wrap @3xl/builder:overflow-visible @3xl/builder:rounded-none @3xl/builder:border-0 @3xl/builder:bg-transparent @3xl/builder:p-0 @3xl/builder:shadow-none"
+                  >
                     <For each={[...NAV_SECTIONS]}>
                       {(item) => {
                         const shown = () => navShown(item.id);
@@ -698,9 +939,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                             aria-selected={active()}
                             tabIndex={active() ? 0 : -1}
                             ref={(el) => sectionTabRefs.set(item.id, el)}
-                            onClick={() => setActiveSection(item.id)}
+                            onClick={() => selectSection(item.id)}
                             onKeyDown={(e) => onSectionTabKeyDown(e, item.id)}
-                            class={`font-body flex shrink-0 items-center gap-1.5 rounded-sm px-2.5 py-1 text-[0.72rem] tracking-[0.08em] uppercase transition-colors ${
+                            // `min-h-11` is a 44px touch target in the menu; the
+                            // wide row keeps the compact pill it has always been.
+                            class={`font-body flex min-h-11 w-full shrink-0 items-center gap-1.5 rounded-sm px-3 py-2 text-left text-[0.72rem] tracking-[0.08em] uppercase transition-colors @3xl/builder:min-h-0 @3xl/builder:w-auto @3xl/builder:px-2.5 @3xl/builder:py-1 ${
                               active()
                                 ? "bg-gold/12 text-gold"
                                 : "text-text-muted hover:text-text hover:bg-surface/60"
@@ -709,14 +952,14 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                             <Show when={shown() !== undefined}>
                               <span
                                 aria-hidden
-                                class="inline-block h-1.5 w-1.5 rounded-full"
+                                class="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
                                 classList={{
                                   "bg-gold": shown() === true,
                                   "bg-text-muted/50": shown() === false,
                                 }}
                               />
                             </Show>
-                            {item.label}
+                            <span class="min-w-0 truncate">{item.label}</span>
                             <Show when={shown() === false}>
                               <span class="sr-only">(hidden — empty)</span>
                             </Show>
@@ -732,7 +975,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 <button
                   type="button"
                   onClick={() => setPreviewModalOpen(true)}
-                  class="font-body text-gold border-gold/40 hover:bg-gold/10 shrink-0 rounded-sm border px-2.5 py-1 text-[0.72rem] tracking-[0.08em] uppercase transition-colors @4xl/builder:hidden"
+                  class="font-body text-gold border-gold/40 hover:bg-gold/10 flex min-h-11 shrink-0 items-center rounded-sm border px-3 py-1 text-[0.72rem] tracking-[0.08em] uppercase transition-colors @3xl/builder:min-h-0 @3xl/builder:py-1 @4xl/builder:hidden"
                 >
                   Preview
                 </button>
