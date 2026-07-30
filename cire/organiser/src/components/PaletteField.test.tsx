@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { PALETTE_PRESETS } from "@cire/theme";
+import { headingSizeCss, PALETTE_PRESETS, typographyVar } from "@cire/theme";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { captureDeclaredStyles } from "../test-support/declared-style";
 import PaletteField, { type PaletteState } from "./PaletteField";
 
 /**
@@ -17,7 +18,10 @@ import PaletteField, { type PaletteState } from "./PaletteField";
  * organiser for one colour and change another — so each is pinned to its key.
  */
 describe("PaletteField", () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
 
   const EMPTY: PaletteState = { preset: null, seeds: {} };
 
@@ -78,6 +82,41 @@ describe("PaletteField", () => {
     // Destructive and deliberate: a preset is five colours, so adopting one
     // wholesale is the only reading that leaves a coherent scheme.
     expect(onChange).toHaveBeenCalledWith({ preset: "chapel", seeds: {} });
+  });
+
+  /**
+   * The scheme preview sits inside the builder's "Look" card, directly under
+   * the typography controls, and is styled with the shared token map — which
+   * carries the five typography variables. Its sample used to pin
+   * `font-light italic` at a literal `1.5rem`, so it contradicted every
+   * heading pick made an inch above it. Follow the variables (with the guest
+   * packs' literals as fallbacks) so a "Default" scheme still renders exactly
+   * as before.
+   */
+  it("its heading sample follows the typography variables, not a hardcoded look", () => {
+    const styles = captureDeclaredStyles();
+    render(() => <PaletteField value={EMPTY} onChange={() => {}} />);
+    const heading = screen.getByText("Your Events");
+
+    // Against `@cire/theme`'s canonical fallbacks rather than a retyped
+    // literal — the sample must follow the packs' base look, not a copy of it.
+    const headingStyle = styles.of(heading);
+    expect(headingStyle["font-weight"]).toBe(typographyVar("headingWeight"));
+    expect(headingStyle["font-style"]).toBe(typographyVar("headingStyle"));
+    expect(headingStyle["font-size"]).toBe(headingSizeCss("1.5rem"));
+    // The old hardcoded pair would win over the variables — it must be gone.
+    expect(heading.className).not.toContain("italic");
+    expect(heading.className).not.toContain("font-light");
+
+    // The body pair rides the panel wrapper and cascades, exactly as the guest
+    // invite's `body` rule does — so the eyebrow and the event card follow the
+    // organiser's body weight/style too, not just one line. Anchored off the
+    // sample's own copy rather than a `> div` position, so a layout wrapper
+    // can't silently re-point the assertion.
+    const panel = screen.getByText("Celebrate with us").parentElement!;
+    expect(panel.className).toContain("[font-weight:var(--invite-body-weight,400)]");
+    expect(panel.className).toContain("[font-style:var(--invite-body-style,normal)]");
+    expect(panel.getAttribute("style")).toContain("font-family:var(--font-body)");
   });
 
   it("stays quiet when the scheme needs no contrast rescue", () => {

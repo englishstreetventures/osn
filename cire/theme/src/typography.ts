@@ -103,18 +103,72 @@ export interface TypographySettings {
   bodyStyle: string | null;
 }
 
+/** The custom property each typography setting rides on. */
+export const TYPOGRAPHY_VAR_NAMES = {
+  headingSize: "--invite-heading-scale",
+  headingWeight: "--invite-heading-weight",
+  headingStyle: "--invite-heading-style",
+  bodyWeight: "--invite-body-weight",
+  bodyStyle: "--invite-body-style",
+} as const satisfies Record<keyof TypographySettings, string>;
+
+/**
+ * What each setting looks like when it is NOT set — i.e. the design pack's own
+ * base look, which every consumer writes as the `var()` fallback:
+ * `var(--invite-heading-weight, 300)`.
+ *
+ * These are the counterpart to the value maps above. Those say what a SET
+ * option resolves to and have always lived in one place; the un-set state was
+ * a literal repeated at every call site — 33 references across the two guest
+ * packs plus the organiser previews — with nothing checking they agreed. A
+ * pack that changed its base heading weight would have left every organiser
+ * preview quietly misrepresenting "Default": the same class of bug as a
+ * preview that ignores the variable outright, one level down.
+ *
+ * Consumers that build their declarations at runtime (the organiser's preview
+ * samples) import {@link typographyVar} and hold no literal at all. The guest
+ * packs CANNOT: their declarations are Tailwind arbitrary-property classes
+ * (`[font-weight:var(--invite-heading-weight,300)]`), and Tailwind generates
+ * CSS by scanning source text, so an interpolated class name emits no rule.
+ * Those stay literal by necessity and are held to these values by
+ * `typography-fallbacks.test.ts`, which scans both packages.
+ */
+export const TYPOGRAPHY_FALLBACKS = {
+  headingSize: "1",
+  headingWeight: "300",
+  headingStyle: "normal",
+  bodyWeight: "400",
+  bodyStyle: "normal",
+} as const satisfies Record<keyof TypographySettings, string>;
+
+export type TypographyKey = keyof TypographySettings;
+
+/**
+ * The CSS reference a consumer writes for one setting, fallback included —
+ * `var(--invite-heading-weight, 300)`. Use this instead of typing the literal.
+ */
+export function typographyVar(key: TypographyKey): string {
+  return `var(${TYPOGRAPHY_VAR_NAMES[key]}, ${TYPOGRAPHY_FALLBACKS[key]})`;
+}
+
+/**
+ * A heading `font-size` scaled by the organiser's heading-size option. The
+ * pack (or preview) supplies its own base — a literal or its own `clamp(...)`
+ * curve — and the multiplier rides on top, so the responsive curves stay where
+ * they belong and only the scale is shared.
+ */
+export function headingSizeCss(base: string): string {
+  return `calc(${base} * ${typographyVar("headingSize")})`;
+}
+
 /**
  * The custom properties {@link typographyVars} may emit. Exported so the guest
  * site's theme-variable allow-list (`ALLOWED_THEME_VAR_KEYS`) can include them
  * without hand-listing — the set and the emitter cannot drift.
  */
-export const TYPOGRAPHY_VAR_KEYS = [
-  "--invite-heading-scale",
-  "--invite-heading-weight",
-  "--invite-heading-style",
-  "--invite-body-weight",
-  "--invite-body-style",
-] as const;
+export const TYPOGRAPHY_VAR_KEYS = Object.values(
+  TYPOGRAPHY_VAR_NAMES,
+) as readonly (typeof TYPOGRAPHY_VAR_NAMES)[TypographyKey][];
 
 /**
  * The root style map for an invite's typography. Emits a variable only for a
@@ -132,15 +186,17 @@ export function typographyVars(
 ): Record<string, string> {
   const vars: Record<string, string> = {};
   if (!settings) return vars;
+  // Property names come from TYPOGRAPHY_VAR_NAMES, so the emitter, the guest's
+  // allow-list and every consumer's `var()` reference share one spelling.
   const scale = headingScale(settings.headingSize);
-  if (scale) vars["--invite-heading-scale"] = scale;
+  if (scale) vars[TYPOGRAPHY_VAR_NAMES.headingSize] = scale;
   const headingWeight = fontWeightValue(settings.headingWeight);
-  if (headingWeight) vars["--invite-heading-weight"] = headingWeight;
+  if (headingWeight) vars[TYPOGRAPHY_VAR_NAMES.headingWeight] = headingWeight;
   const headingStyle = fontStyleValue(settings.headingStyle);
-  if (headingStyle) vars["--invite-heading-style"] = headingStyle;
+  if (headingStyle) vars[TYPOGRAPHY_VAR_NAMES.headingStyle] = headingStyle;
   const bodyWeight = fontWeightValue(settings.bodyWeight);
-  if (bodyWeight) vars["--invite-body-weight"] = bodyWeight;
+  if (bodyWeight) vars[TYPOGRAPHY_VAR_NAMES.bodyWeight] = bodyWeight;
   const bodyStyle = fontStyleValue(settings.bodyStyle);
-  if (bodyStyle) vars["--invite-body-style"] = bodyStyle;
+  if (bodyStyle) vars[TYPOGRAPHY_VAR_NAMES.bodyStyle] = bodyStyle;
   return vars;
 }

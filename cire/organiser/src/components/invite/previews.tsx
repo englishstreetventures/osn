@@ -15,6 +15,7 @@
  * hero's second crop rectangle exists (0046).
  */
 
+import { headingSizeCss, typographyVar } from "@cire/theme";
 import { createSignal, Show } from "solid-js";
 
 import { apiUrl } from "../../lib/api";
@@ -145,16 +146,17 @@ export function HeroSample(props: {
             : undefined
         }
       >
-        {/* Follows the typography variables with the guest hero's literal
-            fallbacks (300 / normal) so a weight/style/size pick shows here. */}
+        {/* Follows the typography variables — including the pack's base look
+            as each fallback, taken from `@cire/theme` rather than retyped, so
+            a pack that changes its base can't leave this sample behind. */}
         <span
           class="max-w-full text-center leading-none break-words"
           style={{
             color: "var(--color-gold)",
             "font-family": "var(--font-display)",
-            "font-size": "calc(clamp(1.25rem,6vw,2rem) * var(--invite-heading-scale, 1))",
-            "font-weight": "var(--invite-heading-weight, 300)",
-            "font-style": "var(--invite-heading-style, normal)",
+            "font-size": headingSizeCss("clamp(1.25rem,6vw,2rem)"),
+            "font-weight": typographyVar("headingWeight"),
+            "font-style": typographyVar("headingStyle"),
           }}
         >
           {titleText()}
@@ -232,9 +234,21 @@ export function SectionSample(props: {
   class?: string;
 }) {
   return (
+    // The body weight + style ride the section wrapper alongside the body face
+    // and cascade to every line inside it — eyebrow, body copy and the event
+    // card — mirroring `global.css`'s `body` rule on the guest invite. Pinning
+    // them on the body line alone left the rest of the sample on the pack's
+    // default, so a "Body weight: Bold" pick only moved one span.
+    //
+    // They are Tailwind arbitrary properties rather than inline style, which is
+    // the idiom the guest packs' heading elements already use
+    // (`[font-weight:var(--invite-heading-weight,300)]`). It also keeps them out
+    // of a style object that carries a dynamic value: Solid applies that one
+    // through `setProperty`, and happy-dom discards a `var()` value there, so
+    // the contract would be invisible to the tests.
     <div
       style={{ "background-color": props.surface, "font-family": "var(--font-body)" }}
-      class={`flex flex-col items-center justify-center gap-1.5 p-4 text-center ${props.class ?? ""}`}
+      class={`flex flex-col items-center justify-center gap-1.5 p-4 text-center [font-weight:var(--invite-body-weight,400)] [font-style:var(--invite-body-style,normal)] ${props.class ?? ""}`}
     >
       <Show when={props.eyebrow}>
         <span
@@ -244,17 +258,17 @@ export function SectionSample(props: {
           {props.eyebrow}
         </span>
       </Show>
-      {/* The heading sample follows the typography variables with the guest
-          packs' literal fallbacks (300 / normal) — it used to be decoratively
-          italic, which would now lie about an explicit "Normal" pick. */}
+      {/* The heading sample follows the typography variables, fallbacks from
+          `@cire/theme` — it used to be decoratively italic, which would now
+          lie about an explicit "Normal" pick. */}
       <Show when={props.heading}>
         <span
           style={{
             color: "var(--color-text)",
             "font-family": "var(--font-display)",
-            "font-size": "calc(1.5rem * var(--invite-heading-scale, 1))",
-            "font-weight": "var(--invite-heading-weight, 300)",
-            "font-style": "var(--invite-heading-style, normal)",
+            "font-size": headingSizeCss("1.5rem"),
+            "font-weight": typographyVar("headingWeight"),
+            "font-style": typographyVar("headingStyle"),
           }}
           class="leading-none"
         >
@@ -271,13 +285,10 @@ export function SectionSample(props: {
         )}
       </Show>
       {/* Body sample in the body font on the section surface, so the font and
-          the text-on-surface contrast are both visible. */}
+          the text-on-surface contrast are both visible. Weight + style are
+          inherited from the wrapper above. */}
       <span
-        style={{
-          color: "var(--color-text-muted)",
-          "font-weight": "var(--invite-body-weight, 400)",
-          "font-style": "var(--invite-body-style, normal)",
-        }}
+        style={{ color: "var(--color-text-muted)" }}
         class="max-w-full text-[0.62rem] break-words"
       >
         {props.body}

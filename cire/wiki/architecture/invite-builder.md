@@ -653,6 +653,65 @@ frame uses the hero's phone rectangle, falling back to the desktop crop
 exactly as the guest site does. Tone pickers render **as their surface**
 (swatch buttons on the scoped tokens), not as text-only chips.
 
+**Every preview sample follows the typography variables — none hardcodes a
+look.** A sample that pins `font-light italic` in a class renders the same
+whatever the organiser picks, so it doesn't merely fail to update: it
+contradicts an explicit "Bold" / "Normal" pick made inches away. Each heading
+sample therefore carries
+`font-size: calc(<its clamp> * var(--invite-heading-scale, 1))`,
+`font-weight: var(--invite-heading-weight, 300)` and
+`font-style: var(--invite-heading-style, normal)` — the guest packs' literals
+as fallbacks, so an un-set option renders exactly as before. The **body** pair
+(`--invite-body-weight` / `--invite-body-style`) rides each sample's WRAPPER
+beside `--font-body` and cascades to every line inside it, mirroring how
+`global.css` applies it to the guest `<body>`; declaring it on the one body
+line instead left the eyebrow and the mini event card on the pack default. This
+applies to the third preview layer too — `PaletteField`'s "Colour scheme
+preview", which sits directly under the Look card's typography controls and was
+the one sample still hardcoded (fixed 2026-07-30).
+
+The body pair is written as **Tailwind arbitrary properties**
+(`[font-weight:var(--invite-body-weight,400)]`), the idiom the guest packs
+already use for their heading elements, rather than as inline style. Heading
+samples use inline style, because they resolve their values from `@cire/theme`
+(below) and a class name cannot be built at runtime.
+
+### The fallbacks are single-sourced too
+
+`typographyVars` has always been the one place a **set** option resolves to a
+value. The **un-set** state — the pack's own base look, written as each `var()`
+fallback — used to be a literal retyped at every call site, ~30 references
+across the two packs, the guest `global.css` and the previews, with nothing
+checking they agreed. A pack changing its base heading weight would have left
+every organiser preview misrepresenting "Default": the bug above, one level
+down (was `T-S3`).
+
+`@cire/theme` now names them once — `TYPOGRAPHY_FALLBACKS`, with
+`typographyVar("headingWeight")` → `var(--invite-heading-weight, 300)` and
+`headingSizeCss(base)` → `calc(<base> * var(--invite-heading-scale, 1))`, so a
+pack keeps its own responsive curve and only the multiplier is shared.
+`TYPOGRAPHY_VAR_NAMES` is the one spelling of the property names, and
+`TYPOGRAPHY_VAR_KEYS` derives from it.
+
+**Who can consume them, and who cannot.** The organiser's preview samples build
+their declarations at runtime, so they call the helpers and hold no literal.
+The guest packs CANNOT: their declarations are Tailwind arbitrary-property
+classes, and Tailwind generates CSS by scanning source **text** — an
+interpolated class name produces no rule at all. The same applies to the
+previews' class-based body pair. Those references stay literal by necessity and
+are held to the canonical values by `cire/theme/src/typography-fallbacks.test.ts`,
+which scans both packages and fails on a fallback that disagrees, a reference
+that omits its fallback (a bare `var()` renders at the CSS initial weight, not
+the pack's 300), or a variable no consumer references any more.
+
+> **Testing note.** Resolving a value through a helper makes Solid treat that
+> style object as computed, and it then applies those declarations via
+> `setProperty` — where happy-dom discards a `var()` value for `font-weight`,
+> `font-style` and `font-size`. Assertions therefore go through
+> `src/test-support/declared-style.ts`, which merges what Solid compiled into
+> the template attribute with what it set at runtime. It is a test-environment
+> limitation, not a browser one; do not reshape a component to work around it.
+
 **One save, dirty-checked per half — and dirty state is REACTIVE.** The draft
 lives in one `createStore` (`InviteDraft`); each half's serialised payload is
 compared in a memo against the last server-acknowledged snapshot (a signal,
@@ -757,21 +816,19 @@ export via `$toCanvas`), the image serve endpoint must first send
 `Vary: Origin` (and ideally an unconditional ACAO for allowlisted origins) so
 cors- and no-cors-mode responses never share a cache entry.
 
-**Live theme preview.** A compact, representative mini-invite (one labelled card
-per section: Hero / Our Story / Event Details) sits beside the colour controls and
-updates **instantly** as the organiser changes a colour or font — driven by the
-same picker signals, so they SEE the effect before saving (previously the change
-only showed on the guest URL after a save). It is styled with the **same
-`--invite-*` CSS variables** the guest invite consumes
-(`--invite-accent/surface/heading/body`), via a small **local mirror** of the
-guest mapping: `cire/organiser/src/lib/invite-theme-preview.ts`
-(`previewSectionVars`, `previewFontStack`, `PREVIEW_DEFAULTS`). The mirror exists
-because `cire/web`'s `invite-theme.ts` (and the `--font-display`/`--color-gold`
-tokens) can't be imported across the package boundary cleanly, and the organiser
-must never pull Effect / web internals — it's a plain Solid component with inline
-`style`. Keep the var **names**, the font **keys**, the colour/font **defaults**,
-and the "null ⇒ default token" precedence in lockstep with the guest file so the
-preview stays faithful.
+**Live theme preview.** Every preview surface updates **instantly** as the
+organiser edits — colour, font, typography option or copy — so they SEE the
+effect before saving (originally a change only showed on the guest URL after a
+save). There is no organiser-side theme mirror any more: `previewTokens` in
+`InviteBuilder.tsx` calls the SAME `derivePalette` + `fontStack` +
+`typographyVars` from `@cire/theme` that the guest root vars are built from
+(`paletteRootVars` in `cire/web/src/components/invite-theme.ts`), so the preview
+cannot disagree with what a guest sees. The one map is derived once per frame
+and threaded to all three layers — the inline `SectionPreview`/`HeroPreview`
+cards, the composed `PreviewPane`, and `PaletteField`'s scheme sample (via its
+`tokens` / `adjustments` props). What each sample must keep in lockstep is not a
+copy of the mapping but the **consumption**: the `var(--invite-*, <pack
+literal>)` declarations above.
 
 ## Observability
 

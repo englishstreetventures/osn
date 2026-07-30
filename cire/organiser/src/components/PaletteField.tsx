@@ -1,6 +1,7 @@
 import {
   DEFAULT_PRESET,
   derivePalette,
+  headingSizeCss,
   PALETTE_PRESET_KEYS,
   PALETTE_PRESETS,
   type PaletteAdjustment,
@@ -8,6 +9,7 @@ import {
   type PaletteSeeds,
   paletteAdjustments,
   resolveSeeds,
+  typographyVar,
 } from "@cire/theme";
 import { createMemo, For, Show } from "solid-js";
 
@@ -167,16 +169,36 @@ export default function PaletteField(props: {
           class="border-border overflow-hidden rounded-sm border"
           style={{ ...tokens(), "background-color": "var(--color-bg)" }}
         >
-          <div class="flex flex-col gap-3 p-4">
+          {/* The body face, weight and style ride the wrapper and cascade to
+              every line below it — the same way `global.css` applies them to
+              the guest invite's <body>. The heading pins its own pair, so an
+              italic body never drags the heading along. Arbitrary properties,
+              matching `SectionSample` and the guest packs. */}
+          <div
+            class="flex flex-col gap-3 p-4 [font-weight:var(--invite-body-weight,400)] [font-style:var(--invite-body-style,normal)]"
+            style={{ "font-family": "var(--font-body)" }}
+          >
             <span
               class="text-[0.6rem] tracking-[0.18em] uppercase"
               style={{ color: "var(--color-gold)" }}
             >
               Celebrate with us
             </span>
+            {/* Follows the typography variables, with the packs' base look as
+                each fallback (from `@cire/theme`, not retyped), so a size /
+                weight / italics pick shows HERE — this preview sits directly
+                under the Look card's typography controls, and a hardcoded
+                `font-light italic` sample would flatly contradict an explicit
+                "Bold" or "Normal". */}
             <span
-              class="text-[1.5rem] leading-none font-light italic"
-              style={{ color: "var(--color-text)", "font-family": "var(--font-display)" }}
+              class="leading-none"
+              style={{
+                color: "var(--color-text)",
+                "font-family": "var(--font-display)",
+                "font-size": headingSizeCss("1.5rem"),
+                "font-weight": typographyVar("headingWeight"),
+                "font-style": typographyVar("headingStyle"),
+              }}
             >
               Your Events
             </span>
