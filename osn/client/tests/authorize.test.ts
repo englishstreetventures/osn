@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { AuthorizeError, createAuthorizeClient } from "../src/authorize";
+import {
+  AuthorizeError,
+  createAuthorizeClient,
+  DEFAULT_AUTHORIZE_TIMEOUT_MS,
+} from "../src/authorize";
 
 const config = { issuerUrl: "https://osn.example.com" };
 
@@ -231,6 +235,183 @@ describe("createAuthorizeClient", () => {
 
       expect(err).toBeInstanceOf(AuthorizeError);
       expect(err.code).toBe("unknown");
+    });
+  });
+
+  // AZ-P-I2. Without a deadline a stalled issuer leaves the consent screen on
+  // its spinner until the browser gives up — the retry screen only helps once
+  // the promise settles, so the promise has to settle.
+  describe("deadlines", () => {
+    /** A fetch that hangs until its signal aborts, as a stalled issuer would. */
+    const stubStalledFetch = () =>
+      stubFetch(
+        (call) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = call.init?.signal;
+            signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+          }),
+      );
+
+    it("gives up on a stalled issuer instead of hanging", async () => {
+      vi.useFakeTimers();
+      try {
+        const quick = createAuthorizeClient({ ...config, timeoutMs: 50 });
+        stubStalledFetch();
+
+        const pending = quick.getContext(requestId).catch((e: unknown) => e);
+        await vi.advanceTimersByTimeAsync(50);
+        const err = (await pending) as AuthorizeError;
+
+        expect(err).toBeInstanceOf(AuthorizeError);
+        expect(err.code).toBe("unknown");
+        // Retryable, not terminal: the parked request outlives a slow network.
+        expect(err.terminal).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("passes a signal to fetch and clears the timer once a call settles", async () => {
+      vi.useFakeTimers();
+      try {
+        const clearSpy = vi.spyOn(globalThis, "clearTimeout");
+        const { calls } = stubFetch(() => jsonResponse(sampleContext));
+
+        await createAuthorizeClient(config).getContext(requestId);
+
+        expect(calls[0]!.init?.signal).toBeInstanceOf(AbortSignal);
+        expect(calls[0]!.init?.signal?.aborted).toBe(false);
+        // A settled call must not leave a live timer behind — on the consent
+        // screen that would abort a later, unrelated request.
+        expect(clearSpy).toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("re-throws a caller abort untouched rather than dressing it as a failure", async () => {
+      // The page aborts its own in-flight read on unmount; that is not an
+      // error state to render, so it must not arrive as an AuthorizeError.
+      const controller = new AbortController();
+      stubStalledFetch();
+
+      const pending = client
+        .getContext(requestId, { signal: controller.signal })
+        .catch((e: unknown) => e);
+      controller.abort(new Error("unmounted"));
+      const err = await pending;
+
+      expect(err).not.toBeInstanceOf(AuthorizeError);
+      expect((err as Error).message).toBe("unmounted");
+    });
+
+    it("does not call fetch at all when the caller's signal is already aborted", async () => {
+      const { fn } = stubFetch(() => jsonResponse(sampleContext));
+      const controller = new AbortController();
+      controller.abort(new Error("already gone"));
+
+      const err = await client
+        .getContext(requestId, { signal: controller.signal })
+        .catch((e: unknown) => e);
+
+      expect((err as Error).message).toBe("already gone");
+      expect(fn).not.toHaveBeenCalled();
+    });
+
+    // T-S1 / P-W1 / S-L3: `fetch` settles when HEADERS arrive. A server that
+    // flushes headers then stalls mid-body used to escape the deadline
+    // entirely — the exact indefinite spinner this feature exists to bound.
+    it("bounds a response whose headers arrive but whose body stalls", async () => {
+      vi.useFakeTimers();
+      try {
+        const quick = createAuthorizeClient({ ...config, timeoutMs: 50 });
+        stubFetch(
+          (call) =>
+            new Response(
+              // A body that never enqueues and never closes.
+              new ReadableStream({
+                start(controller) {
+                  call.init?.signal?.addEventListener(
+                    "abort",
+                    () => controller.error(new Error("aborted")),
+                    { once: true },
+                  );
+                },
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } },
+            ),
+        );
+
+        const pending = quick.getContext(requestId).catch((e: unknown) => e);
+        await vi.advanceTimersByTimeAsync(50);
+        const err = (await pending) as AuthorizeError;
+
+        expect(err).toBeInstanceOf(AuthorizeError);
+        expect(err.code).toBe("unknown");
+        expect(err.terminal).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    // T-S2: `0` is a documented opt-out and a falsy guard — the classic spot
+    // for a `||`-instead-of-`??` slip, which would silently reinstate a 10s
+    // deadline while every other test still passed.
+    it("honours timeoutMs: 0 as an opt-out", async () => {
+      vi.useFakeTimers();
+      try {
+        const noDeadline = createAuthorizeClient({ ...config, timeoutMs: 0 });
+        stubStalledFetch();
+        let settled = false;
+        void noDeadline.getContext(requestId).catch(() => {
+          settled = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(DEFAULT_AUTHORIZE_TIMEOUT_MS * 3);
+        expect(settled).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("exposes the default deadline as a constant", () => {
+      expect(DEFAULT_AUTHORIZE_TIMEOUT_MS).toBe(10_000);
+    });
+
+    // S-M1: aborting a fetch does not un-send it. `submitDecision` consumes the
+    // parked request, writes the consent row and mints the code, so a
+    // client-side deadline that fires mid-commit would surface a RETRYABLE
+    // error over a grant that actually happened. The read keeps its deadline;
+    // the write must not have one by default.
+    it("puts no default deadline on the state-changing decision POST", async () => {
+      vi.useFakeTimers();
+      try {
+        stubStalledFetch();
+        let settled = false;
+        void client.submitDecision({ requestId, profileId: "usr_1", approved: true }).catch(() => {
+          settled = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(DEFAULT_AUTHORIZE_TIMEOUT_MS * 3);
+        expect(settled).toBe(false);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("wraps a transport failure as a retryable AuthorizeError", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+      );
+
+      const err = (await client
+        .submitDecision({ requestId, profileId: "usr_1", approved: true })
+        .catch((e: unknown) => e)) as AuthorizeError;
+
+      expect(err).toBeInstanceOf(AuthorizeError);
+      expect(err.code).toBe("unknown");
+      expect(err.terminal).toBe(false);
     });
   });
 });

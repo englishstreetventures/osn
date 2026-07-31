@@ -26,9 +26,16 @@ vi.mock("solid-toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock("../lib/api", () => ({
+const redirectToLogin = vi.fn();
+
+// T-U5: `isAuthExpired` comes from the REAL module, not a stand-in. A
+// hand-written copy would only re-implement one arm, so the point of
+// consolidating on the shared helper — that `lib/api.test.ts`'s shape
+// assertions transitively protect this call site — would be lost.
+vi.mock("../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/api")>()),
   apiUrl: (path: string) => `https://api.test${path}`,
-  redirectToLogin: vi.fn(),
+  redirectToLogin,
 }));
 
 const makeItem = (over: Partial<EnquiryListItem> = {}): EnquiryListItem => ({
@@ -48,6 +55,10 @@ const makeItem = (over: Partial<EnquiryListItem> = {}): EnquiryListItem => ({
   ...over,
 });
 
+/** Mirror of `EnquiryInbox`'s private `shortDate` — what a row actually renders. */
+const shortDate = (ms: number): string =>
+  new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
 const makeMessage = (over: Partial<EnquiryMessage> = {}): EnquiryMessage => ({
   id: "msg_1",
   senderProfileId: "p_vendor",
@@ -58,6 +69,7 @@ const makeMessage = (over: Partial<EnquiryMessage> = {}): EnquiryMessage => ({
 
 beforeEach(() => {
   __resetEnquiriesCache();
+  redirectToLogin.mockReset();
   authFetch.mockReset();
   activeProfileId.mockReturnValue("p_me");
 });
@@ -78,6 +90,32 @@ describe("EnquiriesView", () => {
     setCachedEnquiries("wed_1", [makeItem()]);
     render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
     expect(await screen.findByText("Blue Roses")).toBeInTheDocument();
+  });
+
+  // The bug this replaced: the old inlined predicate read `_tag` first and
+  // returned false for any OTHER tag, so an Effect-wrapped expiry never reached
+  // the printout check and the organiser was left on an empty inbox.
+  it("redirects to sign-in when the initial load fails with an expiry", async () => {
+    const EnquiriesView = await importComponent();
+    authFetch.mockRejectedValue(
+      Object.assign(new Error("boom"), {
+        toString: () => "(FiberFailure) AuthExpiredError: session gone",
+      }),
+    );
+
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+
+    await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
+  });
+
+  it("does not redirect on an unrelated load failure", async () => {
+    const EnquiriesView = await importComponent();
+    authFetch.mockRejectedValue(new Error("network down"));
+
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalled());
+    expect(redirectToLogin).not.toHaveBeenCalled();
   });
 
   it("shows an empty-state when the store has no enquiries", async () => {
@@ -213,33 +251,67 @@ describe("EnquiriesView", () => {
   // The inbox is mounted throughout a reply now, so the post-send refresh has to
   // reach the signal it is actually subscribed to. Deleting the cache entry
   // (what `invalidateEnquiries` does) mints a new signal and leaves the row
-  // showing its pre-reply status forever.
-  it("updates the inbox row's status after a reply is sent", async () => {
+  // showing its pre-reply state forever.
+  //
+  // ENQ-P-I1 changed HOW that refresh happens — an optimistic local upsert
+  // instead of refetching the whole inbox — so the observable moved from the
+  // row's status to the row's timestamp. Status was never the honest signal
+  // here anyway: the server's reply path sets only `lastMessageAt` +
+  // `updatedAt`, so the old test's "now quoted" refetch mock described a
+  // response the API does not produce.
+  it("refreshes the inbox row through the live signal after a reply", async () => {
     const EnquiriesView = await importComponent();
-    setCachedEnquiries("wed_1", [makeItem({ status: "open" })]);
-    // 1: thread messages. 2: POST reply. 3: inbox refresh (now "quoted").
+    // Relative to now, so "then" and "today" can never format alike.
+    const lastYear = Date.now() - 200 * 86_400_000;
+    setCachedEnquiries("wed_1", [makeItem({ lastMessageAt: lastYear })]);
+    // 1: thread messages. 2: POST reply. Everything after: thread refetch.
     authFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ messages: [] }), { status: 200 }),
     );
     authFetch.mockResolvedValueOnce(
       new Response(JSON.stringify({ message: makeMessage() }), { status: 200 }),
     );
-    authFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ enquiries: [makeItem({ status: "quoted" })] }), {
-        status: 200,
-      }),
-    );
     authFetch.mockImplementation(
       () => new Response(JSON.stringify({ messages: [] }), { status: 200 }),
     );
 
     render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+    expect(await screen.findByText(shortDate(lastYear))).toBeInTheDocument();
+
     fireEvent.click(await screen.findByRole("button", { name: /Blue Roses/ }));
     const draft = await screen.findByPlaceholderText(/write a reply/i);
     fireEvent.input(draft, { target: { value: "Sounds good, please send a quote." } });
     fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
 
-    expect(await screen.findByText("Quoted")).toBeInTheDocument();
+    // The still-mounted inbox re-renders, so the update reached the signal it
+    // subscribes to rather than an orphaned one.
+    expect(await screen.findByText(shortDate(Date.now()))).toBeInTheDocument();
+    expect(screen.queryByText(shortDate(lastYear))).not.toBeInTheDocument();
+  });
+
+  // ENQ-P-I1: the row is derived locally, so replying must not cost a
+  // list-sized read. Pinned because the regression is invisible — a reinstated
+  // refetch would leave every assertion above still passing.
+  it("does not refetch the whole inbox to send a reply", async () => {
+    const EnquiriesView = await importComponent();
+    setCachedEnquiries("wed_1", [makeItem()]);
+    authFetch.mockImplementation((url: string) =>
+      url.includes("/messages") || url.includes("/reply")
+        ? new Response(JSON.stringify({ messages: [], message: makeMessage() }), { status: 200 })
+        : new Response(JSON.stringify({ enquiries: [makeItem()] }), { status: 200 }),
+    );
+
+    render(() => <EnquiriesView weddingId="wed_1" currency="AUD" canEdit={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: /Blue Roses/ }));
+    const draft = await screen.findByPlaceholderText(/write a reply/i);
+    fireEvent.input(draft, { target: { value: "Thanks!" } });
+    fireEvent.click(screen.getByRole("button", { name: /^send$/i }));
+    await screen.findByText(shortDate(Date.now()));
+
+    const listReads = authFetch.mock.calls.filter(
+      ([url]: [string]) => !String(url).includes("/messages") && !String(url).includes("/reply"),
+    );
+    expect(listReads).toHaveLength(0);
   });
 
   // The master-detail contract: opening a thread no longer UNMOUNTS the inbox.

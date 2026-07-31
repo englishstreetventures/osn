@@ -109,10 +109,19 @@ export function createInternalGraphRoutes(
   // binding, not `process.env`. Defaults to `process.env` for the Bun path;
   // unset ⇒ those endpoints answer 501 (service registration disabled).
   internalServiceSecret: string | undefined = process.env.INTERNAL_SERVICE_SECRET,
+  /**
+   * S-L30. Every sibling route factory merges the observability layer into its
+   * fallback runtime; this one did not, so anything these handlers or the
+   * graph service logged on the layer path went to Effect's default logger —
+   * unredacted, unexported. Production passes the shared `runtime` and never
+   * reaches the fallback, which is exactly why the gap could sit unnoticed
+   * until a local or test run needed a log line.
+   */
+  loggerLayer: Layer.Layer<never> = Layer.empty,
 ) {
   const graph = createGraphService();
 
-  const { run } = makeAppRunner(runtime, dbLayer);
+  const { run } = makeAppRunner(runtime, Layer.merge(dbLayer, loggerLayer));
 
   return (
     new Elysia({ prefix: "/graph/internal" })

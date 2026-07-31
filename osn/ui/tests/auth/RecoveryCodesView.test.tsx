@@ -289,13 +289,20 @@ describe("RecoveryCodesView", () => {
     );
     renderView();
 
+    // Until the count lands the view can't tell a first set from a rotation,
+    // so the button is held — but it must say why. A disabled button under a
+    // blank gap reads as broken, which is what the skeleton + "Checking…"
+    // label exist to prevent.
     const button = await waitFor(
-      () => screen.getByRole("button", { name: /Generate recovery codes/i }) as HTMLButtonElement,
+      () => screen.getByRole("button", { name: /Checking/i }) as HTMLButtonElement,
     );
-    // Until the count lands the view can't tell a first set from a rotation.
     expect(button.disabled).toBe(true);
+    expect(screen.getByTestId("recovery-status-skeleton")).toBeTruthy();
 
     release({ active: 0, total: 0, generatedAt: null });
     await waitFor(() => expect(button.disabled).toBe(false));
+    // Settled: the placeholder is gone and the button says what it will do.
+    expect(screen.queryByTestId("recovery-status-skeleton")).toBeNull();
+    expect(screen.getByRole("button", { name: /Generate recovery codes/i })).toBeTruthy();
   });
 });

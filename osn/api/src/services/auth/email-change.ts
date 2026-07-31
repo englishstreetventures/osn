@@ -118,7 +118,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         ),
       );
 
-      yield* logDevOtp("email-change", normalised, code);
+      yield* logDevOtp("email-change", code);
 
       // S-L5 framing lives in the template itself
       // (shared/email/src/templates/otp.ts → renderEmailChangeOtp).

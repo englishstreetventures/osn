@@ -11,7 +11,7 @@ related:
   - "[[arc-tokens]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-07-28
+last-reviewed: 2026-07-30
 ---
 
 # Cire auth model
@@ -196,7 +196,11 @@ Co-hosts live in the `wedding_hosts(wedding_id, osn_profile_id, role, …)` tabl
 
 The same rule is why `GET /api/auth/session` answers **200 `{signedIn: false}`** rather than 401 — the probe would otherwise report "expired" to every signed-out visitor.
 
-`@shared/rp-auth` exports `isAuthExpired(err)`; nothing string-matches `"AuthExpiredError"` any more (Effect's FiberFailure wrapping defeats `instanceof`, so the helper checks the `_tag`). The old `@osn/client` debt note is closed.
+`@shared/rp-auth` exports `isAuthExpired(err)` — Effect's FiberFailure wrapping defeats `instanceof`, so it checks the `_tag` discriminant instead.
+
+**Corrected 2026-07-30.** This paragraph used to claim nothing string-matches `"AuthExpiredError"` any more, and that the `@osn/client` debt was closed. Neither was true. `cire/organiser/src/lib/api.ts` keeps its own `isAuthExpired` with a printout-matching third arm on top of the `_tag` check, and `@osn/client` had no predicate at all until one shipped on 2026-07-30 (`isAuthExpiredError`, next to the error class). The two are **not** interchangeable and the organiser was deliberately left on its own: since the OIDC swap its errors come from `@shared/rp-auth`'s `AuthExpiredError`, a plain `Error` subclass, not `@osn/client`'s `Data.TaggedError` — same name, different class.
+
+Both predicates guard the `String(err)` call. It throws on a null-prototype object, and they run inside `catch` blocks, so an unguarded throw there swaps a recoverable expiry for an unhandled rejection. Pinned by `cire/organiser/src/lib/api.test.ts` and `osn/client/tests/errors.test.ts`; the latter builds a **real** FiberFailure rather than a hand-written string, so an Effect upgrade that changes the printout fails a test instead of a redirect.
 
 ## No overlap
 

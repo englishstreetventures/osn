@@ -11,6 +11,7 @@ import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { describe, it, expect, beforeEach, afterEach, beforeAll } from "vitest";
 
+import { osnLoggerLayer } from "../../src/observability";
 import { createInternalGraphRoutes } from "../../src/routes/graph-internal";
 import { createAuthService } from "../../src/services/auth";
 import { createGraphService } from "../../src/services/graph";
@@ -233,6 +234,43 @@ describe("internal graph routes (ARC-protected)", () => {
       expect(res.status).toBe(200);
       const body = (await res.json()) as { blocked: boolean };
       expect(body.blocked).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Fallback runtime with an observability layer (S-L30)
+  // -------------------------------------------------------------------------
+
+  // The fix threads a logger layer into the FALLBACK runtime — the path
+  // production never takes, since it always passes the shared `appRuntime`.
+  // That is exactly why the gap sat unnoticed, and why leaving the branch
+  // untested would reproduce it. A layer graph that fails to build, or a merge
+  // that shadows the DB layer, shows up as a request failure rather than as a
+  // subtle difference in log output — so a plain status assertion is enough
+  // and avoids coupling the test to log formatting.
+  describe("fallback runtime with a logger layer", () => {
+    it("serves an ARC-authed request under the merged db + logger layer", async () => {
+      const { token } = await setupArcService();
+      const withLogger = createInternalGraphRoutes(layer, undefined, undefined, osnLoggerLayer);
+
+      const res = await withLogger.handle(
+        new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b", {
+          headers: { Authorization: `ARC ${token}` },
+        }),
+      );
+
+      expect(res.status).toBe(200);
+    });
+
+    it("still fails closed with no ARC token", async () => {
+      // The error path is where a handler would actually log.
+      const withLogger = createInternalGraphRoutes(layer, undefined, undefined, osnLoggerLayer);
+
+      const res = await withLogger.handle(
+        new Request("http://localhost/graph/internal/either-blocked?profileA=a&profileB=b"),
+      );
+
+      expect(res.status).toBe(401);
     });
   });
 

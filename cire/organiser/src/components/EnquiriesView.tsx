@@ -2,7 +2,7 @@ import { useAuth } from "@shared/rp-auth/solid";
 import { createResource, createSignal, onMount, Show } from "solid-js";
 import { toast } from "solid-toast";
 
-import { redirectToLogin } from "../lib/api";
+import { isAuthExpired, redirectToLogin } from "../lib/api";
 import {
   addEnquiryToBudget,
   enquiryErrorMessage,
@@ -14,7 +14,7 @@ import {
   enquiriesAccessor,
   ensureEnquiriesLoaded,
   type EnquiryMessage,
-  setCachedEnquiries,
+  upsertCachedEnquiry,
 } from "../lib/enquiries-store";
 import EnquiryInbox from "./EnquiryInbox";
 import EnquiryThread from "./EnquiryThread";
@@ -31,16 +31,13 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
 
   onMount(() => {
     ensureEnquiriesLoaded(props.weddingId, () => fetchEnquiries(authFetch, props.weddingId)).catch(
+      // Was a hand-inlined copy of this predicate, and a strictly narrower one:
+      // it read `_tag` first and returned false for ANY other tag, never falling
+      // through to the printout check that catches an Effect-wrapped failure. An
+      // expiry here left the organiser on an empty inbox instead of sign-in.
+      // Every other view already used the shared helper.
       (err) => {
-        if (
-          typeof err === "object" &&
-          err !== null &&
-          ("_tag" in err
-            ? (err as { _tag: unknown })._tag === "AuthExpiredError"
-            : String(err).includes("AuthExpiredError"))
-        ) {
-          redirectToLogin();
-        }
+        if (isAuthExpired(err)) redirectToLogin();
       },
     );
   });
@@ -80,14 +77,28 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
     const id = selectedId();
     if (!id) return;
     await replyEnquiry(authFetch, props.weddingId, id, message);
-    // Refresh the inbox row's status / lastMessageAt by writing through the LIVE
-    // signal. `invalidateEnquiries` + `ensureEnquiriesLoaded` can no longer do
-    // that job: invalidate DELETES the cache entry, so the reload mints a brand
-    // new signal and the inbox — which used to be unmounted here and picked the
-    // new signal up on remount, but now stays mounted beside the thread — would
-    // keep its subscription to the orphan. The round-trip would still be paid
-    // and nothing on screen would change.
-    setCachedEnquiries(props.weddingId, await fetchEnquiries(authFetch, props.weddingId));
+    // Refresh the inbox row by writing through the LIVE signal.
+    // `invalidateEnquiries` + `ensureEnquiriesLoaded` can NOT do that job:
+    // invalidate DELETES the cache entry, so the reload mints a brand new
+    // signal and the inbox — which used to be unmounted here but now stays
+    // mounted beside the thread — would keep its subscription to the orphan.
+    // The round-trip would be paid and nothing on screen would change.
+    //
+    // ENQ-P-I1: refetching the WHOLE inbox to learn one row's new timestamp
+    // was a list-sized round-trip per reply. The server's reply path sets only
+    // `lastMessageAt` + `updatedAt` on this one row — never `status`, which
+    // moves on quote, not on message — so the post-reply row is derivable
+    // locally, and `upsertCachedEnquiry` re-sorts the list the same way the
+    // server's `ORDER BY lastMessageAt DESC` does.
+    //
+    // No `else`: `selectedEnquiry()` is derived from this same cached list, so
+    // a miss means the thread was never on screen and this handler could not
+    // have run. There is no inbox row to refresh in that state.
+    const current = selectedEnquiry();
+    if (current) {
+      const now = Date.now();
+      upsertCachedEnquiry(props.weddingId, { ...current, lastMessageAt: now, updatedAt: now });
+    }
     // Refetch the thread messages.
     await refetch();
   };

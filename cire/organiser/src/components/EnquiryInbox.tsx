@@ -1,16 +1,10 @@
 import { For, Show } from "solid-js";
 
 import type { EnquiryListItem } from "../lib/enquiries-store";
+// ENQ-P-W3: shared, memoised formatters — this renders inside a `<For>`, so a
+// per-call `new Intl.NumberFormat` cost one construction per row per render.
+import { formatMinor } from "../lib/money";
 import { categoryLabel } from "../lib/service-categories";
-
-/** Format a minor-unit amount (cents) as a currency string. */
-function formatMinor(minor: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(minor / 100);
-  } catch {
-    return (minor / 100).toFixed(2);
-  }
-}
 
 /** Short, human-readable date from a ms-epoch timestamp. */
 function shortDate(ms: number): string {

@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-07-28
+last-reviewed: 2026-07-30
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -192,6 +192,61 @@ short-circuits consent), so state 4's copy can assume a third party.
 - `osn/social/public/_headers` carries `frame-ancestors 'none'`,
   `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
   `Referrer-Policy: strict-origin-when-cross-origin`.
+- **The READ has a deadline; the WRITE deliberately does not** (AZ-P-I2 +
+  S-M1, 2026-07-30). `getContext` runs under a default 10 s ceiling
+  (`DEFAULT_AUTHORIZE_TIMEOUT_MS`, overridable via `timeoutMs`, `0` to opt
+  out) and carries the page's abort signal, which fires on unmount. That is
+  what makes the retry screen above reachable — a screen that only helps once
+  the promise settles is no help at all if the promise never does. A timeout
+  **or a transport failure** arrives as a retryable `AuthorizeError` with code
+  `unknown`, which is what the error table has always claimed; before this a
+  transport failure escaped as a raw `TypeError`. A caller's own abort is
+  re-thrown untouched — an unmount is not an error state to render.
+
+  **`submitDecision` gets neither by default, and this is load-bearing.**
+  Aborting a fetch does not un-send it, and that call is the state-changing
+  one: the server consumes the parked request, records the consent row and
+  mints the code. A client deadline firing while the server commits would
+  surface a *retryable* error over a grant that actually happened — Allow and
+  Cancel become clickable again, the next click hits a consumed request and
+  renders "this sign-in request has expired", and a live consent sits in
+  Settings → Connected apps the user believes they cancelled. Reads are safe
+  to abandon; writes are not. A caller may still pass its own `signal` and
+  accept that trade.
+
+  The deadline spans the **body read**, not just the handshake. `fetch`
+  settles when response headers arrive, so clearing the timer there would let
+  a server that flushes headers and then stalls mid-body hang for the
+  browser's own multi-minute timeout — reintroducing the exact spinner this
+  bounds. Composition is hand-rolled rather than `AbortSignal.any` +
+  `AbortSignal.timeout`, so the timer can be cleared when a call settles and
+  older mobile browsers still reach the screen.
+- **The page announces its own transitions** (A-L1, 2026-07-30). `<Switch>`
+  swaps the whole screen without moving focus, so a screen reader heard
+  nothing when the page flipped to "Taking you back…" or to a terminal
+  state. An `aria-live="polite"` region carries a short label per screen.
+  Two details are load-bearing: the region is **always mounted** (a live
+  region added to the DOM in the same tick as its text is not reliably
+  announced), and the `error` screen is deliberately excluded, because its
+  message already carries `role="alert"` and announcing both reads the
+  failure twice. The element is an `<output>` — its implicit `role="status"`
+  carries `aria-live="polite"` and is the semantic element for a value the
+  page computes rather than one the user typed.
+- **The issuer origin is preconnected** (AZ-P-I1, 2026-07-30). `/authorize`
+  is a cold cross-origin landing: the browser arrives from the relying party
+  with no warm connection, so `GET /authorize/context` paid DNS + TCP + TLS
+  before a byte moved. An `issuerPreconnect()` plugin in
+  `osn/social/vite.config.ts` emits `<link rel="preconnect" crossorigin>`
+  built from the **resolved** config's `VITE_OSN_ISSUER_URL` — resolved, not
+  `process.env`, so it sees exactly what the app's `import.meta.env` will,
+  `.env` files included. `crossorigin` is required, since the context read is
+  `credentials: "include"`. The value is **`use-credentials`**, not a bare
+  `crossorigin` — an empty value means *anonymous* mode, and the
+  connection-pool key includes the credentials flag, so an anonymous
+  preconnect is not the socket the context read reuses: it opens a second
+  idle TLS connection and the handshake is paid anyway, which is strictly
+  worse than shipping no tag. A missing or malformed URL emits no tag rather
+  than a dead one. Pinned by `osn/social/tests/issuer-preconnect.test.ts`.
 
 ## Open questions (decide at build time, none block starting)
 

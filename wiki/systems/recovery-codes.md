@@ -12,7 +12,7 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/ui"
-last-reviewed: 2026-07-26
+last-reviewed: 2026-07-30
 updated: 2026-06-16
 ---
 
@@ -128,7 +128,7 @@ await client.loginWithRecoveryCode({ identifier, code });  // → { session, pro
 - reads `GET /recovery/status` on mount, and again once the user dismisses a fresh set, and says outright when the account has **no** codes — the failure mode this view exists to catch is a user who never made any;
 - runs the step-up ceremony through `StepUpDialog` before generating, with `purpose="recovery_generate"`, and passes the minted token straight to generate;
 - confirms before rotating an existing set (the previous codes die immediately), and treats an **unreadable** count as "might have codes" so a failed status read never skips the warning (S-L1);
-- holds the generate button until the first status read settles — before that the view cannot tell a first set from a rotation;
+- holds the generate button until the first status read settles — before that the view cannot tell a first set from a rotation — and **says so while it waits** (2026-07-30): a pulse skeleton reserves the status line's height so nothing shifts when the count lands, and the button reads "Checking…". Held-and-silent read as broken on a slow link, which is the opposite of what a panel about account recovery wants to convey;
 - shows the codes once with copy + `.txt` download, and gates the Done button on an explicit "I've saved these" checkbox;
 - fails soft on a status read error — the count goes unknown, generation still works.
 

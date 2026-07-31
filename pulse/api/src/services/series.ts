@@ -16,6 +16,18 @@ import { applyTransitions, DatabaseError, NotEventOwner, ValidationError } from 
 /** Hard cap on how many instance rows a single series can materialize. */
 export const MAX_SERIES_INSTANCES = 260; // weekly × 5yr
 
+/**
+ * Iteration ceiling for `expandRRule`'s walk (S-L2). Was 10,000, which let a
+ * pathological rule allocate ~70k `Date`s before giving up.
+ *
+ * `MAX_SERIES_INSTANCES` is the right number and cannot truncate a legitimate
+ * expansion: past the first step every iteration either emits an instance or
+ * returns, so the loop reaches `targetCount` — itself capped at
+ * `MAX_SERIES_INSTANCES` — before this valve can fire. It exists to bound a
+ * future edit that breaks that property, not to shape today's output.
+ */
+const MAX_EXPANSION_STEPS = MAX_SERIES_INSTANCES;
+
 export class SeriesNotFound extends Data.TaggedError("SeriesNotFound")<{
   readonly id: string;
 }> {}
@@ -48,8 +60,17 @@ export interface ParsedRRule {
  *
  * Supported: `FREQ=WEEKLY|MONTHLY`, `INTERVAL`, `BYDAY` (WEEKLY only),
  * `COUNT`, `UNTIL` (ISO-8601). Anything else is rejected.
+ *
+ * `dtstart` is optional because the grammar itself doesn't need it — pass it
+ * when the caller knows the series start, and `UNTIL` is checked against it
+ * (S-L2). Without that check an `UNTIL` before `dtstart` parses cleanly and
+ * silently produces a series with zero instances, which the organiser only
+ * discovers by finding an empty calendar.
  */
-export const parseRRule = (input: string): Effect.Effect<ParsedRRule, SeriesRRuleInvalid> =>
+export const parseRRule = (
+  input: string,
+  dtstart?: Date,
+): Effect.Effect<ParsedRRule, SeriesRRuleInvalid> =>
   Effect.gen(function* () {
     const parts = input
       .trim()
@@ -159,6 +180,15 @@ export const parseRRule = (input: string): Effect.Effect<ParsedRRule, SeriesRRul
           }),
         );
       }
+      if (dtstart != null && parsed.getTime() < dtstart.getTime()) {
+        metricSeriesRruleRejected("parse_error");
+        return yield* Effect.fail(
+          new SeriesRRuleInvalid({
+            reason: "parse_error",
+            message: "UNTIL must not be before the series start",
+          }),
+        );
+      }
       until = parsed;
     }
 
@@ -193,6 +223,12 @@ export const expandRRule = (rule: ParsedRRule, dtstart: Date, maxThrough: Date):
 
   const out: Date[] = [];
 
+  // Nothing can land in an empty window. Worth stating rather than leaving to
+  // the loops: `extend_window` computes `maxThrough` as now + 90 days, so a
+  // series starting further out than that arrives here with `upper < dtstart`
+  // on every sweep — a routine input, not a malformed one.
+  if (upper.getTime() < dtstart.getTime()) return out;
+
   if (rule.freq === "WEEKLY") {
     const daysOfWeek = rule.byDay ?? [dtstart.getUTCDay()];
     // Anchor on the Sunday of the dtstart week.
@@ -218,7 +254,7 @@ export const expandRRule = (rule: ParsedRRule, dtstart: Date, maxThrough: Date):
         if (out.length >= targetCount) return out;
       }
       weekIdx++;
-      if (weekIdx > 10_000) return out; // safety valve
+      if (weekIdx > MAX_EXPANSION_STEPS) return out;
     }
     return out;
   }
@@ -231,7 +267,7 @@ export const expandRRule = (rule: ParsedRRule, dtstart: Date, maxThrough: Date):
     if (candidate.getTime() > upper.getTime()) return out;
     out.push(candidate);
     monthIdx++;
-    if (monthIdx > 10_000) return out;
+    if (monthIdx > MAX_EXPANSION_STEPS) return out;
   }
   return out;
 };
@@ -423,7 +459,7 @@ export const createSeries = (
       return yield* Effect.fail(new ValidationError({ cause: "dtstart must be in the future" }));
     }
 
-    const parsed = yield* parseRRule(validated.rrule);
+    const parsed = yield* parseRRule(validated.rrule, validated.dtstart);
 
     const id = makeSeriesId();
     const now = new Date();

@@ -331,7 +331,7 @@ export function createStepUpModule(ctx: AuthContext) {
           otpTtl * 1000,
         ),
       );
-      yield* logDevOtp("step-up", account.email, code);
+      yield* logDevOtp("step-up", code);
       const email = yield* EmailService;
       yield* email
         .send({

@@ -10,6 +10,7 @@ import {
   For,
   lazy,
   Match,
+  onCleanup,
   Show,
   Suspense,
   Switch,
@@ -69,6 +70,27 @@ export function navigateTo(url: string) {
 
 type Screen = "loading" | "signedOut" | "picker" | "consent" | "redirecting" | "dead" | "error";
 
+/**
+ * A-L1. `<Switch>` swaps the whole screen without moving focus, so a screen
+ * reader is told nothing when the page flips to "Taking you back…" or to a
+ * terminal state — the user is left on a page that silently changed under
+ * them. One polite live region announces each transition.
+ *
+ * Short labels, not the screen's own copy: the region names what happened so
+ * the user knows to go read, rather than reciting a card they are about to
+ * hear anyway. "error" stays out of it — that screen already carries a
+ * `role="alert"`, and announcing both talks over the message twice.
+ */
+const SCREEN_ANNOUNCEMENT: Record<Screen, string | null> = {
+  loading: "Checking this request.",
+  signedOut: "Sign in to continue.",
+  picker: "Choose a profile.",
+  consent: "Review what this app is asking for.",
+  redirecting: "Taking you back to the app.",
+  dead: "This sign-in request cannot continue.",
+  error: null,
+};
+
 const sameProfileSet = (before: ReadonlySet<string>, after: readonly PublicProfile[]) =>
   after.length === before.size && after.every((p) => before.has(p.id));
 
@@ -85,7 +107,20 @@ export function AuthorizePage() {
     return Array.isArray(raw) ? raw[0] : raw;
   });
 
-  const [context, { refetch }] = createResource(requestId, (id) => authorizeClient.getContext(id));
+  // The context READ hangs off this controller, aborted when the page goes
+  // away — a read left in flight past unmount holds a connection open and
+  // resolves into a component that no longer exists.
+  //
+  // S-M1: the decision POST deliberately does NOT. Aborting a fetch does not
+  // un-send it, and that call is what records consent and mints the code — so
+  // cancelling it client-side cannot undo the grant, it only hides that the
+  // grant may have happened. Reads are safe to abandon; writes are not.
+  const inflightRead = new AbortController();
+  onCleanup(() => inflightRead.abort());
+
+  const [context, { refetch }] = createResource(requestId, (id) =>
+    authorizeClient.getContext(id, { signal: inflightRead.signal }),
+  );
 
   const [chosenId, setChosenId] = createSignal<string | null>(null);
   const [pickerOpen, setPickerOpen] = createSignal(false);
@@ -255,6 +290,14 @@ export function AuthorizePage() {
 
   return (
     <main class="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-6 py-10">
+      {/* A-L1: the region itself is always mounted — a live region added to
+          the DOM at the same moment as its text is not reliably announced.
+          `<output>` carries an implicit `role="status"` (and with it
+          `aria-live="polite"`), which is the semantic element for a value the
+          page computes rather than one the user typed. */}
+      <output class="sr-only" aria-live="polite">
+        {SCREEN_ANNOUNCEMENT[screen()]}
+      </output>
       <Switch>
         <Match when={screen() === "loading"}>
           <p class="text-muted-foreground text-body text-center">Checking this request…</p>

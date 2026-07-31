@@ -34,6 +34,15 @@ import { AuthorizePage } from "../../src/pages/AuthorizePage";
 
 const REQUEST_ID = "oar_0123456789ab";
 
+/**
+ * AZ-P-I2: the context READ carries the page's abort signal, so a read left in
+ * flight past unmount is cancelled rather than resolving into a component that
+ * no longer exists. Asserted rather than loosened away, so dropping the signal
+ * fails here instead of leaking quietly. The decision POST deliberately gets no
+ * signal — see the unmount tests below (S-M1).
+ */
+const withAbortSignal = expect.objectContaining({ signal: expect.any(AbortSignal) });
+
 const alice = {
   id: "usr_1",
   handle: "alice",
@@ -151,7 +160,7 @@ describe("<AuthorizePage />", () => {
         "Your email belongs to your account, not this profile — every app you allow sees the same one.",
       ),
     ).toBeDefined();
-    expect(mocks.getContext).toHaveBeenCalledWith(REQUEST_ID);
+    expect(mocks.getContext).toHaveBeenCalledWith(REQUEST_ID, withAbortSignal);
   });
 
   it("posts an approval with the selected profile and assigns the redirect verbatim", async () => {
@@ -189,6 +198,77 @@ describe("<AuthorizePage />", () => {
         approved: false,
       }),
     );
+  });
+
+  // T-U1 / A-L1. Three separate decisions are load-bearing and all invisible to
+  // the other tests: the region must stay MOUNTED (a live region added in the
+  // same tick as its text is not reliably announced), `error` maps to null so
+  // it doesn't talk over that screen's own role="alert", and `redirecting` is
+  // the transition a sighted user sees as a flash and a screen-reader user
+  // previously experienced as silence.
+  describe("screen announcements", () => {
+    it("is mounted before any context has resolved", async () => {
+      mocks.getContext.mockReturnValue(new Promise(() => {}));
+      renderPage();
+      const region = await screen.findByRole("status");
+      expect(region).toBeDefined();
+      expect(region.textContent).toBe("Checking this request.");
+    });
+
+    it("announces the hand-off back to the app", async () => {
+      mocks.getContext.mockResolvedValue(context());
+      mocks.submitDecision.mockResolvedValue({ redirectTo: "https://app.example.com/cb" });
+
+      renderPage();
+      fireEvent.click(await screen.findByText("Allow"));
+
+      await waitFor(() =>
+        expect(screen.getByRole("status").textContent).toBe("Taking you back to the app."),
+      );
+    });
+
+    it("stays silent on the error screen, which carries its own role=alert", async () => {
+      mocks.getContext.mockRejectedValue(
+        new AuthorizeError("rate_limited", 429, "Too many attempts."),
+      );
+
+      renderPage();
+      await screen.findByText("Could not load this request");
+
+      expect(screen.getByRole("status").textContent).toBe("");
+      expect(screen.getByRole("alert").textContent).toContain("Too many attempts.");
+    });
+  });
+
+  // T-U2 / S-M1. The client honours a caller signal; only the page decides when
+  // to fire it. Deleting the `onCleanup` line leaves every other test green.
+  describe("in-flight requests on unmount", () => {
+    it("aborts the context read", async () => {
+      mocks.getContext.mockResolvedValue(context());
+      renderPage();
+      await screen.findByText("Cire");
+
+      const signal = mocks.getContext.mock.calls[0]![1].signal as AbortSignal;
+      expect(signal.aborted).toBe(false);
+      cleanup();
+      expect(signal.aborted).toBe(true);
+    });
+
+    // The decision POST is state-changing: it consumes the parked request,
+    // writes the consent row and mints the code. Aborting it cannot undo any of
+    // that — it only hides that it may have happened — so the page must not
+    // hand it the unmount signal.
+    it("does NOT abort the decision POST", async () => {
+      mocks.getContext.mockResolvedValue(context());
+      mocks.submitDecision.mockResolvedValue({ redirectTo: "https://app.example.com/cb" });
+
+      renderPage();
+      fireEvent.click(await screen.findByText("Allow"));
+      await waitFor(() => expect(mocks.submitDecision).toHaveBeenCalled());
+
+      const options = mocks.submitDecision.mock.calls[0]![1];
+      expect(options?.signal).toBeUndefined();
+    });
   });
 
   it("keeps the request alive on login_required and asks for a fresh sign-in", async () => {

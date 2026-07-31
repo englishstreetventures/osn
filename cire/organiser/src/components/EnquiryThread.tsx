@@ -2,6 +2,8 @@ import { createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import type { EnquiryListItem, EnquiryMessage } from "../lib/enquiries-store";
+// ENQ-P-W3: shared, memoised formatters — see `lib/money.ts`.
+import { formatMinor } from "../lib/money";
 import { categoryLabel } from "../lib/service-categories";
 
 interface EnquiryThreadProps {
@@ -17,17 +19,9 @@ interface EnquiryThreadProps {
   onAddToBudget: () => Promise<void>;
 }
 
-function fmtMinor(minor: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-    }).format(minor / 100);
-  } catch {
-    return (minor / 100).toFixed(0);
-  }
-}
+/** The thread's quote line shows whole units — no cents. */
+const fmtMinor = (minor: number, currency: string): string =>
+  formatMinor(minor, currency, { wholeUnits: true });
 
 export default function EnquiryThread(props: EnquiryThreadProps) {
   const [draft, setDraft] = createSignal("");

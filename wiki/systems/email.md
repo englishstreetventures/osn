@@ -22,7 +22,7 @@ related:
 packages:
   - "@shared/email"
   - "@osn/api"
-last-reviewed: 2026-07-27
+last-reviewed: 2026-07-30
 ---
 
 # Email Transport
@@ -160,11 +160,19 @@ Content-Type: application/json
 
 > Dev-only OTP visibility: the email transport never logs the code, but
 > `osn/api`'s auth service has a **separate** `logDevOtp` helper that emits a
-> `[dev-otp] … code=…` debug line for registration / step-up / email-change
-> flows. It is gated strictly on `OSN_ENV` being unset or `"local"` (returns
-> `Effect.void` otherwise), so the code is never logged in staging/production.
-> This makes email-OTP dev flows testable without a real inbox. See
-> `osn/api/src/services/auth/helpers.ts`.
+> `[dev-otp] <purpose> code=…` debug line for registration / step-up /
+> email-change flows. It is gated strictly on `OSN_ENV` being unset or
+> `"local"` (returns `Effect.void` otherwise), so the code is never logged in
+> staging/production. This makes email-OTP dev flows testable without a real
+> inbox. See `osn/api/src/services/auth/helpers.ts`.
+>
+> **S-L4, fixed 2026-07-30:** the line used to interpolate the **recipient
+> address** too. A free-text message is not annotation-shaped, so the
+> key-based deny-list in `@shared/observability` never saw it — the env gate
+> was the only thing between an OTP recipient and the log sink, and the
+> deny-list's own guidance is that it is the second line of defence, not the
+> first. The address is dropped rather than annotated, and the `to` parameter
+> is gone from the signature so it cannot be reintroduced by accident.
 
 Selection lives in `osn/api/src/lib/email-layer.ts` (`selectEmailLayer`,
 shared by the Bun `local.ts` and the Workers `index.ts` entries), in

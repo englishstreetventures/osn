@@ -255,7 +255,7 @@ export function createRegistrationModule(
         ),
       );
 
-      yield* logDevOtp("registration", normalisedEmail, code);
+      yield* logDevOtp("registration", code);
 
       // S-M3: the EmailService layer decides whether to actually dispatch
       // or just log. `LogEmailLive` (local dev + tests) captures the

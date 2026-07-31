@@ -118,9 +118,16 @@ let isLocalEnvCached: boolean | undefined;
 const isLocalEnv = (): boolean =>
   (isLocalEnvCached ??= !process.env.OSN_ENV || process.env.OSN_ENV === "local");
 
-export function logDevOtp(purpose: string, to: string, code: string): Effect.Effect<void> {
+// S-L4: the recipient address used to be interpolated into this line. A
+// free-text message is not annotation-shaped, so the key-based redaction
+// deny-list in `@shared/observability` never sees it — the env gate was the
+// only thing standing between an OTP recipient and the log sink. The address
+// is dropped rather than annotated: an operator reading a local dev log
+// already knows which address they just typed, so it bought nothing that a
+// second line of defence had to be trusted to protect.
+export function logDevOtp(purpose: string, code: string): Effect.Effect<void> {
   if (!isLocalEnv()) return Effect.void;
-  return Effect.logDebug(`[dev-otp] ${purpose} to=${to} code=${code}`);
+  return Effect.logDebug(`[dev-otp] ${purpose} code=${code}`);
 }
 
 // ---------------------------------------------------------------------------

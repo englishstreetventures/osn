@@ -195,7 +195,7 @@ export function createApp(deps: AppDeps) {
       ),
     )
     .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter, appRuntime))
-    .use(createInternalGraphRoutes(DbLive, appRuntime, internalServiceSecret))
+    .use(createInternalGraphRoutes(DbLive, appRuntime, internalServiceSecret, observabilityLayer))
     .use(
       createOrganisationRoutes(authConfig, DbLive, observabilityLayer, orgRateLimiter, appRuntime),
     )

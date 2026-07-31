@@ -156,6 +156,13 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
   // a rotation and would warn a brand-new user about codes they don't have.
   const locked = () => busy() || pending() || status.loading;
 
+  // P-I1: the skeleton and the "Checking…" label are for the COLD read only.
+  // `status.loading` is also true on the refetch `acknowledge()` triggers, and
+  // gating on it would withdraw an already-known count from the screen for a
+  // round-trip — the same "don't blank a warm value" rule that put `hasCodes()`
+  // and `mayHaveCodes()` on `.latest`.
+  const firstLoad = () => status.loading && status.latest === undefined;
+
   function requestGenerate() {
     if (locked()) return;
     setError(null);
@@ -233,7 +240,21 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
               Recovery codes let you sign in if you lose every device with your passkey. Each code
               works once. Generating a new set invalidates any previous codes.
             </p>
-            <Show when={!status.loading}>
+            {/* The first `GET /recovery/status` read gates the button (it is
+                what tells a rotation from a first set), so on a slow link the
+                panel would otherwise show a blank gap above a disabled
+                button — indistinguishable from a broken one. Reserve the
+                line's height so nothing shifts when the count lands. */}
+            <Show
+              when={!firstLoad()}
+              fallback={
+                <div
+                  class="bg-muted/50 h-5 w-56 animate-pulse rounded"
+                  aria-hidden="true"
+                  data-testid="recovery-status-skeleton"
+                />
+              }
+            >
               <Show
                 when={status()}
                 fallback={
@@ -265,9 +286,13 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
             <Button onClick={requestGenerate} disabled={locked()}>
               {busy()
                 ? "Generating…"
-                : hasCodes()
-                  ? "Generate new codes"
-                  : "Generate recovery codes"}
+                : // Same reason as the skeleton: say why the button is
+                  // disabled instead of leaving it looking dead.
+                  firstLoad()
+                  ? "Checking…"
+                  : hasCodes()
+                    ? "Generate new codes"
+                    : "Generate recovery codes"}
             </Button>
             <Show when={error()}>{(msg) => <p class="text-destructive text-sm">{msg()}</p>}</Show>
           </div>
