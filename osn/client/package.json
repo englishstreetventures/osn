@@ -13,17 +13,17 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "effect": "^3.21.2"
+    "effect": "^3.22.0"
   },
   "peerDependencies": {
     "solid-js": ">=1.0.0"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.29.0",
-    "@testing-library/jest-dom": "^6.9.1",
+    "@effect/vitest": "^0.30.0",
+    "@testing-library/jest-dom": "^6.10.0",
     "@shared/typescript-config": "workspace:*",
-    "solid-js": "^1.9.13",
-    "vite-plugin-solid": "^2.11.12",
-    "vitest": "^4.1.8"
+    "solid-js": "^1.9.14",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "^4.1.10"
   }
 }

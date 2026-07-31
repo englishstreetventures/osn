@@ -7,7 +7,7 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-07-29
+last-reviewed: 2026-07-30
 ---
 
 # Security Fixes — Completed
@@ -254,3 +254,7 @@ Findings raised by the branch's own security review against code introduced by t
 - **S-L31** — No input format validation on `profile_id` in `/profiles/switch`. Fixed: TypeBox pattern.
 - **S-L32** — `findDefaultProfile` ORDER BY relied on SQLite boolean-as-integer semantics. Fixed: explicit ordering.
 - **S-L4 (org)** — No `maxLength` on internal route query params. Fixed: added 50 char limit.
+- **S-L102** — `@simplewebauthn/server` ≤13.3.0 let a maliciously-crafted attestation `x5c` present a self-signed "root certificate" instead of chaining back to an RP-specified trust anchor ([GHSA-6hxq-p678-4hr2](https://github.com/MasterKale/SimpleWebAuthn/security/advisories/GHSA-6hxq-p678-4hr2), CVSS v4 Low 2.0). Reached via `verifyRegistrationResponse()` in `osn/api/src/services/auth/passkeys.ts`. **Fixed** — bumped to 13.3.2 (in range, no code change). See [[passkey-primary]].
+  - **The control that actually applies: we configure no trust anchors anywhere.** `SettingsService.setRootCertificates()` and `MetadataService` are called nowhere in first-party source, so `trustAnchorsPEM` is always `[]` and `validateCertificatePath` short-circuits (`if (trustAnchorsPEM.length === 0) return true`) before reaching the vulnerable chain-building code — in 13.3.0 as much as in 13.3.2. Exposure was therefore nil, not merely limited: no chain decision was ever being made.
+  - **Do not read `attestationType: "none"` as the guard.** `verifyRegistrationResponse` takes no `attestationType` argument; that value is a hint passed to `generateRegistrationOptions` and sent to the client. Verification dispatches on the `fmt` the *client returns* and looks anchors up via `SettingsService.getRootCertificates({ identifier: fmt })`, so a client may return `fmt: "packed"` with an `x5c` regardless of what we requested, and the packed verifier will run. **If anyone ever configures root certificates or enables `MetadataService`, this finding's precondition is gone and the advisory class becomes live** — treat setting trust anchors as a change to a documented security precondition, not a config tweak.
+- **S-L (esbuild-dev-read)** — root override `"esbuild": "^0.27.0"` clamped the tree to 0.27.7, inside the range of `GHSA-g7r4-m6w7-qqqr` (arbitrary file read via the dev server on Windows). The override was added when wrangler pinned `esbuild 0.27.3` exactly and raising the floor risked deploy breakage; **wrangler 4.114.0 now pins `esbuild 0.28.1`** — the fixed version — so the override had inverted from protective to harmful, downgrading wrangler's own safe pin. **Fixed 2026-07-30** — override raised to `^0.28.1`, which astro (`^0.28.0`) also satisfies; whole tree resolves to a single `esbuild@0.28.1` and `bun audit` reports no vulnerabilities. See [[TODO]].

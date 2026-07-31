@@ -240,7 +240,15 @@ describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
         cap.latest()!,
         "account_delete",
       );
+      // Accepting the token must also CONSUME its jti, so a replay fails.
+      // Asserting the replay proves both halves at once — a bare success
+      // check would stay green if acceptance ever stopped consuming, leaving
+      // a single-use step-up token replayable.
       yield* auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken);
+      const err = yield* Effect.flip(
+        auth.verifyStepUpForAccountDelete(profile.accountId, stepUpToken),
+      );
+      expect(err._tag).toBe("AuthError");
     }).pipe(Effect.provide(cap.layer));
   });
 

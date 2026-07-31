@@ -276,26 +276,42 @@ describe("listUnacknowledgedSecurityEvents", () => {
 describe("notifyRecovery (defensive branches)", () => {
   it.effect(
     "notifyRecoveryByAccountId resolves without error when the account row is missing",
-    () =>
-      Effect.gen(function* () {
+    () => {
+      const email = makeLogEmailLive();
+      const layer = Layer.merge(createTestLayer(), email.layer);
+      return Effect.gen(function* () {
         const auth = createAuthService(baseConfig);
         yield* auth.notifyRecoveryByAccountId("acc_doesnotexist00", "recovery_code_generate");
-      }).pipe(Effect.provide(createTestLayer())),
+        // The whole point of the branch: no account row ⇒ nothing dispatched,
+        // so the "sent" metric can never fire for a mail that never went out.
+        expect(email.recorded()).toHaveLength(0);
+      }).pipe(Effect.provide(layer));
+    },
   );
 
-  it.effect("notifyRecovery resolves without error when the transport swallows the send", () =>
-    Effect.gen(function* () {
+  it.effect("notifyRecovery resolves without error when the transport swallows the send", () => {
+    const email = makeLogEmailLive();
+    const layer = Layer.merge(createTestLayer(), email.layer);
+    return Effect.gen(function* () {
       const auth = createAuthService(baseConfig);
       yield* auth.notifyRecovery("somebody@example.com", "recovery_code_consume");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+      // Recipient is non-null, so this branch *does* dispatch — the consumed
+      // template, to the address handed in, and nothing else.
+      expect(email.recorded()).toHaveLength(1);
+      expect(email.recorded()[0]!.template).toBe("recovery-consumed");
+      expect(email.recorded()[0]!.to).toBe("somebody@example.com");
+    }).pipe(Effect.provide(layer));
+  });
 
-  it.effect("notifyRecovery resolves without error when recipient email is null", () =>
-    Effect.gen(function* () {
+  it.effect("notifyRecovery resolves without error when recipient email is null", () => {
+    const email = makeLogEmailLive();
+    const layer = Layer.merge(createTestLayer(), email.layer);
+    return Effect.gen(function* () {
       const auth = createAuthService(baseConfig);
       yield* auth.notifyRecovery(null, "recovery_code_generate");
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+      expect(email.recorded()).toHaveLength(0);
+    }).pipe(Effect.provide(layer));
+  });
 });
 
 // T-E1: same contract for the shared passkey / cross-device notification
@@ -303,16 +319,19 @@ describe("notifyRecovery (defensive branches)", () => {
 // account row is read in the same flow that fires the daemon), so pin it
 // directly the way the notifyRecovery branches are pinned above.
 describe("notifySecurityEventByAccountId (defensive branches)", () => {
-  it.effect("resolves without error when the account row is missing", () =>
-    Effect.gen(function* () {
+  it.effect("resolves without error when the account row is missing", () => {
+    const email = makeLogEmailLive();
+    const layer = Layer.merge(createTestLayer(), email.layer);
+    return Effect.gen(function* () {
       const auth = createAuthService(baseConfig);
       yield* auth.notifySecurityEventByAccountId(
         "acc_doesnotexist00",
         "passkey_register",
         "passkey-added",
       );
-    }).pipe(Effect.provide(createTestLayer())),
-  );
+      expect(email.recorded()).toHaveLength(0);
+    }).pipe(Effect.provide(layer));
+  });
 
   it.effect("dispatches the given template to the account's email", () => {
     const email = makeLogEmailLive();

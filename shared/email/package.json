@@ -15,11 +15,11 @@
   },
   "dependencies": {
     "@shared/observability": "workspace:*",
-    "effect": "^3.21.2"
+    "effect": "^3.22.0"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.29.0",
+    "@effect/vitest": "^0.30.0",
     "@shared/typescript-config": "workspace:*",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.10"
   }
 }

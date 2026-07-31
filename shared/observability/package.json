@@ -18,23 +18,24 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "@effect/opentelemetry": "^0.63.0",
+    "@effect/opentelemetry": "^0.64.0",
+    "@effect/platform": "^0.97.0",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-logs-otlp-http": "^0.220.0",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.220.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.220.0",
-    "@opentelemetry/resources": "^2.8.0",
+    "@opentelemetry/resources": "~2.9.0",
     "@opentelemetry/sdk-logs": "^0.220.0",
-    "@opentelemetry/sdk-metrics": "^2.8.0",
-    "@opentelemetry/sdk-trace-base": "^2.8.0",
-    "@opentelemetry/sdk-trace-node": "^2.8.0",
-    "@opentelemetry/semantic-conventions": "^1.41.1",
-    "effect": "^3.21.2",
-    "elysia": "^1.4.28"
+    "@opentelemetry/sdk-metrics": "~2.9.0",
+    "@opentelemetry/sdk-trace-base": "~2.9.0",
+    "@opentelemetry/sdk-trace-node": "~2.9.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "effect": "^3.22.0",
+    "elysia": "^1.4.29"
   },
   "devDependencies": {
-    "@effect/vitest": "^0.29.0",
+    "@effect/vitest": "^0.30.0",
     "@shared/typescript-config": "workspace:*",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.10"
   }
 }

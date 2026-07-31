@@ -1099,6 +1099,13 @@ describe("server-side sessions (C1)", () => {
       yield* auth.invalidateSession(tokens.refreshToken);
       // Second invalidation should not throw
       yield* auth.invalidateSession(tokens.refreshToken);
+      // ...and the session stays revoked rather than being resurrected by the
+      // repeat call — the token is still dead afterwards.
+      const err = yield* Effect.flip(auth.refreshTokens(tokens.refreshToken));
+      expect(err._tag).toBe("AuthError");
+      // Pin the message too: AuthError alone would also match a malformed
+      // token or a signing-key fault, which is not what this test claims.
+      expect(err.message).toContain("Invalid or expired session");
     }).pipe(Effect.provide(createTestLayer())),
   );
 

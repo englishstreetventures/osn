@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",
-    "effect": "^3.21.2"
+    "effect": "^3.22.0"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",

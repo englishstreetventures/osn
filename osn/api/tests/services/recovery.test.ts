@@ -123,7 +123,9 @@ describe("consumeRecoveryCode", () => {
       const { recoveryCodes: codes } = yield* auth.generateRecoveryCodesForAccount(
         profile.accountId,
       );
-      yield* auth.consumeRecoveryCode("eve", codes[0]!);
+      const { profile: consumed } = yield* auth.consumeRecoveryCode("eve", codes[0]!);
+      // The handle resolved to the same account the codes were minted for.
+      expect(consumed.id).toBe(profile.id);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -286,7 +288,11 @@ describe("O2 recovery-code lockout", () => {
         );
       }
       // The 9th remaining valid code still works → not locked.
-      yield* svc.consumeRecoveryCode("lock-reset@example.com", codes[1]!);
+      const { profile: consumed } = yield* svc.consumeRecoveryCode(
+        "lock-reset@example.com",
+        codes[1]!,
+      );
+      expect(consumed.id).toBe(profile.id);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -306,7 +312,11 @@ describe("O2 recovery-code lockout", () => {
         );
       }
       // The other account is unaffected — a valid code still works.
-      yield* svc.consumeRecoveryCode("lock-other@example.com", otherCodes[0]!);
+      const { profile: consumed } = yield* svc.consumeRecoveryCode(
+        "lock-other@example.com",
+        otherCodes[0]!,
+      );
+      expect(consumed.id).toBe(other.id);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -323,7 +333,11 @@ describe("O2 recovery-code lockout", () => {
         yield* Effect.flip(svc.consumeRecoveryCode("ghost@example.com", "dead-beef-cafe-0000"));
       }
       // The real account is not locked — its valid code still works.
-      yield* svc.consumeRecoveryCode("lock-unknown@example.com", codes[0]!);
+      const { profile: consumed } = yield* svc.consumeRecoveryCode(
+        "lock-unknown@example.com",
+        codes[0]!,
+      );
+      expect(consumed.id).toBe(profile.id);
     }).pipe(Effect.provide(createTestLayer())),
   );
 

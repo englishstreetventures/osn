@@ -17,21 +17,21 @@
     "@osn/client": "workspace:*",
     "@osn/ui": "workspace:*",
     "@simplewebauthn/browser": "^13.3.0",
-    "@solidjs/router": "^0.16.1",
-    "@tailwindcss/vite": "^4.3.0",
-    "solid-js": "^1.9.13",
+    "@solidjs/router": "^0.16.2",
+    "@tailwindcss/vite": "^4.3.3",
+    "solid-js": "^1.9.14",
     "solid-toast": "^0.5.0",
-    "tailwindcss": "^4.3.0"
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@vitest/coverage-istanbul": "^4.1.6",
-    "happy-dom": "^20.9.0",
+    "@testing-library/jest-dom": "^6.10.0",
+    "@vitest/coverage-istanbul": "^4.1.10",
+    "happy-dom": "^20.11.1",
     "typescript": "^6.0.3",
-    "vite": "^8.0.13",
-    "vite-plugin-solid": "^2.11.12",
-    "vitest": "^4.1.8"
+    "vite": "^8.1.5",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "^4.1.10"
   }
 }
