@@ -3,7 +3,7 @@ title: "Cire Wiki — Map of Content"
 tags: [index]
 aliases: [home, map of content, MOC]
 related: []
-last-reviewed: 2026-07-30
+last-reviewed: 2026-07-31
 ---
 
 # Cire Wiki
@@ -32,6 +32,7 @@ Map of Content for the Cire wedding invite project.
 - [[entitlements]] — per-wedding capability gates
 - [[feature-flags]] — GrowthBook flags, key-optional and fail-safe
 - [[invite-designs]] — the invite design selector
+- [[rsvp-deadline]] — the "respond by" date, the instant it resolves to, and how the invite locks past it
 - [[vendors]] — vendor directory, CRM, and the email-verification claim
 
 ## Observability

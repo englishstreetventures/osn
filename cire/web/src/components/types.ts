@@ -63,6 +63,24 @@ export interface RsvpSummary {
   dietary: string;
 }
 
+/**
+ * The wedding's "kindly respond by" date, resolved by the API into one instant.
+ * Mirrors `RsvpDeadline` in cire/api's claim schema.
+ *
+ * `closed` is the verdict at claim time; `closesAt` is the instant it flips, so
+ * the invite can lock itself mid-session without a re-claim. The server re-checks
+ * on every write regardless — this drives presentation, not permission.
+ */
+export interface RsvpDeadline {
+  /** Date-only ISO (`YYYY-MM-DD`), inclusive of its whole day. */
+  date: string;
+  /** IANA zone the date is measured in (`UTC` when the wedding stored none). */
+  timezone: string;
+  /** ISO instant the invite locks: the last millisecond of `date` in `timezone`. */
+  closesAt: string;
+  closed: boolean;
+}
+
 export interface ClaimResult {
   publicId: string;
   familyName: string;
@@ -86,4 +104,10 @@ export interface ClaimResult {
     imageUrl: string | null;
     imageCrop?: ImageCrop | null;
   };
+  /**
+   * The wedding's RSVP-by date, or null when the organiser hasn't set one.
+   * Optional on the wire so a mid-deploy payload from an older API simply
+   * behaves as it always did — no deadline, no lock.
+   */
+  rsvpDeadline?: RsvpDeadline | null;
 }

@@ -24,6 +24,27 @@ interface EventCardProps {
    * text-only column at every breakpoint).
    */
   orientation?: "norm" | "alt";
+  /**
+   * The wedding's RSVP deadline has passed. "Respond" becomes an inert, plainly
+   * labelled "RSVPs closed" rather than disappearing — a missing button reads
+   * as a broken invite, and the events-section notice above says when it shut.
+   * Event details stay open; only the answer is locked.
+   *
+   * Marked `aria-disabled`, NOT `disabled` (C-M2): the native attribute takes
+   * the button out of the tab order, so the one per-card statement of why the
+   * action is gone becomes unreachable to a keyboard or screen-reader user —
+   * and because the deadline can pass on a live timer, a guest focused on
+   * Respond at that instant would lose focus to `<body>` mid-session.
+   * `aria-disabled` conveys the same "cannot activate" semantics while keeping
+   * the control focusable; the click handler enforces it.
+   */
+  rsvpClosed?: boolean;
+  /**
+   * Id of the events-section deadline notice, pointed at by `aria-describedby`
+   * once closed, so the button announces WHEN RSVPs shut and not just that they
+   * did. Optional — the button is still self-describing without it.
+   */
+  rsvpClosedNoticeId?: string;
   onRespond: (event: EventSummary) => void;
   onDetails: (event: EventSummary) => void;
 }
@@ -73,11 +94,27 @@ export function EventCard(props: EventCardProps) {
               — a real button, but visibly second. Two equal outlines made the
               guest choose between them; now the choice is made for them. */}
           <div class="flex flex-wrap gap-3">
+            {/* Closed, this drops to the SECONDARY outlined treatment rather
+                than dimming the filled button with an opacity: without the
+                native `disabled` attribute there is no WCAG 1.4.3
+                inactive-component exemption to lean on, and the outlined pair
+                beside it is a contrast combination this card already ships. */}
             <button
-              class="bg-gold font-body text-bg hover:bg-gold/85 min-h-11 flex-1 rounded-sm border border-transparent px-5 py-3 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
-              onClick={() => props.onRespond(props.event)}
+              class="font-body min-h-11 flex-1 rounded-sm border px-5 py-3 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
+              classList={{
+                "bg-gold text-bg hover:bg-gold/85 border-transparent": !props.rsvpClosed,
+                "border-border text-text-muted cursor-not-allowed bg-transparent": props.rsvpClosed,
+              }}
+              onClick={() => {
+                // `aria-disabled` is advisory to AT — this guard is what makes
+                // it real for pointer and keyboard alike.
+                if (props.rsvpClosed) return;
+                props.onRespond(props.event);
+              }}
+              aria-disabled={props.rsvpClosed ? "true" : undefined}
+              aria-describedby={props.rsvpClosed ? props.rsvpClosedNoticeId : undefined}
             >
-              Respond
+              {props.rsvpClosed ? "RSVPs closed" : "Respond"}
             </button>
             <button
               class="border-border font-body text-text-muted hover:border-gold hover:text-gold min-h-11 flex-1 rounded-sm border bg-transparent px-5 py-3 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"

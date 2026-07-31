@@ -1,4 +1,4 @@
-import { families, guests, guestEvents } from "@cire/db";
+import { families, guests, guestEvents, weddings } from "@cire/db";
 import type { TurnstileVerifier } from "@shared/turnstile";
 import { eq, inArray } from "drizzle-orm";
 import { Effect, Schema } from "effect";
@@ -6,7 +6,8 @@ import { Elysia } from "elysia";
 
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
-import { metricRsvpBatchSize } from "../metrics";
+import { isRsvpClosed } from "../lib/rsvp-deadline";
+import { metricRsvpBatchSize, metricRsvpBlocked } from "../metrics";
 import { sessionAuth } from "../middleware/auth";
 import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
@@ -67,18 +68,55 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
 
             const dbService = yield* DbService;
 
-            // The host preview family is read-only — its code unlocks every
-            // event for the organiser, but it must never write real RSVP data.
+            // The household's own row plus its wedding's RSVP deadline — one
+            // join rather than two round-trips, since both gates below run on
+            // every submit. The FK guarantees the wedding row exists, so an
+            // inner join can only miss if the family itself is gone.
             const [family] = yield* dbQuery(() =>
               dbService
-                .select({ kind: families.kind })
+                .select({
+                  kind: families.kind,
+                  rsvpDeadline: weddings.rsvpDeadline,
+                  rsvpDeadlineTimezone: weddings.rsvpDeadlineTimezone,
+                })
                 .from(families)
+                .innerJoin(weddings, eq(weddings.id, families.weddingId))
                 .where(eq(families.id, familyId))
                 .all(),
             );
-            if (family?.kind === "host") {
+
+            // Fail CLOSED on a missing row (S-L1). Both gates below read this
+            // result, so an optional-chained `family?.…` would make a zero-row
+            // join answer "allow" to each of them — the host-preview write ban
+            // and the deadline would both vanish. The FK cascade means a family
+            // can't outlive its wedding today, but a deny decision must not
+            // depend on that staying true.
+            if (!family) {
               set.status = 403;
+              return { error: "Unauthorized" };
+            }
+
+            // The host preview family is read-only — its code unlocks every
+            // event for the organiser, but it must never write real RSVP data.
+            if (family.kind === "host") {
+              set.status = 403;
+              yield* Effect.sync(() => metricRsvpBlocked("preview"));
               return { error: "Preview sessions cannot submit RSVPs" };
+            }
+
+            // The RSVP deadline is enforced HERE, on the write, not just in the
+            // guest UI: the invite renders read-only past it, but a stale tab
+            // (or anything talking to the API directly) must not be able to
+            // slip a late reply in. The organiser's own recording endpoint is
+            // deliberately NOT gated — a phone/paper RSVP arriving after the
+            // date is exactly the case they need to enter. A wedding with no
+            // deadline set never closes.
+            if (isRsvpClosed(family.rsvpDeadline, family.rsvpDeadlineTimezone, new Date())) {
+              set.status = 403;
+              yield* Effect.sync(() => metricRsvpBlocked("deadline"));
+              // A machine-readable code, not prose: the guest site maps it to
+              // its own "RSVPs closed" copy, which names the date.
+              return { error: "rsvp_closed" };
             }
 
             // Guest IDs that belong to the session's family.

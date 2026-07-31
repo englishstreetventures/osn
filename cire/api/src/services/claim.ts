@@ -11,6 +11,7 @@ import { eq, and, asc, inArray, ne, isNull } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import { resolveRsvpDeadline } from "../lib/rsvp-deadline";
 import { measureClaimLookup, metricClaimAttempt, metricInviteOpened } from "../metrics";
 import type { ClaimResponse, OrganiserGuestRow, DressSwatch } from "../schemas/claim";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
@@ -147,10 +148,12 @@ export const claimService = {
       // on bun:sqlite (tests/local) they resolve in-process so concurrency is a
       // harmless no-op. The events read can't join this group — it depends on the
       // event ids derived from `guestRows` below — so it stays sequential after.
-      //  (a) the wedding slug — scopes the first-party event-image paths. A family
-      //      always belongs to a wedding (FK), so the row is present; default to the
-      //      family's weddingId if a slug is somehow absent (image URLs would 404,
-      //      but the rest of the claim is unaffected — never fail the lookup on it).
+      //  (a) the wedding row — its slug scopes the first-party event-image paths,
+      //      and its RSVP-deadline columns tell the guest site whether (and when)
+      //      the invite locks. A family always belongs to a wedding (FK), so the
+      //      row is present; default to the family's weddingId if a slug is somehow
+      //      absent (image URLs would 404, but the rest of the claim is unaffected
+      //      — never fail the lookup on it).
       //  (b) guests + their event-id memberships. Kept narrow (no events join) to
       //      avoid the cartesian explosion of duplicating every event row — incl.
       //      its JSON palette blob — once per invited guest.
@@ -164,7 +167,11 @@ export const claimService = {
         {
           wedding: dbQuery(() =>
             db
-              .select({ slug: weddings.slug })
+              .select({
+                slug: weddings.slug,
+                rsvpDeadline: weddings.rsvpDeadline,
+                rsvpDeadlineTimezone: weddings.rsvpDeadlineTimezone,
+              })
               .from(weddings)
               .where(eq(weddings.id, family.weddingId))
               .all(),
@@ -296,6 +303,14 @@ export const claimService = {
         members: Array.from(memberMap.values()),
         events: eventList,
         rsvps: rsvpRows,
+        // Resolved server-side so the banner the guest reads and the 403 the
+        // write path returns are computed by the same function — the client
+        // never turns the date into an instant itself.
+        rsvpDeadline: resolveRsvpDeadline(
+          wedding?.rsvpDeadline,
+          wedding?.rsvpDeadlineTimezone,
+          new Date(),
+        ),
         closing: {
           message: closing?.message ?? null,
           imageUrl: closing?.imageKey

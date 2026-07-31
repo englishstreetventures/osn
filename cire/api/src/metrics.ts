@@ -67,6 +67,8 @@ export const CIRE_METRICS = {
   // RSVP.
   rsvpUpserted: "cire.rsvp.upserted",
   rsvpBatchSize: "cire.rsvp.batch.size",
+  // Guest RSVP submits refused before any write.
+  rsvpBlocked: "cire.rsvp.blocked",
   // Organiser spreadsheet import.
   importApplied: "cire.import.applied",
   importRows: "cire.import.rows",
@@ -269,6 +271,11 @@ type HostCodeEnsuredAttrs = { result: "ok" | "error" };
  *  recorded on the guest's behalf; `consent_source='organiser_attested'`). */
 export type RsvpWriter = "guest" | "organiser";
 type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" | "error" };
+/** Why a guest RSVP submit was refused before reaching the write — bounded set,
+ *  one label per gate on the route. `deadline` = the wedding's RSVP-by date has
+ *  passed; `preview` = the organiser's host-preview family, which never writes. */
+export type RsvpBlockedReason = "deadline" | "preview";
+type RsvpBlockedAttrs = { reason: RsvpBlockedReason };
 type ImportSimpleAttrs = { result: "ok" | "error" };
 type ImportRowsAttrs = { entity: ImportEntity };
 type ImportParseRejectedAttrs = { reason: ParseRejectReason };
@@ -401,6 +408,12 @@ const hostCodeEnsured = createCounter<HostCodeEnsuredAttrs>({
 const rsvpUpserted = createCounter<RsvpUpsertedAttrs>({
   name: CIRE_METRICS.rsvpUpserted,
   description: "RSVP upserts (one per (guest,event) pair), by terminal status + writer",
+  unit: "{rsvp}",
+});
+
+const rsvpBlocked = createCounter<RsvpBlockedAttrs>({
+  name: CIRE_METRICS.rsvpBlocked,
+  description: "Guest RSVP submits refused before any write, by gate",
   unit: "{rsvp}",
 });
 
@@ -636,6 +649,8 @@ export const metricRsvpUpserted = (
   source: RsvpWriter,
   result: "ok" | "error",
 ): void => rsvpUpserted.inc({ status, source, result });
+
+export const metricRsvpBlocked = (reason: RsvpBlockedReason): void => rsvpBlocked.inc({ reason });
 
 export const metricRsvpBatchSize = (size: number): void => rsvpBatchSize.record(size, {});
 

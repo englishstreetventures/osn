@@ -379,6 +379,13 @@
       "when": 1781240069760,
       "tag": "0054_event_timestamps",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "6",
+      "when": 1785509254111,
+      "tag": "0055_rsvp_deadline",
+      "breakpoints": true
     }
   ]
 }

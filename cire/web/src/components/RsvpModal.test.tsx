@@ -1,4 +1,5 @@
 import { render, cleanup, fireEvent, waitFor, within } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
 import { RsvpModal } from "./RsvpModal";
@@ -237,6 +238,28 @@ describe("RsvpModal", () => {
 
     await submitOnce();
     expect(await findByText("You're not authorised to RSVP for one of those guests.")).toBeTruthy();
+  });
+
+  it("distinguishes a deadline 403 from an authorisation 403", async () => {
+    // The deadline can pass with this sheet already open, so the server's
+    // `rsvp_closed` code is the only way to tell "too late" from "not yours".
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "rsvp_closed" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    const { findByText } = render(() => (
+      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+    ));
+
+    await submitOnce();
+    expect(
+      await findByText("RSVPs have closed for this wedding. Please contact the couple directly."),
+    ).toBeTruthy();
   });
 
   it("shows generic message on 400", async () => {
@@ -547,6 +570,137 @@ describe("RsvpModal", () => {
     );
     expect(onClose).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("becomes a read-only view once RSVPs are closed", () => {
+    const { getByText, queryByText } = render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya]}
+        existingRsvps={[
+          { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "Vegan" },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        closedOn="Tuesday 1 September 2026"
+        onClose={() => {}}
+      />
+    ));
+
+    // Says WHEN it shut, not just that it did.
+    expect(getByText(/RSVPs closed on Tuesday 1 September 2026/)).toBeTruthy();
+
+    // No submit at all — a disabled Save invites clicking at a door that won't
+    // open — and the one remaining button says "Close", not "Cancel".
+    expect(queryByText("Save")).toBeNull();
+    expect(document.querySelector("button[type='submit']")).toBeNull();
+    // The action bar's own button (the sheet's dismiss "×" also labels itself
+    // Close, so match on the visible text node, not the accessible name).
+    expect(getByText("Close")).toBeTruthy();
+    expect(queryByText("Cancel")).toBeNull();
+
+    // The reply already on file is still visible, and frozen.
+    const fs = fieldsetFor("Priya");
+    const attending = within(fs).getByText("Attending") as HTMLButtonElement;
+    expect(attending.getAttribute("aria-pressed")).toBe("true");
+    expect(attending.disabled).toBe(true);
+    expect((within(fs).getByText("Not attending") as HTMLButtonElement).disabled).toBe(true);
+    expect((within(fs).getByPlaceholderText(/Vegetarian/) as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("never POSTs from a closed sheet, even on a form-level submit", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const onClose = vi.fn();
+
+    render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya]}
+        existingRsvps={[
+          { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+        ]}
+        apiUrl="https://api.test"
+        closed
+        onClose={onClose}
+      />
+    ));
+
+    // There is no submit button, but a stray Enter in the form would still fire
+    // the handler — the guard has to live there, not only in the markup.
+    fireEvent.submit(document.querySelector("form")!);
+
+    await waitFor(() => expect(fetchSpy).not.toHaveBeenCalled());
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("rescues focus into the sheet when the deadline passes with Save focused (C-L2)", async () => {
+    // The deadline can flip on a live timer while this sheet is open, and that
+    // unmounts the submit button. If focus was ON it, focus would revert to
+    // <body> — outside an `aria-modal` dialog, with no keyboard way back in.
+    const [closed, setClosed] = createSignal(false);
+    render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya]}
+        existingRsvps={[
+          { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+        ]}
+        apiUrl="https://api.test"
+        closed={closed()}
+        onClose={() => {}}
+      />
+    ));
+
+    const save = document.querySelector("button[type='submit']") as HTMLButtonElement;
+    save.focus();
+    expect(document.activeElement).toBe(save);
+
+    setClosed(true);
+
+    await waitFor(() => expect(document.querySelector("button[type='submit']")).toBeNull());
+    // Focus landed on the sheet's dismiss button, not on <body>.
+    expect(document.activeElement).not.toBe(document.body);
+    expect((document.activeElement as HTMLElement).textContent).toContain("Close");
+  });
+
+  it("leaves focus alone when it was never inside the sheet", async () => {
+    // The rescue must not YANK focus from wherever the guest actually is —
+    // only recover it when the element being destroyed held it.
+    const [closed, setClosed] = createSignal(false);
+    const outside = document.createElement("button");
+    outside.textContent = "elsewhere";
+    document.body.append(outside);
+
+    render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        closed={closed()}
+        onClose={() => {}}
+      />
+    ));
+
+    outside.focus();
+    setClosed(true);
+
+    await waitFor(() => expect(document.querySelector("button[type='submit']")).toBeNull());
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
+
+  it("still shows the closed banner when the deadline day is unknown", () => {
+    const { getByText } = render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya]}
+        apiUrl="https://api.test"
+        closed
+        onClose={() => {}}
+      />
+    ));
+    expect(getByText(/RSVPs have closed/)).toBeTruthy();
   });
 
   it("seats the action bar on the sheet's bottom edge and balances the card insets", () => {

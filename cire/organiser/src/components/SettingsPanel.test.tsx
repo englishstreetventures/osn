@@ -46,6 +46,8 @@ const PROFILE = {
   guestCountEstimate: 120,
   currency: "AUD",
   budgetTotalMinor: 4_500_000,
+  rsvpDeadline: "2027-02-20",
+  rsvpDeadlineTimezone: "Australia/Sydney",
 };
 
 const EMPTY_PROFILE = {
@@ -53,6 +55,8 @@ const EMPTY_PROFILE = {
   weddingDate: null,
   guestCountEstimate: null,
   budgetTotalMinor: null,
+  rsvpDeadline: null,
+  rsvpDeadlineTimezone: null,
 };
 
 describe("SettingsPanel", () => {
@@ -145,6 +149,76 @@ describe("SettingsPanel", () => {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
     expect(body.weddingDate).toBeNull();
     expect(body.guestCountEstimate).toBeNull();
+  });
+
+  it("seeds the RSVP deadline and explains what guests get", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+
+    expect(screen.getByText("RSVP by")).toBeTruthy();
+    expect(screen.getByText(/20 February 2027/)).toBeTruthy();
+    // The hint has to name the zone — "end of that day" is meaningless without it.
+    expect(screen.getByText(/Australia\/Sydney/)).toBeTruthy();
+    expect(screen.getByText(/the invite locks/)).toBeTruthy();
+  });
+
+  it("offers to leave RSVPs open when no deadline is set", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
+    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+
+    expect(screen.getByText(/Leave this empty to keep RSVPs open/)).toBeTruthy();
+    expect(screen.queryByText(/the invite locks/)).toBeNull();
+  });
+
+  it("stamps the organiser's own zone when they pick a deadline", async () => {
+    // A wedding with no deadline yet: picking one must send BOTH halves, or the
+    // server has a date whose day it can only measure in UTC.
+    authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
+    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /RSVP by, no date set/ }));
+    await waitFor(() => expect(screen.getByRole("grid")).toBeTruthy());
+    // The grid opens on today when nothing is selected; pick that day so the
+    // expected ISO is computable without pinning a month.
+    const today = new Date();
+    const todayLabel = new Intl.DateTimeFormat("en-AU", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).format(today);
+    fireEvent.click(screen.getByRole("gridcell", { name: todayLabel }));
+
+    authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
+    fireEvent.click(screen.getByText("Save settings"));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    const [, init] = authFetchMock.mock.calls[1] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    expect(body.rsvpDeadline).toBe(
+      `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`,
+    );
+    expect(body.rsvpDeadlineTimezone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
+
+  it("sends both halves of the deadline as null when it is cleared", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
+    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+
+    authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
+    fireEvent.click(screen.getByText("Save settings"));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    const [, init] = authFetchMock.mock.calls[1] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body.rsvpDeadline).toBeNull();
+    // A zone with no date is inert but misleading — never send one.
+    expect(body.rsvpDeadlineTimezone).toBeNull();
   });
 
   it("rejects a bad currency client-side without a request", async () => {

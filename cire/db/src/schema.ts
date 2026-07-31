@@ -57,6 +57,27 @@ export const weddings = sqliteTable(
     // Total budget in MINOR units (cents) of `currency` — integers only, no
     // float money.
     budgetTotalMinor: integer("budget_total_minor"),
+    // ── RSVP deadline (migration 0055) ─────────────────────────────────────
+    // The "kindly respond by" date. Unlike the rest of the profile above this
+    // pair IS guest-facing AND enforcing: past it, the guest invite stops
+    // accepting RSVP writes (403 `rsvp_closed`) and renders read-only. It lives
+    // here rather than on `wedding_invite_customisations` for exactly that
+    // reason — that table is strictly presentational, this gates a write.
+    //
+    // `rsvp_deadline` is a date-only ISO string (`YYYY-MM-DD`), like
+    // `wedding_date`, and is INCLUSIVE: the lock takes effect at the END of that
+    // day (23:59:59.999). NULL = no deadline, which is what every pre-0055 row
+    // reads as, so an existing wedding keeps accepting RSVPs forever.
+    //
+    // A date alone doesn't name an instant, so `rsvp_deadline_timezone` carries
+    // the IANA zone that day is measured in — the same "wall time + zone" idiom
+    // `events` uses for `start_at`/`timezone`. It is stamped from the
+    // organiser's own zone when they pick the date. NULL ⇒ UTC, so a row that
+    // somehow carries a date without a zone still resolves to one definite
+    // instant (see `cire/api/src/lib/rsvp-deadline.ts`, the single place the
+    // instant is computed).
+    rsvpDeadline: text("rsvp_deadline"),
+    rsvpDeadlineTimezone: text("rsvp_deadline_timezone"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },

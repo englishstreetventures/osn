@@ -5,12 +5,21 @@ related:
   - "[[index]]"
   - "[[review-findings]]"
   - "[[host-portal-layout]]"
-last-reviewed: 2026-07-30
+last-reviewed: 2026-07-31
 ---
 
 # Performance Backlog
 
 See [[review-findings]] for severity prefix conventions.
+
+### RSVP deadline — review findings (claude/cire-invites-rsvp-deadline-jf2w25, 2026-07-31)
+
+Pre-merge performance review of the RSVP-by date. All four **fixed on branch**. Explicitly cleared: the new `innerJoin` in `routes/rsvp.ts` (two PK probes in ONE D1 round-trip, replacing what would have been a second serial round-trip — no index needed, nothing filters on the new columns), the widened `weddings` projection in `claim.ts` (two text columns on a by-PK read already inside the existing `Effect.all` group — zero extra round-trips), `createRsvpClosed`'s reactive design (one timer, no polling, no feedback loop, 32-bit overflow clamped), and migration 0055 (two nullable `ADD COLUMN`s — an O(1) schema-header rewrite, no table scan). See [[rsvp-deadline]].
+
+- [x] **P-W1** (fixed on branch) — **`resolveRsvpDeadline` built three `Intl.DateTimeFormat` objects per call, on the two busiest guest endpoints.** One in `isValidTimeZone` plus one in each of the two `zoneOffsetMs` passes, none memoised, on every `POST /api/claim` and every `POST /api/rsvp`. Measured 226.7 µs/call vs 15.9 µs with the formatter cached by zone — ~211 µs of avoidable CPU per request, ~2% of the Cloudflare **Free** plan's 10 ms per-request CPU ceiling, and it is pure CPU so it counts fully (unlike a D1 round-trip). Construction is the expensive half of ICU date handling; `formatToParts` on an existing formatter is cheap. **Fixed on branch:** a module-level `Map<string, Intl.DateTimeFormat>` with the formatter resolved once and reused across both DST passes. **Only successful lookups are cached**, which is what bounds the map — junk input costs a throwaway construction and stores nothing — and S-L2's canonicalisation (see [[security]]) means only canonical zones ever reach it, so an organiser can't grow it with case variants either. Parity verified across both Sydney DST edges, US spring-forward, Berlin fall-back and the two `:45`-offset zones.
+- [x] **P-I1** (fixed on branch) — `isRsvpClosed` went through `resolveRsvpDeadline`, which allocates a `Date` and serialises an ISO string for `closesAt` that the write gate never reads. **Fixed on branch:** it computes `rsvpDeadlineEndsAt` directly. Both paths still route through that one function, so the server's 403 and the claim payload's `closesAt` cannot drift.
+- [x] **P-I2** (fixed on branch) — `rsvpDeadline` was a plain accessor over `claimResult()` in both design packs. `setClaimResult({ ...current, rsvps })` fires after every RSVP save and the spread keeps `rsvpDeadline` at the **same object reference**, so every save re-ran the whole chain: `createRsvpClosed`'s effect tore down and re-scheduled its timer, and Solid's non-keyed `<Show>` reads `props.when` twice, so `formatDeadlineDay` rebuilt a formatter twice per invalidation. **Fixed on branch:** `createMemo` in both packs — default `===` equality sees the stable reference and notifies exactly once (`null` → the object), which is the true change frequency. `rsvpNotice` memoised too, collapsing the `<Show>` double-read.
+- [x] **P-I3** (fixed on branch) — `formatDeadlineDay` (and `describeTimeZone` on the organiser side) constructed a formatter per call. **Fixed on branch:** same bounded per-zone cache as P-W1, and the zones reaching it come from the validated API payload.
 
 ### Invite builder mobile section menu — review findings (claude/mobile-invite-builder-submenu-017xyv, 2026-07-30)
 

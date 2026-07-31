@@ -18,6 +18,49 @@ interface WeddingProfile {
   guestCountEstimate: number | null;
   currency: string;
   budgetTotalMinor: number | null;
+  /** The "kindly respond by" date (`YYYY-MM-DD`), or null for no deadline. */
+  rsvpDeadline: string | null;
+  /** IANA zone the deadline day is measured in; null ⇒ UTC. */
+  rsvpDeadlineTimezone: string | null;
+}
+
+/** The organiser's own zone, used to stamp a deadline they've just picked. A
+ *  browser that won't name its zone (ancient/locked-down) falls back to UTC —
+ *  the same default the API applies to a zone-less deadline. */
+function browserTimeZone(): string {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+/** Zone-name formatters, cached by zone (P-I3). Construction is the expensive
+ *  part; only successful lookups are stored, so an unresolvable zone costs a
+ *  throwaway construction and can't grow the map. */
+const zoneNameFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function zoneNameFormatter(zone: string): Intl.DateTimeFormat | null {
+  const cached = zoneNameFormatters.get(zone);
+  if (cached) return cached;
+  try {
+    const formatter = new Intl.DateTimeFormat("en-AU", { timeZone: zone, timeZoneName: "short" });
+    zoneNameFormatters.set(zone, formatter);
+    return formatter;
+  } catch {
+    return null;
+  }
+}
+
+/** "Australia/Sydney" → "Australia/Sydney (AEST)" where the runtime can name
+ *  the abbreviation, so the hint says something an organiser recognises. */
+function describeTimeZone(zone: string, on: string | null): string {
+  const at = on ? new Date(`${on}T12:00:00Z`) : new Date();
+  if (Number.isNaN(at.getTime())) return zone;
+  const short = zoneNameFormatter(zone)
+    ?.formatToParts(at)
+    .find((p) => p.type === "timeZoneName")?.value;
+  return short && short !== zone ? `${zone} (${short})` : zone;
 }
 
 const labelClass = "font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase";
@@ -59,6 +102,12 @@ export default function SettingsPanel(props: SettingsPanelProps) {
   const [weddingDate, setWeddingDate] = createSignal("");
   const [guestCount, setGuestCount] = createSignal("");
   const [currency, setCurrency] = createSignal("AUD");
+  // The RSVP deadline is a date + the zone its day is measured in. The zone is
+  // never picked by hand: it's whatever was stored, and it re-stamps to the
+  // organiser's own zone the moment they CHANGE the date — so saving an
+  // unrelated field from another country can't quietly move the deadline.
+  const [rsvpDeadline, setRsvpDeadline] = createSignal("");
+  const [rsvpDeadlineTimezone, setRsvpDeadlineTimezone] = createSignal<string | null>(null);
 
   const [saving, setSaving] = createSignal(false);
 
@@ -70,6 +119,15 @@ export default function SettingsPanel(props: SettingsPanelProps) {
     setWeddingDate(profile.weddingDate ?? "");
     setGuestCount(profile.guestCountEstimate === null ? "" : String(profile.guestCountEstimate));
     setCurrency(profile.currency);
+    setRsvpDeadline(profile.rsvpDeadline ?? "");
+    setRsvpDeadlineTimezone(profile.rsvpDeadlineTimezone);
+  }
+
+  /** Pick (or clear) the RSVP-by date. Clearing drops the zone with it; picking
+   *  stamps the organiser's current zone, which is the day they mean. */
+  function changeRsvpDeadline(value: string | null) {
+    setRsvpDeadline(value ?? "");
+    setRsvpDeadlineTimezone(value ? browserTimeZone() : null);
   }
 
   onMount(async () => {
@@ -113,6 +171,10 @@ export default function SettingsPanel(props: SettingsPanelProps) {
         weddingDate: weddingDate() || null,
         guestCountEstimate: guestNum,
         currency: curr,
+        rsvpDeadline: rsvpDeadline() || null,
+        // Paired with the date on the server too (clearing one clears both);
+        // sending null here just keeps the two ends in step.
+        rsvpDeadlineTimezone: rsvpDeadline() ? rsvpDeadlineTimezone() : null,
       },
     };
   }
@@ -159,7 +221,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
       <SectionIntro
         eyebrow="Settings"
         title="Wedding profile"
-        description="The facts that drive your planning tools — the date and roughly how many guests, in the currency you think in. Where each event happens is set per event on the Events tab, so celebrations across cities or countries just work. Guests never see any of this; only the name and the invite link appear on the invite."
+        description="The facts that drive your planning tools — the date and roughly how many guests, in the currency you think in. Where each event happens is set per event on the Events tab, so celebrations across cities or countries just work. Guests only ever see the name, the invite link and the RSVP-by date; the rest is yours alone."
       />
 
       <Show when={loadError()}>
@@ -219,6 +281,36 @@ export default function SettingsPanel(props: SettingsPanelProps) {
               <Show when={!readOnly()}>
                 <span class={hintClass}>
                   Leave this empty if you haven&apos;t set a date yet — you can add it any time.
+                </span>
+              </Show>
+            </div>
+
+            {/* The one field on this panel guests actually feel — hence the
+                explicit "guests see this" wording in the hint, against a
+                section whose intro says the opposite of everything else here. */}
+            <div class="flex flex-col gap-1.5">
+              <DatePicker
+                label="RSVP by"
+                value={rsvpDeadline() || null}
+                onChange={changeRsvpDeadline}
+                readOnly={readOnly()}
+                disabled={saving()}
+              />
+              <Show
+                when={rsvpDeadline()}
+                fallback={
+                  <Show when={!readOnly()}>
+                    <span class={hintClass}>
+                      Leave this empty to keep RSVPs open — guests can reply, and change their
+                      reply, right up to the day.
+                    </span>
+                  </Show>
+                }
+              >
+                <span class={hintClass}>
+                  Guests see this date on their invite and can reply until the end of that day (
+                  {describeTimeZone(rsvpDeadlineTimezone() ?? "UTC", rsvpDeadline())}). After that
+                  the invite locks — you can still record late replies yourself from the Guests tab.
                 </span>
               </Show>
             </div>

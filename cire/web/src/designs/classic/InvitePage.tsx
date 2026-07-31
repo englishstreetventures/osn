@@ -2,6 +2,7 @@ import { AuthProvider } from "@shared/rp-auth/solid";
 import { createEffect, createMemo, createResource, createSignal, Show, For } from "solid-js";
 import { Toaster } from "solid-toast";
 
+import { createRsvpClosed } from "../../components/createRsvpClosed";
 import { DetailsModal } from "../../components/DetailsModal";
 import { EventCard } from "../../components/EventCard";
 import {
@@ -13,6 +14,7 @@ import {
 import { InviteClosing } from "../../components/InviteClosing";
 import { LoginSection } from "../../components/LoginSection";
 import { PulseAccountLink } from "../../components/PulseAccountLink";
+import { deadlineNotice, formatDeadlineDay, RSVP_NOTICE_ID } from "../../components/rsvp-deadline";
 import { RsvpModal } from "../../components/RsvpModal";
 import type { ClaimResult, EventSummary, RsvpSummary } from "../../components/types";
 
@@ -142,6 +144,20 @@ export default function InvitePage(props: InvitePageProps) {
   const detailsEyebrow = () => liveInvite().details?.eyebrow ?? DEFAULT_DETAILS_EYEBROW;
   const detailsHeading = () => liveInvite().details?.heading ?? DEFAULT_DETAILS_HEADING;
 
+  // The RSVP deadline arrives with the claim (it is household-facing, like the
+  // events beside it). One verdict drives all three surfaces below — the notice
+  // under the heading, every card's Respond button, and the RSVP sheet — and it
+  // re-derives itself if the deadline passes while the invite is open.
+  // Memoised, not a plain accessor (P-I2): `setClaimResult({ ...current, rsvps })`
+  // after every RSVP save changes the signal while the spread keeps
+  // `rsvpDeadline` at the SAME object reference, so a plain accessor would
+  // re-run the whole chain each save — re-scheduling createRsvpClosed's timer
+  // and rebuilding date formatters for an unchanged value. The memo's default
+  // `===` equality stops that at the memo, notifying once (null → the object).
+  const rsvpDeadline = createMemo(() => claimResult()?.rsvpDeadline ?? null);
+  const rsvpClosed = createRsvpClosed(rsvpDeadline);
+  const rsvpNotice = createMemo(() => deadlineNotice(rsvpDeadline(), rsvpClosed()));
+
   let loginFormRef: HTMLDivElement;
   let welcomeRef: HTMLDivElement;
   let eventsSectionRef: HTMLElement;
@@ -199,6 +215,24 @@ export default function InvitePage(props: InvitePageProps) {
               <h2 class="font-display text-text mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                 {detailsHeading()}
               </h2>
+              {/* The RSVP-by line. One line governs every card — a per-card
+                  repeat would be four copies of one fact — so it sits directly
+                  on top of the list rather than in the centred header block:
+                  left-aligned with the cards it applies to, and held tight to
+                  them (`mb-3` against the heading's `mb-5` above) so it reads as
+                  their label rather than as a third line of section header. */}
+              <Show when={rsvpNotice()}>
+                {(notice) => (
+                  <p
+                    id={RSVP_NOTICE_ID}
+                    class="font-body mb-3 text-left text-[0.85rem]"
+                    classList={{ "text-text-muted": rsvpClosed(), "text-gold": !rsvpClosed() }}
+                    role="status"
+                  >
+                    {notice()}
+                  </p>
+                )}
+              </Show>
               <div class="flex flex-col gap-5 text-left">
                 <For each={data().events}>
                   {(event, index) => (
@@ -211,6 +245,8 @@ export default function InvitePage(props: InvitePageProps) {
                         // (`alt`). Collapses to a single text column when the
                         // event has no image.
                         orientation={index() % 2 === 0 ? "norm" : "alt"}
+                        rsvpClosed={rsvpClosed()}
+                        rsvpClosedNoticeId={RSVP_NOTICE_ID}
                         onRespond={setRsvpEvent}
                         onDetails={setDetailsEvent}
                       />
@@ -268,6 +304,11 @@ export default function InvitePage(props: InvitePageProps) {
             apiUrl={props.apiUrl}
             // Host preview keeps the RSVP interactive but makes submit a no-op.
             preview={claimResult()!.preview}
+            // Past the deadline the sheet is a read-only view of the reply
+            // already on file — normally unreachable (Respond is disabled), but
+            // the deadline can pass with the sheet open.
+            closed={rsvpClosed()}
+            closedOn={rsvpDeadline() ? formatDeadlineDay(rsvpDeadline()!) : undefined}
             // The RSVP dialog is the events section's expanded surface — it
             // follows the "details" theme (the modal renders outside the themed
             // section wrapper, so the vars must be re-applied on its panel).

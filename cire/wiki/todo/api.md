@@ -4,13 +4,14 @@ tags: [todo, api]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-07-30
+last-reviewed: 2026-07-31
 ---
 
 # cire/api
 
 Backend feature work. The Elysia + Effect + Drizzle layer in `cire/api`.
 
+- [x] **RSVP deadline — the invite locks past the "respond by" date** (2026-07-31): `lib/rsvp-deadline.ts` is the single place a date becomes an instant (end of the day in its stored zone; two-pass `Intl` offset so a DST-transition day resolves on the offset the day *ends* on; fails OPEN on a bad date/zone). `POST /api/rsvp` refuses with 403 `rsvp_closed` past it — read in the join it already makes for the family's `kind`, so no extra round-trip — and counts refusals on `cire.rsvp.blocked{reason}`. The organiser-recorded endpoint is deliberately **not** gated: a phone/paper reply arriving late is the case the deadline creates. The claim payload carries `rsvpDeadline {date, timezone, closesAt, closed}`; Settings accepts the pair (zone validated against the runtime's own ICU data, and clearing the date clears the zone in the same write). See [[rsvp-deadline]].
 - [x] **Data-layer review fixes — service layer** (`claude/cire-data-layer-review-s7d6gt`, 2026-07-30; DB half in [[db]]):
   - **Reorder endpoints un-broken on D1**: `tasks`/`budget`/`vendors` `reorder` used `db.transaction()` — the D1 driver implements it as literal `BEGIN`/`COMMIT` (rejected by D1) and the sync callback never awaited its `.run()`s (passed only because tests run bun:sqlite). Now `commitGroupedBatches` with singleton groups (the bodies allow up to 500 ids, so the write set must chunk under the 50-statement cap — see [[perf]] P-W1); first D1 coverage of a reorder added to `d1-integration.test.ts`.
   - **Bulk remint chunked**: the remint fed `1 + 2×families` statements into an unchunked batch — over D1's 50-statement cap past ~24 families. New `commitGroupedBatches` (db/index.ts) packs whole statement-groups under the cap without ever splitting a family's [code rotate, session revoke] pair; whole-remint atomicity traded away exactly as the importer's chunking does. Also used by `scripts/remint-family-codes.ts`. The four byte-identical private `commitBatch` copies (host-code, regenerate-code, family-deactivate, the script) now import the shared one.

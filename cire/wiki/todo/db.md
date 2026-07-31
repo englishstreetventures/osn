@@ -5,13 +5,14 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-07-30
+last-reviewed: 2026-07-31
 ---
 
 # cire/db
 
 Schema and migration work. See [[monorepo-structure]] for how this package fits into the dependency graph.
 
+- [x] **`0055_rsvp_deadline.sql` — the RSVP-by date** (2026-07-31): `weddings` gains `rsvp_deadline` (date-only ISO, inclusive of its day) + `rsvp_deadline_timezone` (IANA zone that day is measured in; NULL ⇒ UTC), both nullable so every pre-0055 row reads as "no deadline". Deliberately on `weddings`, not `wedding_invite_customisations` — that table is strictly presentational and this pair gates a write. The wall-time + zone pairing mirrors `events.start_at`/`timezone`. See [[rsvp-deadline]].
 - [x] **Data-layer review fixes — migrations 0051–0054** (`claude/cire-data-layer-review-s7d6gt`, 2026-07-30):
   - **`0051_event_slug_wedding_scope.sql`** — `events_slug_unique` was GLOBAL across tenants (0001-era, recreated verbatim by 0006 — the migration that introduced `wedding_id`); with `mintEventSlug` deriving slugs from the event NAME alone, two weddings importing a same-named event collided and the second apply failed. Descoped to a `(wedding_id, slug)` unique (`events_wedding_slug_unique`); always satisfiable (old constraint strictly stronger). `mintUniqueEventSlug` additionally de-dupes within a wedding (`-2`, `-3`, …) and `mintEventSlug` never mints `""`. Regression tests in `import.test.ts` (cross-tenant + within-sheet).
   - **`0052_event_fk_cascade.sql`** — the two `event_id` FKs (`guest_events`, `rsvps`) were the schema's only `NO ACTION` children; the future wedding-delete flow would have had the `weddings → events` cascade slam into them. Rebuilt both LEAF tables (create-copy-drop-rename, no `__keep_*` needed) with `ON DELETE cascade`, plus a new `rsvps_event_id_idx` (the guest-led unique couldn't serve per-event deletes). Data-preservation + cascade proof: `cire/api/src/db/migration-0052.test.ts` (asserts the pre-0052 event delete really threw). The import's explicit child deletes stay (belt-and-braces, same stance as retention — which now also deletes `guest_events` explicitly).

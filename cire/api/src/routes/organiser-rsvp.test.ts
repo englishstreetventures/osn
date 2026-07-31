@@ -192,4 +192,19 @@ describe("PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId"
     // usr_bob owns wed_other, is a stranger to the bootstrap wedding → forbidden.
     expect((await put(app, rsvpPath(db), "usr_bob", OK_BODY)).status).toBe(403);
   });
+
+  it("still records an RSVP after the wedding's RSVP deadline has passed", async () => {
+    const { db, app } = buildApp();
+    db.update(weddings)
+      .set({ rsvpDeadline: "2020-01-01", rsvpDeadlineTimezone: "UTC", updatedAt: new Date() })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+    // The deadline closes the GUEST invite (403 rsvp_closed on POST /api/rsvp);
+    // it deliberately does not gate this endpoint. A reply that arrives by
+    // phone or post after the date is precisely what an organiser needs to
+    // enter, and they are the ones who set the date in the first place.
+    const res = await put(app, rsvpPath(db), OWNER, OK_BODY);
+    expect(res.status).toBe(200);
+  });
 });

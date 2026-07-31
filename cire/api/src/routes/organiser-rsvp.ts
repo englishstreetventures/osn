@@ -32,6 +32,11 @@ const manualParse = { parse: () => ({}) };
  *
  * Deliberately its OWN direct endpoint, NOT routed through `changes/*` — RSVPs
  * sit outside the reconcile pipeline ([[platform-plan]] §5 blast-radius).
+ *
+ * The wedding's RSVP DEADLINE does not gate this route. It closes the GUEST
+ * invite (`POST /api/rsvp` → 403 `rsvp_closed`) so late self-service replies
+ * can't land; an organiser entering a phone/paper reply that arrived after the
+ * date is the very case the deadline creates, and they own the date anyway.
  */
 export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) => {
   return new Elysia({ prefix: "/api/organiser" })

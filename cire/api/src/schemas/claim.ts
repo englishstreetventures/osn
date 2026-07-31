@@ -72,6 +72,26 @@ export const RsvpSummary = Schema.Struct({
 });
 export type RsvpSummary = Schema.Schema.Type<typeof RsvpSummary>;
 
+/**
+ * The wedding's "kindly respond by" date, resolved to one instant. `null` on the
+ * response ⇒ no deadline; the invite never locks.
+ *
+ * `closed` is the server's verdict AT CLAIM TIME and `closesAt` is the instant
+ * it flips — both are sent because a guest can sit on a claimed invite for
+ * hours: the client re-derives `closed` from `closesAt` as the clock moves, and
+ * the server re-checks on every write regardless (403 `rsvp_closed`).
+ */
+export const RsvpDeadline = Schema.Struct({
+  /** Date-only ISO (`YYYY-MM-DD`), inclusive of its whole day. */
+  date: Schema.String,
+  /** IANA zone the date is measured in (`UTC` when the wedding stored none). */
+  timezone: Schema.String,
+  /** ISO instant the invite locks: the last millisecond of `date` in `timezone`. */
+  closesAt: Schema.String,
+  closed: Schema.Boolean,
+});
+export type RsvpDeadline = Schema.Schema.Type<typeof RsvpDeadline>;
+
 export const ClaimResponse = Schema.Struct({
   // Internal/operational. The frontend uses the session cookie for follow-up
   // calls and never echoes this back, but exposing it keeps `/api/claim` a
@@ -85,6 +105,11 @@ export const ClaimResponse = Schema.Struct({
   members: Schema.Array(FamilyMember),
   events: Schema.Array(EventSummary),
   rsvps: Schema.Array(RsvpSummary),
+  // The wedding's RSVP-by date, or null when the organiser hasn't set one.
+  // Rides the claim payload rather than the public `GET /api/invite/:slug`
+  // because it only means anything once a household is looking at its own
+  // events — the same reasoning as the closing section beside it.
+  rsvpDeadline: Schema.NullOr(RsvpDeadline),
 });
 export type ClaimResponse = Schema.Schema.Type<typeof ClaimResponse>;
 

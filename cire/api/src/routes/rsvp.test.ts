@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, guests, rsvps } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, guests, rsvps, weddings } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
 import { createRateLimiter } from "@shared/rate-limit";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { createApp } from "../app";
@@ -391,6 +391,176 @@ describe("POST /api/rsvp", () => {
           ),
         );
         expect(res.status).toBe(413);
+      }),
+    ),
+  );
+});
+
+describe("POST /api/rsvp — RSVP deadline", () => {
+  /** Set (or clear, with `null`) the bootstrap wedding's RSVP-by date. */
+  const setDeadline = (date: string | null, timezone: string | null) =>
+    Effect.sync(() => {
+      db.update(weddings)
+        .set({ rsvpDeadline: date, rsvpDeadlineTimezone: timezone, updatedAt: new Date() })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+        .run();
+    });
+
+  /** Run `body` with a deadline in place, always clearing it afterwards — the
+   *  suite shares one in-memory DB, so a leaked deadline would close every
+   *  later test's invite. */
+  const withDeadline = <A, E, R>(
+    date: string | null,
+    timezone: string | null,
+    body: Effect.Effect<A, E, R>,
+  ) =>
+    Effect.acquireUseRelease(
+      setDeadline(date, timezone),
+      () => body,
+      () => setDeadline(null, null),
+    );
+
+  const rsvpOnce = (cookie: string) =>
+    post({ rsvps: [{ guestId: sharmaGuestId, eventId: HINDU_ID, status: "attending" }] }, cookie);
+
+  it(
+    "accepts an RSVP while the deadline is still in the future",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* withDeadline("2999-01-01", "UTC", rsvpOnce(cookie));
+        expect(res.status).toBe(200);
+      }),
+    ),
+  );
+
+  it(
+    "returns 403 rsvp_closed once the deadline has passed",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* withDeadline("2020-01-01", "UTC", rsvpOnce(cookie));
+        expect(res.status).toBe(403);
+        const data = yield* Effect.promise(() => res.json<{ error: string }>());
+        // A machine-readable code — the guest site maps it to copy naming the date.
+        expect(data.error).toBe("rsvp_closed");
+      }),
+    ),
+  );
+
+  it(
+    "writes nothing when the deadline has passed",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        // Land a known answer BEFORE the deadline is set…
+        const before = yield* post(
+          { rsvps: [{ guestId: sharmaGuestId, eventId: HINDU_ID, status: "declined" }] },
+          cookie,
+        );
+        expect(before.status).toBe(200);
+
+        // …then try to change it after the door shut.
+        const after = yield* withDeadline(
+          "2020-01-01",
+          "UTC",
+          post(
+            { rsvps: [{ guestId: sharmaGuestId, eventId: HINDU_ID, status: "attending" }] },
+            cookie,
+          ),
+        );
+        expect(after.status).toBe(403);
+
+        const [row] = db
+          .select({ status: rsvps.status })
+          .from(rsvps)
+          .where(eq(rsvps.guestId, sharmaGuestId))
+          .all();
+        expect(row?.status).toBe("declined");
+      }),
+    ),
+  );
+
+  it(
+    "keeps RSVPs open forever when no deadline is set",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        // The unmigrated shape every pre-0055 wedding carries.
+        const res = yield* withDeadline(null, null, rsvpOnce(cookie));
+        expect(res.status).toBe(200);
+      }),
+    ),
+  );
+
+  it(
+    "measures the deadline in the wedding's stored zone",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        // "Yesterday in Sydney" is unambiguously past in every zone; the point
+        // here is that the ZONE column is read at all — a wedding storing
+        // Australia/Sydney must not be evaluated against the server's clock zone.
+        const res = yield* withDeadline("2020-01-01", "Australia/Sydney", rsvpOnce(cookie));
+        expect(res.status).toBe(403);
+
+        // Same date, but a zone whose day has yet to end is still open —
+        // proving the stored zone, not just the date, drives the verdict.
+        const open = yield* withDeadline("2999-01-01", "Australia/Sydney", rsvpOnce(cookie));
+        expect(open.status).toBe(200);
+      }),
+    ),
+  );
+
+  it(
+    "fails CLOSED when the family's wedding row is missing (S-L1)",
+    eff(
+      Effect.gen(function* () {
+        // Both gates on this route read the joined row, so a zero-row result
+        // must not answer "allow" to either of them. The FK cascade makes this
+        // unreachable in practice — which is exactly why the branch needs a
+        // test that reaches it deliberately: the guard exists so the deny
+        // decision doesn't depend on FK enforcement staying switched on.
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+
+        // Orphan the family by dropping its wedding with FKs off, so the
+        // family + session survive but the join finds nothing.
+        yield* Effect.sync(() => {
+          db.run(sql`PRAGMA foreign_keys = OFF`);
+          db.delete(weddings).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID)).run();
+        });
+
+        try {
+          const res = yield* rsvpOnce(cookie);
+          expect(res.status).toBe(403);
+          const data = yield* Effect.promise(() => res.json<{ error: string }>());
+          expect(data.error).toBe("Unauthorized");
+        } finally {
+          // Restore the wedding row (and FK enforcement) for the rest of the
+          // suite — the whole file shares one in-memory db.
+          db.insert(weddings)
+            .values({
+              id: BOOTSTRAP_WEDDING_ID,
+              slug: "cire-wedding",
+              displayName: "Cire Wedding",
+              ownerOsnProfileId: "usr_dev_bootstrap_owner",
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .run();
+          db.run(sql`PRAGMA foreign_keys = ON`);
+        }
+      }),
+    ),
+  );
+
+  it(
+    "ignores an unparseable stored date (fails open, never locks guests out)",
+    eff(
+      Effect.gen(function* () {
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* withDeadline("not-a-date", "UTC", rsvpOnce(cookie));
+        expect(res.status).toBe(200);
       }),
     ),
   );

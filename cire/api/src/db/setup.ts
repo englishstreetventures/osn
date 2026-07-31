@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS weddings (
   guest_count_estimate INTEGER,
   currency TEXT NOT NULL DEFAULT 'AUD',
   budget_total_minor INTEGER,
+  rsvp_deadline TEXT,
+  rsvp_deadline_timezone TEXT,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

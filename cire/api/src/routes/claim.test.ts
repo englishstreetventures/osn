@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
-import { events } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, events, weddings } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
 import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
@@ -269,5 +269,52 @@ describe("POST /api/claim event imageUrl (migration 0019)", () => {
       .set({ eventImageKey: null })
       .where(eq(events.id, eventsData.catholic.id))
       .run();
+  });
+
+  // The claim response is the DELIVERY BOUNDARY for the RSVP deadline — the
+  // guest site reads it from here, not from the public invite payload. The
+  // service's own tests assert what `lookup` returns; this asserts what
+  // actually crosses the wire, so a future reshaping of the route's response
+  // can't silently stop the deadline reaching guests (the invite would go back
+  // to offering an open RSVP form while the server still refused the write).
+  it("carries the wedding's RSVP deadline on the claim response", async () => {
+    db.update(weddings)
+      .set({
+        rsvpDeadline: "2999-09-01",
+        rsvpDeadlineTimezone: "Australia/Sydney",
+        updatedAt: new Date(),
+      })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+    const res = await Effect.runPromise(post({ publicId: "TESTONE-IVY-AA11" }));
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as {
+      rsvpDeadline: { date: string; timezone: string; closesAt: string; closed: boolean } | null;
+    };
+    expect(data.rsvpDeadline).toEqual({
+      date: "2999-09-01",
+      timezone: "Australia/Sydney",
+      // End of the 1st in Sydney — the instant the guest site locks on.
+      closesAt: "2999-09-01T13:59:59.999Z",
+      closed: false,
+    });
+
+    // Cleanup: the suite shares one db, and a leaked deadline would change what
+    // every later claim reports.
+    db.update(weddings)
+      .set({ rsvpDeadline: null, rsvpDeadlineTimezone: null, updatedAt: new Date() })
+      .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+      .run();
+  });
+
+  it("reports no deadline when the wedding has none set", async () => {
+    const res = await Effect.runPromise(post({ publicId: "TESTONE-IVY-AA11" }));
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { rsvpDeadline: unknown };
+    // Explicitly null on the wire, not absent — the guest site distinguishes
+    // "no deadline" from "an older API that doesn't send the field" and treats
+    // both as open, but only the first is a promise this endpoint makes.
+    expect(data.rsvpDeadline).toBeNull();
   });
 });

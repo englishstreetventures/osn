@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, families, guests } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, guests, weddings } from "@cire/db";
 import { events as eventsData } from "@cire/db/seed";
 import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -330,6 +330,78 @@ describe("claimService.lookup — first-open recording", () => {
         // The organiser's own preview — never counts as a guest opening.
         expect(result.preview).toBe(true);
         expect(firstOpenedAt(db, "HOST-PREVIEWCODE0000")).toBeNull();
+      }),
+    ),
+  );
+
+  it(
+    "returns rsvpDeadline: null when the wedding has no deadline set",
+    withDb(
+      Effect.gen(function* () {
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
+        // The shape every wedding created before the feature carries.
+        expect(result.rsvpDeadline).toBeNull();
+      }),
+    ),
+  );
+
+  it(
+    "resolves a future deadline to an open instant",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        db.update(weddings)
+          .set({
+            rsvpDeadline: "2999-09-01",
+            rsvpDeadlineTimezone: "Australia/Sydney",
+            updatedAt: new Date(),
+          })
+          .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+          .run();
+
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
+        expect(result.rsvpDeadline).toEqual({
+          date: "2999-09-01",
+          timezone: "Australia/Sydney",
+          // End of the 1st in Sydney (AEST, +10) — the client re-derives
+          // `closed` from this as the clock moves past it.
+          closesAt: "2999-09-01T13:59:59.999Z",
+          closed: false,
+        });
+      }),
+    ),
+  );
+
+  it(
+    "reports a past deadline as closed",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        db.update(weddings)
+          .set({ rsvpDeadline: "2020-01-01", rsvpDeadlineTimezone: "UTC", updatedAt: new Date() })
+          .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+          .run();
+
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
+        expect(result.rsvpDeadline?.closed).toBe(true);
+        expect(result.rsvpDeadline?.closesAt).toBe("2020-01-01T23:59:59.999Z");
+      }),
+    ),
+  );
+
+  it(
+    "defaults a zone-less deadline to UTC",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        db.update(weddings)
+          .set({ rsvpDeadline: "2999-09-01", rsvpDeadlineTimezone: null, updatedAt: new Date() })
+          .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+          .run();
+
+        const result = yield* claimService.lookup("TESTONE-IVY-AA11");
+        expect(result.rsvpDeadline?.timezone).toBe("UTC");
+        expect(result.rsvpDeadline?.closesAt).toBe("2999-09-01T23:59:59.999Z");
       }),
     ),
   );

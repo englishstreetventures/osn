@@ -19,6 +19,12 @@ export type WeddingProfile = {
   guestCountEstimate: number | null;
   currency: string;
   budgetTotalMinor: number | null;
+  /** The "kindly respond by" date (`YYYY-MM-DD`), or null for no deadline. The
+   *  only field here guests feel: past it the invite stops accepting RSVPs. */
+  rsvpDeadline: string | null;
+  /** IANA zone `rsvpDeadline`'s day is measured in; null ⇒ UTC at read time.
+   *  Always null when `rsvpDeadline` is (see `update`). */
+  rsvpDeadlineTimezone: string | null;
 };
 
 export class WeddingNotFound extends Data.TaggedError("WeddingNotFound")<{
@@ -38,6 +44,8 @@ const PROFILE_COLUMNS = {
   guestCountEstimate: weddings.guestCountEstimate,
   currency: weddings.currency,
   budgetTotalMinor: weddings.budgetTotalMinor,
+  rsvpDeadline: weddings.rsvpDeadline,
+  rsvpDeadlineTimezone: weddings.rsvpDeadlineTimezone,
 };
 
 export const weddingSettingsService = {
@@ -82,7 +90,17 @@ export const weddingSettingsService = {
         }),
         ...(patch.currency !== undefined && { currency: patch.currency }),
         ...(patch.budgetTotalMinor !== undefined && { budgetTotalMinor: patch.budgetTotalMinor }),
+        ...(patch.rsvpDeadline !== undefined && { rsvpDeadline: patch.rsvpDeadline }),
+        ...(patch.rsvpDeadlineTimezone !== undefined && {
+          rsvpDeadlineTimezone: patch.rsvpDeadlineTimezone,
+        }),
       };
+
+      // The deadline's two columns are ONE fact. A zone without a date is inert
+      // but misleading (the portal would re-show it next to an empty date), so
+      // clearing the date clears the zone in the same write — the pair can never
+      // half-exist, whichever order a client sends them in.
+      if (next.rsvpDeadline === null) next.rsvpDeadlineTimezone = null;
 
       yield* Effect.tryPromise({
         try: () =>
@@ -95,6 +113,8 @@ export const weddingSettingsService = {
                 guestCountEstimate: next.guestCountEstimate,
                 currency: next.currency,
                 budgetTotalMinor: next.budgetTotalMinor,
+                rsvpDeadline: next.rsvpDeadline,
+                rsvpDeadlineTimezone: next.rsvpDeadlineTimezone,
                 updatedAt: new Date(),
               })
               .where(eq(weddings.id, weddingId))

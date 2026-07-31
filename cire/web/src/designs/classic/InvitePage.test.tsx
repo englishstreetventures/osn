@@ -676,4 +676,98 @@ describe("InvitePage", () => {
     await waitFor(() => expect(getByText(/Preview mode/i)).toBeTruthy(), { timeout: 2000 });
     expect(container.querySelector("[data-invite-closing]")).toBeNull();
   });
+
+  describe("RSVP deadline", () => {
+    /** Claim through the ?code= deep-link with a given deadline attached. */
+    async function claimWithDeadline(rsvpDeadline: ClaimResult["rsvpDeadline"]) {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ ...claim, preview: true, rsvpDeadline }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+      window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+      const view = render(() => <InvitePage apiUrl="https://api.test" />);
+      await waitFor(() => expect(view.getByText(/Preview mode/i)).toBeTruthy(), { timeout: 2000 });
+      return view;
+    }
+
+    it("invites a reply by the date while the deadline is ahead", async () => {
+      const { getByText, getByRole } = await claimWithDeadline({
+        date: "2999-09-01",
+        timezone: "Australia/Sydney",
+        closesAt: "2999-09-01T13:59:59.999Z",
+        closed: false,
+      });
+
+      expect(getByText("Kindly respond by Sunday 1 September 2999.")).toBeTruthy();
+      expect((getByRole("button", { name: "Respond" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("sits directly on top of the event cards, not in the centred header", async () => {
+      await claimWithDeadline({
+        date: "2999-09-01",
+        timezone: "Australia/Sydney",
+        closesAt: "2999-09-01T13:59:59.999Z",
+        closed: false,
+      });
+
+      const notice = document.getElementById("rsvp-deadline-notice")!;
+      // Its next sibling IS the card list — nothing may come between them, so
+      // the line always reads as the list's label rather than a third line of
+      // section header.
+      expect(notice.nextElementSibling?.querySelector("[data-event-card]")).not.toBeNull();
+      // Left-aligned with the cards, against the header block's `text-center`.
+      expect(notice.className).toContain("text-left");
+    });
+
+    it("locks every card and states the date once the deadline has passed", async () => {
+      const { getByText, getByRole } = await claimWithDeadline({
+        date: "2020-09-01",
+        timezone: "Australia/Sydney",
+        closesAt: "2020-09-01T13:59:59.999Z",
+        closed: true,
+      });
+
+      expect(getByText("RSVPs closed on Tuesday 1 September 2020.")).toBeTruthy();
+      const respond = getByRole("button", { name: "RSVPs closed" }) as HTMLButtonElement;
+      // `aria-disabled`, not the native attribute — see C-M2 in EventCard. The
+      // button stays focusable and points at the notice, which is where the
+      // date actually is.
+      expect(respond.getAttribute("aria-disabled")).toBe("true");
+      expect(respond.getAttribute("aria-describedby")).toBe("rsvp-deadline-notice");
+      expect(document.getElementById("rsvp-deadline-notice")?.textContent).toContain(
+        "RSVPs closed on Tuesday 1 September 2020.",
+      );
+    });
+
+    it("renders no notice and no lock when the wedding has no deadline", async () => {
+      // Also the shape a mid-deploy payload from an older API has.
+      const { queryByText, getByRole } = await claimWithDeadline(null);
+
+      expect(queryByText(/Kindly respond by/)).toBeNull();
+      expect(queryByText(/RSVPs closed/)).toBeNull();
+      expect((getByRole("button", { name: "Respond" }) as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("threads the closed state and the deadline day into the RSVP sheet", async () => {
+      // The sheet is normally unreachable once closed (Respond is disabled), but
+      // the deadline can pass with it already open — so the props still have to
+      // be wired, and a stale sheet has to say when the door shut.
+      const { getByText } = await claimWithDeadline({
+        date: "2999-09-01",
+        timezone: "Australia/Sydney",
+        closesAt: "2999-09-01T13:59:59.999Z",
+        closed: false,
+      });
+
+      fireEvent.click(getByText("Respond"));
+      await waitFor(() => expect(capturedProps.value).not.toBeNull());
+      expect(capturedProps.value!.closed).toBe(false);
+      expect(capturedProps.value!.closedOn).toBe("Sunday 1 September 2999");
+    });
+  });
 });
