@@ -9,6 +9,15 @@ vi.mock("motion", () => ({
   animate: vi.fn(() => ({ finished: Promise.resolve() })),
 }));
 
+/**
+ * The panel is a non-scrolling frame whose only in-flow child is the scroll
+ * container (the close button is absolutely positioned alongside it). Padding
+ * and overflow live on the scroller, so assertions about them target this.
+ */
+function scrollerOf(panel: HTMLElement): HTMLElement {
+  return panel.lastElementChild as HTMLElement;
+}
+
 describe("AnimatedModal", () => {
   afterEach(() => {
     cleanup();
@@ -69,15 +78,21 @@ describe("AnimatedModal", () => {
     expect(dialog.getAttribute("aria-labelledby")).toBeNull();
   });
 
-  it("moves focus to the close button on open", async () => {
-    const { getByLabelText } = render(() => (
+  it("moves focus to the scroll container on open, so the keyboard can scroll it", async () => {
+    const { getByRole } = render(() => (
       <AnimatedModal onClose={() => {}} label="Event details">
         <p>body</p>
       </AnimatedModal>
     ));
 
+    // NOT the close button. That button is a sibling of the scrollport, so
+    // focusing it leaves the keyboard with nothing to scroll — its nearest
+    // scrollable ancestor is the `overflow-hidden` frame, then a `<body>` this
+    // component locks. Measured in a real browser with focus on the button:
+    // Arrow and PageDown moved a scrollable sheet 0px. With focus here:
+    // ArrowDown 0→40px, PageDown 40→594px, Home back to 0.
     await waitFor(() => {
-      expect(document.activeElement).toBe(getByLabelText("Close"));
+      expect(document.activeElement).toBe(scrollerOf(getByRole("dialog")));
     });
   });
 
@@ -165,5 +180,71 @@ describe("AnimatedModal", () => {
     expect(dialog.style.transform).toBe("none");
 
     vi.unstubAllGlobals();
+  });
+
+  it("keeps the close button outside the scroll container so it cannot scroll away", () => {
+    const { getByRole, getByLabelText } = render(() => (
+      <AnimatedModal onClose={() => {}} label="Scrollable">
+        <p>body</p>
+      </AnimatedModal>
+    ));
+
+    const panel = getByRole("dialog");
+    const close = getByLabelText("Close");
+    const scroller = scrollerOf(panel);
+
+    // The regression this guards: as an `absolute` child of the scroll
+    // container, the close button left the viewport entirely on any sheet tall
+    // enough to scroll, leaving Escape or a backdrop tap as the only way out.
+    expect(scroller.contains(close)).toBe(false);
+    expect(panel.contains(close)).toBe(true);
+
+    // The frame must not scroll, or the button rides it anyway.
+    expect(panel.className).not.toContain("overflow-y-auto");
+    expect(scroller.className).toContain("overflow-y-auto");
+    // Without `min-h-0` the flex item cannot shrink under the panel's `max-h`,
+    // so nothing scrolls and the panel simply overflows the viewport.
+    expect(scroller.className).toContain("min-h-0");
+    // Opaque, because content now passes underneath the button as it scrolls.
+    expect(close.className).toContain("bg-surface");
+    expect(close.className).not.toContain("bg-transparent");
+
+    // Still the first thing in the tab order, as before the restructure.
+    expect(panel.querySelector("button")).toBe(close);
+
+    // The scrollport must be focusable itself: it is where focus lands on open,
+    // and `[tabindex]:not([tabindex="-1"])` is what puts it in the focus trap.
+    expect(scroller.getAttribute("tabindex")).toBe("0");
+    // Tabbing BACKWARDS scrolls a target to the top of the scrollport, which is
+    // exactly where the close chip sits — reserve its 52px footprint so no
+    // control is ever parked underneath it.
+    expect(scroller.className).toContain("scroll-pt-14");
+  });
+
+  it("keeps its own bottom padding by default, and drops it for flushBottom", () => {
+    const { getByRole, unmount } = render(() => (
+      <AnimatedModal onClose={() => {}} label="Default">
+        <p>body</p>
+      </AnimatedModal>
+    ));
+    const scroller = scrollerOf(getByRole("dialog"));
+    expect(scroller.className).toContain("pb-[max(2.5rem,env(safe-area-inset-bottom))]");
+    expect(scroller.className).toContain("md:pb-10");
+    unmount();
+
+    const flush = render(() => (
+      <AnimatedModal onClose={() => {}} label="Flush" flushBottom>
+        <p>body</p>
+      </AnimatedModal>
+    ));
+    const flushScroller = scrollerOf(flush.getByRole("dialog"));
+    // A full-bleed sticky action bar owns the bottom edge — the scroller must
+    // add nothing under it, or the bar floats above a dead band of surface.
+    expect(flushScroller.className).toContain("pb-0");
+    // Assert the branch is exclusive. `toContain("pb-0")` alone is satisfied by
+    // a class list carrying BOTH paddings, and Tailwind resolves that clash by
+    // stylesheet source order — not by the order of the class attribute.
+    expect(flushScroller.className).not.toContain("pb-[max(2.5rem");
+    expect(flushScroller.className).not.toContain("md:pb-10");
   });
 });

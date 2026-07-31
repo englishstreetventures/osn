@@ -363,8 +363,8 @@ The uuid suffix means a re-upload never collides and the superseded object is
 deleted independently (best-effort; an orphan is recoverable, a failed upload is
 not).
 
-> The `cire-assets` bucket must be created before first deploy:
-> `bunx wrangler r2 bucket create cire-assets`.
+> The `cire-assets` bucket was created 2026-06-15 and is live. Recreating the
+> account from scratch would need `bunx wrangler r2 bucket create cire-assets`.
 
 ## API surface
 
@@ -387,7 +387,8 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
     submits every key). Empty/whitespace ⇒ `null`, which means "use the built-in
     default" for every field except `footerMessage`, where it means "render
     nothing".
-  - `PUT /invite/theme` → upsert the theme (fonts + per-section colours) **plus the
+  - `PUT /invite/theme` → upsert the theme (fonts + the five-seed colour scheme
+    + a per-section `tone`) **plus the
     two hero display options** (`heroImageStyle ∈ {blurred,regular}`,
     `heroTitleBackdrop ∈ {none,solid}` — both required, total body). A bad colour,
     unknown font, or unknown hero-display literal ⇒ 400 (whole body rejected,
@@ -594,8 +595,11 @@ resource (both override the build-time snapshot above).
 > payload now degrades to the default section colours rather than taking events
 > down — mirroring the organiser preview helper's `?? default` behaviour.
 
-`PUBLIC_WEDDING_SLUG` (env) selects which wedding's customisation the guest site
-renders (default `cire-wedding`, the bootstrap wedding slug).
+Which wedding's customisation the guest site renders is resolved **from the
+request path** (`/<slug>`) at render time — see the guest-rendering section
+above. There is no `PUBLIC_WEDDING_SLUG`: the build-time variable was removed
+when the invite route became path-routed SSR, so one deployment serves every
+wedding from its own link.
 
 ## Organiser UI
 
@@ -923,7 +927,8 @@ selection and click no-op, and the server enforces the entitlement regardless.
 Per-section **"Reset section"** actions revert a card's saveable fields to
 defaults as a draft change (nothing saved until the save bar says so).
 
-Per-section colours use the popover accent/surface pickers (`ColorPicker.tsx`,
+The five scheme seeds use the popover pickers (`PaletteField.tsx` over
+`ColorPicker.tsx`,
 Kobalte ColorArea + hue slider + labelled hex field) each with a "Use default"
 clear (null ⇒ built-in token). The picker only emits a full `#rrggbb` (never
 partial input, and never mid-typing: the hex field commits only on a complete

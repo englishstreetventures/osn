@@ -84,8 +84,8 @@ database_id = "6e835474-e0a7-4db9-8883-3247c3c891cd"
 migrations_dir = "../db/migrations"
 
 # R2 bucket used by the organiser spreadsheet import flow to stash the raw
-# uploaded sheet alongside its parsed `imports` row. Bucket must be created
-# before first deploy:
+# uploaded sheet alongside its parsed `imports` row. Created 2026-06-17 — if you
+# ever rebuild the account from scratch:
 #   bunx wrangler r2 bucket create cire-sheets
 [[r2_buckets]]
 binding = "SHEETS"
@@ -93,7 +93,7 @@ bucket_name = "cire-sheets"
 
 # R2 bucket for invite-builder images (hero / story photos). Separate from
 # SHEETS: binary content, served publicly through the API, different retention.
-# Bucket must be created before first deploy:
+# Created 2026-06-15 — if you ever rebuild the account from scratch:
 #   bunx wrangler r2 bucket create cire-assets
 [[r2_buckets]]
 binding = "ASSETS"

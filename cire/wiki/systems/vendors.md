@@ -5,14 +5,14 @@ related:
   - "[[cire-auth]]"
   - "[[budget]]"
   - "[[checklist-tasks]]"
-last-reviewed: 2026-07-28
+last-reviewed: 2026-07-30
 ---
 
 # Vendors — directory, CRM, and email-verification claim
 
 > **Entitlement gate:** the Vendor CRM routes (`/api/organiser/weddings/:weddingId/vendors/*`) and the Directory browse/add routes (`/api/organiser/weddings/:weddingId/directory/*`) both require the `vendors` entitlement (a row in `wedding_entitlements` with `entitlement = 'vendors'`). Requests from a wedding without this capability receive `402 { "error": "payment_required", "entitlement": "vendors" }`. The gate sits after the role check — see [[entitlements]].
 
-The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. PR A ships the backend foundation, CRM, and claim backend. PR B ships the `vendor.cireweddings.com` portal app (`cire/vendor`), CORS allowlist widening, and the deploy pipeline.
+The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. It landed in two slices — the backend foundation, CRM and claim backend first, then the `vendor.cireweddings.com` portal app (`cire/vendor`) with its CORS allowlist entry and deploy job. **Both are in**: `cire/vendor` builds and deploys as a Pages project from `.github/workflows/deploy.yml`, and `vendor.cireweddings.com` sits in cire-api's `WEB_ORIGIN` allowlist.
 
 ---
 
@@ -122,7 +122,7 @@ The claim flow lets an organiser assert "this CRM entry is the same business as 
 
 2. **Organiser receives the claim link.** The link is returned in the API response — the organiser can forward it to the vendor (copy-paste, WhatsApp, email). cire-api also attempts a **fail-soft email**: the `@shared/email` `vendor-claim-invite` template fires asynchronously; if it fails (missing `RESEND_API_KEY`, unreachable Resend), cire-api logs the error and the HTTP response is unaffected.
 
-3. **Vendor consumes the claim.** The vendor navigates to `vendor.cireweddings.com/claim?token=<raw>` (PR B — not yet live), signs in with their OSN account, picks an OSN org they belong to (creating an org, if they have none, happens in the OSN app first — not the portal), and the portal calls `POST /api/vendor/claim` with the raw token + their org id. cire-api:
+3. **Vendor consumes the claim.** The vendor navigates to `vendor.cireweddings.com/claim?token=<raw>`, signs in with their OSN account, picks an OSN org they belong to (creating an org, if they have none, happens in the OSN app first — not the portal), and the portal calls `POST /api/vendor/claim` with the raw token + their org id. cire-api:
    - Looks up `vendor_claims` by token hash (SHA-256 of the raw value presented).
    - Validates: `status = 'pending'`, `expires_at > now`.
    - Sets `directory_vendors.org_id = <their org>` (atomically in a D1 batch with the claim status update to `consumed`).
@@ -151,7 +151,7 @@ Service: `cire/api/src/services/vendors.ts` — `vendorsService` (Effect). Modul
 
 ---
 
-## Vendor portal routes (PR B consumes these)
+## Vendor portal routes (consumed by `cire/vendor`)
 
 Routes: `/api/vendor/*` — gated by `vendorOrgMember()`.
 
@@ -244,9 +244,10 @@ Additive index-only migration adding the `vendors_wedding_directory_uniq` partia
 
 ---
 
-## Deferred to later cycles (NOT in this PR)
+## Deferred to later cycles
 
-- **Directory browse** — public/organiser-facing vendor search with lat/lng bounding-box prefilter + haversine sort (requires `location` columns on `directory_vendors`).
+Still open. Directory browse used to sit in this list; it shipped 2026-07-18 and has its own section above.
+
 - **Availability calendar** — `vendor_availability` per-day status; "available on your date" badge.
 - **Enquiries** — `vendor_enquiries` + messages; quotes feed `budget_items.quoted_minor`; spam limiter.
 - **Pricing estimates** — heuristic engine v1 (`services/pricing.ts` over `pricing-baselines.ts`); directory-informed v2 (median quoted amounts by category, k-anonymity floor ~5).

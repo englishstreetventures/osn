@@ -188,7 +188,15 @@ export function RsvpModal(props: RsvpModalProps) {
   }
 
   return (
-    <AnimatedModal onClose={props.onClose} labelledBy={titleId} themeVars={props.themeVars}>
+    <AnimatedModal
+      onClose={props.onClose}
+      labelledBy={titleId}
+      themeVars={props.themeVars}
+      // The action bar below is a full-bleed sticky footer that owns the
+      // sheet's bottom edge (and its safe-area padding), so the panel must not
+      // add its own bottom padding underneath it.
+      flushBottom
+    >
       <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">Respond</p>
       <h3
         id={titleId}
@@ -212,7 +220,13 @@ export function RsvpModal(props: RsvpModalProps) {
           {(member) => {
             const guestId = member.guestId;
             return (
-              <fieldset class="border-border m-0 rounded-sm border p-5">
+              // `pt-0`: a <legend> is laid out in the fieldset's top border and
+              // the block-start padding is added BELOW it, so `p-5` stacked the
+              // legend's own height + margin on top of 20px and left the card
+              // top-heavy (58px above the buttons vs 21px below). Zero top
+              // padding puts the first control ~25px under the border — level
+              // with the 20px inset on the other three sides.
+              <fieldset class="border-border m-0 rounded-sm border px-5 pt-0 pb-5">
                 <legend class="font-display text-text mb-3 text-[1.1rem] font-normal italic">
                   {member.firstName} {member.lastName}
                 </legend>
@@ -307,7 +321,12 @@ export function RsvpModal(props: RsvpModalProps) {
           </p>
         </Show>
 
-        <div class="border-border bg-surface sticky bottom-0 -mx-6 -mb-[max(2.5rem,env(safe-area-inset-bottom))] flex gap-3 border-t px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:-mb-10 md:pb-4">
+        {/* Sits flush on the sheet's bottom edge — the panel drops its own
+            bottom padding (`flushBottom`) rather than this bar cancelling it
+            with a negative margin: `bottom: 0` resolves against the scrollport,
+            so a negative bottom margin lifts the bar up over the last card
+            instead of stretching it down into the padding. */}
+        <div class="border-border bg-surface sticky bottom-0 -mx-6 flex gap-3 border-t px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4">
           <button
             type="button"
             class="border-border font-body text-text-muted hover:border-gold-dim hover:text-text flex-1 cursor-pointer rounded-sm border bg-transparent px-4 py-3 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:opacity-40"

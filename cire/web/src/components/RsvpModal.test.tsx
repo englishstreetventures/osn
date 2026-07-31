@@ -548,4 +548,46 @@ describe("RsvpModal", () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it("seats the action bar on the sheet's bottom edge and balances the card insets", () => {
+    const { getByRole } = render(() => (
+      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+    ));
+
+    const panel = document.querySelector('[role="dialog"]') as HTMLElement;
+    // The panel is a non-scrolling frame; its last child is the scroll
+    // container that carries the padding the action bar has to line up with.
+    const scroller = panel.lastElementChild as HTMLElement;
+    // The sheet hands its bottom edge to the action bar (see AnimatedModal's
+    // `flushBottom`) instead of padding underneath it.
+    expect(scroller.className).toContain("pb-0");
+
+    // Anchor on the role, not on how deep the label's text node sits — a future
+    // icon or <span> around "Save" would silently re-point `parentElement`.
+    const bar = getByRole("button", { name: "Save" }).parentElement as HTMLElement;
+    expect(bar.className).toContain("sticky");
+    // No negative bottom margin: `bottom: 0` resolves against the scrollport, so
+    // one would hoist the bar up over the last card rather than stretch it down.
+    expect(bar.className).not.toMatch(/-mb-/);
+    // With the panel at `pb-0` this is the ONLY bottom inset left, so it is what
+    // keeps Cancel/Save clear of the iPhone home indicator. Losing it would be
+    // invisible to every other assertion here.
+    expect(bar.className).toContain("pb-[max(1rem,env(safe-area-inset-bottom))]");
+    // The bar is full-bleed only because `-mx-6` cancels the scroller's `px-6`.
+    // The number is written twice, in two components — pin both together so a
+    // change to either fails at the coupling rather than in a screenshot.
+    expect(bar.className).toContain("-mx-6");
+    expect(scroller.className).toContain("px-6");
+
+    // The <legend> is laid out in the top border and the block-start padding is
+    // added below it, so the card takes no top padding of its own — otherwise
+    // its top inset runs ~3x the 20px on the other three sides.
+    const card = fieldsetFor("Priya");
+    expect(card.className).toContain("pt-0");
+    expect(card.className).toContain("pb-5");
+    expect(card.className).toContain("px-5");
+    // `pt-0` is only correct while the legend carries its own bottom margin —
+    // drop that and the first control lands flush against the card's border.
+    expect(card.querySelector("legend")!.className).toContain("mb-3");
+  });
 });
