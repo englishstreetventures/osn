@@ -1,5 +1,11 @@
 # @osn/pulse
 
+## 0.17.0
+
+### Minor Changes
+
+- 019899f: Add the `pulse-bridge` Tauri mobile plugin: `UIImpactFeedbackGenerator` haptics and iOS safe-area insets pushed into `--safe-area-inset-*` CSS custom properties.
+
 ## 0.16.20
 
 ### Patch Changes
