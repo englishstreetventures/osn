@@ -1,5 +1,11 @@
 # @osn/pulse
 
+## 0.16.19
+
+### Patch Changes
+
+- 34281dc: Raise the iOS deployment target from 14.0 to 17.0 across the generated Xcode project, `project.yml` and the Podfile.
+
 ## 0.16.18
 
 ### Patch Changes
