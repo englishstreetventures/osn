@@ -13,12 +13,22 @@
  */
 
 /**
+ * The Origin a Tauri v2 webview serializes on iOS. wry serves the app's assets
+ * over the `tauri://` custom scheme, so the document has a real tuple origin —
+ * `tauri://localhost` — not the opaque `null` of a sandboxed document. Measured
+ * on an iOS 26 simulator and read off the wire: see `spikes/n1-glass-webview`.
+ * Mirrors `osn/api/src/lib/cors-config.ts`.
+ */
+export const IOS_WEBVIEW_ORIGIN = "tauri://localhost";
+
+/**
  * Frontend dev port for the Pulse Tauri app (`@pulse/app`). Used as the CORS
  * fallback when `PULSE_CORS_ORIGIN` is unset in a non-secure (local) env so
  * `bun run dev:pulse` works out of the box.
  */
 export const LOCAL_DEV_CORS_ORIGINS = [
   "http://localhost:1420", // @pulse/app
+  IOS_WEBVIEW_ORIGIN, // @pulse/app running on iOS
 ] as const;
 
 export type CorsEnv = Readonly<Record<string, string | undefined>>;
