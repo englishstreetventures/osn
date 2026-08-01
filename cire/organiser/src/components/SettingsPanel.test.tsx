@@ -242,13 +242,137 @@ describe("SettingsPanel", () => {
     expect(screen.queryByText(/total budget/i)).not.toBeInTheDocument();
   });
 
-  it("renders read-only for a co-host", async () => {
+  it("renders read-only for a viewer co-host", async () => {
     authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
     render(() => <SettingsPanel weddingId="wed_1" canManage={false} />);
     await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
 
     expect(screen.queryByText("Save settings")).toBeNull();
+    expect(screen.queryByText("Save RSVP-by date")).toBeNull();
     expect(screen.getByText(/Only the wedding.s owner can change these settings/)).toBeTruthy();
     expect((screen.getByDisplayValue("Aisha & Ben") as HTMLInputElement).disabled).toBe(true);
+    // The RSVP-by date is a static value, not the DatePicker's popover trigger.
+    expect(screen.queryByRole("button", { name: /RSVP by/ })).toBeNull();
+  });
+
+  it("lets an editor co-host change the RSVP-by date and nothing else", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
+    render(() => <SettingsPanel weddingId="wed_1" canManage={false} canEditRsvpDeadline />);
+    await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+
+    // The rest of the profile stays owner-only.
+    expect((screen.getByDisplayValue("Aisha & Ben") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText(/RSVP-by date is yours to set/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /RSVP by, no date set/ }));
+    await waitFor(() => expect(screen.getByRole("grid")).toBeTruthy());
+    const today = new Date();
+    const todayLabel = new Intl.DateTimeFormat("en-AU", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).format(today);
+    fireEvent.click(screen.getByRole("gridcell", { name: todayLabel }));
+
+    authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
+    fireEvent.click(screen.getByText("Save RSVP-by date"));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    const [, init] = authFetchMock.mock.calls[1] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    const pad = (n: number) => String(n).padStart(2, "0");
+    expect(body.rsvpDeadline).toBe(
+      `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`,
+    );
+    expect(body.rsvpDeadlineTimezone).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    // The server 403s a non-owner patch that carries an owner-only field, so
+    // the co-host's body must be the deadline pair alone — not the untouched
+    // values sitting in the disabled inputs.
+    expect(Object.keys(body).toSorted()).toEqual(["rsvpDeadline", "rsvpDeadlineTimezone"]);
+  });
+
+  it("lets an editor co-host clear a deadline that already exists", async () => {
+    // The common real case: a co-host chasing replies MOVES or lifts a date the
+    // owner already set, which is a different render branch (the "invite locks"
+    // hint, not the "leave this empty" fallback) and a different save.
+    authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+    render(() => <SettingsPanel weddingId="wed_1" canManage={false} canEditRsvpDeadline />);
+    await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+
+    // Seeded and live, not the static read-only rendering a viewer gets.
+    const trigger = screen.getByRole("button", { name: /20 February 2027/ });
+    fireEvent.click(trigger);
+    await waitFor(() => expect(screen.getByRole("grid")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Clear date" }));
+
+    authFetchMock.mockResolvedValueOnce(json({ wedding: EMPTY_PROFILE }));
+    fireEvent.click(screen.getByText("Save RSVP-by date"));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    const [, init] = authFetchMock.mock.calls[1] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body).toEqual({ rsvpDeadline: null, rsvpDeadlineTimezone: null });
+  });
+
+  it("refuses to move the RSVP-by date into the past, without a request", async () => {
+    // A backdated deadline locks the invite for every guest the moment it
+    // saves, so the server refuses it (400 rsvp_deadline_in_past) — mirrored
+    // here so the mistake never round-trips.
+    authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /20 February 2027/ }));
+    await waitFor(() => expect(screen.getByRole("grid")).toBeTruthy());
+    // Walk back to a month that is unambiguously in the past and pick a day.
+    const back = screen.getByRole("button", { name: /previous month/i });
+    for (let i = 0; i < 14; i++) fireEvent.click(back);
+    fireEvent.click(screen.getAllByRole("gridcell")[15]!);
+
+    fireEvent.click(screen.getByText("Save settings"));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls[0]?.[0])).toMatch(/past/i);
+    // Only the initial GET — the save never left the page.
+    expect(authFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves a wedding whose deadline already lapsed, untouched", async () => {
+    // Judging the value rather than the change would lock such a wedding out
+    // of its own Settings panel: the owner's form re-sends the pair every time.
+    authFetchMock.mockResolvedValueOnce(
+      json({ wedding: { ...PROFILE, rsvpDeadline: "2020-01-01" } }),
+    );
+    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+
+    authFetchMock.mockResolvedValueOnce(
+      json({ wedding: { ...PROFILE, rsvpDeadline: "2020-01-01" } }),
+    );
+    fireEvent.click(screen.getByText("Save settings"));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+    const [, init] = authFetchMock.mock.calls[1] as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body.rsvpDeadline).toBe("2020-01-01");
+  });
+
+  it("blames permission, not the fields, when a save is refused", async () => {
+    // A co-host whose role changed since the tab loaded gets 403
+    // owner_only_fields / read_only_role. "Check the fields and try again"
+    // would send them hunting for a validation error that isn't there.
+    authFetchMock.mockResolvedValueOnce(json({ wedding: PROFILE }));
+    render(() => <SettingsPanel weddingId="wed_1" canManage />);
+    await waitFor(() => expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy());
+
+    authFetchMock.mockResolvedValueOnce(
+      json({ error: "owner_only_fields", fields: ["displayName"] }, 403),
+    );
+    fireEvent.click(screen.getByText("Save settings"));
+
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(String(toastError.mock.calls[0]?.[0])).toMatch(/permission/i);
+    expect(toastSuccess).not.toHaveBeenCalled();
   });
 });

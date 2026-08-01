@@ -62,11 +62,12 @@ function RequireAuth(props: ParentProps) {
 /** The chosen wedding's dashboard — the context header plus the module shell
  *  (left module rail + panel), scoped to whichever wedding the organiser opened.
  *  Access follows the caller's role: EDITOR co-hosts get the full read/edit
- *  dashboard (import, invite design, event locations — the API gates writes with
- *  weddingEditor); VIEWER co-hosts get the read views only (`canEdit` hides the
- *  write surfaces). The owner-only management actions (co-hosts, re-minting
- *  codes, deactivating household codes, settings save) stay gated on `isOwner`
- *  via `canManage`.
+ *  dashboard (import, invite design, event locations, and the settings panel's
+ *  RSVP-by date — the API gates writes with weddingEditor); VIEWER co-hosts get
+ *  the read views only (`canEdit` hides the write surfaces). The owner-only
+ *  management actions (co-hosts, re-minting codes, deactivating household
+ *  codes, the rest of the settings save) stay gated on `isOwner` via
+ *  `canManage`.
  *
  *  The active module + sub are fully controlled by the parent (URL-hash driven)
  *  so a deep link / hard refresh restores the exact view; the shell reports

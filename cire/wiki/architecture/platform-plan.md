@@ -7,7 +7,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[platform]]"
   - "[[guest-event-editor]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-08-01
 pr4-shipped: 2026-07-15
 pr4-reversed: 2026-07-15
 ---
@@ -105,6 +105,7 @@ The import stays (it's a strength) but stops being the only writer.
 | Read all modules | ✅ | ✅ | ✅ |
 | Write guests/schedule/invite/vendors/budget/tasks/seating | — | ✅ | ✅ |
 | Codes (mint/regenerate/deactivate), hosts add/remove, settings, delete wedding | — | — | ✅ |
+| …except the **RSVP-by deadline** in Settings (2026-08-01) | — | ✅ | ✅ |
 
 Existing co-hosts map to `editor` (they already have import + invite-builder write via `weddingMember()` — see [[status]]). This closes the root-TODO co-host-roles item and matters doubly here: a hired *wedding planner* is exactly an `editor`. Cheap change: `wedding_hosts.role` has no DB CHECK constraint (`0013_wedding_hosts.sql` — enum is app-layer), so it's a data `UPDATE 'host' → 'editor'` + Drizzle enum widening + the new gate; no table rebuild.
 

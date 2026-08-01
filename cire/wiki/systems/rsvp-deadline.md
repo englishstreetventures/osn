@@ -5,7 +5,7 @@ related:
   - "[[systems/overview]]"
   - "[[invite-builder]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-07-31
+last-reviewed: 2026-08-01
 ---
 
 # RSVP deadline
@@ -109,7 +109,30 @@ A 403 from the write path is disambiguated by its body: `rsvp_closed` gets "RSVP
 
 ## Where the organiser sets it
 
-**Settings → RSVP by** (owner-only, like the rest of that panel), via the same `PUT /api/organiser/weddings/:weddingId/settings` PATCH-semantics body.
+**Settings → RSVP by**, via the same `PUT /api/organiser/weddings/:weddingId/settings` PATCH-semantics body.
+
+It is the **one field on that panel a co-host may write**. The rest of Settings is wedding identity and money — owner-only in the roles matrix — but the deadline *runs* the wedding rather than describing it: the co-host chasing replies is exactly the person who needs to move the date, and nothing they do to it is something an owner can't undo. A `viewer` co-host still gets nothing.
+
+A middleware can't express "this field, not that one", so the route splits the decision in two:
+
+| Layer | Decides |
+|---|---|
+| `weddingEditor()` | Who reaches the handler at all — owner or `editor`; a `viewer` gets its usual 403 `read_only_role`, a non-member the 404/403 pair. |
+| The handler | Whether a **non-owner's** patch reached past the deadline. Any other key present ⇒ 403 `owner_only_fields` naming them. |
+
+Shape is checked **before** privilege, so a co-host who typos a date is told the date is wrong rather than that they lack permission for a field they're allowed to write. The refusal is whole — a patch mixing the deadline with an owner-only field writes neither — and it is logged (`settings owner-only fields refused`), because the portal never sends that body, so every occurrence is a stale tab or a hand-crafted call. Rejected rather than silently filtered: a save that reports success while quietly discarding half the form is the worse failure.
+
+The allow-list (`ownerOnlySettingsIn`, `cire/api/src/schemas/settings.ts`) is **derived from the request schema's own field list** rather than from the incoming object's keys. Two properties fall out: a field added to `UpdateSettingsBody` is owner-only from the moment it exists (the list can't drift, because it *is* the schema), and the check reads each key the same way the writer does — `patch[key]`, through the prototype chain — so gate and writer can never disagree about what a patch contains (S-M1).
+
+**A deadline can never be set in the past** — by anyone, owner included. `weddingSettingsService.update` refuses a write that would leave the deadline already closed with 400 `rsvp_deadline_in_past` (S-L3). A backdated date locks the invite for every guest the instant it lands, and a guest turned away is told only that RSVPs closed, never that the date moved under them. The check runs on the **resulting pair**, not on the patch — either half decides the instant, and moving the zone alone can shift an open deadline by up to ~26 hours — and it asks `isRsvpClosed`, so it cannot disagree with the guest write gate about when a day ends. Three things it deliberately still allows: **today** (the deadline is inclusive, so it closes at the end of that day — this is what "stop taking replies" actually means), a deadline that lapsed naturally staying put while other fields are edited, and clearing a lapsed deadline to reopen RSVPs. The portal mirrors the rule against the organiser's own calendar so the mistake never round-trips.
+
+Every settings write records its author in `weddings.updated_by_osn_profile_id` (migration 0056). The panel has two principal classes now, so a change to a guest-facing lock has to be attributable: an owner who finds RSVPs closed can establish whether they did it themselves (S-L2). A refused non-owner patch is logged and counted on `cire.wedding.settings.owner_only_refused`.
+
+The write is **narrow**: `weddingSettingsService.update` names only the columns the patch carries. The old full-row read-modify-write was harmless while the owner was the single writer, but with two principals on one row a co-host's deadline save would rewrite `displayName` and `currency` from a value read moments earlier, reverting an owner's concurrent edit to a field the gate exists to protect (S-L1). A deadline-only patch now emits a deadline-only `UPDATE`, so the field gate holds at the storage layer too. The pairing rule below still fires — but only for a patch that touches the pair, so an unrelated save writes nothing but its own columns.
+
+Both deadline keys travel together on that list. Admitting the date without the zone would leave a co-host able to set a deadline they can't say the zone of — and the zone is what makes "the end of that day" mean anything.
+
+The portal mirrors it: a co-host sees the profile fields disabled with the RSVP-by picker live, a **"Save RSVP-by date"** button (labelled for what it writes, since "Save settings" beside five disabled fields reads as a button about to overwrite them), and a body carrying the deadline pair *alone* — not the untouched values sitting in the disabled inputs, which would earn the 403.
 
 The two columns are **one fact**: clearing the date clears the zone in the same write, whichever order a client sends them in, so a zone can never outlive its date and re-appear next to an empty field.
 
@@ -121,10 +144,11 @@ It is the only field on that panel guests feel, which is why its hint says so ex
 
 | Concern | File |
 |---|---|
-| Columns | `cire/db/src/schema.ts` (`weddings`), migration `0055_rsvp_deadline.sql` |
+| Columns | `cire/db/src/schema.ts` (`weddings`), migrations `0055_rsvp_deadline.sql` + `0056_settings_attribution.sql` |
 | Date → instant | `cire/api/src/lib/rsvp-deadline.ts` |
 | Write gate | `cire/api/src/routes/rsvp.ts` |
 | Guest payload | `cire/api/src/services/claim.ts`, `cire/api/src/schemas/claim.ts` |
 | Organiser write | `cire/api/src/schemas/settings.ts`, `cire/api/src/services/wedding-settings.ts` |
+| Who may write it | `cire/api/src/routes/organiser-settings.ts` (gate + field check), `cire/api/src/middleware/wedding-editor.ts` |
 | Organiser UI | `cire/organiser/src/components/SettingsPanel.tsx` |
 | Guest UI | `cire/web/src/components/rsvp-deadline.ts`, `createRsvpClosed.ts`, `EventCard.tsx`, `RsvpModal.tsx`, `designs/{classic,gala}/InvitePage.tsx` |

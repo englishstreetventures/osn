@@ -1,0 +1,12 @@
+-- Which OSN profile last wrote the wedding profile (Settings). Opaque
+-- foreign-system id like `owner_osn_profile_id` — no cross-DB FK.
+--
+-- The profile stopped having a single writer: the RSVP-by deadline is editable
+-- by an `editor` co-host while the rest of Settings stays owner-only, so two
+-- principal classes can now mutate a control every guest feels. Without
+-- attribution an owner who finds RSVPs closed cannot establish that they didn't
+-- do it themselves (SOC 2 CC6/CC7).
+--
+-- NULL on every existing row and on any write predating the column — which
+-- reads as "unknown", never as "the owner".
+ALTER TABLE `weddings` ADD `updated_by_osn_profile_id` text;

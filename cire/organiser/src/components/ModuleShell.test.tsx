@@ -46,7 +46,17 @@ vi.mock("./HostsPanel", () => ({
   default: (p: { weddingId: string }) => <div data-testid="hosts">{p.weddingId}</div>,
 }));
 vi.mock("./SettingsPanel", () => ({
-  default: (p: { weddingId: string }) => <div data-testid="settings">{p.weddingId}</div>,
+  // Surfaces canEditRsvpDeadline: it is the one line connecting the API's
+  // co-host deadline write to a real co-host, and nothing else can see it.
+  default: (p: { weddingId: string; canManage: boolean; canEditRsvpDeadline?: boolean }) => (
+    <div
+      data-testid="settings"
+      data-can-manage={String(p.canManage)}
+      data-can-edit-rsvp={String(p.canEditRsvpDeadline)}
+    >
+      {p.weddingId}
+    </div>
+  ),
 }));
 vi.mock("./VendorsView", () => ({
   default: (p: { weddingId: string }) => <div data-testid="vendors">{p.weddingId}</div>,
@@ -191,6 +201,32 @@ describe("ModuleShell", () => {
     expect(screen.queryByRole("tab", { name: /Codes/ })).toBeNull();
     expect(screen.queryByTestId("codes")).toBeNull();
     expect(screen.getByTestId("invite-design")).toBeTruthy();
+  });
+
+  describe("settings profile — RSVP-by is the co-host's one writable field", () => {
+    // Without these, swapping canEditRsvpDeadline to props.canManage (or
+    // dropping it) leaves the whole feature dead in the portal with every
+    // organiser and API test still green.
+    it("gives an editor co-host the RSVP-by date but not the rest of the profile", () => {
+      renderShell({ canManage: false, canEdit: true, module: "settings", sub: "wedding" });
+      const panel = screen.getByTestId("settings");
+      expect(panel.getAttribute("data-can-manage")).toBe("false");
+      expect(panel.getAttribute("data-can-edit-rsvp")).toBe("true");
+    });
+
+    it("gives a viewer co-host neither", () => {
+      renderShell({ canManage: false, canEdit: false, module: "settings", sub: "wedding" });
+      const panel = screen.getByTestId("settings");
+      expect(panel.getAttribute("data-can-manage")).toBe("false");
+      expect(panel.getAttribute("data-can-edit-rsvp")).toBe("false");
+    });
+
+    it("gives the owner both", () => {
+      renderShell({ canManage: true, canEdit: true, module: "settings", sub: "wedding" });
+      const panel = screen.getByTestId("settings");
+      expect(panel.getAttribute("data-can-manage")).toBe("true");
+      expect(panel.getAttribute("data-can-edit-rsvp")).toBe("true");
+    });
   });
 
   describe("viewer read-only", () => {

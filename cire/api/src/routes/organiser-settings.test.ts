@@ -154,9 +154,215 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
     expect((await req(app, "PUT", SETTINGS_PATH, undefined, {})).status).toBe(401);
   });
 
-  it("returns 403 for a co-host (settings are owner-only)", async () => {
+  it("returns 403 for a co-host writing an owner-only field", async () => {
+    const { app, db } = buildApp();
+    const res = await req(app, "PUT", SETTINGS_PATH, CO_HOST, { displayName: "Renamed" });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: string; fields: string[] };
+    expect(body.error).toBe("owner_only_fields");
+    expect(body.fields).toEqual(["displayName"]);
+    // Refused whole, not partially applied.
+    expect(getWedding(db).displayName).toBe("Cire Wedding");
+  });
+
+  it("names every owner-only field a co-host reached for", async () => {
+    // The portal sends the deadline alone, so a body like this is a stale tab
+    // or a hand-crafted call — worth an error that says exactly what was wrong.
+    const { app, db } = buildApp();
+    const res = await req(app, "PUT", SETTINGS_PATH, CO_HOST, {
+      displayName: "Renamed",
+      guestCountEstimate: 40,
+      rsvpDeadline: "2027-02-20",
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { fields: string[] };
+    expect(body.fields.toSorted()).toEqual(["displayName", "guestCountEstimate"]);
+    // The permitted half of a rejected patch is not applied either.
+    expect(getWedding(db).rsvpDeadline).toBeNull();
+  });
+
+  it("refuses a co-host CLEARING an owner-only field", async () => {
+    // Clearing is the destructive half of a write, and it is the case a
+    // plausible refactor breaks: a truthiness check in the allow-list would
+    // still pass every other test here while letting a co-host wipe the
+    // wedding date, guest estimate and budget.
+    const { app, db } = buildApp();
+    await req(app, "PUT", SETTINGS_PATH, OWNER, { weddingDate: "2027-03-20" });
+    const res = await req(app, "PUT", SETTINGS_PATH, CO_HOST, { weddingDate: null });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { fields: string[] }).fields).toEqual(["weddingDate"]);
+    expect(getWedding(db).weddingDate).toBe("2027-03-20");
+  });
+
+  it("lets an EDITOR co-host set the RSVP deadline", async () => {
+    const { app, db } = buildApp();
+    const res = await req(app, "PUT", SETTINGS_PATH, CO_HOST, {
+      rsvpDeadline: "2027-02-20",
+      rsvpDeadlineTimezone: "Australia/Sydney",
+    });
+    expect(res.status).toBe(200);
+    const row = getWedding(db);
+    expect(row.rsvpDeadline).toBe("2027-02-20");
+    expect(row.rsvpDeadlineTimezone).toBe("Australia/Sydney");
+  });
+
+  it("lets an EDITOR co-host clear the deadline (zone goes with it)", async () => {
+    const { app, db } = buildApp();
+    await req(app, "PUT", SETTINGS_PATH, OWNER, {
+      rsvpDeadline: "2027-02-20",
+      rsvpDeadlineTimezone: "Australia/Sydney",
+    });
+    const res = await req(app, "PUT", SETTINGS_PATH, CO_HOST, {
+      rsvpDeadline: null,
+      rsvpDeadlineTimezone: null,
+    });
+    expect(res.status).toBe(200);
+    const row = getWedding(db);
+    expect(row.rsvpDeadline).toBeNull();
+    expect(row.rsvpDeadlineTimezone).toBeNull();
+  });
+
+  it("writes only the columns the patch names, so a co-host can't clobber owner fields", async () => {
+    // S-L1: the save used to read the row and write all seven columns back. A
+    // co-host's deadline patch would then rewrite displayName/currency/budget
+    // with whatever it read a moment earlier, reverting an owner's concurrent
+    // edit to fields the gate exists to protect. Simulated here by moving an
+    // owner-only column BETWEEN the co-host's read and their write.
+    const { app, db } = buildApp();
+    await req(app, "PUT", SETTINGS_PATH, OWNER, { displayName: "Aisha & Ben" });
+
+    // The owner renames while the co-host's tab still shows the old name...
+    await req(app, "PUT", SETTINGS_PATH, OWNER, { displayName: "Aisha & Benjamin" });
+    // ...and the co-host saves the deadline.
+    const res = await req(app, "PUT", SETTINGS_PATH, CO_HOST, {
+      rsvpDeadline: "2027-02-20",
+      rsvpDeadlineTimezone: "Australia/Sydney",
+    });
+    expect(res.status).toBe(200);
+
+    const row = getWedding(db);
+    expect(row.rsvpDeadline).toBe("2027-02-20");
+    // The rename survives — the co-host's UPDATE never named displayName.
+    expect(row.displayName).toBe("Aisha & Benjamin");
+  });
+
+  describe("a deadline may not be set in the past (S-L3)", () => {
+    // A backdated deadline locks the invite for every guest the moment it
+    // lands, and a guest turned away is told only that RSVPs closed — never
+    // that the date moved. Refused for EVERY caller, owner included.
+    it("400s a backdated deadline from the owner", async () => {
+      const { app, db } = buildApp();
+      const res = await req(app, "PUT", SETTINGS_PATH, OWNER, {
+        rsvpDeadline: "1970-01-01",
+        rsvpDeadlineTimezone: "Australia/Sydney",
+      });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe("rsvp_deadline_in_past");
+      expect(getWedding(db).rsvpDeadline).toBeNull();
+    });
+
+    it("400s a backdated deadline from a co-host", async () => {
+      const { app } = buildApp();
+      const res = await req(app, "PUT", SETTINGS_PATH, CO_HOST, { rsvpDeadline: "1970-01-01" });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { error: string }).error).toBe("rsvp_deadline_in_past");
+    });
+
+    it("accepts TODAY — the deadline closes at the END of its day", async () => {
+      // The organiser who wants to stop taking replies needs this, and it is
+      // the boundary the rule must not eat. Computed in the stored zone so the
+      // test doesn't drift with the runner's own clock.
+      const { app, db } = buildApp();
+      const today = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Australia/Sydney",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date());
+      const res = await req(app, "PUT", SETTINGS_PATH, OWNER, {
+        rsvpDeadline: today,
+        rsvpDeadlineTimezone: "Australia/Sydney",
+      });
+      expect(res.status).toBe(200);
+      expect(getWedding(db).rsvpDeadline).toBe(today);
+    });
+
+    it("leaves an already-past deadline alone when the patch doesn't name it", async () => {
+      // A wedding whose deadline lapsed naturally must stay editable — the rule
+      // is about the write, not about the row's current state.
+      const { app, db } = buildApp();
+      db.update(weddings)
+        .set({ rsvpDeadline: "1999-01-01", rsvpDeadlineTimezone: "Australia/Sydney" })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+        .run();
+      const res = await req(app, "PUT", SETTINGS_PATH, OWNER, { guestCountEstimate: 80 });
+      expect(res.status).toBe(200);
+      expect(getWedding(db).rsvpDeadline).toBe("1999-01-01");
+    });
+
+    it("lets a save re-send an unchanged lapsed deadline", async () => {
+      // The owner's form re-sends the whole profile on every save, so judging
+      // the VALUE rather than the change would lock a wedding whose date has
+      // passed out of its own Settings panel entirely.
+      const { app, db } = buildApp();
+      db.update(weddings)
+        .set({ rsvpDeadline: "1999-01-01", rsvpDeadlineTimezone: "Australia/Sydney" })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+        .run();
+      const res = await req(app, "PUT", SETTINGS_PATH, OWNER, {
+        displayName: "Aisha & Ben",
+        rsvpDeadline: "1999-01-01",
+        rsvpDeadlineTimezone: "Australia/Sydney",
+      });
+      expect(res.status).toBe(200);
+      expect(getWedding(db).displayName).toBe("Aisha & Ben");
+    });
+
+    it("still lets a lapsed deadline be CLEARED", async () => {
+      const { app, db } = buildApp();
+      db.update(weddings)
+        .set({ rsvpDeadline: "1999-01-01", rsvpDeadlineTimezone: "Australia/Sydney" })
+        .where(eq(weddings.id, BOOTSTRAP_WEDDING_ID))
+        .run();
+      const res = await req(app, "PUT", SETTINGS_PATH, CO_HOST, { rsvpDeadline: null });
+      expect(res.status).toBe(200);
+      const row = getWedding(db);
+      expect(row.rsvpDeadline).toBeNull();
+      expect(row.rsvpDeadlineTimezone).toBeNull();
+    });
+  });
+
+  it("records who made the write (migration 0056)", async () => {
+    // Two principal classes can now move a guest-facing control, so an owner
+    // who finds RSVPs closed must be able to establish who did it.
+    const { app, db } = buildApp();
+    await req(app, "PUT", SETTINGS_PATH, OWNER, { guestCountEstimate: 80 });
+    expect(getWedding(db).updatedByOsnProfileId).toBe(OWNER);
+
+    await req(app, "PUT", SETTINGS_PATH, CO_HOST, { rsvpDeadline: "2027-02-20" });
+    expect(getWedding(db).updatedByOsnProfileId).toBe(CO_HOST);
+  });
+
+  it("400s a co-host's malformed deadline before the privilege check", async () => {
+    // Shape first: a co-host with a typo is told the date is wrong, not that
+    // they lack permission for a field they're allowed to write.
     const { app } = buildApp();
-    expect((await req(app, "PUT", SETTINGS_PATH, CO_HOST, {})).status).toBe(403);
+    const res = await req(app, "PUT", SETTINGS_PATH, CO_HOST, { rsvpDeadline: "2027-02-31" });
+    expect(res.status).toBe(400);
+  });
+
+  it("returns 403 read_only_role for a VIEWER co-host", async () => {
+    const { app } = buildApp();
+    const res = await req(app, "PUT", SETTINGS_PATH, VIEWER, { rsvpDeadline: "2027-02-20" });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toBe("read_only_role");
+  });
+
+  it("returns 403 for a non-member", async () => {
+    const { app } = buildApp();
+    const res = await req(app, "PUT", SETTINGS_PATH, STRANGER, { rsvpDeadline: "2027-02-20" });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toBe("forbidden");
   });
 
   it("returns 404 for an unknown wedding", async () => {

@@ -29,7 +29,8 @@ interface ModuleShellProps {
    *  (invite/codes, settings save, host management). */
   canManage: boolean;
   /** Owner or editor co-host? Editors get the module write surfaces (invite
-   *  design, import, events/guests editors); a viewer co-host is read-only. */
+   *  design, import, events/guests editors) plus the RSVP-by date on the
+   *  otherwise owner-only settings panel; a viewer co-host is read-only. */
   canEdit: boolean;
   /** Active module — controlled by the parent (URL-hash driven). */
   module: Module;
@@ -291,6 +292,7 @@ export default function ModuleShell(props: ModuleShellProps) {
               <SettingsPanel
                 weddingId={props.weddingId}
                 canManage={props.canManage}
+                canEditRsvpDeadline={props.canEdit}
                 onWeddingUpdated={props.onWeddingUpdated}
               />
             </Show>

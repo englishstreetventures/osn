@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[cire-auth]]"
   - "[[cire]]"
-last-reviewed: 2026-07-26
+last-reviewed: 2026-08-01
 ---
 
 # Access Control
@@ -28,7 +28,7 @@ Already strong; documented elsewhere.
 | Recovery | 64-bit single-use codes (Copenhagen Book M2) | [[recovery-codes]] |
 | Service-to-service | ARC tokens (ES256, scoped, kid-pinned, revocable, scope-validated on cache hit) | [[arc-tokens]] |
 | Org admin (Zap M3) | Role-gated `org_agents.role = "admin"` | [[zap]] |
-| Cire organiser | OSN access token (`aud: "osn-access"`) verified via `@shared/osn-auth-client`, then per-wedding **role authz** — three tiers: `weddingOwner()` (owner: code management, settings, host management, delete), `weddingEditor()` (owner or `editor` co-host: module writes — import, invite, locations; viewers get 403 `read_only_role`), `weddingMember()` (any role incl. `viewer`: reads + invite preview). Roles live in `wedding_hosts.role` (`editor`/`viewer`), checked per-request from the DB (demotion is immediate, never embedded in the JWT); only the owner assigns roles. | [[cire-auth]] |
+| Cire organiser | OSN access token (`aud: "osn-access"`) verified via `@shared/osn-auth-client`, then per-wedding **role authz** — three tiers: `weddingOwner()` (owner: code management, host management, delete), `weddingEditor()` (owner or `editor` co-host: module writes — import, invite, locations; viewers get 403 `read_only_role`) — including `PUT /settings`, which the middleware alone cannot decide: the settings body is owner-only EXCEPT the RSVP-by deadline (`rsvpDeadline` + `rsvpDeadlineTimezone`), so the handler applies a **field-level owner check** on top of the gate and refuses a non-owner patch carrying any other key with 403 `owner_only_fields` (logged + counted on `cire.wedding.settings.owner_only_refused`; the allow-list is derived from the request schema's own field list, so a new setting is owner-only by default). Every settings write records its author in `weddings.updated_by_osn_profile_id` (migration 0056) — the panel has two principal classes now, so a change to a guest-facing control is attributable. A deadline may not be set in the PAST by anyone, owner included: a backdated date locks the invite for every guest the instant it lands (400 `rsvp_deadline_in_past`), `weddingMember()` (any role incl. `viewer`: reads + invite preview). Roles live in `wedding_hosts.role` (`editor`/`viewer`), checked per-request from the DB (demotion is immediate, never embedded in the JWT); only the owner assigns roles. | [[cire-auth]] |
 | Cire guest | **Guest-session credential class** — family claim code (`families.public_id`) → opaque 256-bit `cire_session` (SHA-256 at rest), family-scoped, gates `/api/rsvp` only. Never an OSN account. | [[cire-auth]] |
 | Cire vendor (sole-trader) | **Vendor principal class** — OSN account holder + organization membership (per `org:read` ARC scope grant). `vendorOrgMember()` middleware gate (fail-closed: missing/failed check → 403, never bypass) protects `/api/vendor/*` listing writes and claim consumption. Scope `org:read` requested by cire-api, granted by osn-api's ARC allowlist; resolved at claim/consume time via ARC verification of the requestor's org membership. | [[cire-auth]] |
 

@@ -103,6 +103,8 @@ export const CIRE_METRICS = {
   weddingCreated: "cire.wedding.created",
   // Organiser wedding-profile (Settings) saves.
   weddingSettingsSaved: "cire.wedding.settings.saved",
+  // Settings writes refused because a non-owner reached past the RSVP-by date.
+  settingsOwnerOnlyRefused: "cire.wedding.settings.owner_only_refused",
   // Co-host management (add/remove a wedding host by OSN handle).
   hostAdded: "cire.host.added",
   hostRemoved: "cire.host.removed",
@@ -180,6 +182,14 @@ export type WeddingCreatedResult = "ok" | "error";
 /** Outcome of a wedding-profile (Settings) save. Validation rejections are the
  *  schema's 400 upstream; `error` is a write failure. */
 export type WeddingSettingsSavedResult = "ok" | "error";
+
+/** A settings save refused by the field-level owner check — a non-owner patch
+ *  that reached past the RSVP-by deadline. Deliberately ATTRIBUTE-FREE: the
+ *  refused field names are a closed set, but putting them on a metric would
+ *  still multiply series for no operational gain, and the log line beside it
+ *  already carries them (third observability rule — no unbounded attributes).
+ *  The portal only ever sends the deadline pair, so a nonzero count means a
+ *  stale tab or a hand-crafted call. */
 
 /** Outcome of adding a co-host by handle. Mirrors the route's response branches. */
 export type HostAddResult =
@@ -546,6 +556,12 @@ const weddingSettingsSaved = createCounter<WeddingSettingsSavedAttrs>({
   unit: "{save}",
 });
 
+const settingsOwnerOnlyRefused = createCounter<Record<string, never>>({
+  name: CIRE_METRICS.settingsOwnerOnlyRefused,
+  description: "Settings writes refused by the field-level owner check",
+  unit: "{refusal}",
+});
+
 const hostAdded = createCounter<HostAddedAttrs>({
   name: CIRE_METRICS.hostAdded,
   description: "Co-host add-by-handle attempts, by outcome",
@@ -741,6 +757,8 @@ export const metricWeddingCreated = (result: WeddingCreatedResult): void =>
 
 export const metricWeddingSettingsSaved = (result: WeddingSettingsSavedResult): void =>
   weddingSettingsSaved.inc({ result });
+
+export const metricSettingsOwnerOnlyRefused = (): void => settingsOwnerOnlyRefused.inc({});
 
 export const metricHostAdded = (result: HostAddResult): void => hostAdded.inc({ result });
 

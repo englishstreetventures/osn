@@ -94,3 +94,45 @@ export const UpdateSettingsBody = Schema.Struct({
   rsvpDeadlineTimezone: Schema.optional(Schema.NullOr(TimeZone)),
 });
 export type UpdateSettingsBody = Schema.Schema.Type<typeof UpdateSettingsBody>;
+
+/**
+ * The settings an EDITOR co-host may write. Everything else on this body is
+ * wedding identity or money — owner-only in the roles matrix (see the root
+ * wiki's `[[wiki/systems/cire-auth]]`).
+ *
+ * The RSVP deadline is the exception because it is the one field here that
+ * *runs the wedding* rather than describing it: a co-host chasing replies is
+ * exactly the person who needs to move the date, and getting it wrong costs an
+ * owner nothing they can't undo. The two keys travel together — a zone can only
+ * ever be written beside its date — so admitting one without the other would
+ * leave a co-host able to set a deadline they can't put a zone on.
+ */
+const EDITOR_WRITABLE_SETTINGS = new Set<string>(["rsvpDeadline", "rsvpDeadlineTimezone"]);
+
+/**
+ * The owner-only keys a patch actually carries — empty for a patch an editor
+ * co-host may apply as-is. Keys whose value is `undefined` are ignored: PATCH
+ * semantics mean "absent", not "clear", so they change nothing and must not
+ * trip the gate. An explicit `null` IS a write (it clears the column) and does
+ * trip it.
+ *
+ * Iterates the STRUCT'S OWN FIELD LIST and reads each key off the patch,
+ * rather than walking the patch's own enumerable keys (S-M1). Two reasons, one
+ * structural and one about drift:
+ *
+ *  1. `weddingSettingsService.update` decides what to write with
+ *     `patch.displayName !== undefined`, which resolves through the prototype
+ *     chain. A checker using `Object.entries` would see only OWN keys, so the
+ *     gate and the writer could disagree about what the patch contains — and a
+ *     gate that disagrees with its writer is advisory. There is no
+ *     prototype-pollution sink in this codebase today; this makes the
+ *     agreement structural rather than dependent on that staying true.
+ *  2. Deriving the key list from `UpdateSettingsBody.fields` means a field
+ *     added to the struct is owner-only the moment it exists — the list cannot
+ *     drift out of step with the schema, because it *is* the schema.
+ */
+export const ownerOnlySettingsIn = (patch: UpdateSettingsBody): string[] =>
+  Object.keys(UpdateSettingsBody.fields).filter(
+    (key) =>
+      !EDITOR_WRITABLE_SETTINGS.has(key) && (patch as Record<string, unknown>)[key] !== undefined,
+  );

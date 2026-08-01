@@ -264,21 +264,26 @@ export const createBudgetWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) 
         .guard((own) =>
           own.use(weddingOwner(db)).put(
             "/budget/total",
-            async ({ weddingId, request, set }) => {
-              if (!weddingId) return internalSync(set);
+            async ({ weddingId, osnProfileId, request, set }) => {
+              if (!weddingId || !osnProfileId) return internalSync(set);
               const raw: unknown = await request.json().catch(() => null);
               return runCire(
                 Effect.gen(function* () {
                   const body = yield* Schema.decodeUnknown(SetBudgetTotalBody)(raw);
-                  const settings = yield* weddingSettingsService.update(weddingId, {
-                    budgetTotalMinor: body.budgetTotalMinor,
-                  });
+                  const settings = yield* weddingSettingsService.update(
+                    weddingId,
+                    { budgetTotalMinor: body.budgetTotalMinor },
+                    osnProfileId,
+                  );
                   return { budgetTotalMinor: settings.budgetTotalMinor };
                 }).pipe(
                   Effect.provideService(DbService, db),
                   Effect.catchTag("ParseError", () => badRequest(set)),
                   Effect.catchTag("WeddingNotFound", () => weddingNotFound(set)),
                   Effect.catchTag("SettingsWriteError", () => internal(set)),
+                  // Unreachable: this patch never names the deadline. Handled so
+                  // the union stays total rather than falling to the defect arm.
+                  Effect.catchTag("RsvpDeadlineInPast", () => internal(set)),
                   Effect.catchAllDefect(() => internal(set)),
                 ),
               );

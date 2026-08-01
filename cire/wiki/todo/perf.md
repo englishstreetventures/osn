@@ -5,12 +5,20 @@ related:
   - "[[index]]"
   - "[[review-findings]]"
   - "[[host-portal-layout]]"
-last-reviewed: 2026-07-31
+last-reviewed: 2026-08-01
 ---
 
 # Performance Backlog
 
 See [[review-findings]] for severity prefix conventions.
+
+### RSVP-by editable by a co-host — review findings (claude/cire-rsvp-date-cohost-edit-va8w9i, 2026-08-01)
+
+Pre-merge performance review of the settings gate swap. Measured (in-process, bun:sqlite, queries counted via a proxy): the OWNER path is unchanged at 2 selects + 1 update — `hostsService.authorize` short-circuits after the owner row — and a co-host adds exactly one index-backed lookup (`wedding_hosts_wedding_profile_uniq`). Confirmed the two `.group("/weddings/:weddingId", …)` blocks do not double-gate: the GET group's scoped `weddingMember` derive does not leak onto the PUT. Frontend: no new imports (no bundle delta), the new accessors are plain prop reads inside JSX/`<Show>` so fine-grained reactivity is preserved, and the co-host's request body is *smaller* than before (2 keys, not 8). See [[rsvp-deadline]].
+
+- [ ] **P-W1** — **`runCire` rebuilds the Effect layer graph on every call, so a settings save now boots it twice.** `runCire` is `Effect.runPromise(Effect.provide(effect, cireLoggerLayer))` (`observability.ts`), and `weddingEditor()` calls it for the authz check while the handler calls it again for the write — where `weddingOwner()` had been a bare `await db.select(...)`. Measured: old gate 40 µs/call → new gate 745 µs/call, of which the layer build is essentially all of it (`runCire(Effect.succeed(1))` ≈ 538 µs vs `Effect.runPromise(Effect.succeed(1))` ≈ 2.1 µs). That is ~0.6–0.75 ms on the Workers 10 ms CPU budget for this route. **Repo-wide, not branch-specific** — `weddingMember()` has the same shape, so the GET sibling already pays it, and the diff is pattern-consistent. It is nonetheless exactly what the root `CLAUDE.md` forbids ("build the layer graph once… never `Effect.provide(...)` inside a per-request `runPromise`"). **Fix:** hoist one `ManagedRuntime.make(cireLoggerLayer)` to module scope in `observability.ts` and have `runCire` delegate to `runtime.runPromise` — measured 62 µs vs 745 µs (12×), and it removes the double-boot from every two-`runCire` route at once. Deliberately not taken here: it touches every backend route's logging path and wants its own change + review.
+- [x] **P-I2** (fixed on branch) — the settings write was a read-modify-write that rewrote all seven profile columns for a two-key deadline patch. **Fixed:** the UPDATE now names only the patch's own columns. Raised independently by the security review as **S-L1** (the stale full-row write could revert an owner's concurrent edit to an owner-only field); see [[security]].
+- [ ] *Checked, accepted:* **P-I1** — a non-owner write costs one extra D1 round trip (4 sequential trips vs the owner's 3), because determining "editor" requires reading `wedding_hosts` and the owner column cannot answer it. Index-backed, on the rarer caller path, and the alternatives (a join, or denormalising role onto `weddings`) buy one RTT on a rare write for real schema complexity. The extra query IS the feature.
 
 ### Single-sheet CSV uploads — review findings (claude/cire-dashboard-csv-uploads-zk5rt0, 2026-07-31)
 

@@ -5,10 +5,12 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-07-31
+last-reviewed: 2026-08-01
 ---
 
 # cire/db
+
+- [x] **Migration `0056` — settings attribution** (2026-08-01): `weddings.updated_by_osn_profile_id` (nullable text, opaque OSN profile id, no cross-DB FK). The Settings profile stopped having a single writer when the RSVP-by deadline became editable by an `editor` co-host, so a guest-facing change needs an author (S-L2, SOC 2 CC6/CC7). NULL on every existing row = "unknown", never "the owner". Written by `weddingSettingsService.update`, so the budget-total route that shares the service records it too. Not projected by `GET /settings` — internal audit field. See [[security]], root wiki `[[data-map]]`.
 
 Schema and migration work. See [[monorepo-structure]] for how this package fits into the dependency graph.
 

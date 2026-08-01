@@ -78,6 +78,18 @@ export const weddings = sqliteTable(
     // instant is computed).
     rsvpDeadline: text("rsvp_deadline"),
     rsvpDeadlineTimezone: text("rsvp_deadline_timezone"),
+    // ── Settings attribution (migration 0056) ──────────────────────────────
+    // Which OSN profile last wrote the wedding profile. Opaque foreign-system
+    // id, like `owner_osn_profile_id` — no cross-DB FK.
+    //
+    // Exists because the profile stopped having a single writer: the RSVP
+    // deadline is editable by an `editor` co-host (everything else on the
+    // Settings panel stays owner-only), so two principal classes can now mutate
+    // a control every guest feels. Without this, an owner who finds RSVPs
+    // closed has no way to establish that they didn't do it themselves — SOC 2
+    // CC6/CC7 attributability. NULL on every pre-0056 row and on any write that
+    // predates the column, which reads as "unknown", never as "the owner".
+    updatedByOsnProfileId: text("updated_by_osn_profile_id"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   },

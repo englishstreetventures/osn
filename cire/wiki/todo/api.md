@@ -4,13 +4,14 @@ tags: [todo, api]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-07-31
+last-reviewed: 2026-08-01
 ---
 
 # cire/api
 
 Backend feature work. The Elysia + Effect + Drizzle layer in `cire/api`.
 
+- [x] **RSVP deadline editable by an `editor` co-host** (2026-08-01): `PUT /settings` moves from `weddingOwner()` to `weddingEditor()` plus a FIELD-level owner check — a non-owner patch touching anything but `rsvpDeadline`/`rsvpDeadlineTimezone` gets 403 `owner_only_fields` naming the keys, decoded shape first so a co-host's bad date is still a 400, and the refusal is whole rather than a silent filter. The allow-list (`ownerOnlySettingsIn`) lives beside the field definitions in `schemas/settings.ts`, so a new setting is owner-only by default. A `viewer` still gets 403 `read_only_role`. Hardened by the pre-merge reviews: the allow-list is derived from the schema's own field list and reads keys the way the writer does (S-M1), the settings UPDATE now names only the patch's own columns so a co-host can't clobber a concurrent owner edit (S-L1 / P-I2), and the refusal is logged. Portal: the settings panel keeps the profile fields disabled for a co-host, leaves the RSVP-by picker live, and PUTs the deadline pair alone under a "Save RSVP-by date" button. See [[rsvp-deadline]].
 - [x] **RSVP deadline — the invite locks past the "respond by" date** (2026-07-31): `lib/rsvp-deadline.ts` is the single place a date becomes an instant (end of the day in its stored zone; two-pass `Intl` offset so a DST-transition day resolves on the offset the day *ends* on; fails OPEN on a bad date/zone). `POST /api/rsvp` refuses with 403 `rsvp_closed` past it — read in the join it already makes for the family's `kind`, so no extra round-trip — and counts refusals on `cire.rsvp.blocked{reason}`. The organiser-recorded endpoint is deliberately **not** gated: a phone/paper reply arriving late is the case the deadline creates. The claim payload carries `rsvpDeadline {date, timezone, closesAt, closed}`; Settings accepts the pair (zone validated against the runtime's own ICU data, and clearing the date clears the zone in the same write). See [[rsvp-deadline]].
 - [x] **Data-layer review fixes — service layer** (`claude/cire-data-layer-review-s7d6gt`, 2026-07-30; DB half in [[db]]):
   - **Reorder endpoints un-broken on D1**: `tasks`/`budget`/`vendors` `reorder` used `db.transaction()` — the D1 driver implements it as literal `BEGIN`/`COMMIT` (rejected by D1) and the sync callback never awaited its `.run()`s (passed only because tests run bun:sqlite). Now `commitGroupedBatches` with singleton groups (the bodies allow up to 500 ids, so the write set must chunk under the 50-statement cap — see [[perf]] P-W1); first D1 coverage of a reorder added to `d1-integration.test.ts`.
