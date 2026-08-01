@@ -1,5 +1,11 @@
 # @osn/pulse
 
+## 0.17.1
+
+### Patch Changes
+
+- 11ed5a5: Set the iOS development team ID so simulator and device builds resolve signing.
+
 ## 0.17.0
 
 ### Minor Changes
