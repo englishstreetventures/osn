@@ -64,6 +64,19 @@ export function isRenderableCrop(crop: ImageCrop | null | undefined): crop is Im
 }
 
 /**
+ * The range a crop's pixel aspect may land in. `natW`/`natH` are captured in the
+ * browser and stored as plain JSON, and the API validates only that they are
+ * positive and finite — so a wedding editor can persist `natW: 1e308,
+ * natH: 1e-300`, whose ratio stringifies to `"1e+308"`. CSS rejects exponential
+ * notation, the `aspect-ratio` declaration is dropped, and the band renders as a
+ * zero-height box for every guest of that wedding. Clamping at the point the
+ * value is produced covers the guest band and the organiser preview together
+ * (S-L1); anything outside the range falls back to the slot default.
+ */
+const MIN_CROP_ASPECT = 0.05;
+const MAX_CROP_ASPECT = 20;
+
+/**
  * The crop's true pixel aspect ratio (width ÷ height) when the source dimensions
  * were captured at crop time, else `fallback` (the slot's default display aspect).
  * The displayed region's pixel shape is `(w·natW)/(h·natH)`; giving the box this
@@ -77,7 +90,10 @@ export function cropAspectRatio(crop: ImageCrop | null | undefined, fallback: nu
   if (!isPositiveFinite(natW) || !isPositiveFinite(natH)) return fallback;
   if (!isPositiveFinite(w) || !isPositiveFinite(h)) return fallback;
   const aspect = (w * natW) / (h * natH);
-  return Number.isFinite(aspect) && aspect > 0 ? aspect : fallback;
+  if (!Number.isFinite(aspect) || aspect < MIN_CROP_ASPECT || aspect > MAX_CROP_ASPECT) {
+    return fallback;
+  }
+  return aspect;
 }
 
 /**

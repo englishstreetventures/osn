@@ -789,6 +789,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
     shown: footerShown(),
     message: draft.footerMessage,
     imageUrl: d().footer?.imageUrl ?? null,
+    imageCrop: d().footer?.imageCrop ?? null,
   });
 
   return (
@@ -1298,7 +1299,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                     shown={footerShown()}
                     hidden={activeSection() !== "invite-closing"}
                     description={
-                      'The last section of the invite — your own sign-off, below the events and above the page footer. A small decorative image (a monogram, motif or signature) and a closing line like "Looking forward to celebrating with you" or "No boxed gifts please". Add either, both, or neither: leave them empty and the whole section is skipped, so the invite ends on your events exactly as it does now. Guests see this only after they enter their code. The image is decorative — anything that needs to be read (including by a screen reader) should go in the note.'
+                      'The last section of the invite — your own sign-off, below the events and above the page footer. A closing image that spans the page edge to edge, like the hero at the top, and a closing line like "Looking forward to celebrating with you" or "No boxed gifts please". Add either, both, or neither: leave them empty and the whole section is skipped, so the invite ends on your events exactly as it does now. Guests see this only after they enter their code. The image is decorative — anything that needs to be read (including by a screen reader) should go in the note.'
                     }
                   >
                     <ImageField
@@ -1328,6 +1329,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         tokens={previewTokens()}
                         surface={toneSurface("welcome")}
                         imageUrl={d().footer?.imageUrl ?? null}
+                        imageCrop={d().footer?.imageCrop ?? null}
                         body={
                           draft.footerMessage.trim().length > 0
                             ? sampleCopy(draft.footerMessage, "")

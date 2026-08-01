@@ -15,8 +15,14 @@ import {
 describe("CROP_ASPECT", () => {
   it("opens each slot on a sensible default shape", () => {
     expect(CROP_ASPECT.hero).toBeCloseTo(16 / 9);
+    expect(CROP_ASPECT["hero-mobile"]).toBeCloseTo(9 / 16);
     expect(CROP_ASPECT.story).toBeCloseTo(3 / 2);
     expect(CROP_ASPECT.event).toBeCloseTo(4 / 3);
+    // The closing image is a full-bleed hero band on the guest page, so its
+    // editor opens wide — not the square it used when it rendered as a small
+    // centred motif. A stale square here would have organisers framing a shape
+    // the guest band then crops away.
+    expect(CROP_ASPECT.footer).toBeCloseTo(16 / 9);
   });
 });
 
@@ -108,6 +114,19 @@ describe("organiser image-crop (mirror of cire/web)", () => {
 });
 
 describe("cropAspectRatio (mirror of cire/web)", () => {
+  it("falls back rather than emitting an aspect CSS cannot parse", () => {
+    // `natW`/`natH` are captured in the browser and validated server-side only
+    // as positive + finite, so a wedding editor can persist extremes. A ratio of
+    // 1e+308 stringifies to exponential notation, which CSS rejects outright —
+    // the `aspect-ratio` declaration is dropped and the band renders as a
+    // zero-height box for every guest of that wedding (S-L1).
+    expect(cropAspectRatio({ x: 0, y: 0, w: 0.5, h: 0.5, natW: 1e308, natH: 1e-300 }, 3)).toBe(3);
+    expect(cropAspectRatio({ x: 0, y: 0, w: 0.5, h: 0.5, natW: 1, natH: 1e6 }, 3)).toBe(3);
+    // A merely unusual-but-renderable shape is still honoured, not clamped away.
+    expect(cropAspectRatio({ x: 0, y: 0, w: 0.5, h: 0.5, natW: 3000, natH: 1000 }, 1)).toBeCloseTo(
+      3,
+    );
+  });
   it("falls back without dims, computes (w·natW)/(h·natH) with them", () => {
     expect(cropAspectRatio({ x: 0, y: 0, w: 0.5, h: 0.5 }, 4 / 3)).toBe(4 / 3);
     expect(cropAspectRatio({ x: 0, y: 0, w: 0.5, h: 0.5, natW: 4000, natH: 2000 }, 1)).toBeCloseTo(
@@ -139,6 +158,21 @@ describe("aspect presets", () => {
     expect(presetAspectRatio("1:1", "event")).toBe(1);
     expect(presetAspectRatio("4:5", "event")).toBeCloseTo(4 / 5);
     expect(presetAspectRatio("9:16", "story")).toBeCloseTo(9 / 16);
+    // The closing slot opens wide now that its band publishes full-bleed at the
+    // crop's own shape — a square default would frame the wrong thing.
+    expect(presetAspectRatio("original", "footer")).toBeCloseTo(16 / 9);
+  });
+
+  it("re-opens the closing crop editor on the intended preset (footer tie-break)", () => {
+    // `CROP_ASPECT.footer` now COLLIDES with the named 16:9 preset, exactly as
+    // hero-mobile collides with 9:16 — a saved 16:9 closing crop must re-open on
+    // "original" (checked first), and a square one on the explicit "1:1".
+    expect(
+      presetForCrop({ x: 0, y: 0, w: 0.5, h: 0.28125, natW: 1000, natH: 1000 }, "footer"),
+    ).toBe("original");
+    expect(presetForCrop({ x: 0, y: 0, w: 0.5, h: 0.5, natW: 1000, natH: 1000 }, "footer")).toBe(
+      "1:1",
+    );
   });
 
   it("re-opens the phone crop editor on the intended preset (hero-mobile tie-break)", () => {

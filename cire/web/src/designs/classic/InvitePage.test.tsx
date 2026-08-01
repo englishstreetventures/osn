@@ -627,7 +627,7 @@ describe("InvitePage", () => {
     // The path is resolved against the API origin, not the guest site's, and
     // names a bounded variant so it can't mint a transform outside the allowlist.
     expect(img.getAttribute("src")).toBe(
-      "https://api.test/api/invite/anita-ben/image/footer?v=7&variant=thumb",
+      "https://api.test/api/invite/anita-ben/image/footer?v=7&variant=card",
     );
     // Off-screen at mount (it sits below every event card), so it must not
     // race the in-viewport event images for bandwidth.

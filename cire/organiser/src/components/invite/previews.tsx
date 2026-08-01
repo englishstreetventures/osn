@@ -16,11 +16,30 @@
  */
 
 import { headingSizeCss, typographyVar } from "@cire/theme";
-import { createSignal, Show } from "solid-js";
+import { createMemo, createSignal, Show } from "solid-js";
 
 import { apiUrl } from "../../lib/api";
-import { cropBackgroundStyle, type ImageCrop } from "../../lib/image-crop";
+import { cropAspectRatio, cropBackgroundStyle, type ImageCrop } from "../../lib/image-crop";
 import { DEFAULTS } from "./model";
+
+/**
+ * The closing band's shape when a crop carries no captured source dims (a
+ * legacy rectangle). Mirrors `LEGACY_CROP_ASPECT` in the guest site's
+ * `InviteClosing.tsx` — the closing slot's editor frame — so the preview and
+ * the invite fall back to the same shape. Exported for the drift guard in the
+ * tests, which pins it to `CROP_ASPECT.footer`: hand-kept copies across two
+ * packages are only safe if something fails when they diverge.
+ */
+export const LEGACY_CROP_ASPECT = 16 / 9;
+
+/**
+ * The tallest a closing band may be IN THIS PREVIEW — the guest site's
+ * `BAND_MAX_HEIGHT` (85dvh) scaled to the sample frame. It bounds the band's
+ * WIDTH (`min(100%, cap × aspect)`), never clipping its height, so a tall crop
+ * previews whole exactly as it publishes. Kept equal to the `max-h-24` on the
+ * uncropped path, which has to be a Tailwind literal.
+ */
+const BAND_MAX_HEIGHT = "6rem";
 
 // The guest hero's base gradient and title panel, expressed in the SAME derived
 // tokens the guest site uses — so the preview cannot drift from the real hero
@@ -232,13 +251,35 @@ export function SectionSample(props: {
   surface: string;
   eyebrow?: string;
   heading?: string;
-  /** Optional small centred image (the closing section's motif). */
+  /**
+   * Optional image (today only the closing section's). It renders EDGE TO EDGE
+   * across the top of the sample, mirroring the guest invite, where the closing
+   * image is a full-bleed band above the note — a centred thumbnail here would
+   * understate what the organiser is about to publish.
+   */
   imageUrl?: string | null;
+  /**
+   * The saved crop for that image. Rendered with the guest site's exact-region
+   * technique at the crop's own aspect, because on the guest page the crop
+   * DECIDES the band's shape — so this sample is the answer to "what will my
+   * closing image look like", and it has to be the real answer.
+   */
+  imageCrop?: ImageCrop | null;
   body: string;
   /** Optional mini event card (the events section's preview). */
   card?: { name: string; meta: string };
   class?: string;
 }) {
+  // Memoised on the image + crop alone: the props object this sample receives is
+  // rebuilt by the builder on every keystroke in the closing note, and without
+  // this the URL string-building and the four `toFixed(4)` calls re-run per
+  // character. Cheap either way, but the recompute rate should follow crop saves
+  // and uploads, not typing.
+  const imageCropStyle = createMemo(() => {
+    const url = previewVariantSrc(props.imageUrl ?? null);
+    return url ? cropBackgroundStyle(url, props.imageCrop) : null;
+  });
+  const bandAspect = createMemo(() => cropAspectRatio(props.imageCrop, LEGACY_CROP_ASPECT));
   return (
     // The body weight + style ride the section wrapper alongside the body face
     // and cascade to every line inside it — eyebrow, body copy and the event
@@ -254,75 +295,119 @@ export function SectionSample(props: {
     // the contract would be invisible to the tests.
     <div
       style={{ "background-color": props.surface, "font-family": "var(--font-body)" }}
-      class={`flex flex-col items-center justify-center gap-1.5 p-4 text-center [font-weight:var(--invite-body-weight,400)] [font-style:var(--invite-body-style,normal)] ${props.class ?? ""}`}
+      class={`flex flex-col [font-weight:var(--invite-body-weight,400)] [font-style:var(--invite-body-style,normal)] ${props.class ?? ""}`}
     >
-      <Show when={props.eyebrow}>
-        <span
-          style={{ color: "var(--color-gold)" }}
-          class="text-[0.6rem] tracking-[0.18em] uppercase opacity-80"
-        >
-          {props.eyebrow}
-        </span>
-      </Show>
-      {/* The heading sample follows the typography variables, fallbacks from
-          `@cire/theme` — it used to be decoratively italic, which would now
-          lie about an explicit "Normal" pick. */}
-      <Show when={props.heading}>
-        <span
-          style={{
-            color: "var(--color-text)",
-            "font-family": "var(--font-display)",
-            "font-size": headingSizeCss("1.5rem"),
-            "font-weight": typographyVar("headingWeight"),
-            "font-style": typographyVar("headingStyle"),
-          }}
-          class="leading-none"
-        >
-          {props.heading}
-        </span>
-      </Show>
+      {/* The closing band: full width, at the shape the guest page will publish
+          — the saved crop's own aspect (its exact region, same background
+          technique as the invite), or the image's natural proportions when
+          nothing is cropped. It sits OUTSIDE the padded content block below,
+          which is what lets it reach the sample's edges.
+
+          `BAND_MAX_HEIGHT` mirrors the guest cap, scaled to this small frame,
+          and — like the invite — a tall crop gives up WIDTH rather than being
+          clipped (`min(100%, cap × aspect)`, centred). Clipping here would be
+          worse than on the guest page: this frame is short, so the cap fires
+          often, and a preview that trims the organiser's framing is a preview
+          that lies about the one thing it is for. */}
       <Show when={props.imageUrl}>
         {(url) => (
-          <img
-            src={previewVariantSrc(url())!}
-            alt=""
-            class="border-border h-10 w-10 rounded-sm border object-cover"
-          />
+          <Show
+            when={imageCropStyle()}
+            fallback={
+              <img
+                src={previewVariantSrc(url())!}
+                // Named, not `alt=""`, and matching the crop path's label below:
+                // whether a non-sighted organiser is told their closing image
+                // exists must not depend on whether a crop happens to be saved
+                // (C-L1). "artwork", not "image" — a name that repeats the role
+                // AT tools already announce is the `img-redundant-alt` lint.
+                // The GUEST band stays decorative on both paths; this is a
+                // preview, where "the band is populated" is the point.
+                alt="Closing section artwork"
+                class="mx-auto block max-h-24 w-full shrink-0 object-cover"
+              />
+            }
+          >
+            {(style) => (
+              <div
+                role="img"
+                aria-label="Closing section artwork"
+                class="mx-auto block w-full shrink-0"
+                style={{
+                  ...style(),
+                  "aspect-ratio": String(bandAspect()),
+                  // `width: 100%` + this cap is `min(100%, cap × aspect)`, the
+                  // guest band's rule — a tall crop narrows rather than being
+                  // clipped, so the preview shows it whole exactly as it
+                  // publishes. (`min()` itself is written this way because the
+                  // test tier's CSS parser discards it.)
+                  "max-width": `calc(${BAND_MAX_HEIGHT} * ${bandAspect()})`,
+                }}
+              />
+            )}
+          </Show>
         )}
       </Show>
-      {/* Body sample in the body font on the section surface, so the font and
+      <div class="flex flex-1 flex-col items-center justify-center gap-1.5 p-4 text-center">
+        <Show when={props.eyebrow}>
+          <span
+            style={{ color: "var(--color-gold)" }}
+            class="text-[0.6rem] tracking-[0.18em] uppercase opacity-80"
+          >
+            {props.eyebrow}
+          </span>
+        </Show>
+        {/* The heading sample follows the typography variables, fallbacks from
+          `@cire/theme` — it used to be decoratively italic, which would now
+          lie about an explicit "Normal" pick. */}
+        <Show when={props.heading}>
+          <span
+            style={{
+              color: "var(--color-text)",
+              "font-family": "var(--font-display)",
+              "font-size": headingSizeCss("1.5rem"),
+              "font-weight": typographyVar("headingWeight"),
+              "font-style": typographyVar("headingStyle"),
+            }}
+            class="leading-none"
+          >
+            {props.heading}
+          </span>
+        </Show>
+        {/* Body sample in the body font on the section surface, so the font and
           the text-on-surface contrast are both visible. Weight + style are
           inherited from the wrapper above. */}
-      <span
-        style={{ color: "var(--color-text-muted)" }}
-        class="max-w-full text-[0.62rem] break-words"
-      >
-        {props.body}
-      </span>
-      <Show when={props.card}>
-        {(card) => (
-          <div
-            class="mt-1 flex w-full max-w-[14rem] flex-col gap-1 rounded-sm border p-2 text-left"
-            style={{
-              "background-color": "var(--color-surface)",
-              "border-color": "var(--color-border)",
-            }}
-          >
-            <span class="text-[0.68rem]" style={{ color: "var(--color-text)" }}>
-              {card().name}
-            </span>
-            <span class="text-[0.6rem]" style={{ color: "var(--color-text-muted)" }}>
-              {card().meta}
-            </span>
-            <span
-              class="w-fit rounded-sm px-1.5 py-0.5 text-[0.58rem]"
-              style={{ "background-color": "var(--color-gold)", color: "var(--color-bg)" }}
+        <span
+          style={{ color: "var(--color-text-muted)" }}
+          class="max-w-full text-[0.62rem] break-words"
+        >
+          {props.body}
+        </span>
+        <Show when={props.card}>
+          {(card) => (
+            <div
+              class="mt-1 flex w-full max-w-[14rem] flex-col gap-1 rounded-sm border p-2 text-left"
+              style={{
+                "background-color": "var(--color-surface)",
+                "border-color": "var(--color-border)",
+              }}
             >
-              Respond
-            </span>
-          </div>
-        )}
-      </Show>
+              <span class="text-[0.68rem]" style={{ color: "var(--color-text)" }}>
+                {card().name}
+              </span>
+              <span class="text-[0.6rem]" style={{ color: "var(--color-text-muted)" }}>
+                {card().meta}
+              </span>
+              <span
+                class="w-fit rounded-sm px-1.5 py-0.5 text-[0.58rem]"
+                style={{ "background-color": "var(--color-gold)", color: "var(--color-bg)" }}
+              >
+                Respond
+              </span>
+            </div>
+          )}
+        </Show>
+      </div>
     </div>
   );
 }
@@ -340,6 +425,10 @@ export function SectionPreview(props: {
   eyebrow?: string;
   heading?: string;
   imageUrl?: string | null;
+  /** Forwarded to `SectionSample` — without it this wrapper silently shows the
+   *  UNCROPPED image while the composed pane shows the crop, i.e. the inline
+   *  preview goes back to lying about what publishes. */
+  imageCrop?: ImageCrop | null;
   body: string;
   card?: { name: string; meta: string };
 }) {
@@ -356,6 +445,7 @@ export function SectionPreview(props: {
           eyebrow={props.eyebrow}
           heading={props.heading}
           imageUrl={props.imageUrl}
+          imageCrop={props.imageCrop}
           body={props.body}
           card={props.card}
           class="min-h-28"

@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-templates]]"
-last-reviewed: 2026-07-30
+last-reviewed: 2026-07-31
 ---
 
 # Invite Builder
@@ -40,9 +40,81 @@ copy (the "Celebrate With Us" / "Your Events" events header and the
 
 The invite's last section — the couple's own sign-off — built over three
 migrations: `0049_invite_footer_message.sql` (the note),
-`0050_invite_footer_image.sql` (`footer_image_key` + `footer_image_crop`, a
-small centred monogram / motif / signature above it). Note and image are
-INDEPENDENT: either alone renders.
+`0050_invite_footer_image.sql` (`footer_image_key` + `footer_image_crop`, the
+image above it). Note and image are INDEPENDENT: either alone renders.
+
+**The image is a closing hero — full-bleed, edge to edge** (2026-07-31). It
+shipped as a small centred square sized for a monogram or signature; couples
+reach for a photograph here, and at 200px the sign-off read like a stray avatar
+rather than the invite's closing image. It now spans the viewport:
+
+| | Before | Now |
+|---|---|---|
+| Box | `w-[min(200px,45vw)]`, centred, rounded | `w-full`, viewport edge to edge, square corners |
+| Height | the crop's pixel aspect, **square** fallback | the crop's pixel aspect (**16∶9** fallback), or the source's natural ratio when uncropped; bounded at `85dvh` |
+| Crop | exact region (`cropBackgroundStyle`) | unchanged — still the exact region |
+| Variants | `thumb` 320w / `card` 800w, `sizes="200px"` | `card` 800w / `hero` 1600w, `sizes="100vw"` |
+
+**The crop decides the shape, and that is the point.** The band takes the crop's
+own aspect, so a 3∶1 panorama publishes as a 3∶1 panorama and a 4∶3 scene as a
+4∶3 scene — the organiser frames what guests get. This is deliberately NOT the
+hero backdrop's treatment, which pins a viewport-shaped box and demotes the crop
+to a focal point (`heroCropBackgroundStyle`): the hero's box is dictated by the
+screen it fills, while this band has no shape of its own to defend. A fixed band
+height was tried first and rejected for exactly that reason — it silently
+overrode the framing an organiser had just chosen. With no crop saved the image
+keeps its natural aspect (nothing chosen ⇒ nothing cut).
+
+The one bound is `85dvh` — a 4∶5 portrait at 1440px wide would otherwise want
+1800px of band and bury the note under several screens of image — and on the
+cropped path it is applied to the box's **width** (`width: 100%` plus
+`max-width: 85dvh × aspect`, i.e. `min(100%, cap × aspect)`, centred), never as
+a `max-height` clip. Measured in Chromium: a `max-height`-clipped band shows a
+top-anchored crop's TOP STRIP ONLY, because the background layer sits at the
+crop's own offset and has no idea the box got shorter — silently cutting the
+framing this whole path exists to honour. Bounding the width instead means an
+extreme portrait crop stops being edge-to-edge (it becomes a centred column at
+the widest size that fits a screen) but is still shown WHOLE and exact. A wide
+crop is unaffected: a 2∶1 band still measures 1440×720 on a laptop, 390×195 on
+a phone. The uncropped `<img>` keeps `max-h` + `object-cover`, which genuinely
+does crop centred, and applies only to an image nobody framed.
+
+Two properties exist purely to keep the band from moving the page under the
+guest, both of which the 200px square didn't need. The `<img>` carries
+`aspect-ratio: auto 16/9` — the *fallback* form, so a box is reserved before a
+lazy, `content-visibility`-deferred image decodes, and the source's own ratio
+still wins afterwards; without it the note and the site footer jumped down by up
+to a screen height on decode. And `contain-intrinsic-size` is computed
+(`auto calc(100vw / aspect + 24rem)`) rather than a flat guess, because the band
+is exactly `100vw` wide at a known aspect — a placeholder 2–3× short of the
+rendered height moves the scrollbar at the moment the guest scrolls in.
+
+That contract is only honest if the builder shows it, so `SectionSample` — the
+markup behind BOTH the inline per-section preview and the composed `PreviewPane`
+— renders the band edge-to-edge and **crop-aware**, using the same exact-region
+technique at the same crop-driven aspect (`imageCrop` threaded through
+`PreviewPaneProps["closing"]` and the builder's inline preview). `ImageField`'s
+WYSIWYG thumbnail already showed the exact rectangle, so all three surfaces now
+agree with the invite — including the width bound, which matters more in the
+preview than on the guest page because that frame is short, so the cap fires far
+more often. **The wiring is a silent-degradation seam:** `SectionSample` falls
+through to the uncropped `<img>` when no crop reaches it and still renders
+something plausible, so a dropped prop reinstates the old lie with a green
+suite. It happened once during review — `SectionPreview` (the inline wrapper)
+didn't forward `imageCrop`, so the inline preview showed the uncropped image
+while the composed pane showed the crop. Both paths are now pinned by builder
+tests that drive real draft state rather than passing the prop directly.
+
+Two knock-ons: the section's horizontal padding moved off the `<section>` onto
+the note's own block (the band has to reach past it), and `CROP_ASPECT.footer`
+went 1∶1 → 16∶9 so the editor opens on the shape most couples want here — the
+same value `LEGACY_CROP_ASPECT` falls back to in both packages when a saved crop
+carries no captured source dims (three hand-kept copies; the two inside
+`@cire/organiser` are pinned to each other by a drift guard, the cross-package
+pair by convention). `cropAspectRatio` also gained a `[0.05, 20]` clamp in both
+mirrors: `natW`/`natH` are validated only as positive and finite, and a ratio
+that stringifies to exponential notation is a value CSS drops outright, which
+would render the band as a zero-height box (`[[security]]` S-L1).
 
 **It is behind the claim gate — enforced at the API, not in the render tree.**
 The first cut gated it only with `<Show when={claimResult()}>`, which controls
@@ -72,7 +144,7 @@ plays.
 (`sectionVars(theme, "welcome")`, passed in as `themeVars`). The welcome
 greeting and the closing note are the couple's two direct addresses to their
 guests, so they read as a matched pair — and the builder gains no extra knob for
-a section whose whole job is a sentence and a motif. `THEME_SECTIONS` stays the
+a section whose whole job is a sentence and an image. `THEME_SECTIONS` stays the
 four lanes it has always had.
 
 **It is NOT part of `SiteFooter`.** Two different things live at the bottom of
@@ -80,7 +152,7 @@ an invite and the distinction is load-bearing:
 
 | | `InviteClosing.astro` | `SiteFooter.astro` |
 |---|---|---|
-| What | Invite content — the couple's motif + closing note | Site chrome — couple's title + Privacy/Terms/Privacy-choices |
+| What | Invite content — the couple's closing image + note | Site chrome — couple's title + Privacy/Terms/Privacy-choices |
 | Where | Only the invite, immediately above the footer | Every document (invite, `/privacy`, `/terms`, 404) |
 | When | Conditional — nothing set ⇒ **renders nothing at all** | Always (compliance blocker C-H4) |
 | Themed | Yes — reuses the **welcome** tone, no setting of its own | No — inherits the root palette |
@@ -123,7 +195,8 @@ change — and a wider one than it looks:
   so an unlisted slot's images read as orphans and get swept after the grace
   window. Pinned by a reconcile test that seeds every slot.
 - `CROP_ASPECT` in `cire/organiser/src/lib/image-crop.ts` needs the slot's
-  default editor shape (`footer` is 1∶1 — it renders small and centred).
+  default editor shape (`footer` is 16∶9 — it renders as a full-bleed closing
+  hero band, so it opens on the same wide frame the hero does).
 
 A `null` text field (or an all-whitespace value, which the service normalises to
 `null`) means **use the built-in default** — so a partially-filled section still
@@ -345,7 +418,7 @@ typography-option columns `theme_heading_size` / `theme_heading_weight` /
 (`0049_invite_footer_message.sql` — the footer's closing note, which unlike its
 neighbours has no built-in default: NULL ⇒ nothing rendered) +
 `footer_image_key` / `footer_image_crop` (`0050_invite_footer_image.sql` — the
-closing section's optional motif, same R2-key + crop-JSON storage as the other
+closing section's optional full-bleed image, same R2-key + crop-JSON storage as the other
 slots) + the two **hero display** columns
 `hero_image_style` (`blurred | regular`, **NOT NULL DEFAULT `blurred`**) and
 `hero_title_backdrop` (`none | solid`, **NOT NULL DEFAULT `none`**). The two

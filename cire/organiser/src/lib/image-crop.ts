@@ -37,9 +37,13 @@ export interface ImageCrop {
  *                     matching the portrait viewport it targets. Not an upload
  *                     slot — the same hero image, framed a second time.
  *   - `story`       — the two-column story photo; a gentle 3∶2.
- *   - `footer`      — the footer monogram / motif / signature; square, since the
- *                     slot renders small and centred and a square reads as
- *                     deliberate at that size.
+ *   - `footer`      — the closing section's image; a wide 16∶9 frame, since it
+ *                     renders as a full-bleed closing band spanning the guest
+ *                     page edge to edge (it was a small centred square before).
+ *                     Unlike the hero — whose box is the screen it fills, so the
+ *                     rectangle is demoted to a focal point — this band takes
+ *                     the crop's OWN aspect and shows exactly the framed region.
+ *                     The preset is a starting shape, not a limit.
  *   - `event`       — the event card photo; 4∶3.
  * The guest render is exact for any chosen shape (it reads the captured dims).
  */
@@ -47,7 +51,7 @@ export const CROP_ASPECT = {
   hero: 16 / 9,
   "hero-mobile": 9 / 16,
   story: 3 / 2,
-  footer: 1,
+  footer: 16 / 9,
   event: 4 / 3,
 } as const;
 
@@ -186,6 +190,19 @@ export function isRenderableCrop(crop: ImageCrop | null | undefined): crop is Im
 }
 
 /**
+ * The range a crop's pixel aspect may land in. `natW`/`natH` are captured in the
+ * browser and stored as plain JSON, and the API validates only that they are
+ * positive and finite — so a wedding editor can persist `natW: 1e308,
+ * natH: 1e-300`, whose ratio stringifies to `"1e+308"`. CSS rejects exponential
+ * notation, the `aspect-ratio` declaration is dropped, and the band renders as a
+ * zero-height box for every guest of that wedding. Clamping at the point the
+ * value is produced covers the guest band and the organiser preview together
+ * (S-L1); anything outside the range falls back to the slot default.
+ */
+const MIN_CROP_ASPECT = 0.05;
+const MAX_CROP_ASPECT = 20;
+
+/**
  * The crop's true pixel aspect (width ÷ height) when its source dims were
  * captured, else `fallback`. Mirrors `cropAspectRatio` in cire/web.
  */
@@ -195,7 +212,10 @@ export function cropAspectRatio(crop: ImageCrop | null | undefined, fallback: nu
   if (!isPositiveFinite(natW) || !isPositiveFinite(natH)) return fallback;
   if (!isPositiveFinite(w) || !isPositiveFinite(h)) return fallback;
   const aspect = (w * natW) / (h * natH);
-  return Number.isFinite(aspect) && aspect > 0 ? aspect : fallback;
+  if (!Number.isFinite(aspect) || aspect < MIN_CROP_ASPECT || aspect > MAX_CROP_ASPECT) {
+    return fallback;
+  }
+  return aspect;
 }
 
 /**

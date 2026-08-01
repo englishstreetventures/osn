@@ -27,7 +27,7 @@ const previewProps: PreviewPaneProps = {
   story: { shown: false, eyebrow: "", heading: "", body: "" },
   welcome: { message: "" },
   events: { eyebrow: "", heading: "" },
-  closing: { shown: false, message: "", imageUrl: null },
+  closing: { shown: false, message: "", imageUrl: null, imageCrop: null },
 };
 
 afterEach(() => {

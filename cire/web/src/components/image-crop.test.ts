@@ -74,6 +74,19 @@ describe("cropBackgroundStyle", () => {
 });
 
 describe("cropAspectRatio (box adopts the crop's true pixel aspect)", () => {
+  it("falls back rather than emitting an aspect CSS cannot parse", () => {
+    // `natW`/`natH` are captured in the browser and validated server-side only
+    // as positive + finite, so a wedding editor can persist extremes. A ratio of
+    // 1e+308 stringifies to exponential notation, which CSS rejects outright —
+    // the `aspect-ratio` declaration is dropped and the band renders as a
+    // zero-height box for every guest of that wedding (S-L1).
+    expect(cropAspectRatio({ x: 0, y: 0, w: 0.5, h: 0.5, natW: 1e308, natH: 1e-300 }, 3)).toBe(3);
+    expect(cropAspectRatio({ x: 0, y: 0, w: 0.5, h: 0.5, natW: 1, natH: 1e6 }, 3)).toBe(3);
+    // A merely unusual-but-renderable shape is still honoured, not clamped away.
+    expect(cropAspectRatio({ x: 0, y: 0, w: 0.5, h: 0.5, natW: 3000, natH: 1000 }, 1)).toBeCloseTo(
+      3,
+    );
+  });
   it("returns the fallback when the source dims are absent (legacy crop)", () => {
     expect(cropAspectRatio({ x: 0.1, y: 0.1, w: 0.5, h: 0.5 }, 4 / 3)).toBe(4 / 3);
     expect(cropAspectRatio(null, 16 / 9)).toBe(16 / 9);

@@ -1956,6 +1956,54 @@ describe("InviteBuilder preview layer", () => {
     ).toHaveLength(1);
   });
 
+  /**
+   * The closing crop has to REACH the preview. `SectionSample` degrades silently
+   * without it — the uncropped `<img>` branch still renders something plausible
+   * — so deleting either wiring line (the `closingSlot` memo's `imageCrop`, or
+   * the prop on the inline sample) restores the pre-branch lie, "what you frame
+   * is not what publishes", with the whole suite green. The `SectionSample` unit
+   * tests pass the prop directly and structurally cannot see this seam.
+   */
+  const WITH_CLOSING_CROP = {
+    ...EMPTY_CUSTOMISATION,
+    footer: {
+      message: null,
+      imageUrl: "/api/organiser/weddings/wed_1/invite/image/footer?v=3",
+      // 2:1 pixel aspect — (0.5·1000) / (0.5·500).
+      imageCrop: { x: 0.1, y: 0.1, w: 0.5, h: 0.5, natW: 1000, natH: 500 },
+    },
+  };
+
+  /** The preview band, asserted to be the CROPPED render: only that path sets an
+   *  aspect-ratio and a background-image. */
+  const expectCroppedBand = () => {
+    const band = screen.getByRole("img", { name: "Closing section artwork" });
+    expect(band.style.getPropertyValue("aspect-ratio")).toBe("2 / 1");
+    expect(band.style.getPropertyValue("background-image")).toContain("variant=card");
+    return band;
+  };
+
+  it("feeds the saved closing crop to the inline preview", async () => {
+    stubResizeObserver(600);
+    authFetchMock.mockResolvedValueOnce(json(WITH_CLOSING_CROP));
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    await waitFor(() => screen.getByText("Save invite"));
+
+    await openSection("Closing");
+    expect(await waitFor(() => expectCroppedBand())).toBeInTheDocument();
+  });
+
+  it("feeds the saved closing crop to the composed preview pane", async () => {
+    stubResizeObserver(1200);
+    authFetchMock.mockResolvedValueOnce(json(WITH_CLOSING_CROP));
+    render(() => <InviteBuilder weddingId="wed_1" weddingSlug="anita-ben" entitlements={[]} />);
+    await waitFor(() => screen.getByLabelText("Invite preview"));
+
+    // The pass-through the pane adds on top of the inline path: its own
+    // `PreviewPaneProps["closing"].imageCrop` field.
+    expect(await waitFor(() => expectCroppedBand())).toBeInTheDocument();
+  });
+
   it("keeps the crossover on the same content box as @4xl/builder", async () => {
     // Exactly 56rem at the root 16px `global.css` pins: the container query is
     // `width >= 56rem`, so this width is WIDE. One pixel less is not.

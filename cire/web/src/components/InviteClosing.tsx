@@ -2,12 +2,12 @@ import { Show } from "solid-js";
 
 import { cropAspectRatio, cropBackgroundStyle, type ImageCrop } from "./image-crop";
 import { isFooterEmpty } from "./invite-emptiness";
-import { buildSrcSet, type VariantName, variantSrc } from "./invite-images";
+import { buildSrcSet, variantSrc } from "./invite-images";
 
 /**
- * The invite's CLOSING SECTION — the couple's own sign-off: an optional image
- * (monogram, motif, signature) over an optional closing note ("Looking forward
- * to celebrating with you", "No boxed gifts please").
+ * The invite's CLOSING SECTION — the couple's own sign-off: an optional
+ * EDGE-TO-EDGE image over an optional closing note ("Looking forward to
+ * celebrating with you", "No boxed gifts please").
  *
  * This is a SECTION OF THE INVITE, not part of the site footer:
  *   - `SiteFooter.astro` is site-wide chrome — the couple's title plus the legal
@@ -28,6 +28,42 @@ import { buildSrcSet, type VariantName, variantSrc } from "./invite-images";
  * nor an image it renders NOTHING — no empty surface, no stray band above the
  * footer.
  *
+ * IMAGE SHAPE — the image is a CLOSING HERO: a full-bleed band spanning the
+ * viewport edge to edge, mirroring the hero at the top of the invite, with the
+ * note (when there is one) reading below it on the section surface. It was a
+ * small centred square before; a photograph is what couples reach for here, and
+ * a 200px thumbnail made the sign-off read like a stray avatar rather than the
+ * page's closing image. The section's horizontal padding therefore moved off the
+ * `<section>` onto the note's own block — the band has to reach past it.
+ *
+ * THE CROP DECIDES THE SHAPE. Full width, and then the HEIGHT follows what the
+ * organiser framed: the box takes the crop's true pixel aspect and renders the
+ * cropped region exactly (`cropBackgroundStyle`, the story photo's technique),
+ * so an organiser who crops a 3∶1 panorama gets a 3∶1 panorama and one who crops
+ * a 4∶3 scene gets a 4∶3 scene. This is deliberately NOT the hero backdrop's
+ * treatment, which pins a fixed viewport-shaped box and uses the crop as a mere
+ * focal point: the hero's box is dictated by the screen it fills, while this
+ * band has no shape of its own to defend, so the crop editor can be honest —
+ * what you frame is what publishes, and the builder's preview shows it.
+ *
+ * With no crop saved, the image keeps its NATURAL aspect (`h-auto`) — nothing
+ * is chosen, so nothing is cut.
+ *
+ * THE HEIGHT BOUND, and why it bounds the WIDTH. A band may not grow taller
+ * than {@link BAND_MAX_HEIGHT}: a 4∶5 portrait at 1440px wide wants 1800px of
+ * band, which buries the note and the footer under screens of image. On the
+ * cropped path that bound is applied to the box's WIDTH
+ * (`min(100%, max-height × aspect)`, centred) rather than as a `max-height`
+ * clip. A clip would silently break the promise above — measured in Chromium, a
+ * top-anchored tall crop clipped by `max-height` renders only its TOP strip,
+ * because the background layer is positioned at the crop's own offset and has
+ * no idea the box got shorter. Bounding the width instead means an extreme
+ * portrait crop stops being edge-to-edge (it becomes a centred column at the
+ * widest size that fits a screen) but is still shown WHOLE and exact — losing
+ * the full bleed on a rare shape beats cutting the framing on it. The plain
+ * `<img>` path keeps a `max-h` + `object-cover`, which genuinely does crop
+ * centred, and applies only to an image nobody framed.
+ *
  * SURFACE — it deliberately has NO tone setting of its own. It paints whatever
  * the organiser chose for the "Code Entry & Welcome" section (`themeVars`,
  * supplied by the caller as `sectionVars(theme, "welcome")`): the welcome
@@ -42,12 +78,42 @@ import { buildSrcSet, type VariantName, variantSrc } from "./invite-images";
  */
 
 /**
- * The closing image's display shape when no crop was saved (or a legacy crop
- * carries no source dims). Square: the slot is sized for a monogram, motif or
- * signature rather than a scene, and a square reads as deliberate at the small
- * width this section gives it.
+ * The tallest a closing band may be. `dvh`, not `vh`, so a phone's collapsing
+ * URL bar doesn't leave it measured against a viewport that isn't there.
+ *
+ * Exported for the drift guard in the tests: it appears BOTH as a literal
+ * inside {@link BAND_IMG_CLASS} (Tailwind's scanner reads source text — a
+ * computed class emits no CSS at all) and as this value in the cropped path's
+ * width `calc`, so the two have to be asserted equal rather than trusted.
  */
-const CLOSING_IMAGE_ASPECT = 1;
+export const BAND_MAX_HEIGHT = "85dvh";
+
+/**
+ * The uncropped band: full-bleed, the source's own proportions (`h-auto`),
+ * bounded by the screen. `object-cover` bites only when that bound does, and
+ * crops centred — acceptable for an image the organiser never framed.
+ */
+export const BAND_IMG_CLASS = "block h-auto max-h-[85dvh] w-full object-cover";
+
+/**
+ * The widest a CROPPED band may be, so the screen-height bound never becomes a
+ * `max-height` clip: paired with `width: 100%` this is `min(100%, cap × aspect)`
+ * — full-bleed at any ordinary landscape shape, a centred column only when the
+ * band would otherwise outgrow the screen. Written as a `max-width` rather than
+ * a literal `min()` because `min()` is the one form the test tier's CSS parser
+ * discards, and a contract nothing can assert is a contract that rots.
+ */
+export function bandMaxWidth(aspect: number): string {
+  return `calc(${BAND_MAX_HEIGHT} * ${aspect})`;
+}
+
+/**
+ * The band's shape when a crop carries no captured source dims (a legacy
+ * rectangle saved before the editor recorded them). 16∶9 — the wide frame the
+ * closing slot's crop editor now opens on (`CROP_ASPECT.footer`), so the
+ * fallback matches what an organiser would have been shown.
+ */
+const LEGACY_CROP_ASPECT = 16 / 9;
 
 export interface InviteClosingProps {
   /** The couple's closing note. Blank/whitespace-only ⇒ no note. */
@@ -81,61 +147,82 @@ export function InviteClosing(props: InviteClosingProps) {
 
   const imageSrc = () => (props.imageUrl ? `${props.apiUrl}${props.imageUrl}` : null);
 
-  // When a crop was saved, render the cropped region with the same CSS-fraction
-  // technique the story photo uses (a background layer — backgrounds can't take
-  // a srcset, so we pick one bounded variant).
-  //
-  // The crop layer scales the source by 100/w, so a TIGHT crop needs more source
-  // pixels than the 200px box suggests: at w = 0.4 the visible region is 40% of
-  // an already-downscaled image. Below half-width we ask for `card` (800w);
-  // otherwise `thumb` (320w) is ample and saves ~6× the bytes. Both are in the
-  // existing allowlist, so the transform cardinality guarantee is unaffected.
-  const cropVariant = (): VariantName => ((props.imageCrop?.w ?? 1) < 0.5 ? "card" : "thumb");
+  // A saved crop paints a background layer instead of the `<img>`, rendering the
+  // framed region EXACTLY: uniform scale, and the box below takes the crop's own
+  // aspect, so the region fills it with no distortion and no bars. Backgrounds
+  // can't carry a `srcset`, so we name one bounded variant: `hero` (1600w), the
+  // width a full-bleed band actually needs — the old tightness-based thumb/card
+  // pick was sized for a 200px box and would be visibly soft across a viewport.
   const cropStyle = () => {
     const url = imageSrc();
-    return url ? cropBackgroundStyle(variantSrc(url, cropVariant()), props.imageCrop) : null;
+    return url ? cropBackgroundStyle(variantSrc(url, "hero"), props.imageCrop) : null;
   };
 
-  // The box adopts the crop's TRUE pixel aspect (from its captured source dims)
-  // so the uniformly-scaled region fills it with no distortion and no empty
-  // bars; a legacy crop with no dims falls back to the square default.
-  const imageAspect = () => String(cropAspectRatio(props.imageCrop, CLOSING_IMAGE_ASPECT));
+  // The band's height, expressed as the crop's true pixel aspect (from its
+  // captured source dims). This is the whole "what you crop is what publishes"
+  // contract in one line.
+  const bandAspect = () => cropAspectRatio(props.imageCrop, LEGACY_CROP_ASPECT);
+
+  // While the section is skipped by `content-visibility`, this is the height the
+  // browser reserves for it. The band is exactly `100vw` wide at the crop's
+  // aspect, so its height is a closed-form expression rather than a guess; the
+  // `+ 24rem` covers the note block's padding. A flat placeholder under-reserved
+  // a full-bleed band by 2–3×, which moves the scrollbar under the guest at the
+  // moment they scroll into it. `auto` means only the first pass pays even this.
+  const intrinsicSize = () =>
+    imageSrc() ? `auto calc(100vw / ${bandAspect()} + 24rem)` : "auto 24rem";
 
   return (
     <Show when={show()}>
       <section
         data-invite-closing
-        // `content-visibility: auto` defers layout/paint (and the crop path's
-        // background fetch) until this off-screen section approaches the viewport.
-        class="px-6 py-16 text-center [content-visibility:auto] md:px-8 md:py-20"
+        // No horizontal padding of its own — the band reaches the viewport edge,
+        // and the note below carries its own. `content-visibility: auto` defers
+        // layout/paint (and the crop path's background fetch) until this
+        // off-screen section approaches the viewport; the intrinsic size above
+        // is what the browser reserves while it does, and now that the band is
+        // full-bleed a wrong reserve is a scroll jump rather than a rounding.
+        class="text-center [content-visibility:auto]"
         // Paints the welcome section's surface; the text tokens below resolve
         // from the root palette, which already carries the organiser's scheme.
-        style={{ ...props.themeVars, "background-color": "var(--invite-section-bg)" }}
+        style={{
+          ...props.themeVars,
+          "background-color": "var(--invite-section-bg)",
+          "contain-intrinsic-size": intrinsicSize(),
+        }}
       >
         <Show when={imageSrc()}>
           {(url) => (
             <Show
               when={cropStyle()}
               fallback={
-                /* Two candidates so `sizes` has a real choice to make: `thumb`
-                   (320w) covers the 200px box at 1×, `card` (800w) at 3× on a
-                   phone. The bare `src` names `thumb` explicitly — an absent
-                   `variant` resolves to `card` server-side, which would mint a
-                   second transform-cache entry for a URL the browser never
+                /* Two candidates so `sizes` has a real choice to make: `card`
+                   (800w) covers the band on a phone, `hero` (1600w) from a
+                   laptop up (and on a retina phone). The bare `src` names
+                   `card` explicitly — an absent `variant` resolves to `card`
+                   server-side anyway, and naming it keeps the browser from
+                   minting a second transform-cache entry for a URL it never
                    fetches under a `w`-descriptor srcset. `loading="lazy"`
                    because this section is below every event card and is
                    guaranteed off-screen at mount: without it the fetch races
                    the in-viewport cards that ARE deferred, and bills a
                    per-call Images transform for guests who never scroll here. */
                 <img
-                  src={variantSrc(url(), "thumb")}
-                  srcset={buildSrcSet(url(), ["thumb", "card"])}
-                  sizes="200px"
+                  src={variantSrc(url(), "card")}
+                  srcset={buildSrcSet(url(), ["card", "hero"])}
+                  sizes="100vw"
                   alt=""
                   loading="lazy"
                   decoding="async"
-                  class="mx-auto block h-auto w-[min(200px,45vw)] rounded-sm object-cover"
-                  style={{ "aspect-ratio": imageAspect() }}
+                  class={BAND_IMG_CLASS}
+                  // `aspect-ratio: auto <ratio>` — the FALLBACK form: the
+                  // browser reserves a 16∶9 box until the bytes arrive, then
+                  // the image's own ratio wins, so "nothing was cropped ⇒
+                  // nothing is cut" survives the fix. Without it this box is
+                  // 0px tall until a lazy, content-visibility-deferred image
+                  // decodes, and the note plus the whole site footer jump down
+                  // by up to a screen height — CLS on the one page that sells.
+                  style={{ "aspect-ratio": `auto ${LEGACY_CROP_ASPECT}` }}
                 />
               }
             >
@@ -143,25 +230,38 @@ export function InviteClosing(props: InviteClosingProps) {
                 <div
                   aria-hidden="true"
                   // The cropped variant paints a background layer, so the box
-                  // clips it and takes its size from the width + aspect-ratio
-                  // (an empty div has no intrinsic dimensions).
-                  class="mx-auto w-[min(200px,45vw)] overflow-hidden rounded-sm bg-no-repeat"
-                  style={{ ...style(), "aspect-ratio": imageAspect() }}
+                  // owns its size (an empty div has no intrinsic dimensions):
+                  // the CROP's aspect, at the full width the screen-height bound
+                  // allows. Never a `max-height` clip — that would cut the
+                  // framing this whole path exists to honour.
+                  class="mx-auto block w-full"
+                  style={{
+                    ...style(),
+                    "aspect-ratio": String(bandAspect()),
+                    "max-width": bandMaxWidth(bandAspect()),
+                  }}
                 />
               )}
             </Show>
           )}
         </Show>
         <Show when={note()}>
-          <p
-            // `whitespace-pre-line` honours the line breaks an organiser typed;
-            // `break-words` stops a long unbroken line overflowing on a phone.
-            // Not the muted grey — this is the couple speaking.
-            class="font-body text-text mx-auto max-w-[34rem] text-[clamp(1rem,2vw,1.125rem)] leading-relaxed break-words whitespace-pre-line italic data-[has-image=true]:mt-7"
-            data-has-image={imageSrc() ? "true" : "false"}
-          >
-            {note()}
-          </p>
+          {/* The note's own block owns the section padding now that the band
+              above it is full-bleed. */}
+          <div class="px-6 py-16 md:px-8 md:py-20">
+            <p
+              // `whitespace-pre-line` honours the line breaks an organiser typed;
+              // `break-words` stops a long unbroken line overflowing on a phone.
+              // Not the muted grey — this is the couple speaking.
+              class="font-body text-text mx-auto max-w-[34rem] text-[clamp(1rem,2vw,1.125rem)] leading-relaxed break-words whitespace-pre-line italic"
+              // Not a styling hook (the block above owns the spacing) — it
+              // records that the couple's words follow their image, which the
+              // tests pin so the two can't silently swap order.
+              data-has-image={imageSrc() ? "true" : "false"}
+            >
+              {note()}
+            </p>
+          </div>
         </Show>
       </section>
     </Show>

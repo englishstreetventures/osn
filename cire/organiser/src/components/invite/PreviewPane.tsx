@@ -33,7 +33,12 @@ export interface PreviewPaneProps {
   story: { shown: boolean; eyebrow: string; heading: string; body: string };
   welcome: { message: string };
   events: { eyebrow: string; heading: string };
-  closing: { shown: boolean; message: string; imageUrl: string | null };
+  closing: {
+    shown: boolean;
+    message: string;
+    imageUrl: string | null;
+    imageCrop: ImageCrop | null;
+  };
 }
 
 export default function PreviewPane(props: PreviewPaneProps) {
@@ -101,6 +106,7 @@ export default function PreviewPane(props: PreviewPaneProps) {
           <SectionSample
             surface={props.toneSurface("welcome")}
             imageUrl={props.closing.imageUrl}
+            imageCrop={props.closing.imageCrop}
             body={
               props.closing.message.trim().length > 0
                 ? sampleCopy(props.closing.message, "")
