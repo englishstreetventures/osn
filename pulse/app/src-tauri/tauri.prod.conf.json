@@ -1,0 +1,16 @@
+{
+  "app": {
+    "security": {
+      "csp": {
+        "connect-src": [
+          "'self'",
+          "ipc:",
+          "http://ipc.localhost",
+          "https://photon.komoot.io",
+          "https://id.musubi.social",
+          "https:"
+        ]
+      }
+    }
+  }
+}
