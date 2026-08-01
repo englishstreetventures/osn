@@ -1,3 +1,4 @@
+import { sessionFetch } from "./session-fetch";
 import { parseTokenResponse, type Session } from "./tokens";
 
 /**
@@ -115,7 +116,9 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
   };
 
   const loginWithRecoveryCode = async (input: { identifier: string; code: string }) => {
-    const res = await fetch(`${base}/login/recovery/complete`, {
+    // `sessionFetch`: this route sets the refresh cookie. See
+    // `./session-fetch.ts`.
+    const res = await sessionFetch(`${base}/login/recovery/complete`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",

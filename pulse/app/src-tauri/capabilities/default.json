@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "opener:default",
-    "pulse-bridge:default"
+    "pulse-bridge:default",
+    "pulse-session:default"
   ]
 }

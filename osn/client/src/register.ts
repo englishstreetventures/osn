@@ -1,3 +1,4 @@
+import { sessionFetch } from "./session-fetch";
 import { parseTokenResponse, type Session } from "./tokens";
 
 /**
@@ -57,7 +58,9 @@ async function postJson<T>(
 ): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (options.bearer) headers["Authorization"] = `Bearer ${options.bearer}`;
-  const res = await fetch(url, {
+  // `sessionFetch` because `/register/complete` sets the refresh cookie; see
+  // `./session-fetch.ts` for why iOS cannot take it through the webview.
+  const res = await sessionFetch(url, {
     method: "POST",
     headers,
     body: JSON.stringify(body),

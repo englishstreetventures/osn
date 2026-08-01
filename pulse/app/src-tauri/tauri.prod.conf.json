@@ -12,5 +12,10 @@
         ]
       }
     }
+  },
+  "plugins": {
+    "pulse-session": {
+      "issuerUrl": "https://id.musubi.social"
+    }
   }
 }

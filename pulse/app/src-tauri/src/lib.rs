@@ -5,6 +5,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_pulse_bridge::init())
         .plugin(tauri_plugin_pulse_keychain::init())
+        .plugin(tauri_plugin_pulse_session::init())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -1,0 +1,12 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+identifier = "pulse-session:default"
+description = """
+Allows the webview to call `request`, the native session transport. This is not
+an escape hatch to arbitrary hosts: the command rejects anything but a relative
+path drawn from a fixed allowlist, and resolves it against the issuer origin
+baked into `tauri.conf.json`. The session cookie itself never crosses into JS —
+Rust captures `Set-Cookie` and strips it from the response.
+"""
+permissions = ["allow-request"]

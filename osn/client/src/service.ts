@@ -6,6 +6,7 @@ import {
   StorageError,
   TokenRefreshError,
 } from "./errors";
+import { sessionFetch } from "./session-fetch";
 import { Storage } from "./storage";
 import {
   decodeAccountSession,
@@ -241,7 +242,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         Effect.gen(function* () {
           const raw = yield* Effect.tryPromise({
             try: () =>
-              fetch(`${config.issuerUrl}/token`, {
+              sessionFetch(`${config.issuerUrl}/token`, {
                 method: "POST",
                 headers: { "Content-Type": "application/x-www-form-urlencoded" },
                 credentials: "include",
@@ -505,7 +506,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           // C3: server-side session destruction + cookie clearing
           yield* Effect.tryPromise({
             try: () =>
-              fetch(`${config.issuerUrl}/logout`, {
+              sessionFetch(`${config.issuerUrl}/logout`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",

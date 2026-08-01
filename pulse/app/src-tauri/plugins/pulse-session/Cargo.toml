@@ -1,0 +1,24 @@
+[package]
+name = "tauri-plugin-pulse-session"
+version = "0.1.0"
+description = "Native session transport for Pulse on iOS: a Keychain-backed cookie jar behind an origin-pinned, path-allowlisted request command"
+edition = "2021"
+license = "UNLICENSED"
+links = "tauri-plugin-pulse-session"
+
+[lib]
+name = "tauri_plugin_pulse_session"
+path = "src/lib.rs"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-pulse-keychain = { path = "../pulse-keychain" }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+url = "2"
+
+[target.'cfg(target_os = "ios")'.dependencies]
+tauri = { version = "2", features = ["wry"] }

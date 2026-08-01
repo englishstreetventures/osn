@@ -1,3 +1,4 @@
+import { sessionFetch } from "./session-fetch";
 import { parseTokenResponse, type Session } from "./tokens";
 
 /**
@@ -39,8 +40,12 @@ export interface LoginResult {
   profile: LoginProfile;
 }
 
+// `sessionFetch`, not `fetch`: `/login/passkey/complete` is where the server
+// sets the refresh cookie, and on iOS the webview cannot store it. The other
+// login routes carry no cookie and pass straight through — see
+// `./session-fetch.ts`.
 async function postJson<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
+  const res = await sessionFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",

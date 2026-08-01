@@ -42,6 +42,11 @@
       }
     }
   },
+  "plugins": {
+    "pulse-session": {
+      "issuerUrl": "http://localhost:4000"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",

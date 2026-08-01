@@ -11,6 +11,7 @@ export * from "./recovery";
 export * from "./register";
 export * from "./security-events";
 export * from "./service";
+export * from "./session-fetch";
 export * from "./sessions";
 export * from "./step-up";
 export * from "./storage";

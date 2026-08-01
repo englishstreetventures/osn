@@ -2574,6 +2574,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-pulse-bridge",
  "tauri-plugin-pulse-keychain",
+ "tauri-plugin-pulse-session",
 ]
 
 [[package]]
@@ -3450,6 +3451,18 @@ dependencies = [
  "tauri",
  "tauri-plugin",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "tauri-plugin-pulse-session"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "tauri",
+ "tauri-plugin",
+ "tauri-plugin-pulse-keychain",
+ "thiserror 2.0.19",
+ "url",
 ]
 
 [[package]]

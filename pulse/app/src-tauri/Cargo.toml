@@ -22,6 +22,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-pulse-bridge = { path = "plugins/pulse-bridge" }
 tauri-plugin-pulse-keychain = { path = "plugins/pulse-keychain" }
+tauri-plugin-pulse-session = { path = "plugins/pulse-session" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
