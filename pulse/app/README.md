@@ -20,6 +20,13 @@ bun run --cwd pulse/app dev:ios       # iOS simulator via Tauri
 bun run --cwd pulse/app tauri dev     # desktop shell via Tauri
 ```
 
+## iOS build
+
+The Apple development team ID is `FV59Y8RSUH`, set in
+`src-tauri/tauri.conf.json`, and it is the only signing config in the repo.
+Provisioning profiles are not committed — simulator builds need none, and a
+device build resolves its own profile from the team.
+
 ## Env
 
 See `.env.example`. Defaults assume `@osn/api` on `localhost:4000` and
