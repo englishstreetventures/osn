@@ -1,5 +1,11 @@
 # @osn/pulse
 
+## 0.16.18
+
+### Patch Changes
+
+- bc453cc: Drop the `greet` command left over from the Tauri template.
+
 ## 0.16.17
 
 ### Patch Changes
