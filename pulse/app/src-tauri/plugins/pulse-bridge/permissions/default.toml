@@ -1,0 +1,5 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = "Allows haptic impact feedback and reading safe-area insets."
+permissions = ["allow-impact", "allow-get-safe-area-insets"]
