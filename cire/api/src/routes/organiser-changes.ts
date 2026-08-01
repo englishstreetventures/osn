@@ -1,6 +1,6 @@
 import { imports } from "@cire/db";
 import { and, desc, eq, lt } from "drizzle-orm";
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 import { Elysia } from "elysia";
 
 import { DbService, dbQuery } from "../db";
@@ -9,9 +9,14 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { runCire } from "../observability";
-import { ApplyBody, DesiredState, RevertBody } from "../schemas/import";
+import { ApplyBody, ChangeScope, DesiredState, RevertBody } from "../schemas/import";
 import type { ImportPlan, ParsedFamily } from "../schemas/import";
-import { decodeChangeBody, GENESIS_REVISION, headRevision } from "../services/changes";
+import {
+  currentEventsAsParsed,
+  decodeChangeBody,
+  GENESIS_REVISION,
+  headRevision,
+} from "../services/changes";
 import { captureBeforeImage, pruneBeforeImages } from "../services/checkpoint";
 import { CapacityExceeded } from "../services/entitlements";
 import { applyImport, diffAgainstDb } from "../services/import";
@@ -20,8 +25,94 @@ import { R2Service, fetchUpload, storeUpload } from "../services/r2-imports";
 import type { R2Bucket } from "../services/r2-imports";
 import { revertImport } from "../services/revert";
 import { parseEventsCsv, parseGuestsCsv } from "../services/spreadsheet";
+import type { SpreadsheetParseError } from "../services/spreadsheet";
 
 const ONE_MB = 1 * 1024 * 1024;
+
+/**
+ * The 422 body for a spreadsheet parse rejection, shared by preview and apply.
+ *
+ * Every locating detail the parser worked out — `reason`, 1-indexed
+ * `row`/`column`, and which `sheet` it came from — is carried through, because
+ * a bare `{error: "Malformed spreadsheet"}` tells an organiser nothing about
+ * which of two files, which row, or what to change. (Preview used to omit
+ * `column` and apply used to omit everything but `error`, so the same bad upload
+ * produced two different, equally unhelpful bodies.) `snippet` is deliberately
+ * NOT reflected: it is raw cell content from an untrusted upload.
+ *
+ * WHICH FIELDS ARE TRUSTED (the reason-lockdown contract in
+ * `services/spreadsheet.ts`, stated precisely so it stays durable):
+ *  - `reason` — a static literal from a closed union. Never cell content.
+ *  - `sheet`, `row`, `column` (numeric) — structural metadata we computed.
+ *  - `MissingRequiredColumn.column` — always a member of
+ *    `REQUIRED_EVENT_COLUMNS`/`REQUIRED_GUEST_COLUMNS`, i.e. our own constant.
+ *  - `UnmatchedEventColumn.column` — **untrusted**: a header cell copied
+ *    verbatim out of the uploaded file. Reflected (the organiser needs to be
+ *    told which heading didn't match) but TRUNCATED, since a cell may be up to
+ *    `MAX_CELL_LENGTH`. It is the organiser's own upload coming back to them,
+ *    and the client renders it through SolidJS text interpolation, which
+ *    escapes — but a future renderer or log sink must treat it as untrusted.
+ *  - `FormulaInjectionDetected.snippet` — untrusted, and withheld entirely.
+ */
+
+/** Cap on the one untrusted value this body reflects (see above). */
+const MAX_REFLECTED_LABEL = 64;
+
+function truncateLabel(s: string): string {
+  return s.length > MAX_REFLECTED_LABEL ? `${s.slice(0, MAX_REFLECTED_LABEL)}…` : s;
+}
+function parseErrorBody(e: SpreadsheetParseError): Record<string, unknown> {
+  const sheet = e.sheet ?? null;
+  switch (e._tag) {
+    case "MalformedSpreadsheet":
+      // Wire names stay `row`/`column`; the error's fields are `atRow`/`atColumn`
+      // so an unset coordinate can't read back as the runtime's own Error.column
+      // (see the note on MalformedSpreadsheet).
+      return {
+        error: "Malformed spreadsheet",
+        reason: e.reason,
+        row: e.atRow ?? null,
+        column: e.atColumn ?? null,
+        sheet,
+      };
+    case "FormulaInjectionDetected":
+      return {
+        error: "Formula-injection guard tripped",
+        row: e.row,
+        column: e.column,
+        sheet,
+      };
+    case "MissingRequiredColumn":
+      return { error: "Missing required column", column: e.column, sheet };
+    case "UnmatchedEventColumn":
+      return { error: "Unmatched event column", column: truncateLabel(e.column), sheet };
+  }
+}
+
+/**
+ * Catch every spreadsheet parse error onto the shared 422 body. One handler for
+ * both verbs, so preview and apply can't drift on what they report again.
+ */
+function catchParseErrors(set: { status?: number | string }) {
+  const handle = (e: SpreadsheetParseError) =>
+    Effect.gen(function* () {
+      if (e._tag === "FormulaInjectionDetected") {
+        yield* Effect.logWarning("formula injection rejected", {
+          row: e.row,
+          column: e.column,
+          sheet: e.sheet ?? null,
+        });
+      }
+      set.status = 422;
+      return parseErrorBody(e);
+    });
+  return {
+    MalformedSpreadsheet: handle,
+    FormulaInjectionDetected: handle,
+    MissingRequiredColumn: handle,
+    UnmatchedEventColumn: handle,
+  };
+}
 
 // Sentinel parse hook: stops Elysia from consuming the body so handlers can
 // parse it by hand — a malformed payload degrades to the schema's 400 instead
@@ -37,6 +128,13 @@ const manualParse = { parse: () => ({}) };
 interface ChangeSummary {
   baseRevision: string;
   removeManual: boolean;
+  /**
+   * Which halves of the wedding the change is authoritative over — `"both"`
+   * unless the organiser uploaded a single sheet. Read back at apply so the
+   * re-diff manages exactly the halves the preview did; a legacy row written
+   * before partial uploads existed has no `scope` and defaults to `"both"`.
+   */
+  scope?: ChangeScope;
   eventCreates: number;
   eventUpdates: number;
   eventRemoves: number;
@@ -51,27 +149,41 @@ interface ChangeSummary {
  * Re-derive the DesiredState an apply must re-diff, from the change row's stored
  * inputs. Both front doors persist their input at preview under the row's
  * `eventsR2Key`/`guestsR2Key`:
- *  - `kind = 'import'` — the two uploaded CSVs (re-parsed, exactly the import).
+ *  - `kind = 'import'` — the uploaded CSVs (re-parsed, exactly the import). A
+ *    single-sheet upload stored `""` in the slot it didn't carry, so `scope`
+ *    (not the stored bytes) decides which slots are read.
  *  - `kind = 'editor'` — the DesiredState JSON in the events key (guests key is
  *    an empty sentinel); JSON-decoded back to a DesiredState.
+ *
  * Re-reading at apply is the TOCTOU defence: the DB may have shifted since
- * preview, so the plan is always freshly diffed against live state.
+ * preview, so the plan is always freshly diffed against live state. For a
+ * guests-only change the event list is re-hydrated from LIVE state here too — an
+ * event added between preview and apply is therefore a column the guest sheet
+ * *could* have resolved, never a stale snapshot.
  */
-function desiredStateFromRow(row: {
-  kind: "import" | "editor";
-  eventsR2Key: string;
-  guestsR2Key: string;
-}) {
+function desiredStateFromRow(
+  row: {
+    kind: "import" | "editor";
+    eventsR2Key: string;
+    guestsR2Key: string;
+  },
+  scope: ChangeScope,
+  weddingId: string,
+) {
   return Effect.gen(function* () {
     if (row.kind === "editor") {
       const json = yield* fetchUpload(row.eventsR2Key);
       return yield* Schema.decodeUnknown(Schema.parseJson(DesiredState))(json);
     }
-    const eventsCsv = yield* fetchUpload(row.eventsR2Key);
-    const guestsCsv = yield* fetchUpload(row.guestsR2Key);
-    const events = yield* parseEventsCsv(eventsCsv);
-    const families = yield* parseGuestsCsv(guestsCsv, events);
-    return { events, families: families as ParsedFamily[] };
+    const events =
+      scope === "guests"
+        ? yield* currentEventsAsParsed(weddingId)
+        : yield* parseEventsCsv(yield* fetchUpload(row.eventsR2Key));
+    const families =
+      scope === "events"
+        ? []
+        : ((yield* parseGuestsCsv(yield* fetchUpload(row.guestsR2Key), events)) as ParsedFamily[]);
+    return { events, families };
   });
 }
 
@@ -87,12 +199,14 @@ function desiredStateFromRow(row: {
  * wedding-scoped through the path.
  *
  * The four verbs:
- *  - `preview` — accepts EITHER a DesiredState JSON (editor draft-save) OR
- *    `{eventsCsv, guestsCsv}` (spreadsheet upload). Both funnel through
+ *  - `preview` — accepts EITHER a DesiredState JSON (editor draft-save) OR a
+ *    spreadsheet upload carrying `eventsCsv`, `guestsCsv`, or BOTH (either sheet
+ *    may be omitted — an organiser re-working only the guest list uploads only
+ *    that sheet, and the schedule is left alone). Both funnel through
  *    `decodeChangeBody` → the one reconcile: DesiredState → `diffAgainstDb` →
  *    plan. Persists a `preview` change row (input in R2, `baseRevision` +
- *    `removeManual` in the summary). Returns `{changeId, plan, warnings,
- *    baseRevision}`.
+ *    `removeManual` + `scope` in the summary). Returns `{changeId, plan,
+ *    warnings, baseRevision, scope}`.
  *  - `apply` — `{changeId}`. Re-reads the head revision and 409s if it moved
  *    since preview (optimistic concurrency — a co-host applied in between).
  *    Re-diffs against live state (TOCTOU), checkpoints the before-image (E3),
@@ -141,14 +255,17 @@ export const createOrganiserChangeRoutes = (
                 // never our own diff reads.
                 const baseRevision = yield* headRevision(weddingId);
 
-                const decoded = yield* decodeChangeBody(raw);
+                const decoded = yield* decodeChangeBody(raw, weddingId);
 
                 // Persist the change's input for the apply-time re-diff. Import:
-                // the two uploaded CSVs. Editor: the DesiredState JSON in the
-                // events slot (guests slot empty), with a byte cap on both.
+                // the uploaded CSVs, with `""` in the slot of a sheet the
+                // organiser didn't upload (the row's `scope` is what marks it
+                // as absent rather than empty). Editor: the DesiredState JSON in
+                // the events slot (guests slot empty), with a byte cap on both.
                 const changeId = crypto.randomUUID();
-                const eventsPayload =
-                  decoded.uploadedCsv?.eventsCsv ?? JSON.stringify(decoded.desiredState);
+                const eventsPayload = decoded.uploadedCsv
+                  ? (decoded.uploadedCsv.eventsCsv ?? "")
+                  : JSON.stringify(decoded.desiredState);
                 const guestsPayload = decoded.uploadedCsv?.guestsCsv ?? "";
                 const totalBytes =
                   new TextEncoder().encode(eventsPayload).length +
@@ -167,12 +284,13 @@ export const createOrganiserChangeRoutes = (
                   decoded.desiredState.events,
                   decoded.desiredState.families as ParsedFamily[],
                   weddingId,
-                  { removeManual: decoded.removeManual },
+                  { removeManual: decoded.removeManual, scope: decoded.scope },
                 );
 
                 const summary: ChangeSummary = {
                   baseRevision,
                   removeManual: decoded.removeManual,
+                  scope: decoded.scope,
                   eventCreates: plan.eventCreates.length,
                   eventUpdates: plan.eventUpdates.length,
                   eventRemoves: plan.eventRemoves.length,
@@ -202,7 +320,7 @@ export const createOrganiserChangeRoutes = (
                 );
 
                 yield* Effect.logInfo(
-                  `change preview accepted: kind=${decoded.kind} families=${decoded.desiredState.families.length} events=${decoded.desiredState.events.length} removeManual=${decoded.removeManual}`,
+                  `change preview accepted: kind=${decoded.kind} scope=${decoded.scope} families=${decoded.desiredState.families.length} events=${decoded.desiredState.events.length} removeManual=${decoded.removeManual}`,
                   { changeId },
                 );
 
@@ -214,6 +332,10 @@ export const createOrganiserChangeRoutes = (
                   // prefixes serve identically until the alias is deleted.
                   importId: changeId,
                   baseRevision,
+                  // Echoed so the preview UI can say WHICH halves this change
+                  // touches ("guests only — your schedule is untouched") rather
+                  // than leaving an organiser to infer it from empty counts.
+                  scope: decoded.scope,
                   plan: {
                     ...plan,
                     eventCreates: [...plan.eventCreates],
@@ -239,38 +361,7 @@ export const createOrganiserChangeRoutes = (
                     return { error: "Missing or invalid fields" };
                   }),
                 ),
-                Effect.catchTag("FormulaInjectionDetected", (e) =>
-                  Effect.gen(function* () {
-                    yield* Effect.logWarning(`formula injection rejected`, {
-                      row: e.row,
-                      column: e.column,
-                    });
-                    set.status = 422;
-                    return {
-                      error: "Formula-injection guard tripped",
-                      row: e.row,
-                      column: e.column,
-                    };
-                  }),
-                ),
-                Effect.catchTag("MissingRequiredColumn", (e) =>
-                  Effect.sync(() => {
-                    set.status = 422;
-                    return { error: "Missing required column", column: e.column };
-                  }),
-                ),
-                Effect.catchTag("UnmatchedEventColumn", (e) =>
-                  Effect.sync(() => {
-                    set.status = 422;
-                    return { error: "Unmatched event column", column: e.column };
-                  }),
-                ),
-                Effect.catchTag("MalformedSpreadsheet", (e) =>
-                  Effect.sync(() => {
-                    set.status = 422;
-                    return { error: "Malformed spreadsheet", reason: e.reason, row: e.row ?? null };
-                  }),
-                ),
+                Effect.catchTags(catchParseErrors(set)),
                 Effect.catchTag("R2Error", () =>
                   Effect.sync(() => {
                     set.status = 500;
@@ -335,13 +426,25 @@ export const createOrganiserChangeRoutes = (
 
                 // Re-derive the desired state from the row's stored input and
                 // re-diff against LIVE state (TOCTOU defence), honouring the
-                // provenance toggle captured at preview.
-                const desired = yield* desiredStateFromRow(row);
+                // provenance toggle AND the sheet scope captured at preview. A
+                // row written before partial uploads existed has no `scope`, so
+                // it defaults to `"both"` — the historical behaviour.
+                // Decoded, not asserted: `summary` is JSON off a DB row, so a
+                // legacy/corrupt value must land on the safe default explicitly
+                // rather than flowing into `!==` comparisons that happen to be
+                // safe today. `"both"` is the conservative choice — it manages
+                // both halves, so a partial change degrades to re-parsing an
+                // empty slot and 422ing, never to a silent one-sided delete.
+                const scope = Option.getOrElse(
+                  Schema.decodeUnknownOption(ChangeScope)(stored.scope),
+                  (): ChangeScope => "both",
+                );
+                const desired = yield* desiredStateFromRow(row, scope, weddingId);
                 const plan = yield* diffAgainstDb(
                   desired.events,
                   desired.families as ParsedFamily[],
                   weddingId,
-                  { removeManual: stored.removeManual ?? false },
+                  { removeManual: stored.removeManual ?? false, scope },
                 );
 
                 // E3 checkpoint: snapshot the pre-change state at full fidelity
@@ -377,30 +480,7 @@ export const createOrganiserChangeRoutes = (
                     return { error: "Missing or invalid fields" };
                   }),
                 ),
-                Effect.catchTag("FormulaInjectionDetected", () =>
-                  Effect.sync(() => {
-                    set.status = 422;
-                    return { error: "Formula-injection guard tripped" };
-                  }),
-                ),
-                Effect.catchTag("MissingRequiredColumn", (e) =>
-                  Effect.sync(() => {
-                    set.status = 422;
-                    return { error: "Missing required column", column: e.column };
-                  }),
-                ),
-                Effect.catchTag("UnmatchedEventColumn", (e) =>
-                  Effect.sync(() => {
-                    set.status = 422;
-                    return { error: "Unmatched event column", column: e.column };
-                  }),
-                ),
-                Effect.catchTag("MalformedSpreadsheet", () =>
-                  Effect.sync(() => {
-                    set.status = 422;
-                    return { error: "Malformed spreadsheet" };
-                  }),
-                ),
+                Effect.catchTags(catchParseErrors(set)),
                 Effect.catchTag("R2Error", () =>
                   Effect.sync(() => {
                     set.status = 500;

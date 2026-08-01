@@ -15,6 +15,7 @@ import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
 import { metricImportApplied } from "../metrics";
 import type {
+  ChangeScope,
   EventCreate,
   EventLink,
   EventRemove,
@@ -127,6 +128,24 @@ export interface DiffOptions {
    * removed regardless of source — the desired state is the whole truth.
    */
   readonly removeManual?: boolean;
+  /**
+   * SCOPE (partial uploads): which halves of the desired state are authoritative
+   * — see {@link ChangeScope}. Defaults to `"both"` (the historical two-sheet
+   * import and every editor save), so an omitted option is byte-identical to the
+   * pre-partial diff.
+   *
+   * `"events"` and `"guests"` exist so an organiser can upload ONE sheet. The
+   * unmanaged half is not merely "left unchanged by coincidence" — it is never
+   * read into the diff at all, so an absent household can't be mistaken for a
+   * deleted one. The scope only ever SUPPRESSES ops for the unmanaged half; the
+   * managed half diffs exactly as it would in a two-sheet import.
+   *
+   * Cross-half fallout is still correct: an events-only upload that REMOVES an
+   * event drops that event's `guest_events` links + RSVPs (applyImport deletes
+   * them by `event_id`), because the event genuinely no longer exists. What it
+   * does not do is touch a household or a guest row.
+   */
+  readonly scope?: ChangeScope;
 }
 
 export function diffAgainstDb(
@@ -139,22 +158,39 @@ export function diffAgainstDb(
     const db = yield* DbService;
     // Default: manage only import-created rows (leave hand-added rows intact).
     const removeManual = options.removeManual ?? false;
+    // Default: both halves authoritative (the two-sheet import / editor save).
+    const scope = options.scope ?? "both";
+    const manageEvents = scope !== "guests";
+    const manageGuests = scope !== "events";
 
     // C1: the wedding's claim-code tier drives every NEW family code minted by
     // this import. Read once; default to `secure` if the row is somehow absent
-    // (defensive — `weddingId` is always a real, owned wedding here).
-    const [weddingRow] = yield* dbQuery(() =>
-      db
-        .select({ codeStyle: weddings.codeStyle })
-        .from(weddings)
-        .where(eq(weddings.id, weddingId))
-        .all(),
-    );
+    // (defensive — `weddingId` is always a real, owned wedding here). Skipped
+    // entirely when the guest half isn't managed: its only consumer is
+    // `generateFamilyCode` in the familyCreates loop, and that loop is provably
+    // empty under `scope: "events"` (`desiredFamilies` is `[]` by construction).
+    const [weddingRow] = manageGuests
+      ? yield* dbQuery(() =>
+          db
+            .select({ codeStyle: weddings.codeStyle })
+            .from(weddings)
+            .where(eq(weddings.id, weddingId))
+            .all(),
+        )
+      : [];
     const codeStyle: CodeStyle = weddingRow?.codeStyle ?? "secure";
 
     // ── Events ──────────────────────────────────────────────────────────────
+    // Projected to the two columns the diff reads (`id` for matching + the op
+    // lists, `name` for the normalised-name map). The guests-only branch below
+    // exists purely to build that name → id map, so dragging full event rows —
+    // descriptions, palettes, URLs — across the D1 wire to do it is pure waste.
     const existingEvents = yield* dbQuery(() =>
-      db.select().from(events).where(eq(events.weddingId, weddingId)).all(),
+      db
+        .select({ id: events.id, name: events.name })
+        .from(events)
+        .where(eq(events.weddingId, weddingId))
+        .all(),
     );
     const existingEventByNorm = new Map(existingEvents.map((e) => [normaliseName(e.name), e]));
     const existingEventById = new Map(existingEvents.map((e) => [e.id, e]));
@@ -171,43 +207,65 @@ export function diffAgainstDb(
      *  so the removal list is identical to the pre-E2 name-only diff. */
     const matchedEventIds = new Set<string>();
 
-    for (const parsed of parsedEvents) {
-      const norm = normaliseName(parsed.name);
-      // Prefer id match (rename-safe); fall back to name; else create.
-      const existing =
-        (parsed.id !== undefined ? existingEventById.get(parsed.id) : undefined) ??
-        existingEventByNorm.get(norm);
-      if (existing) {
-        eventUpdates.push({ id: existing.id, event: parsed });
-        eventIdByNorm.set(norm, existing.id);
-        matchedEventIds.add(existing.id);
-      } else {
-        const id = crypto.randomUUID();
-        eventCreates.push({ id, event: parsed });
-        eventIdByNorm.set(norm, id);
+    if (manageEvents) {
+      for (const parsed of parsedEvents) {
+        const norm = normaliseName(parsed.name);
+        // Prefer id match (rename-safe); fall back to name; else create.
+        const existing =
+          (parsed.id !== undefined ? existingEventById.get(parsed.id) : undefined) ??
+          existingEventByNorm.get(norm);
+        if (existing) {
+          eventUpdates.push({ id: existing.id, event: parsed });
+          eventIdByNorm.set(norm, existing.id);
+          matchedEventIds.add(existing.id);
+        } else {
+          const id = crypto.randomUUID();
+          eventCreates.push({ id, event: parsed });
+          eventIdByNorm.set(norm, id);
+        }
       }
-    }
-    for (const existing of existingEvents) {
-      // No-id path: `matchedEventIds` == the set whose normalised name is in the
-      // parsed sheet, so this is byte-identical to the old `parsedEventByNorm`
-      // check. Id path: a renamed event is matched by id, so it is NOT removed.
-      if (!matchedEventIds.has(existing.id)) {
-        eventRemoves.push({ id: existing.id, name: existing.name });
+      for (const existing of existingEvents) {
+        // No-id path: `matchedEventIds` == the set whose normalised name is in the
+        // parsed sheet, so this is byte-identical to the old `parsedEventByNorm`
+        // check. Id path: a renamed event is matched by id, so it is NOT removed.
+        if (!matchedEventIds.has(existing.id)) {
+          eventRemoves.push({ id: existing.id, name: existing.name });
+        }
+      }
+    } else {
+      // GUESTS-ONLY upload: the schedule is not part of this change, so emit no
+      // event create/update/remove at all — not even a no-op update (which would
+      // bump `updated_at` and re-resolve every Pinterest link at apply time).
+      // The name → id map is still needed: the guest sheet's attendance columns
+      // resolve through it against the events that already exist.
+      for (const existing of existingEvents) {
+        eventIdByNorm.set(normaliseName(existing.name), existing.id);
+        matchedEventIds.add(existing.id);
       }
     }
 
     // ── Families ────────────────────────────────────────────────────────────
+    // EVENTS-ONLY upload: households, guests and attendance links are not part
+    // of this change. Both sides of the guest diff are emptied — the desired
+    // side here, the existing side by skipping the three reads below — so every
+    // guest-shaped op list falls out empty by construction rather than by a
+    // scattering of `if (manageGuests)` guards. Skipping the reads is also three
+    // fewer D1 round-trips on a schedule-only upload.
+    const desiredFamilies = manageGuests ? parsedFamilies : [];
+
     // Host preview families (kind = 'host') are synthetic and CSV-invisible:
     // they are never in the parsed sheet, so a naive scan would mark them — and
     // their event links — for removal on every re-import. Excluding them here
     // (and from the guest + link scans below) makes imports leave them intact.
-    const existingFamilies = yield* dbQuery(() =>
-      db
-        .select()
-        .from(families)
-        .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-        .all(),
-    );
+    const existingFamilies = manageGuests
+      ? yield* dbQuery(() =>
+          db
+            .select()
+            .from(families)
+            .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+            .all(),
+        )
+      : [];
     const existingFamilyByNorm = new Map(
       existingFamilies.map((f) => [normaliseName(f.familyName), f]),
     );
@@ -226,7 +284,7 @@ export function diffAgainstDb(
      *  the removal list stays byte-identical to the pre-E2 diff. */
     const matchedFamilyIds = new Set<string>();
 
-    parsedFamilies.forEach((parsed, i) => {
+    desiredFamilies.forEach((parsed, i) => {
       const norm = normaliseName(parsed.familyName);
       const existing =
         (parsed.id !== undefined ? existingFamilyById.get(parsed.id) : undefined) ??
@@ -257,22 +315,24 @@ export function diffAgainstDb(
     // ── Guests ──────────────────────────────────────────────────────────────
     const removedFamilyIds = new Set(familyRemoves.map((f) => f.id));
     // Wedding-scoped via the families join — guests carry no wedding_id.
-    const existingGuests = yield* dbQuery(() =>
-      db
-        .select({
-          id: guests.id,
-          familyId: guests.familyId,
-          firstName: guests.firstName,
-          lastName: guests.lastName,
-          nickname: guests.nickname,
-          sortOrder: guests.sortOrder,
-          source: guests.source,
-        })
-        .from(guests)
-        .innerJoin(families, eq(guests.familyId, families.id))
-        .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-        .all(),
-    );
+    const existingGuests = manageGuests
+      ? yield* dbQuery(() =>
+          db
+            .select({
+              id: guests.id,
+              familyId: guests.familyId,
+              firstName: guests.firstName,
+              lastName: guests.lastName,
+              nickname: guests.nickname,
+              sortOrder: guests.sortOrder,
+              source: guests.source,
+            })
+            .from(guests)
+            .innerJoin(families, eq(guests.familyId, families.id))
+            .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+            .all(),
+        )
+      : [];
 
     /** Per-family map: normFirstName → existing guest row. */
     const guestsByFamily = new Map<string, Map<string, (typeof existingGuests)[number]>>();
@@ -299,7 +359,7 @@ export function diffAgainstDb(
       `${familyId}::${normaliseName(firstName)}`;
 
     // Matched + new families
-    parsedFamilies.forEach((parsedFamily, familyIndex) => {
+    desiredFamilies.forEach((parsedFamily, familyIndex) => {
       const familyId = familyIdByParsedIndex[familyIndex]!;
       // A family is "new" iff it was NOT matched to an existing row. With no ids
       // this equals `!existingFamilyByNorm.has(norm)` (byte-identical); with ids
@@ -387,20 +447,22 @@ export function diffAgainstDb(
     // ── Event links ─────────────────────────────────────────────────────────
     // Wedding-scoped via guests → families — guest_events carries no wedding_id,
     // so without this join a second wedding's links read as removals.
-    const existingLinks = yield* dbQuery(() =>
-      db
-        .select({ guestId: guestEvents.guestId, eventId: guestEvents.eventId })
-        .from(guestEvents)
-        .innerJoin(guests, eq(guestEvents.guestId, guests.id))
-        .innerJoin(families, eq(guests.familyId, families.id))
-        .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
-        .all(),
-    );
+    const existingLinks = manageGuests
+      ? yield* dbQuery(() =>
+          db
+            .select({ guestId: guestEvents.guestId, eventId: guestEvents.eventId })
+            .from(guestEvents)
+            .innerJoin(guests, eq(guestEvents.guestId, guests.id))
+            .innerJoin(families, eq(guests.familyId, families.id))
+            .where(and(eq(families.weddingId, weddingId), ne(families.kind, "host")))
+            .all(),
+        )
+      : [];
     const existingLinkSet = new Set(existingLinks.map((l) => `${l.guestId}::${l.eventId}`));
     /** Track desired (guestId, eventId) pairs after import. */
     const desiredLinks = new Set<string>();
 
-    parsedFamilies.forEach((parsedFamily, familyIndex) => {
+    desiredFamilies.forEach((parsedFamily, familyIndex) => {
       const familyId = familyIdByParsedIndex[familyIndex]!;
       for (const parsedGuest of parsedFamily.guests) {
         const guestId = guestIdByKey.get(keyOf(familyId, parsedGuest.firstName))!;

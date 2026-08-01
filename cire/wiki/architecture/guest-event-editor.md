@@ -5,8 +5,8 @@ related:
   - "[[platform-plan]]"
   - "[[spreadsheet-import]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-07-30
-updated: 2026-07-30 (E7 — schedule re-order is drag-and-drop via solid-dnd)
+last-reviewed: 2026-07-31
+updated: 2026-07-31 (§3.1 — ChangeScope: a spreadsheet upload may carry one sheet or both)
 ---
 
 # Guest + Event Editor — plan
@@ -54,6 +54,18 @@ Editor draft ─build─▶                      │                            
 
 **Why batch reconcile instead of per-row CRUD endpoints** (amendment to [[platform-plan]] §3.3's `POST/PATCH/DELETE` sketch — **decided 2026-07-12**, see [[deferred]]): (a) preview-diff, impact warnings, and checkpointing fall out of the one pipeline instead of being rebuilt per endpoint; (b) one checkpoint per save session rather than per keystroke; (c) attendance-matrix edits are naturally batchy (tick 12 boxes, save once); (d) per-row CRUD can still be added later as sugar that compiles to a one-row reconcile. Everything else in §3.3 (provenance, un-invite guard, organiser-recorded RSVPs) stands — organiser RSVPs (PR 5b) stay a separate follow-up since RSVPs sit deliberately outside the reconcile's scope (§5).
 
+### 3.1 Change scope — a change need not be authoritative over everything
+
+An upload does not have to carry both sheets. `ChangeScope` (`schemas/import.ts`) records which halves of the wedding a change is **authoritative** over — `both`, `events`, or `guests` — and is threaded from the request body through the diff, the persisted change row and revert.
+
+The distinction it draws is the load-bearing one: **an absent sheet is not an empty sheet.** The reconcile treats the desired state as the whole truth, so `{events: [...], families: []}` legitimately means "remove every household". A one-sheet upload must therefore not be modelled as an empty other half; `scope` instead *suppresses* the unmanaged half of the diff:
+
+- `scope = 'events'` — no family/guest/attendance op is emitted at all, and `diffAgainstDb` skips the three reads that would feed them (three fewer D1 round-trips). `removeManual` has nothing to widen. Cross-half fallout still holds: removing an event drops that event's `guest_events` rows + RSVPs, because the event genuinely no longer exists.
+- `scope = 'guests'` — no event op, **not even a no-op update** (which would bump `updated_at` and re-resolve every Pinterest link at apply time). The guest sheet's attendance columns resolve by name against the events that already exist, read once and mapped **straight** from DB rows to `ParsedEvent`. Deliberately not via the §5 export→reparse fixpoint, tempting though it looks: `parseEventsCsv` applies the guards that exist to sanitise an untrusted UPLOAD (the formula-injection scan over every cell, the ISO-timestamp shape check), and our own rows have never had to satisfy them — an event created in the editor can legitimately carry an address of `-12 Smith Street`. Round-tripping would fail on live data and, because the error is stamped `sheet: "events"`, blame a file the organiser never uploaded and cannot fix from the upload form. A column naming no existing event is still `UnmatchedEventColumn` (422), never a silent drop.
+- `scope = 'both'` — the historical two-sheet import, and every editor DesiredState save (the draft covers everything it showed).
+
+Persistence + replay: `scope` lives on the change row's summary JSON, so apply's TOCTOU re-diff manages exactly the halves preview did, and a guests-only apply re-hydrates the event list from **live** state rather than a preview-time snapshot. A row written before this existed has no `scope` and defaults to `both`. The R2 upload slot for an un-uploaded sheet holds `""` — `scope`, not the stored bytes, is what marks it absent. Revert is unaffected on the before-image path (a before-image always captures both halves); the legacy prior-import path additionally treats a blank stored half as "not captured" and selects only `kind='import'` predecessors — an editor row's slots are JSON + `""`, byte-wise indistinguishable from an events-only upload, so without the `kind` filter the blank-half inference would feed a DesiredState blob to the CSV parser. Neither a partial upload nor an editor save can therefore become a mass delete.
+
 ## 4. Checkpoints + revert — before-image model (fixes G3)
 
 Generalise `imports` into a **change history**:
@@ -90,7 +102,7 @@ Gated `weddingMember()` today; flip to `weddingEditor()` when platform PR 2 (rol
 
 | Route | Purpose |
 |---|---|
-| `POST .../changes/preview` | Body: DesiredState JSON **or** `{eventsCsv, guestsCsv}` — both funnel into the one pipeline. Returns `{changeId, plan, warnings, baseRevision}`. |
+| `POST .../changes/preview` | Body: DesiredState JSON **or** a spreadsheet upload carrying `eventsCsv`, `guestsCsv`, or both (§3.1 — either sheet may be omitted) — all funnel into the one pipeline. Returns `{changeId, plan, warnings, baseRevision, scope}`. |
 | `POST .../changes/apply` | `{changeId}` — re-diff, 409 on stale `baseRevision`, checkpoint, apply. |
 | `POST .../changes/revert` | `{changeId}` — before-image restore (§4). |
 | `GET .../changes/list` | Paginated history (imports + editor saves), as `/import/list` today. |

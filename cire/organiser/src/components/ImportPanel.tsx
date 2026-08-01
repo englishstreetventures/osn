@@ -6,6 +6,8 @@ import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { downloadBlob, downloadCsv } from "../lib/download";
 import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
+import { formatImportError } from "../lib/import-errors";
+import type { ImportErrorBody } from "../lib/import-errors";
 import {
   EVENT_REQUIRED_HEADERS,
   EVENT_OPTIONAL_HEADERS,
@@ -32,10 +34,19 @@ interface ImportPlan {
   warnings: string[];
 }
 
+/**
+ * Which halves of the wedding an upload is authoritative over — echoed by the
+ * preview so the confirmation can name them. Mirrors the API's `ChangeScope`
+ * (`cire/api/src/schemas/import.ts`): a single-sheet upload leaves the other
+ * half untouched rather than reconciling it to an empty sheet.
+ */
+type ChangeScope = "both" | "events" | "guests";
+
 interface PreviewResponse {
   importId: string;
   plan: ImportPlan;
   warnings: string[];
+  scope?: ChangeScope;
 }
 
 interface ApplyResponse {
@@ -52,6 +63,19 @@ interface ApplyResponse {
     warnings: string[];
   };
 }
+
+/**
+ * What each upload shape will and won't touch, in the organiser's terms. The
+ * reassurance ("won't be touched") is the load-bearing half: a one-sheet upload
+ * is only safe to reach for if it's obvious the other half survives it.
+ */
+const SCOPE_HINTS: Record<ChangeScope, string> = {
+  both: "Events and guests — both your schedule and your guest list will be updated to match these two files.",
+  events:
+    "Events only — your schedule will be updated to match this file. Your guest list won't be touched (though guests are dropped from any event this file removes).",
+  guests:
+    "Guests only — your guest list and who's invited to what will be updated to match this file. Your schedule won't be touched.",
+};
 
 function readFile(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -79,11 +103,30 @@ export default function ImportPanel(props: { weddingId: string }) {
     apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/${op}`);
   const [eventsFile, setEventsFile] = createSignal<File | null>(null);
   const [guestsFile, setGuestsFile] = createSignal<File | null>(null);
+  // Refs so "Remove" can clear the native input's own selection — otherwise the
+  // filename stays in the control while our signal says nothing is chosen, and
+  // re-picking the same file wouldn't even fire `change`. Clearing matters now
+  // that "no file here" is a meaningful choice (upload one sheet, not both).
+  let eventsInput: HTMLInputElement | undefined;
+  let guestsInput: HTMLInputElement | undefined;
   const [busy, setBusy] = createSignal(false);
   const [exporting, setExporting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [preview, setPreview] = createSignal<PreviewResponse | null>(null);
   const [applied, setApplied] = createSignal<ApplyResponse["summary"] | null>(null);
+
+  /**
+   * Which halves this upload will reconcile, from the files actually chosen.
+   * `null` ⇒ nothing chosen yet (Preview is disabled and the hint is hidden).
+   */
+  const scope = (): ChangeScope | null => {
+    const e = Boolean(eventsFile());
+    const g = Boolean(guestsFile());
+    if (e && g) return "both";
+    if (e) return "events";
+    if (g) return "guests";
+    return null;
+  };
 
   async function handlePreview(e: Event) {
     e.preventDefault();
@@ -93,20 +136,32 @@ export default function ImportPanel(props: { weddingId: string }) {
 
     const events = eventsFile();
     const guests = guestsFile();
-    if (!events) return setError("Choose an events.csv file.");
-    if (!guests) return setError("Choose a guests.csv file.");
+    // Either sheet on its own is a valid upload — only "neither" is an error.
+    if (!events && !guests) return setError("Choose an events.csv or a guests.csv file.");
 
     setBusy(true);
     try {
-      const [eventsCsv, guestsCsv] = await Promise.all([readFile(events), readFile(guests)]);
+      // Send ONLY the sheets that were chosen: an omitted key tells the API this
+      // change isn't authoritative over that half, so it's left untouched. An
+      // empty string would instead read as "an empty sheet" — i.e. delete
+      // everything — which is exactly the mistake the key omission avoids.
+      const [eventsCsv, guestsCsv] = await Promise.all([
+        events ? readFile(events) : Promise.resolve(null),
+        guests ? readFile(guests) : Promise.resolve(null),
+      ]);
       const res = await authFetch(importUrl("preview"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventsCsv, guestsCsv }),
+        body: JSON.stringify({
+          ...(eventsCsv === null ? {} : { eventsCsv }),
+          ...(guestsCsv === null ? {} : { guestsCsv }),
+        }),
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? `Preview failed (${res.status})`);
+        // The API locates the bad cell for us (reason + row + column + which
+        // sheet); spend all of it, instead of showing the bare `error` string.
+        const body = (await res.json().catch(() => ({}))) as ImportErrorBody;
+        throw new Error(formatImportError(res.status, body));
       }
       setPreview((await res.json()) as PreviewResponse);
     } catch (err) {
@@ -129,14 +184,14 @@ export default function ImportPanel(props: { weddingId: string }) {
         body: JSON.stringify({ importId: p.importId }),
       });
       if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? `Apply failed (${res.status})`);
+        const body = (await res.json().catch(() => ({}))) as ImportErrorBody;
+        throw new Error(formatImportError(res.status, body));
       }
       const data = (await res.json()) as ApplyResponse;
       setApplied(data.summary);
       setPreview(null);
-      setEventsFile(null);
-      setGuestsFile(null);
+      clearFile("events");
+      clearFile("guests");
       // An apply can create/update/remove events, so the cached events list for
       // this wedding is now stale — drop it so the Events tab refetches fresh
       // rows on its next mount (rather than reusing the pre-import cache).
@@ -159,6 +214,20 @@ export default function ImportPanel(props: { weddingId: string }) {
     setPreview(null);
     setApplied(null);
     setError(null);
+  }
+
+  /** Drop a chosen sheet — both our signal and the native input's selection. */
+  function clearFile(kind: "events" | "guests") {
+    if (kind === "events") {
+      setEventsFile(null);
+      if (eventsInput) eventsInput.value = "";
+    } else {
+      setGuestsFile(null);
+      if (guestsInput) guestsInput.value = "";
+    }
+    // A pending preview was computed for the old file set — drop it so Apply
+    // can never commit a plan that no longer matches what's selected.
+    setPreview(null);
   }
 
   /**
@@ -205,11 +274,12 @@ export default function ImportPanel(props: { weddingId: string }) {
           </span>
         </span>
         <span class="font-display text-text text-[1.4rem] font-light">
-          Upload events &amp; guests CSV
+          Upload an events or guests CSV
         </span>
         <span class="font-body text-text-muted text-[0.82rem]">
-          Import your two sheets as CSV — events first, then guests. Start from a template below, or
-          read the format guide if you're building your own.
+          Upload whichever sheet you've changed — events, guests, or both. The sheet you leave out
+          is left exactly as it is. Start from a template below, or read the format guide if you're
+          building your own.
         </span>
       </summary>
 
@@ -260,42 +330,89 @@ export default function ImportPanel(props: { weddingId: string }) {
         <CsvFormatHelp />
 
         <form class="flex flex-col gap-4" onSubmit={handlePreview}>
-          <div class="auto-grid [--auto-grid-min:20rem]">
-            <label class="flex flex-col gap-1.5">
-              <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
-                events.csv
-              </span>
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(e) => setEventsFile(e.currentTarget.files?.[0] ?? null)}
-                class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
-              />
-              <Show when={eventsFile()}>
-                <span class="text-text-muted font-mono text-[0.72rem]">{eventsFile()?.name}</span>
-              </Show>
-            </label>
+          <p class="font-body text-text-muted text-[0.82rem]">
+            Pick <strong class="text-text">one or both</strong> — whatever you've edited.
+          </p>
 
-            <label class="flex flex-col gap-1.5">
-              <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
-                guests.csv
-              </span>
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                onChange={(e) => setGuestsFile(e.currentTarget.files?.[0] ?? null)}
-                class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
-              />
-              <Show when={guestsFile()}>
-                <span class="text-text-muted font-mono text-[0.72rem]">{guestsFile()?.name}</span>
+          {/* The chosen-file chip sits OUTSIDE the <label>, not inside it: a
+              control nested in a label inherits the label's text as its
+              accessible name ("events.csv (optional) events.csv" instead of
+              "Remove"), and a click on it would also re-open the file picker the
+              label points at. */}
+          <div class="auto-grid [--auto-grid-min:20rem]">
+            <div class="flex flex-col gap-1.5">
+              <label class="flex flex-col gap-1.5">
+                <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+                  events.csv <span class="text-text-muted/70 normal-case">(optional)</span>
+                </span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  ref={eventsInput}
+                  onChange={(e) => setEventsFile(e.currentTarget.files?.[0] ?? null)}
+                  class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
+                />
+              </label>
+              <Show when={eventsFile()}>
+                <span class="flex items-center gap-2">
+                  <span class="text-text-muted font-mono text-[0.72rem]">{eventsFile()?.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => clearFile("events")}
+                    class="font-body text-text-muted hover:text-gold text-[0.72rem] underline-offset-4 hover:underline"
+                  >
+                    Remove events.csv
+                  </button>
+                </span>
               </Show>
-            </label>
+            </div>
+
+            <div class="flex flex-col gap-1.5">
+              <label class="flex flex-col gap-1.5">
+                <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+                  guests.csv <span class="text-text-muted/70 normal-case">(optional)</span>
+                </span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  ref={guestsInput}
+                  onChange={(e) => setGuestsFile(e.currentTarget.files?.[0] ?? null)}
+                  class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
+                />
+              </label>
+              <Show when={guestsFile()}>
+                <span class="flex items-center gap-2">
+                  <span class="text-text-muted font-mono text-[0.72rem]">{guestsFile()?.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => clearFile("guests")}
+                    class="font-body text-text-muted hover:text-gold text-[0.72rem] underline-offset-4 hover:underline"
+                  >
+                    Remove guests.csv
+                  </button>
+                </span>
+              </Show>
+            </div>
           </div>
+
+          {/* Say out loud which halves the chosen files will touch — the whole
+              point of a one-sheet upload is that the other half is safe, and an
+              organiser shouldn't have to infer that from zero counts in the diff. */}
+          <Show when={scope()}>
+            {(s) => (
+              <p
+                aria-live="polite"
+                class="border-border bg-bg/40 text-text-muted rounded-sm border p-3 text-[0.82rem]"
+              >
+                {SCOPE_HINTS[s()]}
+              </p>
+            )}
+          </Show>
 
           <div class="flex flex-wrap items-center gap-3">
             <button
               type="submit"
-              disabled={busy()}
+              disabled={busy() || scope() === null}
               class="border-gold bg-gold/10 font-body text-gold hover:bg-gold/20 rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
             >
               {busy() ? "Working…" : "Preview"}
@@ -323,6 +440,12 @@ export default function ImportPanel(props: { weddingId: string }) {
           {(p) => (
             <div class="border-border bg-bg/40 flex flex-col gap-4 rounded-sm border p-4">
               <h3 class="font-display text-gold-dim text-[1.1rem]">Diff preview</h3>
+              {/* The server echoes the scope it decoded, so the confirmation
+                  reflects what the API will actually manage, not what the local
+                  file inputs happen to hold now. */}
+              <Show when={p().scope}>
+                {(s) => <p class="text-text-muted text-[0.82rem]">{SCOPE_HINTS[s()]}</p>}
+              </Show>
               <PlanCounts plan={p().plan} />
               <Show when={p().plan.warnings.length > 0}>
                 <ul class="text-text-muted flex flex-col gap-1 text-[0.82rem]">
@@ -719,7 +842,7 @@ function SheetTabs() {
 }
 
 /**
- * "How to structure your two sheets" — a three-step visual guide that mirrors the
+ * "How to structure your sheets" — a three-step visual guide that mirrors the
  * cire-api parser (`cire/api/src/services/spreadsheet.ts`). The steps follow the
  * natural flow a non-technical couple takes: ① grab the template, ② fill in the
  * details, ③ upload, preview, and apply. Step 2 stays light: the shared
@@ -735,7 +858,7 @@ function CsvFormatHelp() {
         <span class="text-gold inline-block transition-transform group-open:rotate-90" aria-hidden>
           ›
         </span>
-        How to structure your two sheets — CSV format
+        How to structure your sheets — CSV format
       </summary>
 
       <div class="border-border/60 flex flex-col gap-5 border-t px-4 py-5">
@@ -753,7 +876,7 @@ function CsvFormatHelp() {
 
           <StepCard n={2} title="Fill in your details">
             <p class="text-text-muted text-[0.8rem]">
-              Switch between your two sheets below — the key shows which fields are mandatory.
+              Switch between the two sheets below — the key shows which fields are mandatory.
             </p>
             <KeyLegend />
             <SheetTabs />
@@ -761,9 +884,14 @@ function CsvFormatHelp() {
 
           <StepCard n={3} title="Upload & preview">
             <p class="text-text-muted text-[0.8rem]">
-              Upload <strong class="text-text">events first</strong>, then guests — each guest's
-              event columns are matched to events that already exist, so the events sheet has to go
-              in before the guests sheet.
+              Upload <strong class="text-text">one sheet or both</strong> — whichever you've
+              changed. Leave a sheet out and that half of your wedding is left exactly as it is.
+            </p>
+            <p class="text-text-muted text-[0.76rem]">
+              Adding a new event that guests need inviting to? Do{" "}
+              <strong class="text-text">events first</strong>, then guests — each guest's event
+              columns are matched to events that already exist, so the events sheet has to go in
+              before the guests sheet.
             </p>
             <p class="text-text-muted text-[0.76rem]">
               <span class="text-text">Preview</span> shows a diff of what will change; nothing is

@@ -301,6 +301,88 @@ describe("diff: guestEvent toggles", () => {
   });
 });
 
+describe("diff: scope — single-sheet (partial) changes", () => {
+  /** A populated wedding both scoped diffs run against. */
+  function seededLayer() {
+    const db = createDb(":memory:");
+    seedDb(db);
+    return { db, layer: Layer.succeed(DbService, db) };
+  }
+
+  it("scope='events': an empty family list removes NOTHING (absent ≠ deleted)", async () => {
+    const { layer } = seededLayer();
+    const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
+
+    // The same call with the default scope would read the empty family list as
+    // "every household is gone" and emit a removal for each — that difference is
+    // the whole point of the scope.
+    const scoped = await Effect.runPromise(
+      diffAgainstDb(ev, [], BOOTSTRAP_WEDDING_ID, { scope: "events" }).pipe(Effect.provide(layer)),
+    );
+    const unscoped = await Effect.runPromise(
+      diffAgainstDb(ev, [], BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+
+    expect(scoped.familyRemoves).toHaveLength(0);
+    expect(scoped.guestRemoves).toHaveLength(0);
+    expect(scoped.eventLinkRemoves).toHaveLength(0);
+    expect(unscoped.familyRemoves.length).toBeGreaterThan(0);
+  });
+
+  it("scope='events': removeManual=true still removes no household", async () => {
+    const { layer } = seededLayer();
+    const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
+    const plan = await Effect.runPromise(
+      diffAgainstDb(ev, [], BOOTSTRAP_WEDDING_ID, { scope: "events", removeManual: true }).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    expect(plan.familyRemoves).toHaveLength(0);
+    expect(plan.guestRemoves).toHaveLength(0);
+  });
+
+  it("scope='guests': emits no event op, and still resolves attendance to existing events", async () => {
+    const { layer } = seededLayer();
+    const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
+    // Ada loses every invitation she had; the events themselves are not in play.
+    const csv = [
+      "Family ID,Family Name,Guest First Name,Guest Last Name,Catholic Ceremony,Mehendi,Hindu Ceremony,Reception",
+      "1,Testfamily,Ada,Testfamily,no,no,no,no",
+      "2,Sampleton,Bo,Sampleton,no,no,yes,yes",
+      "2,Sampleton,Cleo,Sampleton,no,no,yes,yes",
+      "2,Sampleton,Dot,Sampleton,no,no,yes,no",
+      "3,Exampleton,Nori,Exampleton,yes,no,yes,no",
+      "4,Placeholder,Eli,Placeholder,no,no,yes,yes",
+    ].join("\n");
+    const fam = (await Effect.runPromise(parseGuestsCsv(csv, ev))) as ParsedFamily[];
+
+    const plan = await Effect.runPromise(
+      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID, { scope: "guests" }).pipe(Effect.provide(layer)),
+    );
+
+    // No event churn — not even a no-op update (which would bump updated_at and
+    // re-resolve every Pinterest link at apply time).
+    expect(plan.eventCreates).toHaveLength(0);
+    expect(plan.eventUpdates).toHaveLength(0);
+    expect(plan.eventRemoves).toHaveLength(0);
+    // The guest half still reconciles fully: the withdrawn invites come through.
+    expect(plan.eventLinkRemoves.length).toBeGreaterThan(0);
+  });
+
+  it("scope='guests': an event absent from the (hydrated) list is NOT removed", async () => {
+    const { db, layer } = seededLayer();
+    const eventsBefore = db.select().from(events).all().length;
+    expect(eventsBefore).toBeGreaterThan(0);
+
+    // Pass an EMPTY event list under scope='guests'. Under the default scope
+    // this would remove every event; scoped, the schedule is not in play at all.
+    const plan = await Effect.runPromise(
+      diffAgainstDb([], [], BOOTSTRAP_WEDDING_ID, { scope: "guests" }).pipe(Effect.provide(layer)),
+    );
+    expect(plan.eventRemoves).toHaveLength(0);
+  });
+});
+
 describe("diff: warning when removing a guest with non-default RSVP", () => {
   it("emits a first-name-only warning", async () => {
     const sharedDb = createDb(":memory:");

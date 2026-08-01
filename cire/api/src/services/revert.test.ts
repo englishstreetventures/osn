@@ -10,7 +10,7 @@ import type { ParsedFamily } from "../schemas/import";
 import { captureBeforeImage } from "./checkpoint";
 import { applyImport, diffAgainstDb } from "./import";
 import { R2Service, createR2Stub, storeUpload } from "./r2-imports";
-import { revertImport, NoPriorImport } from "./revert";
+import { revertImport, NoPriorImport, RevertParseError } from "./revert";
 import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
 
 const EVENTS_V1 = [
@@ -215,6 +215,143 @@ describe("revertImport — before-image path (E3)", () => {
       .all();
     expect(famAfter!.publicId).toBe(famBefore!.publicId); // code preserved (no re-mint)
     expect(famAfter!.name).toBe("Testfamily"); // original name restored
+  });
+});
+
+/**
+ * Record an APPLIED spreadsheet row whose stored slots are exactly what a
+ * single-sheet upload leaves behind: the uploaded sheet in one slot, `""` in the
+ * other. No before-image, so a later revert falls onto the LEGACY path and
+ * replays these bytes — the one place a blank slot is read back rather than
+ * ignored via `scope`.
+ */
+async function applyPartialVersion(
+  layer: Layer.Layer<DbService | R2Service>,
+  importId: string,
+  opts: { eventsCsv?: string; guestsCsv?: string; uploadedAt: number },
+): Promise<void> {
+  const eventsCsv = opts.eventsCsv ?? "";
+  const guestsCsv = opts.guestsCsv ?? "";
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      yield* storeUpload(eventsCsv, guestsCsv, importId);
+      const db = yield* DbService;
+      db.insert(imports)
+        .values({
+          id: importId,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          uploadedAt: opts.uploadedAt,
+          format: "csv",
+          eventsR2Key: `imports/${importId}/events.csv`,
+          guestsR2Key: `imports/${importId}/guests.csv`,
+          summary: "{}",
+          status: "applied",
+          appliedAt: opts.uploadedAt,
+        })
+        .run();
+    }).pipe(Effect.provide(layer)),
+  );
+}
+
+describe("revertImport — legacy path with a single-sheet predecessor", () => {
+  function freshLayer() {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    const r2 = createR2Stub();
+    return { db, layer: Layer.merge(Layer.succeed(DbService, db), Layer.succeed(R2Service, r2)) };
+  }
+
+  it("a blank GUESTS slot leaves every household standing (not reconciled to empty)", async () => {
+    const { db, layer } = freshLayer();
+    // v1 populates the wedding; the predecessor we revert TO is an events-only
+    // upload, whose guests slot holds "".
+    await applyVersion(layer, "imp-1", EVENTS_V1, GUESTS_V1, 1_000);
+    await applyPartialVersion(layer, "imp-partial", { eventsCsv: EVENTS_V2, uploadedAt: 2_000 });
+    await applyVersion(layer, "imp-3", EVENTS_V2, GUESTS_V2, 3_000);
+
+    expect(db.select().from(families).all()).toHaveLength(2);
+
+    await Effect.runPromise(
+      revertImport("imp-3", BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+
+    // The predecessor's blank guests slot means "this half was not captured".
+    // Reading it as an empty sheet would delete BOTH households here.
+    expect(db.select().from(families).all()).toHaveLength(2);
+    expect(db.select().from(guests).all()).toHaveLength(2);
+    // The events half still reconciles from the slot that was captured.
+    expect(db.select().from(events).all()).toHaveLength(3);
+  });
+
+  it("a blank EVENTS slot leaves the schedule standing", async () => {
+    const { db, layer } = freshLayer();
+    await applyVersion(layer, "imp-1", EVENTS_V2, GUESTS_V2, 1_000);
+    await applyPartialVersion(layer, "imp-partial", { guestsCsv: GUESTS_V1, uploadedAt: 2_000 });
+    await applyVersion(layer, "imp-3", EVENTS_V2, GUESTS_V2, 3_000);
+
+    await Effect.runPromise(
+      revertImport("imp-3", BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+
+    // Schedule untouched; the guests half reconciles back to the single household.
+    expect(db.select().from(events).all()).toHaveLength(3);
+    expect(db.select().from(families).all()).toHaveLength(1);
+  });
+
+  it("refuses a snapshot with neither sheet rather than reconciling to nothing", async () => {
+    const { db, layer } = freshLayer();
+    await applyVersion(layer, "imp-1", EVENTS_V1, GUESTS_V1, 1_000);
+    await applyPartialVersion(layer, "imp-empty", { uploadedAt: 2_000 });
+    await applyVersion(layer, "imp-3", EVENTS_V2, GUESTS_V2, 3_000);
+
+    const error = await Effect.runPromise(
+      Effect.flip(revertImport("imp-3", BOOTSTRAP_WEDDING_ID)).pipe(Effect.provide(layer)),
+    );
+    expect(error).toBeInstanceOf(RevertParseError);
+    expect((error as RevertParseError).reason).toContain("neither sheet");
+    // And nothing was destroyed on the way to that refusal.
+    expect(db.select().from(events).all()).toHaveLength(3);
+    expect(db.select().from(families).all()).toHaveLength(2);
+  });
+
+  it("skips an EDITOR row as the legacy predecessor (its slot holds JSON, not CSV)", async () => {
+    const { db, layer } = freshLayer();
+    await applyVersion(layer, "imp-1", EVENTS_V1, GUESTS_V1, 1_000);
+
+    // An editor save: DesiredState JSON in the events slot, "" in the guests
+    // slot. Byte-wise that looks exactly like an events-only upload, so without
+    // the kind filter the blank-half inference would feed JSON to the CSV parser.
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* storeUpload(JSON.stringify({ events: [], families: [] }), "", "imp-editor");
+        const dbs = yield* DbService;
+        dbs
+          .insert(imports)
+          .values({
+            id: "imp-editor",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            uploadedAt: 2_000,
+            format: "csv",
+            eventsR2Key: "imports/imp-editor/events.csv",
+            guestsR2Key: "imports/imp-editor/guests.csv",
+            summary: "{}",
+            status: "applied",
+            appliedAt: 2_000,
+            kind: "editor",
+          })
+          .run();
+      }).pipe(Effect.provide(layer)),
+    );
+
+    await applyVersion(layer, "imp-3", EVENTS_V2, GUESTS_V2, 3_000);
+
+    await Effect.runPromise(
+      revertImport("imp-3", BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+
+    // It rolled back to imp-1 (the newest *import* row), not to the editor row.
+    expect(db.select().from(events).all()).toHaveLength(2);
+    expect(db.select().from(families).all()).toHaveLength(1);
   });
 });
 

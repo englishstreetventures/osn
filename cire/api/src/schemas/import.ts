@@ -81,6 +81,25 @@ export const DesiredState = Schema.Struct({
 });
 export type DesiredState = Schema.Schema.Type<typeof DesiredState>;
 
+/**
+ * Which halves of the wedding a change is AUTHORITATIVE over.
+ *
+ * A spreadsheet upload no longer has to carry both sheets: an organiser can post
+ * just the events CSV, just the guests CSV, or both. The desired state is only
+ * "the whole truth" for the halves that were actually uploaded — the other half
+ * is untouched, NOT read as "everything is absent, remove it all".
+ *
+ *  - `"both"` — events + guests reconcile (the historical two-sheet import, and
+ *    every editor DesiredState save, where the draft covers everything shown).
+ *  - `"events"` — only the schedule reconciles; households, guests and their
+ *    attendance links are left exactly as they are.
+ *  - `"guests"` — only households/guests/attendance reconcile; the schedule is
+ *    left as it is, and the guest sheet's attendance columns are matched against
+ *    the events that already exist.
+ */
+export const ChangeScope = Schema.Literal("both", "events", "guests");
+export type ChangeScope = Schema.Schema.Type<typeof ChangeScope>;
+
 // ── Diff plan ─────────────────────────────────────────────────────────────────
 
 export const EventCreate = Schema.Struct({
