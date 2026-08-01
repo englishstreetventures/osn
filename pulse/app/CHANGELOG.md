@@ -1,5 +1,12 @@
 # @osn/pulse
 
+## 0.18.0
+
+### Minor Changes
+
+- 49aee73: Add an iOS Keychain plugin exposing device-only, non-syncing get/set/delete to
+  Rust, for holding session material outside the webview.
+
 ## 0.17.3
 
 ### Patch Changes
