@@ -1,5 +1,13 @@
 # @osn/osn
 
+## 3.15.3
+
+### Patch Changes
+
+- 9c3a48a: Allow the Pulse iOS webview origin (`tauri://localhost`) through CORS and the
+  Origin guard in local and dev environments. A literal `null` origin stays
+  rejected.
+
 ## 3.15.2
 
 ### Patch Changes
