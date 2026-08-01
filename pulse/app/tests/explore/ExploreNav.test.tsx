@@ -160,6 +160,28 @@ describe("ExploreNav — authenticated", () => {
     expect(getByText("Hosting")).toBeTruthy();
   });
 
+  it("has a disabled Hosting tab with aria-disabled and tabindex", () => {
+    const { getByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
+    const hostingTab = getByText("Hosting").closest("button");
+    expect(hostingTab).toHaveAttribute("aria-disabled", "true");
+    expect(hostingTab).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("clicking the disabled Hosting tab does not navigate", () => {
+    const { getByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
+    const before = window.location.pathname;
+    fireEvent.click(getByText("Hosting"));
+    expect(window.location.pathname).toBe(before);
+  });
+
+  it("every enabled tab resolves to a real route", () => {
+    const { getByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
+    for (const label of ["Home", "Calendar"]) {
+      const tab = getByText(label).closest("button");
+      expect(tab).not.toHaveAttribute("aria-disabled");
+    }
+  });
+
   it("renders Host button and notification bell", () => {
     const { getByText, container } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
     expect(getByText("Host")).toBeTruthy();

@@ -22,11 +22,16 @@ import { registrationClient, loginClient, recoveryClient } from "../lib/authClie
 import { setShowCreateForm } from "../lib/createEventSignal";
 import { getTokenClaims } from "../lib/utils";
 
-const TABS = [
+type Tab = { id: string; label: string } & (
+  | { path: string; disabled?: never }
+  | { path?: never; disabled: true }
+);
+
+const TABS: readonly Tab[] = [
   { id: "home", label: "Home", path: "/" },
   { id: "calendar", label: "Calendar", path: "/calendar" },
-  { id: "hosting", label: "Hosting", path: undefined },
-] as const;
+  { id: "hosting", label: "Hosting", disabled: true },
+];
 
 function profileInitials(profile: PublicProfile | null): string {
   if (!profile) return "?";
@@ -124,11 +129,17 @@ export function ExploreNav(props: {
                   <button
                     type="button"
                     class={`relative rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors ${
-                      isActiveTab(tab.path)
-                        ? "explore-tab-active bg-secondary text-foreground"
-                        : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                      tab.disabled
+                        ? "text-muted-foreground/40 cursor-default"
+                        : isActiveTab(tab.path)
+                          ? "explore-tab-active bg-secondary text-foreground"
+                          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                     }`}
-                    onClick={() => tab.path && navigate(tab.path)}
+                    onClick={() => {
+                      if (tab.path) navigate(tab.path);
+                    }}
+                    aria-disabled={tab.disabled ? true : undefined}
+                    tabindex={tab.disabled ? -1 : undefined}
                   >
                     {tab.label}
                   </button>
