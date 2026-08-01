@@ -36,3 +36,27 @@ See `.env.example`. Defaults assume `@osn/api` on `localhost:4000` and
 
 Vite + `@tailwindcss/vite` (Tailwind v4) + `vite-plugin-solid`. Tests use
 Vitest + happy-dom + `@solidjs/testing-library`.
+
+## The iOS Xcode project
+
+`src-tauri/gen/apple/` is committed and hand-edited. The deployment target, the
+entitlements, the extra SDK dependencies and the Swift sources of the native
+bridges all live there.
+
+**Never run `tauri ios init` on this repo.** It regenerates that whole directory
+from scratch and throws every one of those edits away. There is nothing to
+regenerate: an ordinary build writes only to the ignored `build/`, `Externals/`
+and `xcuserdata/` paths inside it, and to `src-tauri/gen/schemas`, which sits
+outside it and is gitignored.
+
+Adding files through Xcode's UI has the same effect on a smaller scale — it
+rewrites `project.pbxproj`. Add sources to `project.yml` instead.
+
+After any local iOS build or Xcode session:
+
+```sh
+bash scripts/check-gen-apple-diff.sh
+```
+
+It fails if anything under `gen/apple/` is uncommitted, and tells you how to
+throw a regen away. CI runs it on every PR.
