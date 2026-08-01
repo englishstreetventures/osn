@@ -720,8 +720,10 @@ describe("InvitePage", () => {
       // the line always reads as the list's label rather than a third line of
       // section header.
       expect(notice.nextElementSibling?.querySelector("[data-event-card]")).not.toBeNull();
-      // Left-aligned with the cards, against the header block's `text-center`.
-      expect(notice.className).toContain("text-left");
+      // Centred on the section axis — it speaks for the whole list, so it must
+      // not pick out the first card by running along the cards' left edge.
+      expect(notice.className).toContain("text-center");
+      expect(notice.className).not.toContain("text-left");
     });
 
     it("locks every card and states the date once the deadline has passed", async () => {

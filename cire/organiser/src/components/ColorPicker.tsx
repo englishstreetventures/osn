@@ -1,11 +1,10 @@
 import { oklchToRgb, parseColor as parseAnyColor } from "@cire/theme";
 import { ColorArea } from "@kobalte/core/color-area";
-import { ColorField } from "@kobalte/core/color-field";
 import { ColorSlider } from "@kobalte/core/color-slider";
 import { ColorSwatch } from "@kobalte/core/color-swatch";
 import { type Color, parseColor } from "@kobalte/core/colors";
 import { Popover } from "@kobalte/core/popover";
-import { createEffect, createSignal, Show } from "solid-js";
+import { createEffect, createSignal, createUniqueId, Show } from "solid-js";
 
 /**
  * The colour a picker shows when nothing is set and the caller names no
@@ -17,14 +16,19 @@ const DEFAULT_HEX = "#d4af37";
 
 /**
  * A COMPLETE typed hex colour — exactly 6 digits, with or without the "#".
- * `parseColor` also accepts 3/4-digit shorthand, but committing those on a
- * keystroke hijacks the field mid-typing: en route to "#d4af37" the partial
- * "#d4a" already parses, expands to "#DD44AA", and yanks the swatch, preview
- * and trigger to the wrong colour. Shorthand still works — on blur Kobalte's
- * ColorField normalises it to the full 6-digit hex, which re-enters
- * `onHexInput` and commits then.
+ * `parseColor` also accepts 3/4-digit shorthand, but committing those hijacks
+ * the field mid-typing: en route to "#d4af37" the partial "#d4a" already
+ * parses, expands to "#DD44AA", and yanks the swatch, preview and trigger to a
+ * colour nobody chose. Nothing shorter than six digits is ever a decision here.
  */
 const COMPLETE_HEX = /^#?[0-9a-fA-F]{6}$/;
+
+/**
+ * What the hex field will hold while it is being typed: a hash and up to six
+ * hex digits, or empty. Anything else — a stray letter, a seventh digit, a
+ * pasted `rgb(...)` — is refused at the keystroke and the field is put back.
+ */
+const PARTIAL_HEX = /^#?[0-9a-fA-F]{0,6}$/;
 
 /** A colour as `#rrggbb`, via the shared parser (the only one that reads oklch). */
 function toHexString(value: string): string | null {
@@ -85,10 +89,20 @@ function resolveColor(value: string | null, fallback?: string): Color {
  * `ThemePreview` and the server-side colour allow-list keep working unchanged.
  *
  * Inside the popover: a 2D saturation/brightness `ColorArea` + a `hue`
- * `ColorSlider` for visual picking, and a clearly-labelled "Hex" `ColorField`
+ * `ColorSlider` for visual picking, and a clearly-labelled "Hex" field
  * front-and-centre so typing/pasting a hex code is obvious. All three share one
  * HSB `Color` signal, so visual picking and the hex field stay in sync. We only
  * emit upstream once we hold a full, valid colour — partial hex never escapes.
+ *
+ * The hex field is a plain `<input>`, deliberately NOT Kobalte's `ColorField`.
+ * `ColorField` runs its own blur handler — composed with `composeEventHandlers`,
+ * which calls every handler unconditionally, so it cannot be pre-empted or
+ * prevented — that parses whatever is in the field and writes the expansion
+ * back. Three digits into "#d4af37" that turns the organiser's half-typed entry
+ * into "#DD44AA" and commits it the moment focus leaves the field (clicking the
+ * area, the next picker, or anywhere outside the popover), which reads exactly
+ * as the picker completing a colour by itself. Owning the input means owning
+ * that rule: see `onHexBlur`.
  */
 export default function ColorPicker(props: {
   label: string;
@@ -113,6 +127,11 @@ export default function ColorPicker(props: {
   // The hex field is a controlled string so a partial value ("#d4") survives a
   // keystroke without being clobbered; it re-derives from `color` on visual picks.
   const [hexText, setHexText] = createSignal(toHex(color()));
+  // Ties the "Hex" label to its input — the job `ColorField` used to do.
+  const hexId = createUniqueId();
+  const hexNoteId = createUniqueId();
+  // The colour kept when an incomplete entry was discarded on blur, else null.
+  const [discarded, setDiscarded] = createSignal<string | null>(null);
 
   // Re-seed when the parent value changes externally (theme load, "Use default",
   // a sibling reset). Compare hex so an internal commit that already matches
@@ -134,14 +153,49 @@ export default function ColorPicker(props: {
   };
 
   /** Handle raw hex-field input. Emit only once the full 6-digit hex is typed. */
-  const onHexInput = (raw: string) => {
+  const onHexInput = (el: HTMLInputElement) => {
+    const raw = el.value;
+    // Refuse a keystroke that can't be part of a hex code. The input is
+    // controlled by `hexText`, and an unchanged signal re-renders nothing, so
+    // the DOM would otherwise keep the character we just rejected — push the
+    // accepted text back by hand.
+    if (!PARTIAL_HEX.test(raw)) {
+      el.value = hexText();
+      return;
+    }
     setHexText(raw);
+    // Typing again clears a previous discard notice — it describes an edit the
+    // organiser has now moved on from.
+    setDiscarded(null);
     if (!COMPLETE_HEX.test(raw)) return;
     const parsed = tryParse(raw.startsWith("#") ? raw : `#${raw}`);
     if (parsed) {
       setColor(parsed.toFormat("hsb"));
       props.onChange(toHex(parsed));
     }
+  };
+
+  /**
+   * Leaving the field never invents a colour. A complete entry has already been
+   * committed on its last keystroke, so this only re-prints it in the canonical
+   * `#RRGGBB` casing; an incomplete one ("#d4a", "#", "") is an abandoned edit
+   * and the field goes back to the colour the invite is actually painted with.
+   *
+   * The cost is that 3-digit shorthand no longer expands — typing "#fff" and
+   * tabbing away restores the previous colour instead of committing white. That
+   * is the deliberate trade: shorthand is a convenience, whereas every full hex
+   * passes through its own three-digit prefix on the way in, so expanding on
+   * blur silently rewrites the far more common case.
+   *
+   * A discard SAYS SO (C-L3). Snapping the field back is visible to anyone
+   * watching it and invisible to everyone else, so a discarded entry also sets
+   * `aria-invalid` and posts a line naming what was kept — otherwise a screen
+   * reader user leaves the field believing the colour they typed was applied.
+   */
+  const onHexBlur = () => {
+    const kept = toHex(color());
+    setDiscarded(COMPLETE_HEX.test(hexText()) ? null : kept);
+    setHexText(kept);
   };
 
   // The swatch/trigger always reflect the persisted value (default gold if null).
@@ -208,16 +262,39 @@ export default function ColorPicker(props: {
                 </ColorSlider.Track>
               </ColorSlider>
 
-              <ColorField value={hexText()} onChange={onHexInput} class="flex flex-col gap-1">
-                <ColorField.Label class="font-body text-text-muted text-[0.66rem] tracking-[0.1em] uppercase">
+              <div class="flex flex-col gap-1">
+                <label
+                  for={hexId}
+                  class="font-body text-text-muted text-[0.66rem] tracking-[0.1em] uppercase"
+                >
                   Hex
-                </ColorField.Label>
-                <ColorField.Input
+                </label>
+                <input
+                  id={hexId}
+                  type="text"
+                  value={hexText()}
+                  onInput={(e) => onHexInput(e.currentTarget)}
+                  onBlur={onHexBlur}
+                  aria-invalid={discarded() ? true : undefined}
+                  aria-describedby={discarded() ? hexNoteId : undefined}
+                  autocomplete="off"
+                  autocorrect="off"
                   spellcheck={false}
                   placeholder="#RRGGBB"
                   class="border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-2.5 py-1.5 text-[0.82rem] tabular-nums outline-none"
                 />
-              </ColorField>
+                <Show when={discarded()}>
+                  {(kept) => (
+                    <span
+                      id={hexNoteId}
+                      role="status"
+                      class="font-body text-text-muted text-[0.7rem]"
+                    >
+                      Needs 6 digits — kept {kept()}
+                    </span>
+                  )}
+                </Show>
+              </div>
 
               <Show when={props.value}>
                 <button

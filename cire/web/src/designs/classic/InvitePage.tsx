@@ -217,15 +217,17 @@ export default function InvitePage(props: InvitePageProps) {
               </h2>
               {/* The RSVP-by line. One line governs every card — a per-card
                   repeat would be four copies of one fact — so it sits directly
-                  on top of the list rather than in the centred header block:
-                  left-aligned with the cards it applies to, and held tight to
-                  them (`mb-3` against the heading's `mb-5` above) so it reads as
-                  their label rather than as a third line of section header. */}
+                  on top of the list rather than inside the header block, and is
+                  held tight to the cards (`mb-3` against the heading's `mb-5`
+                  above) so it reads as their label rather than as a third line
+                  of section header. Centred: it speaks for the whole list, so it
+                  sits on the section's own axis rather than picking out the
+                  first card. */}
               <Show when={rsvpNotice()}>
                 {(notice) => (
                   <p
                     id={RSVP_NOTICE_ID}
-                    class="font-body mb-3 text-left text-[0.85rem]"
+                    class="font-body mb-3 text-center text-[0.85rem]"
                     classList={{ "text-text-muted": rsvpClosed(), "text-gold": !rsvpClosed() }}
                     role="status"
                   >

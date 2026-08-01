@@ -348,12 +348,14 @@ export default function InvitePage(props: InvitePageProps) {
                     the rule, directly on top of the list: the rule closes the
                     section header, and this belongs to the cards under it, not
                     to the heading above. Held tight to them (`mb-3`) so it reads
-                    as their label. */}
+                    as their label. Centred on the column — it speaks for the
+                    whole list, so it takes the column's axis rather than the
+                    left edge the cards' own copy runs along. */}
                 <Show when={rsvpNotice()}>
                   {(notice) => (
                     <p
                       id={RSVP_NOTICE_ID}
-                      class="font-body mb-3 text-[0.85rem]"
+                      class="font-body mb-3 text-center text-[0.85rem]"
                       classList={{ "text-text-muted": rsvpClosed(), "text-gold": !rsvpClosed() }}
                       role="status"
                     >

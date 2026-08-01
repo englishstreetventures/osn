@@ -632,6 +632,11 @@ describe("gala InvitePage", () => {
       expect(notice.previousElementSibling?.tagName).toBe("HR");
       // …and nothing sits between it and the card list.
       expect(notice.nextElementSibling?.querySelector("[data-event-card]")).not.toBeNull();
+      // Centred on the column, against gala's left-aligned card copy — the line
+      // speaks for the whole list, so it must not read as a note on the first
+      // card. Asserted here as well as in `classic` because the two packs place
+      // this line at separate call sites with no shared component between them.
+      expect(notice.className).toContain("text-center");
     });
 
     it("locks every card and states the date once the deadline has passed", async () => {

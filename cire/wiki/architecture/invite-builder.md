@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-templates]]"
-last-reviewed: 2026-07-31
+last-reviewed: 2026-08-01
 ---
 
 # Invite Builder
@@ -324,7 +324,7 @@ deliberately no "sit on the accent" tone — that needs the text tokens to flip
 too, and a half-flipped section is the unreadable output the derivation exists to
 prevent.
 
-### Contrast is enforced, not advised
+### Contrast is enforced first, and warned about where it can't be
 
 `derivePalette` moves a derived text or accent token's lightness until it clears
 WCAG on the surface it actually sits on (4.5:1 for text, 3:1 for UI + focus), and
@@ -334,6 +334,61 @@ which is what the old `ContrastAdvisory` did. Derivation is direction-aware — 
 pushes surfaces AWAY from `ground` — so one function produces a coherent dark
 invite and a coherent light one with no `isDark` flag threaded through
 components.
+
+Enforcement runs each token against **one** backdrop, though — ink against card
+and ground, muted against card, gilt against ground — because a token nudged to
+clear every surface it might ever touch gets dragged to an extreme by the
+hardest pair and stops looking like the organiser's colour. The surface left out
+of that walk entirely is **`raised`**, which is derived as `card ± 0.05`
+lightness, so a pair can clear against `card` and miss against `raised` by a
+hair. `paletteContrastWarnings(tokens)` measures the residue on the **derived**
+token map (never on the seeds, so the ratio quoted is the one a guest gets) and
+the builder shows it under the scheme editor with the measured ratio and the bar
+each pair missed.
+
+**Each pair names the surface it measures**, and getting that wrong is the easy
+mistake — the first cut had it crossed in both directions (measuring
+`--color-surface` while the copy said "event cards", measuring `raised` while
+saying "pop-ups"). On the guest site it is the other way round:
+
+| Token | Where it is actually painted |
+|---|---|
+| `--color-surface` | the modal shell (`AnimatedModal`) and the RSVP sheet's sticky footer — everything on it is already enforced |
+| `--color-surface-raised` | every `EventCard` and the RSVP sheet's notice block — carries the card title (`--color-text`), venue + description (`--color-text-muted`) and the date (`--color-gold`) |
+| `--color-bg` | section backgrounds — muted section copy, the RSVP-by line |
+
+Two deliberate calls in that table. **Muted text is held to 4.5:1, not the 3:1
+UI floor the derivation uses**, because every `--color-text-muted` site on the
+invite is small text (0.74–0.92rem) and printing "needs 3:1" beside a text pair
+would state the wrong requirement to the organiser as fact. All five presets
+clear 4.5 there, so it costs no false alarms. **`gilt-on-raised` is held to 3:1
+even though its most prominent job is the event-card date** (0.92rem, i.e.
+normal text at 4.5:1) — at 4.5 the curated `chapel` (3.58:1) and `garden`
+(3.91:1) presets would warn out of the box, and a warning that fires on our own
+shipped schemes teaches organisers to ignore it. That preset gap is real and
+filed in `[[security]]`; the 3:1 bar still catches what this check exists for.
+**`--color-bloom` has no pair at all** — it is a defined token with no render
+site anywhere in `cire/web`, so a warning about it would concern a colour no
+guest can see.
+
+The warning panel is a **permanently-mounted** `role="status"` with its contents
+conditional, not a `<Show>` wrapping the region: a live region inserted together
+with its content announces unreliably, and this one's trigger is a pointer drag,
+so wrapping it would mount/unmount the region and reflow the sidebar at frame
+rate. Rows use `<Index>`, not `<For>` — `For` reconciles by item reference and
+`paletteContrastWarnings` allocates fresh objects from a token map whose
+identity changes every frame, so every row would be torn down and rebuilt per
+pointermove. The ratios themselves are `aria-hidden`, since `role="status"` is
+implicitly atomic and the numbers are the one part that moves continuously.
+
+So the two notices answer different questions and neither stands in for the
+other: `paletteAdjustments` says _what we changed for you_,
+`paletteContrastWarnings` says _what we couldn't_. Both can be true at once — a
+white page with a white card has its `ink` rescued AND still leaves modal text
+just under 4.5:1 on `raised`. All five curated presets are clean, which is what
+makes a non-empty warning worth reading. It warns rather than blocks: the fix
+(usually moving `card` back toward `ground`) is a design decision the builder
+cannot make for the organiser.
 
 Two failures worth remembering, both caught only by screenshotting a light
 scheme (regression-tested in `cire/theme/src/palette.test.ts`):
@@ -1003,12 +1058,25 @@ defaults as a draft change (nothing saved until the save bar says so).
 The five scheme seeds use the popover pickers (`PaletteField.tsx` over
 `ColorPicker.tsx`,
 Kobalte ColorArea + hue slider + labelled hex field) each with a "Use default"
-clear (null ⇒ built-in token). The picker only emits a full `#rrggbb` (never
-partial input, and never mid-typing: the hex field commits only on a complete
-6-digit value — 3/4-digit shorthand would otherwise parse and hijack the
-colour after three keystrokes — while shorthand still commits on blur via
-Kobalte's normalisation), so the UI can never submit a colour the server
-allow-list would reject.
+clear (null ⇒ built-in token). The picker only emits a full `#rrggbb` — never
+partial input, and never mid-typing — so the UI can never submit a colour the
+server allow-list would reject.
+
+**The hex field is a plain `<input>`, deliberately not Kobalte's `ColorField`.**
+Nothing shorter than six digits is ever a decision: en route to `#d4af37` the
+partial `#d4a` is valid 3-digit shorthand, and committing it expands to
+`#DD44AA` and yanks the swatch, preview and trigger to a colour nobody chose.
+Guarding our own commit path is not enough — `ColorField` runs its **own** blur
+handler that parses whatever is in the field and writes the expansion back, and
+because Kobalte composes handlers with `composeEventHandlers` (which calls every
+handler unconditionally, ignoring `preventDefault`) that handler cannot be
+pre-empted from outside. It fired whenever focus left the field: clicking the
+area, the next picker, or anywhere outside the popover. Owning the input means
+owning the rule — `onHexBlur` re-prints a committed hex in canonical form and
+restores the last committed colour for anything incomplete, so leaving a
+half-typed entry never invents a colour. The cost is that 3-digit shorthand no
+longer expands; that is the deliberate trade, since every full hex passes
+through its own three-digit prefix on the way in.
 
 **Hero phone crop (migration `0046`).** The hero is the one full-bleed image
 rendered at both wide-desktop and tall-phone aspects, so a single rectangle

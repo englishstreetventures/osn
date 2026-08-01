@@ -130,7 +130,12 @@ describe("ColorPicker", () => {
     await waitFor(() => expect(onChange).toHaveBeenCalledWith("#D4AF37"));
   });
 
-  it("commits shorthand on blur via Kobalte's normalisation to the full hex", async () => {
+  it("restores the committed colour when the field is left mid-typing", async () => {
+    // The regression this guards: Kobalte's ColorField ran its own blur handler
+    // (composed unconditionally, so it could not be pre-empted) that parsed
+    // whatever was in the field and wrote the expansion back — three digits into
+    // "#d4af37" became "#DD44AA" and committed the moment focus moved. Leaving a
+    // half-typed entry must never invent a colour.
     const onChange = vi.fn();
     render(() => <ColorPicker label="Accent" value="#d4af37" onChange={onChange} />);
 
@@ -139,9 +144,83 @@ describe("ColorPicker", () => {
     fireEvent.input(hex, { target: { value: "#1a2" } });
     expect(onChange).not.toHaveBeenCalled();
 
-    // Leaving the field expands the shorthand ("#1a2" → "#11AA22") and commits it.
     fireEvent.blur(hex);
+    expect(onChange).not.toHaveBeenCalled();
+    // The field goes back to the colour the invite is actually painted with.
+    await waitFor(() => expect(hex.value.toUpperCase()).toBe("#D4AF37"));
+  });
+
+  it("re-prints a committed hex in canonical form on blur", async () => {
+    // Value is signal-backed so the parent reflects the commit, as the builder
+    // does — otherwise the re-seed effect pulls the field back to the stale prop
+    // and the blur behaviour under test is never reached.
+    const [value, setValue] = createSignal<string | null>("#d4af37");
+    const onChange = vi.fn(setValue);
+    render(() => <ColorPicker label="Accent" value={value()} onChange={onChange} />);
+
+    fireEvent.click(screen.getByLabelText("Accent colour"));
+    const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
+    fireEvent.input(hex, { target: { value: "11aa22" } });
     await waitFor(() => expect(onChange).toHaveBeenCalledWith("#11AA22"));
+
+    // Blur is a no-op on the value — it only tidies the hash and the casing.
+    fireEvent.blur(hex);
+    await waitFor(() => expect(hex.value.toUpperCase()).toBe("#11AA22"));
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("says so when it discards an incomplete entry", async () => {
+    // Snapping the field back is visible to anyone watching it and invisible to
+    // everyone else (C-L3). A discard must be perceivable programmatically too,
+    // or a screen-reader user leaves the field believing their colour applied.
+    const onChange = vi.fn();
+    render(() => <ColorPicker label="Accent" value="#d4af37" onChange={onChange} />);
+
+    fireEvent.click(screen.getByLabelText("Accent colour"));
+    const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
+    fireEvent.input(hex, { target: { value: "#1a2" } });
+    expect(hex.getAttribute("aria-invalid")).toBeNull();
+
+    fireEvent.blur(hex);
+    const note = await waitFor(() => screen.getByText(/Needs 6 digits/));
+    // Named as the field's description, so it is read with the input rather
+    // than stranded as loose text beside it.
+    expect(hex.getAttribute("aria-invalid")).toBe("true");
+    expect(hex.getAttribute("aria-describedby")).toBe(note.id);
+    expect(note.textContent).toContain("#D4AF37");
+
+    // Typing again clears it — it describes an edit already moved on from.
+    fireEvent.input(hex, { target: { value: "#1a22" } });
+    await waitFor(() => expect(screen.queryByText(/Needs 6 digits/)).toBeNull());
+    expect(hex.getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("stays silent when a complete entry is committed and then left", async () => {
+    const [value, setValue] = createSignal<string | null>("#d4af37");
+    render(() => <ColorPicker label="Accent" value={value()} onChange={setValue} />);
+
+    fireEvent.click(screen.getByLabelText("Accent colour"));
+    const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
+    fireEvent.input(hex, { target: { value: "#11aa22" } });
+    fireEvent.blur(hex);
+
+    expect(screen.queryByText(/Needs 6 digits/)).toBeNull();
+    expect(hex.getAttribute("aria-invalid")).toBeNull();
+  });
+
+  it("refuses a keystroke that cannot belong to a hex code", async () => {
+    const onChange = vi.fn();
+    render(() => <ColorPicker label="Accent" value="#d4af37" onChange={onChange} />);
+
+    fireEvent.click(screen.getByLabelText("Accent colour"));
+    const hex = await waitFor(() => screen.getByLabelText("Hex") as HTMLInputElement);
+
+    // A seventh digit, and a non-hex letter: both put the field straight back.
+    fireEvent.input(hex, { target: { value: "#d4af371" } });
+    expect(hex.value.toUpperCase()).toBe("#D4AF37");
+    fireEvent.input(hex, { target: { value: "#d4af3z" } });
+    expect(hex.value.toUpperCase()).toBe("#D4AF37");
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("emits null when 'Use default' is clicked", () => {

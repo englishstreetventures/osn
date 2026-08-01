@@ -5,13 +5,14 @@ import {
   PALETTE_PRESET_KEYS,
   PALETTE_PRESETS,
   type PaletteAdjustment,
+  paletteContrastWarnings,
   type PalettePresetKey,
   type PaletteSeeds,
   paletteAdjustments,
   resolveSeeds,
   typographyVar,
 } from "@cire/theme";
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, For, Index, Show } from "solid-js";
 
 import ColorPicker from "./ColorPicker";
 
@@ -89,6 +90,19 @@ export default function PaletteField(props: {
     props.adjustments ? undefined : paletteAdjustments(seeds()),
   );
   const adjusted = () => props.adjustments ?? internalAdjusted()!;
+  // The legibility problems the derivation could NOT fix for them. Read off the
+  // shared token map, so this costs four contrast ratios per change rather than
+  // a second derivation, and can only ever report what the invite really paints.
+  //
+  // `equals` matters here because `tokens()` is a NEW object on every
+  // pointermove frame of a colour drag and `paletteContrastWarnings` allocates
+  // fresh results from it, so without a comparator every frame would notify
+  // even when the numbers are byte-identical — which is the common case, since
+  // dragging one seed leaves the other pairs' ratios untouched.
+  const warnings = createMemo(() => paletteContrastWarnings(tokens()), undefined, {
+    equals: (a, b) =>
+      a.length === b.length && a.every((w, i) => w.id === b[i]!.id && w.ratio === b[i]!.ratio),
+  });
 
   /** Pick a preset: adopt its five colours wholesale, dropping earlier nudges. */
   const choosePreset = (key: PalettePresetKey) => props.onChange({ preset: key, seeds: {} });
@@ -255,6 +269,61 @@ export default function PaletteField(props: {
           stay legible.
         </p>
       </Show>
+
+      {/* …and the pairs derivation deliberately leaves alone, which are the only
+          ones that can still reach a guest illegible. A warning rather than a
+          block: the organiser's colours are theirs, and the fix (usually moving
+          the card colour back toward the page) is a design decision, not one the
+          builder can make for them. */}
+      {/* The live region is ALWAYS mounted, with the `Show` inside it rather
+          than around it (C-L1). A `role="status"` inserted together with its
+          content is announced unreliably, and this one's trigger is a pointer
+          drag — so wrapping it would have mounted and unmounted the region (and
+          reflowed the sidebar under it) at frame rate whenever a colour hovered
+          on a contrast boundary. Mounted once, it announces on change and the
+          flip costs only its children. */}
+      <div
+        role="status"
+        classList={{
+          "flex flex-col gap-1 rounded-sm px-3 py-2 text-[0.78rem] leading-relaxed": true,
+          "border-error/40 bg-error/5 text-text border": warnings().length > 0,
+        }}
+      >
+        <Show when={warnings().length > 0}>
+          <span class="font-body text-text tracking-[0.04em]">Some colours are hard to read</span>
+          {/* `Index`, not `For` (P-W1). `For` reconciles by item REFERENCE, and
+              `paletteContrastWarnings` allocates fresh objects from a token map
+              whose identity changes every pointermove frame of a colour drag —
+              so no row would ever match and all of them would be torn down and
+              rebuilt per frame, for text that is usually byte-identical. The
+              list is a fixed set of positions drawn from a four-entry table
+              while the CONTENTS move continuously, which is exactly what
+              `Index` is for: rows survive and only the ratio text is patched. */}
+          <ul class="text-text-muted flex flex-col gap-0.5">
+            <Index each={warnings()}>
+              {(warning) => (
+                <li>
+                  {warning().message}{" "}
+                  {/* The numbers are the one part that moves per frame, and
+                      `role="status"` is implicitly atomic — so leaving them in
+                      the announced text re-reads the whole block on every
+                      pointermove. Hidden from the accessibility tree, they stay
+                      live for the eye while the announcement changes only when
+                      the set of failing pairs does. The ratio is a diagnostic
+                      for tuning a colour, not information the message lacks. */}
+                  <span class="tabular-nums" aria-hidden="true">
+                    ({warning().ratio}:1, needs {warning().required}:1)
+                  </span>
+                </li>
+              )}
+            </Index>
+          </ul>
+          <span class="text-text-muted">
+            Guests can still read the rest of the invite — try moving your card colour closer to the
+            page, or picking a lighter or darker accent.
+          </span>
+        </Show>
+      </div>
     </div>
   );
 }

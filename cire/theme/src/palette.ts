@@ -473,3 +473,123 @@ export function paletteAdjustments(
 
   return out;
 }
+
+// ── Residual contrast warnings ────────────────────────────────────────────────
+
+/**
+ * The token pairs that {@link derivePalette} does NOT enforce, and therefore
+ * the only places a finished palette can still come out illegible.
+ *
+ * Enforcement runs each text and accent token against ONE backdrop — ink
+ * against card and ground, muted against card, gilt against ground — because a
+ * token nudged to clear every surface it might ever touch gets pushed to an
+ * extreme by the hardest pair and the palette stops looking like the
+ * organiser's. `raised` is left out of that walk entirely, and it is derived as
+ * `card` ± 0.05 lightness, so a pair can clear against `card` and miss against
+ * `raised` by a hair.
+ *
+ * **Each entry names the surface it MEASURES.** The first cut of this table got
+ * that wrong in both directions — it measured `--color-surface` while its copy
+ * said "event cards", and measured `raised` while saying "pop-ups". It is the
+ * other way round on the guest site, so the warning could stay silent on the
+ * card copy a guest actually reads. Verified against the render sites:
+ *
+ *   - `--color-surface` — the modal shell (`AnimatedModal`) and the RSVP
+ *     sheet's sticky footer. Everything on it is already enforced.
+ *   - `--color-surface-raised` — every `EventCard` and the RSVP sheet's notice
+ *     block. Carries the card title (`--color-text`), the venue and description
+ *     (`--color-text-muted`), and the date line (`--color-gold`). None of those
+ *     three pairs is enforced; all three are below.
+ *   - `--color-bg` — section backgrounds, carrying muted section copy and the
+ *     RSVP-by line.
+ *
+ * `--color-bloom` has no entry because it is currently painted NOWHERE on the
+ * guest site — it is a defined token with no render site, so a warning about it
+ * would be about a colour no guest can see. Add a pair here when it gains one.
+ */
+const RESIDUAL_PAIRS: {
+  id: string;
+  fg: string;
+  bg: string;
+  min: number;
+  message: string;
+}[] = [
+  {
+    id: "text-on-raised",
+    fg: "--color-text",
+    bg: "--color-surface-raised",
+    min: WCAG_TEXT_MIN,
+    message: "Event titles are hard to read on the cards they sit on.",
+  },
+  {
+    id: "muted-on-raised",
+    fg: "--color-text-muted",
+    bg: "--color-surface-raised",
+    min: WCAG_TEXT_MIN,
+    message: "Venue and description text is hard to read on event cards.",
+  },
+  {
+    id: "muted-on-ground",
+    fg: "--color-text-muted",
+    bg: "--color-bg",
+    min: WCAG_TEXT_MIN,
+    message: "Secondary text — captions and notes — is hard to read on the page.",
+  },
+  {
+    // Held to the UI floor, NOT the text minimum, even though the token's most
+    // prominent job on `raised` is the event-card date (0.92rem — normal-size
+    // text, which WCAG AA puts at 4.5:1). At 4.5 two CURATED presets would warn
+    // out of the box (chapel 3.58:1, garden 3.91:1), and a warning that fires
+    // on our own shipped schemes teaches organisers to ignore it. The preset
+    // gap is real and filed separately; this bar still catches the failure this
+    // check exists for — gilt enforced against a near-black page and then
+    // landing on a near-white card at under 2:1.
+    id: "gilt-on-raised",
+    fg: "--color-gold",
+    bg: "--color-surface-raised",
+    min: WCAG_UI_MIN,
+    message: "Dates, buttons and rules are hard to see on event cards.",
+  },
+];
+
+/**
+ * One legibility problem the derived palette still has, in the builder's own
+ * words plus the numbers behind it.
+ */
+export interface PaletteContrastWarning {
+  /** Stable identifier for the pair — keys the list, and pins tests. */
+  id: string;
+  /** What a guest experiences, phrased for an organiser, not a token name. */
+  message: string;
+  /** The measured WCAG 2.x ratio, to two decimals. */
+  ratio: number;
+  /** The ratio the pair needed to clear (4.5 for text, 3 for everything else). */
+  required: number;
+}
+
+/**
+ * The legibility warnings a derived palette still carries — empty for a scheme
+ * that works, which is what makes a non-empty list worth reading.
+ *
+ * Takes the DERIVED token map rather than the seeds: the builder already holds
+ * one (it derives once per drag frame and shares it), and measuring the same
+ * map the invite is painted from means this can never report a pair the render
+ * doesn't actually have.
+ */
+export function paletteContrastWarnings(tokens: Record<string, string>): PaletteContrastWarning[] {
+  const out: PaletteContrastWarning[] = [];
+  for (const pair of RESIDUAL_PAIRS) {
+    const fg = parseColor(tokens[pair.fg] ?? "");
+    const bg = parseColor(tokens[pair.bg] ?? "");
+    if (!fg || !bg) continue;
+    const ratio = contrastOklch(fg, bg);
+    if (ratio >= pair.min) continue;
+    out.push({
+      id: pair.id,
+      message: pair.message,
+      ratio: Math.round(ratio * 100) / 100,
+      required: pair.min,
+    });
+  }
+  return out;
+}

@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { headingSizeCss, PALETTE_PRESETS, typographyVar } from "@cire/theme";
+import { derivePalette, headingSizeCss, PALETTE_PRESETS, typographyVar } from "@cire/theme";
 import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -136,5 +136,106 @@ describe("PaletteField", () => {
 
     const notice = await waitFor(() => screen.getByText(/Adjusted to stay readable/));
     expect(notice.textContent).toContain("ink");
+  });
+
+  /**
+   * The other half of the contrast story. `derivePalette` enforces each token
+   * against one backdrop; the surface it leaves out entirely is `raised` — the
+   * one every `EventCard` sits on — along with muted text on `ground`. Those
+   * can still come out illegible, and the builder has to say so rather than
+   * ship it quietly. It warns instead of blocking: the colours are the
+   * organiser's, and the fix is a design decision the builder cannot make.
+   */
+  it("says nothing about contrast for a curated preset", () => {
+    render(() => <PaletteField value={{ preset: "chapel", seeds: {} }} onChange={() => {}} />);
+    expect(screen.queryByText(/hard to read/)).toBeNull();
+  });
+
+  it("warns, with the numbers, when a pick lands somewhere the derivation cannot fix", async () => {
+    // A near-white card on a near-black page: gilt was enforced against the
+    // PAGE, so it clears there and then lands on `raised` at under 2:1 — the
+    // surface every event card, and its date line, actually sits on.
+    render(() => (
+      <PaletteField
+        value={{
+          preset: null,
+          seeds: {
+            ground: "#101010",
+            card: "#f2f2f2",
+            ink: "#eeeeee",
+            gilt: "#d4af37",
+            bloom: "#c0392b",
+          },
+        }}
+        onChange={() => {}}
+      />
+    ));
+
+    const heading = await waitFor(() => screen.getByText("Some colours are hard to read"));
+    const notice = heading.parentElement!;
+    expect(notice.getAttribute("role")).toBe("status");
+    expect(notice.textContent).toContain(
+      "Dates, buttons and rules are hard to see on event cards.",
+    );
+    // The measured ratio and the bar it missed, so the warning is checkable
+    // rather than a bare verdict.
+    expect(notice.textContent).toMatch(/\d+(\.\d+)?:1, needs 3:1/);
+  });
+
+  it("keeps the live region mounted and the per-frame numbers out of it", async () => {
+    // C-L1. `role="status"` is implicitly atomic, and this region's trigger is
+    // a pointer-rate colour drag, so two things have to hold: the region must
+    // not be mounted and unmounted as warnings flip in and out (a region
+    // inserted with its content announces unreliably, and the churn reflows the
+    // sidebar), and the ratios — the one part that moves every frame — must be
+    // hidden from the accessibility tree so a drag does not re-announce the
+    // whole block on each pointermove.
+    const { container } = render(() => (
+      <PaletteField value={{ preset: "chapel", seeds: {} }} onChange={() => {}} />
+    ));
+    // A clean preset warns about nothing, yet the region is already there.
+    const region = container.querySelector('[role="status"]:not(p)');
+    expect(region).not.toBeNull();
+    expect(region!.textContent).not.toContain("hard to read");
+
+    cleanup();
+    render(() => (
+      <PaletteField
+        value={{
+          preset: null,
+          seeds: { ground: "#101010", card: "#f2f2f2", ink: "#eeeeee", gilt: "#d4af37" },
+        }}
+        onChange={() => {}}
+      />
+    ));
+    const heading = await waitFor(() => screen.getByText("Some colours are hard to read"));
+    const numbers = heading.parentElement!.querySelectorAll("span[aria-hidden='true']");
+    expect(numbers.length).toBeGreaterThan(0);
+    for (const span of numbers) expect(span.textContent).toMatch(/:1, needs/);
+  });
+
+  it("warns off the SHARED token map when the parent supplies one", async () => {
+    // The production path. `InviteBuilder` always passes `tokens` (it derives
+    // once per drag frame and shares the result, P-W1), so the internal
+    // derivation the tests above exercise is the path that never runs in the
+    // app — a warning wired only to `internalTokens` would be permanently
+    // silent for every real organiser with the suite green.
+    const shared = derivePalette({
+      ground: "#101010",
+      card: "#f2f2f2",
+      ink: "#eeeeee",
+      gilt: "#d4af37",
+      bloom: "#c0392b",
+    });
+    render(() => (
+      // Seeds deliberately left EMPTY: the only way this can warn is by reading
+      // the shared map, so the assertion cannot pass through the internal path.
+      <PaletteField value={EMPTY} onChange={() => {}} tokens={shared} adjustments={[]} />
+    ));
+
+    const heading = await waitFor(() => screen.getByText("Some colours are hard to read"));
+    expect(heading.parentElement!.textContent).toContain(
+      "Dates, buttons and rules are hard to see on event cards.",
+    );
   });
 });

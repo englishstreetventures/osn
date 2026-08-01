@@ -50,6 +50,16 @@
 
 @layer base {
   html {
+    /* The invite's whole type scale is written in rem — every `text-[0.82rem]`
+       and every `clamp()` heading curve — so the root size is the one lever
+       that lifts all of it at once. On a laptop or larger the 16px base leaves
+       the body copy noticeably small against the generous column widths, so
+       give it one gentle step up. Rem-based Tailwind spacing rides along, which
+       is what keeps the lift from crowding the text.
+
+       Breakpoints are unaffected: `rem` inside a media query resolves against
+       the root element's INITIAL font size, not the declared one, so Tailwind's
+       `md:` / `lg:` variants stay exactly where they were. */
     font-size: 16px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -58,6 +68,15 @@
        `position: sticky` descendant. Both elements need it — setting it on one
        alone lets the other still pan sideways. */
     overflow-x: clip;
+  }
+
+  /* Desktop only — phones already fill their column at 16px, and the same step
+     there would cost line breaks, not gain readability. Stated in px rather
+     than rem so the query cannot chase the size it is setting. */
+  @media (min-width: 1024px) {
+    html {
+      font-size: 17px;
+    }
   }
 
   body {
