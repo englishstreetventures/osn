@@ -75,6 +75,20 @@ function seedWedding(db: Db) {
     .run();
 }
 
+/** Row a co-host seat directly, so a test can call as an editor or a viewer. */
+function seedHostSeat(db: Db, osnProfileId: string, role: "editor" | "viewer") {
+  db.insert(weddingHosts)
+    .values({
+      id: `whost_${osnProfileId}`,
+      weddingId: WEDDING_ID,
+      osnProfileId,
+      addedByOsnProfileId: OWNER,
+      role,
+      createdAt: new Date(),
+    })
+    .run();
+}
+
 function buildApp(overrides: Partial<AppOptions> = {}) {
   const db = createDb(":memory:");
   seedWedding(db);
@@ -118,20 +132,71 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     expect(res.status).toBe(403);
   });
 
-  it("returns 403 for a CO-HOST trying to add another host (owner-only)", async () => {
+  it("lets an EDITOR co-host add another host, crediting THEM as the adder", async () => {
     const { db, app } = buildApp();
-    // Make bob a co-host first.
-    db.insert(weddingHosts)
-      .values({
-        id: "whost_bob",
-        weddingId: WEDDING_ID,
-        osnProfileId: COHOST,
-        addedByOsnProfileId: OWNER,
-        createdAt: new Date(),
-      })
-      .run();
+    seedHostSeat(db, COHOST, "editor");
+
+    const res = await req(app, "POST", hostsPath, COHOST, { handle: "carol" });
+    expect(res.status).toBe(201);
+
+    // `added_by` is the caller, not the owner. Under the old owner-only gate
+    // the handler passed the caller's id for both roles, which was harmless
+    // only because they were the same person; an editor adding a host has to
+    // be recorded as the one who did it.
+    const [row] = db
+      .select({ addedBy: weddingHosts.addedByOsnProfileId, role: weddingHosts.role })
+      .from(weddingHosts)
+      .where(eq(weddingHosts.osnProfileId, "usr_carol"))
+      .all();
+    expect(row).toEqual({ addedBy: COHOST, role: "editor" });
+  });
+
+  it("lets an editor add a VIEWER too — the grantable roles are unrestricted", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "editor");
+    const res = await req(app, "POST", hostsPath, COHOST, { handle: "carol", role: "viewer" });
+    expect(res.status).toBe(201);
+    // `editor` is the ceiling of what anyone can grant (the owner is never rowed
+    // into this table), so an editor granting `editor` is granting a PEER, not
+    // a superior — there is no seat above their own to hand out.
+    const [row] = db
+      .select({ role: weddingHosts.role })
+      .from(weddingHosts)
+      .where(eq(weddingHosts.osnProfileId, "usr_carol"))
+      .all();
+    expect(row?.role).toBe("viewer");
+  });
+
+  it("refuses an editor re-adding the OWNER as a co-host (409 owner_is_host)", async () => {
+    // The bug the owner/caller split exists to prevent. The handler used to
+    // pass the caller's own id as the "owner" the service compares against;
+    // with an editor calling, that check would have compared the owner's
+    // profile id against the EDITOR's, missed, and rowed the owner in as a
+    // co-host — after which a later "remove host" would appear to strip the
+    // owner from their own wedding.
+    const { db, app } = buildApp({
+      // A handle that resolves to the wedding's OWNER.
+      resolveOsnProfileByHandle: async () => ({ ok: true, profileId: OWNER, handle: "dave" }),
+    });
+    seedHostSeat(db, COHOST, "editor");
+
+    const res = await req(app, "POST", hostsPath, COHOST, { handle: "dave" });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "owner_is_host" });
+    const rows = db
+      .select({ id: weddingHosts.id })
+      .from(weddingHosts)
+      .where(eq(weddingHosts.osnProfileId, OWNER))
+      .all();
+    expect(rows).toEqual([]);
+  });
+
+  it("returns 403 read_only_role for a VIEWER co-host trying to add a host", async () => {
+    const { db, app } = buildApp();
+    seedHostSeat(db, COHOST, "viewer");
     const res = await req(app, "POST", hostsPath, COHOST, { handle: "carol" });
     expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "read_only_role" });
   });
 
   it("returns 404 for an unknown wedding", async () => {

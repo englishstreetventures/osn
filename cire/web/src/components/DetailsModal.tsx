@@ -25,7 +25,7 @@ interface DetailsModalProps {
 function Section(props: { label: string; children: JSX.Element }) {
   return (
     <section class="border-border/80 border-t pt-6">
-      <h4 class="font-body text-gold mb-3 text-[0.68rem] font-normal tracking-[0.22em] uppercase">
+      <h4 class="font-body text-gold-ink mb-3 text-[0.68rem] font-normal tracking-[0.22em] uppercase">
         {props.label}
       </h4>
       {props.children}
@@ -52,7 +52,9 @@ export function DetailsModal(props: DetailsModalProps) {
   return (
     <AnimatedModal onClose={props.onClose} labelledBy={titleId} themeVars={props.themeVars}>
       <header class="mb-7">
-        <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">Details</p>
+        <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+          Details
+        </p>
         <h3
           id={titleId}
           class="font-display text-text mb-5 text-[1.7rem] leading-tight font-light italic"

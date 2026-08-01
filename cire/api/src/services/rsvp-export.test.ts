@@ -1,7 +1,15 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, events, families, guests, rsvps, weddings } from "@cire/db";
-import { eq } from "drizzle-orm";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  events,
+  families,
+  guestEvents,
+  guests,
+  rsvps,
+  weddings,
+} from "@cire/db";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import type { Db } from "../db";
@@ -11,6 +19,11 @@ import { effWith } from "../test-helpers";
 import { rsvpExportService, toCsv, sanitiseCsvCell } from "./rsvp-export";
 
 const withDb = effWith(TestDbLayer);
+
+/** The export's own name for an event — the CSV header is built from it. */
+function eventName(data: { events: { id: string; name: string }[] }, eventId: string): string {
+  return data.events.find((e) => e.id === eventId)!.name;
+}
 
 /** Insert an RSVP row for a guest+event. */
 function rsvp(
@@ -189,7 +202,7 @@ describe("rsvpExportService.build", () => {
   );
 
   it(
-    "surfaces the guest's dietary requirement",
+    "surfaces the guest's dietary requirement against the event it was given for",
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
@@ -198,10 +211,77 @@ describe("rsvpExportService.build", () => {
         rsvp(db, ada.id, catholic.id, "attending", "Vegetarian, no nuts");
         const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
         const adaRow = data.rows.find((r) => r.firstName === "Ada")!;
-        expect(adaRow.dietary).toBe("Vegetarian, no nuts");
-        // A guest with no dietary note has a blank dietary cell.
-        const other = data.rows.find((r) => r.firstName !== "Ada" && r.dietary === "");
+        const catholicIdx = data.events.findIndex((e) => e.id === catholic.id);
+        expect(adaRow.dietary[catholicIdx]).toBe("Vegetarian, no nuts");
+        // …and nowhere else: the other events keep a blank cell.
+        expect(adaRow.dietary.filter((d) => d.length > 0)).toEqual(["Vegetarian, no nuts"]);
+        // The array is index-aligned with the status cells and the event list.
+        expect(adaRow.dietary.length).toBe(data.events.length);
+        expect(adaRow.dietary.length).toBe(adaRow.cells.length);
+        // A guest with no dietary note has blank cells throughout.
+        const other = data.rows.find(
+          (r) => r.firstName !== "Ada" && r.dietary.every((d) => d === ""),
+        );
         expect(other).toBeDefined();
+      }),
+    ),
+  );
+
+  it(
+    "keeps a DIFFERENT dietary note per event instead of picking one (field report)",
+    withDb(
+      Effect.gen(function* () {
+        // The bug as reported from a live wedding: a guest marked "fish only"
+        // for one event and something else for another, and the download showed
+        // a single value. `rsvps.dietary` is per (guest, event), so any single
+        // column has to drop one of two answers that are BOTH true — and the
+        // caterer for each event needs their own.
+        const db = yield* DbService;
+        const ada = guestByName(db, "Ada");
+        const catholic = eventBySlug(db, "catholic");
+        const reception = eventBySlug(db, "reception");
+        rsvp(db, ada.id, catholic.id, "attending", "Fish only");
+        rsvp(db, ada.id, reception.id, "attending", "Vegetarian");
+
+        const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
+        const adaRow = data.rows.find((r) => r.firstName === "Ada")!;
+        const at = (eventId: string) =>
+          adaRow.dietary[data.events.findIndex((e) => e.id === eventId)];
+        expect(at(catholic.id)).toBe("Fish only");
+        expect(at(reception.id)).toBe("Vegetarian");
+
+        // And both survive into the CSV, each under its own event's column.
+        const csv = toCsv(data);
+        const [header, ...lines] = csv.split("\r\n");
+        const cols = header!.split(",");
+        const row = lines.find((l) => l.includes("Ada"))!.split(",");
+        expect(row[cols.indexOf(`${eventName(data, catholic.id)} Dietary`)]).toBe("Fish only");
+        expect(row[cols.indexOf(`${eventName(data, reception.id)} Dietary`)]).toBe("Vegetarian");
+      }),
+    ),
+  );
+
+  it(
+    "blanks the dietary cell for an event the guest is no longer invited to",
+    withDb(
+      Effect.gen(function* () {
+        // A reply that outlived its invitation. The status column already shows
+        // blank ("not_invited"), so the dietary column must too — a requirement
+        // sitting beside an empty status reads as a bug, and no caterer is
+        // cooking for a guest who isn't on the list.
+        const db = yield* DbService;
+        const ada = guestByName(db, "Ada");
+        const catholic = eventBySlug(db, "catholic");
+        rsvp(db, ada.id, catholic.id, "attending", "Fish only");
+        db.delete(guestEvents)
+          .where(and(eq(guestEvents.guestId, ada.id), eq(guestEvents.eventId, catholic.id)))
+          .run();
+
+        const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
+        const adaRow = data.rows.find((r) => r.firstName === "Ada")!;
+        const idx = data.events.findIndex((e) => e.id === catholic.id);
+        expect(adaRow.cells[idx]).toBe("not_invited");
+        expect(adaRow.dietary[idx]).toBe("");
       }),
     ),
   );
@@ -292,7 +372,7 @@ describe("rsvpExportService.build", () => {
 
 describe("rsvp-export CSV serialisation", () => {
   it(
-    "emits the fixed columns + one column per event + Dietary Requirements + Recorded By",
+    "emits the fixed columns + a status/dietary PAIR per event + Recorded By",
     withDb(
       Effect.gen(function* () {
         const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
@@ -304,11 +384,28 @@ describe("rsvp-export CSV serialisation", () => {
           "Guest First Name",
           "Guest Last Name",
         ]);
-        // Two trailing columns: dietary, then writer provenance (0037).
-        expect(header[header.length - 2]).toBe("Dietary Requirements");
+        // One trailing column: writer provenance (0037). The aggregate
+        // "Dietary Requirements" column is gone — it could only show one of a
+        // guest's per-event answers.
         expect(header[header.length - 1]).toBe("Recorded By");
-        // One column per event sits between the fixed leading + trailing columns.
-        expect(header.length).toBe(4 + data.events.length + 2);
+        expect(header).not.toContain("Dietary Requirements");
+        // Each event contributes a PAIR, interleaved so the caterer for one
+        // event reads its status and its dietary note side by side.
+        expect(header.slice(4, -1)).toEqual(
+          data.events.flatMap((e) => [e.name, `${e.name} Dietary`]),
+        );
+        expect(header.length).toBe(4 + data.events.length * 2 + 1);
+        // Every data row is the same width as the header — an off-by-one in the
+        // interleave would shift every column after the first event.
+        //
+        // Splitting on "," is only a valid way to count columns while no cell
+        // needs RFC 4180 quoting, so assert that precondition rather than
+        // relying on it: a seed family name of "Smith, Jr." would otherwise make
+        // this fail for a reason that has nothing to do with the interleave.
+        expect(csv).not.toContain('"');
+        for (const line of csv.split("\r\n").slice(1)) {
+          expect(line.split(",").length).toBe(header.length);
+        }
       }),
     ),
   );

@@ -43,7 +43,17 @@ vi.mock("./RemintPanel", () => ({
   default: (p: { weddingId: string }) => <div data-testid="codes">{p.weddingId}</div>,
 }));
 vi.mock("./HostsPanel", () => ({
-  default: (p: { weddingId: string }) => <div data-testid="hosts">{p.weddingId}</div>,
+  // Surfaces BOTH flags, for the same reason SettingsPanel surfaces
+  // canEditRsvpDeadline below: `canAdd={props.canEdit}` is the one line
+  // connecting the API's weddingEditor() gate on POST /hosts to the portal's
+  // add form, and with the mock reading only weddingId, reverting it to
+  // `props.canManage` — switching the whole capability off for editors — left
+  // all 663 organiser tests green.
+  default: (p: { weddingId: string; canManage: boolean; canAdd: boolean }) => (
+    <div data-testid="hosts" data-can-manage={String(p.canManage)} data-can-add={String(p.canAdd)}>
+      {p.weddingId}
+    </div>
+  ),
 }));
 vi.mock("./SettingsPanel", () => ({
   // Surfaces canEditRsvpDeadline: it is the one line connecting the API's
@@ -226,6 +236,33 @@ describe("ModuleShell", () => {
       const panel = screen.getByTestId("settings");
       expect(panel.getAttribute("data-can-manage")).toBe("true");
       expect(panel.getAttribute("data-can-edit-rsvp")).toBe("true");
+    });
+  });
+
+  describe("co-hosts — adding follows canEdit, managing follows canManage", () => {
+    // The additive/subtractive split has to survive the trip from OrganiserApp
+    // through this shell: an editor may ADD a co-host (weddingEditor) but not
+    // remove or demote one (weddingOwner). Wiring `canAdd` to the wrong flag
+    // silently disables the feature with the API still granting it.
+    it("gives an editor co-host the add form but not role/remove", () => {
+      renderShell({ canManage: false, canEdit: true, module: "settings", sub: "hosts" });
+      const panel = screen.getByTestId("hosts");
+      expect(panel.getAttribute("data-can-add")).toBe("true");
+      expect(panel.getAttribute("data-can-manage")).toBe("false");
+    });
+
+    it("gives a viewer co-host neither", () => {
+      renderShell({ canManage: false, canEdit: false, module: "settings", sub: "hosts" });
+      const panel = screen.getByTestId("hosts");
+      expect(panel.getAttribute("data-can-add")).toBe("false");
+      expect(panel.getAttribute("data-can-manage")).toBe("false");
+    });
+
+    it("gives the owner both", () => {
+      renderShell({ canManage: true, canEdit: true, module: "settings", sub: "hosts" });
+      const panel = screen.getByTestId("hosts");
+      expect(panel.getAttribute("data-can-add")).toBe("true");
+      expect(panel.getAttribute("data-can-manage")).toBe("true");
     });
   });
 

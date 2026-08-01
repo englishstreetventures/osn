@@ -253,7 +253,7 @@ export function RsvpModal(props: RsvpModalProps) {
       // add its own bottom padding underneath it.
       flushBottom
     >
-      <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">Respond</p>
+      <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">Respond</p>
       <h3
         id={titleId}
         class="font-display text-text text-[1.6rem] font-light italic"
@@ -278,7 +278,7 @@ export function RsvpModal(props: RsvpModalProps) {
 
       <Show when={props.preview}>
         <p
-          class="border-gold/40 bg-gold/5 text-gold mb-6 rounded-sm border px-3.5 py-2.5 text-[0.74rem] leading-relaxed"
+          class="border-gold/40 bg-gold/5 text-gold-ink mb-6 rounded-sm border px-3.5 py-2.5 text-[0.74rem] leading-relaxed"
           role="status"
         >
           Preview — try the RSVP as a guest would. Nothing you send here is saved.
@@ -306,7 +306,7 @@ export function RsvpModal(props: RsvpModalProps) {
                     type="button"
                     class="font-body flex-1 cursor-pointer rounded-sm border px-3 py-2.5 text-[0.82rem] tracking-[0.06em] uppercase transition-colors duration-200"
                     classList={{
-                      "border-gold text-gold bg-gold/8":
+                      "border-gold text-gold-ink bg-gold/8":
                         responses()[guestId]?.attending === "attending",
                       "border-border text-text-muted hover:border-gold-dim hover:text-text":
                         responses()[guestId]?.attending !== "attending",
@@ -321,7 +321,7 @@ export function RsvpModal(props: RsvpModalProps) {
                     type="button"
                     class="font-body flex-1 cursor-pointer rounded-sm border px-3 py-2.5 text-[0.82rem] tracking-[0.06em] uppercase transition-colors duration-200"
                     classList={{
-                      "border-gold text-gold bg-gold/8":
+                      "border-gold text-gold-ink bg-gold/8":
                         responses()[guestId]?.attending === "declined",
                       "border-border text-text-muted hover:border-gold-dim hover:text-text":
                         responses()[guestId]?.attending !== "declined",
@@ -371,7 +371,7 @@ export function RsvpModal(props: RsvpModalProps) {
                           href="/privacy"
                           target="_blank"
                           rel="noopener noreferrer"
-                          class="text-gold underline underline-offset-2"
+                          class="text-gold-ink underline underline-offset-2"
                         >
                           privacy notice
                         </a>
@@ -413,7 +413,7 @@ export function RsvpModal(props: RsvpModalProps) {
           <Show when={!props.closed}>
             <button
               type="submit"
-              class="border-gold font-body text-gold hover:bg-gold hover:text-bg disabled:hover:text-gold flex-1 cursor-pointer rounded-sm border bg-transparent px-4 py-3 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg disabled:hover:text-gold-ink flex-1 cursor-pointer rounded-sm border bg-transparent px-4 py-3 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
               disabled={loading()}
             >
               {loading() ? "Saving…" : "Save"}

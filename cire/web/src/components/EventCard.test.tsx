@@ -44,6 +44,20 @@ describe("EventCard", () => {
     expect(buttons.map((b) => b.textContent)).toEqual(["Respond", "Event Details"]);
   });
 
+  it("paints the date in the prose gold, not the metal (C-M2 / WCAG 1.4.3)", () => {
+    const { getByText } = render(() => (
+      <EventCard event={baseEvent} onRespond={noop} onDetails={noop} />
+    ));
+    // 0.92rem is normal-size text (4.5:1), and the card sits on
+    // `--color-surface-raised` — the surface `--color-gold` is never walked
+    // against. That combination shipped the date at 3.58:1 on the `chapel`
+    // preset and 3.91:1 on `garden`. `--color-gold-ink` is enforced at the
+    // text minimum against all three surfaces, this one included.
+    const classes = getByText(/18 September 2026/).className.split(/\s+/);
+    expect(classes).toContain("text-gold-ink");
+    expect(classes).not.toContain("text-gold");
+  });
+
   it("omits the venue line entirely when the event has no address", () => {
     const noAddress: EventSummary = { ...baseEvent, address: null };
     const { container } = render(() => (

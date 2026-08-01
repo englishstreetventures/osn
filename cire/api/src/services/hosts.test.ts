@@ -6,7 +6,12 @@ import { Effect } from "effect";
 
 import { DbService } from "../db";
 import { createDb } from "../db/setup";
-import { hostConflictReason, hostsService, normaliseHostRole } from "./hosts";
+import {
+  hostConflictReason,
+  hostsService,
+  MAX_HOSTS_PER_WEDDING,
+  normaliseHostRole,
+} from "./hosts";
 
 const OWNER = "usr_owner";
 const ALICE = "usr_alice";
@@ -188,13 +193,86 @@ describe("hostsService.list", () => {
         role: "editor",
       }),
     );
-    const hosts = await run(db, hostsService.list(WEDDING_ID));
+    const { hosts, total } = await run(db, hostsService.list(WEDDING_ID));
     expect(hosts.map((h) => h.osnProfileId)).toEqual([ALICE]);
+    // Attribution rides along: with editors able to create seats, "who added
+    // this one" is what lets an owner spot a seat they didn't create.
+    expect(hosts.map((h) => h.addedByOsnProfileId)).toEqual([OWNER]);
+    // `total` counts the wedding's OWN rows — the other wedding's host is
+    // excluded from it as well as from the list.
+    expect(total).toBe(1);
+  });
+
+  it("caps the seats a wedding can hold, so every seat stays listable (S-H1)", async () => {
+    // The property the cap defends, driven the way the security review drove
+    // the bug: seats past the list ceiling are invisible to the owner, and
+    // DELETE needs a profile id they can only get from that list — so an
+    // uncapped add lets an editor create co-hosts the owner cannot remove.
+    // "Additive, and the owner reverses it" only holds while every seat is
+    // listed, which is what keeps the cap below the ceiling.
+    const db = buildDb();
+    for (let i = 0; i < MAX_HOSTS_PER_WEDDING; i += 1) {
+      await run(
+        db,
+        hostsService.add({
+          weddingId: WEDDING_ID,
+          osnProfileId: `usr_seat_${i}`,
+          addedByOsnProfileId: OWNER,
+          ownerOsnProfileId: OWNER,
+          role: "editor",
+        }),
+      );
+    }
+
+    const err = await run(
+      db,
+      hostsService
+        .add({
+          weddingId: WEDDING_ID,
+          osnProfileId: "usr_one_too_many",
+          addedByOsnProfileId: OWNER,
+          ownerOsnProfileId: OWNER,
+          role: "editor",
+        })
+        .pipe(Effect.flip),
+    );
+    expect(err._tag).toBe("HostConflict");
+    expect((err as { reason: string }).reason).toBe("host_cap_reached");
+
+    // The refusal is real: no row was written, and the whole set is listed.
+    const { hosts, total } = await run(db, hostsService.list(WEDDING_ID));
+    expect(total).toBe(MAX_HOSTS_PER_WEDDING);
+    expect(hosts).toHaveLength(MAX_HOSTS_PER_WEDDING);
+    expect(hosts.some((h) => h.osnProfileId === "usr_one_too_many")).toBe(false);
+  });
+
+  it("reports the true total when a legacy wedding sits above the list ceiling", async () => {
+    // The cap stops new weddings getting here, but rows seeded before it
+    // existed can. `total` is what stops a truncated list looking complete —
+    // an owner shown 200 of 205 has no way to know five readers of their
+    // guests' data are missing from it.
+    const db = buildDb();
+    const now = new Date();
+    for (let i = 0; i < 205; i += 1) {
+      db.insert(weddingHosts)
+        .values({
+          id: `whost_legacy_${i}`,
+          weddingId: WEDDING_ID,
+          osnProfileId: `usr_legacy_${i}`,
+          addedByOsnProfileId: OWNER,
+          role: "editor",
+          createdAt: new Date(now.getTime() + i),
+        })
+        .run();
+    }
+    const { hosts, total } = await run(db, hostsService.list(WEDDING_ID));
+    expect(hosts).toHaveLength(200);
+    expect(total).toBe(205);
   });
 
   it("returns an empty list for a wedding with no co-hosts", async () => {
     const db = buildDb();
-    expect(await run(db, hostsService.list(WEDDING_ID))).toEqual([]);
+    expect(await run(db, hostsService.list(WEDDING_ID))).toEqual({ hosts: [], total: 0 });
   });
 });
 

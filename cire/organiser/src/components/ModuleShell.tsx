@@ -297,7 +297,14 @@ export default function ModuleShell(props: ModuleShellProps) {
               />
             </Show>
             <Show when={active() === "hosts"}>
-              <HostsPanel weddingId={props.weddingId} canManage={props.canManage} />
+              {/* Two flags, because the API has two gates here: adding a
+                  co-host is `weddingEditor()` (so `canEdit`), while changing a
+                  role or removing one stays `weddingOwner()`. */}
+              <HostsPanel
+                weddingId={props.weddingId}
+                canManage={props.canManage}
+                canAdd={props.canEdit}
+              />
             </Show>
           </Show>
         </div>

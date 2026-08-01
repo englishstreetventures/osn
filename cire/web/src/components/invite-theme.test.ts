@@ -209,9 +209,13 @@ describe("global.css lockstep (T-S1)", () => {
       expect(match, `${name} must exist in global.css`).not.toBeNull();
       return match![1].trim();
     };
+    // EVERY derived token, not a hand-picked four. The short list let
+    // `--color-text-muted` drift to an alpha form that no longer matched the
+    // derivation — and because the legal pages never receive a derived palette,
+    // they painted the drifted value with nothing to catch it.
     const derived = derivePalette(PALETTE_PRESETS.evergreen);
-    for (const name of ["--color-bg", "--color-surface", "--color-gold", "--color-text"]) {
-      expect({ name, value: token(name) }).toEqual({ name, value: derived[name] as string });
+    for (const [name, value] of Object.entries(derived)) {
+      expect({ name, value: token(name) }).toEqual({ name, value });
     }
   });
 });

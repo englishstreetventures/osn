@@ -28,7 +28,7 @@ Already strong; documented elsewhere.
 | Recovery | 64-bit single-use codes (Copenhagen Book M2) | [[recovery-codes]] |
 | Service-to-service | ARC tokens (ES256, scoped, kid-pinned, revocable, scope-validated on cache hit) | [[arc-tokens]] |
 | Org admin (Zap M3) | Role-gated `org_agents.role = "admin"` | [[zap]] |
-| Cire organiser | OSN access token (`aud: "osn-access"`) verified via `@shared/osn-auth-client`, then per-wedding **role authz** — three tiers: `weddingOwner()` (owner: code management, host management, delete), `weddingEditor()` (owner or `editor` co-host: module writes — import, invite, locations; viewers get 403 `read_only_role`) — including `PUT /settings`, which the middleware alone cannot decide: the settings body is owner-only EXCEPT the RSVP-by deadline (`rsvpDeadline` + `rsvpDeadlineTimezone`), so the handler applies a **field-level owner check** on top of the gate and refuses a non-owner patch carrying any other key with 403 `owner_only_fields` (logged + counted on `cire.wedding.settings.owner_only_refused`; the allow-list is derived from the request schema's own field list, so a new setting is owner-only by default). Every settings write records its author in `weddings.updated_by_osn_profile_id` (migration 0056) — the panel has two principal classes now, so a change to a guest-facing control is attributable. A deadline may not be set in the PAST by anyone, owner included: a backdated date locks the invite for every guest the instant it lands (400 `rsvp_deadline_in_past`), `weddingMember()` (any role incl. `viewer`: reads + invite preview). Roles live in `wedding_hosts.role` (`editor`/`viewer`), checked per-request from the DB (demotion is immediate, never embedded in the JWT); only the owner assigns roles. | [[cire-auth]] |
+| Cire organiser | OSN access token (`aud: "osn-access"`) verified via `@shared/osn-auth-client`, then per-wedding **role authz** — three tiers: `weddingOwner()` (owner: code management, delete, and the SUBTRACTIVE half of host management — removing a co-host, changing a co-host's role), `weddingEditor()` (owner or `editor` co-host: module writes — import, invite, locations — **and ADDING a co-host**; viewers get 403 `read_only_role`) — including `PUT /settings`, which the middleware alone cannot decide: the settings body is owner-only EXCEPT the RSVP-by deadline (`rsvpDeadline` + `rsvpDeadlineTimezone`), so the handler applies a **field-level owner check** on top of the gate and refuses a non-owner patch carrying any other key with 403 `owner_only_fields` (logged + counted on `cire.wedding.settings.owner_only_refused`; the allow-list is derived from the request schema's own field list, so a new setting is owner-only by default). Every settings write records its author in `weddings.updated_by_osn_profile_id` (migration 0056) — the panel has two principal classes now, so a change to a guest-facing control is attributable. A deadline may not be set in the PAST by anyone, owner included: a backdated date locks the invite for every guest the instant it lands (400 `rsvp_deadline_in_past`), `weddingMember()` (any role incl. `viewer`: reads + invite preview). Roles live in `wedding_hosts.role` (`editor`/`viewer`), checked per-request from the DB (demotion is immediate, never embedded in the JWT). **An `editor` may create a seat; only the owner may change a role or revoke one** (2026-08-01) — the grant boundary is additive-versus-subtractive, not owner-versus-co-host. `editor` is the ceiling anyone can grant (the owner is never rowed into `wedding_hosts`), seats are capped per wedding so the owner's list can never truncate below the real count, and `wedding_hosts.added_by_osn_profile_id` is surfaced in the panel so a seat the owner did not create is visible as such. | [[cire-auth]] |
 | Cire guest | **Guest-session credential class** — family claim code (`families.public_id`) → opaque 256-bit `cire_session` (SHA-256 at rest), family-scoped, gates `/api/rsvp` only. Never an OSN account. | [[cire-auth]] |
 | Cire vendor (sole-trader) | **Vendor principal class** — OSN account holder + organization membership (per `org:read` ARC scope grant). `vendorOrgMember()` middleware gate (fail-closed: missing/failed check → 403, never bypass) protects `/api/vendor/*` listing writes and claim consumption. Scope `org:read` requested by cire-api, granted by osn-api's ARC allowlist; resolved at claim/consume time via ARC verification of the requestor's org membership. | [[cire-auth]] |
 
@@ -146,11 +146,19 @@ grant in the matrix above. Expectations:
   wedding is in-product authz (OSN JWT → the `weddingOwner()` /
   `weddingEditor()` / `weddingMember()` role gates), not console access; it
   grants no visibility into other weddings.
-- **Co-host roles are least-privilege in-product grants.** A wedding's owner
-  may seat other OSN accounts as `editor` (module writes) or `viewer`
-  (read-only) co-hosts (`wedding_hosts.role`); only the owner grants, changes,
-  or revokes a seat, and an unknown/corrupted stored role degrades to
-  `viewer`, never upward. See the roles capability matrix in [[cire-auth]].
+- **Co-host roles are least-privilege in-product grants.** A wedding's owner —
+  **or, since 2026-08-01, an `editor` co-host** — may seat other OSN accounts as
+  `editor` (module writes) or `viewer` (read-only) co-hosts
+  (`wedding_hosts.role`). Only the OWNER may change a role or revoke a seat, and
+  an unknown/corrupted stored role degrades to `viewer`, never upward. Three
+  controls bound the widened grant: `editor` is the ceiling anyone can grant, so
+  no seat outranks its creator; seats are capped per wedding below the list's
+  read ceiling, so the owner's view of who holds access can never silently
+  truncate; and each row records `added_by_osn_profile_id`, surfaced in the
+  panel, so an owner can see which seats they did not create. **Residual, and
+  accepted rather than solved:** a new seat is live immediately and the owner is
+  not notified — tracked as `S-M2` in `[[cire/wiki/todo/security]]`. See the
+  roles capability matrix in [[cire-auth]].
 
 ## Project changes required
 

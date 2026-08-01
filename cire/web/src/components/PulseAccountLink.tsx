@@ -168,7 +168,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
       >
         <h3
           id="pulse-link-heading"
-          class="font-display text-gold mb-1 text-[1.3rem] leading-tight font-light italic"
+          class="font-display text-gold-ink mb-1 text-[1.3rem] leading-tight font-light italic"
         >
           Link your Pulse account
         </h3>
@@ -192,7 +192,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
               <button
                 type="button"
                 onClick={() => signIn(window.location.href)}
-                class="border-gold font-body text-gold hover:bg-gold hover:text-bg self-start rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200"
+                class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg self-start rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200"
               >
                 Sign in with musubi
               </button>
@@ -233,7 +233,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
                     }
                   >
                     <span class="flex items-center gap-2">
-                      <output class="text-gold font-body text-[0.66rem] tracking-[0.12em] uppercase">
+                      <output class="text-gold-ink font-body text-[0.66rem] tracking-[0.12em] uppercase">
                         ✓ Linked
                       </output>
                       <button
@@ -263,7 +263,7 @@ export function PulseAccountLink(props: PulseAccountLinkProps) {
               if (id) void linkMember(id);
             }}
             disabled={!selected() || linking()}
-            class="border-gold font-body text-gold hover:bg-gold hover:text-bg mt-4 rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+            class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg mt-4 rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
           >
             {linking() ? "Linking…" : "Link my account"}
           </button>

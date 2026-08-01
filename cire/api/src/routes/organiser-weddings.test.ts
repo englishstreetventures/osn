@@ -994,9 +994,29 @@ describe("GET /api/organiser/weddings/:weddingId/rsvps.csv", () => {
     expect(res.headers.get("cache-control")).toContain("no-store");
 
     const body = await res.text();
-    const header = body.split("\r\n")[0]!;
-    expect(header).toContain("Family Code");
-    expect(header).toContain("Dietary Requirements");
+    const columns = body.split("\r\n")[0]!.split(",");
+
+    // Dietary is a column PER EVENT now, not one aggregate column that could
+    // only ever show one of a guest's per-event answers. Asserted as the exact
+    // shape rather than a `toContain(" Dietary")`, which any event merely NAMED
+    // "… Dietary" would satisfy without the interleave existing.
+    expect(columns.slice(0, 4)).toEqual([
+      "Family Code",
+      "Family Name",
+      "Guest First Name",
+      "Guest Last Name",
+    ]);
+    expect(columns.at(-1)).toBe("Recorded By");
+    expect(columns).not.toContain("Dietary Requirements");
+    // The middle is pairs: every second column from index 4 is a dietary column
+    // named after the status column immediately before it.
+    const middle = columns.slice(4, -1);
+    expect(middle.length % 2).toBe(0);
+    expect(middle.length).toBeGreaterThan(0);
+    for (let i = 0; i < middle.length; i += 2) {
+      expect(middle[i + 1]).toBe(`${middle[i]} Dietary`);
+    }
+
     expect(body).toContain("Attending");
     expect(body).toContain("Gluten free");
   });

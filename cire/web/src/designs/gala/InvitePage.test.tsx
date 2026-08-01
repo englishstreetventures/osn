@@ -639,6 +639,23 @@ describe("gala InvitePage", () => {
       expect(notice.className).toContain("text-center");
     });
 
+    it("paints the open notice in the prose gold, not the metal (WCAG 1.4.3)", async () => {
+      await claimWithDeadline({
+        date: "2999-09-01",
+        timezone: "Australia/Sydney",
+        closesAt: "2999-09-01T13:59:59.999Z",
+        closed: false,
+      });
+
+      // Asserted per pack, like the centring above: the two packs place this
+      // line at separate call sites with nothing shared between them, so one
+      // can regress to `text-gold` — held only to the 3:1 UI floor — while the
+      // other stays correct.
+      const classes = document.getElementById("rsvp-deadline-notice")!.className.split(/\s+/);
+      expect(classes).toContain("text-gold-ink");
+      expect(classes).not.toContain("text-gold");
+    });
+
     it("locks every card and states the date once the deadline has passed", async () => {
       const { getByText, getAllByRole } = await claimWithDeadline({
         date: "2020-09-01",

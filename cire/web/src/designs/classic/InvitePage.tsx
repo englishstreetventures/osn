@@ -200,7 +200,7 @@ export default function InvitePage(props: InvitePageProps) {
             ref={eventsSectionRef}
             class="border-border border-y px-6 py-16 opacity-0 md:px-8 md:py-20"
             // The section paints whichever derived surface its tone names; the
-            // `text-gold` / `font-display` / `border-border` utilities on the
+            // `text-gold-ink` / `font-display` / `border-border` utilities on the
             // header and on every EventCard descendant already resolve the
             // organiser's scheme from the root palette.
             style={{
@@ -209,7 +209,7 @@ export default function InvitePage(props: InvitePageProps) {
             }}
           >
             <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
-              <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+              <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
                 {detailsEyebrow()}
               </p>
               <h2 class="font-display text-text mb-5 text-[calc(clamp(2rem,5vw,3rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
@@ -222,13 +222,21 @@ export default function InvitePage(props: InvitePageProps) {
                   above) so it reads as their label rather than as a third line
                   of section header. Centred: it speaks for the whole list, so it
                   sits on the section's own axis rather than picking out the
-                  first card. */}
+                  first card.
+
+                  `text-gold-ink`, not `text-gold`: at 0.85rem this is a
+                  sentence, and WCAG 1.4.3 asks 4.5:1 of normal-size text, while
+                  the metal token is deliberately held to the 3:1 UI floor so a
+                  genuinely gold gold survives. A live invite shipped this line
+                  at 3.35:1 on a taupe-on-cream scheme — over the floor, under
+                  the bar, so nothing moved it. The prose token is the same hue
+                  walked to 4.5:1 against all three section surfaces. */}
               <Show when={rsvpNotice()}>
                 {(notice) => (
                   <p
                     id={RSVP_NOTICE_ID}
                     class="font-body mb-3 text-center text-[0.85rem]"
-                    classList={{ "text-text-muted": rsvpClosed(), "text-gold": !rsvpClosed() }}
+                    classList={{ "text-text-muted": rsvpClosed(), "text-gold-ink": !rsvpClosed() }}
                     role="status"
                   >
                     {notice()}

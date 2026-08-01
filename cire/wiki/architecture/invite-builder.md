@@ -335,16 +335,38 @@ pushes surfaces AWAY from `ground` — so one function produces a coherent dark
 invite and a coherent light one with no `isDark` flag threaded through
 components.
 
-Enforcement runs each token against **one** backdrop, though — ink against card
-and ground, muted against card, gilt against ground — because a token nudged to
-clear every surface it might ever touch gets dragged to an extreme by the
-hardest pair and stops looking like the organiser's colour. The surface left out
-of that walk entirely is **`raised`**, which is derived as `card ± 0.05`
-lightness, so a pair can clear against `card` and miss against `raised` by a
-hair. `paletteContrastWarnings(tokens)` measures the residue on the **derived**
-token map (never on the seeds, so the ratio quoted is the one a guest gets) and
-the builder shows it under the scheme editor with the measured ratio and the bar
-each pair missed.
+How far a token is walked depends on **whether the organiser chose it.** `ink`
+and the metal `gilt` are their seeds, so each clears one backdrop only — ink
+against card and ground, gilt against ground — because a chosen colour nudged
+until it clears every surface it might ever touch gets dragged to an extreme by
+the hardest pair and stops looking like theirs. The two **prose** tokens are not
+chosen by anyone; they are variants we compute, so both are walked against all
+three surfaces at the text minimum, where moving them costs subtlety and not
+identity:
+
+| Token | What it paints | Walked against |
+|---|---|---|
+| `--color-text-muted` | venue lines, descriptions, the closed RSVP-by line | card, raised, ground @ 4.5:1 |
+| `--color-gold-ink` | the open RSVP-by line, the event-card date | card, raised, ground @ 4.5:1 |
+
+`--color-gold-ink` exists because **`--color-gold` is the metal, not a text
+colour.** Holding it to 3:1 is right for a rule, a border or a display heading
+and wrong for a sentence, and holding *it* to 4.5 would drag every rule and
+button along. So gold-as-prose is split off: the organiser's hue walked far
+enough to be read, while `--color-gold` still paints their metal exactly as
+picked. The live failure that prompted the split was an RSVP-by line at 3.35:1
+— over the UI floor, under WCAG 1.4.3's 4.5:1 for 0.85rem text, so nothing had
+moved it.
+
+Two ways to still arrive at a residue, then. **`raised`** is outside ink's and
+gilt's walks and is derived as `card ± 0.05` lightness, so either can clear
+against `card` and miss against `raised` by a hair. And a scheme that
+**straddles** the lightness midpoint (near-black page under near-white cards)
+defeats even a three-surface walk: the step that rescues a token on one surface
+pushes it the wrong way for the other. `paletteContrastWarnings(tokens)`
+measures both on the **derived** token map (never on the seeds, so the ratio
+quoted is the one a guest gets) and the builder shows it under the scheme editor
+with the measured ratio and the bar each pair missed.
 
 **Each pair names the surface it measures**, and getting that wrong is the easy
 mistake — the first cut had it crossed in both directions (measuring
@@ -354,19 +376,19 @@ saying "pop-ups"). On the guest site it is the other way round:
 | Token | Where it is actually painted |
 |---|---|
 | `--color-surface` | the modal shell (`AnimatedModal`) and the RSVP sheet's sticky footer — everything on it is already enforced |
-| `--color-surface-raised` | every `EventCard` and the RSVP sheet's notice block — carries the card title (`--color-text`), venue + description (`--color-text-muted`) and the date (`--color-gold`) |
-| `--color-bg` | section backgrounds — muted section copy, the RSVP-by line |
+| `--color-surface-raised` | every `EventCard` and the RSVP sheet's notice block — carries the card title (`--color-text`), venue + description (`--color-text-muted`) and the date (`--color-gold-ink`) |
+| `--color-bg` | section backgrounds — muted section copy, the RSVP-by line. A section's tone is the organiser's pick, so that line can land on any of the three surfaces — which is why both prose tokens are walked against all three rather than against this one |
 
-Two deliberate calls in that table. **Muted text is held to 4.5:1, not the 3:1
-UI floor the derivation uses**, because every `--color-text-muted` site on the
-invite is small text (0.74–0.92rem) and printing "needs 3:1" beside a text pair
-would state the wrong requirement to the organiser as fact. All five presets
-clear 4.5 there, so it costs no false alarms. **`gilt-on-raised` is held to 3:1
-even though its most prominent job is the event-card date** (0.92rem, i.e.
-normal text at 4.5:1) — at 4.5 the curated `chapel` (3.58:1) and `garden`
-(3.91:1) presets would warn out of the box, and a warning that fires on our own
-shipped schemes teaches organisers to ignore it. That preset gap is real and
-filed in `[[security]]`; the 3:1 bar still catches what this check exists for.
+Two deliberate calls in that table. **The two muted pairs are backstops, not the
+primary mechanism** — muted is now walked against all three surfaces at 4.5:1,
+so `muted-on-raised` / `muted-on-ground` can only fire on a straddling scheme.
+They stay because that case is real. And **`gilt-on-raised` is held to 3:1**,
+which is now correct rather than a compromise: `--color-gold` no longer paints
+any normal-size text on that surface. The event-card date — the 0.92rem line
+that made it a text pair wearing a UI bar, and the reason `chapel` (3.58:1) and
+`garden` (3.91:1) would have warned out of the box at 4.5 — moved to
+`--color-gold-ink`, closing **C-M2**. What is left on that pair is genuinely UI:
+the card's outlined buttons, the hairlines and the lit card edge.
 **`--color-bloom` has no pair at all** — it is a defined token with no render
 site anywhere in `cire/web`, so a warning about it would concern a colour no
 guest can see.

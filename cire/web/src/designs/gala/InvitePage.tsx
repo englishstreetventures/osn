@@ -222,7 +222,7 @@ export default function InvitePage(props: InvitePageProps) {
           >
             {/* Login form — visible before claim */}
             <div ref={(el) => (loginFormRef = el)} style={{ display: claimResult() ? "none" : "" }}>
-              <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+              <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
                 Your Invitation
               </p>
               <h2 class="font-display text-text mb-5 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
@@ -262,7 +262,7 @@ export default function InvitePage(props: InvitePageProps) {
                 <TurnstileWidget onToken={claim.setTurnstileToken} class="flex justify-center" />
                 <button
                   type="submit"
-                  class="border-gold font-body text-gold hover:bg-gold hover:text-bg disabled:hover:text-gold w-full rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                  class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg disabled:hover:text-gold-ink w-full rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                   disabled={
                     claim.loading() ||
                     !claim.code().trim() ||
@@ -279,7 +279,7 @@ export default function InvitePage(props: InvitePageProps) {
             <div ref={(el) => (welcomeRef = el)} style={{ display: claimResult() ? "" : "none" }}>
               <Show when={claimResult()?.preview}>
                 <p
-                  class="border-gold/40 bg-gold/5 text-gold mb-6 rounded-sm border px-4 py-3 text-[0.78rem] tracking-[0.08em] uppercase"
+                  class="border-gold/40 bg-gold/5 text-gold-ink mb-6 rounded-sm border px-4 py-3 text-[0.78rem] tracking-[0.08em] uppercase"
                   role="status"
                 >
                   Preview mode. Every event is shown; try the RSVP, nothing you send is saved.
@@ -289,7 +289,7 @@ export default function InvitePage(props: InvitePageProps) {
                 when={isIndividual()}
                 fallback={
                   <>
-                    <h2 class="font-display text-gold mb-3 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
+                    <h2 class="font-display text-gold-ink mb-3 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                       Welcome, the {claimResult()?.familyName} Family
                     </h2>
                     <p class="text-text-muted mb-2 text-[0.92rem] leading-[1.6] font-light">
@@ -308,7 +308,7 @@ export default function InvitePage(props: InvitePageProps) {
                   </>
                 }
               >
-                <h2 class="font-display text-gold mb-3 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
+                <h2 class="font-display text-gold-ink mb-3 text-[calc(clamp(1.5rem,4vw,2rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
                   Dear {individualName()}
                 </h2>
                 <p class="text-text-muted mb-8 text-[0.92rem] leading-[1.6] font-light">
@@ -326,7 +326,7 @@ export default function InvitePage(props: InvitePageProps) {
             ref={eventsSectionRef}
             class="border-border border-y px-6 py-16 opacity-0 md:px-10 md:py-20"
             // The section paints whichever derived surface its tone names; the
-            // `text-gold` / `font-display` / `border-border` utilities on the
+            // `text-gold-ink` / `font-display` / `border-border` utilities on the
             // header and on every EventCard descendant already resolve the
             // organiser's scheme from the root palette.
             style={{
@@ -336,7 +336,7 @@ export default function InvitePage(props: InvitePageProps) {
           >
             <div class="mx-auto max-w-[1200px]">
               <div data-testid="events-column" class="max-w-[960px] text-left">
-                <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+                <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
                   {detailsEyebrow()}
                 </p>
                 <h2 class="font-display text-text mb-5 text-[calc(clamp(1.75rem,4vw,2.5rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] [font-style:var(--invite-heading-style,normal)]">
@@ -350,13 +350,20 @@ export default function InvitePage(props: InvitePageProps) {
                     to the heading above. Held tight to them (`mb-3`) so it reads
                     as their label. Centred on the column — it speaks for the
                     whole list, so it takes the column's axis rather than the
-                    left edge the cards' own copy runs along. */}
+                    left edge the cards' own copy runs along.
+
+                    `text-gold-ink`, not `text-gold` — see the same line in the
+                    `classic` pack: the metal token is held to the 3:1 UI floor,
+                    which is the wrong bar for a 0.85rem sentence. */}
                 <Show when={rsvpNotice()}>
                   {(notice) => (
                     <p
                       id={RSVP_NOTICE_ID}
                       class="font-body mb-3 text-center text-[0.85rem]"
-                      classList={{ "text-text-muted": rsvpClosed(), "text-gold": !rsvpClosed() }}
+                      classList={{
+                        "text-text-muted": rsvpClosed(),
+                        "text-gold-ink": !rsvpClosed(),
+                      }}
                       role="status"
                     >
                       {notice()}

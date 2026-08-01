@@ -174,9 +174,7 @@ describe("PaletteField", () => {
     const heading = await waitFor(() => screen.getByText("Some colours are hard to read"));
     const notice = heading.parentElement!;
     expect(notice.getAttribute("role")).toBe("status");
-    expect(notice.textContent).toContain(
-      "Dates, buttons and rules are hard to see on event cards.",
-    );
+    expect(notice.textContent).toContain("Buttons and rules are hard to see on event cards.");
     // The measured ratio and the bar it missed, so the warning is checkable
     // rather than a bare verdict.
     expect(notice.textContent).toMatch(/\d+(\.\d+)?:1, needs 3:1/);
@@ -235,7 +233,7 @@ describe("PaletteField", () => {
 
     const heading = await waitFor(() => screen.getByText("Some colours are hard to read"));
     expect(heading.parentElement!.textContent).toContain(
-      "Dates, buttons and rules are hard to see on event cards.",
+      "Buttons and rules are hard to see on event cards.",
     );
   });
 });

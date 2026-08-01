@@ -63,7 +63,7 @@ export function LoginSection(props: LoginSectionProps) {
       <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
         {/* Login form — visible before claim */}
         <div ref={props.formRef} style={{ display: props.result ? "none" : "" }}>
-          <p class="font-body text-gold mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+          <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
             Your Invitation
           </p>
           <h2 class="font-display text-text mb-5 text-[clamp(2rem,5vw,3rem)] leading-[1.15] font-light">
@@ -106,7 +106,7 @@ export function LoginSection(props: LoginSectionProps) {
             <TurnstileWidget onToken={claim.setTurnstileToken} class="flex justify-center" />
             <button
               type="submit"
-              class="border-gold font-body text-gold hover:bg-gold hover:text-bg disabled:hover:text-gold rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg disabled:hover:text-gold-ink rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
               disabled={
                 claim.loading() ||
                 !claim.code().trim() ||
@@ -122,7 +122,7 @@ export function LoginSection(props: LoginSectionProps) {
         <div ref={props.welcomeRef} style={{ display: props.result ? "" : "none" }}>
           <Show when={props.result?.preview}>
             <p
-              class="border-gold/40 bg-gold/5 text-gold mx-auto mb-6 max-w-[420px] rounded-sm border px-4 py-3 text-[0.78rem] tracking-[0.08em] uppercase"
+              class="border-gold/40 bg-gold/5 text-gold-ink mx-auto mb-6 max-w-[420px] rounded-sm border px-4 py-3 text-[0.78rem] tracking-[0.08em] uppercase"
               role="status"
             >
               Preview mode. Every event is shown; try the RSVP, nothing you send is saved.

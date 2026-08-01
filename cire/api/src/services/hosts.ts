@@ -1,5 +1,5 @@
 import { weddingHosts, weddings } from "@cire/db";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, count, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
@@ -32,13 +32,49 @@ export interface WeddingHostRow {
   osnProfileId: string;
   role: HostRole;
   createdAt: Date;
+  /**
+   * Who created this seat. Surfaced (not just stored) because `POST /hosts` is
+   * open to editors: an owner looking at their co-host list needs to see which
+   * seats they did not create themselves, since a seat grants the household
+   * claim codes (`guests.csv`'s first column) and the Art. 9 dietary export.
+   * Without it, an editor-added co-host is indistinguishable from an
+   * owner-added one and the owner has nothing to react to.
+   */
+  addedByOsnProfileId: string;
 }
 
-/** The add would duplicate an existing seat, or target the owner (who is
- *  already implicitly a host and can't be demoted into the join table). */
+/** The add would duplicate an existing seat, target the owner (who is already
+ *  implicitly a host and can't be demoted into the join table), or push the
+ *  wedding past {@link MAX_HOSTS_PER_WEDDING}. */
 export class HostConflict extends Data.TaggedError("HostConflict")<{
-  reason: "already_host" | "owner_is_host";
+  reason: "already_host" | "owner_is_host" | "host_cap_reached";
 }> {}
+
+/**
+ * How many co-host seats one wedding may hold, and the reason there is a
+ * number here at all.
+ *
+ * `POST /hosts` is `weddingEditor()`-gated, so an editor can create seats. The
+ * design's whole safety argument is that this is safe BECAUSE it is additive:
+ * only the owner can remove, so every seat an editor creates is reversible by
+ * the one person who can't be removed. That argument depends on the owner being
+ * able to SEE every seat — and {@link LIST_CEILING} truncates the list. A
+ * security review drove it: 211 seats added, 200 listed, **11 live co-hosts the
+ * owner could neither see nor name in a DELETE**. Reversibility silently ran out.
+ *
+ * So the cap sits well below the read ceiling, which turns "the list shows every
+ * seat" from a coincidence into a structural invariant. 50 is far past any real
+ * wedding (a couple, both sets of parents, a planner) and far short of 200.
+ */
+export const MAX_HOSTS_PER_WEDDING = 50;
+
+/**
+ * Row ceiling on the co-host list. Kept ABOVE {@link MAX_HOSTS_PER_WEDDING} on
+ * purpose: it is the defensive bound (P-I1), not the policy, and the gap is
+ * what guarantees a wedding at the cap is still listed whole. Legacy weddings
+ * seeded past the cap before it existed still list up to this many.
+ */
+const LIST_CEILING = 200;
 
 /** A host row could not be written/removed (driver error). */
 export class HostWriteError extends Data.TaggedError("HostWriteError")<{
@@ -64,13 +100,20 @@ export function hostConflictReason(message: string): HostConflict["reason"] | nu
 
 export const hostsService = {
   /**
-   * Add `osnProfileId` as a co-host of `weddingId` with the given role. The
-   * caller (route) has already proven, via `weddingOwner()`, that
-   * `addedByOsnProfileId` owns the wedding and passes the wedding's
-   * `ownerOsnProfileId` so we can reject adding the owner themselves (they're
-   * already implicitly a host — rowing them in would let a later "remove host"
-   * appear to strip the owner). A repeat add is caught from the unique index as
-   * `already_host`, never a duplicate seat.
+   * Add `osnProfileId` as a co-host of `weddingId` with the given role.
+   *
+   * The route has proven, via `weddingEditor()`, that the caller may add — the
+   * OWNER or an `editor` co-host. So `addedByOsnProfileId` (the actor, kept for
+   * attribution) and `ownerOsnProfileId` (the wedding's owner, read from the
+   * wedding row) are DIFFERENT ids and must stay that way: conflating them
+   * would make the owner-is-host check compare the owner against the editor,
+   * miss, and row the owner in as a co-host of their own wedding — after which
+   * a later "remove host" would appear to strip them.
+   *
+   * Three ways to be refused: the target is the owner (`owner_is_host`), the
+   * target already holds a seat (`already_host`, from the unique index — never
+   * a duplicate seat, and never a silent promotion of an existing `viewer`),
+   * or the wedding is at {@link MAX_HOSTS_PER_WEDDING} (`host_cap_reached`).
    */
   add(input: {
     weddingId: string;
@@ -84,6 +127,29 @@ export const hostsService = {
 
       if (input.osnProfileId === input.ownerOsnProfileId) {
         return yield* Effect.fail(new HostConflict({ reason: "owner_is_host" }));
+      }
+
+      // Cap check before the insert. Deliberately count-then-insert rather than
+      // a constraint: SQLite can't express "at most N rows per wedding_id", and
+      // the alternative (insert then count then delete) leaves a live seat for
+      // the width of the round trip. The race — two adds passing the count at
+      // once — can overshoot by the number of concurrent writers, which is
+      // bounded by the per-user rate limiter and lands far below the list
+      // ceiling; the invariant that matters (every seat is listable, therefore
+      // removable) survives an overshoot of a handful.
+      const [seats] = yield* dbQuery(() =>
+        db
+          .select({ count: count() })
+          .from(weddingHosts)
+          .where(eq(weddingHosts.weddingId, input.weddingId))
+          .all(),
+      );
+      if ((seats?.count ?? 0) >= MAX_HOSTS_PER_WEDDING) {
+        yield* Effect.logWarning("host add refused: cap reached", {
+          weddingId: input.weddingId,
+          cap: MAX_HOSTS_PER_WEDDING,
+        });
+        return yield* Effect.fail(new HostConflict({ reason: "host_cap_reached" }));
       }
 
       const id = `whost_${crypto.randomUUID()}`;
@@ -123,8 +189,19 @@ export const hostsService = {
     }).pipe(Effect.withSpan("cire.host.add"));
   },
 
-  /** All co-hosts of a wedding, oldest first. */
-  list(weddingId: string): Effect.Effect<WeddingHostRow[], never, DbService> {
+  /**
+   * All co-hosts of a wedding, oldest first, plus the true row count.
+   *
+   * `total` exists so truncation can never be silent. The list is bounded by
+   * {@link LIST_CEILING}; `MAX_HOSTS_PER_WEDDING` keeps a compliant wedding
+   * well under it, but a wedding seeded past the cap before it existed can
+   * still exceed it, and a caller that cannot tell "50 seats" from "50 of 211
+   * seats" will quietly show an owner an incomplete list of who can read their
+   * guests' data.
+   */
+  list(
+    weddingId: string,
+  ): Effect.Effect<{ hosts: WeddingHostRow[]; total: number }, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const rows = yield* dbQuery(() =>
@@ -134,16 +211,29 @@ export const hostsService = {
             osnProfileId: weddingHosts.osnProfileId,
             role: weddingHosts.role,
             createdAt: weddingHosts.createdAt,
+            addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
           })
           .from(weddingHosts)
           .where(eq(weddingHosts.weddingId, weddingId))
           .orderBy(asc(weddingHosts.createdAt))
           // Defensive ceiling (P-I1): a wedding has a handful of hosts; bounds
           // the worst-case payload if a row ever accumulates pathologically many.
-          .limit(200)
+          .limit(LIST_CEILING)
           .all(),
       );
-      return rows.map((row) => ({ ...row, role: normaliseHostRole(row.role) }));
+      // Counted in the same parallel step rather than derived from `rows.length`,
+      // which would report the ceiling as the truth exactly when it isn't.
+      const [total] = yield* dbQuery(() =>
+        db
+          .select({ count: count() })
+          .from(weddingHosts)
+          .where(eq(weddingHosts.weddingId, weddingId))
+          .all(),
+      );
+      return {
+        hosts: rows.map((row) => ({ ...row, role: normaliseHostRole(row.role) })),
+        total: total?.count ?? rows.length,
+      };
     }).pipe(Effect.withSpan("cire.host.list"));
   },
 

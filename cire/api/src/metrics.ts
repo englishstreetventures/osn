@@ -198,6 +198,10 @@ export type HostAddResult =
   | "osn_unavailable"
   | "already_host"
   | "owner_is_host"
+  // The wedding is at MAX_HOSTS_PER_WEDDING. Worth its own label rather than
+  // folding into `error`: a rise here is the signal that someone is trying to
+  // create seats in bulk, which is the abuse the cap exists to bound.
+  | "host_cap_reached"
   | "disabled"
   | "error";
 

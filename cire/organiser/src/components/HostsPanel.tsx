@@ -16,6 +16,11 @@ interface HostRow {
   handle?: string;
   role: HostRole;
   createdAt: number;
+  /** Who created this seat. Absent on the add response (it is by definition the
+   *  caller) and on a mid-deploy payload from an older API. */
+  addedByOsnProfileId?: string;
+  /** The adder's handle when the batch lookup resolved it. */
+  addedByHandle?: string;
 }
 
 const ROLE_OPTIONS: { value: HostRole; label: string; hint: string }[] = [
@@ -49,16 +54,27 @@ const optionId = (i: number) => `host-handle-option-${i}`;
 
 interface HostsPanelProps {
   weddingId: string;
-  /** True when the signed-in organiser owns this wedding. Owners can add/remove
-   *  co-hosts; co-hosts see the list read-only. */
+  /** True when the signed-in organiser owns this wedding. Owners can change a
+   *  co-host's role and remove one — the subtractive half of host management. */
   canManage: boolean;
+  /** True for the owner OR an `editor` co-host — mirrors the API's
+   *  `weddingEditor()` gate on `POST /hosts`. Adding is the additive half, and
+   *  it is deliberately open wider than removal so the owner isn't the single
+   *  person who has to bring everyone on board. */
+  canAdd: boolean;
 }
 
 /**
- * Hosts section of a wedding's dashboard. Lists the wedding's co-hosts and — for
- * the owner — lets them add another organiser by OSN handle or remove one. A
- * co-host gets access to this wedding's dashboard; only the owner manages the
- * list.
+ * Hosts section of a wedding's dashboard. Lists the wedding's co-hosts; the
+ * owner or an editor can add another organiser by OSN handle, and the owner
+ * alone can change a role or remove someone.
+ *
+ * The two flags are separate because the API's two gates are separate, and the
+ * split is additive-versus-subtractive: an editor can grow the team (their
+ * ceiling is `editor` — there is no seat above their own to grant), but only
+ * the owner can shrink or demote it, so every addition stays reversible by the
+ * one person who can't be removed. Offering a button here that the API would
+ * 403 is the failure this mirroring avoids.
  */
 export default function HostsPanel(props: HostsPanelProps) {
   const { authFetch } = useAuth();
@@ -71,6 +87,9 @@ export default function HostsPanel(props: HostsPanelProps) {
   const [addError, setAddError] = createSignal<string | null>(null);
   // Profile id of the host whose role change is in flight (disables its button).
   const [roleBusyId, setRoleBusyId] = createSignal<string | null>(null);
+  // True row count from the API; compared against what we rendered.
+  const [total, setTotal] = createSignal(0);
+  const truncated = () => total() > hosts().length;
 
   // --- Handle autocomplete state ---------------------------------------------
   const [suggestions, setSuggestions] = createSignal<HandleSuggestion[]>([]);
@@ -182,8 +201,12 @@ export default function HostsPanel(props: HostsPanelProps) {
       const res = await authFetch(endpoint());
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error("Failed to load");
-      const body = (await res.json()) as { hosts: HostRow[] };
+      const body = (await res.json()) as { hosts: HostRow[]; total?: number };
       setHosts(body.hosts);
+      // `total` > the rows we got means the API truncated. Surfaced rather than
+      // ignored: an owner shown a partial list has no way to know that someone
+      // who can read their guests' data is missing from it.
+      setTotal(body.total ?? body.hosts.length);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Could not load hosts. Is the API running?");
@@ -301,12 +324,14 @@ export default function HostsPanel(props: HostsPanelProps) {
         title="Share this wedding's dashboard"
         description={
           props.canManage
-            ? "Invite a partner or planner to help. Add them by their OSN handle — editors can change everything here, viewers can only look around, and only you, the owner, manage who hosts it."
-            : "These co-hosts help run this wedding — editors can make changes, viewers can only look around. The owner manages who's on this list."
+            ? "Invite a partner or planner to help. Add them by their OSN handle — editors can change everything here and bring in more helpers, viewers can only look around, and only you, the owner, can change a role or remove someone."
+            : props.canAdd
+              ? "Invite a partner or planner to help — add them by their OSN handle. Editors can change everything here, viewers can only look around. Changing a role or removing someone is the owner's call."
+              : "These co-hosts help run this wedding — editors can make changes, viewers can only look around. Ask the owner for editor access to add someone."
         }
       />
 
-      <Show when={props.canManage}>
+      <Show when={props.canAdd}>
         <form class="flex flex-col gap-3" onSubmit={add}>
           <div class="flex flex-col gap-1.5">
             <label
@@ -461,12 +486,24 @@ export default function HostsPanel(props: HostsPanelProps) {
       </Show>
 
       <Show when={!loading() && !error()}>
+        {/* Never let a truncated list look complete: a seat that isn't shown is
+            a seat the owner can't remove, and every seat can read the household
+            claim codes and the dietary export. */}
+        <Show when={truncated()}>
+          <p
+            role="alert"
+            class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]"
+          >
+            Showing {hosts().length} of {total()} co-hosts. Contact support — some seats on this
+            wedding aren&apos;t listed here and can&apos;t be removed from this screen.
+          </p>
+        </Show>
         <Show
           when={hosts().length > 0}
           fallback={
             <p class="border-border bg-surface/30 text-text-muted rounded-sm border p-6 text-[0.88rem]">
               No co-hosts yet.{" "}
-              {props.canManage
+              {props.canAdd
                 ? "Add one above to share this wedding."
                 : "Only the owner manages this wedding for now."}
             </p>
@@ -497,6 +534,24 @@ export default function HostsPanel(props: HostsPanelProps) {
                     >
                       {host.role === "viewer" ? "Viewer" : "Editor"}
                     </span>
+                    {/* Who seated them. Shown only to the owner, and only when
+                        it wasn't the owner's own doing — an editor can create
+                        seats now, so a seat the owner didn't create is the thing
+                        worth surfacing. Absent on older API payloads. */}
+                    <Show
+                      when={
+                        props.canManage &&
+                        host.addedByOsnProfileId &&
+                        host.addedByOsnProfileId !== host.osnProfileId &&
+                        (host.addedByHandle ?? host.addedByOsnProfileId)
+                      }
+                    >
+                      {(addedBy) => (
+                        <span class="font-body text-text-muted text-[0.68rem] tracking-[0.06em]">
+                          added by {host.addedByHandle ? `@${host.addedByHandle}` : addedBy()}
+                        </span>
+                      )}
+                    </Show>
                   </span>
                   <Show when={props.canManage}>
                     <span class="flex items-center gap-3">

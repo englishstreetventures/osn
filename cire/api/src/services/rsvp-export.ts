@@ -36,9 +36,22 @@ export interface RsvpExportRow {
   lastName: string;
   /** RSVP cell per event, in the same order as `RsvpExport.events`. */
   cells: EventCell[];
-  /** Dietary requirements text — blank unless the guest is attending an event
-   *  with a non-empty dietary note. */
-  dietary: string;
+  /**
+   * Dietary note PER EVENT — index-aligned with {@link cells} and
+   * `RsvpExport.events`, blank where the guest isn't invited, hasn't replied,
+   * or left the field empty.
+   *
+   * This was a single string until it was reported from a live wedding: a guest
+   * marked "fish only" for the mehendi and nothing for the other events, and the
+   * download showed no dietary note at all for them. `rsvps.dietary` is stored
+   * per (guest, event) — one reply per event, each with its own field — so
+   * collapsing it to one cell had to pick a winner, and picking a winner means
+   * silently dropping every other event's answer. There is no correct winner to
+   * pick: a guest who eats fish at the mehendi and is vegetarian at the
+   * reception has two true answers, and the caterer for each event needs THEIR
+   * one. So the column follows the data and there is one per event.
+   */
+  dietary: string[];
   /** Writer provenance across this guest's replies (migration 0037):
    *   - "guest"     — every reply was self-submitted.
    *   - "organiser" — at least one reply was organiser-recorded
@@ -447,18 +460,14 @@ export const rsvpExportService = {
           return mapStatus(rsvp.status);
         });
 
-        // Dietary: the guest's non-empty dietary note from any of their RSVPs.
-        // A guest RSVPs once per event; we surface the first non-empty note
-        // (deterministic over the event order) so a single requirement shows
-        // even if it was attached to one of several event RSVPs.
-        let dietary = "";
-        for (const e of orderedEvents) {
-          const rsvp = rsvpByGuest.get(g.guestId)?.get(e.id);
-          if (rsvp && rsvp.dietary.trim().length > 0) {
-            dietary = rsvp.dietary;
-            break;
-          }
-        }
+        // Dietary, per event — index-aligned with `cells` above, and blanked on
+        // exactly the same condition: an uninvited guest gets no cell in either
+        // column, so a stale reply to an event they were later dropped from
+        // can't show a requirement beside an empty status.
+        const dietary: string[] = orderedEvents.map((e) => {
+          if (!g.invited.has(e.id)) return "";
+          return rsvpByGuest.get(g.guestId)?.get(e.id)?.dietary ?? "";
+        });
 
         // Writer provenance across the guest's replies: "organiser" if ANY
         // reply was organiser-recorded (so the dietary/consent is attested),
@@ -512,15 +521,30 @@ const RECORDED_BY_LABEL: Record<RsvpExportRow["recordedBy"], string> = {
   organiser: "Organiser",
 };
 
-/** Fixed leading columns, then one per event, then dietary, then recorded-by. */
+/**
+ * Fixed leading columns, then a PAIR per event — the status and that event's
+ * dietary note, side by side — then recorded-by.
+ *
+ * Interleaved rather than a block of statuses followed by a block of dietary
+ * notes: the person reading this is catering one event, and wants that event's
+ * "Attending" sitting next to that event's "fish only" without counting columns
+ * across the sheet. It also means adding an event inserts two adjacent columns
+ * instead of one in each of two distant places.
+ *
+ * The single aggregate "Dietary Requirements" column this replaces could only
+ * ever show one of a guest's answers — see {@link RsvpExportRow.dietary}.
+ */
 export function toCsv(data: RsvpExport): string {
   const header = [
     "Family Code",
     "Family Name",
     "Guest First Name",
     "Guest Last Name",
-    ...data.events.map((e) => e.name),
-    "Dietary Requirements",
+    // Event names are organiser-supplied and not guaranteed unique, so two
+    // events called "Dinner" already produced two identical status columns
+    // before this change; the dietary column inherits that and is suffixed the
+    // same way, keeping the pair readable as a unit.
+    ...data.events.flatMap((e) => [e.name, `${e.name} Dietary`]),
     "Recorded By",
   ];
 
@@ -529,8 +553,9 @@ export function toCsv(data: RsvpExport): string {
     row.familyName,
     row.firstName,
     row.lastName,
-    ...row.cells.map((c) => CELL_LABEL[c]),
-    row.dietary,
+    // `cells` and `dietary` are built from the same ordered event list, so the
+    // index is the join key.
+    ...row.cells.flatMap((c, i) => [CELL_LABEL[c], row.dietary[i] ?? ""]),
     RECORDED_BY_LABEL[row.recordedBy],
   ]);
   return serialiseCsv(header, rows);

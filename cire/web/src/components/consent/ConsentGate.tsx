@@ -104,14 +104,14 @@ export function ConsentPlaceholder(props: { category: ConsentCategory; vendor: s
         <button
           type="button"
           onClick={() => grantCategory(props.category)}
-          class="border-gold text-gold hover:bg-gold hover:text-bg focus-visible:ring-gold/60 rounded-sm border px-4 py-1.5 text-[0.7rem] tracking-[0.12em] uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+          class="border-gold text-gold-ink hover:bg-gold hover:text-bg focus-visible:ring-gold/60 rounded-sm border px-4 py-1.5 text-[0.7rem] tracking-[0.12em] uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
         >
           Allow {categoryTitle()}
         </button>
         <button
           type="button"
           onClick={openConsentPreferences}
-          class="font-body text-text-muted hover:text-gold focus-visible:ring-gold/60 rounded-sm text-[0.72rem] underline underline-offset-2 transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+          class="font-body text-text-muted hover:text-gold-ink focus-visible:ring-gold/60 rounded-sm text-[0.72rem] underline underline-offset-2 transition-colors duration-200 focus:outline-none focus-visible:ring-2"
         >
           Privacy choices
         </button>

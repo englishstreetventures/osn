@@ -194,7 +194,7 @@ function FooterRow(props: { href: string; venue: string | null; interactive?: bo
       <Show
         when={isLink()}
         fallback={
-          <span class="border-gold font-body text-gold group-hover:bg-gold group-hover:text-bg inline-flex shrink-0 items-center gap-1.5 rounded-sm border px-3.5 py-1.5 text-[0.72rem] tracking-[0.12em] uppercase transition-colors duration-200">
+          <span class="border-gold font-body text-gold-ink group-hover:bg-gold group-hover:text-bg inline-flex shrink-0 items-center gap-1.5 rounded-sm border px-3.5 py-1.5 text-[0.72rem] tracking-[0.12em] uppercase transition-colors duration-200">
             Open in Maps
             <OpenIcon />
           </span>
@@ -205,7 +205,7 @@ function FooterRow(props: { href: string; venue: string | null; interactive?: bo
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`Open ${props.venue ?? "the venue"} in maps`}
-          class="border-gold font-body text-gold hover:bg-gold hover:text-bg focus-visible:ring-gold/60 inline-flex shrink-0 items-center gap-1.5 rounded-sm border px-3.5 py-1.5 text-[0.72rem] tracking-[0.12em] uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+          class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg focus-visible:ring-gold/60 inline-flex shrink-0 items-center gap-1.5 rounded-sm border px-3.5 py-1.5 text-[0.72rem] tracking-[0.12em] uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
         >
           Open in Maps
           <OpenIcon />

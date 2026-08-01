@@ -14,17 +14,31 @@
 @theme {
   --color-bg: oklch(19.96% 0.0331 147.34);
   --color-surface: oklch(22.7% 0.0275 152.78);
-  --color-surface-raised: oklch(27.87% 0.0393 149.62);
-  --color-border: oklch(85.51% 0.069 144.94 / 0.1);
+  --color-surface-raised: oklch(27.7% 0.0275 152.78);
+  --color-border: oklch(94.62% 0.0111 89.72 / 0.12);
   --color-text: oklch(94.62% 0.0111 89.72);
-  --color-text-muted: oklch(94.62% 0.0111 89.72 / 0.5);
+  /* Solid, not `ink / 0.5`. The alpha form drifted from what `derivePalette`
+     actually emits for this preset, and the drift is invisible where it matters
+     most: the legal pages (`/privacy`, `/terms`) never receive a derived palette
+     — `paletteRootVars` is applied only by the two invite Documents — so they
+     paint these static values verbatim. Composited, the old 0.5 alpha put the
+     draft-banner and owner-note copy at 4.24:1 on `--color-surface-raised`,
+     under the 4.5 bar the derivation was just raised to, and no contrast check
+     anywhere sees an alpha (`contrastOklch` ignores it by design). This is the
+     value `derivePalette(evergreen)` produces, pinned by the lockstep test. */
+  --color-text-muted: oklch(69.24% 0.0186 109.31);
   --color-gold: oklch(74.99% 0.0854 82.08);
   --color-gold-dim: oklch(74.99% 0.0854 82.08 / 0.35);
+  /* Gold that is READ, not seen: the RSVP-by line and the event-card date are
+     normal-size text, so they need 4.5:1 where a rule or a button needs 3:1.
+     On this scheme the metal already clears 4.5 on every surface, so the two
+     are the same colour; on a paler one they part company. */
+  --color-gold-ink: oklch(74.99% 0.0854 82.08);
   /* The festive counter-colour — timeline dots, ornament, ambient accents. */
   --color-bloom: oklch(70.5% 0.1123 24.5);
   --color-bloom-dim: oklch(70.5% 0.1123 24.5 / 0.3);
-  --color-error: oklch(67.56% 0.1401 21.48);
-  --color-success: oklch(75.96% 0.1421 146.94);
+  --color-error: oklch(72% 0.1401 21.48);
+  --color-success: oklch(72% 0.1421 146.94);
   --font-display: "Cormorant Garamond", Georgia, serif;
   --font-body: "Lato", system-ui, sans-serif;
   --default-font-family: var(--font-body);
@@ -34,9 +48,17 @@
   Invite compositions that used to be hardcoded colour literals inside
   components (and hand-copied into the organiser's preview). They are derived
   from the scheme like everything else; these are the un-themed fallbacks.
+
+  Like the @theme block above, every value here must equal what
+  `derivePalette(evergreen)` emits. The lockstep test used to spot-check four
+  tokens; widening it to all of them found five that had quietly gone their own
+  way (`surface-raised`, `border`, `error`, `success`, `hero-grad-1`). That
+  matters beyond tidiness: `/privacy` and `/terms` never receive a derived
+  palette — `paletteRootVars` is applied only by the two invite Documents — so
+  they paint these literals verbatim.
 */
 :root {
-  --invite-hero-grad-1: oklch(27.87% 0.0393 149.62);
+  --invite-hero-grad-1: oklch(27.7% 0.0275 152.78);
   --invite-hero-grad-2: oklch(19.96% 0.0331 147.34);
   --invite-hero-grad-3: oklch(22.7% 0.0275 152.78);
   --invite-scrim-from: oklch(8% 0.0132 147.34 / 0.3);

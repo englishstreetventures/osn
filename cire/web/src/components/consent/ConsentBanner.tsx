@@ -67,7 +67,7 @@ export function ConsentBanner() {
               map and the Pinterest moodboard — are loaded from Google and Pinterest, who can see
               your IP address and browser. That's switched on; you can turn it off here, or any time
               from the footer.{" "}
-              <a href="/privacy" class="text-gold underline underline-offset-2">
+              <a href="/privacy" class="text-gold-ink underline underline-offset-2">
                 Privacy notice
               </a>
             </p>
@@ -99,7 +99,7 @@ function BannerButton(props: { onClick: () => void; children: string }) {
     <button
       type="button"
       onClick={props.onClick}
-      class="border-gold text-gold hover:bg-gold hover:text-bg focus-visible:ring-gold/60 rounded-sm border px-4 py-1.5 text-[0.7rem] tracking-[0.12em] uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+      class="border-gold text-gold-ink hover:bg-gold hover:text-bg focus-visible:ring-gold/60 rounded-sm border px-4 py-1.5 text-[0.7rem] tracking-[0.12em] uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
     >
       {props.children}
     </button>

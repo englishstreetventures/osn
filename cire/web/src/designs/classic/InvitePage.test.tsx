@@ -726,6 +726,24 @@ describe("InvitePage", () => {
       expect(notice.className).not.toContain("text-left");
     });
 
+    it("paints the open notice in the prose gold, not the metal (WCAG 1.4.3)", async () => {
+      await claimWithDeadline({
+        date: "2999-09-01",
+        timezone: "Australia/Sydney",
+        closesAt: "2999-09-01T13:59:59.999Z",
+        closed: false,
+      });
+
+      // At 0.85rem this is normal-size text, so WCAG AA asks 4.5:1. `text-gold`
+      // is the METAL — rules, borders, buttons — and `derivePalette` only holds
+      // it to the 3:1 UI floor, which is how a taupe-on-cream scheme shipped
+      // this line at 3.35:1 in production. `--color-gold-ink` is the same hue
+      // walked to 4.5:1 against all three section surfaces.
+      const classes = document.getElementById("rsvp-deadline-notice")!.className.split(/\s+/);
+      expect(classes).toContain("text-gold-ink");
+      expect(classes).not.toContain("text-gold");
+    });
+
     it("locks every card and states the date once the deadline has passed", async () => {
       const { getByText, getByRole } = await claimWithDeadline({
         date: "2020-09-01",

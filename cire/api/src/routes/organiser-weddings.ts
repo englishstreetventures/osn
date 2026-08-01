@@ -286,7 +286,9 @@ export const createOrganiserExportRoutes = (
         .use(weddingMember(db))
         .use(rateLimitMiddlewareByUser(limiter))
         // RSVP CSV export — one row per guest (incl. guests who haven't RSVP'd),
-        // one column per event, dietary requirements. Sorted by family code.
+        // then a status/dietary PAIR per event (dietary is stored per
+        // (guest, event), so one aggregate column had to drop answers). Sorted
+        // by family code.
         // Same weddingMember() gate as the reads above (owner OR co-host). The
         // filename embeds the wedding slug.
         .get("/rsvps.csv", ({ weddingId, set }) => {

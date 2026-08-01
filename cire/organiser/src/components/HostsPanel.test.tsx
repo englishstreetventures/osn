@@ -55,7 +55,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ hosts: [{ osnProfileId: "usr_bob", role: "host", createdAt: 1 }] }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
     // The GET request hit the hosts endpoint.
     expect(String(authFetchMock.mock.calls[0]![0])).toBe(
@@ -68,7 +68,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ host: { osnProfileId: "usr_bob", handle: "bob", role: "host", createdAt: 2 } }, 201),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("@bob");
@@ -91,7 +91,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ host: { osnProfileId: "usr_bob", handle: "bob", role: "viewer", createdAt: 2 } }, 201),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("@bob");
@@ -116,7 +116,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ host: { osnProfileId: "usr_bob", role: "viewer", createdAt: 1 } }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: /Make @bob a viewer/i }));
@@ -133,22 +133,46 @@ describe("HostsPanel", () => {
     expect(screen.getByRole("button", { name: /Make @bob an editor/i })).toBeTruthy();
   });
 
-  it("hides the role + remove controls from a non-owner", async () => {
+  it("gives an EDITOR the add form but not the role + remove controls", async () => {
+    // The additive/subtractive split, mirroring the API's two gates: an editor
+    // can bring someone else on board (`weddingEditor()` on POST /hosts) but
+    // cannot demote or evict anyone (`weddingOwner()` on PUT/DELETE). Offering
+    // either of those buttons here would just produce a 403.
     authFetchMock.mockResolvedValueOnce(
       json({ hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 }] }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage={false} />);
+    render(() => <HostsPanel weddingId="wed_a" canManage={false} canAdd />);
     await waitFor(() => expect(screen.getByText("@bob")).toBeTruthy());
+    expect(screen.getByRole("button", { name: /Add host/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Make @bob/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /Remove/i })).toBeNull();
-    // The role badge still shows.
-    expect(screen.getByText("Editor", { selector: "span" })).toBeTruthy();
+    // The role badge still shows. Matched by its title, not its text: with the
+    // add form now rendered, "Editor" also appears as the role picker's label.
+    expect(screen.getByTitle("Can edit guests, events, and the invite").textContent).toBe("Editor");
+  });
+
+  it("lets an editor actually submit an add (the form is wired, not decorative)", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
+    authFetchMock.mockResolvedValueOnce(
+      json(
+        { host: { osnProfileId: "usr_carol", handle: "carol", role: "editor", createdAt: 2 } },
+        201,
+      ),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage={false} canAdd />);
+    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
+
+    typeHandle("carol");
+    fireEvent.click(screen.getByRole("button", { name: /Add host/i }));
+    await waitFor(() => expect(screen.getByText("@carol")).toBeTruthy());
+    const [, add] = authFetchMock.mock.calls;
+    expect((add?.[1] as RequestInit | undefined)?.method).toBe("POST");
   });
 
   it("shows a not-found message when the handle resolves to nobody (404)", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
     authFetchMock.mockResolvedValueOnce(json({ error: "No OSN account with that handle" }, 404));
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("ghost");
@@ -159,7 +183,7 @@ describe("HostsPanel", () => {
   it("shows an already-a-host message on 409", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
     authFetchMock.mockResolvedValueOnce(json({ error: "already_host" }, 409));
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("bob");
@@ -170,7 +194,7 @@ describe("HostsPanel", () => {
   it("explains when adding hosts is unavailable (503)", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
     authFetchMock.mockResolvedValueOnce(json({ error: "Adding hosts is not available" }, 503));
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("bob");
@@ -182,7 +206,7 @@ describe("HostsPanel", () => {
 
   it("does not call the API when the handle is blank", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("   ");
@@ -199,7 +223,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       new Response(JSON.stringify({ removed: true }), { status: 200 }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: /Remove/i }));
@@ -209,11 +233,11 @@ describe("HostsPanel", () => {
     expect((init as RequestInit).method).toBe("DELETE");
   });
 
-  it("hides the add form and remove controls for a co-host (read-only)", async () => {
+  it("hides the add form and remove controls for a VIEWER co-host (read-only)", async () => {
     authFetchMock.mockResolvedValueOnce(
       json({ hosts: [{ osnProfileId: "usr_bob", role: "host", createdAt: 1 }] }),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage={false} />);
+    render(() => <HostsPanel weddingId="wed_a" canManage={false} canAdd={false} />);
     await waitFor(() => expect(screen.getByText("usr_bob")).toBeTruthy());
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("button", { name: /Add host/i })).toBeNull();
@@ -222,7 +246,7 @@ describe("HostsPanel", () => {
 
   it("redirects to login on a 401 during load", async () => {
     authFetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(redirectSpy).toHaveBeenCalledTimes(1));
   });
 
@@ -243,7 +267,7 @@ describe("HostsPanel", () => {
         { profileId: "usr_alina", handle: "alina", displayName: null },
       ]),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("al");
@@ -262,7 +286,7 @@ describe("HostsPanel", () => {
 
   it("does not search for a sub-2-char prefix", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("a");
@@ -277,7 +301,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       searchJson([{ profileId: "usr_alice", handle: "alice", displayName: "Alice" }]),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("al");
@@ -292,7 +316,7 @@ describe("HostsPanel", () => {
   it("fails soft (no listbox) when the search endpoint errors", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
     authFetchMock.mockResolvedValueOnce(json({ error: "nope" }, 500));
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("al");
@@ -309,7 +333,7 @@ describe("HostsPanel", () => {
     authFetchMock.mockResolvedValueOnce(
       json({ host: { osnProfileId: "usr_bob", handle: "bob", role: "host", createdAt: 2 } }, 201),
     );
-    render(() => <HostsPanel weddingId="wed_a" canManage />);
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
     await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
 
     typeHandle("bob");

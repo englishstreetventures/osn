@@ -242,6 +242,7 @@ export const DERIVED_TOKENS = [
   "--color-text-muted",
   "--color-gold",
   "--color-gold-dim",
+  "--color-gold-ink",
   "--color-bloom",
   "--color-bloom-dim",
   "--color-error",
@@ -381,15 +382,49 @@ export function derivePalette(
   const onCard = ensureContrast(inkSeed, card, WCAG_TEXT_MIN);
   const ink = ensureContrast(onCard, ground, WCAG_TEXT_MIN);
   // Muted text is ink walked a third of the way toward the page, then held to
-  // the UI minimum — legible, clearly secondary, and never the alpha-washed
+  // the TEXT minimum — legible, clearly secondary, and never the alpha-washed
   // near-invisible grey a flat 50% opacity produces on a light scheme.
-  const muted = ensureContrast(mix(ink, ground, 0.34), card, WCAG_UI_MIN);
+  //
+  // The text minimum, not the UI floor it used to carry: every
+  // `--color-text-muted` site on the invite is 0.74–0.92rem prose (venue lines,
+  // descriptions, the closed RSVP-by line), which WCAG 1.4.3 puts at 4.5:1 —
+  // the bar `RESIDUAL_PAIRS` has stated for it all along while the derivation
+  // moved it only to 3:1. And against all three surfaces, because those sites
+  // sit inside sections whose tone the organiser picks. Nothing of the
+  // organiser's scheme is spent doing so: `muted` is a derived grey nobody
+  // chose, so walking it back toward `ink` costs subtlety, not identity.
+  const muted = [card, raised, ground].reduce(
+    (colour, surface) => ensureContrast(colour, surface, WCAG_TEXT_MIN),
+    mix(ink, ground, 0.34),
+  );
 
   // Gold carries large display text, rules and buttons; hold it to the UI
   // minimum rather than the text minimum so a genuinely gold gold survives
   // instead of being bleached into a cream.
   const gilt = ensureContrast(giltSeed, ground, WCAG_UI_MIN);
   const bloom = ensureContrast(bloomSeed, ground, WCAG_UI_MIN);
+
+  // Gold that is READ rather than seen. The 3:1 floor above is the right bar
+  // for a rule, a border or a display heading, and the wrong one for a
+  // sentence: the RSVP-by line and the event-card date are normal-size text,
+  // which WCAG 1.4.3 puts at 4.5:1. Holding `gilt` itself to 4.5 would drag
+  // every rule and button along with it (that is what the UI floor exists to
+  // prevent), so gold-as-prose gets its own token instead — the organiser's
+  // hue walked far enough to be legible, while `--color-gold` still paints
+  // their metal exactly as chosen.
+  //
+  // Enforced against all three surfaces, not one: its sites sit inside a
+  // section whose tone the organiser picks (`ground` | `card` | `raised`), so
+  // any of the three can be the backdrop. The walk is sequential, like `ink`'s
+  // — each step only pushes further in the direction the last one chose, so it
+  // settles on every surface whenever they sit on the same side of the
+  // lightness midpoint, which is every coherent scheme. A palette that
+  // straddles (near-black page, near-white cards) can still leave a residue,
+  // and that is what `RESIDUAL_PAIRS` is for.
+  const giltInk = [card, raised, ground].reduce(
+    (colour, surface) => ensureContrast(colour, surface, WCAG_TEXT_MIN),
+    gilt,
+  );
 
   return {
     "--color-bg": formatOklch(ground),
@@ -401,6 +436,7 @@ export function derivePalette(
     "--color-gold": formatOklch(gilt),
     // The built-in dim gold is gold at 0.35 alpha; keep that exact relationship.
     "--color-gold-dim": formatOklch(withAlpha(gilt, 0.35)),
+    "--color-gold-ink": formatOklch(giltInk),
     "--color-bloom": formatOklch(bloom),
     "--color-bloom-dim": formatOklch(withAlpha(bloom, 0.3)),
     "--color-error": semantic(21.48, 0.1401, card),
@@ -480,13 +516,21 @@ export function paletteAdjustments(
  * The token pairs that {@link derivePalette} does NOT enforce, and therefore
  * the only places a finished palette can still come out illegible.
  *
- * Enforcement runs each text and accent token against ONE backdrop — ink
- * against card and ground, muted against card, gilt against ground — because a
- * token nudged to clear every surface it might ever touch gets pushed to an
- * extreme by the hardest pair and the palette stops looking like the
- * organiser's. `raised` is left out of that walk entirely, and it is derived as
- * `card` ± 0.05 lightness, so a pair can clear against `card` and miss against
- * `raised` by a hair.
+ * Enforcement is deliberately uneven, and the split is between what the
+ * organiser CHOSE and what we derived for them. `ink` and the metal `gilt` are
+ * their seeds, so each is walked against a single backdrop — nudging a chosen
+ * colour until it clears every surface it might ever touch drags it to an
+ * extreme by the hardest pair, and the palette stops looking like theirs.
+ * `muted` and `gold-ink` are not chosen by anyone; they are prose variants we
+ * compute, so both are walked against all three surfaces at the text minimum
+ * and cost nothing in identity when they move.
+ *
+ * That leaves two ways to arrive here. `raised` is outside `ink`'s and `gilt`'s
+ * walks, and is derived as `card` ± 0.05 lightness, so either can clear against
+ * `card` and miss against `raised` by a hair. And a scheme that STRADDLES the
+ * lightness midpoint (near-black page, near-white cards) can defeat even a
+ * three-surface walk: the step that rescues a token on one surface pushes it
+ * the wrong way for the other.
  *
  * **Each entry names the surface it MEASURES.** The first cut of this table got
  * that wrong in both directions — it measured `--color-surface` while its copy
@@ -495,13 +539,19 @@ export function paletteAdjustments(
  * card copy a guest actually reads. Verified against the render sites:
  *
  *   - `--color-surface` — the modal shell (`AnimatedModal`) and the RSVP
- *     sheet's sticky footer. Everything on it is already enforced.
+ *     sheet's sticky footer. This used to say "everything on it is already
+ *     enforced"; that stopped being true when the RSVP sheet's eyebrow, notice,
+ *     answer buttons, privacy link and Save button moved onto
+ *     `--color-gold-ink`. The prose walk below runs `[card, raised, ground]`,
+ *     so only the LAST surface is guaranteed on exit — a later step can push a
+ *     colour back off `card`. Both prose tokens therefore have a pair here.
  *   - `--color-surface-raised` — every `EventCard` and the RSVP sheet's notice
  *     block. Carries the card title (`--color-text`), the venue and description
- *     (`--color-text-muted`), and the date line (`--color-gold`). None of those
- *     three pairs is enforced; all three are below.
+ *     (`--color-text-muted`), and the date line (`--color-gold-ink`).
  *   - `--color-bg` — section backgrounds, carrying muted section copy and the
- *     RSVP-by line.
+ *     RSVP-by line. A section's tone is the organiser's pick, so that line can
+ *     land on any of the three surfaces — which is why both prose tokens are
+ *     walked against all three rather than against this one.
  *
  * `--color-bloom` has no entry because it is currently painted NOWHERE on the
  * guest site — it is a defined token with no render site, so a warning about it
@@ -522,6 +572,10 @@ const RESIDUAL_PAIRS: {
     message: "Event titles are hard to read on the cards they sit on.",
   },
   {
+    // Both muted pairs are now backstops rather than the primary mechanism:
+    // `--color-text-muted` is walked against all three surfaces at this same
+    // bar, so either can only fire on a straddling scheme. They stay because
+    // that case is real and silence would be a lie about it.
     id: "muted-on-raised",
     fg: "--color-text-muted",
     bg: "--color-surface-raised",
@@ -536,19 +590,55 @@ const RESIDUAL_PAIRS: {
     message: "Secondary text — captions and notes — is hard to read on the page.",
   },
   {
-    // Held to the UI floor, NOT the text minimum, even though the token's most
-    // prominent job on `raised` is the event-card date (0.92rem — normal-size
-    // text, which WCAG AA puts at 4.5:1). At 4.5 two CURATED presets would warn
-    // out of the box (chapel 3.58:1, garden 3.91:1), and a warning that fires
-    // on our own shipped schemes teaches organisers to ignore it. The preset
-    // gap is real and filed separately; this bar still catches the failure this
-    // check exists for — gilt enforced against a near-black page and then
-    // landing on a near-white card at under 2:1.
+    // Held to the UI floor, and now correctly so: `--color-gold` no longer
+    // paints any normal-size text on this surface. The event-card date — the
+    // 0.92rem line that made this pair a text pair wearing a UI bar, and the
+    // reason chapel (3.58:1) and garden (3.91:1) would have warned out of the
+    // box at 4.5 — moved to `--color-gold-ink`, which is enforced at the text
+    // minimum against `raised` itself. What is left here is genuinely UI: the
+    // card's outlined buttons, the hairlines and the lit card edge. The bar
+    // still catches the failure this check exists for — gilt enforced against
+    // a near-black page and then landing on a near-white card at under 2:1.
     id: "gilt-on-raised",
     fg: "--color-gold",
     bg: "--color-surface-raised",
     min: WCAG_UI_MIN,
-    message: "Dates, buttons and rules are hard to see on event cards.",
+    message: "Buttons and rules are hard to see on event cards.",
+  },
+  {
+    // The pair the first cut of this table missed. The walk is sequential and
+    // ends on `ground`, so `card` is the surface a later step can undo — and
+    // unlike the straddling case below, this fires on ordinary COHERENT schemes
+    // (all three surfaces on one side of the midpoint). A brute-force sweep put
+    // it at roughly 1 in 100 random schemes, silent, with the RSVP sheet
+    // shipping under 4.5:1 while the builder reported the palette as fine.
+    id: "gilt-ink-on-surface",
+    fg: "--color-gold-ink",
+    bg: "--color-surface",
+    min: WCAG_TEXT_MIN,
+    message: "Text in the RSVP sheet and pop-ups is hard to read.",
+  },
+  {
+    // Muted is walked in the same order and has the same gap on `card`, which
+    // carries the sheet's closed-RSVP notice and its dismiss button.
+    id: "muted-on-surface",
+    fg: "--color-text-muted",
+    bg: "--color-surface",
+    min: WCAG_TEXT_MIN,
+    message: "Secondary text in the RSVP sheet and pop-ups is hard to read.",
+  },
+  {
+    // `--color-gold-ink` IS walked against all three surfaces, so this can only
+    // fire when they straddle the lightness midpoint (a near-black page with
+    // near-white cards): the walk that rescues it on one surface pushes it the
+    // wrong way for the other, and something has to say so rather than let a
+    // sentence ship at 2:1. Measured on `raised` — the harder of the two card
+    // surfaces, and the one the event-card date sits on.
+    id: "gilt-ink-on-raised",
+    fg: "--color-gold-ink",
+    bg: "--color-surface-raised",
+    min: WCAG_TEXT_MIN,
+    message: "The RSVP-by line and event dates are hard to read on event cards.",
   },
 ];
 

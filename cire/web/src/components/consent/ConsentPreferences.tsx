@@ -213,7 +213,14 @@ function CategoryRow(props: {
           >
             {props.title}
             <Show when={props.required}>
-              <span class="text-gold/80 text-[0.62rem] tracking-[0.14em] uppercase">Always on</span>
+              {/* The alpha is dropped along with the token swap: 0.62rem is
+                  well inside normal-size text, and an alpha-modified colour
+                  over a surface has no single ratio for the derivation to
+                  enforce — `text-gold-ink/80` would have looked fixed without
+                  being fixed. */}
+              <span class="text-gold-ink text-[0.62rem] tracking-[0.14em] uppercase">
+                Always on
+              </span>
             </Show>
           </label>
           <p class="font-body text-text-muted mt-1 text-[0.76rem] leading-relaxed">
@@ -253,7 +260,7 @@ function VendorList(props: { label: string; vendors: readonly ConsentVendor[] })
                       href={url()}
                       target="_blank"
                       rel="noopener noreferrer"
-                      class="text-gold underline underline-offset-2"
+                      class="text-gold-ink underline underline-offset-2"
                     >
                       privacy policy ↗
                     </a>
@@ -275,8 +282,8 @@ function ChoiceButton(props: { primary?: boolean; onClick: () => void; children:
       onClick={props.onClick}
       class={
         props.primary
-          ? "border-gold bg-gold text-bg font-body hover:text-gold focus-visible:ring-gold/60 rounded-sm border px-5 py-2 text-[0.74rem] tracking-[0.12em] uppercase transition-colors duration-200 hover:bg-transparent focus:outline-none focus-visible:ring-2"
-          : "border-border font-body text-text hover:border-gold hover:text-gold focus-visible:ring-gold/60 rounded-sm border px-5 py-2 text-[0.74rem] tracking-[0.12em] uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+          ? "border-gold bg-gold text-bg font-body hover:text-gold-ink focus-visible:ring-gold/60 rounded-sm border px-5 py-2 text-[0.74rem] tracking-[0.12em] uppercase transition-colors duration-200 hover:bg-transparent focus:outline-none focus-visible:ring-2"
+          : "border-border font-body text-text hover:border-gold hover:text-gold-ink focus-visible:ring-gold/60 rounded-sm border px-5 py-2 text-[0.74rem] tracking-[0.12em] uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
       }
     >
       {props.children}
