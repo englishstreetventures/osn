@@ -1,5 +1,11 @@
 # @osn/pulse
 
+## 0.16.20
+
+### Patch Changes
+
+- 9768d00: Make the Hosting tab in the explore nav an explicit disabled state instead of a tab that points nowhere.
+
 ## 0.16.19
 
 ### Patch Changes
