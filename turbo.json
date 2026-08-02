@@ -2,8 +2,14 @@
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".output/**", "build/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**",
+        ".output/**",
+        "build/**"
+      ]
     },
     "dev": {
       "cache": false,
@@ -13,7 +19,14 @@
     "fmt": {},
     "check": {},
     "test": {
-      "dependsOn": ["^build"]
+      "dependsOn": [
+        "^build"
+      ]
+    },
+    "test:d1": {
+      "dependsOn": [
+        "^build"
+      ]
     },
     "db:migrate": {
       "cache": false

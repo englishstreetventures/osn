@@ -1,4 +1,4 @@
-import { generateArcKeyPair } from "@shared/crypto";
+import { makeAccessTokenSigner, type AccessTokenSigner } from "@shared/crypto/testing";
 import { Effect } from "effect";
 import { SignJWT } from "jose";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
@@ -7,22 +7,15 @@ import { createChatsRoutes } from "../../src/routes/chats";
 import { setConsentGate } from "../../src/services/consent";
 import { createTestLayer, seedChat, seedMember } from "../helpers/db";
 
-let testPrivateKey: CryptoKey;
+let signer: AccessTokenSigner;
 let testPublicKey: CryptoKey;
 
 beforeAll(async () => {
-  const pair = await generateArcKeyPair();
-  testPrivateKey = pair.privateKey;
-  testPublicKey = pair.publicKey;
+  signer = await makeAccessTokenSigner();
+  testPublicKey = signer.publicKey;
 });
 
-/** Mints an ES256 access token shaped exactly like an osn/api user token. */
-async function makeToken(profileId: string): Promise<string> {
-  return new SignJWT({ sub: profileId })
-    .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
-    .setAudience("osn-access")
-    .sign(testPrivateKey);
-}
+const makeToken = (profileId: string) => signer.sign(profileId);
 
 const json = (body: unknown) => JSON.stringify(body);
 
@@ -96,11 +89,9 @@ describe("chats routes", () => {
   // ── Token verification (W1: ES256 / JWKS) ─────────────────────────────────
 
   it("GET /chats returns 401 for a token signed with the wrong key", async () => {
-    const otherPair = await generateArcKeyPair();
-    const forged = await new SignJWT({ sub: "usr_alice" })
-      .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
-      .setAudience("osn-access")
-      .sign(otherPair.privateKey);
+    // A second, unrelated signer — correct shape, key the route never trusts.
+    const attacker = await makeAccessTokenSigner();
+    const forged = await attacker.sign("usr_alice");
     const res = await req(app, "GET", "/chats", { token: forged });
     expect(res.status).toBe(401);
   });
@@ -115,18 +106,16 @@ describe("chats routes", () => {
   });
 
   it("GET /chats returns 401 for a token with the wrong audience", async () => {
-    const wrongAud = await new SignJWT({ sub: "usr_alice" })
-      .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
-      .setAudience("osn-step-up")
-      .sign(testPrivateKey);
+    const wrongAud = await signer.sign("usr_alice", { audience: "osn-step-up" });
     const res = await req(app, "GET", "/chats", { token: wrongAud });
     expect(res.status).toBe(401);
   });
 
   it("GET /chats returns 401 for a token with no audience", async () => {
+    // No audience at all — the harness always sets one, so sign directly.
     const noAud = await new SignJWT({ sub: "usr_alice" })
       .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
-      .sign(testPrivateKey);
+      .sign(signer.privateKey);
     const res = await req(app, "GET", "/chats", { token: noAud });
     expect(res.status).toBe(401);
   });

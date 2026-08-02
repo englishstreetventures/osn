@@ -10,6 +10,7 @@ import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
 import { createChat, listChats } from "./services/chats";
+import { resetConsentGate, setConsentGate } from "./services/consent";
 import { listMessages, sendMessage } from "./services/messages";
 
 // Integration tests against a REAL (workerd-backed) D1 database via Miniflare.
@@ -56,6 +57,8 @@ beforeEach(async () => {
   for (const table of [messages, chatMembers, chats]) {
     await rawDb.delete(table);
   }
+  // Restore the real ARC-backed gate so a test that stubs it can't leak.
+  resetConsentGate();
 });
 
 describe("zap/api over real D1 (Miniflare)", () => {
@@ -70,8 +73,12 @@ describe("zap/api over real D1 (Miniflare)", () => {
   });
 
   it("sendMessage then listMessages persists via the async driver", async () => {
-    const chat = await run(createChat({ type: "dm" }, ALICE));
-    // Bob must be a member to read; Alice (creator) is an admin member already.
+    // Z3: a DM is exactly two people, so the second member is required — a bare
+    // `{ type: "dm" }` now fails `InvalidDmMembership`. Z4 then graph-gates every
+    // member, fail-closed, so the consent gate has to be stubbed open (this suite
+    // is about the async D1 driver, not the graph).
+    setConsentGate(() => Promise.resolve(true));
+    const chat = await run(createChat({ type: "dm", memberProfileIds: [BOB] }, ALICE));
     const sent = await run(
       sendMessage(chat.id, ALICE, { ciphertext: "deadbeef", nonce: "nonce123" }),
     );

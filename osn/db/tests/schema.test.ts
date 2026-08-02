@@ -5,68 +5,14 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import { describe, it, expect } from "vitest";
 
 import * as schema from "../src/schema";
+import { applySchema } from "../src/testing";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
-  sqlite.run(`
-    CREATE TABLE accounts (
-      id TEXT PRIMARY KEY,
-      email TEXT NOT NULL UNIQUE,
-      passkey_user_id TEXT NOT NULL UNIQUE,
-      max_profiles INTEGER NOT NULL DEFAULT 5,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      deleted_at INTEGER,
-      processing_restricted_at INTEGER
-    )
-  `);
-  sqlite.run(`
-    CREATE TABLE users (
-      id TEXT PRIMARY KEY,
-      account_id TEXT NOT NULL REFERENCES accounts(id),
-      handle TEXT NOT NULL UNIQUE,
-      display_name TEXT,
-      avatar_url TEXT,
-      is_default INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
-  sqlite.run(`
-    CREATE TABLE passkeys (
-      id TEXT PRIMARY KEY,
-      account_id TEXT NOT NULL REFERENCES accounts(id),
-      credential_id TEXT NOT NULL UNIQUE,
-      public_key TEXT NOT NULL,
-      counter INTEGER NOT NULL DEFAULT 0,
-      transports TEXT,
-      created_at INTEGER NOT NULL,
-      label TEXT,
-      last_used_at INTEGER,
-      aaguid TEXT,
-      backup_eligible INTEGER,
-      backup_state INTEGER,
-      updated_at INTEGER
-    )
-  `);
-  sqlite.run(`
-    CREATE TABLE service_accounts (
-      service_id TEXT PRIMARY KEY,
-      allowed_scopes TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
-  sqlite.run(`
-    CREATE TABLE service_account_keys (
-      key_id TEXT PRIMARY KEY,
-      service_id TEXT NOT NULL REFERENCES service_accounts(service_id),
-      public_key_jwk TEXT NOT NULL,
-      registered_at INTEGER NOT NULL,
-      expires_at INTEGER,
-      revoked_at INTEGER
-    )
-  `);
+  // Derived from the live Drizzle schema, never a hand-written mirror: the
+  // uniqueness tests below must fail when a `.unique()` is dropped from
+  // src/schema, which a local CREATE TABLE string can never detect.
+  applySchema(sqlite);
   return drizzle(sqlite, { schema });
 }
 

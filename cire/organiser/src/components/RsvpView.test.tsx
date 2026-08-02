@@ -10,19 +10,17 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * organiser-record flow.
  */
 
-const authFetchMock = vi.fn();
-const redirectSpy = vi.fn();
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../test-support/mocks");
+  return rpAuthSolidMock();
+});
 
-vi.mock("@shared/rp-auth/solid", () => ({
-  useAuth: () => ({ authFetch: authFetchMock }),
-}));
+vi.mock("../lib/api", async () => {
+  const { organiserApiMock } = await import("../test-support/mocks");
+  return organiserApiMock();
+});
 
-vi.mock("../lib/api", () => ({
-  apiUrl: (path: string) => `https://api.test${path}`,
-  isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
-  redirectToLogin: () => redirectSpy(),
-}));
-
+import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 import RsvpView from "./RsvpView";
 
 function json(body: unknown, status = 200) {
@@ -93,8 +91,7 @@ const VIEW = {
 describe("RsvpView", () => {
   afterEach(() => {
     cleanup();
-    authFetchMock.mockReset();
-    redirectSpy.mockReset();
+    resetOrganiserMocks();
   });
 
   it("renders RSVPs grouped by event with correct counts", async () => {

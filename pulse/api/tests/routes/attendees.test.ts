@@ -1,27 +1,20 @@
-import { generateArcKeyPair } from "@shared/crypto";
+import { makeAccessTokenSigner, type AccessTokenSigner } from "@shared/crypto/testing";
 import { Effect } from "effect";
-import { SignJWT } from "jose";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createEventsRoutes } from "../../src/routes/events";
 import { canViewAttendees } from "../../src/services/eventAccess";
 import { createTestLayer, seedEvent } from "../helpers/db";
 
-let testPrivateKey: CryptoKey;
+let signer: AccessTokenSigner;
 let testPublicKey: CryptoKey;
 
 beforeAll(async () => {
-  const pair = await generateArcKeyPair();
-  testPrivateKey = pair.privateKey;
-  testPublicKey = pair.publicKey;
+  signer = await makeAccessTokenSigner();
+  testPublicKey = signer.publicKey;
 });
 
-async function makeToken(profileId: string): Promise<string> {
-  return new SignJWT({ sub: profileId })
-    .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
-    .setAudience("osn-access")
-    .sign(testPrivateKey);
-}
+const makeToken = (profileId: string) => signer.sign(profileId);
 
 const get = (app: { handle: (r: Request) => Promise<Response> }, path: string, token?: string) =>
   app.handle(

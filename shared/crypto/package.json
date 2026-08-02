@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./jwk": "./src/jwk.ts",
+    "./testing": "./src/testing.ts",
     "./timing-safe": "./src/timing-safe.ts"
   },
   "scripts": {

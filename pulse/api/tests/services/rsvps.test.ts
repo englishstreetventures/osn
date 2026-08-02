@@ -1,4 +1,7 @@
 import { it, expect } from "@effect/vitest";
+import { pulseUsers } from "@pulse/db/schema";
+import { Db } from "@pulse/db/service";
+import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { vi, beforeEach } from "vitest";
 
@@ -112,7 +115,13 @@ it.effect("upsertRsvp ensures pulse_users row is created", () =>
   Effect.gen(function* () {
     const event = yield* seedEvent({ title: "Party", startTime: "2030-06-01T10:00:00.000Z" });
     yield* upsertRsvp(event.id, "usr_bob", { status: "going" });
-    expect(true).toBe(true);
+
+    const { db } = yield* Db;
+    const rows = yield* Effect.promise(() =>
+      db.select().from(pulseUsers).where(eq(pulseUsers.profileId, "usr_bob")),
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.profileId).toBe("usr_bob");
   }).pipe(Effect.provide(createTestLayer())),
 );
 

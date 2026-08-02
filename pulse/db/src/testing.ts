@@ -1,8 +1,9 @@
 import type { Database } from "bun:sqlite";
 
-import { is } from "drizzle-orm";
+import { is, type SQL } from "drizzle-orm";
 import {
   getTableConfig,
+  SQLiteSyncDialect,
   SQLiteTable,
   type AnySQLiteColumn,
   type SQLiteColumn,
@@ -16,7 +17,17 @@ import * as schema from "./schema";
  * in-memory SQLite so that adding a column is a one-file change in
  * `src/schema/` rather than four hand-rolled DDL blocks.
  */
+let cachedSchemaSql: string[] | undefined;
+
 export function createSchemaSql(): string[] {
+  // The Drizzle schema is a static module-level import, so the emitted DDL is
+  // constant for the process lifetime. Reflecting it per test DB made ~24% of
+  // setup pure recomputation, scaling with both test count and schema size.
+  // Frozen: the array is shared by every caller, so a stray mutation must be loud.
+  return (cachedSchemaSql ??= Object.freeze(buildSchemaSql()) as string[]);
+}
+
+function buildSchemaSql(): string[] {
   const tables = (Object.values(schema) as unknown[]).filter((value): value is SQLiteTable =>
     is(value, SQLiteTable),
   );
@@ -57,6 +68,9 @@ function topoSortByForeignKey(tables: SQLiteTable[]): SQLiteTable[] {
   return sorted;
 }
 
+/** Stateless with respect to a single `sqlToQuery` call — one instance is enough. */
+const DIALECT = new SQLiteSyncDialect();
+
 function emitCreateTable(table: SQLiteTable): string {
   const cfg = getTableConfig(table);
   const parts: string[] = [];
@@ -89,6 +103,11 @@ function emitColumn(col: AnySQLiteColumn): string {
   const parts = [`"${col.name}"`, col.getSQLType()];
   if (col.primary) parts.push("PRIMARY KEY");
   if (col.notNull) parts.push("NOT NULL");
+  // Column-level `.unique()` lands on `col.isUnique`, not in the table config's
+  // `uniqueConstraints` (table-level only). Pulse's schema currently uses
+  // `uniqueIndex()`/table-level `unique()` throughout, so this is latent here —
+  // keep it so a future column-level `.unique()` isn't silently dropped.
+  if (col.isUnique) parts.push("UNIQUE");
   if (col.hasDefault && col.default !== undefined) {
     parts.push(`DEFAULT ${formatDefault(col, col.default)}`);
   }
@@ -111,6 +130,7 @@ interface IndexLike {
     name: string;
     columns: ReadonlyArray<{ name?: string } | unknown>;
     unique: boolean;
+    where?: SQL;
   };
 }
 
@@ -129,5 +149,9 @@ function emitCreateIndex(idx: IndexLike, table: SQLiteTable): string {
       return `"${colName}"`;
     })
     .join(", ");
-  return `CREATE ${cfg.unique ? "UNIQUE " : ""}INDEX "${cfg.name}" ON "${tableName}" (${cols});`;
+  // Partial indexes: without the WHERE clause a partial index silently becomes
+  // a full one. Latent here (no `.where()` in this schema yet) — kept in step
+  // with @osn/db/testing so a future partial index isn't silently widened.
+  const where = cfg.where ? ` WHERE ${DIALECT.sqlToQuery(cfg.where).sql}` : "";
+  return `CREATE ${cfg.unique ? "UNIQUE " : ""}INDEX "${cfg.name}" ON "${tableName}" (${cols})${where};`;
 }

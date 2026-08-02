@@ -10,12 +10,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * header row the cire-api parser requires.
  */
 
-const authFetchMock = vi.fn();
 const redirectToLoginMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@shared/rp-auth/solid", () => ({
-  useAuth: () => ({ authFetch: authFetchMock }),
-}));
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../test-support/mocks");
+  return rpAuthSolidMock();
+});
 
 vi.mock("../lib/api", () => ({
   apiUrl: (path: string) => `https://api.test${path}`,
@@ -23,6 +23,7 @@ vi.mock("../lib/api", () => ({
   redirectToLogin: redirectToLoginMock,
 }));
 
+import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 import ImportPanel from "./ImportPanel";
 
 // Capture the Blobs handed to URL.createObjectURL so we can read their text.
@@ -49,7 +50,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  authFetchMock.mockReset();
+  resetOrganiserMocks();
   redirectToLoginMock.mockReset();
   URL.createObjectURL = realCreate;
   URL.revokeObjectURL = realRevoke;

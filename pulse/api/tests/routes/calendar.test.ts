@@ -2,10 +2,9 @@ import { Database } from "bun:sqlite";
 
 import * as schema from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
-import { generateArcKeyPair } from "@shared/crypto";
+import { makeAccessTokenSigner, type AccessTokenSigner } from "@shared/crypto/testing";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect, Layer } from "effect";
-import { SignJWT } from "jose";
 import { describe, it, expect, beforeEach, beforeAll, vi } from "vitest";
 
 import { createEventsRoutes } from "../../src/routes/events";
@@ -30,20 +29,15 @@ import * as bridge from "../../src/services/graphBridge";
 const FUTURE = "2030-06-01T10:00:00.000Z";
 const LATER = "2030-06-02T10:00:00.000Z";
 
-let testPrivateKey: CryptoKey;
+let signer: AccessTokenSigner;
 let testPublicKey: CryptoKey;
 
 beforeAll(async () => {
-  const pair = await generateArcKeyPair();
-  testPrivateKey = pair.privateKey;
-  testPublicKey = pair.publicKey;
+  signer = await makeAccessTokenSigner();
+  testPublicKey = signer.publicKey;
 });
 
-const makeToken = (profileId: string) =>
-  new SignJWT({ sub: profileId })
-    .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
-    .setAudience("osn-access")
-    .sign(testPrivateKey);
+const makeToken = (profileId: string) => signer.sign(profileId);
 
 const post = (
   app: ReturnType<typeof createEventsRoutes>,

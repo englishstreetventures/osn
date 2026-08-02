@@ -115,6 +115,16 @@ jobs:
       - name: Test
         run: bun run test
 
+      # The four d1-integration.test.ts files live outside the vitest `include`
+      # glob (`tests/**/*.test.ts`), so `bun run test` never reaches them. They
+      # are the only coverage of the ASYNCHRONOUS D1 driver that dev/staging/prod
+      # actually run on, and going unrun let zap's rot into a stale fixture that
+      # had been failing silently. Serial by necessity — concurrent Miniflare
+      # workerd instances contend and fail spuriously (the root script pins
+      # --concurrency=1).
+      - name: D1 integration tests
+        run: bun run test:d1
+
   ci:
     name: CI
     if: always()

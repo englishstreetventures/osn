@@ -10,25 +10,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * "Sent" indicator, and the clipboard-unavailable fallback.
  */
 
-const authFetchMock = vi.fn();
-const redirectSpy = vi.fn();
-const toastSuccess = vi.fn();
-const toastError = vi.fn();
 const writeText = vi.fn<(t: string) => Promise<void>>();
 
-vi.mock("@shared/rp-auth/solid", () => ({
-  useAuth: () => ({ authFetch: authFetchMock }),
-}));
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../test-support/mocks");
+  return rpAuthSolidMock();
+});
 
-vi.mock("solid-toast", () => ({
-  toast: { success: (m: string) => toastSuccess(m), error: (m: string) => toastError(m) },
-}));
+vi.mock("solid-toast", async () => {
+  const { solidToastMock } = await import("../test-support/mocks");
+  return solidToastMock();
+});
 
-vi.mock("../lib/api", () => ({
-  apiUrl: (path: string) => `https://api.test${path}`,
-  isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
-  redirectToLogin: () => redirectSpy(),
-}));
+vi.mock("../lib/api", async () => {
+  const { organiserApiMock } = await import("../test-support/mocks");
+  return organiserApiMock();
+});
 
 vi.mock("../lib/osn", () => ({ CIRE_WEB_URL: "https://guests.test" }));
 
@@ -40,6 +37,12 @@ vi.mock("../lib/download", () => ({
 
 import { __resetEventsCache } from "../lib/events-store";
 import { __resetGuestsCache } from "../lib/guests-store";
+import {
+  authFetchMock,
+  resetOrganiserMocks,
+  toastError,
+  toastSuccess,
+} from "../test-support/mocks";
 import GuestTable from "./GuestTable";
 
 function json(body: unknown, status = 200) {
@@ -89,10 +92,7 @@ function primeLoad(inviteMessage: string | null = null) {
 describe("GuestTable", () => {
   afterEach(() => {
     cleanup();
-    authFetchMock.mockReset();
-    redirectSpy.mockReset();
-    toastSuccess.mockReset();
-    toastError.mockReset();
+    resetOrganiserMocks();
     writeText.mockReset();
     downloadBlobMock.mockReset();
     // GuestTable reads guests + events from module-scoped caches (P-I3); clear

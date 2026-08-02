@@ -1,7 +1,6 @@
-import { generateArcKeyPair } from "@shared/crypto";
+import { makeAccessTokenSigner, type AccessTokenSigner } from "@shared/crypto/testing";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect } from "effect";
-import { SignJWT } from "jose";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createEventsRoutes } from "../../src/routes/events";
@@ -30,21 +29,15 @@ const withIp = (init: RequestInit = {}): RequestInit => ({
 
 const FUTURE = (ms: number) => new Date(Date.now() + ms).toISOString();
 
-let testPrivateKey: CryptoKey;
+let signer: AccessTokenSigner;
 let testPublicKey: CryptoKey;
 
 beforeAll(async () => {
-  const pair = await generateArcKeyPair();
-  testPrivateKey = pair.privateKey;
-  testPublicKey = pair.publicKey;
+  signer = await makeAccessTokenSigner();
+  testPublicKey = signer.publicKey;
 });
 
-async function makeToken(profileId: string): Promise<string> {
-  return new SignJWT({ sub: profileId })
-    .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
-    .setAudience("osn-access")
-    .sign(testPrivateKey);
-}
+const makeToken = (profileId: string) => signer.sign(profileId);
 
 describe("GET /events/discover", () => {
   let app: ReturnType<typeof createEventsRoutes>;

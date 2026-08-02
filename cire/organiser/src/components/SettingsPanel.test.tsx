@@ -10,25 +10,27 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * an event's place is its free-text `address` (the sole location source).
  */
 
-const authFetchMock = vi.fn();
-const redirectSpy = vi.fn();
-const toastSuccess = vi.fn();
-const toastError = vi.fn();
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../test-support/mocks");
+  return rpAuthSolidMock();
+});
 
-vi.mock("@shared/rp-auth/solid", () => ({
-  useAuth: () => ({ authFetch: authFetchMock }),
-}));
+vi.mock("solid-toast", async () => {
+  const { solidToastMock } = await import("../test-support/mocks");
+  return solidToastMock();
+});
 
-vi.mock("solid-toast", () => ({
-  toast: { success: (m: string) => toastSuccess(m), error: (m: string) => toastError(m) },
-}));
+vi.mock("../lib/api", async () => {
+  const { organiserApiMock } = await import("../test-support/mocks");
+  return organiserApiMock();
+});
 
-vi.mock("../lib/api", () => ({
-  apiUrl: (path: string) => `https://api.test${path}`,
-  isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
-  redirectToLogin: () => redirectSpy(),
-}));
-
+import {
+  authFetchMock,
+  resetOrganiserMocks,
+  toastError,
+  toastSuccess,
+} from "../test-support/mocks";
 import SettingsPanel from "./SettingsPanel";
 
 function json(body: unknown, status = 200) {
@@ -62,10 +64,7 @@ const EMPTY_PROFILE = {
 describe("SettingsPanel", () => {
   afterEach(() => {
     cleanup();
-    authFetchMock.mockReset();
-    redirectSpy.mockReset();
-    toastSuccess.mockReset();
-    toastError.mockReset();
+    resetOrganiserMocks();
   });
 
   it("loads and seeds the form from the profile", async () => {

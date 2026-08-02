@@ -8,7 +8,8 @@
     "build": "wrangler deploy --dry-run --outdir dist",
     "test": "bun test",
     "deploy": "wrangler deploy --env production",
-    "types": "wrangler types"
+    "types": "wrangler types",
+    "test:d1": "bun test src/db/d1-integration.test.ts"
   },
   "dependencies": {
     "@cire/db": "workspace:*",

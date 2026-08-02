@@ -9,25 +9,22 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * stubbed; this asserts the warning count, the confirm gate, and the request.
  */
 
-const authFetchMock = vi.fn();
-const redirectSpy = vi.fn();
-const toastSuccess = vi.fn();
-const toastError = vi.fn();
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../test-support/mocks");
+  return rpAuthSolidMock();
+});
 
-vi.mock("@shared/rp-auth/solid", () => ({
-  useAuth: () => ({ authFetch: authFetchMock }),
-}));
+vi.mock("solid-toast", async () => {
+  const { solidToastMock } = await import("../test-support/mocks");
+  return solidToastMock();
+});
 
-vi.mock("solid-toast", () => ({
-  toast: { success: (m: string) => toastSuccess(m), error: (m: string) => toastError(m) },
-}));
+vi.mock("../lib/api", async () => {
+  const { organiserApiMock } = await import("../test-support/mocks");
+  return organiserApiMock();
+});
 
-vi.mock("../lib/api", () => ({
-  apiUrl: (path: string) => `https://api.test${path}`,
-  isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
-  redirectToLogin: () => redirectSpy(),
-}));
-
+import { authFetchMock, resetOrganiserMocks, toastSuccess } from "../test-support/mocks";
 import RemintPanel from "./RemintPanel";
 
 function json(body: unknown, status = 200) {
@@ -80,10 +77,7 @@ const OPENED_ONLY_GUESTS = [
 describe("RemintPanel", () => {
   afterEach(() => {
     cleanup();
-    authFetchMock.mockReset();
-    redirectSpy.mockReset();
-    toastSuccess.mockReset();
-    toastError.mockReset();
+    resetOrganiserMocks();
   });
 
   it("warns about already-sent families and re-mints on confirm", async () => {

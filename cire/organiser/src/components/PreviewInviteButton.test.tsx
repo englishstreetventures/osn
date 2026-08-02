@@ -12,13 +12,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * and each failure branch (which must never leave an orphaned blank tab).
  */
 
-const authFetchMock = vi.fn();
-const redirectSpy = vi.fn();
 const toastErrorSpy = vi.fn();
 
-vi.mock("@shared/rp-auth/solid", () => ({
-  useAuth: () => ({ authFetch: authFetchMock }),
-}));
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../test-support/mocks");
+  return rpAuthSolidMock();
+});
 
 vi.mock("solid-toast", () => ({
   toast: { success: vi.fn(), error: (...args: unknown[]) => toastErrorSpy(...args) },
@@ -26,12 +25,12 @@ vi.mock("solid-toast", () => ({
 
 // Mock the api helpers so we can spy on the redirect without a real navigation,
 // and keep apiUrl deterministic. isAuthExpired mirrors the real string check.
-vi.mock("../lib/api", () => ({
-  apiUrl: (path: string) => `https://api.test${path}`,
-  isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
-  redirectToLogin: () => redirectSpy(),
-}));
+vi.mock("../lib/api", async () => {
+  const { organiserApiMock } = await import("../test-support/mocks");
+  return organiserApiMock();
+});
 
+import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
 import PreviewInviteButton from "./PreviewInviteButton";
 
 type FakeWindow = ReturnType<typeof makeFakeWindow>;
@@ -61,8 +60,7 @@ function clickPreview() {
 describe("PreviewInviteButton", () => {
   afterEach(() => {
     cleanup();
-    authFetchMock.mockReset();
-    redirectSpy.mockReset();
+    resetOrganiserMocks();
     toastErrorSpy.mockReset();
     vi.unstubAllGlobals();
   });

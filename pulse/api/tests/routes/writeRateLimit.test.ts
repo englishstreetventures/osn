@@ -1,7 +1,6 @@
-import { generateArcKeyPair } from "@shared/crypto";
+import { makeAccessTokenSigner, type AccessTokenSigner } from "@shared/crypto/testing";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect } from "effect";
-import { SignJWT } from "jose";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createCloseFriendsRoutes } from "../../src/routes/closeFriends";
@@ -16,21 +15,15 @@ const throws: RateLimiterBackend = {
   },
 };
 
-let testPrivateKey: CryptoKey;
+let signer: AccessTokenSigner;
 let testPublicKey: CryptoKey;
 
 beforeAll(async () => {
-  const pair = await generateArcKeyPair();
-  testPrivateKey = pair.privateKey;
-  testPublicKey = pair.publicKey;
+  signer = await makeAccessTokenSigner();
+  testPublicKey = signer.publicKey;
 });
 
-async function makeToken(profileId: string): Promise<string> {
-  return new SignJWT({ sub: profileId })
-    .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
-    .setAudience("osn-access")
-    .sign(testPrivateKey);
-}
+const makeToken = (profileId: string) => signer.sign(profileId);
 
 const FUTURE = "2030-06-01T10:00:00.000Z";
 

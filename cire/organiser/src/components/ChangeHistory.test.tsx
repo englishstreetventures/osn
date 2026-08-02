@@ -10,11 +10,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * shows a non-revertable note on an applied entry whose restore point aged out.
  */
 
-const authFetchMock = vi.fn();
-
-vi.mock("@shared/rp-auth/solid", () => ({
-  useAuth: () => ({ authFetch: authFetchMock }),
-}));
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../test-support/mocks");
+  return rpAuthSolidMock();
+});
 
 vi.mock("../lib/api", () => ({
   apiUrl: (path: string) => `https://api.test${path}`,
@@ -31,6 +30,7 @@ vi.mock("../lib/guests-store", () => ({
   invalidateGuests: (id: string) => invalidateGuestsMock(id),
 }));
 
+import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 import ChangeHistory from "./ChangeHistory";
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
@@ -88,7 +88,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  authFetchMock.mockReset();
+  resetOrganiserMocks();
   invalidateEventsMock.mockReset();
   invalidateGuestsMock.mockReset();
 });

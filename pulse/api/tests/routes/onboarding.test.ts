@@ -1,6 +1,5 @@
-import { generateArcKeyPair } from "@shared/crypto";
+import { makeAccessTokenSigner, type AccessTokenSigner } from "@shared/crypto/testing";
 import { Effect } from "effect";
-import { SignJWT } from "jose";
 import { describe, it, expect, beforeEach, beforeAll, vi } from "vitest";
 
 import { createOnboardingRoutes } from "../../src/routes/onboarding";
@@ -28,21 +27,15 @@ vi.mock("../../src/lib/osn-bridge", () => ({
 
 import * as bridge from "../../src/services/graphBridge";
 
-let testPrivateKey: CryptoKey;
+let signer: AccessTokenSigner;
 let testPublicKey: CryptoKey;
 
 beforeAll(async () => {
-  const pair = await generateArcKeyPair();
-  testPrivateKey = pair.privateKey;
-  testPublicKey = pair.publicKey;
+  signer = await makeAccessTokenSigner();
+  testPublicKey = signer.publicKey;
 });
 
-async function makeToken(profileId: string): Promise<string> {
-  return new SignJWT({ sub: profileId })
-    .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
-    .setAudience("osn-access")
-    .sign(testPrivateKey);
-}
+const makeToken = (profileId: string) => signer.sign(profileId);
 
 const get = (app: ReturnType<typeof createOnboardingRoutes>, path: string, token?: string) =>
   app.handle(

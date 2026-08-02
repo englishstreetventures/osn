@@ -67,6 +67,13 @@ jobs:
       - name: Test
         run: bun run test
 
+      # Gate the deploy on the async-D1-driver lane too — these tests sit
+      # outside the vitest include glob, so `bun run test` doesn't reach them,
+      # and D1 is exactly what this workflow is about to deploy against.
+      # Serial: concurrent Miniflare workerd instances contend.
+      - name: D1 integration tests
+        run: bun run test:d1
+
   # ── cire API + D1 migrations ───────────────────────────────────────────────
   # Migrations are applied to the REMOTE prod DB FIRST, then the Worker is
   # deployed — both in a single job so the order is guaranteed and the

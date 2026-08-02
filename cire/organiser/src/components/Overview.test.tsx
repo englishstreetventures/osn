@@ -11,18 +11,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * Getting-started checklist as its empty-state instead.
  */
 
-const authFetchMock = vi.fn();
-const redirectSpy = vi.fn();
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../test-support/mocks");
+  return rpAuthSolidMock();
+});
 
-vi.mock("@shared/rp-auth/solid", () => ({
-  useAuth: () => ({ authFetch: authFetchMock }),
-}));
-
-vi.mock("../lib/api", () => ({
-  apiUrl: (path: string) => `https://api.test${path}`,
-  isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
-  redirectToLogin: () => redirectSpy(),
-}));
+vi.mock("../lib/api", async () => {
+  const { organiserApiMock } = await import("../test-support/mocks");
+  return organiserApiMock();
+});
 
 // GettingStarted fetches its own snapshot — stub it so this suite stays on the
 // Overview's own glue rather than the checklist's fetches.
@@ -34,6 +31,7 @@ import { __resetBudgetCache } from "../lib/budget-store";
 import { __resetEventsCache } from "../lib/events-store";
 import { __resetGuestsCache, setCachedGuests } from "../lib/guests-store";
 import { __resetTasksCache } from "../lib/tasks-store";
+import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 import Overview from "./Overview";
 
 function json(body: unknown, status = 200) {
@@ -124,8 +122,7 @@ const RSVPS = [
 describe("Overview", () => {
   afterEach(() => {
     cleanup();
-    authFetchMock.mockReset();
-    redirectSpy.mockReset();
+    resetOrganiserMocks();
     __resetBudgetCache();
     __resetEventsCache();
     __resetGuestsCache();

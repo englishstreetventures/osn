@@ -6,7 +6,7 @@ related:
   - "[[backend-patterns]]"
   - "[[schema-layers]]"
   - "[[commands]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-02
 ---
 
 # Testing Patterns
@@ -104,6 +104,75 @@ describe("events routes", () => {
 - **Use `bunx --bun vitest`** (not plain `vitest`) -- the flag is required for `bun:sqlite` module access. The `test:run` scripts in `package.json` already set it.
 
 - **Use future dates for test events.** For example, `2030-06-01T10:00:00.000Z`. The default `listEvents` implementation filters out past events, so tests with past dates will produce confusing empty results.
+
+- **Never hand-write a DDL mirror.** Test databases are built from the live Drizzle schema via `applySchema()` (`@osn/db/testing`, `@pulse/db/testing`, `@zap/db/testing`) — never a `CREATE TABLE` string in a helper or a test file. A hand-written mirror makes constraint tests tautological: they assert the `UNIQUE` the author typed a few lines above, not the one the schema declares, so dropping `.unique()` from `src/schema` leaves them green. See [[#Schema-derived test databases]].
+
+- **A test must fail for the reason it is named.** Before landing a test that asserts a side effect (a row written, a notice sent), break the code path and confirm the test goes red. `expect(true).toBe(true)` after an action asserts nothing.
+
+## Schema-derived test databases
+
+Every DB package exports an emitter that builds `CREATE TABLE`/`CREATE INDEX` from the live Drizzle schema:
+
+```typescript
+import { applySchema } from "@osn/db/testing"; // or @pulse/db, @zap/db
+
+const sqlite = new Database(":memory:");
+applySchema(sqlite);
+```
+
+Adding a column is then a one-file change in `src/schema/`. The emitter carries column-level `.unique()` (via `col.isUnique`), partial-index `WHERE` clauses, and foreign-key `ON DELETE`/`ON UPDATE` actions — all three were silently dropped before 2026-08, so tests ran on a shape production D1 rejects. The emitted array is memoised and frozen: the schema is a static module import, so reflecting it per test database was pure recomputation.
+
+`osn/db/tests/ddl-lockstep.test.ts` diffs a normalised structural snapshot of the emitted schema against the full `osn/db/drizzle/*.sql` migration chain. It compares columns, types, defaults, nullability, indexes (**including column order within an index** — SQLite serves only a leading prefix), partial predicates, foreign keys and their referential actions, and pins CHECK/trigger/view sets as empty. It fails when a migration lands without a schema change, when a schema change lands without a migration, or when the emitter loses a constraint. `zap/db` has the same test; `cire/api/src/db/ddl-lockstep.test.ts` covers cire's three-way mirror.
+
+**If you extend one emitter, extend all three** — they are copies, and all three (`osn/db`, `pulse/db`, `zap/db`) now carry the lockstep test.
+
+Writing pulse's found **D-H1**: a `user_id` → `profile_id` rename had reached `src/schema` without ever reaching migration `0000`, and three `events` columns existed with no migration at all — so `wrangler d1 migrations apply pulse-db` against a fresh D1 would have failed. Every Pulse test builds from `applySchema()`, so nothing exercised the chain until this test did.
+
+When you write one of these, prove it can fail. Mutate the emitter — drop a constraint, reverse an index's columns — and confirm the test goes red. The first version of the osn test passed with every foreign key removed and with composite index columns reversed.
+
+## Shared test harnesses
+
+Reach for these before hand-rolling setup:
+
+| Harness | Use for |
+|---|---|
+| `@shared/crypto/testing` → `makeAccessTokenSigner()` | ES256 OSN access tokens (`aud: "osn-access"`, 5-minute `exp` matching production). Returns `{ privateKey, publicKey, sign(profileId, claims?) }`; `claims` covers `email`, `audience`, `expiresIn`, `issuer`, `kid` for negative tests. Used by the pulse, zap and cire route suites. |
+| `cire/api/src/test-helpers/osn-token.ts` → `makeOsnTestAuth()` | The cire-shaped `{ key, sign }` adapter over the above. |
+| `cire/api/src/test-helpers.ts` → `appRequest()` | Elysia requests with `cf-connecting-ip` + `Origin` pre-injected. |
+| `cire/organiser/src/test-support/mocks.ts` | The `@shared/rp-auth/solid` + `solid-toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`. |
+| `pulse/app/tests/helpers/toast.ts` → `solidToastMock()` | Same idea for the Pulse app. |
+
+Call `makeAccessTokenSigner()` once per suite in `beforeAll` — there is no reason to re-key per test.
+
+`vi.mock` is hoisted per module, so registration stays in the test file; only the factory body is shared. Use the dynamic-import form so the factory never reads an uninitialised binding:
+
+```typescript
+vi.mock("../lib/api", async () => {
+  const { organiserApiMock } = await import("../test-support/mocks");
+  return organiserApiMock();
+});
+import { authFetchMock, redirectSpy, resetOrganiserMocks } from "../test-support/mocks";
+
+afterEach(() => {
+  cleanup();
+  resetOrganiserMocks(); // the spies are module singletons — reset every one
+});
+```
+
+Because the spies are shared, a `describe` block that forgets a reset inherits call counts from the block above it. Always call `resetOrganiserMocks()` rather than hand-listing the spies you happen to remember.
+
+A suite that genuinely needs a different shape (an extra `useAuth` field, an `importOriginal` spread) keeps its own local mock. These harnesses cover the common case; they are not a mandate.
+
+## The D1 integration lane
+
+Each API package has a `src/d1-integration.test.ts` that runs against a real workerd-backed D1 via Miniflare. These files sit **outside** the vitest `include` glob (`tests/**/*.test.ts`), so `bun run test` never reaches them — they are the only coverage of the **asynchronous** D1 driver that dev/staging/prod actually use, as opposed to the synchronous `bun:sqlite` every other suite runs on.
+
+```bash
+bun run test:d1            # all four packages, serially
+bun run --cwd zap/api test:d1
+```
+
+Run serially. Concurrent Miniflare workerd instances contend and fail spuriously, which is why the root script pins `--concurrency=1`. Both `ci.yml` and `deploy.yml` run this lane; before 2026-08 neither did, and zap's test sat failing on a stale fixture for as long as it took someone to run it by hand.
 
 ## Running Tests
 

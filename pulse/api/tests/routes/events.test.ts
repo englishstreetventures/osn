@@ -1,6 +1,5 @@
-import { generateArcKeyPair } from "@shared/crypto";
+import { makeAccessTokenSigner, type AccessTokenSigner } from "@shared/crypto/testing";
 import { Effect } from "effect";
-import { SignJWT } from "jose";
 import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createEventsRoutes } from "../../src/routes/events";
@@ -8,23 +7,15 @@ import { createTestLayer, seedEvent } from "../helpers/db";
 
 const FUTURE = "2030-06-01T10:00:00.000Z";
 
-let testPrivateKey: CryptoKey;
+let signer: AccessTokenSigner;
 let testPublicKey: CryptoKey;
 
 beforeAll(async () => {
-  const pair = await generateArcKeyPair();
-  testPrivateKey = pair.privateKey;
-  testPublicKey = pair.publicKey;
+  signer = await makeAccessTokenSigner();
+  testPublicKey = signer.publicKey;
 });
 
-async function makeToken(profileId: string, email?: string): Promise<string> {
-  const payload: Record<string, string> = { sub: profileId };
-  if (email) payload.email = email;
-  return new SignJWT(payload)
-    .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
-    .setAudience("osn-access")
-    .sign(testPrivateKey);
-}
+const makeToken = (profileId: string, email?: string) => signer.sign(profileId, { email });
 
 const json = (body: unknown) => JSON.stringify(body);
 const post = (

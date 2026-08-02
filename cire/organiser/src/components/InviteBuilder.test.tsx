@@ -13,24 +13,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  * `updatedAt`, which doubles as the guest image-cache version — P-W1).
  */
 
-const authFetchMock = vi.fn();
-const redirectSpy = vi.fn();
-const toastSuccess = vi.fn();
-const toastError = vi.fn();
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../test-support/mocks");
+  return rpAuthSolidMock();
+});
 
-vi.mock("@shared/rp-auth/solid", () => ({
-  useAuth: () => ({ authFetch: authFetchMock }),
-}));
+vi.mock("solid-toast", async () => {
+  const { solidToastMock } = await import("../test-support/mocks");
+  return solidToastMock();
+});
 
-vi.mock("solid-toast", () => ({
-  toast: { success: (m: string) => toastSuccess(m), error: (m: string) => toastError(m) },
-}));
-
-vi.mock("../lib/api", () => ({
-  apiUrl: (path: string) => `https://api.test${path}`,
-  isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
-  redirectToLogin: () => redirectSpy(),
-}));
+vi.mock("../lib/api", async () => {
+  const { organiserApiMock } = await import("../test-support/mocks");
+  return organiserApiMock();
+});
 
 // Test-only catalog: a premium design BETWEEN the two free ones, so keyboard
 // navigation's locked-skip behaviour is exercised (mirrors the TEST_CATALOG
@@ -82,6 +78,12 @@ vi.mock("./ImageCropModal", () => ({
 // reaches the process-global registry the dashboard consults.
 import { confirmNavigation } from "../lib/unsaved-guard";
 import { captureDeclaredStyles } from "../test-support/declared-style";
+import {
+  authFetchMock,
+  resetOrganiserMocks,
+  toastError,
+  toastSuccess,
+} from "../test-support/mocks";
 import InviteBuilder, { isDesignLocked, SECTION_MENU_COLUMNS } from "./InviteBuilder";
 
 function json(body: unknown, status = 200) {
@@ -133,10 +135,7 @@ async function openSection(label: string | RegExp) {
 describe("InviteBuilder theme", () => {
   afterEach(() => {
     cleanup();
-    authFetchMock.mockReset();
-    redirectSpy.mockReset();
-    toastSuccess.mockReset();
-    toastError.mockReset();
+    resetOrganiserMocks();
     vi.restoreAllMocks();
   });
 
@@ -816,10 +815,7 @@ describe("InviteBuilder theme", () => {
 describe("InviteBuilder shown/hidden badges", () => {
   afterEach(() => {
     cleanup();
-    authFetchMock.mockReset();
-    redirectSpy.mockReset();
-    toastSuccess.mockReset();
-    toastError.mockReset();
+    resetOrganiserMocks();
     vi.restoreAllMocks();
   });
 
@@ -940,10 +936,7 @@ describe("isDesignLocked", () => {
 describe("design selector", () => {
   afterEach(() => {
     cleanup();
-    authFetchMock.mockReset();
-    redirectSpy.mockReset();
-    toastSuccess.mockReset();
-    toastError.mockReset();
+    resetOrganiserMocks();
     vi.restoreAllMocks();
   });
 
@@ -1165,10 +1158,7 @@ describe("design selector", () => {
 describe("InviteBuilder hero phone crop (migration 0046)", () => {
   afterEach(() => {
     cleanup();
-    authFetchMock.mockReset();
-    redirectSpy.mockReset();
-    toastSuccess.mockReset();
-    toastError.mockReset();
+    resetOrganiserMocks();
     vi.restoreAllMocks();
   });
 
@@ -1319,7 +1309,7 @@ describe("InviteBuilder hero phone crop (migration 0046)", () => {
       expect(screen.getByLabelText("Hero background image (phone crop)")).toBeTruthy(),
     );
     first.unmount();
-    authFetchMock.mockReset();
+    resetOrganiserMocks();
 
     // Without a saved phone crop the thumbnail is absent.
     authFetchMock.mockResolvedValueOnce(json(WITH_IMAGES));
@@ -1333,10 +1323,7 @@ describe("InviteBuilder hero phone crop (migration 0046)", () => {
 describe("InviteBuilder UX guards", () => {
   afterEach(() => {
     cleanup();
-    authFetchMock.mockReset();
-    redirectSpy.mockReset();
-    toastSuccess.mockReset();
-    toastError.mockReset();
+    resetOrganiserMocks();
     vi.unstubAllGlobals();
   });
 
@@ -1597,10 +1584,7 @@ describe("InviteBuilder UX guards", () => {
 describe("InviteBuilder section menu (narrow containers)", () => {
   afterEach(() => {
     cleanup();
-    authFetchMock.mockReset();
-    redirectSpy.mockReset();
-    toastSuccess.mockReset();
-    toastError.mockReset();
+    resetOrganiserMocks();
     vi.unstubAllGlobals();
   });
 
@@ -1882,10 +1866,7 @@ describe("InviteBuilder section menu (narrow containers)", () => {
 describe("InviteBuilder preview layer", () => {
   afterEach(() => {
     cleanup();
-    authFetchMock.mockReset();
-    redirectSpy.mockReset();
-    toastSuccess.mockReset();
-    toastError.mockReset();
+    resetOrganiserMocks();
     vi.unstubAllGlobals();
   });
 
@@ -2012,7 +1993,7 @@ describe("InviteBuilder preview layer", () => {
     expect(screen.getByLabelText("Invite preview")).toBeInTheDocument();
 
     cleanup();
-    authFetchMock.mockReset();
+    resetOrganiserMocks();
     stubResizeObserver(895);
     await renderBuilder();
     expect(screen.queryByLabelText("Invite preview")).not.toBeInTheDocument();

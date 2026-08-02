@@ -14,11 +14,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * just of our handler.
  */
 
-const authFetchMock = vi.fn();
-
-vi.mock("@shared/rp-auth/solid", () => ({
-  useAuth: () => ({ authFetch: authFetchMock }),
-}));
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../test-support/mocks");
+  return rpAuthSolidMock();
+});
 
 vi.mock("solid-toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -33,6 +32,7 @@ vi.mock("../lib/api", () => ({
 import { __resetEventsCache } from "../lib/events-store";
 import { __resetGuestsCache } from "../lib/guests-store";
 import { __resetHouseholdsCache } from "../lib/households-store";
+import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 import EventsEditor from "./EventsEditor";
 
 function json(body: unknown) {
@@ -136,7 +136,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
-  authFetchMock.mockReset();
+  resetOrganiserMocks();
   __resetGuestsCache();
   __resetHouseholdsCache();
   __resetEventsCache();

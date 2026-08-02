@@ -1,6 +1,5 @@
-import { generateArcKeyPair } from "@shared/crypto";
+import { makeAccessTokenSigner, type AccessTokenSigner } from "@shared/crypto/testing";
 import { Effect } from "effect";
-import { SignJWT } from "jose";
 import { describe, it, expect, beforeAll, vi } from "vitest";
 
 import { createTestLayer } from "../helpers/db";
@@ -23,21 +22,15 @@ vi.mock("../../src/lib/osn-bridge", () => ({
 
 import { createAccountRoutes } from "../../src/routes/account";
 
-let testPrivateKey: CryptoKey;
+let signer: AccessTokenSigner;
 let testPublicKey: CryptoKey;
 
 beforeAll(async () => {
-  const pair = await generateArcKeyPair();
-  testPrivateKey = pair.privateKey;
-  testPublicKey = pair.publicKey;
+  signer = await makeAccessTokenSigner();
+  testPublicKey = signer.publicKey;
 });
 
-async function makeToken(profileId: string): Promise<string> {
-  return new SignJWT({ sub: profileId })
-    .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
-    .setAudience("osn-access")
-    .sign(testPrivateKey);
-}
+const makeToken = (profileId: string) => signer.sign(profileId);
 
 function makeApp() {
   return createAccountRoutes(createTestLayer(), "http://unused.test/jwks", testPublicKey);

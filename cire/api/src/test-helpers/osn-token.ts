@@ -1,4 +1,4 @@
-import { SignJWT, generateKeyPair } from "jose";
+import { makeAccessTokenSigner } from "@shared/crypto/testing";
 
 export type OsnTestAuth = {
   /** Public verifying key — pass as `osnTestKey` to `createApp`. */
@@ -11,19 +11,15 @@ export type OsnTestAuth = {
  * Test-only stand-in for the OSN issuer: generates an ES256 key pair and
  * exposes the public key (for `osnTestKey` injection, skipping the JWKS
  * fetch) plus a signer that mints access tokens shaped like osn/api's.
+ *
+ * Thin adapter over `@shared/crypto/testing`'s `makeAccessTokenSigner` — the
+ * single implementation shared with the pulse and zap route suites. The
+ * `{ key, sign }` shape is kept because sixteen cire suites destructure it.
  */
 export async function makeOsnTestAuth(): Promise<OsnTestAuth> {
-  const { privateKey, publicKey } = await generateKeyPair("ES256");
+  const signer = await makeAccessTokenSigner();
   return {
-    key: publicKey,
-    sign(profileId: string): Promise<string> {
-      return new SignJWT({})
-        .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
-        .setSubject(profileId)
-        .setAudience("osn-access")
-        .setIssuedAt()
-        .setExpirationTime("5m")
-        .sign(privateKey);
-    },
+    key: signer.publicKey,
+    sign: (profileId: string) => signer.sign(profileId, { expiresIn: "5m" }),
   };
 }
