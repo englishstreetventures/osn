@@ -38,7 +38,10 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new("pulse-bridge")
         .invoke_handler(tauri::generate_handler![
             commands::impact,
-            commands::get_safe_area_insets
+            commands::get_safe_area_insets,
+            commands::update_glass_panels,
+            commands::register_listener,
+            commands::remove_listener
         ])
         .setup(|app, api| {
             #[cfg(mobile)]

@@ -1,5 +1,6 @@
 use serde::de::DeserializeOwned;
 use tauri::{
+    ipc::Channel,
     plugin::{PluginApi, PluginHandle},
     AppHandle, Runtime,
 };
@@ -35,6 +36,27 @@ impl<R: Runtime> PulseBridge<R> {
     pub fn get_safe_area_insets(&self) -> Result<SafeAreaInsets> {
         self.0
             .run_mobile_plugin("getSafeAreaInsets", ())
+            .map_err(Into::into)
+    }
+
+    pub fn update_glass_panels(&self, panels: Vec<GlassPanel>) -> Result<()> {
+        self.0
+            .run_mobile_plugin("updateGlassPanels", UpdateGlassPanelsOptions { panels })
+            .map_err(Into::into)
+    }
+
+    /// `registerListener`/`removeListener` are inherited, unmodified, from the
+    /// vendored Swift `Plugin` base class — no override needed in
+    /// `PulseBridgePlugin.swift`, they already back `Plugin.trigger()`.
+    pub fn register_listener(&self, event: String, handler: Channel<serde_json::Value>) -> Result<()> {
+        self.0
+            .run_mobile_plugin("registerListener", RegisterListenerArgs { event, handler })
+            .map_err(Into::into)
+    }
+
+    pub fn remove_listener(&self, event: String, channel_id: u32) -> Result<()> {
+        self.0
+            .run_mobile_plugin("removeListener", RemoveListenerArgs { event, channel_id })
             .map_err(Into::into)
     }
 }
