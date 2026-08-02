@@ -46,7 +46,7 @@ language is narrower than most summaries suggest.
 | Art. 24 | Transparency reporting (online platforms specifically) | **SME-exempt per Art. 19** (Section 3 carve-out) | Skip until threshold; data collected anyway via C-L10. |
 | Art. 25 | No "dark patterns" in interface design that distort autonomous choice | **Continuous** | Cover in design review checklist. |
 | Art. 26 | Online advertising transparency — show "ad", who paid, parameters used | **N/A today** | Activate when "promoted events" lands. |
-| Art. 27 | Recommender system transparency — main parameters disclosed in ToS | **Gap** | Pulse discovery uses friends + location + recency; Zap has no recommender; document in ToS. |
+| Art. 27 | Recommender system transparency — main parameters disclosed in ToS | **Gap** | Three recommenders in scope — Pulse discovery, OSN contact suggestions, OSN search ranking; Zap has no recommender. Parameters inventoried under C-L8 below; document in ToS. |
 | Art. 28 | Online protection of minors — proportionate measures; no targeted ads to known minors | We hard-gate <13. Add: no "promoted events" to known 13–17 if/when ads land. | — |
 | Art. 30 | Trader traceability — collect + verify identity of traders dealing with consumers via the platform | **Gap** | Verified-organisation flow in Zap M3 must capture: name, address, phone, email, registration ID, self-declaration of compliance. Block trader from interacting until verified. |
 | Art. 31 | Compliance by design when the platform allows traders to conclude distance contracts | **N/A today** | Activate with paid Pulse ticketing. |
@@ -61,7 +61,10 @@ Tracked with `C-` IDs:
 3. **DSA points of contact + ToS draft** — public pages on `@osn/landing`. ID: **C-M10**.
 4. **Internal complaint / appeal endpoint** — `POST /moderation/appeals`. ID: **C-M11**.
 5. **Trader-traceability flow** in Zap M3 verification. ID: **C-M12** (built as part of Zap M3 spec).
-6. **Recommender-transparency disclosure** in ToS — documented in plain language, covering all three recommenders: Pulse discovery factors, OSN contact suggestions (mutual connections, then shared organisations), and OSN people/organisation search ranking. ID: **C-L8**.
+6. **Recommender-transparency disclosure** in ToS — documented in plain language, covering all three recommenders. ID: **C-L8**. Current parameters, kept current so the ToS text is drafted from a live inventory rather than a stale one:
+   - **Pulse discovery** — friends, location, recency.
+   - **OSN contact suggestions** — mutual connections (stronger), then shared organisations. Discloses `mutualCount` per suggestion.
+   - **OSN people/organisation search ranking** (updated 2026-08-02) — a five-tier text-match score (exact handle, handle prefix, name-token prefix, handle infix, name infix) **summed with** a social-proximity score (existing connection, pending request either way, shared organisation the caller belongs to). Proximity is applied before the page is sliced, so it changes *which* results appear, not only their order. Explicitly **not** a parameter: mutual connections / friends-of-friends, excluded because ordering by them would disclose graph facts the caller cannot otherwise read. See [[social-graph]] §Search.
 7. **Strike system + misuse safeguards** — counter on accounts; auto-suspend at threshold; auto-rate-limit unfounded reporters. ID: **C-L9**.
 8. **Annual transparency report scaffold** — collect the data even while SME-exempt; ready to publish if threshold crossed. ID: **C-L10**.
 

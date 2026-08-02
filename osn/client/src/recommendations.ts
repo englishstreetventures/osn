@@ -71,9 +71,13 @@ export interface RecommendationClient {
     options?: { limit?: number },
   ): Promise<{ suggestions: Suggestion[] }>;
   /**
-   * Search people and organisations for autocomplete. Queries shorter than the
-   * server minimum (2 characters after trimming and stripping a leading `@`)
-   * come back as empty lists rather than an error.
+   * Search people and organisations for autocomplete. A query with no word
+   * characters left after trimming and stripping a leading `@` comes back as
+   * empty lists rather than an error.
+   *
+   * Result scope widens with query length: one character searches only the
+   * caller's own connections and organisations, two reaches the global handle
+   * index, three unlocks matching inside names.
    *
    * `signal` exists because this is typeahead: callers should abort the
    * in-flight request when the query changes, so a slow early keystroke can't

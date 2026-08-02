@@ -15,10 +15,16 @@ export const SEARCH_DEBOUNCE_MS = 250;
 
 /**
  * Mirrors `MIN_SEARCH_QUERY_LENGTH` on the server. Kept client-side too so a
- * single typed character never costs a round trip — the server would answer
- * with empty lists anyway.
+ * query the server would answer with empty lists anyway never costs a round
+ * trip.
+ *
+ * One character, not two: the server answers a single character from the
+ * caller's own connections and organisations — sets the caller can already
+ * list, so no length gate on them buys any enumeration resistance — and only
+ * reaches the global index from two. Raising the floor here would suppress that
+ * first-keystroke answer entirely.
  */
-export const MIN_QUERY_LENGTH = 2;
+export const MIN_QUERY_LENGTH = 1;
 
 /** Normalises the way the server does, so the two agree on "too short". */
 export function normaliseQuery(raw: string): string {

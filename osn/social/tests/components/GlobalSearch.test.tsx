@@ -76,10 +76,15 @@ afterEach(() => {
 });
 
 describe("<GlobalSearch />", () => {
-  it("does not query the API below the minimum query length", async () => {
+  it("does not query the API for a query that normalises to nothing", async () => {
     renderSearch();
-    await type("a");
+    // A bare sigil leaves no query at all. One real character does search —
+    // the server scopes it to the caller's own connections and organisations.
+    await type("@");
     expect(mocks.search).not.toHaveBeenCalled();
+
+    await type("a");
+    expect(mocks.search).toHaveBeenCalledWith("tkn", "a", expect.anything());
   });
 
   it("debounces so a burst of keystrokes issues a single request", async () => {

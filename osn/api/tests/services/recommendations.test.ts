@@ -10,7 +10,7 @@ import { createGraphService } from "../../src/services/graph";
 import { createOrganisationService } from "../../src/services/organisation";
 import { createRecommendationService } from "../../src/services/recommendations";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
 let auth: ReturnType<typeof createAuthService>;
@@ -320,14 +320,131 @@ describe("suggestConnections", () => {
 // ---------------------------------------------------------------------------
 
 describe("searchProfiles", () => {
-  it.effect("returns [] below the minimum query length", () =>
+  it.effect("returns [] for an empty query", () =>
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("a@e.com", "alice");
       yield* auth.registerProfile("b@e.com", "ab");
 
-      expect(yield* recs.searchProfiles(alice.id, "a")).toEqual([]);
       expect(yield* recs.searchProfiles(alice.id, "")).toEqual([]);
       expect(yield* recs.searchProfiles(alice.id, "   ")).toEqual([]);
+      expect(yield* recs.searchProfiles(alice.id, "@")).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("answers a one-character query from the caller's connections only", () =>
+    Effect.gen(function* () {
+      // A single character reaches the caller's own edges — a set they can
+      // already enumerate via GET /graph/connections, so no length gate on it
+      // buys any enumeration resistance — but never the global index.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      const bob = yield* auth.registerProfile("b@e.com", "bob");
+      yield* auth.registerProfile("c@e.com", "bella");
+      yield* connect(alice.id, bob.id);
+
+      expect((yield* recs.searchProfiles(alice.id, "b")).map((r) => r.handle)).toEqual(["bob"]);
+      // Two characters unlocks the global prefix pass, and @bella appears.
+      expect((yield* recs.searchProfiles(alice.id, "be")).map((r) => r.handle)).toEqual(["bella"]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("a one-character query from a caller with no connections returns []", () =>
+    Effect.gen(function* () {
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* auth.registerProfile("b@e.com", "bob");
+
+      expect(yield* recs.searchProfiles(alice.id, "b")).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("a separator cannot buy length past the global gates", () =>
+    Effect.gen(function* () {
+      // The gates are the enumeration control, so what they FORBID has to be
+      // asserted, not just what they allow. Each of these is a query whose
+      // string is long enough to pass a naive `phrase.length` check while
+      // carrying one character of actual signal — which is why the gates read
+      // the tokens instead (`handleQuery` for the prefix seek, longest token
+      // for the infix scan).
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* auth.registerProfile("b@e.com", "bob", "Bobby Tables");
+
+      // "b." / "b!" / "b-" would be a one-character handle seek; "b b" would be
+      // a one-character infix scan. None may reach a non-connection.
+      for (const q of ["b.", "b!", "b-", "b b", "b_"]) {
+        expect(yield* recs.searchProfiles(alice.id, q)).toEqual([]);
+      }
+
+      // The honest two- and three-character queries still work — including the
+      // separated form, which is not a bypass: "b o" rejoins to the handle
+      // prefix "bo", and the caller really did type two characters. That
+      // rejoin is the same mechanism that resolves "john smith" to @johnsmith.
+      expect((yield* recs.searchProfiles(alice.id, "bo")).map((r) => r.handle)).toEqual(["bob"]);
+      expect((yield* recs.searchProfiles(alice.id, "b o")).map((r) => r.handle)).toEqual(["bob"]);
+      expect((yield* recs.searchProfiles(alice.id, "obb")).map((r) => r.handle)).toEqual(["bob"]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("a short token alongside a real one still scans", () =>
+    Effect.gen(function* () {
+      // The infix gate reads the LONGEST token, not the total and not the
+      // shortest: an AND of LIKE patterns is only as selective as its most
+      // selective conjunct. "j smith" carries a real term and must run, where
+      // "j s" carries none and must not.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* auth.registerProfile("j@e.com", "zzz", "John Smith");
+
+      expect((yield* recs.searchProfiles(alice.id, "j smith")).map((r) => r.handle)).toEqual([
+        "zzz",
+      ]);
+      expect(yield* recs.searchProfiles(alice.id, "j s")).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("treats a typed % literally rather than as a wildcard", () =>
+    Effect.gen(function* () {
+      // `escapeLike` can only neutralise a metacharacter that survives
+      // tokenisation. If `%` were a separator, "a%e" would become `%a%` AND
+      // `%e%` and match @alice — the exact widening the escape exists to stop.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* auth.registerProfile("b@e.com", "bob", "100% Cotton");
+
+      expect(yield* recs.searchProfiles(alice.id, "a%e")).toEqual([]);
+      expect((yield* recs.searchProfiles(alice.id, "100%")).map((r) => r.handle)).toEqual(["bob"]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("ranks pending edges between connections and organisation co-members", () =>
+    Effect.gen(function* () {
+      // Covers all four proximity constants and the tie-break in one ordering.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      const connected = yield* auth.registerProfile("c@e.com", "zeta_a");
+      const pending = yield* auth.registerProfile("p@e.com", "zeta_b");
+      const colleague = yield* auth.registerProfile("o@e.com", "zeta_c");
+      yield* auth.registerProfile("s@e.com", "zeta_d");
+
+      yield* connect(alice.id, connected.id);
+      yield* graph.sendConnectionRequest(pending.id, alice.id);
+      const org = yield* orgs.createOrganisation(alice.id, "acme", "Acme Inc");
+      yield* orgs.addMember(org.id, alice.id, colleague.id, "member");
+
+      const result = yield* recs.searchProfiles(alice.id, "zeta");
+      expect(result.map((r) => r.handle)).toEqual(["zeta_a", "zeta_b", "zeta_c", "zeta_d"]);
+      expect(result[1]!.connectionStatus).toBe("pending_received");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("ranks a name-token prefix above a name that merely contains the tokens", () =>
+    Effect.gen(function* () {
+      // lexicalScore's all-tokens-contained fallback: a row the multi-token
+      // scan retrieved but which matched neither as a phrase nor as a token
+      // prefix must still score above zero, and below a real token prefix.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* auth.registerProfile("b@e.com", "yyy", "Blacksmith Johnson");
+      yield* auth.registerProfile("j@e.com", "zzz", "John Smith");
+
+      expect((yield* recs.searchProfiles(alice.id, "smith john")).map((r) => r.handle)).toEqual([
+        "zzz",
+        "yyy",
+      ]);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -405,19 +522,157 @@ describe("searchProfiles", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  it.effect("ranks every matchRank tier in order", () =>
+  it.effect("ranks every lexical tier in order", () =>
     Effect.gen(function* () {
-      // Tier ordering is the whole ranking contract: exact handle, handle
-      // prefix, name prefix, handle infix, then name infix.
+      // Tier ordering is the whole lexical contract: exact handle, handle
+      // prefix, name-*token* prefix, handle infix, then name infix. Nobody here
+      // is connected to the caller, so proximity contributes 0 throughout and
+      // the order is the lexical order alone.
       const alice = yield* auth.registerProfile("a@e.com", "alice");
-      yield* auth.registerProfile("e@e.com", "bob"); // 0 — exact handle
-      yield* auth.registerProfile("p@e.com", "bobx"); // 1 — handle prefix
-      yield* auth.registerProfile("n@e.com", "zed", "Bobby Zed"); // 2 — name prefix
-      yield* auth.registerProfile("i@e.com", "carbob"); // 3 — handle infix
-      yield* auth.registerProfile("m@e.com", "zeta", "Rob Bobson"); // 4 — name infix
+      yield* auth.registerProfile("e@e.com", "bob"); // 100 — exact handle
+      yield* auth.registerProfile("p@e.com", "bobx"); //  60 — handle prefix
+      yield* auth.registerProfile("n@e.com", "zed", "Bobby Zed"); // 50 — first name token
+      yield* auth.registerProfile("m@e.com", "zeta", "Rob Bobson"); // 50 — later name token
+      yield* auth.registerProfile("i@e.com", "carbob"); //  25 — handle infix
+      yield* auth.registerProfile("f@e.com", "yak", "Rabobank Ltd"); // 20 — name infix
 
       const result = yield* recs.searchProfiles(alice.id, "bob");
-      expect(result.map((r) => r.handle)).toEqual(["bob", "bobx", "zed", "carbob", "zeta"]);
+      expect(result.map((r) => r.handle)).toEqual([
+        "bob",
+        "bobx",
+        // Both name-token matches, tied at 50 and split by handle. "Rob
+        // *Bob*son" ranking above "car*bob*" is the point of the tier: a
+        // surname starting with what was typed beats a handle that merely
+        // contains it. Under the old flat name-infix tier it ranked last.
+        "zed",
+        "zeta",
+        "carbob",
+        "yak",
+      ]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("ranks a connection above a stranger on the same lexical tier", () =>
+    Effect.gen(function* () {
+      // Facebook's typeahead ordering: first-degree results first. Both match
+      // the handle prefix identically, so proximity is the only thing between
+      // them — and @zoe would otherwise lose to @bella on the handle tie-break.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* auth.registerProfile("b@e.com", "bella");
+      const zoe = yield* auth.registerProfile("z@e.com", "bezoe");
+      yield* connect(alice.id, zoe.id);
+
+      const result = yield* recs.searchProfiles(alice.id, "be");
+      expect(result.map((r) => r.handle)).toEqual(["bezoe", "bella"]);
+      expect(result[0].connectionStatus).toBe("connected");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("lets a connection's weaker text match outrank a stranger's handle prefix", () =>
+    Effect.gen(function* () {
+      // Connected name-token match (50 + 40) beats a stranger's handle prefix
+      // (60). Summing the two scores rather than ordering by one then the other
+      // is what makes this expressible at all.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* auth.registerProfile("s@e.com", "smithers");
+      const friend = yield* auth.registerProfile("f@e.com", "rbt", "Roberta Smith");
+      yield* connect(alice.id, friend.id);
+
+      const result = yield* recs.searchProfiles(alice.id, "smith");
+      expect(result.map((r) => r.handle)).toEqual(["rbt", "smithers"]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("an exact handle still outranks a connection matched less precisely", () =>
+    Effect.gen(function* () {
+      // The one case where text must win: the caller typed a whole handle, and
+      // a handle is an address. 100 beats 60 + 40 on the lexical tie-break.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* auth.registerProfile("b@e.com", "bob");
+      const friend = yield* auth.registerProfile("f@e.com", "bobby");
+      yield* connect(alice.id, friend.id);
+
+      expect((yield* recs.searchProfiles(alice.id, "bob")).map((r) => r.handle)).toEqual([
+        "bob",
+        "bobby",
+      ]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("ranks a shared-organisation co-member above an unrelated stranger", () =>
+    Effect.gen(function* () {
+      // The signal that stands in for friends-of-friends: only ever counted for
+      // organisations the caller belongs to, whose member list the caller can
+      // already read — so it discloses nothing ordering could leak.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* auth.registerProfile("b@e.com", "bella");
+      const colleague = yield* auth.registerProfile("c@e.com", "bezoe");
+      const org = yield* orgs.createOrganisation(alice.id, "acme", "Acme Inc");
+      yield* orgs.addMember(org.id, alice.id, colleague.id, "member");
+
+      expect((yield* recs.searchProfiles(alice.id, "be")).map((r) => r.handle)).toEqual([
+        "bezoe",
+        "bella",
+      ]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("finds a connection the global prefix window would have crowded out", () =>
+    Effect.gen(function* () {
+      // The recall guarantee. Every global pass is ORDER BY handle LIMIT
+      // overfetch, so a common prefix fills the window with whoever sorts
+      // alphabetically first. @zzz_pat sorts behind 40 strangers on "pa" and is
+      // retrieved only because the caller's own edges are a pass of their own.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      for (let i = 0; i < 40; i++) {
+        yield* auth.registerProfile(`p${i}@e.com`, `pat${String(i).padStart(2, "0")}`);
+      }
+      const friend = yield* auth.registerProfile("f@e.com", "zzz_pat");
+      yield* connect(alice.id, friend.id);
+
+      const result = yield* recs.searchProfiles(alice.id, "pat", 5);
+      expect(result[0].handle).toBe("zzz_pat");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("matches a multi-word query against display-name tokens in any order", () =>
+    Effect.gen(function* () {
+      // One `%john smith%` pattern can only match that exact substring in that
+      // exact order; AND-ing a pattern per token is what makes the reversed and
+      // punctuated forms findable.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* auth.registerProfile("j@e.com", "jsm", "John Smith");
+
+      for (const q of ["john smith", "smith john", "smi joh", "Smith, John"]) {
+        expect((yield* recs.searchProfiles(alice.id, q)).map((r) => r.handle)).toEqual(["jsm"]);
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("resolves a multi-word query to the handle it spells", () =>
+    Effect.gen(function* () {
+      // "john smith" carries a space, which can't prefix a handle at all — so
+      // before the tokens were rejoined this skipped the index seek entirely
+      // and found @johnsmith only if the infix scan happened to run.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* auth.registerProfile("j@e.com", "johnsmith");
+
+      expect((yield* recs.searchProfiles(alice.id, "john smith")).map((r) => r.handle)).toEqual([
+        "johnsmith",
+      ]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("still excludes a blocked profile that matches strongly", () =>
+    Effect.gen(function* () {
+      // Proximity ranking must never resurrect someone the block filter drops.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      const org = yield* orgs.createOrganisation(alice.id, "acme", "Acme Inc");
+      const bob = yield* auth.registerProfile("b@e.com", "bob");
+      yield* orgs.addMember(org.id, alice.id, bob.id, "member");
+      yield* graph.blockProfile(alice.id, bob.id);
+
+      expect(yield* recs.searchProfiles(alice.id, "bob")).toEqual([]);
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -514,6 +769,113 @@ describe("searchProfiles", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  it.effect("finds a non-ASCII display name", () =>
+    Effect.gen(function* () {
+      // Retrieval folds case with SQLite LIKE (ASCII only); ranking folds with
+      // JS toLowerCase (full Unicode). The query is lowercased in JS before SQL
+      // sees it, so a lowercase-stored accent matches from any input casing.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* auth.registerProfile("m@e.com", "mul", "Zoë Müller");
+
+      for (const q of ["müller", "MÜLLER", "Müller", "zoë mül"]) {
+        expect((yield* recs.searchProfiles(alice.id, q)).map((r) => r.handle)).toEqual(["mul"]);
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("finds a CJK display name, whose tokens are two characters", () =>
+    Effect.gen(function* () {
+      // The infix gate's Latin threshold of 3 would make this name
+      // unsearchable — every token of it is two characters wide. Two Han
+      // characters is a specific query, so dense scripts clear the gate at 2.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* auth.registerProfile("t@e.com", "taro", "日本 太郎");
+
+      for (const q of ["日本 太郎", "太郎", "日本"]) {
+        expect((yield* recs.searchProfiles(alice.id, q)).map((r) => r.handle)).toEqual(["taro"]);
+      }
+      // One character is still one character in any script.
+      expect(yield* recs.searchProfiles(alice.id, "本")).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("truncates the connections pass at its cap, alphabetically", () =>
+    Effect.gen(function* () {
+      // MAX_CONNECTION_MATCH_ROWS bounds the recall guarantee, so the bound is
+      // itself a stated contract: past the cap, which connections survive is
+      // decided by handle order, not arbitrarily. 60 matching connections on
+      // one edge direction exceeds the 50-row cap.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      for (let i = 0; i < 60; i++) {
+        const friend = yield* auth.registerProfile(
+          `z${i}@e.com`,
+          `zeta${String(i).padStart(2, "0")}`,
+        );
+        yield* connect(alice.id, friend.id);
+      }
+
+      // A one-character query reaches nothing but the connections pass, so the
+      // page is drawn purely from its (capped, handle-ordered) output.
+      const result = yield* recs.searchProfiles(alice.id, "z", 20);
+      expect(result).toHaveLength(20);
+      expect(result.map((r) => r.handle)).toEqual(
+        Array.from({ length: 20 }, (_, i) => `zeta${String(i).padStart(2, "0")}`),
+      );
+      expect(result.every((r) => r.connectionStatus === "connected")).toBe(true);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("survives the largest candidate set the bounds allow", () =>
+    Effect.gen(function* () {
+      // Worst case for the probes that follow retrieval: both edge directions
+      // at the cap plus both global passes at `limit × SEARCH_OVERFETCH_FACTOR`
+      // is ~220 candidate ids, and the block and edge probes each bind that
+      // list twice. This is the test that defends the sizing argument the
+      // constants are justified by — SQLite's 999-variable ceiling.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      for (let i = 0; i < 60; i++) {
+        const friend = yield* auth.registerProfile(
+          `f${i}@e.com`,
+          `zeta_f${String(i).padStart(2, "0")}`,
+        );
+        yield* connect(alice.id, friend.id);
+      }
+      for (let i = 0; i < 80; i++) {
+        yield* auth.registerProfile(`s${i}@e.com`, `zeta_s${String(i).padStart(2, "0")}`);
+      }
+
+      const result = yield* recs.searchProfiles(alice.id, "zeta", 20);
+      expect(result).toHaveLength(20);
+      // Connections outrank strangers on an identical lexical tier, so the
+      // whole page comes from the connection set.
+      expect(result.every((r) => r.connectionStatus === "connected")).toBe(true);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("surfaces a failing probe as DatabaseError, not a partial result", () =>
+    Effect.gen(function* () {
+      // The three post-retrieval probes run as one `Effect.all`, which changed
+      // the failure semantics: a failing probe now interrupts its siblings.
+      // Assert the failure lands in the error channel as the tagged error the
+      // route's `catch` expects, rather than escaping as a defect or — worse —
+      // yielding a page built from probes that never answered, which would drop
+      // the block filter.
+      // Built inline rather than via `Effect.provide` on the whole generator,
+      // because the raw handle is what lets the failure be injected mid-flight.
+      const { layer, sqlite } = createTestLayerWithSqlite();
+      const alice = yield* auth.registerProfile("a@e.com", "alice").pipe(Effect.provide(layer));
+      yield* auth.registerProfile("b@e.com", "bobby").pipe(Effect.provide(layer));
+
+      // Retrieval succeeds, then the block probe hits a table that is gone.
+      sqlite.exec("DROP TABLE blocks");
+
+      const error = yield* Effect.flip(
+        recs.searchProfiles(alice.id, "bob").pipe(Effect.provide(layer)),
+      );
+      expect(error._tag).toBe("DatabaseError");
+    }),
+  );
+
   it.effect("clamps the limit to [1, 20]", () =>
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("a@e.com", "alice");
@@ -533,10 +895,31 @@ describe("searchProfiles", () => {
 // ---------------------------------------------------------------------------
 
 describe("searchOrganisations", () => {
-  it.effect("returns [] below the minimum query length", () =>
+  it.effect("answers a one-character query from the caller's own organisations only", () =>
+    Effect.gen(function* () {
+      // One character reaches the caller's own memberships — a set they can
+      // already list — but never the global index.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      const bob = yield* auth.registerProfile("b@e.com", "bob");
+      yield* orgs.createOrganisation(alice.id, "acme", "Acme Inc");
+      yield* orgs.createOrganisation(bob.id, "apex", "Apex Ltd");
+
+      expect((yield* recs.searchOrganisations(alice.id, "a")).map((o) => o.handle)).toEqual([
+        "acme",
+      ]);
+      // Two characters reaches the global index, so bob finds alice's org.
+      expect((yield* recs.searchOrganisations(bob.id, "ac")).map((o) => o.handle)).toEqual([
+        "acme",
+      ]);
+      expect(yield* recs.searchOrganisations(alice.id, "")).toEqual([]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("a one-character query from a caller with no memberships returns []", () =>
     Effect.gen(function* () {
       const alice = yield* auth.registerProfile("a@e.com", "alice");
-      yield* orgs.createOrganisation(alice.id, "acme", "Acme Inc");
+      const bob = yield* auth.registerProfile("b@e.com", "bob");
+      yield* orgs.createOrganisation(bob.id, "acme", "Acme Inc");
 
       expect(yield* recs.searchOrganisations(alice.id, "a")).toEqual([]);
     }).pipe(Effect.provide(createTestLayer())),
@@ -600,6 +983,50 @@ describe("searchOrganisations", () => {
 
       const result = yield* recs.searchOrganisations(alice.id, "ac_m");
       expect(result.map((o) => o.handle)).toEqual(["ac_me"]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("ranks an organisation the caller belongs to above a stranger's", () =>
+    Effect.gen(function* () {
+      // Membership was only ever a badge on rows text ranking had already
+      // chosen; it is now part of the score, so it can change which rows those
+      // are. @acorn would otherwise win the handle tie-break.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      const bob = yield* auth.registerProfile("b@e.com", "bob");
+      yield* orgs.createOrganisation(bob.id, "acorn", "Acorn Ltd");
+      yield* orgs.createOrganisation(bob.id, "acme", "Acme Inc");
+      const mine = yield* orgs.createOrganisation(bob.id, "acrid", "Acrid Ltd");
+      yield* orgs.addMember(mine.id, bob.id, alice.id, "member");
+
+      const result = yield* recs.searchOrganisations(alice.id, "ac");
+      expect(result[0]!.handle).toBe("acrid");
+      expect(result[0]!.isMember).toBe(true);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("ranks a name-token prefix above a handle infix", () =>
+    Effect.gen(function* () {
+      // "Brighton *Row*ing Club" is the better answer for "rowing" than a
+      // handle that merely contains the letters.
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* orgs.createOrganisation(alice.id, "zzz", "Brighton Rowing Club");
+      yield* orgs.createOrganisation(alice.id, "aaarowingx", "Unrelated");
+
+      const result = yield* recs.searchOrganisations(alice.id, "rowing");
+      expect(result.map((o) => o.handle)).toEqual(["zzz", "aaarowingx"]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("matches a multi-word query against name tokens in any order", () =>
+    Effect.gen(function* () {
+      const alice = yield* auth.registerProfile("a@e.com", "alice");
+      yield* orgs.createOrganisation(alice.id, "brc", "Brighton Rowing Club");
+
+      for (const q of ["brighton club", "club brighton", "row club"]) {
+        expect((yield* recs.searchOrganisations(alice.id, q)).map((o) => o.handle)).toEqual([
+          "brc",
+        ]);
+      }
     }).pipe(Effect.provide(createTestLayer())),
   );
 });

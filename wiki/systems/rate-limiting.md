@@ -142,6 +142,8 @@ Send `maxRequests + 1` requests and assert the last returns 429.
 
 Graph write endpoints allow 60 requests per user per minute (S-M16). Contact suggestions (`/recommendations/connections`) allow 20 requests per user per minute — tighter because each call runs an FOF fan-out query (S-H1/P-C2). People search (`/recommendations/search`) sits on its own `recs:search` namespace at 60/user/min: the query is index-backed in the common case but fires once per debounced keystroke, so the suggestion budget would 429 a user mid-word. Both are per-user and fail-closed; the search cap is what bounds handle enumeration.
 
+**What a search token buys (revised 2026-08-02, S-L1).** The 60/min figure was sized when a people search was ~4 queries. It is now up to **7** — two edge-direction seeks for the caller's-connections pass, the handle-range seek, the optional infix scan, then the concurrent blocks / connection-state / shared-organisation probes — plus up to 4 for the organisation half, and the client now fires from the first keystroke rather than the second. Every added query is a bounded index seek (the caller's-edges pass is capped at 50 rows per direction, the candidate set peaks near 160 ids), and the query *count* is capped independently of query length by `MAX_QUERY_TOKENS` (S-M2). Recorded rather than re-tuned: the budget still bounds request volume, but the next revision of it should start from 7, not 4. See [[social-graph]] §Search.
+
 ### Zap (`@zap/api`)
 
 Zap applies the same per-IP fixed-window limiter to its write endpoints

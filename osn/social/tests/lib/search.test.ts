@@ -146,10 +146,19 @@ describe("createSearchController", () => {
     await withRoot(async () => {
       const controller = createSearchController(() => "tkn");
 
-      controller.setQuery("@a");
+      // The floor is one character, not two: the server answers a single
+      // character from the caller's own connections and organisations, so
+      // suppressing it here would drop that first-keystroke answer entirely.
+      // Only a query with nothing left after normalisation is too short.
+      controller.setQuery("@");
       await settle();
       expect(mocks.search).not.toHaveBeenCalled();
       expect(controller.tooShort()).toBe(true);
+
+      controller.setQuery("@a");
+      await settle();
+      expect(controller.tooShort()).toBe(false);
+      expect(mocks.search).toHaveBeenCalledWith("tkn", "a", expect.anything());
 
       controller.setQuery("@ab");
       await settle();

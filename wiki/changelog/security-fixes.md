@@ -7,12 +7,20 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-07-30
+last-reviewed: 2026-08-02
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## OSN search proximity ranking (2026-08-02) — prep-pr review
+
+Findings from the security review of the search-ranking branch. Both were **introduced by that branch and fixed on it before merge**; neither reached `main`.
+
+- [x] **S-M1 (recs) — query-length gates measured the raw phrase, not the pattern they gate.** `runGlobal` and the infix gate compared `phrase.length`, while the SQL they unlock is built from `handleQuery` and `tokens`, which are shorter whenever the query contains a separator. `q="a."` therefore reached a **one-character** global handle seek and `q="a a"` a one-character global infix scan — neither reachable on `main`, where the length floor was 2 and a non-handle character made `handlePrefixRange` return `null`. The branch's stated enumeration control ("one character never leaves the caller's own edges") was bypassable by typing one punctuation mark. **Fixed** — the prefix pass now gates on `handleQuery.length` (the string actually bound into the range) and the infix pass on the **longest token** (an `AND` of `LIKE` patterns is only as selective as its most selective conjunct, so `"a b c"` must not scan while `"j smith"` must). Forbidden-case tests added at both the service and route layers — see [[social-graph]] §Search.
+- [x] **S-M2 (recs) — unbounded token count multiplied the full-scan cost by up to 32x.** Each token emits its own ANDed pair of `LIKE` predicates and `q` is bounded at 64 characters, admitting 32 single-character tokens: 64 pattern evaluations per scanned row, on a conjunction that matches nothing so `LIMIT` never short-circuits — twice per request (people and organisations) inside one rate-limit token. **Fixed** — `MAX_QUERY_TOKENS = 6` applied in `parseQuery` before any SQL is built. Four tokens spells "maria del carmen rodriguez", so the cap is invisible to real queries and removes the amplification entirely.
+- **Also flagged, deliberately not a code change: S-L1** — per-request query count grew (~4 → ~7 for people) under an unchanged 60/user/min budget, and the client now fires from the first keystroke rather than the second. The added queries are bounded index seeks and the candidate set peaks around 160 ids, well under SQLite's 999-variable ceiling. Recorded in [[rate-limiting]] so the next revision of that budget starts from the real number rather than the old one.
 
 ## Auth PR review (#315–#324) — OIDC + step-up + session hardening (2026-07-29)
 

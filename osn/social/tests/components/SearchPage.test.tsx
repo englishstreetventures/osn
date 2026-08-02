@@ -93,11 +93,15 @@ afterEach(() => {
 });
 
 describe("<SearchPage />", () => {
-  it("prompts for a longer query before searching", async () => {
+  it("prompts before searching, and searches from the first character", async () => {
     renderPage();
-    await type("a");
-    expect(screen.getByText(/Type at least 2 characters/)).toBeDefined();
+    expect(screen.getByText(/Start typing to find people/)).toBeDefined();
     expect(mocks.search).not.toHaveBeenCalled();
+
+    // One character is a real search — the server scopes it to the caller's own
+    // connections and organisations rather than the global index.
+    await type("a");
+    expect(mocks.search).toHaveBeenCalledWith("tkn", "a", expect.anything());
   });
 
   it("groups results under People and Organisations headings", async () => {

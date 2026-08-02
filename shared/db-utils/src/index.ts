@@ -173,4 +173,14 @@ export function rowsChanged(result: unknown): number {
  * helpers; `@shared/db-utils/search` reaches the same module without the
  * drizzle/effect graph above.
  */
-export { escapeLike, handlePrefixRange, likeContains, normaliseHandleQuery } from "./search";
+export {
+  escapeLike,
+  handlePrefixRange,
+  hasScanworthyToken,
+  joinTokens,
+  likeContains,
+  normaliseHandleQuery,
+  tokenContentLength,
+  tokeniseQuery,
+  tokensPrefixName,
+} from "./search";

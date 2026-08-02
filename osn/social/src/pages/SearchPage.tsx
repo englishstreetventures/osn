@@ -4,7 +4,7 @@ import { For, onMount, Show } from "solid-js";
 
 import { IconSearch } from "../components/nav";
 import { OrganisationLink, PersonRow, useSearchActions } from "../components/SearchResultRows";
-import { createSearchController, MIN_QUERY_LENGTH } from "../lib/search";
+import { createSearchController } from "../lib/search";
 
 /**
  * The full-page search surface, and the mobile shell's Search tab. Desktop
@@ -62,7 +62,7 @@ export function SearchPage() {
           when={!controller.tooShort()}
           fallback={
             <p class="text-muted-foreground text-body py-12 text-center">
-              Type at least {MIN_QUERY_LENGTH} characters to search.
+              Start typing to find people and organisations.
             </p>
           }
         >

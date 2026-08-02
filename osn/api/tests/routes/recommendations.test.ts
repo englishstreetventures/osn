@@ -34,8 +34,9 @@ describe("recommendations routes", () => {
   async function registerAndGetToken(
     email: string,
     handle: string,
+    displayName?: string,
   ): Promise<{ profileId: string; token: string }> {
-    const user = await runWithLayer(auth.registerProfile(email, handle));
+    const user = await runWithLayer(auth.registerProfile(email, handle, displayName));
     const tokens = await runWithLayer(
       auth.issueTokens(user.id, user.accountId, user.email, user.handle, user.displayName),
     );
@@ -295,13 +296,41 @@ describe("recommendations routes", () => {
       expect(json.people?.[0]!.connectionStatus).toBe("pending_sent");
     });
 
-    it("returns an empty list below the minimum query length", async () => {
+    it("widens result scope with query length rather than gating on it", async () => {
+      // One character reaches the caller's own edges only; two reaches the
+      // global handle index. Asserting this at the route layer matters because
+      // the scope rule and the people/organisation fan-out meet here — and
+      // because a caller with no connections makes the one-character case pass
+      // vacuously, which is what this test used to do.
+      const alice = await registerAndGetToken("a@e.com", "alice");
+      const bob = await registerAndGetToken("b@e.com", "bob");
+      await registerAndGetToken("c@e.com", "bella");
+      await connect(alice.token, "bob", bob.token, "alice");
+
+      const one = await search(alice.token, "q=b");
+      expect(one.status).toBe(200);
+      expect(one.json.people?.map((p) => p.handle)).toEqual(["bob"]);
+
+      const two = await search(alice.token, "q=be");
+      expect(two.json.people?.map((p) => p.handle)).toEqual(["bella"]);
+    });
+
+    it("returns 200 with empty lists for a query that normalises to nothing", async () => {
+      // Empty, not a 4xx — a half-typed query is not a client error.
       const alice = await registerAndGetToken("a@e.com", "alice");
       await registerAndGetToken("b@e.com", "ab");
-      const { status, json } = await search(alice.token, "q=a");
+      const { status, json } = await search(alice.token, "q=%40");
       expect(status).toBe(200);
       expect(json.people).toEqual([]);
       expect(json.organisations).toEqual([]);
+    });
+
+    it("carries a multi-word query through the boundary intact", async () => {
+      const alice = await registerAndGetToken("a@e.com", "alice");
+      await registerAndGetToken("j@e.com", "jsm", "John Smith");
+
+      const { json } = await search(alice.token, "q=smith+john");
+      expect(json.people?.map((p) => p.handle)).toEqual(["jsm"]);
     });
 
     it("rejects an out-of-range ?limit at the HTTP boundary", async () => {
