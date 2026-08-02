@@ -12,6 +12,12 @@ last-reviewed: 2026-08-02
 
 See [[review-findings]] for severity prefix conventions.
 
+### Guests-editor review — household rename fix (`claude/cire-web-editor-household-name-qcfkb4`, 2026-08-02)
+
+Full pass over the editor pipeline (draft store → `changes/preview`/`apply` → `diffAgainstDb` → `applyImport`) while fixing the rename bug. One open finding:
+
+- [ ] **P-I1 — every editor save emits an eventUpdate for EVERY event, changed or not.** The event branch of `diffAgainstDb` pushes an update for each matched event unconditionally (no field comparison — historical CSV behaviour), and the editor always posts `scope: "both"` with all events carried through. So a guests-only save shows "events: ~N updates" in the preview (noise the organiser has to read past), bumps every event's `updated_at`, and re-runs `resolvePinUrl` for every event with a Pinterest link at apply time (outbound `pin.it` fetches, bounded at concurrency 4 but pure waste). Families now do change detection (`familyUpdates` only when the name differs); events could adopt the same rule, but the no-id CSV path's plans are pinned byte-identical by tests, so the comparison must be gated the same way (id-matched only) or the editor should post `scope: "guests"`/`"events"` — which is the same front-door contract change already filed as **P-W2 / P-I1** under the events-editor section below. Fix them together.
+
 
 ### Invite open path — restore, preconnect, prefetch (`claude/invite-code-gating-hints-g8nw0o`, 2026-08-02)
 

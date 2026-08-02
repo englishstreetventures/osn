@@ -226,6 +226,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
       eventUpdates: [],
       eventRemoves: [],
       familyCreates: [{ id: newFamilyId, publicId: "NEWFAM-BB02", familyName: "New" }],
+      familyUpdates: [],
       familyRemoves: [],
       guestCreates: [
         {
@@ -264,6 +265,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         { id: "fam_x", publicId: "DUP-CODE", familyName: "X" },
         { id: "fam_y", publicId: "DUP-CODE", familyName: "Y" },
       ],
+      familyUpdates: [],
       familyRemoves: [],
       guestCreates: [],
       guestUpdates: [],

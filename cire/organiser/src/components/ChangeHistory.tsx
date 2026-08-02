@@ -18,6 +18,9 @@ interface ChangeSummaryCounts {
   eventUpdates?: number;
   eventRemoves?: number;
   familyCreates?: number;
+  /** Id-matched household renames. Absent on rows persisted before the field
+   *  existed — defaulted to 0 like every other count. */
+  familyUpdates?: number;
   familyRemoves?: number;
   guestCreates?: number;
   guestUpdates?: number;
@@ -85,12 +88,14 @@ function summarise(s: ChangeSummaryCounts): string {
   const eventUpdates = s.eventUpdates ?? 0;
   const eventRemoves = s.eventRemoves ?? 0;
   const familyAdds = s.familyCreates ?? 0;
+  const familyUpdates = s.familyUpdates ?? 0;
   const familyRemoves = s.familyRemoves ?? 0;
 
   if (guestAdds) parts.push(`+${guestAdds} guests`);
   if (guestRemoves) parts.push(`−${guestRemoves} guests`);
   if (guestUpdates) parts.push(`${guestUpdates} guests updated`);
   if (familyAdds) parts.push(`+${familyAdds} families`);
+  if (familyUpdates) parts.push(`${familyUpdates} families renamed`);
   if (familyRemoves) parts.push(`−${familyRemoves} families`);
   if (eventAdds) parts.push(`+${eventAdds} events`);
   if (eventUpdates) parts.push(`${eventUpdates} events updated`);

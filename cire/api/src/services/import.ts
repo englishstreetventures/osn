@@ -22,6 +22,7 @@ import type {
   EventUpdate,
   FamilyCreate,
   FamilyRemove,
+  FamilyUpdate,
   GuestCreate,
   GuestRemove,
   GuestUpdate,
@@ -105,7 +106,8 @@ export function mintUniqueEventSlug(name: string, used: Set<string>): string {
  *  - Families: by stable `id` when present (full-fidelity `Family ID`), else by
  *    `family_name` (case-insensitive trim). A name-only sheet keeps the "different
  *    name = remove + create" behaviour; an id-carrying sheet turns a rename into
- *    an in-place keep (the row + its claim code survive).
+ *    an in-place UPDATE (`familyUpdates` — the row + its claim code survive and
+ *    the new name is written through).
  *  - Guests within matched family: by stable `id` when present (`Guest ID`), else
  *    by `(family, firstName)`. Last-name / nickname change OK (→ guestUpdate);
  *    an id-less first-name change is remove + create, an id-carrying one is an
@@ -322,6 +324,7 @@ export function diffAgainstDb(
     const existingFamilyById = new Map(existingFamilies.map((f) => [f.id, f]));
 
     const familyCreates: FamilyCreate[] = [];
+    const familyUpdates: FamilyUpdate[] = [];
     const familyRemoves: FamilyRemove[] = [];
 
     /** Resolved family id per parsed family, in parsedFamilies order — the guest
@@ -346,6 +349,17 @@ export function diffAgainstDb(
       if (existing) {
         familyIdByParsedIndex[i] = existing.id;
         matchedFamilyIds.add(existing.id);
+        // A name change is only meaningful on the id-matched path — a name
+        // match means the name is unchanged by definition (modulo the case/
+        // whitespace folding the norm applies), and never writing it keeps the
+        // no-id plan byte-identical to the historical diff. On the id-matched
+        // path a genuine household rename becomes an in-place update; without
+        // this op the rename was silently dropped (the match consumed the row
+        // and nothing wrote the new name — the editor's "household name won't
+        // save" bug).
+        if (existing === byId && existing.familyName !== parsed.familyName) {
+          familyUpdates.push({ id: existing.id, familyName: parsed.familyName });
+        }
       } else {
         const id = crypto.randomUUID();
         familyCreates.push({
@@ -723,6 +737,7 @@ export function diffAgainstDb(
       eventUpdates,
       eventRemoves,
       familyCreates,
+      familyUpdates,
       familyRemoves,
       guestCreates,
       guestUpdates,
@@ -956,6 +971,20 @@ export function applyImport(
       );
     }
 
+    // 5b. family updates (id-matched renames — only the name changes in place).
+    // The wedding conjunct is defence in depth: every plan reaching here today
+    // is built from wedding-scoped reads, but that guarantee lives in
+    // diffAgainstDb — this keeps the statement itself tenant-safe if a future
+    // caller ever hands applyImport a plan from elsewhere (S-L1).
+    for (const fu of plan.familyUpdates) {
+      statements.push(
+        db
+          .update(families)
+          .set({ familyName: fu.familyName, updatedAt: now })
+          .where(and(eq(families.id, fu.id), eq(families.weddingId, weddingId))),
+      );
+    }
+
     // 6. guest removes (cascade rsvps + guest_events for that guest)
     for (const gr of plan.guestRemoves) {
       statements.push(db.delete(guests).where(eq(guests.id, gr.id)));
@@ -1043,6 +1072,7 @@ export function applyImport(
       eventsUpdated: plan.eventUpdates.length,
       eventsRemoved: plan.eventRemoves.length,
       familiesCreated: plan.familyCreates.length,
+      familiesUpdated: plan.familyUpdates.length,
       familiesRemoved: plan.familyRemoves.length,
       guestsCreated: plan.guestCreates.length,
       guestsUpdated: plan.guestUpdates.length,

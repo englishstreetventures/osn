@@ -17,6 +17,9 @@ export interface ChangePlan {
   eventUpdates: unknown[];
   eventRemoves: unknown[];
   familyCreates: unknown[];
+  /** Id-matched household renames. Optional so a plan from an older API (or a
+   *  test fixture predating the field) still renders — absent reads as 0. */
+  familyUpdates?: unknown[];
   familyRemoves: unknown[];
   guestCreates: unknown[];
   guestUpdates: unknown[];
@@ -43,7 +46,8 @@ interface ChangePreviewProps {
 
 /**
  * The diff-counts table. Each record type shows its create / update / remove
- * counts; families + invitations have no "update" concept so those cells read 0.
+ * counts; a household "update" is an id-matched rename, and invitations have no
+ * update concept so that cell reads 0.
  */
 export function PlanCounts(props: { plan: ChangePlan }) {
   const rows = (): { label: string; create: number; update: number; remove: number }[] => [
@@ -56,7 +60,7 @@ export function PlanCounts(props: { plan: ChangePlan }) {
     {
       label: "households",
       create: props.plan.familyCreates.length,
-      update: 0,
+      update: props.plan.familyUpdates?.length ?? 0,
       remove: props.plan.familyRemoves.length,
     },
     {

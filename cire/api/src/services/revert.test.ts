@@ -12,6 +12,7 @@ import { applyImport, diffAgainstDb } from "./import";
 import { R2Service, createR2Stub, storeUpload } from "./r2-imports";
 import { revertImport, NoPriorImport, RevertParseError } from "./revert";
 import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
+import { stateExportService } from "./state-export";
 
 const EVENTS_V1 = [
   "Event Name,Start,End,Timezone,Location,Address,Dress Code Description,Dress Code Palette,Pinterest URL,Maps URL",
@@ -178,6 +179,86 @@ describe("revertImport — before-image path (E3)", () => {
     expect(famAfter!.name).toBe(famBefore!.name); // name unchanged
     expect(guestAfter!.id).toBe(guestBefore!.id); // guest id preserved
     expect(db.select().from(events).all()).toHaveLength(2); // Reception removed
+  });
+
+  it("restores a household's OLD NAME when reverting an in-place rename (familyUpdates path)", async () => {
+    const db = createDb(":memory:");
+    seedBootstrapWedding(db);
+    const r2 = createR2Stub();
+    const layer = Layer.merge(Layer.succeed(DbService, db), Layer.succeed(R2Service, r2));
+
+    await applyWithBeforeImage(layer, "chg-1", EVENTS_V1, GUESTS_V1, 1_000);
+    const [famBefore] = db
+      .select({ id: families.id, publicId: families.publicId, name: families.familyName })
+      .from(families)
+      .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+      .all();
+
+    // Change 2 is an editor-style IN-PLACE rename: an id-carrying desired state
+    // diffed with the editor's options, producing a familyUpdates-only plan —
+    // the op this fix introduced. Before it existed the rename never applied,
+    // so no revert could meaningfully exercise restoring FROM one.
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const eventsCsv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "full");
+        const guestsCsv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "full");
+        const ev = yield* parseEventsCsv(eventsCsv);
+        const fam = (yield* parseGuestsCsv(guestsCsv, ev)) as ParsedFamily[];
+        const renamed = fam.map((f) => ({ ...f, familyName: "Renamed In Place" }));
+        yield* storeUpload(JSON.stringify({ events: ev, families: renamed }), "", "chg-2");
+        const before = yield* captureBeforeImage("chg-2", BOOTSTRAP_WEDDING_ID);
+        const plan = yield* diffAgainstDb(ev, renamed, BOOTSTRAP_WEDDING_ID, {
+          removeManual: true,
+          matchByName: false,
+        });
+        const summary = yield* applyImport("chg-2", plan, BOOTSTRAP_WEDDING_ID);
+        const dbs = yield* DbService;
+        dbs
+          .insert(imports)
+          .values({
+            id: "chg-2",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            uploadedAt: 2_000,
+            format: "csv",
+            eventsR2Key: "imports/chg-2/events.csv",
+            guestsR2Key: "imports/chg-2/guests.csv",
+            summary: JSON.stringify(summary),
+            status: "applied",
+            appliedAt: 2_000,
+            kind: "editor",
+            beforeEventsR2Key: before.eventsKey,
+            beforeGuestsR2Key: before.guestsKey,
+          })
+          .run();
+        return summary;
+      }).pipe(Effect.provide(layer)),
+    ).then((summary) => {
+      // The rename applied in place — one family updated, nothing else touched.
+      expect(summary.familiesUpdated).toBe(1);
+      expect(summary.familiesCreated).toBe(0);
+      expect(summary.familiesRemoved).toBe(0);
+    });
+    const [famRenamed] = db
+      .select({ name: families.familyName })
+      .from(families)
+      .where(eq(families.id, famBefore!.id))
+      .all();
+    expect(famRenamed!.name).toBe("Renamed In Place");
+
+    // Revert change 2 → the ORIGINAL name comes back in place: same row id,
+    // same claim code, old name (the before-image is full-fidelity, so the
+    // revert diff id-matches and emits the reverse familyUpdate).
+    await Effect.runPromise(
+      revertImport("chg-2", BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+    const [famAfter] = db
+      .select({ id: families.id, publicId: families.publicId, name: families.familyName })
+      .from(families)
+      .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+      .all();
+    expect(famAfter!.name).toBe(famBefore!.name);
+    expect(famAfter!.id).toBe(famBefore!.id);
+    expect(famAfter!.publicId).toBe(famBefore!.publicId);
   });
 
   it("preserves the claim code even when the change hard-recreated the household", async () => {

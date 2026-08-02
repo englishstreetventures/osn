@@ -574,6 +574,78 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
     expect(remaining.map((f) => f.familyName)).toEqual(["Editorhousehold"]);
   });
 
+  it("rejects a blank household name at the schema boundary (400, S-L2)", async () => {
+    // The editor client validates non-blank names, but the client is not a
+    // security boundary — the DesiredState JSON front door used to accept a
+    // blank (or unbounded) familyName straight through to rows the guest
+    // invite renders. The schema refinement now 400s it before any diff runs.
+    const { app } = buildApp();
+    const blankName = {
+      ...desiredState,
+      families: [{ ...desiredState.families[0]!, familyName: "   " }],
+    };
+    const res = await ownerPost(app, `${CHANGES_BASE}/preview`, { desiredState: blankName });
+    expect(res.status).toBe(400);
+  });
+
+  it("saves a HOUSEHOLD NAME edit — id-matched rename writes through, code + guests survive", async () => {
+    const { app, db } = buildApp();
+
+    // Seed through the editor front door, then read back what a draft loads.
+    const seed = await ownerPost(app, `${CHANGES_BASE}/preview`, { desiredState });
+    await ownerPost(app, `${CHANGES_BASE}/apply`, {
+      importId: ((await seed.json()) as { changeId: string }).changeId,
+    });
+    const before = db.select().from(families).all()[0]!;
+    const guestBefore = db.select().from(guests).all()[0]!;
+
+    // The draft the editor posts after typing a new household name: same ids,
+    // new familyName. This used to preview as an all-zero plan and apply as a
+    // no-op — the "household name won't save" bug.
+    const renamedState = {
+      ...desiredState,
+      families: [
+        {
+          id: before.id,
+          publicId: before.publicId,
+          familyName: "Editor-Renamed Household",
+          guests: [
+            {
+              id: guestBefore.id,
+              firstName: guestBefore.firstName,
+              lastName: guestBefore.lastName,
+              nickname: null,
+              eventNames: ["Mehndi"],
+            },
+          ],
+        },
+      ],
+    };
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      desiredState: renamedState,
+    });
+    expect(preview.status).toBe(200);
+    const previewBody = (await preview.json()) as {
+      changeId: string;
+      plan: { familyUpdates: unknown[]; familyCreates: unknown[]; familyRemoves: unknown[] };
+    };
+    expect(previewBody.plan.familyUpdates).toHaveLength(1);
+    expect(previewBody.plan.familyCreates).toHaveLength(0);
+    expect(previewBody.plan.familyRemoves).toHaveLength(0);
+
+    const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, {
+      importId: previewBody.changeId,
+    });
+    expect(applyRes.status).toBe(200);
+
+    const after = db.select().from(families).all()[0]!;
+    expect(after.id).toBe(before.id);
+    expect(after.familyName).toBe("Editor-Renamed Household");
+    // The claim code and the guest row both survive the rename untouched.
+    expect(after.publicId).toBe(before.publicId);
+    expect(db.select().from(guests).all()[0]!.id).toBe(guestBefore.id);
+  });
+
   /**
    * The editor expresses a deletion by ABSENCE — it posts the whole draft and
    * the dropped row simply isn't in it. These walk the two shapes that used to

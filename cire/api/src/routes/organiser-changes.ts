@@ -146,6 +146,7 @@ interface ChangeSummary {
   eventUpdates: number;
   eventRemoves: number;
   familyCreates: number;
+  familyUpdates: number;
   familyRemoves: number;
   guestCreates: number;
   guestRemoves: number;
@@ -307,6 +308,7 @@ export const createOrganiserChangeRoutes = (
                   eventUpdates: plan.eventUpdates.length,
                   eventRemoves: plan.eventRemoves.length,
                   familyCreates: plan.familyCreates.length,
+                  familyUpdates: plan.familyUpdates.length,
                   familyRemoves: plan.familyRemoves.length,
                   guestCreates: plan.guestCreates.length,
                   guestRemoves: plan.guestRemoves.length,
@@ -354,6 +356,7 @@ export const createOrganiserChangeRoutes = (
                     eventUpdates: [...plan.eventUpdates],
                     eventRemoves: [...plan.eventRemoves],
                     familyCreates: [...plan.familyCreates],
+                    familyUpdates: [...plan.familyUpdates],
                     familyRemoves: [...plan.familyRemoves],
                     guestCreates: [...plan.guestCreates],
                     guestUpdates: [...plan.guestUpdates],

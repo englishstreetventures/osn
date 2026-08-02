@@ -413,6 +413,124 @@ describe("ImportPanel — surfacing import failures", () => {
     expect(document.body.textContent).not.toMatch(/payment_required/);
   });
 
+  it("renders the families-updated count in the applied summary (and 0 when absent)", async () => {
+    // `familiesUpdated` is new on ImportSummary (household renames); an apply
+    // response from an older API omits it, and the line must fall back to ~0
+    // rather than render "undefined".
+    authFetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            importId: "chg_1",
+            changeId: "chg_1",
+            scope: "both",
+            warnings: [],
+            plan: {
+              eventCreates: [],
+              eventUpdates: [],
+              eventRemoves: [],
+              familyCreates: [],
+              familyUpdates: [{}],
+              familyRemoves: [],
+              guestCreates: [],
+              guestUpdates: [],
+              guestRemoves: [],
+              eventLinkCreates: [],
+              eventLinkRemoves: [],
+              warnings: [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            summary: {
+              importId: "chg_1",
+              eventsCreated: 0,
+              eventsUpdated: 0,
+              eventsRemoved: 0,
+              familiesCreated: 2,
+              familiesUpdated: 1,
+              familiesRemoved: 0,
+              guestsCreated: 3,
+              guestsUpdated: 0,
+              guestsRemoved: 0,
+              warnings: [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    render(() => <ImportPanel weddingId="wed_a" />);
+    choose(/guests\.csv/i, new File(["x"], "guests.csv", { type: "text/csv" }));
+    fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
+    await waitFor(() => expect(screen.getByText(/diff preview/i)).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /apply import/i }));
+    await waitFor(() => expect(document.body.textContent).toMatch(/applied/i));
+    expect(document.body.textContent).toContain("families: +2 / ~1 / -0");
+    expect(document.body.textContent).not.toContain("undefined");
+  });
+
+  it("falls back to ~0 families updated when an older API omits the field", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            importId: "chg_1",
+            changeId: "chg_1",
+            scope: "both",
+            warnings: [],
+            plan: {
+              eventCreates: [],
+              eventUpdates: [],
+              eventRemoves: [],
+              familyCreates: [],
+              familyRemoves: [],
+              guestCreates: [],
+              guestUpdates: [],
+              guestRemoves: [],
+              eventLinkCreates: [],
+              eventLinkRemoves: [],
+              warnings: [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            summary: {
+              importId: "chg_1",
+              eventsCreated: 0,
+              eventsUpdated: 0,
+              eventsRemoved: 0,
+              familiesCreated: 1,
+              familiesRemoved: 0,
+              guestsCreated: 0,
+              guestsUpdated: 0,
+              guestsRemoved: 0,
+              warnings: [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+    render(() => <ImportPanel weddingId="wed_a" />);
+    choose(/guests\.csv/i, new File(["x"], "guests.csv", { type: "text/csv" }));
+    fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
+    await waitFor(() => expect(screen.getByText(/diff preview/i)).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /apply import/i }));
+    await waitFor(() => expect(document.body.textContent).toMatch(/applied/i));
+    expect(document.body.textContent).toContain("families: +1 / ~0 / -0");
+  });
+
   it("names the offending column on a 422 missing-column failure", async () => {
     authFetchMock.mockResolvedValueOnce(
       new Response(

@@ -26,6 +26,7 @@ interface ImportPlan {
   eventUpdates: unknown[];
   eventRemoves: { id: string; name: string }[];
   familyCreates: { id: string; publicId: string; familyName: string }[];
+  familyUpdates?: { id: string; familyName: string }[];
   familyRemoves: { id: string; familyName: string }[];
   guestCreates: { id: string; firstName: string; lastName: string }[];
   guestUpdates: { id: string; lastName: string }[];
@@ -57,6 +58,7 @@ interface ApplyResponse {
     eventsUpdated: number;
     eventsRemoved: number;
     familiesCreated: number;
+    familiesUpdated?: number;
     familiesRemoved: number;
     guestsCreated: number;
     guestsUpdated: number;
@@ -478,8 +480,9 @@ export default function ImportPanel(props: { weddingId: string }) {
               <p class="text-text-muted font-mono text-[0.72rem]">{s().importId}</p>
               <p>
                 events: +{s().eventsCreated} / ~{s().eventsUpdated} / -{s().eventsRemoved} ·
-                families: +{s().familiesCreated} / -{s().familiesRemoved} · guests: +
-                {s().guestsCreated} / ~{s().guestsUpdated} / -{s().guestsRemoved}
+                families: +{s().familiesCreated} / ~{s().familiesUpdated ?? 0} / -
+                {s().familiesRemoved} · guests: +{s().guestsCreated} / ~{s().guestsUpdated} / -
+                {s().guestsRemoved}
               </p>
             </div>
           )}

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, guests } from "@cire/db";
+import { BOOTSTRAP_WEDDING_ID, families, guests } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect, Layer, Schema } from "effect";
 
@@ -115,6 +115,61 @@ describe("ID-aware diff — rename by id ⇒ update, not remove+create", () => {
     expect(plan.familyCreates).toHaveLength(0);
     expect(plan.guestRemoves).toHaveLength(0);
     expect(plan.guestCreates).toHaveLength(0);
+    // …and the rename is an UPDATE that actually carries the new name. Survival
+    // alone is not the fix: the original bug was a match that consumed the row
+    // and then wrote nothing, so the rename silently vanished.
+    expect(plan.familyUpdates).toEqual([{ id: testfam.id!, familyName: "Testfamily-Jones" }]);
+
+    await Effect.runPromise(
+      applyImport("fam-rename", plan, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+    const row = db.select().from(families).where(eq(families.id, testfam.id!)).all()[0]!;
+    expect(row.familyName).toBe("Testfamily-Jones");
+    // The claim code is untouched by the rename.
+    expect(row.publicId).toBe(testfam.publicId!);
+  });
+
+  it("renames a HOUSEHOLD through the EDITOR front door (id-authoritative, no name fallback)", async () => {
+    const db = await seededWedding();
+    const layer = Layer.succeed(DbService, db);
+    const { ev, fam } = await fullFidelityRoundTrip(db);
+
+    const testfam = fam.find((f) => f.familyName === "Testfamily")!;
+    const renamed = fam.map((f) =>
+      f.id === testfam.id ? { ...f, familyName: "The Test-Family Household" } : f,
+    );
+
+    // The exact options the editor's DesiredState save diffs with.
+    const plan = await Effect.runPromise(
+      diffAgainstDb(ev, renamed, BOOTSTRAP_WEDDING_ID, {
+        removeManual: true,
+        matchByName: false,
+      }).pipe(Effect.provide(layer)),
+    );
+    expect(plan.familyUpdates).toEqual([
+      { id: testfam.id!, familyName: "The Test-Family Household" },
+    ]);
+    expect(plan.familyCreates).toHaveLength(0);
+    expect(plan.familyRemoves).toHaveLength(0);
+
+    await Effect.runPromise(
+      applyImport("editor-fam-rename", plan, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+    const row = db.select().from(families).where(eq(families.id, testfam.id!)).all()[0]!;
+    expect(row.familyName).toBe("The Test-Family Household");
+  });
+
+  it("an UNCHANGED household emits no familyUpdate (no-op saves stay no-ops)", async () => {
+    const db = await seededWedding();
+    const layer = Layer.succeed(DbService, db);
+    const { ev, fam } = await fullFidelityRoundTrip(db);
+
+    const plan = await Effect.runPromise(
+      diffAgainstDb(ev, fam, BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+    expect(plan.familyUpdates).toHaveLength(0);
+    expect(plan.familyCreates).toHaveLength(0);
+    expect(plan.familyRemoves).toHaveLength(0);
   });
 
   it("renames a GUEST first name by id ⇒ update (not remove+create)", async () => {

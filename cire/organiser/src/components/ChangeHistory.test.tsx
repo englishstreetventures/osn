@@ -121,6 +121,30 @@ describe("ChangeHistory", () => {
     expect(body).toContain("3 events updated");
   });
 
+  it("summarises a rename-only editor save — not 'No changes'", async () => {
+    // A household rename travels as `familyUpdates` alone; before the field was
+    // read here, a rename-only change listed as "No changes" and could not be
+    // told apart from a genuine no-op when picking a revert target. A legacy row
+    // without the field (IMPORT_APPLIED) must still summarise from its other
+    // counts.
+    const RENAME_ONLY = {
+      ...EDITOR_APPLIED,
+      id: "chg_rename",
+      summary: { familyUpdates: 1 },
+    };
+    authFetchMock.mockResolvedValueOnce(
+      jsonResponse({ imports: [RENAME_ONLY, IMPORT_APPLIED], nextCursor: null }),
+    );
+
+    render(() => <ChangeHistory weddingId="wed_a" />);
+    openHistory();
+
+    await waitFor(() => expect(document.body.textContent).toContain("1 families renamed"));
+    const body = document.body.textContent ?? "";
+    expect(body).not.toContain("No changes");
+    expect(body).toContain("+12 guests");
+  });
+
   it("offers Revert on revertable applied entries and a note on aged-out ones", async () => {
     authFetchMock.mockResolvedValueOnce(
       jsonResponse({ imports: [EDITOR_APPLIED, EDITOR_AGED_OUT], nextCursor: null }),

@@ -56,7 +56,16 @@ export const ParsedFamily = Schema.Struct({
    *  Carried through so a full-fidelity round trip preserves invite codes; the
    *  households-always-coded model means every household has one. */
   publicId: Schema.optional(Schema.String),
-  familyName: Schema.String,
+  /** Non-blank, bounded (same 10k cell cap the CSV parser enforces). The CSV
+   *  front door already guarantees both; this closes the DesiredState JSON
+   *  front door, which previously accepted a blank or multi-hundred-KB name
+   *  straight onto rows the guest invite renders (S-L2). Validation only — no
+   *  trim transform, so the diff still compares the exact submitted value. */
+  familyName: Schema.String.pipe(
+    Schema.filter((s) => s.trim().length > 0 && s.length <= 10_000, {
+      message: () => "familyName must be non-blank and at most 10000 characters",
+    }),
+  ),
   guests: Schema.Array(ParsedGuest),
 });
 export type ParsedFamily = Schema.Schema.Type<typeof ParsedFamily>;
@@ -127,6 +136,21 @@ export const FamilyCreate = Schema.Struct({
 });
 export type FamilyCreate = Schema.Schema.Type<typeof FamilyCreate>;
 
+/**
+ * An id-matched household RENAME. Only the name can change in place — the row,
+ * its claim code (`publicId`) and its guests all survive by construction of the
+ * id match, so the op carries just the id and the new name. Emitted only on the
+ * id-matched path (the editor front door, a full-fidelity re-import, a
+ * before-image revert): a name-matched household's name is unchanged by
+ * definition modulo case/whitespace, and the no-id plan stays byte-identical to
+ * the historical diff by never writing it.
+ */
+export const FamilyUpdate = Schema.Struct({
+  id: Schema.String,
+  familyName: Schema.String,
+});
+export type FamilyUpdate = Schema.Schema.Type<typeof FamilyUpdate>;
+
 export const FamilyRemove = Schema.Struct({
   id: Schema.String,
   familyName: Schema.String,
@@ -175,6 +199,7 @@ export const ImportPlan = Schema.Struct({
   eventUpdates: Schema.Array(EventUpdate),
   eventRemoves: Schema.Array(EventRemove),
   familyCreates: Schema.Array(FamilyCreate),
+  familyUpdates: Schema.Array(FamilyUpdate),
   familyRemoves: Schema.Array(FamilyRemove),
   guestCreates: Schema.Array(GuestCreate),
   guestUpdates: Schema.Array(GuestUpdate),
@@ -191,6 +216,7 @@ export const ImportSummary = Schema.Struct({
   eventsUpdated: Schema.Number,
   eventsRemoved: Schema.Number,
   familiesCreated: Schema.Number,
+  familiesUpdated: Schema.Number,
   familiesRemoved: Schema.Number,
   guestsCreated: Schema.Number,
   guestsUpdated: Schema.Number,

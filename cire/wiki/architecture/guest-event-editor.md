@@ -6,7 +6,7 @@ related:
   - "[[spreadsheet-import]]"
   - "[[invite-builder]]"
 last-reviewed: 2026-08-02
-updated: 2026-08-02 (§3.2 — row identity: what makes a deletion stick)
+updated: 2026-08-02 (§3.2 — row identity: deletions stick, and a match is not a write — `familyUpdates` for household renames)
 ---
 
 # Guest + Event Editor — plan
@@ -82,6 +82,8 @@ A desired-state reconcile has no delete verb: a deletion is **absence**. Everyth
 The editor case is the one that bites. With name matching on, deleting `Bo` and adding a different `Bo` in the same save resolved the new row to the deleted row: no `guestRemove`, the old row survived under the new name, and it kept the deleted guest's RSVPs. `matchByName` is decided in `decodeChangeBody`, persisted on the change row's summary, and re-read at apply so the TOCTOU re-diff matches as the preview did — a legacy row without the field falls back to `kind !== 'editor'`, which is a column and always right.
 
 **A dangling id means the draft is STALE, and the diff refuses it.** Rules 1–3 make deletion work; this one bounds what the id-authoritative path may destroy when it is wrong. `baseRevision` is captured at PREVIEW and re-checked at apply, so it covers preview→apply — but the editor builds its draft at LOAD, and nothing covered load→preview. With name fallback off that window is destructive rather than merely stale: a draft row whose id a co-host has since deleted is no longer "unmatched", it is a REMOVE plus a CREATE — the RSVPs on that row are deleted, and a household returns as a fresh row carrying the `publicId` the draft still remembers, resurrecting an invite someone deliberately revoked. So an id that resolves to nothing (or, for a guest, to another household) fails the diff with `StaleDesiredState`, and both verbs answer 409 `stale_draft`: reload and redo. A spreadsheet's dangling id is untouched by this — there it means "this sheet has no ids", and falling through to name matching is the whole design.
+
+**A match is not a write — every id-matched row type needs an UPDATE op.** Matching decides which rows survive; only an emitted op writes anything. Events and guests always had update ops, but the plan had no `familyUpdates` at all — an id-matched household RENAME consumed the existing row (so nothing was removed or created: correct) and then emitted nothing (so the new name was never written: the editor's "household name won't save" bug, and the same gap made a before-image revert unable to restore a renamed household's old name). `FamilyUpdate` (`{id, familyName}`) now rides in the plan, emitted **only on the id-matched path** — a name match means the name is unchanged by definition modulo case/whitespace folding, and never writing it there keeps the no-id CSV plan byte-identical to the historical diff (the same rule `GuestUpdate.firstName` follows). The preview counts it in the households "update" cell, which was previously hard-coded to 0.
 
 **A guest-less household is not a deleted household.** `GET /guests` is guest-shaped, so a household holding no guests produces no rows there and cannot be described by it. Since the editor's draft is the whole truth, a household it never saw would read as a deletion and the next save would remove it — and its live claim code with it. `GET .../households` (§7) is the household-shaped read the editor loads alongside the guests for exactly this reason; guest-less households appear as empty cards that can be filled in or deleted on purpose.
 
