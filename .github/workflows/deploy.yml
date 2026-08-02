@@ -175,6 +175,11 @@ jobs:
           # Domain reshuffle 2026-07-16: the guest site now lives on the `invite.`
           # subdomain (apex serves the marketing landing site).
           PUBLIC_SITE_URL: https://invite.cireweddings.com
+          # Where the guest bare domain (`/`) sends visitors. A multi-tenant guest
+          # site has no single wedding to show at its root, so it hands off to the
+          # apex marketing landing. Matches the in-code default; set explicitly so
+          # the destination is visible in the deploy config.
+          PUBLIC_MARKETING_URL: https://cireweddings.com
           # No OSN issuer var: since the OIDC swap (2026-07-27) the guest site
           # never talks to the issuer. "Link my Pulse account" navigates to
           # cire-api's /api/auth/oidc/start, and cire-api runs the exchange.

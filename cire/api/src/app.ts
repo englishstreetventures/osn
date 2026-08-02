@@ -37,7 +37,6 @@ import {
   createOrganiserWeddingsRoutes,
 } from "./routes/organiser-weddings";
 import { createPaymentWebhookSkeleton } from "./routes/payment-webhook";
-import { createPrimaryWeddingRoutes } from "./routes/primary-wedding";
 import { createRsvpRoutes } from "./routes/rsvp";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
 import {
@@ -582,10 +581,6 @@ export function createApp(db: Db, options: AppOptions = {}) {
           sessionLimiter: oidcSessionLimiter,
         }),
       )
-      // Public bare-domain resolver for the guest site (`/` → /<slug>). No auth
-      // — the slug is the public invite URL. Mounted first so it's plainly a
-      // public read alongside the guest claim + invite routes.
-      .use(createPrimaryWeddingRoutes(db))
       .use(createClaimRoutes(db, { webOrigin, limiter: claimLimiter, turnstileVerifier }))
       // Session RESTORE for a household that already claimed. A sibling instance
       // so it gets its own (page-load-sized) limiter instead of the claim

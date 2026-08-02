@@ -58,6 +58,19 @@ describe("not-found handler", () => {
     expect(res.status).toBe(404);
     expect(await res.json()).toEqual({ error: "Not found" });
   });
+
+  // `GET /api/primary-wedding` was a PUBLIC, unauthenticated read returning the
+  // most-recently-created wedding's slug. On a multi-tenant product that let any
+  // anonymous caller learn whose invite was newest, and made the guest bare
+  // domain serve one arbitrary couple's invite. It was deleted rather than
+  // rescoped — there is no correct single wedding to resolve.
+  //
+  // A removal made for a disclosure reason deserves a contract, not just an
+  // absent file: a re-mount during a merge or revert would otherwise be silent.
+  it("no longer serves the removed public primary-wedding lookup", async () => {
+    const res = await appRequest(app, "/api/primary-wedding");
+    expect(res.status).toBe(404);
+  });
 });
 
 /**

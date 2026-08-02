@@ -48,16 +48,19 @@ describe("onRequest middleware", () => {
   });
 
   it("hardens a redirect response too (the bare-domain 302)", async () => {
+    // Off-origin, matching what `/` actually emits since it began redirecting
+    // to the marketing site rather than to a wedding path. Also pins that the
+    // headers still attach to a CROSS-origin 302, not just a same-origin one.
     const redirect = new Response(null, {
       status: 302,
-      headers: { Location: "/some-slug" },
+      headers: { Location: "https://cireweddings.com" },
     });
     const next = (() => Promise.resolve(redirect)) as unknown as MiddlewareNext;
 
     const res = await run(next);
 
     expect(res.status).toBe(302);
-    expect(res.headers.get("Location")).toBe("/some-slug");
+    expect(res.headers.get("Location")).toBe("https://cireweddings.com");
     expect(res.headers.get("X-Frame-Options")).toBe("DENY");
     expect(res.headers.get(cspHeaderName())).toContain("frame-ancestors 'none'");
   });

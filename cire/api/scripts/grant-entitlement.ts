@@ -1,5 +1,5 @@
 /**
- * Comp/manual entitlement grant CLI. The Phase-1 grant seam for V&R's full comp,
+ * Comp/manual entitlement grant CLI. The Phase-1 grant seam for R&V's full comp,
  * "contact us" capacity_1000, and support goodwill. NOT a network surface —
  * cire has no inbound ARC route; this runs as an operator tool.
  *

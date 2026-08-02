@@ -93,7 +93,7 @@ describe("GettingStarted", () => {
       events: [{ id: "e1" }],
       guests: [{ familyId: "f1", codeSharedAt: 1 }],
       invite: {
-        hero: { title: "V & R", subtitle: null, imageUrl: null },
+        hero: { title: "R & V", subtitle: null, imageUrl: null },
         story: { heading: null, body: null, imageUrl: null },
       },
     });

@@ -1,32 +1,23 @@
 ---
-// Bare-domain (`/`) route. Resolves the deployment's primary wedding WITHOUT a
-// build-time slug variable and redirects to its clean path (`/<slug>`), so the
-// main link (`https://cireweddings.com/`) stays clean while the SSR'd invite
-// lives at the per-wedding path. The `?code=<host code>` deep-link is preserved
-// across the redirect so a bare-domain preview link still auto-claims.
+// Bare-domain (`/`) route. cire is multi-tenant, so there is no single "the"
+// wedding to show at this address — every guest arrives on a per-wedding path
+// (`/<slug>`, server-rendered by `[slug].astro`) from their own invite link.
+// The bare domain therefore belongs to the marketing site, not to any one
+// couple.
 //
-//  - exactly one wedding → 302 → `/<slug>`
-//  - several weddings    → 302 → `/<slug>` of the most-recently-created (the API
-//                          decides; documented limitation)
-//  - no wedding          → neutral "no invitation configured" state (never a crash)
-//  - API unreachable     → same neutral state (transient — no redirect loop)
-import { fetchPrimaryWedding } from '../lib/invite'
-import NotFoundDocument from '../components/NotFoundDocument.astro'
+// This previously resolved the MOST-RECENTLY-CREATED wedding via
+// `GET /api/primary-wedding` and redirected to it, which served one arbitrary
+// couple's invite to every bare-domain visitor — and leaked whose invite was
+// newest. That endpoint is gone; nothing here touches the API now, so the route
+// has no failure mode and no neutral/error state to render.
+//
+// Any query string is deliberately NOT carried across: the only one that ever
+// rode the bare domain was a `?code=` host-preview deep link, which is
+// meaningless to the marketing site and shouldn't be forwarded off-origin.
+//
+// 302, not 301: where the bare domain points is a product decision we may
+// revisit, and a permanent redirect would sit in browser caches indefinitely.
+import { MARKETING_URL } from '../lib/invite'
 
-const primary = await fetchPrimaryWedding()
-
-if (primary.kind === 'ok') {
-  // Carry any `?code=` (and other query) through to the per-wedding path so a
-  // bare-domain preview deep-link still auto-claims after the redirect.
-  const target = `/${encodeURIComponent(primary.slug)}${Astro.url.search}`
-  return Astro.redirect(target, 302)
-}
+return Astro.redirect(MARKETING_URL, 302)
 ---
-<NotFoundDocument
-  heading={primary.kind === 'none' ? 'No invitation configured' : 'Invitation unavailable'}
-  body={
-    primary.kind === 'none'
-      ? 'There is no invitation set up at this address yet. If you have an invite link, please open that link directly.'
-      : "We couldn't load the invitation right now. Please try again in a moment, or open your invite link directly."
-  }
-/>

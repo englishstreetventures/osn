@@ -116,8 +116,8 @@ function renderShell(opts: {
   const utils = render(() => (
     <ModuleShell
       weddingId="wed_1"
-      weddingName="V & R"
-      weddingSlug="v-and-r"
+      weddingName="R & V"
+      weddingSlug="r-and-v"
       canManage={opts.canManage ?? true}
       canEdit={opts.canEdit ?? true}
       module={module()}

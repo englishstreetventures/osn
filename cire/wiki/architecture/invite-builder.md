@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-templates]]"
-last-reviewed: 2026-08-01
+last-reviewed: 2026-08-02
 ---
 
 # Invite Builder
@@ -608,19 +608,26 @@ build-time `PUBLIC_WEDDING_SLUG` and any wedding renders from its own link:
   a transient API error renders the invite shell with built-in defaults (no false
   404). The `?code=<host code>` auto-claim deep-link rides on `/<slug>?code=...`
   (LoginSection reads it client-side, unchanged).
-- **`/`** (`cire/web/src/pages/index.astro`) — the bare domain. Resolves the
-  deployment's primary wedding via `GET /api/primary-wedding` and **302-redirects
-  to `/<slug>`** (carrying any `?code=`). No wedding configured (404) or a
-  transient API error → a neutral "no invitation configured / unavailable" state,
-  never a crash. The main link (`https://cireweddings.com/`) thus stays clean.
+- **`/`** (`cire/web/src/pages/index.astro`) — the bare domain. **302-redirects
+  off-origin to the marketing site** (`PUBLIC_MARKETING_URL`, defaulting to the
+  apex `https://cireweddings.com`). It makes no API call, so it has no failure
+  mode and renders nothing. Any query string is dropped deliberately — the only
+  one that ever rode the bare domain was a `?code=` host-preview deep link, which
+  means nothing to the marketing site and shouldn't be forwarded off-origin.
 - **`/privacy`, `/terms`** — opt back into static prerendering
-  (`export const prerender = true`); only the invite + bare-domain routes are
-  per-request SSR.
+  (`export const prerender = true`); only the invite route is per-request SSR.
 
-`GET /api/primary-wedding` (public, `cire/api/src/routes/primary-wedding.ts`)
-returns `{ slug }` for the sole wedding, or the **most-recently-created** when
-several exist (documented limitation — the bare domain can only point at one;
-the rest are reachable at their own `/<slug>`), and **404** when none exist.
+**History (changed 2026-08-02).** `/` used to resolve a "primary wedding" via a
+public `GET /api/primary-wedding` and redirect to `/<slug>` — returning the sole
+wedding, or the **most-recently-created** when several existed. That was a
+single-tenant assumption left over from the bespoke era: once cire took a second
+wedding it served one arbitrary couple's invite to every bare-domain visitor, and
+let any anonymous caller learn whose invite was newest. The route, the
+`weddingsService.primaryWeddingSlug()` query behind it, and the guest-side
+`fetchPrimaryWedding()` helper were all deleted rather than fixed — there is no
+correct single wedding to resolve, so the concept itself was wrong. Guests always
+arrive on their own `/<slug>` link; nothing needs the bare domain to name a
+wedding.
 
 The server fetch still paints the hero with the real image/copy in the SSR'd
 HTML (fast LCP, no-JS fallback). Both guest islands then **revalidate at runtime**

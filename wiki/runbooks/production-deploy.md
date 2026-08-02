@@ -399,8 +399,12 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 > Pages project `cire` serves nothing; the apex belongs to the `cire-landing` Pages
 > project since the 2026-07-16 reshuffle.** The invite route resolves the
 > wedding **from the path** (`/<slug>`) at request time and the bare domain (`/`)
-> redirects to the primary wedding via `GET /api/primary-wedding`, so there is **no
-> `PUBLIC_WEDDING_SLUG`**. No KV/Images binding is required on this Worker (Astro
+> 302-redirects **off-origin to the marketing site** (`PUBLIC_MARKETING_URL`,
+> default + prod value `https://cireweddings.com`), so there is **no
+> `PUBLIC_WEDDING_SLUG`**. (Until 2026-08-02 `/` instead redirected to whichever
+> wedding was most-recently-created, via a since-deleted `GET /api/primary-wedding`
+> — a single-tenant leftover that served one arbitrary couple's invite to every
+> bare-domain visitor.) No KV/Images binding is required on this Worker (Astro
 > sessions pinned to an in-memory driver; image transforms stay in cire-api).
 > **One-time Cloudflare setup (DONE):** the apex first moved from the Pages project to
 > the `cire-invites` Worker (2026-06-19), then the reshuffle (2026-07-16) moved the Worker

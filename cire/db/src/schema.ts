@@ -95,8 +95,13 @@ export const weddings = sqliteTable(
   },
   (t) => [
     index("weddings_owner_idx").on(t.ownerOsnProfileId),
-    // Serves the public primary-wedding lookup (`ORDER BY created_at DESC
-    // LIMIT 1`, no WHERE) without a full scan + sort (migration 0053).
+    // Added (migration 0053) for the public primary-wedding lookup
+    // (`ORDER BY created_at DESC LIMIT 1`, no WHERE). That endpoint is GONE —
+    // the guest bare domain now redirects to the marketing site rather than to
+    // whichever wedding was newest — so the only remaining ordered read is
+    // `listForMember`, which filters by owner first and sorts a handful of rows.
+    // Kept because dropping it costs a migration and buys nothing on a table
+    // this size; a fair candidate for removal next time this schema changes.
     index("weddings_created_at_idx").on(t.createdAt),
   ],
 );
@@ -533,7 +538,7 @@ export const vendorClaims = sqliteTable(
 // `ai`) gate features by presence; capacity is LEVELED — the effective guest
 // ceiling is DERIVED from the highest capacity_* row (none→100, capacity_500→500,
 // capacity_1000→1000), so there is deliberately no guest_cap column to drift.
-// `source` distinguishes a provider purchase from a comp/manual grant (V&R,
+// `source` distinguishes a provider purchase from a comp/manual grant (R&V,
 // "contact us" capacity, support goodwill). `provider_ref` carries the
 // external provider reference on purchases (NULL on comp) and is the
 // Phase-2 webhook idempotency key.
