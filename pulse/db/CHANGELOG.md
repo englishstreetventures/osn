@@ -1,5 +1,12 @@
 # @pulse/db
 
+## 0.18.8
+
+### Patch Changes
+
+- Updated dependencies [dea594b]
+  - @shared/db-utils@0.6.0
+
 ## 0.18.7
 
 ### Patch Changes
