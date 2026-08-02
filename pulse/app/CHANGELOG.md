@@ -1,5 +1,107 @@
 # @osn/pulse
 
+## 0.20.0
+
+### Minor Changes
+
+- 2999232: Native glass for the Explore map's floating controls on iOS.
+
+  A native subview of `WKWebView` composites above the whole rendered page (one
+  layer tree), so glass placed above the webview blurs the map but eats any DOM
+  content in its own rect — there's no z-order or opacity fix for that. So on
+  iOS, `ExploreMap`'s time scrubber and zoom-control cluster are now built
+  entirely in UIKit, inside the `contentView` of a `pulse-bridge` native
+  `UIGlassEffect` (iOS 26+; `UIBlurEffect` below), which composites above the
+  glass effect and so stays crisp while the effect blurs the map beneath it.
+  The two panels nest in one `UIGlassContainerEffect` so they merge/morph per
+  `UIGlassEffect.h`. Native interaction — the +/− zoom buttons and the hour
+  slider — fires plugin events (`zoomIn`, `zoomOut`, `hourChanged`) that
+  `ExploreMap.tsx` subscribes to and uses to drive the same map state the DOM
+  controls would: a new `zoom` signal (1–2.5, 0.25 per tap) scales the map
+  layer, and the hour drives the existing heatmap.
+
+  The DOM scrubber and zoom cluster are unmounted outright on iOS once native
+  panels are live — not hidden, not transparent, absent from the render tree —
+  since anything left in the DOM behind the glass would draw underneath it and
+  never be seen anyway. Desktop and browser keep the original DOM controls with
+  CSS `backdrop-filter`, untouched. `updateGlassPanels` still rejects on
+  desktop/in-browser, so `nativeGlass` (and the DOM/native split it gates)
+  never flips there. The rect push to `update_glass_panels` continues
+  unchanged — native still needs the frame, now also draws into it.
+
+  Verified on an iPhone 17 Pro simulator (iOS 26.4) by screenshot only: both
+  panels render as translucent frosted glass with the map blurring through
+  underneath, and every label and glyph in the native content stays sharp.
+  **On-device tap-through was NOT performed** — installing simulator-automation
+  tooling to script taps was ruled out of scope. Instead, the `zoomIn` /
+  `zoomOut` / `hourChanged` plugin-event wiring (zoom stepping 0.25 and
+  clamping to 1–2.5; hour driving the heatmap) is covered by a unit test in
+  `tests/explore/ExploreMap.test.tsx` that mocks the plugin event source —
+  not by an on-device tap.
+
+  **Follow-up.** `.explore-map-pane` has been `display: none` below 1180px since
+  the original Explore page (#81), pre-dating this change and untouched by it.
+  No iOS phone viewport clears that width, so today the map — and every glass
+  panel this ships — never reaches an iOS phone; the on-device verification
+  above only exists because the breakpoint was overridden locally for the
+  screenshot, then reverted. This needs a separate mobile map layout task before
+  it is user-visible.
+
+- ade8850: Native iOS tab bar, replacing the DOM tabs on device.
+
+  A new `tauri-plugin-pulse-tabbar` crate installs a real `UITabBar` as a
+  subview of the `WKWebView` and keeps it in sync with the router both ways.
+  The bar's appearance is left untouched, so iOS 26 gives it Liquid Glass by
+  default — public API only, no `NSGlassEffectView` or other private surface.
+
+  The webview keeps its full frame; the bar is accounted for with
+  `scrollView.contentInset.bottom`, not frame surgery, so nothing is clipped
+  and rotation is handled by UIKit's own layout pass. The inset is measured as
+  `height - (adjustedContentInset.bottom - contentInset.bottom)` — a plain
+  `contentInset.bottom = height` would double-count the safe-area padding that
+  `contentInsetAdjustmentBehavior` already adds, and that the bar's intrinsic
+  size already includes.
+
+  Selection travels JS→native as a `set_selected_tab` command and native→JS
+  over a typed Tauri `Channel<TabSelected>`, taken as a top-level command
+  argument because `Channel` needs the `Webview` to deserialize and cannot be
+  nested inside a payload struct. The loop does not feed back on itself:
+  assigning `UITabBar.selectedItem` in code does not call the delegate.
+
+  `src/lib/tabs.ts` is now the single source of truth for both sets of tabs, so
+  the native bar and `ExploreNav` can never drift. `ExploreNav` hides its own
+  tab row once the native bar reports itself installed. Off iOS the plugin
+  returns `Unsupported`, the install call rejects, and the DOM tabs stay — no
+  user-agent sniffing anywhere.
+
+  The list is capped at five items: a sixth would make UIKit collapse the
+  overflow into a "More" tab, which has no route of its own and would break the
+  two-way sync.
+
+  ## Verification
+
+  Run on an iPhone 17 Pro simulator (iOS 26.4) under `tauri ios dev`, rotated
+  portrait → landscape-left → portrait, with a screenshot at each stop.
+
+  **Verified.** The bar installs and draws. It stays pinned to the bottom edge
+  and horizontally centred in both orientations, unclipped, with its glyph and
+  label intact, and it survives rotation in both directions without any manual
+  re-layout. Page content reflows to the new width around it — header, hero
+  copy and the whole filter-pill row — with nothing cut off. iOS 26 draws
+  `UITabBar` as a floating capsule rather than a full-width bar; that is the
+  system's own rendering of a bar whose view is still constrained
+  leading-to-trailing, and it is what Liquid Glass looks like here. Only one
+  item shows in these shots because the session is signed out and
+  `NativeTabBar` filters the list down to `home` — see `src/lib/tabs.ts`.
+
+  **Not verified on device: the `contentInset` behaviour under a real scroll.**
+  The event list never loaded in the simulator (an unrelated data-path problem,
+  not this change), so the only thing near the bar was a centred empty-state
+  string. The inset arithmetic is covered by unit tests and by inspection —
+  `safeAreaInsetsDidChange` → `invalidateIntrinsicContentSize` → `layoutSubviews`
+  re-drives it on every rotation — but no populated, scrolling list has been
+  seen clearing the bar.
+
 ## 0.19.3
 
 ### Patch Changes
