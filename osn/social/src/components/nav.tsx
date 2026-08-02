@@ -14,6 +14,13 @@ export interface NavItem {
   href: string;
   label: string;
   icon: (props: NavIconProps) => JSX.Element;
+  /**
+   * Rendered in the mobile tab bar only. Search is the one such item: the
+   * desktop rail carries a live search field (`GlobalSearch`), so a nav entry
+   * pointing at the same thing would be redundant there — but on mobile the
+   * bottom bar is the reachable surface, so search earns a tab.
+   */
+  mobileOnly?: boolean;
 }
 
 export function IconConnections(props: NavIconProps) {
@@ -36,7 +43,8 @@ export function IconConnections(props: NavIconProps) {
   );
 }
 
-export function IconDiscover(props: NavIconProps) {
+/** Plain magnifier — search. */
+export function IconSearch(props: NavIconProps) {
   return (
     <svg
       class={props.class ?? "h-3.5 w-3.5"}
@@ -50,8 +58,31 @@ export function IconDiscover(props: NavIconProps) {
     >
       <circle cx="11" cy="11" r="8" />
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
-      <line x1="11" y1="8" x2="11" y2="14" />
-      <line x1="8" y1="11" x2="14" y2="11" />
+    </svg>
+  );
+}
+
+/**
+ * Person-with-a-plus — Discover, i.e. people to add. It used to be a
+ * magnifier-with-a-plus, which now belongs to Search; two magnifiers side by
+ * side in the tab bar read as the same destination twice.
+ */
+export function IconDiscover(props: NavIconProps) {
+  return (
+    <svg
+      class={props.class ?? "h-3.5 w-3.5"}
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.75"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M15 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="8.5" cy="7" r="4" />
+      <line x1="19" y1="8" x2="19" y2="14" />
+      <line x1="22" y1="11" x2="16" y2="11" />
     </svg>
   );
 }
@@ -95,10 +126,14 @@ export function IconSettings(props: NavIconProps) {
 
 export const NAV_ITEMS: NavItem[] = [
   { href: "/connections", label: "Connections", icon: IconConnections },
+  { href: "/search", label: "Search", icon: IconSearch, mobileOnly: true },
   { href: "/discover", label: "Discover", icon: IconDiscover },
   { href: "/organisations", label: "Organisations", icon: IconOrganisations },
   { href: "/settings", label: "Settings", icon: IconSettings },
 ];
+
+/** Rail items: everything except the mobile-only Search tab. */
+export const DESKTOP_NAV_ITEMS = NAV_ITEMS.filter((item) => !item.mobileOnly);
 
 /** Whether a nav item is the active one for the current path. `/` renders the
  *  Connections page, so the Connections item lights up there too. */

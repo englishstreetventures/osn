@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 import { createGraphRoutes } from "../../src/routes/graph";
 import { createRecommendationRoutes } from "../../src/routes/recommendations";
 import { createAuthService } from "../../src/services/auth";
+import { createOrganisationService } from "../../src/services/organisation";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
 
@@ -163,12 +164,198 @@ describe("recommendations routes", () => {
     const { createRecommendationRoutes: mkRoutes } =
       await import("../../src/routes/recommendations");
     const alwaysRejected = { check: () => Promise.resolve(false) };
-    const limitedApp = mkRoutes(config, layer, undefined, alwaysRejected);
+    const limitedApp = mkRoutes(config, layer, undefined, {
+      suggest: alwaysRejected,
+      search: alwaysRejected,
+    });
     const res = await limitedApp.handle(
       new Request("http://localhost/recommendations/connections", {
         headers: { Authorization: `Bearer ${alice.token}` },
       }),
     );
     expect(res.status).toBe(429);
+  });
+
+  it("guards each route with its own limiter, not the other's budget", async () => {
+    // Asymmetric on purpose: denying only `suggest` must 429 /connections and
+    // leave /search working. Without this, cross-wiring /connections to the
+    // looser 60/min search budget would pass every other rate-limit test.
+    const alice = await registerAndGetToken("a@e.com", "alice");
+    const suggestOnlyDenied = createRecommendationRoutes(config, layer, undefined, {
+      suggest: { check: () => Promise.resolve(false) },
+      search: { check: () => Promise.resolve(true) },
+    });
+
+    const suggest = await suggestOnlyDenied.handle(
+      new Request("http://localhost/recommendations/connections", {
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+    const search = await suggestOnlyDenied.handle(
+      new Request("http://localhost/recommendations/search?q=ali", {
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+
+    expect(suggest.status).toBe(429);
+    expect(search.status).toBe(200);
+  });
+
+  it("fails closed when a limiter backend throws", async () => {
+    // The Upstash-unreachable path. Every other limiter stub resolves `false`;
+    // only this one reaches the `catch { allowed = false }` branch.
+    const alice = await registerAndGetToken("a@e.com", "alice");
+    const throwing = { check: () => Promise.reject(new Error("redis unreachable")) };
+    const app = createRecommendationRoutes(config, layer, undefined, {
+      suggest: throwing,
+      search: throwing,
+    });
+
+    for (const path of ["/recommendations/connections", "/recommendations/search?q=ali"]) {
+      const res = await app.handle(
+        new Request(`http://localhost${path}`, {
+          headers: { Authorization: `Bearer ${alice.token}` },
+        }),
+      );
+      expect(res.status).toBe(429);
+    }
+  });
+
+  it("rejects a limiter argument that is missing either slot", () => {
+    // The rename from a single backend to the pair invites a caller passing the
+    // old shape; this guard is what turns that into a boot-time error rather
+    // than a per-request crash on `rateLimiters.suggest.check`.
+    const bare = { check: () => Promise.resolve(true) };
+    expect(() =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately the pre-branch shape
+      createRecommendationRoutes(config, layer, undefined, bare as any),
+    ).toThrow(/suggest must have a check\(\) method/);
+    expect(() =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately missing a slot
+      createRecommendationRoutes(config, layer, undefined, { suggest: bare } as any),
+    ).toThrow(/search must have a check\(\) method/);
+  });
+
+  // -------------------------------------------------------------------------
+  // Search (autocomplete)
+  // -------------------------------------------------------------------------
+
+  describe("GET /recommendations/search", () => {
+    async function search(token: string, qs: string) {
+      const res = await recsApp.handle(
+        new Request(`http://localhost/recommendations/search?${qs}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      );
+      return {
+        status: res.status,
+        json: (await res.json()) as {
+          people?: Array<{ handle: string; connectionStatus: string }>;
+          organisations?: Array<{ handle: string; name: string; isMember: boolean }>;
+        },
+      };
+    }
+
+    it("returns 401 without a token", async () => {
+      const res = await recsApp.handle(
+        new Request("http://localhost/recommendations/search?q=ali"),
+      );
+      expect(res.status).toBe(401);
+    });
+
+    it("rejects a missing q at the HTTP boundary", async () => {
+      const alice = await registerAndGetToken("a@e.com", "alice");
+      const { status } = await search(alice.token, "");
+      expect(status).toBe(422);
+    });
+
+    it("matches by handle prefix and reports connection status", async () => {
+      const alice = await registerAndGetToken("a@e.com", "alice");
+      await registerAndGetToken("b@e.com", "alicia");
+      await registerAndGetToken("c@e.com", "bob");
+
+      const { status, json } = await search(alice.token, "q=ali");
+      expect(status).toBe(200);
+      // Alice herself is excluded; `alicia` is the only other `ali*` handle.
+      expect(json.people?.map((r) => r.handle)).toEqual(["alicia"]);
+      expect(json.people?.[0]!.connectionStatus).toBe("none");
+    });
+
+    it("reflects an in-flight request as pending_sent", async () => {
+      const alice = await registerAndGetToken("a@e.com", "alice");
+      await registerAndGetToken("b@e.com", "bob");
+      await graphApp.handle(
+        new Request("http://localhost/graph/connections/bob", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${alice.token}` },
+        }),
+      );
+
+      const { json } = await search(alice.token, "q=bob");
+      expect(json.people?.[0]!.connectionStatus).toBe("pending_sent");
+    });
+
+    it("returns an empty list below the minimum query length", async () => {
+      const alice = await registerAndGetToken("a@e.com", "alice");
+      await registerAndGetToken("b@e.com", "ab");
+      const { status, json } = await search(alice.token, "q=a");
+      expect(status).toBe(200);
+      expect(json.people).toEqual([]);
+      expect(json.organisations).toEqual([]);
+    });
+
+    it("rejects an out-of-range ?limit at the HTTP boundary", async () => {
+      const alice = await registerAndGetToken("a@e.com", "alice");
+      const { status } = await search(alice.token, "q=ali&limit=100");
+      expect(status).toBe(422);
+    });
+
+    it("returns matching organisations alongside people", async () => {
+      const alice = await registerAndGetToken("a@e.com", "alice");
+      await runWithLayer(
+        createOrganisationService().createOrganisation(alice.profileId, "acme", "Acme Inc"),
+      );
+
+      const { status, json } = await search(alice.token, "q=acme");
+      expect(status).toBe(200);
+      expect(json.organisations?.map((o) => o.handle)).toEqual(["acme"]);
+      // The caller owns it, so they're a member — the row renders a badge.
+      expect(json.organisations?.[0]!.isMember).toBe(true);
+    });
+
+    it("rejects an out-of-range ?orgLimit at the HTTP boundary", async () => {
+      const alice = await registerAndGetToken("a@e.com", "alice");
+      const { status } = await search(alice.token, "q=ali&orgLimit=0");
+      expect(status).toBe(422);
+    });
+
+    it("derives orgLimit as half of limit when the caller omits it", async () => {
+      const alice = await registerAndGetToken("a@e.com", "alice");
+      const orgService = createOrganisationService();
+      for (let i = 0; i < 5; i++) {
+        await runWithLayer(orgService.createOrganisation(alice.profileId, `acme${i}`, `Acme ${i}`));
+      }
+
+      const { json } = await search(alice.token, "q=acme&limit=3");
+      // ceil(3 / 2) = 2 — organisations are the secondary section, so they get
+      // a shorter list than people unless the caller asks otherwise.
+      expect(json.organisations).toHaveLength(2);
+    });
+
+    it("returns 429 when the search limiter rejects", async () => {
+      const alice = await registerAndGetToken("a@e.com", "alice");
+      const { createRecommendationRoutes: mkRoutes } =
+        await import("../../src/routes/recommendations");
+      const limitedApp = mkRoutes(config, layer, undefined, {
+        suggest: { check: () => Promise.resolve(true) },
+        search: { check: () => Promise.resolve(false) },
+      });
+      const res = await limitedApp.handle(
+        new Request("http://localhost/recommendations/search?q=ali", {
+          headers: { Authorization: `Bearer ${alice.token}` },
+        }),
+      );
+      expect(res.status).toBe(429);
+    });
   });
 });

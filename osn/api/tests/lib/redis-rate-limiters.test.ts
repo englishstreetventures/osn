@@ -4,6 +4,7 @@ import { describe, it, expect } from "vitest";
 import {
   createRedisAuthRateLimiters,
   createRedisGraphRateLimiter,
+  createRedisRecommendationRateLimiters,
 } from "../../src/lib/redis-rate-limiters";
 
 describe("createRedisAuthRateLimiters", () => {
@@ -147,5 +148,51 @@ describe("createRedisGraphRateLimiter", () => {
 
     // Auth limiter with the same key should be unaffected
     expect(await authLimiters.handleCheck.check("shared_key")).toBe(true);
+  });
+});
+
+describe("createRedisRecommendationRateLimiters", () => {
+  it("returns both limiter slots", () => {
+    const client = createMemoryClient();
+    const limiters = createRedisRecommendationRateLimiters(client);
+    expect(typeof limiters.suggest.check).toBe("function");
+    expect(typeof limiters.search.check).toBe("function");
+  });
+
+  it("enforces 20 req/min on the suggestion fan-out", async () => {
+    const client = createMemoryClient();
+    const { suggest } = createRedisRecommendationRateLimiters(client);
+
+    for (let i = 0; i < 20; i++) {
+      // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
+      expect(await suggest.check("user1")).toBe(true);
+    }
+    expect(await suggest.check("user1")).toBe(false);
+  });
+
+  it("enforces 60 req/min on search — typeahead needs the looser budget", async () => {
+    const client = createMemoryClient();
+    const { search } = createRedisRecommendationRateLimiters(client);
+
+    for (let i = 0; i < 60; i++) {
+      // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
+      expect(await search.check("user1")).toBe(true);
+    }
+    expect(await search.check("user1")).toBe(false);
+  });
+
+  it("keeps the two budgets in separate namespaces", async () => {
+    // The whole point of the split: exhausting the 20/min fan-out budget must
+    // not 429 a user mid-word in the search box. A copy-pasted namespace would
+    // collapse both into one bucket and ship green without this.
+    const client = createMemoryClient();
+    const { suggest, search } = createRedisRecommendationRateLimiters(client);
+
+    for (let i = 0; i < 20; i++) {
+      // eslint-disable-next-line no-await-in-loop -- sequential dispatch required for rate-limit correctness
+      await suggest.check("shared_key");
+    }
+    expect(await suggest.check("shared_key")).toBe(false);
+    expect(await search.check("shared_key")).toBe(true);
   });
 });

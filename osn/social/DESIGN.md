@@ -96,8 +96,18 @@ amending this file.
 
 - **Mobile shell** = `MobileTopBar` (wordmark · theme toggle · account
   control) above the scroll column + `MobileNav` (fixed bottom tab bar, the
-  four primary destinations, 20px icons + `text-meta` labels). Nav items are
+  five primary destinations, 20px icons + `text-meta` labels). Nav items are
   defined once in `nav.tsx` and shared by both shells.
+- **Search** is the one asymmetric surface, because the reachable spot
+  differs by shell. The desktop rail carries a live combobox (`GlobalSearch`)
+  under the wordmark; mobile gets a **Search tab** in the bottom bar routing
+  to `/search`, which is thumb-reachable in a way a header field is not — so
+  the top bar keeps its three-item composition and costs no vertical space.
+  The nav item is marked `mobileOnly` and filtered out of the rail
+  (`DESKTOP_NAV_ITEMS`) so the same destination never has two doors on one
+  shell. `MobileNav`'s column count is derived from the item count against a
+  static Tailwind allow-list — adding a sixth destination means adding
+  `grid-cols-6` there.
 - **Viewport** = `h-dvh` (never `h-screen`/`100vh` — iOS toolbars),
   `viewport-fit=cover` with `pt-safe`/`pb-safe`/`px-safe` utilities padding
   the fixed chrome out of the notch and home-indicator regions. The scroll

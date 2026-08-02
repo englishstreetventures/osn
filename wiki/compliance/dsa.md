@@ -6,7 +6,7 @@ related:
   - "[[scope-matrix]]"
   - "[[event-access]]"
   - "[[social-graph]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-02
 ---
 
 # Digital Services Act
@@ -61,7 +61,7 @@ Tracked with `C-` IDs:
 3. **DSA points of contact + ToS draft** — public pages on `@osn/landing`. ID: **C-M10**.
 4. **Internal complaint / appeal endpoint** — `POST /moderation/appeals`. ID: **C-M11**.
 5. **Trader-traceability flow** in Zap M3 verification. ID: **C-M12** (built as part of Zap M3 spec).
-6. **Recommender-transparency disclosure** in ToS — Pulse discovery factors documented in plain language. ID: **C-L8**.
+6. **Recommender-transparency disclosure** in ToS — documented in plain language, covering all three recommenders: Pulse discovery factors, OSN contact suggestions (mutual connections, then shared organisations), and OSN people/organisation search ranking. ID: **C-L8**.
 7. **Strike system + misuse safeguards** — counter on accounts; auto-suspend at threshold; auto-rate-limit unfounded reporters. ID: **C-L9**.
 8. **Annual transparency report scaffold** — collect the data even while SME-exempt; ready to publish if threshold crossed. ID: **C-L10**.
 

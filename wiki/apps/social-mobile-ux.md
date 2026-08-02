@@ -9,7 +9,7 @@ related:
   - "[[social]]"
   - "[[authorize-ui]]"
   - "[[component-library]]"
-last-reviewed: 2026-07-28
+last-reviewed: 2026-08-02
 ---
 
 # Social — Mobile UX analysis & plan
@@ -22,6 +22,13 @@ wrong and the phased plan that fixed it, scoped to the app only (per
 `DESIGN.md`, the shared `@osn/ui` primitives are never edited — cire and
 pulse consume them too).
 
+> **Superseded in one detail (2026-08-02):** the tab bar now carries a fifth
+> destination, **Search** (`/search`), because search is the one surface whose
+> reachable spot differs by shell — the desktop rail got a live combobox, and a
+> header field on mobile is the least thumb-reachable place a search box can
+> go. `NAV_ITEMS` gained a `mobileOnly` flag so the rail filters it out. See
+> `DESIGN.md` §Responsive layout and [[social-graph]].
+>
 > **All five phases shipped 2026-07-28** in the same PR as this audit.
 > The findings below are kept as the record of the pre-fix state; the Plan
 > section now doubles as the implementation map. Key artefacts:

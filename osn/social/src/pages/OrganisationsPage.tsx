@@ -95,7 +95,11 @@ export function OrganisationsPage() {
               <For each={orgs()?.organisations}>
                 {(org) => (
                   <A
-                    href={`/organisations/${org.id}`}
+                    // Handle, not id: the public `orgProjection` never returns
+                    // an id, so this interpolated `undefined` and every row
+                    // linked to a 404. `GET /organisations/:handle` is what the
+                    // detail route actually resolves.
+                    href={`/organisations/${org.handle}`}
                     class="border-border hover:bg-muted/30 active:bg-muted/30 rounded-card flex items-center gap-3 border px-4 py-3 transition-colors"
                   >
                     <Avatar class="h-10 w-10">

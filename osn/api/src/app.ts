@@ -13,7 +13,7 @@ import type {
   createRedisGraphRateLimiter,
   createRedisOrgRateLimiter,
   createRedisProfileRateLimiters,
-  createRedisRecommendationRateLimiter,
+  createRedisRecommendationRateLimiters,
 } from "./lib/redis-rate-limiters";
 import type { createRedisRotatedSessionStore } from "./lib/rotated-session-store";
 import type { createRedisJtiStore } from "./lib/step-up-jti-store";
@@ -75,7 +75,7 @@ export interface AppDeps {
   /** Per-user profile rate limiters. */
   profileRateLimiters: ReturnType<typeof createRedisProfileRateLimiters>;
   /** Per-user recommendation rate limiter. */
-  recommendationRateLimiter: ReturnType<typeof createRedisRecommendationRateLimiter>;
+  recommendationRateLimiters: ReturnType<typeof createRedisRecommendationRateLimiters>;
   /** Cluster-safe single-use guard for step-up JWTs. */
   stepUpJtiStore: ReturnType<typeof createRedisJtiStore>;
   /** Cluster-safe rotated-session reuse-detection store. */
@@ -139,7 +139,7 @@ export function createApp(deps: AppDeps) {
     graphRateLimiter,
     orgRateLimiter,
     profileRateLimiters,
-    recommendationRateLimiter,
+    recommendationRateLimiters,
     stepUpJtiStore,
     rotatedSessionStore,
     ceremonyStores,
@@ -215,7 +215,7 @@ export function createApp(deps: AppDeps) {
         authConfig,
         DbLive,
         observabilityLayer,
-        recommendationRateLimiter,
+        recommendationRateLimiters,
         appRuntime,
       ),
     )

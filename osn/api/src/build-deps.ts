@@ -17,7 +17,7 @@ import {
   createRedisGraphRateLimiter,
   createRedisOrgRateLimiter,
   createRedisProfileRateLimiters,
-  createRedisRecommendationRateLimiter,
+  createRedisRecommendationRateLimiters,
 } from "./lib/redis-rate-limiters";
 import { createRedisRotatedSessionStore } from "./lib/rotated-session-store";
 import { createRedisJtiStore } from "./lib/step-up-jti-store";
@@ -294,7 +294,7 @@ export async function buildAppDeps(env: EnvRecord, parts: BuildParts): Promise<B
   const graphRateLimiter = createRedisGraphRateLimiter(redisClient);
   const orgRateLimiter = createRedisOrgRateLimiter(redisClient);
   const profileRateLimiters = createRedisProfileRateLimiters(redisClient);
-  const recommendationRateLimiter = createRedisRecommendationRateLimiter(redisClient);
+  const recommendationRateLimiters = createRedisRecommendationRateLimiters(redisClient);
 
   // Client-IP trust policy (Part 1 / S-M34). Behind Cloudflare (the non-local
   // Workers runtime — osn-api serves id.musubi.social), trust
@@ -346,7 +346,7 @@ export async function buildAppDeps(env: EnvRecord, parts: BuildParts): Promise<B
     graphRateLimiter,
     orgRateLimiter,
     profileRateLimiters,
-    recommendationRateLimiter,
+    recommendationRateLimiters,
     stepUpJtiStore,
     rotatedSessionStore,
     ceremonyStores,

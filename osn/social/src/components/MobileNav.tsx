@@ -4,6 +4,11 @@ import { For } from "solid-js";
 
 import { isNavActive, NAV_ITEMS } from "./nav";
 
+const GRID_COLS: Record<number, string> = {
+  4: "grid-cols-4",
+  5: "grid-cols-5",
+};
+
 /**
  * The mobile shell's primary navigation: a fixed bottom tab bar, rendered
  * below `md` only (the desktop rail takes over above it). Fixed positioning
@@ -18,7 +23,10 @@ export function MobileNav() {
       aria-label="Primary"
       class="border-border bg-background pb-safe px-safe fixed inset-x-0 bottom-0 z-40 border-t md:hidden"
     >
-      <div class="grid h-14 grid-cols-4">
+      {/* Column count is derived, not hardcoded, but Tailwind only sees static
+          class names — so the map below is the allow-list of supported widths.
+          Adding a sixth NAV_ITEM means adding `grid-cols-6` here. */}
+      <div class={clsx("grid h-14", GRID_COLS[NAV_ITEMS.length] ?? "grid-cols-4")}>
         <For each={NAV_ITEMS}>
           {(item) => (
             <A

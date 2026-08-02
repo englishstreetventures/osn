@@ -153,7 +153,8 @@ describe("Part 2 — buildAppDeps native rate-limit binding selection", () => {
     // Redis — exercising them must not hit the native binding.
     await built.deps.graphRateLimiter.check("usr_1");
     await built.deps.orgRateLimiter.check("usr_1");
-    await built.deps.recommendationRateLimiter.check("usr_1");
+    await built.deps.recommendationRateLimiters.suggest.check("usr_1");
+    await built.deps.recommendationRateLimiters.search.check("usr_1");
     await built.deps.profileSwitchCap.check("acc_1");
     await built.deps.emailChangeBeginCap.check("acc_1");
     expect(seen).toEqual([]);

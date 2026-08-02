@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-07-28
+last-reviewed: 2026-08-02
 ---
 
 # Social
@@ -39,7 +39,8 @@ No Tauri wrapper yet — the app ships as a web build only. Tauri wrapping is tr
 | Route | Component | Purpose |
 |---|---|---|
 | `/` + `/connections` | `ConnectionsPage` | All connections, pending requests, close friends, blocks (tabbed) |
-| `/discover` | `DiscoverPage` | Friends-of-friends recommendations (`GET /recommendations/connections`) |
+| `/search` | `SearchPage` | People + organisations search (`GET /recommendations/search`), grouped under section headings, with real action buttons. The mobile shell's Search tab; reachable at any width |
+| `/discover` | `DiscoverPage` | Contact suggestions (`GET /recommendations/connections`) — mutual connections and shared organisations, each card saying which. See [[social-graph]] |
 | `/organisations` | `OrganisationsPage` | Orgs the user owns or belongs to; create new |
 | `/organisations/:id` | `OrgDetailPage` | Org detail + member management |
 | `/settings` | `SettingsPage` | Profile / Account / **Security** (passkey add/rename/delete, step-up gated) / Connected apps tabs. The Security tab is lazy-loaded (`SecuritySection` chunk) so `@simplewebauthn/browser` only ships when opened. |
@@ -55,13 +56,22 @@ as bottom sheets through `ResponsiveDialogContent`). The mobile UX audit and
 the design rules the responsive work follows live in [[social-mobile-ux]] and
 `DESIGN.md` §Responsive layout.
 
+## Search surfaces — two ARIA patterns, deliberately
+
+The rail (`GlobalSearch`) and the page (`SearchPage`) render the same results under different accessibility contracts, because the two patterns are mutually exclusive:
+
+- **Rail = combobox + listbox.** Activation runs through virtual focus (`aria-activedescendant` + Enter), and an ARIA listbox option may not contain operable descendants — assistive tech flattens an option to its accessible name, so a nested button or link is announced as text and cannot be triggered. So the option **is** the target (click or Enter), the Connect/Accept text is a non-interactive label, and each option carries an `aria-label` naming what activating it does ("Alice A, @alice, accept connection request").
+- **Page = plain list.** No virtual focus, no listbox constraint, so it keeps real `<Button>`s and a real `<A>` per row.
+
+`PersonAction`'s `interactive` prop is what switches between them. Changing one surface to match the other is almost always wrong — check which pattern you're in first.
+
 ## Client surface
 
 Pages talk to `@osn/api` via three plain-fetch clients factored out of `@osn/client`:
 
 - `createGraphClient` — connections, pending requests, close friends, blocks (`osn/client/src/graph.ts`)
 - `createOrgClient` — org CRUD and membership (`osn/client/src/organisations.ts`)
-- `createRecommendationClient` — friends-of-friends suggestions (`osn/client/src/recommendations.ts`)
+- `createRecommendationClient` — contact suggestions + search (`osn/client/src/recommendations.ts`). `search` returns people and organisations together and takes an `AbortSignal` because it backs typeahead: the caller aborts the in-flight request when the query changes, so a slow early keystroke can't land after a fast later one.
 
 All three share the same hardening: `authGet/authPost/authPatch/authDelete` with `safeJson` wrapping (no `SyntaxError` leakage), capped error strings, and per-module typed error classes. These helpers are duplicated per module; factoring them out is tracked as P-I1.
 
@@ -133,10 +143,14 @@ plus `X-Frame-Options: DENY` (a consent screen must never be framed),
 
 ## Rate limits
 
-Per-user Redis-backed limiter on the recommendations endpoint (20 req/min, fail-closed) — see `[[rate-limiting]]` and `createRedisRecommendationRateLimiter` in `@osn/api`.
+Per-user Redis-backed limiters on the two recommendations endpoints, both fail-closed — 20 req/min for the suggestion fan-out, 60 req/min for search (typeahead fires once per debounced keystroke). See `[[rate-limiting]]` and `createRedisRecommendationRateLimiters` in `@osn/api`.
 
 ## Testing
 
 `osn/social/tests/` covers the sidebar mount path under `AuthContext` + `MemoryRouter` using `@solidjs/testing-library` + `happy-dom`. The tests do not assert the full open-and-click interaction for the Kobalte dropdown: Kobalte's trigger relies on pointer-capture behaviour that happy-dom does not reproduce.
+
+`tests/lib/search.test.ts` drives `createSearchController` directly, covering three properties no component test can reach: the token accessor is re-read per request (so one controller survives a silent refresh — a captured token would 401 every user after five minutes), the previous page stays on screen while the next loads, and disposal aborts the in-flight request.
+
+`tests/components/GlobalSearch.test.tsx` drives the rail combobox on fake timers: the debounce collapses a burst of keystrokes into one request, queries below the two-character minimum never leave the browser, arrow keys move `aria-activedescendant` across both sections without moving focus, Enter and click both activate the row, a failed search renders an error instead of spinning, and a failed connect does not flip the row to "Requested". One test asserts the ARIA invariant directly — **no option contains an operable control**. `tests/components/SearchPage.test.tsx` covers the grouped page, and `tests/components/DiscoverPage.test.tsx` the suggestion cards' reason line.
 
 `tests/components/AuthorizePage.test.tsx` drives the consent screen the same way, with the authorize client mocked and `location.assign` stubbed: a malformed request id never reaches the API, a 404 is terminal, the decision carries the chosen profile, `login_required` keeps the request alive, and `invalid_client` ends the flow naming the app.

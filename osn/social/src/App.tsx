@@ -21,6 +21,9 @@ const ConnectionsPage = lazy(() =>
 const DiscoverPage = lazy(() =>
   import("./pages/DiscoverPage").then((m) => ({ default: m.DiscoverPage })),
 );
+const SearchPage = lazy(() =>
+  import("./pages/SearchPage").then((m) => ({ default: m.SearchPage })),
+);
 const OrganisationsPage = lazy(() =>
   import("./pages/OrganisationsPage").then((m) => ({ default: m.OrganisationsPage })),
 );
@@ -120,6 +123,7 @@ export default function App() {
     <Router root={Layout}>
       <Route path="/" component={ConnectionsPage} />
       <Route path="/connections" component={ConnectionsPage} />
+      <Route path="/search" component={SearchPage} />
       <Route path="/discover" component={DiscoverPage} />
       <Route path="/organisations" component={OrganisationsPage} />
       <Route path="/organisations/:id" component={OrgDetailPage} />

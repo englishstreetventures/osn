@@ -17,6 +17,7 @@ import type { RedisClient } from "@shared/redis";
 
 import type { AuthRateLimiters } from "../routes/auth";
 import type { ProfileRateLimiters } from "../routes/profile";
+import type { RecommendationRateLimiters } from "../routes/recommendations";
 
 const ONE_MINUTE_MS = 60_000;
 const ONE_HOUR_MS = 3_600_000;
@@ -113,18 +114,29 @@ export function createRedisOrgRateLimiter(client: RedisClient): RateLimiterBacke
 }
 
 /**
- * Build the recommendations rate limiter backed by Redis.
- * Namespace: `recs:read` — key is the authenticated user ID.
+ * Build the recommendations rate limiters backed by Redis.
+ * Namespaces: `recs:read` + `recs:search` — key is the authenticated user ID.
  *
- * Tighter budget than graph/org writes because each request runs an
- * expensive FOF fan-out.
+ * `recs:read` is a tighter budget than graph/org writes because each request
+ * runs an expensive FOF fan-out. `recs:search` is looser (matching the graph
+ * write budget) because typeahead fires once per debounced keystroke — see the
+ * rationale in `routes/recommendations.ts`.
  */
-export function createRedisRecommendationRateLimiter(client: RedisClient): RateLimiterBackend {
-  return createRedisRateLimiter(client, {
-    namespace: "recs:read",
-    maxRequests: 20,
-    windowMs: ONE_MINUTE_MS,
-  });
+export function createRedisRecommendationRateLimiters(
+  client: RedisClient,
+): RecommendationRateLimiters {
+  return {
+    suggest: createRedisRateLimiter(client, {
+      namespace: "recs:read",
+      maxRequests: 20,
+      windowMs: ONE_MINUTE_MS,
+    }),
+    search: createRedisRateLimiter(client, {
+      namespace: "recs:search",
+      maxRequests: 60,
+      windowMs: ONE_MINUTE_MS,
+    }),
+  };
 }
 
 /**

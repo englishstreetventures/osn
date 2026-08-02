@@ -8,22 +8,43 @@ import { createAuthService, type AuthConfig } from "../services/auth";
 import { createRecommendationService } from "../services/recommendations";
 
 // ---------------------------------------------------------------------------
-// Rate limiter — per-user fixed window
+// Rate limiters — per-user fixed window
 //
-// Recommendations requests each run a FOF fan-out query that can return many
-// rows; tighter budget than graph/org writes to limit DoS and graph-inference
-// enumeration (S-H1).
+// Two budgets because the two endpoints have opposite shapes:
+//
+// - `/connections` runs a FOF fan-out that can return many rows, and is
+//   requested once per page view. Tighter budget than graph/org writes to
+//   limit DoS and graph-inference enumeration (S-H1).
+// - `/search` is typeahead: cheap, index-backed in the common case, but fired
+//   once per debounced keystroke. A 20/min budget would 429 a user mid-word,
+//   so it gets the graph-write budget instead. It is still per-user and still
+//   capped, which is what bounds handle enumeration.
 // ---------------------------------------------------------------------------
 
 const RECOMMENDATIONS_RATE_LIMIT_MAX = 20;
 const RECOMMENDATIONS_RATE_LIMIT_WINDOW_MS = 60_000;
+const SEARCH_RATE_LIMIT_MAX = 60;
+const SEARCH_RATE_LIMIT_WINDOW_MS = 60_000;
 
-/** Default in-memory recommendations rate limiter. Override for Redis. */
-export function createDefaultRecommendationRateLimiter(): RateLimiterBackend {
-  return createRateLimiter({
-    maxRequests: RECOMMENDATIONS_RATE_LIMIT_MAX,
-    windowMs: RECOMMENDATIONS_RATE_LIMIT_WINDOW_MS,
-  });
+export type RecommendationRateLimiters = Readonly<{
+  /** Guards `GET /recommendations/connections` (the FOF fan-out). */
+  suggest: RateLimiterBackend;
+  /** Guards `GET /recommendations/search` (typeahead). */
+  search: RateLimiterBackend;
+}>;
+
+/** Default in-memory recommendations rate limiters. Override for Redis. */
+export function createDefaultRecommendationRateLimiters(): RecommendationRateLimiters {
+  return {
+    suggest: createRateLimiter({
+      maxRequests: RECOMMENDATIONS_RATE_LIMIT_MAX,
+      windowMs: RECOMMENDATIONS_RATE_LIMIT_WINDOW_MS,
+    }),
+    search: createRateLimiter({
+      maxRequests: SEARCH_RATE_LIMIT_MAX,
+      windowMs: SEARCH_RATE_LIMIT_WINDOW_MS,
+    }),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -46,15 +67,18 @@ export function createRecommendationRoutes(
   /** See `createAuthRoutes` — same semantics. */
   loggerLayer: Layer.Layer<never> = Layer.empty,
   /**
-   * Per-user rate limiter for the (expensive) FOF fan-out read. Supply a
-   * Redis-backed backend in production via `createRedisRecommendationRateLimiter`.
+   * Per-user rate limiters for the suggestion fan-out and the search
+   * typeahead. Supply Redis-backed backends in production via
+   * `createRedisRecommendationRateLimiters`.
    */
-  rateLimiter: RateLimiterBackend = createDefaultRecommendationRateLimiter(),
+  rateLimiters: RecommendationRateLimiters = createDefaultRecommendationRateLimiters(),
   /** Shared application runtime (see `createAuthRoutes`). */
   runtime?: AppRuntime,
 ) {
-  if (typeof rateLimiter?.check !== "function") {
-    throw new Error("Recommendations rateLimiter must have a check() method");
+  for (const key of ["suggest", "search"] as const) {
+    if (typeof rateLimiters?.[key]?.check !== "function") {
+      throw new Error(`RecommendationRateLimiters.${key} must have a check() method`);
+    }
   }
 
   const auth = createAuthService(authConfig);
@@ -81,12 +105,13 @@ export function createRecommendationRoutes(
 
   // Fail-closed: if the limiter backend rejects, treat as limited.
   async function requireRateLimit(
+    limiter: RateLimiterBackend,
     profileId: string,
     set: { status?: number | string },
   ): Promise<boolean> {
     let allowed: boolean;
     try {
-      allowed = await rateLimiter.check(profileId);
+      allowed = await limiter.check(profileId);
     } catch {
       allowed = false;
     }
@@ -97,30 +122,79 @@ export function createRecommendationRoutes(
     return true;
   }
 
-  return new Elysia({ prefix: "/recommendations" }).get(
-    "/connections",
-    async ({ query, headers, set }) => {
-      const caller = await requireAuth(headers.authorization, set);
-      if (!caller) return { error: "Unauthorized" };
-      if (!(await requireRateLimit(caller.profileId, set))) {
-        return { error: "Rate limit exceeded" };
-      }
-      try {
-        // Schema guarantees limit is a finite integer in [1, 50] when present.
-        const limit = query.limit ?? 10;
-        const suggestions = await run(recommendations.suggestConnections(caller.profileId, limit));
-        return { suggestions };
-      } catch {
-        set.status = 500;
-        return { error: "Request failed" };
-      }
-    },
-    {
-      query: t.Object({
-        // Elysia's t.Numeric coerces the string query param to a number and
-        // validates bounds at the HTTP boundary (S-M1 / P-W1).
-        limit: t.Optional(t.Numeric({ minimum: 1, maximum: 50 })),
-      }),
-    },
+  return (
+    new Elysia({ prefix: "/recommendations" })
+      .get(
+        "/connections",
+        async ({ query, headers, set }) => {
+          const caller = await requireAuth(headers.authorization, set);
+          if (!caller) return { error: "Unauthorized" };
+          if (!(await requireRateLimit(rateLimiters.suggest, caller.profileId, set))) {
+            return { error: "Rate limit exceeded" };
+          }
+          try {
+            // Schema guarantees limit is a finite integer in [1, 50] when present.
+            const limit = query.limit ?? 10;
+            const suggestions = await run(
+              recommendations.suggestConnections(caller.profileId, limit),
+            );
+            return { suggestions };
+          } catch {
+            set.status = 500;
+            return { error: "Request failed" };
+          }
+        },
+        {
+          query: t.Object({
+            // Elysia's t.Numeric coerces the string query param to a number and
+            // validates bounds at the HTTP boundary (S-M1 / P-W1).
+            limit: t.Optional(t.Numeric({ minimum: 1, maximum: 50 })),
+          }),
+        },
+      )
+      // -----------------------------------------------------------------------
+      // Search (autocomplete) — people and organisations in one round trip
+      //
+      // One endpoint rather than two because this backs a typeahead: a single
+      // request per keystroke means one abort to cancel, one rate-limit budget
+      // to reason about, and no torn state where the people half of a result
+      // set is newer than the organisation half.
+      //
+      // `q` is deliberately permissive at the schema layer (any string up to 64
+      // chars) — a search box takes whatever the user types, and the service
+      // normalises + escapes it. Queries shorter than the service minimum come
+      // back as empty lists, not a 4xx, so a half-typed word isn't an error.
+      // -----------------------------------------------------------------------
+      .get(
+        "/search",
+        async ({ query, headers, set }) => {
+          const caller = await requireAuth(headers.authorization, set);
+          if (!caller) return { error: "Unauthorized" };
+          if (!(await requireRateLimit(rateLimiters.search, caller.profileId, set))) {
+            return { error: "Rate limit exceeded" };
+          }
+          try {
+            const limit = query.limit ?? 8;
+            // `orgLimit` defaults smaller: organisations are the secondary
+            // section in the UI, so they get a shorter list than people.
+            const orgLimit = query.orgLimit ?? Math.max(1, Math.ceil(limit / 2));
+            const [people, organisations] = await Promise.all([
+              run(recommendations.searchProfiles(caller.profileId, query.q, limit)),
+              run(recommendations.searchOrganisations(caller.profileId, query.q, orgLimit)),
+            ]);
+            return { people, organisations };
+          } catch {
+            set.status = 500;
+            return { error: "Request failed" };
+          }
+        },
+        {
+          query: t.Object({
+            q: t.String({ maxLength: 64 }),
+            limit: t.Optional(t.Numeric({ minimum: 1, maximum: 20 })),
+            orgLimit: t.Optional(t.Numeric({ minimum: 1, maximum: 20 })),
+          }),
+        },
+      )
   );
 }

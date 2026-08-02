@@ -23,7 +23,7 @@ finding-ids:
 packages:
   - "@shared/redis"
   - "@osn/api"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-02
 ---
 
 # Redis Migration
@@ -44,7 +44,7 @@ The original in-memory rate limiter and the auth-state stores that need cross-pr
 |---|---|---|
 | **1 — Abstraction layer** | Extract `RateLimiterBackend` interface; refactor graph route to share the limiter; DI on every route factory | ✅ |
 | **2 — `@shared/redis` package** | `Redis` service tag, `RedisLive` / `RedisMemoryLive` layers, Lua-backed `createRedisRateLimiter`, health probe, in-memory fallback | ✅ |
-| **3 — Wire-up (rate limits)** | `createRedisAuthRateLimiters` / `createRedisGraphRateLimiter` / recommendation limiter; env-driven backend selection in `osn/api/src/index.ts`; fail-closed on individual check errors (S-M36); fail-open on startup fallback | ✅ |
+| **3 — Wire-up (rate limits)** | `createRedisAuthRateLimiters` / `createRedisGraphRateLimiter` / `createRedisRecommendationRateLimiters`; env-driven backend selection in `osn/api/src/index.ts`; fail-closed on individual check errors (S-M36); fail-open on startup fallback | ✅ |
 | **4 — Cluster-safe auth state** | `RotatedSessionStore` (C2 reuse detection — see [[sessions]]) and `StepUpJtiStore` (single-use step-up replay guard — see [[step-up]]) both have Redis-backed implementations | ✅ |
 
 `pkceStore`, `otpStore`, `magicStore`, `pendingRegistrations` no longer exist — the OTP/magic-link/PKCE primary login surfaces were deleted with the move to passkey-primary login (see [[passkey-primary]]).

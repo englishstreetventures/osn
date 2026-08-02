@@ -30,7 +30,7 @@ packages:
   - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/redis"
-last-reviewed: 2026-07-27
+last-reviewed: 2026-08-02
 ---
 
 # Rate Limiting
@@ -41,7 +41,7 @@ OSN uses **per-IP fixed-window rate limiting** on all auth endpoints and **per-u
 
 ```
 shared/rate-limit/src/                  # RateLimiterBackend interface + in-memory createRateLimiter + getClientIp + createWorkersRateLimiter
-osn/api/src/lib/redis-rate-limiters.ts  # createRedisAuthRateLimiters() + createRedisGraphRateLimiter() + recommendation limiter
+osn/api/src/lib/redis-rate-limiters.ts  # createRedisAuthRateLimiters() + createRedisGraphRateLimiter() + createRedisRecommendationRateLimiters()
 osn/api/src/lib/native-rate-limiters.ts # selectAuthRateLimiters() — routes 60s per-IP auth limiters onto the native Workers binding
 osn/api/src/routes/auth/limiters.ts     # auth route limiter instances (one per endpoint group)
 osn/api/src/routes/graph.ts             # graph write rate limiter (60 req/user/min)
@@ -140,7 +140,7 @@ Send `maxRequests + 1` requests and assert the last returns 429.
 | `DELETE /passkeys/:id` | 10 | Step-up is the primary gate; per-IP throttle is defence in depth |
 | `GET /passkeys` | 30 | Settings listing — cheap reads |
 
-Graph write endpoints allow 60 requests per user per minute (S-M16). Recommendations reads (`/recommendations/connections`) allow 20 requests per user per minute — tighter because each call runs an FOF fan-out query (S-H1/P-C2).
+Graph write endpoints allow 60 requests per user per minute (S-M16). Contact suggestions (`/recommendations/connections`) allow 20 requests per user per minute — tighter because each call runs an FOF fan-out query (S-H1/P-C2). People search (`/recommendations/search`) sits on its own `recs:search` namespace at 60/user/min: the query is index-backed in the common case but fires once per debounced keystroke, so the suggestion budget would 429 a user mid-word. Both are per-user and fail-closed; the search cap is what bounds handle enumeration.
 
 ### Zap (`@zap/api`)
 

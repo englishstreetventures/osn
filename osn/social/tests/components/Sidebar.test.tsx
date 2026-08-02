@@ -120,6 +120,14 @@ describe("<Sidebar /> — authenticated avatar menu", () => {
     expect(result.getByText("Organisations")).toBeDefined();
     expect(result.getByText("Settings")).toBeDefined();
   });
+
+  it("carries the shell search field, and no redundant Search nav link", () => {
+    const result = renderSidebar();
+    expect(result.getByRole("combobox")).toBeDefined();
+    // Search is a mobile-only tab: on desktop the rail's own field is the
+    // surface, so a nav link pointing at /search would be a second door.
+    expect(result.queryByText("Search")).toBeNull();
+  });
 });
 
 describe("<Sidebar /> — unauthenticated", () => {
@@ -163,5 +171,8 @@ describe("<Sidebar /> — unauthenticated", () => {
 
     expect(result.getByText("Create account")).toBeDefined();
     expect(result.getByText("Sign in")).toBeDefined();
+    // No search field without a session: /recommendations/search is
+    // authenticated, so an input that could only 401 is worse than no input.
+    expect(result.queryByRole("combobox")).toBeNull();
   });
 });

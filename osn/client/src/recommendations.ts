@@ -8,11 +8,41 @@ export interface RecommendationClientConfig {
   issuerUrl: string;
 }
 
+/** Why a profile was suggested. Mirrors `SuggestionReason` in `@osn/api`. */
+export type SuggestionReason = "mutual_connections" | "shared_organisation";
+
 export interface Suggestion {
   handle: string;
   displayName: string | null;
   avatarUrl: string | null;
   mutualCount: number;
+  reason: SuggestionReason;
+  /** An organisation the caller and this profile both belong to, if any. */
+  sharedOrganisation: { handle: string; name: string } | null;
+}
+
+/** The caller's connection state with a search result. */
+export type SearchConnectionState = "none" | "pending_sent" | "pending_received" | "connected";
+
+export interface ProfileSearchResult {
+  handle: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  connectionStatus: SearchConnectionState;
+}
+
+export interface OrganisationSearchResult {
+  /** The public address: `GET /organisations/:handle` resolves by handle. */
+  handle: string;
+  name: string;
+  avatarUrl: string | null;
+  /** Whether the caller already belongs to this organisation. */
+  isMember: boolean;
+}
+
+export interface SearchResults {
+  people: ProfileSearchResult[];
+  organisations: OrganisationSearchResult[];
 }
 
 export class RecommendationClientError extends Error {
@@ -40,6 +70,20 @@ export interface RecommendationClient {
     token: string,
     options?: { limit?: number },
   ): Promise<{ suggestions: Suggestion[] }>;
+  /**
+   * Search people and organisations for autocomplete. Queries shorter than the
+   * server minimum (2 characters after trimming and stripping a leading `@`)
+   * come back as empty lists rather than an error.
+   *
+   * `signal` exists because this is typeahead: callers should abort the
+   * in-flight request when the query changes, so a slow early keystroke can't
+   * land after — and overwrite — a fast later one.
+   */
+  search(
+    token: string,
+    query: string,
+    options?: { limit?: number; orgLimit?: number; signal?: AbortSignal },
+  ): Promise<SearchResults>;
 }
 
 export function createRecommendationClient(
@@ -55,6 +99,24 @@ export function createRecommendationClient(
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await safeJson<{ suggestions: Suggestion[] }>(res);
+      if (!res.ok) {
+        throw new RecommendationClientError(safeErrorMessage(json?.error, res.status));
+      }
+      if (json === null) {
+        throw new RecommendationClientError(`Invalid response: ${res.status}`);
+      }
+      return json;
+    },
+
+    search: async (token, query, options) => {
+      const params = new URLSearchParams({ q: query });
+      if (options?.limit !== undefined) params.set("limit", String(options.limit));
+      if (options?.orgLimit !== undefined) params.set("orgLimit", String(options.orgLimit));
+      const res = await fetch(`${base}/search?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: options?.signal,
+      });
+      const json = await safeJson<SearchResults>(res);
       if (!res.ok) {
         throw new RecommendationClientError(safeErrorMessage(json?.error, res.status));
       }

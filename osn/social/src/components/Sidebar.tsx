@@ -8,7 +8,8 @@ import { createMemo, createSignal, For, Show } from "solid-js";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
 import { AccountMenu } from "./AccountMenu";
 import { AuthDialogs } from "./AuthDialogs";
-import { isNavActive, NAV_ITEMS } from "./nav";
+import { GlobalSearch } from "./GlobalSearch";
+import { DESKTOP_NAV_ITEMS, isNavActive } from "./nav";
 import { ProfileSwitcherDialog } from "./ProfileSwitcherDialog";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -44,9 +45,15 @@ export function Sidebar() {
           <ThemeToggle />
         </div>
 
+        {/* Search — signed-in only; the endpoint needs an access token, and an
+            input that can only fail is worse than no input. */}
+        <Show when={session()}>
+          <GlobalSearch token={accessToken() ?? ""} />
+        </Show>
+
         {/* Navigation */}
         <nav class="flex flex-1 flex-col gap-0.5 px-3 pt-5">
-          <For each={NAV_ITEMS}>
+          <For each={DESKTOP_NAV_ITEMS}>
             {(item) => (
               <A
                 href={item.href}

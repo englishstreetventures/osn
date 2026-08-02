@@ -1,11 +1,27 @@
+import type { Suggestion } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
 import { Button } from "@osn/ui/ui/button";
+import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { graphClient, recommendationClient } from "../lib/api";
 import { safeAvatarUrl } from "../lib/utils";
+
+/**
+ * The line under a suggested profile explaining why they're being suggested.
+ * Mutual connections are the stronger signal and win the label; a shared
+ * organisation is what a brand-new account has instead.
+ */
+function suggestionReason(suggestion: Suggestion): string {
+  if (suggestion.reason === "mutual_connections") {
+    return `${suggestion.mutualCount} mutual connection${suggestion.mutualCount === 1 ? "" : "s"}`;
+  }
+  return suggestion.sharedOrganisation
+    ? `Also in ${suggestion.sharedOrganisation.name}`
+    : "Suggested for you";
+}
 
 export function DiscoverPage() {
   const { session } = useAuth();
@@ -40,7 +56,7 @@ export function DiscoverPage() {
       <div class="mb-6">
         <h1 class="text-foreground text-display font-medium">Discover</h1>
         <p class="text-muted-foreground text-body mt-1">
-          People you may know based on mutual connections.
+          People you may know, from mutual connections and shared organisations.
         </p>
       </div>
 
@@ -66,7 +82,11 @@ export function DiscoverPage() {
             when={(recommendations()?.suggestions.length ?? 0) > 0}
             fallback={
               <div class="text-muted-foreground border-border rounded-card text-body border border-dashed py-16 text-center">
-                No suggestions yet. Connect with more people to get recommendations.
+                No suggestions yet.{" "}
+                <A href="/search" class="text-foreground underline underline-offset-2">
+                  Search for someone
+                </A>
+                , or join an organisation to find people you already share one with.
               </div>
             }
           >
@@ -99,9 +119,9 @@ export function DiscoverPage() {
                         </Show>
                       </div>
                     </div>
-                    <div class="flex items-center justify-between">
-                      <span class="text-subtle text-meta">
-                        {suggestion.mutualCount} mutual{suggestion.mutualCount !== 1 ? "s" : ""}
+                    <div class="flex items-center justify-between gap-2">
+                      <span class="text-subtle text-meta min-w-0 truncate">
+                        {suggestionReason(suggestion)}
                       </span>
                       <Button
                         size="sm"

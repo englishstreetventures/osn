@@ -4,7 +4,7 @@ import { cleanup, render } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { MobileNav } from "../../src/components/MobileNav";
-import { isNavActive } from "../../src/components/nav";
+import { DESKTOP_NAV_ITEMS, isNavActive, NAV_ITEMS } from "../../src/components/nav";
 
 afterEach(() => {
   cleanup();
@@ -19,10 +19,11 @@ function renderNav() {
 }
 
 describe("<MobileNav />", () => {
-  it("renders the four primary nav links with hrefs", () => {
+  it("renders every primary nav link with hrefs, Search included", () => {
     const result = renderNav();
     for (const [label, href] of [
       ["Connections", "/connections"],
+      ["Search", "/search"],
       ["Discover", "/discover"],
       ["Organisations", "/organisations"],
       ["Settings", "/settings"],
@@ -32,12 +33,31 @@ describe("<MobileNav />", () => {
     }
   });
 
+  it("sizes the grid to the number of tabs so none is clipped", () => {
+    const result = renderNav();
+    const row = result.getByLabelText("Primary").firstElementChild;
+    expect(row?.className).toContain(`grid-cols-${NAV_ITEMS.length}`);
+  });
+
   it("is the mobile shell: hidden at md and up, fixed to the bottom edge", () => {
     const result = renderNav();
     const nav = result.getByLabelText("Primary");
     expect(nav.className).toContain("md:hidden");
     expect(nav.className).toContain("fixed");
     expect(nav.className).toContain("bottom-0");
+  });
+});
+
+describe("nav item split", () => {
+  it("keeps Search out of the desktop rail — the rail has a live search field", () => {
+    expect(NAV_ITEMS.map((i) => i.href)).toContain("/search");
+    expect(DESKTOP_NAV_ITEMS.map((i) => i.href)).not.toContain("/search");
+  });
+
+  it("has a grid-cols class for the current tab count", () => {
+    // Guards the Tailwind static-class allow-list in MobileNav: adding a nav
+    // item without adding its column class would silently clip the tab bar.
+    expect([4, 5]).toContain(NAV_ITEMS.length);
   });
 });
 
