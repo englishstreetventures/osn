@@ -64,6 +64,7 @@ Phase 1 surfaces:
 | Understand accounts, profiles, orgs | `[[wiki/systems/identity-model]]` |
 | Add or verify ARC S2S tokens | `[[wiki/systems/arc-tokens]]` |
 | Let another app sign a user in with their OSN account (OIDC, PKCE, consent, pairwise `sub`) | `[[wiki/systems/oidc-provider]]` |
+| Add a handle/name search (query normalisation, LIKE escaping, index-friendly prefix ranges — use `@shared/db-utils/search`, never a hand-rolled `LIKE 'q%'`) | `[[wiki/systems/social-graph]]` §Search |
 | Add rate limiting to endpoint | `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]` |
 | Instrument logging, tracing, metrics | `[[wiki/observability/overview]]`, then specific page |
 | Write or review tests | `[[wiki/conventions/testing-patterns]]` |

@@ -54,6 +54,7 @@ import type { ImagesBindingLike } from "./services/invite-image-transform";
 import type { OidcConfig } from "./services/oidc-login";
 import type {
   OsnAccountResolver,
+  OsnConnectionSearchResolver,
   OsnHandleResolver,
   OsnHandleSearchResolver,
   OsnOrgMembershipResolver,
@@ -113,12 +114,20 @@ const defaultExportLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_0
  */
 const defaultHostLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 /**
- * Default per-IP limiter for the co-host handle-search autocomplete (S-L1).
- * osnAuth-gated already, so this just caps the per-keystroke ARC-sign + S2S
- * amplifier (the route debounces client-side, but a scripted caller wouldn't);
- * 60/min is generous for hand-typing a handle while bounding the amplification.
+ * Default per-IP limiter for the co-host autocomplete (S-L1). osnAuth-gated
+ * already, so this just caps the per-keystroke ARC-sign + S2S amplifier (the
+ * route debounces client-side, but a scripted caller wouldn't).
+ *
+ * **30/min, halved from 60 when the route gained its second source.** The 60
+ * was set against a route that made ONE ARC signature + ONE subrequest per
+ * request; it now fans out to two (connections + global handle search), so the
+ * old number silently authorised twice the backend work it was chosen to
+ * permit. 30 restores the ceiling the limit was actually signed off with, and
+ * is still far above what a 280 ms client debounce can produce from real
+ * typing. Per-IP means a NAT'd office shares the bucket — moving to
+ * `rateLimitMiddlewareByUser` is tracked as P-I in the backlog.
  */
-const defaultHandleSearchLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
+const defaultHandleSearchLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 /**
  * Default per-IP limiter for the vendor portal routes (S-L1). Covers both the
  * unauthenticated claim preview (DB-query amplifier) and the ARC-calling consume
@@ -289,6 +298,16 @@ export interface AppOptions {
    */
   resolveOsnHandleSearch?: OsnHandleSearchResolver;
   /**
+   * Suggests profiles from the CALLER'S OWN OSN connections (server-to-server
+   * over ARC) for the add-co-host autocomplete — the graph-aware source that
+   * ranks above the global handle search, and the only one that answers an
+   * empty query (the portal's open-on-focus case). KEY-OPTIONAL + FAIL-SOFT:
+   * when omitted (no ARC key) or unreachable, the search route falls back to the
+   * global handle search alone, and to manual typing without that. Tests inject
+   * a stub.
+   */
+  resolveOsnConnectionSearch?: OsnConnectionSearchResolver;
+  /**
    * Cloudflare Turnstile verifier (bot protection) for the public guest
    * surfaces (claim + rsvp). KEY-OPTIONAL: `null`/omitted ⇒ the
    * `TURNSTILE_SECRET_KEY` secret is unset and the gates are skipped (guest
@@ -388,6 +407,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     resolveOsnProfileByHandle,
     resolveOsnProfileDisplays,
     resolveOsnHandleSearch,
+    resolveOsnConnectionSearch,
     turnstileVerifier = null,
     directoryService: directoryServiceOption,
     emailLayer: emailLayerOption,
@@ -572,14 +592,16 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(
         createOrganiserHostsWriteRoutes(db, osnAuthOptions, hostLimiter, resolveOsnProfileByHandle),
       )
-      // Co-host handle autocomplete. osnAuth-only (not wedding-scoped) — any
-      // signed-in organiser can search handles while typing a co-host. Sibling
+      // Co-host autocomplete, sourced from the caller's OSN connections first
+      // and the global handle search second. osnAuth-only (not wedding-scoped) —
+      // any signed-in organiser can search while typing a co-host. Sibling
       // instance so its limiter doesn't gate the host read/write routes.
       .use(
         createOrganiserHandleSearchRoutes(
           osnAuthOptions,
           handleSearchLimiter,
           resolveOsnHandleSearch,
+          resolveOsnConnectionSearch,
         ),
       )
       // General change API (guest+event editor E4). Both front doors

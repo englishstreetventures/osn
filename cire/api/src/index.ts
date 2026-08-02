@@ -15,6 +15,7 @@ import { maintenanceSweeps } from "./services/maintenance-sweeps";
 import { organiserSessionService } from "./services/organiser-session";
 import {
   createAccountResolverFromEnv,
+  createConnectionSearchResolverFromEnv,
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
   createOrgMembershipResolverFromEnv,
@@ -231,6 +232,18 @@ const handler: ExportedHandler<Env> = {
           arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
           arcKeyId: env.CIRE_API_ARC_KEY_ID,
         })) ?? undefined;
+      // Sibling ARC resolver for the graph-aware half of that autocomplete: the
+      // organiser's OWN OSN connections, which rank above the global handle
+      // search and are the only source that answers the portal's on-focus
+      // (empty-query) fetch. Same key + graph:read scope. Null (⇒ the route
+      // falls back to the global search alone) when the ARC config is absent —
+      // fail-soft, never a 503/500.
+      const resolveOsnConnectionSearch =
+        (await createConnectionSearchResolverFromEnv({
+          osnApiUrl: env.OSN_API_URL,
+          arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+          arcKeyId: env.CIRE_API_ARC_KEY_ID,
+        })) ?? undefined;
       // Org-membership resolver for the vendor portal org-gate (org:read scope,
       // ARC-authenticated). Returns the fail-soft null-resolver when the ARC
       // config is absent — all org-gated vendor routes answer 403 (not a member)
@@ -345,6 +358,7 @@ const handler: ExportedHandler<Env> = {
           resolveOsnProfileByHandle,
           resolveOsnProfileDisplays,
           resolveOsnHandleSearch,
+          resolveOsnConnectionSearch,
           turnstileVerifier,
           flags,
           orgMembership,

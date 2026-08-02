@@ -20,6 +20,7 @@
  */
 import { directoryVendorCategories, directoryVendors, vendorClaims, vendors } from "@cire/db";
 import { rowsChanged } from "@shared/db-utils";
+import { likeContains } from "@shared/db-utils/search";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Data, Effect } from "effect";
@@ -260,11 +261,6 @@ function requireVendor(
     if (!row) return yield* Effect.fail(new VendorNotInWedding());
     return row as VendorRow;
   });
-}
-
-/** Escape %, _ and the escape char for a LIKE pattern (used with ESCAPE '\'). */
-function escapeLike(term: string): string {
-  return term.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 // ── Factory ───────────────────────────────────────────────────────────────────
@@ -673,13 +669,13 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
 
         const conds = [eq(directoryVendors.listed, "live")];
         if (filter.q && filter.q.trim() !== "") {
-          const t = `%${escapeLike(filter.q.trim())}%`;
+          const t = likeContains(filter.q.trim());
           conds.push(
             sql`(lower(${directoryVendors.name}) LIKE lower(${t}) ESCAPE '\\' OR lower(coalesce(${directoryVendors.description}, '')) LIKE lower(${t}) ESCAPE '\\')`,
           );
         }
         if (filter.location && filter.location.trim() !== "") {
-          const t = `%${escapeLike(filter.location.trim())}%`;
+          const t = likeContains(filter.location.trim());
           conds.push(
             sql`lower(coalesce(${directoryVendors.locationText}, '')) LIKE lower(${t}) ESCAPE '\\'`,
           );

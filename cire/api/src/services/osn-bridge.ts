@@ -401,6 +401,104 @@ export async function createHandleSearchResolverFromEnv(env: {
   });
 }
 
+/**
+ * Suggests profiles from ONE organiser's own OSN connections, for the
+ * add-co-host autocomplete. `prefix` is the raw typed fragment and may be
+ * EMPTY — an empty query is meaningful here and returns the first page of the
+ * organiser's connections, which is what lets the portal open its dropdown on
+ * focus. Matching (handle prefix OR display-name substring), ordering and the
+ * result cap all live in osn-api.
+ *
+ * FAIL-SOFT, exactly like {@link OsnHandleSearchResolver}: any transport/infra
+ * failure resolves to an EMPTY list, never a throw. A wedding organiser with no
+ * OSN connections and one whose osn-api is unreachable see the same thing — no
+ * suggestions — and both can still type a handle by hand.
+ */
+export type OsnConnectionSearchResolver = (
+  profileId: string,
+  prefix: string,
+) => Promise<OsnHandleSuggestion[]>;
+
+/**
+ * Builds an {@link OsnConnectionSearchResolver} backed by a real
+ * ARC-authenticated call to `GET /graph/internal/connection-search`. Same key +
+ * `graph:read` scope as the sibling resolvers, so a deployment that already has
+ * the ARC key registered gets connection-aware autocomplete with no new grant.
+ *
+ * Note the deliberate absence of the "empty query ⇒ skip the call" shortcut that
+ * {@link createArcHandleSearchResolver} has: there, an empty prefix has nothing
+ * to match against the global namespace; here it is the on-focus case.
+ */
+export function createArcConnectionSearchResolver(
+  config: ArcResolverConfig,
+): OsnConnectionSearchResolver {
+  const base = config.osnApiUrl.replace(/\/+$/, "");
+
+  return async (profileId, prefix) => {
+    const empty: OsnHandleSuggestion[] = [];
+    if (profileId.trim().length === 0) return empty;
+
+    try {
+      const token = await signArcToken(config.arcPrivateKey, {
+        iss: ARC_ISSUER,
+        aud: ARC_AUDIENCE,
+        scope: ARC_SCOPE,
+        kid: config.arcKeyId,
+      });
+
+      const res = await instrumentedFetch(
+        `${base}/graph/internal/connection-search?profileId=${encodeURIComponent(profileId)}&q=${encodeURIComponent(prefix)}`,
+        { headers: { authorization: `ARC ${token}` } },
+      );
+
+      if (!res.ok) return empty;
+
+      const data = (await res.json()) as {
+        profiles?: { id?: unknown; handle?: unknown; displayName?: unknown }[];
+      };
+      if (!Array.isArray(data.profiles)) return empty;
+
+      const out: OsnHandleSuggestion[] = [];
+      for (const p of data.profiles) {
+        if (typeof p.id !== "string" || typeof p.handle !== "string") continue;
+        out.push({
+          profileId: p.id,
+          handle: p.handle,
+          displayName: typeof p.displayName === "string" ? p.displayName : null,
+        });
+      }
+      return out;
+    } catch {
+      // FAIL-SOFT: never let a connection lookup failure break the portal.
+      return empty;
+    }
+  };
+}
+
+/**
+ * Builds the connection-search resolver from raw env material — the sibling of
+ * {@link createHandleSearchResolverFromEnv}. Returns `null` when any piece is
+ * absent so a deployment without the ARC key simply falls back to the global
+ * handle search (and, without that either, to manual typing), never failing to
+ * boot. A present-but-invalid key degrades the same way.
+ */
+export async function createConnectionSearchResolverFromEnv(env: {
+  osnApiUrl?: string;
+  arcPrivateKeyJwk?: string;
+  arcKeyId?: string;
+}): Promise<OsnConnectionSearchResolver | null> {
+  if (!env.osnApiUrl || !env.arcPrivateKeyJwk || !env.arcKeyId) {
+    return null;
+  }
+  const arcPrivateKey = await importKeyFromJwk(env.arcPrivateKeyJwk).catch(() => null);
+  if (!arcPrivateKey) return null;
+  return createArcConnectionSearchResolver({
+    osnApiUrl: env.osnApiUrl,
+    arcPrivateKey,
+    arcKeyId: env.arcKeyId,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Org-membership resolvers (Vendors platform — uses `org:read` scope)
 // ---------------------------------------------------------------------------

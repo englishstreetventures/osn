@@ -6,12 +6,25 @@ related:
   - "[[redis]]"
   - "[[arc-tokens]]"
   - "[[component-library]]"
-last-reviewed: 2026-07-24
+last-reviewed: 2026-08-02
 ---
 
 # Performance Fixes — Completed
 
 Archived completed performance findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Performance Backlog in [[TODO]].
+
+## Internal handle prefix search — index seek (2026-08-02)
+
+- **P-I (internal-profile-search-scan)** — `/graph/internal/profile-search` carried the same `handle LIKE 'q%'` full-scan defect that the user-facing search fixed on the contact-suggestions branch; it was deferred there because fixing it would have meant changing cire behaviour inside a search PR. Closed on the cire co-host-connections branch, where the endpoint was already being edited: the prefix match is now the explicit half-open BINARY range (`handlePrefixRange`), and the sibling `/connection-search` added on that branch uses the same helper for its handle arm. Re-measured on a 5 000-row `users` table with the same schema and index:
+
+  ```
+  handle LIKE 'user001%' ESCAPE '\'         ->  SCAN u USING INDEX users_handle_idx
+  handle >= 'user001' AND handle < 'user002' ->  SEARCH u USING INDEX users_handle_idx (handle>? AND handle<?)
+  ```
+
+  The range form also makes `_` literal for free, so the LIKE escaping on that path is gone rather than merely correct. Semantics are unchanged: handles are stored lowercase and constrained to `^[a-z0-9_]+$`, and the query is normalised the same way, so the two forms match identically — a query outside that character set now skips the read entirely (`handlePrefixRange` returns `null`) instead of scanning for zero rows.
+
+  The helper itself moved to `@shared/db-utils/search` in the same change, alongside `escapeLike` / `likeContains` / `normaliseHandleQuery` — it had been private to `recommendations.ts`, which is precisely why two sibling endpoints and cire's directory browse never got the benefit of it. See [[social-graph]], [[arc-tokens]], [[cire-auth]].
 
 ## OIDC provider P-W batch (2026-07-24)
 

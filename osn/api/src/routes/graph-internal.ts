@@ -1,8 +1,9 @@
-import { accounts, serviceAccounts, serviceAccountKeys, users } from "@osn/db/schema";
+import { accounts, connections, serviceAccounts, serviceAccountKeys, users } from "@osn/db/schema";
 import { Db, DbLive } from "@osn/db/service";
 import { evictPublicKeyCacheEntry, importKeyFromJwk } from "@shared/crypto";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
-import { and, asc, inArray, eq, isNull, sql } from "drizzle-orm";
+import { handlePrefixRange, likeContains, normaliseHandleQuery } from "@shared/db-utils/search";
+import { and, asc, gte, inArray, eq, isNull, lt, or, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
@@ -37,6 +38,11 @@ const MIN_SEARCH_PREFIX = 2;
 const DEFAULT_SEARCH_LIMIT = 8;
 /** Hard ceiling on handle prefix search results — caps the enumeration surface. */
 const MAX_SEARCH_LIMIT = 10;
+/**
+ * Max characters accepted as a connection-search query. Longer input is a bug
+ * or an abuse probe, never a real name someone is typing into an autocomplete.
+ */
+const MAX_CONNECTION_QUERY_LEN = 64;
 /**
  * Exhaustive list of scopes this server will grant to any service. S-M101.
  *
@@ -76,14 +82,21 @@ function safeError(e: unknown): string {
 }
 
 /**
- * Normalises a handle the same way the user-facing identifier resolution does:
- * strips a leading `@` sigil and lowercases. `users.handle` is stored lowercase
- * (the `^[a-z0-9_]{1,30}$` HandleSchema rejects uppercase at registration) and
- * `findProfileByHandle` does an exact match, so a caller passing `@Alice` must
- * be folded to `alice` to resolve. Returns `null` when nothing usable remains.
+ * Normalises a handle the same way the user-facing identifier resolution does —
+ * `@Alice` → `alice` — and collapses "nothing usable left" to `null` so a caller
+ * can 404 rather than query for the empty string. `users.handle` is stored
+ * lowercase (the `^[a-z0-9_]{1,30}$` HandleSchema rejects uppercase at
+ * registration) and `findProfileByHandle` does an exact match, so the fold is
+ * what makes `@Alice` resolve at all.
+ *
+ * The normalisation itself is `@shared/db-utils/search`'s, shared with the
+ * people/organisation search service and cire's directory browse. This wrapper
+ * adds only the `null`. Worth noting what moving to the shared version fixed:
+ * the copy that lived here tested `raw.startsWith("@")` BEFORE trimming, so
+ * `" @alice"` kept its sigil and resolved to nothing.
  */
 function normaliseHandle(raw: string): string | null {
-  const stripped = (raw.startsWith("@") ? raw.slice(1) : raw).trim().toLowerCase();
+  const stripped = normaliseHandleQuery(raw);
   return stripped.length > 0 ? stripped : null;
 }
 
@@ -566,8 +579,12 @@ export function createInternalGraphRoutes(
       // internal endpoint. Handles are already public identifiers (@usernames),
       // so this exposes nothing beyond what the exact /profile-by-handle lookup
       // does — it just lets the caller find a handle without typing it in full.
-      // The `_` LIKE wildcard is escaped so an underscore in the typed prefix
-      // matches literally (handles may contain `_`), not as a single-char match.
+      //
+      // The prefix match is an explicit BINARY range, NOT `handle LIKE 'q%'`:
+      // the LIKE form does not use `users_handle_idx` and degrades to a full
+      // index traversal on every keystroke. See `handlePrefixRange` in
+      // `@shared/db-utils/search` for why, and note that the range also makes
+      // `_` literal for free — no LIKE escaping needed on this path.
       // -----------------------------------------------------------------------
       .get(
         "/profile-search",
@@ -596,9 +613,10 @@ export function createInternalGraphRoutes(
               ? Math.min(parsedLimit, MAX_SEARCH_LIMIT)
               : DEFAULT_SEARCH_LIMIT;
 
-          // Escape LIKE wildcards (`%`, `_`) in the user-supplied prefix so they
-          // match literally — `_` is valid in a handle. `\` is the escape char.
-          const pattern = `${prefix.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+          // `null` ⇒ the prefix contains a character no handle can hold, so it
+          // cannot match anything. Skip the query rather than scan for zero rows.
+          const range = handlePrefixRange(prefix);
+          if (!range) return { profiles: [] };
 
           try {
             const rows = await run(
@@ -617,9 +635,10 @@ export function createInternalGraphRoutes(
                       .innerJoin(accounts, eq(users.accountId, accounts.id))
                       .where(
                         and(
-                          // Left-anchored LIKE with an explicit ESCAPE char so the
-                          // wildcards we escaped in `pattern` match literally.
-                          sql`${users.handle} LIKE ${pattern} ESCAPE '\\'`,
+                          // Half-open BINARY range — an index SEEK, where the
+                          // equivalent `LIKE 'q%'` is an index SCAN.
+                          gte(users.handle, range.lower),
+                          lt(users.handle, range.upper),
                           isNull(accounts.deletedAt),
                         ),
                       )
@@ -638,6 +657,175 @@ export function createInternalGraphRoutes(
         {
           query: t.Object({
             prefix: t.String({ minLength: 1, maxLength: 64 }),
+            limit: t.Optional(t.String()),
+          }),
+        },
+      )
+      // -----------------------------------------------------------------------
+      // Connection search (co-host autocomplete, scoped to ONE profile's graph)
+      //
+      // Answers "which of `profileId`'s connections match what they're typing?"
+      // — the graph-aware half of cire's add-co-host autocomplete. A wedding's
+      // co-hosts are overwhelmingly people the organiser already knows on OSN
+      // (a partner, a sibling, their planner), so their own connections are a
+      // far better first suggestion than a global handle scan.
+      //
+      // Three differences from /profile-search above, all downstream of the fact
+      // that this returns only the caller-named profile's OWN graph — a list
+      // that profile can already read in full via the user-facing
+      // `GET /graph/connections`:
+      //
+      //   1. No minimum query length. The enumeration floor on /profile-search
+      //      exists because that endpoint walks the whole handle namespace; a
+      //      single accepted-connection list has no namespace to enumerate. An
+      //      EMPTY query is therefore valid and meaningful: it returns the first
+      //      page of connections, which is what lets the portal pop the dropdown
+      //      open on focus, before a keystroke.
+      //   2. Matching includes `displayName`, and by substring rather than
+      //      prefix — you remember a connection as "Priya", not as `@pk_1994`.
+      //      Widening the match is safe here for the same reason: the candidate
+      //      set is bounded by the graph, not by the namespace.
+      //   3. `status = 'accepted'` only. A pending request is not a connection,
+      //      and surfacing one would leak that a request is in flight.
+      //
+      // CALLER INVARIANT: `profileId` MUST be the calling service's own
+      // authenticated end user — its access token's `sub` — and NEVER a value
+      // taken from a client request. Nothing on this side can enforce that: the
+      // ARC gate authenticates the *service*, not the end user it is acting for,
+      // so a consumer that forwards a client-supplied profile id turns this into
+      // arbitrary graph enumeration in one line. cire's route takes it from
+      // `osnAuth()`'s derived `osnProfileId`; any new consumer must do the same.
+      // (`/connections` already has this exact shape, so this endpoint does not
+      // widen the trust boundary — it inherits it.)
+      //
+      // Discloses nothing new to a `graph:read` holder: /connections already
+      // returns any profile's connection ids under this scope, and
+      // /profile-displays already maps ids → handle + displayName. This is those
+      // two calls fused, filtered, and capped. One caveat on that equivalence:
+      // /connections clamps at 100 rows with no offset, so for a profile with
+      // more than 100 connections a *filtered* query here can reach an edge that
+      // paging there cannot. Same tombstone rule as its siblings (accounts join
+      // + deletedAt IS NULL), so an account mid-deletion never surfaces as a
+      // suggestion. Blocks need no separate filter: blocking deletes the
+      // connection row (see graph.blockProfile), so a blocked pair cannot be
+      // `accepted` here.
+      // -----------------------------------------------------------------------
+      .get(
+        "/connection-search",
+        async ({ query, headers, set }) => {
+          const caller = await requireArc(
+            headers.authorization,
+            set,
+            run,
+            AUDIENCE,
+            SCOPE_GRAPH_READ,
+          );
+          if (!caller) return { error: "Unauthorized" };
+
+          const viewerId = query.profileId;
+
+          // Clamp limit to [1, MAX_SEARCH_LIMIT]; default when absent/garbage.
+          const parsedLimit = query.limit ? parseInt(query.limit, 10) : DEFAULT_SEARCH_LIMIT;
+          const limit =
+            Number.isFinite(parsedLimit) && parsedLimit > 0
+              ? Math.min(parsedLimit, MAX_SEARCH_LIMIT)
+              : DEFAULT_SEARCH_LIMIT;
+
+          // The typed fragment, `@`-stripped and folded. Empty is legal (see the
+          // header comment) and simply means "no filter — first page".
+          const fragment = normaliseHandleQuery(query.q ?? "");
+          if (fragment.length > MAX_CONNECTION_QUERY_LEN) {
+            return { profiles: [] };
+          }
+          // The handle half is a range (index-friendly, and `_` is literal for
+          // free); the display-name half stays a LIKE because it is a SUBSTRING
+          // match, which no range can express. `null` here means the fragment
+          // can't prefix a handle — the display-name arm still can, so this
+          // narrows the OR rather than short-circuiting the query.
+          const range = handlePrefixRange(fragment);
+          const namePattern = likeContains(fragment);
+
+          try {
+            const rows = await run(
+              Effect.gen(function* () {
+                const { db } = yield* Db;
+                return yield* Effect.tryPromise({
+                  try: () =>
+                    db
+                      .select({
+                        id: users.id,
+                        handle: users.handle,
+                        displayName: users.displayName,
+                        avatarUrl: users.avatarUrl,
+                      })
+                      .from(connections)
+                      // Join the PEER of the pair: whichever side isn't the
+                      // viewer. Expressing the direction in the join condition
+                      // (rather than a CASE in the projection) keeps both
+                      // `connections_requester_idx` and `_addressee_idx` usable.
+                      .innerJoin(
+                        users,
+                        or(
+                          and(
+                            eq(connections.requesterId, viewerId),
+                            eq(users.id, connections.addresseeId),
+                          ),
+                          and(
+                            eq(connections.addresseeId, viewerId),
+                            eq(users.id, connections.requesterId),
+                          ),
+                        ),
+                      )
+                      .innerJoin(accounts, eq(users.accountId, accounts.id))
+                      .where(
+                        and(
+                          eq(connections.status, "accepted"),
+                          isNull(accounts.deletedAt),
+                          // No fragment ⇒ no filter (first page of connections).
+                          fragment.length > 0
+                            ? or(
+                                range
+                                  ? and(
+                                      gte(users.handle, range.lower),
+                                      lt(users.handle, range.upper),
+                                    )
+                                  : undefined,
+                                // Substring, not prefix — "priya" should find
+                                // "Anaya Priyadarshini". LIKE is case-insensitive
+                                // for ASCII in SQLite, and displayName may be
+                                // NULL (LIKE on NULL is NULL ⇒ simply no match).
+                                sql`${users.displayName} LIKE ${namePattern} ESCAPE '\\'`,
+                              )
+                            : undefined,
+                        ),
+                      )
+                      .orderBy(asc(users.handle))
+                      .limit(limit),
+                  catch: (cause) => new Error("DB query failed", { cause }),
+                });
+              }),
+            );
+            return { profiles: rows };
+          } catch (e) {
+            set.status = 500;
+            return { error: safeError(e) };
+          }
+        },
+        {
+          query: t.Object({
+            profileId: t.String({ minLength: 1 }),
+            /**
+             * The typed fragment. Optional + empty-legal (see header comment).
+             *
+             * The schema bound is deliberately looser than the handler's
+             * `MAX_CONNECTION_QUERY_LEN` (64): anything between the two degrades
+             * to an empty list rather than a 422, because every failure on an
+             * autocomplete path should read as "no suggestions" rather than as
+             * an error the caller has to special-case. The outer bound is still
+             * declared so an unbounded string is never allocated or normalised
+             * — the handler's guard rejects *after* three O(n) passes.
+             */
+            q: t.Optional(t.String({ maxLength: 256 })),
             limit: t.Optional(t.String()),
           }),
         },

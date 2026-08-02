@@ -166,3 +166,11 @@ export function rowsChanged(result: unknown): number {
   };
   return r.meta?.changes ?? r.changes ?? r.rowsAffected ?? 0;
 }
+
+/**
+ * Search primitives (query normalisation, LIKE escaping, index-friendly handle
+ * prefix ranges). Re-exported so the barrel stays the one import for DB-adjacent
+ * helpers; `@shared/db-utils/search` reaches the same module without the
+ * drizzle/effect graph above.
+ */
+export { escapeLike, handlePrefixRange, likeContains, normaliseHandleQuery } from "./search";

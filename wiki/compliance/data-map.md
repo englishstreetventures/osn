@@ -66,7 +66,7 @@ the compliance checklist.
 
 | Field | Purpose | Lawful basis | Retention | Recipients | System page |
 |---|---|---|---|---|---|
-| `connections.requesterId`, `addresseeId`, `status` | Social graph edges | Art. 6(1)(b) | While both profiles active | `@osn/api`; `@pulse/api` via ARC for friends-attending discovery; `@zap/api` via ARC for blocked-user filter | [[social-graph]] |
+| `connections.requesterId`, `addresseeId`, `status` | Social graph edges | Art. 6(1)(b); Art. 6(1)(f) for the cire co-host suggestion use | While both profiles active | `@osn/api`; `@pulse/api` via ARC for friends-attending discovery; `@zap/api` via ARC for blocked-user filter; **`@cire/api` via ARC (`graph:read`, `connection-search`) for co-host autocomplete on the organiser portal — accepted edges only, scoped to the requesting organiser's own graph and shown only back to them** | [[social-graph]], [[cire-auth]] |
 | `blocks.blockerId`, `blockedId` | Block enforcement | Art. 6(1)(b)+(f) | While blocker active | `@osn/api` + ARC consumers | [[social-graph]] |
 | `organisations.handle`, `name` | Public org identity | Art. 6(1)(b) | While org active | All services + public web | [[identity-model]] |
 | `organisations.ownerId` | Permission boundary | Art. 6(1)(b) | While org active | `@osn/api` only | [[identity-model]] |

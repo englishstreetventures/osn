@@ -11,7 +11,7 @@ related:
   - "[[arc-tokens]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-08-01
+last-reviewed: 2026-08-02
 ---
 
 # Cire auth model
@@ -166,9 +166,27 @@ Co-hosts live in the `wedding_hosts(wedding_id, osn_profile_id, role, …)` tabl
 
 `GET /hosts` resolves the stored profile ids back to **handles live** for display: it batches the row's `osn_profile_id`s into one ARC-gated `POST /graph/internal/profile-displays` (`graph:read`) call and merges `{handle, displayName}` into the response. The handle is the on-screen value; the **profile id is a last-resort fallback only** (the handle is never denormalised into `wedding_hosts`). The display resolver is **key-optional + fail-soft**: when the ARC key is absent/malformed or osn-api is unreachable, it returns an empty map and the list degrades to showing profile ids — never a 503/500 (host listing must not break on a display-lookup failure).
 
-**Co-host handle autocomplete.** `GET /api/organiser/handle-search?q=<prefix>` suggests OSN profiles whose handle starts with the typed prefix, so the organiser portal can autocomplete a co-host as the owner types into the add-host input. It is gated by **`osnAuth()` alone — NOT wedding-scoped** (no `:weddingId`, no `weddingOwner()`): the suggestion list isn't tied to a wedding, and any signed-in organiser may ask "which handles start with `al`?" while deciding who to add. It proxies an ARC-gated osn-api `GET /graph/internal/profile-search?prefix=&limit=` (`graph:read`) via a sibling `OsnHandleSearchResolver` bridge, and is **key-optional + fail-soft** like the display resolver: a missing/malformed ARC key or an unreachable osn-api returns `{ profiles: [] }`, never a 503/500 — the manual type-and-submit add path on `POST /hosts` is unaffected. A light per-IP rate limit (60/min) caps the per-keystroke ARC-sign + S2S amplifier.
+**Co-host autocomplete.** `GET /api/organiser/handle-search?q=<query>` suggests who the organiser might mean as they type into the add-host input. It is gated by **`osnAuth()` alone — NOT wedding-scoped** (no `:weddingId`, no `weddingOwner()`): the suggestion list isn't tied to a wedding, and any signed-in organiser may ask "who might this be?" while deciding who to add. A light per-IP rate limit (60/min) caps the per-keystroke ARC-sign + S2S amplifier.
 
-**Enumeration guardrails live in osn-api**: minimum prefix length 2 (a 1-char/empty query returns an empty list, not an error), tombstoned accounts excluded (`deletedAt IS NULL`), results ordered by handle and **hard-capped at 10** (default 8), backed by the `users_handle_idx` B-tree index on `users.handle`. **Privacy posture**: handles are public identifiers (like @usernames); gated to signed-in organisers, min-length 2, ≤10 results — the same enumeration surface class as social-app @-mention autocomplete, and nothing beyond what the exact `profile-by-handle`/`profile-displays` lookups already expose to `graph:read` holders.
+It merges **two ARC-gated (`graph:read`) sources, in this order**:
+
+1. **The caller's own OSN connections** — `GET /graph/internal/connection-search?profileId=&q=&limit=` via the `OsnConnectionSearchResolver` bridge, flagged `connected: true` in the response. These rank **first** because a wedding's co-hosts are nearly always people the organiser already knows on OSN (a partner, a sibling, the planner they connected with), and because picking a connection is the case where the organiser can be confident they have the right `@handle` rather than a stranger with a confusable one. `profileId` is the **caller's own token `sub`**, never a client-supplied value — an organiser can only ever search their own graph.
+2. **The global handle prefix search** — `GET /graph/internal/profile-search?prefix=&limit=` via `OsnHandleSearchResolver`, flagged `connected: false`, filling the remainder. Kept deliberately: a co-host is *not required* to be a connection, and dropping this source would turn "not connected yet" into "cannot be added" — a regression for exactly the planner-hired-last-week case.
+
+A profile in both sets is emitted once, from the connections source (so `connected` is never understated); the caller themselves is filtered out of both (the owner already hosts the wedding — `POST /hosts` answers 409 `owner_is_host`); the merged list is capped at 8.
+
+An **empty query is valid and is not the same as a missing one**: it returns the organiser's first page of connections and nothing from the global search, which is what lets the portal open its dropdown on focus, before a keystroke. Both sources are **key-optional + fail-soft**, and are caught **independently** so one failing lookup degrades only itself — a missing/malformed ARC key or an unreachable osn-api returns `{ profiles: [] }` (or just the surviving half), never a 503/500, and the manual type-and-submit add path on `POST /hosts` is unaffected throughout.
+
+**Enumeration guardrails live in osn-api**, and differ per source because the two have different exposure:
+
+- `profile-search` walks the whole handle namespace: minimum prefix length 2 (a 1-char/empty query returns an empty list, not an error), results ordered by handle, **hard-capped at 10** (default 8), backed by the `users_handle_idx` B-tree index on `users.handle`.
+- `connection-search` returns only one profile's **own accepted connections** — a list that profile can already read in full via the user-facing `GET /graph/connections`. There is therefore **no minimum length** (no namespace to enumerate, and the empty query is the on-focus case) and matching widens to a **display-name substring** as well as a handle prefix (you remember a connection as "Priya", not as `@pk_1994`). `status = 'accepted'` only — a pending request is not a connection, and surfacing one would leak that a request is in flight. Blocks need no separate filter: blocking deletes the connection row.
+
+Both exclude tombstoned accounts (`deletedAt IS NULL`), so an account mid-deletion never surfaces as a suggestion.
+
+**Privacy posture**: handles are public identifiers (like @usernames); the connection source discloses essentially nothing new to a `graph:read` holder either, since `/graph/internal/connections` already returns any profile's connection ids under that scope and `/profile-displays` already maps ids → handle + displayName — `connection-search` is those two calls fused, filtered, and capped. One caveat keeps that equivalence from being exact: `/connections` clamps at 100 rows and exposes no `offset`, so for a profile with **more than 100 connections** a filtered `connection-search` can reach an edge that paging `/connections` cannot. Marginal (extraction still costs one query per targeted fragment, and the audience is two first-party services), but recorded because the equivalence argument is the load-bearing reason this shipped without a new ARC scope. Adding an `offset` to `/connections` would make it exactly true.
+
+**Caller invariant**: the `profileId` `connection-search` takes is the **calling service's own authenticated end user** — for cire, the `osnAuth()`-derived `osnProfileId`, i.e. the access token's `sub` — and never a value from a client request. The ARC gate authenticates the *service*, not the end user it acts for, so osn-api cannot enforce this; a consumer that forwarded a client-supplied id would turn the endpoint into arbitrary graph enumeration. `/graph/internal/connections` has the identical shape, so this is an inherited invariant rather than a new one.
 
 `POST /api/organiser/weddings` (create) and `GET /api/organiser/weddings` (list) carry no `:weddingId` and are gated by `osnAuth()` alone — the owner is the verified caller, taken from the token, never the body.
 

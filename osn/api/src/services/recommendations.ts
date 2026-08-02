@@ -7,6 +7,7 @@ import {
   users,
 } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
+import { handlePrefixRange, likeContains, normaliseHandleQuery } from "@shared/db-utils/search";
 import { and, asc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -158,58 +159,6 @@ function matchRank(handle: string, name: string | null, query: string): number {
   if (lowered.startsWith(query)) return 2;
   if (handle.includes(query)) return 3;
   return 4;
-}
-
-/**
- * Normalises a search query the same way handle resolution does: trims, strips
- * a leading `@` sigil, and lowercases. `users.handle` is stored lowercase, so
- * this is what makes `@Alice` and `alice` the same search.
- */
-function normaliseQuery(raw: string): string {
-  return raw.trim().replace(/^@+/, "").toLowerCase();
-}
-
-/**
- * Escapes the LIKE wildcards (`%`, `_`) plus the escape character itself so a
- * user-typed `_` matches literally — handles may contain underscores.
- */
-function escapeLike(value: string): string {
-  return value.replace(/[\\%_]/g, (c) => `\\${c}`);
-}
-
-/** The character set every handle (user and organisation) is constrained to. */
-const HANDLE_CHARS = /^[a-z0-9_]+$/;
-
-/**
- * Half-open `[lower, upper)` range matching every handle starting with `query`,
- * or `null` when `query` cannot prefix any handle.
- *
- * This exists instead of `handle LIKE 'q%'` because **that does not use the
- * index**. SQLite's LIKE-prefix optimisation requires the indexed column's
- * collation to match LIKE's case sensitivity; `case_sensitive_like` is off by
- * default (D1 runs stock defaults) and both `users_handle_idx` and the implicit
- * unique index on `organisations.handle` are BINARY, so the planner degrades to
- * `SCAN … USING INDEX` — a full traversal — rather than a seek. An explicit
- * BINARY range gets `SEARCH … (handle>? AND handle<?)`:
- *
- * ```
- * handle LIKE 'ab%' ESCAPE '\'   ->  SCAN users USING INDEX users_handle_idx
- * handle >= 'ab' AND handle < 'ac' ->  SEARCH users USING INDEX users_handle_idx
- * ```
- *
- * The two are exactly equivalent here: handles are stored lowercase and
- * constrained to `^[a-z0-9_]+$`, and `normaliseQuery` lowercases the query, so
- * there is no case for the case-insensitive comparison to differ on. A query
- * containing anything outside that set can't prefix a handle at all, hence the
- * `null` — the caller skips the pass instead of scanning for zero rows.
- */
-function handlePrefixRange(query: string): { lower: string; upper: string } | null {
-  if (!HANDLE_CHARS.test(query)) return null;
-  // Every handle char is single-code-unit ASCII, and the highest ('z', 0x7A)
-  // increments to '{' (0x7B), so the successor is always a valid bound.
-  const lastIndex = query.length - 1;
-  const upper = query.slice(0, lastIndex) + String.fromCharCode(query.charCodeAt(lastIndex) + 1);
-  return { lower: query, upper };
 }
 
 // ---------------------------------------------------------------------------
@@ -494,13 +443,13 @@ export function createRecommendationService() {
       const { db } = yield* Db;
       const safeLimit = Math.min(Math.max(Number.isFinite(limit) ? limit : 8, 1), 20);
 
-      const query = normaliseQuery(rawQuery);
+      const query = normaliseHandleQuery(rawQuery);
       // Below the minimum we return an empty list rather than an error — a
       // single keystroke shouldn't be a 4xx, and the empty result is what keeps
       // the enumeration surface small.
       if (query.length < MIN_SEARCH_QUERY_LENGTH) return [];
 
-      const containsPattern = `%${escapeLike(query)}%`;
+      const containsPattern = likeContains(query);
       const overfetch = safeLimit * SEARCH_OVERFETCH_FACTOR;
 
       const selectMatching = (where: ReturnType<typeof and>, rows: number) =>
@@ -659,10 +608,10 @@ export function createRecommendationService() {
       const { db } = yield* Db;
       const safeLimit = Math.min(Math.max(Number.isFinite(limit) ? limit : 5, 1), 20);
 
-      const query = normaliseQuery(rawQuery);
+      const query = normaliseHandleQuery(rawQuery);
       if (query.length < MIN_SEARCH_QUERY_LENGTH) return [];
 
-      const containsPattern = `%${escapeLike(query)}%`;
+      const containsPattern = likeContains(query);
       const overfetch = safeLimit * SEARCH_OVERFETCH_FACTOR;
 
       const selectMatching = (where: ReturnType<typeof and>, rows: number) =>
