@@ -4,6 +4,7 @@ import { lazy, Show } from "solid-js";
 import { Toaster } from "solid-toast";
 
 import { Header } from "./components/Header";
+import { NativeTabBar } from "./components/NativeTabBar";
 import { OnboardingGate } from "./components/OnboardingGate";
 import { OSN_ISSUER_URL } from "./lib/auth";
 
@@ -48,6 +49,9 @@ function Layout(props: { children?: unknown }) {
   return (
     <>
       <OnboardingGate />
+      {/* Installs the native iOS tab bar where there is one; renders nothing
+          otherwise. Lives here because it has to outlive every route. */}
+      <NativeTabBar />
       <Show when={!isHome() && !isWelcome()}>
         <Header />
       </Show>
