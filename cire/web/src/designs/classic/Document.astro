@@ -1,5 +1,6 @@
 ---
 import '../../styles/global.css'
+import { apiPreconnectHref } from '../../lib/api-origin'
 import { inviteTitle } from '../../lib/invite-title'
 import InviteHeader from './InviteHeader'
 import InvitePage from './InvitePage'
@@ -33,6 +34,10 @@ const paletteStyle = styleAttr(paletteRootVars(initialInvite?.theme ?? null))
 const heroSep = heroBase?.includes('?') ? '&' : '?'
 // Must stay in step with HERO_BG_VARIANT in components/invite-images.ts.
 const preloadHeroHref = heroBase ? `${heroBase}${heroSep}variant=hero-bg` : null
+
+// Warm the browser's connection to cire-api. See `lib/api-origin.ts` for why
+// this is separate from the hero preload and why it carries no `crossorigin`.
+const apiPreconnect = apiPreconnectHref(apiUrl)
 ---
 <!DOCTYPE html>
 <html lang="en" style={paletteStyle}>
@@ -42,6 +47,19 @@ const preloadHeroHref = heroBase ? `${heroBase}${heroSep}variant=hero-bg` : null
     {/* S-L1: keep the ?code= preview credential out of cross-origin Referer headers. */}
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>{pageTitle}</title>
+    {/* First-party API origin, hinted BEFORE the third-party font hosts: the
+        claim POST (and the session restore beside it) is the interaction the
+        guest is waiting on, and the hero image is served from here too.
+
+        BOTH pools are warmed, because the page genuinely uses both and browsers
+        keep them separate. Credentialed (no `crossorigin`): the hero <img>, the
+        claim POST, the session restore, RSVP. Anonymous (`crossorigin`): the
+        islands' `GET /api/invite/:slug` revalidation, which sends no credentials
+        and is the FIRST browser->API request on the page (InviteHeader is
+        client:load). Hinting only one leaves the other paying a full
+        DNS+TCP+TLS handshake. */}
+    {apiPreconnect && <link rel="preconnect" href={apiPreconnect} />}
+    {apiPreconnect && <link rel="preconnect" href={apiPreconnect} crossorigin />}
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -58,7 +76,12 @@ const preloadHeroHref = heroBase ? `${heroBase}${heroSep}variant=hero-bg` : null
   <body>
     <InviteHeader client:load apiUrl={apiUrl} slug={slug} initial={initialInvite} />
     <InvitePage
-      client:visible
+      {/* rootMargin so the island hydrates while the full-viewport hero is
+          still on screen. Bare `client:visible` cannot fire at scroll position
+          0 (the hero is `min-h-dvh`), which would delay the session restore
+          until the guest has already scrolled to the code form — i.e. to the
+          exact moment they are waiting on its result. */}
+      client:visible={{ rootMargin: "600px" }}
       apiUrl={apiUrl}
       slug={slug}
       siteUrl={siteUrl}

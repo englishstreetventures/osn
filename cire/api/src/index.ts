@@ -87,6 +87,15 @@ export interface Env {
   // downgrade would otherwise be silent. Optional here so the missing-binding
   // case surfaces as that explicit 503, not a type lie.
   CLAIM_RATE_LIMITER?: WorkersRateLimitBinding;
+  // Native Workers Rate Limiting binding for the guest SESSION-RESTORE read
+  // (`GET /api/claim/session`). Separate namespace from CLAIM_RATE_LIMITER on
+  // purpose — that one is a 5/min credential-surface budget, this route runs on
+  // every invite page load. Absent ⇒ the per-isolate in-memory fallback in
+  // `createApp`. Unlike the claim binding this is NOT a fail-closed 503 in a
+  // deployed tier: the route is authenticated (a valid `cire_session` is
+  // required to reach the handler at all), so an unbound limiter degrades a
+  // throttle rather than removing a brute-force defence.
+  CLAIM_SESSION_RATE_LIMITER?: WorkersRateLimitBinding;
   // Turnstile bot-protection secret (KEY-OPTIONAL). When set, the guest claim +
   // RSVP endpoints require a valid Turnstile token (fail-closed); unset ⇒ those
   // gates are skipped. `wrangler secret put TURNSTILE_SECRET_KEY`.
@@ -289,6 +298,9 @@ const handler: ExportedHandler<Env> = {
       const edgeLimiter = env.CLAIM_RATE_LIMITER
         ? createWorkersRateLimiter(env.CLAIM_RATE_LIMITER)
         : undefined;
+      const sessionEdgeLimiter = env.CLAIM_SESSION_RATE_LIMITER
+        ? createWorkersRateLimiter(env.CLAIM_SESSION_RATE_LIMITER)
+        : undefined;
       // Turnstile bot protection (KEY-OPTIONAL). Unset secret ⇒ null ⇒ the
       // claim + rsvp gates are skipped. The secret is read here and never
       // logged or placed anywhere but Cloudflare's siteverify endpoint.
@@ -343,6 +355,10 @@ const handler: ExportedHandler<Env> = {
           claimLimiter: edgeLimiter,
           accountLinkLimiter: edgeLimiter,
           inviteLimiter: edgeLimiter,
+          // Its own edge limiter, NOT `edgeLimiter` — that one is bound to
+          // CLAIM_RATE_LIMITER (5/min), the exact budget this route was split
+          // away from. Absent binding ⇒ createApp's in-memory 60/min default.
+          ...(sessionEdgeLimiter ? { claimSessionLimiter: sessionEdgeLimiter } : {}),
           r2: env.SHEETS,
           assets: env.ASSETS,
           images: env.IMAGES,

@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-02
 ---
 
 # Compliance Scope Matrix
@@ -151,5 +151,5 @@ and `@osn/landing`. We audit it with:
 | [[event-access]] | Art. 5(1)(f) | CC6 | — | DSA Art. 16 (event reports) | — | — |
 | [[social-graph]] | Art. 5(1)(c) | — | ✓ | — | — | — |
 | [[observability/overview]] | Art. 5(1)(c), Art. 32 | CC4, CC7 | — | — | — | — |
-| [[cire-auth]] | Art. 6, Art. 9 (dietary), Art. 32 | CC6 | ✓ | — | household-mediated | WCAG |
+| [[cire-auth]] | Art. 6, Art. 9 (dietary), Art. 32 | CC6 | ✓ | — | household-mediated (session-restored — see C-M1) | WCAG |
 | [[cire]] | Art. 5(1)(e) (retention), Art. 28 (processor) | CC6, CC9 | ✓ | — | — | WCAG |

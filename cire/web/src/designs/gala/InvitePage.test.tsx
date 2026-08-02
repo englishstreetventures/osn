@@ -1,7 +1,9 @@
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
+import { noteClaimed } from "../../components/claim-session";
 import type { ClaimResult, RsvpSummary } from "../../components/types";
+import { noSession, withSession } from "../../test-support/claim-fetch";
 import InvitePage from "./InvitePage";
 
 vi.mock("motion", () => ({
@@ -109,11 +111,13 @@ describe("gala InvitePage", () => {
   it("renders the events section with a data-event-card wrapper per event after a claim", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(claim), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(claim), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       ),
     );
 
@@ -144,11 +148,13 @@ describe("gala InvitePage", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(claim), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(claim), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       ),
     );
 
@@ -167,11 +173,13 @@ describe("gala InvitePage", () => {
   it("widens the events column to max-w-[960px], left-aligned", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(claim), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(claim), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       ),
     );
 
@@ -192,11 +200,13 @@ describe("gala InvitePage", () => {
   it("renders every EventCard with orientation=norm (no alternating rhythm)", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(claim), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(claim), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       ),
     );
 
@@ -218,11 +228,13 @@ describe("gala InvitePage", () => {
   it("swaps the claim panel to the welcome state post-claim, greeting the individual guest", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(claim), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(claim), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       ),
     );
 
@@ -240,11 +252,13 @@ describe("gala InvitePage", () => {
   it("mounts the Pulse account-link affordance post-claim (non-preview only)", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(claim), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(claim), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       ),
     );
 
@@ -265,11 +279,13 @@ describe("gala InvitePage", () => {
   it("hides the Pulse account-link affordance in preview mode", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ ...claim, preview: true }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ ...claim, preview: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       ),
     );
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
@@ -283,11 +299,13 @@ describe("gala InvitePage", () => {
   it("threads the details theme into both the RSVP modal and the event-details modal", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ ...claim, preview: true }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ ...claim, preview: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       ),
     );
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
@@ -324,11 +342,13 @@ describe("gala InvitePage", () => {
   it("threads existingRsvps, apiUrl, members and onSubmitted into RsvpModal", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify(claim), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(claim), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       ),
     );
 
@@ -372,11 +392,13 @@ describe("gala InvitePage", () => {
   it("renders the organiser's events-section header copy, and the defaults when unset", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ ...claim, preview: true }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ ...claim, preview: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       ),
     );
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
@@ -418,7 +440,7 @@ describe("gala InvitePage", () => {
         }),
       );
     });
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", noSession(fetchMock));
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
 
     const { getByText, queryByText } = render(() => (
@@ -437,11 +459,13 @@ describe("gala InvitePage", () => {
   it("renders the build-time welcome message when no slug means no revalidation", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ ...claim, preview: true }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ ...claim, preview: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       ),
     );
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
@@ -462,7 +486,7 @@ describe("gala InvitePage", () => {
         headers: { "Content-Type": "application/json" },
       }),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", noSession(fetchMock));
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
 
     const { getByText } = render(() => <InvitePage apiUrl="https://api.test" />);
@@ -485,7 +509,7 @@ describe("gala InvitePage", () => {
         headers: { "Content-Type": "application/json" },
       }),
     );
-    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("fetch", noSession(fetchMock));
 
     const { container, queryByText } = render(() => <InvitePage apiUrl="https://api.test" />);
 
@@ -507,18 +531,20 @@ describe("gala InvitePage", () => {
   it("renders the closing image on its own, with no note", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            ...claim,
-            preview: true,
-            closing: {
-              message: null,
-              imageUrl: "/api/invite/anita-ben/image/footer?v=7",
-              imageCrop: null,
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              ...claim,
+              preview: true,
+              closing: {
+                message: null,
+                imageUrl: "/api/invite/anita-ben/image/footer?v=7",
+                imageCrop: null,
+              },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
         ),
       ),
     );
@@ -546,11 +572,13 @@ describe("gala InvitePage", () => {
   it("omits the closing section entirely when neither a note nor an image is set", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ ...claim, preview: true }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ ...claim, preview: true }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       ),
     );
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
@@ -566,14 +594,16 @@ describe("gala InvitePage", () => {
   it("omits the closing section for a whitespace-only note", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            ...claim,
-            preview: true,
-            closing: { message: "   ", imageUrl: null, imageCrop: null },
-          }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              ...claim,
+              preview: true,
+              closing: { message: "   ", imageUrl: null, imageCrop: null },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
         ),
       ),
     );
@@ -592,11 +622,13 @@ describe("gala InvitePage", () => {
     async function claimWithDeadline(rsvpDeadline: ClaimResult["rsvpDeadline"]) {
       vi.stubGlobal(
         "fetch",
-        vi.fn().mockResolvedValue(
-          new Response(JSON.stringify({ ...claim, preview: true, rsvpDeadline }), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          }),
+        noSession(
+          vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ ...claim, preview: true, rsvpDeadline }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          ),
         ),
       );
       window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
@@ -698,6 +730,144 @@ describe("gala InvitePage", () => {
       await waitFor(() => expect(capturedProps.value).not.toBeNull());
       expect(capturedProps.value!.closed).toBe(false);
       expect(capturedProps.value!.closedOn).toBe("Sunday 1 September 2999");
+    });
+  });
+
+  describe("session restore", () => {
+    beforeEach(() => {
+      // Returning guest: the restore is gated on the non-credential
+      // `cire_claimed` hint written by a successful claim.
+      noteClaimed();
+    });
+
+    afterEach(() => {
+      document.cookie = "cire_claimed=; Path=/; Max-Age=0";
+    });
+
+    it("re-opens the invite from an existing session, with no code entry", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ theme: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", withSession(claim, fetchMock as unknown as typeof fetch));
+
+      const { getByText } = render(() => (
+        <InvitePage apiUrl="https://api.test" slug="anita-and-ben" />
+      ));
+
+      await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
+      // The single-member fixture greets the individual, not the household.
+      expect(getByText(/Dear Priya/)).toBeTruthy();
+    });
+
+    it("sends the household cookie on the restore read", async () => {
+      // Asserted on a bare mock, not through `withSession`: the wrapper answers
+      // the restore itself, so the call never reaches the inner mock.
+      // A fresh Response per call: `mockResolvedValue` would hand the same one
+      // to both the invite revalidation and the restore, and a body can only be
+      // read once.
+      const restore = vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(claim), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+      vi.stubGlobal("fetch", restore);
+
+      const { getByText } = render(() => (
+        <InvitePage apiUrl="https://api.test" slug="anita-and-ben" />
+      ));
+      await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
+
+      const call = restore.mock.calls.find((c) => String(c[0]).includes("/api/claim/session"));
+      expect(call).toBeTruthy();
+      expect(call![1]).toMatchObject({ credentials: "include", cache: "no-store" });
+    });
+
+    it("does NOT start the restored events section at opacity-0 — nothing would reveal it", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ theme: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", withSession(claim, fetchMock as unknown as typeof fetch));
+
+      const { getByText, container } = render(() => (
+        <InvitePage apiUrl="https://api.test" slug="anita-and-ben" />
+      ));
+      await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
+
+      const section = container.querySelector("[data-event-card]")!.closest("section")!;
+      expect(section.classList.contains("opacity-0")).toBe(false);
+    });
+
+    it("skips the unlock choreography on a restore — there is no unlock to perform", async () => {
+      const { unlockRevealSequence } = await import("./UnlockReveal.motion");
+      // The pack mock is module-wide and `restoreAllMocks` does not clear a
+      // `vi.fn()` from a `vi.mock` factory, so earlier tests' calls would leak
+      // in. Assert on THIS test's calls only.
+      vi.mocked(unlockRevealSequence).mockClear();
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ theme: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", withSession(claim, fetchMock as unknown as typeof fetch));
+
+      const { getByText } = render(() => (
+        <InvitePage apiUrl="https://api.test" slug="anita-and-ben" />
+      ));
+      await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
+
+      expect(unlockRevealSequence).not.toHaveBeenCalled();
+    });
+
+    it("leaves the code form standing when there is no session (401)", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ theme: null }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", noSession(fetchMock as unknown as typeof fetch));
+
+      const { getByPlaceholderText, queryByText } = render(() => (
+        <InvitePage apiUrl="https://api.test" slug="anita-and-ben" />
+      ));
+
+      await waitFor(() => expect(getByPlaceholderText(/PATEL-JOY/)).toBeTruthy());
+      expect(queryByText("Mehndi")).toBeNull();
+    });
+
+    it("does not restore over a ?code= deep-link — the explicit code wins", async () => {
+      window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+      // A fresh Response per call: `mockResolvedValue` would hand the same one
+      // to both the invite revalidation and the restore, and a body can only be
+      // read once.
+      const restore = vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(claim), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+      vi.stubGlobal("fetch", restore);
+
+      const { getByText } = render(() => (
+        <InvitePage apiUrl="https://api.test" slug="anita-and-ben" />
+      ));
+      await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
+
+      expect(restore.mock.calls.some((c) => String(c[0]).includes("/api/claim/session"))).toBe(
+        false,
+      );
     });
   });
 });

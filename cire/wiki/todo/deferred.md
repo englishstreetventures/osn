@@ -4,7 +4,7 @@ tags: [todo, deferred]
 related:
   - "[[index]]"
   - "[[platform-plan]]"
-last-reviewed: 2026-07-30
+last-reviewed: 2026-08-02
 ---
 
 # Deferred Decisions
@@ -15,6 +15,7 @@ Open architectural questions with options + a trigger for revisiting. When a dec
 
 | Question                                  | Options considered                                                                                        | Deadline / trigger                                                  |
 | ----------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| SSR the restored invite (widen `cire_session` to `Domain=cireweddings.com`)? | Today the session restore (`GET /api/claim/session`) is a client-side fetch on island mount, because the cookie is host-scoped to `api.cireweddings.com` and the guest-site Worker never receives it. Painting a returning household's events into the FIRST HTML byte would need `Domain=cireweddings.com`, which hands the household session to every subdomain (`host.`, `vendor.`, the apex) — against the standing audit in `cire/api/src/lib/cookie.ts`. Alternative: have the guest-site Worker mint its own same-origin cookie mirroring the session, which is a second session store to keep in sync. Current call: **keep host-scoping**; the client-side restore already removes the retyping, and one RTT after hydration is not worth widening a credential's blast radius. | If invite open-latency is measured and the post-hydration restore is the bottleneck, or if a same-origin API path (API behind `invite.cireweddings.com/api/*`) lands and makes the question moot. Raised 2026-08-02 (`claude/invite-code-gating-hints-g8nw0o`). |
 | Free (invites) vs paid (management platform) tiering | Invites stay free; the management modules (Checklist, Budget, Vendors incl. the S3 directory browse) become a paid tier — needs a billing model + a tier gate wrapping the modules. Directory browse would become tier-gated. Own brainstorm. | Before the wedding-management platform is offered beyond the single live wedding. Surfaced during Vendors S3 review (2026-07-18). |
 | Venue-discovery sets the event location | A wedding may have no venue yet; the couple browses the directory (Vendors S3) to choose one. A later flow can let "add a venue vendor" optionally set the event's `location`/coords from the chosen listing (ties into `events.venue_vendor_id`). | With S5 geo directory-search + the "Venue link" platform item. |
 | Event invitations per-family vs per-guest | Per-guest matches sheet exactly (current schema); per-family simpler but loses fidelity                   | After first import lands and real spreadsheet variation is observed |

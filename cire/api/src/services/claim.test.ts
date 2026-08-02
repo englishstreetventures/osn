@@ -432,3 +432,122 @@ describe("claimService.lookup — first-open recording", () => {
     expect(result.publicId).toBe("TESTONE-IVY-AA11");
   });
 });
+
+describe("claimService.restore", () => {
+  /** The family id behind a public claim code, for calling `restore` directly. */
+  function familyIdFor(db: Db, publicId: string): string {
+    const row = db
+      .select({ id: families.id })
+      .from(families)
+      .where(eq(families.publicId, publicId))
+      .all()[0];
+    if (!row) throw new Error(`no family ${publicId}`);
+    return row.id;
+  }
+
+  it(
+    "returns the SAME payload lookup does, field for field",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const claimed = yield* claimService.lookup("TESTONE-IVY-AA11");
+        const restored = yield* claimService.restore(familyIdFor(db, "TESTONE-IVY-AA11"));
+        // Whole-object, not field-by-field: `buildClaimResponse` exists precisely
+        // so the two entry points cannot serve different views of one household,
+        // and a whole-object compare pins every field ClaimResponse ever gains.
+        expect(restored).toEqual(claimed);
+      }),
+    ),
+  );
+
+  it(
+    "does NOT record a first open — a restore is not first contact",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        expect(firstOpenedAt(db, "TESTONE-IVY-AA11")).toBeNull();
+
+        yield* claimService.restore(familyIdFor(db, "TESTONE-IVY-AA11"));
+
+        // Still null. This is the invariant the shared `buildClaimResponse`
+        // creates room to break: moving the first-open write into the builder
+        // would compile, keep every other test green, and start stamping
+        // `first_opened_at` (and inflating `invite_opened`) on every page load.
+        expect(firstOpenedAt(db, "TESTONE-IVY-AA11")).toBeNull();
+      }),
+    ),
+  );
+
+  it(
+    "leaves an ALREADY-recorded first open untouched",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        yield* claimService.lookup("TESTONE-IVY-AA11");
+        const first = firstOpenedAt(db, "TESTONE-IVY-AA11");
+        expect(first).not.toBeNull();
+
+        yield* claimService.restore(familyIdFor(db, "TESTONE-IVY-AA11"));
+
+        expect(firstOpenedAt(db, "TESTONE-IVY-AA11")).toBe(first);
+      }),
+    ),
+  );
+
+  it(
+    "carries the host-preview flag — an organiser restoring a preview is still previewing",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date();
+        db.insert(families)
+          .values({
+            id: "fam_host_restore",
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            publicId: "HOST-RESTORECODE0000",
+            familyName: "Host Preview",
+            kind: "host",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+
+        const restored = yield* claimService.restore("fam_host_restore");
+
+        // `preview` gates the RSVP no-op and hides the account-link affordance;
+        // a restore reporting `false` would show an organiser a live RSVP
+        // surface against a synthetic household.
+        expect(restored.preview).toBe(true);
+      }),
+    ),
+  );
+
+  it(
+    "fails InvalidCredentials for a family id that no longer exists",
+    withDb(
+      Effect.gen(function* () {
+        // Unreachable over HTTP — `sessions.family_id` cascades on delete, so
+        // `sessionAuth` 401s first. That is exactly why it is tested here: the
+        // guard is the production safety net for the case where the cascade
+        // does NOT hold (SQLite/D1 enforce FKs only under `PRAGMA
+        // foreign_keys=ON`), and without it a stale session is a 500, not a 401.
+        const err = yield* Effect.flip(claimService.restore("fam_does_not_exist"));
+        expect(err).toBeInstanceOf(InvalidCredentials);
+      }),
+    ),
+  );
+
+  it(
+    "fails InvalidCredentials once the family is deactivated",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const id = familyIdFor(db, "TESTFOR-JOY-DD44");
+        db.update(families).set({ deactivatedAt: new Date() }).where(eq(families.id, id)).run();
+
+        const err = yield* Effect.flip(claimService.restore(id));
+        expect(err).toBeInstanceOf(InvalidCredentials);
+      }),
+    ),
+  );
+});

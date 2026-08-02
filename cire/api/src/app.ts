@@ -16,7 +16,7 @@ import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
 import { createAuthOidcRoutes } from "./routes/auth-oidc";
 import { createBudgetReadRoutes, createBudgetWriteRoutes } from "./routes/budget";
-import { createClaimRoutes } from "./routes/claim";
+import { createClaimRoutes, createClaimSessionRoutes } from "./routes/claim";
 import { createCspReportRoutes } from "./routes/csp-report";
 import { createInternalRevokeRoutes } from "./routes/internal-revoke";
 import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/invite";
@@ -66,6 +66,14 @@ import type { ZapChatClient } from "./services/zap-bridge";
 
 /** Default per-IP rate limiter for the claim endpoint: 5 attempts per minute. */
 const defaultClaimLimiter = createRateLimiter({ maxRequests: 5, windowMs: 60_000 });
+/**
+ * Default per-IP limiter for the guest session RESTORE read: 60 req/min — the
+ * same budget as the organiser's `oidcSessionLimiter`, which it mirrors. It must
+ * not share `defaultClaimLimiter`'s 5/min: that budget is sized for a credential
+ * surface, while this route is hit on every invite page load by guests who
+ * already hold a session, so a household behind one NAT would 429 on reload.
+ */
+const defaultClaimSessionLimiter = createRateLimiter({ maxRequests: 60, windowMs: 60_000 });
 /**
  * Default per-IP rate limiter for the account-link surface (S-L1): 20 req/min.
  * Higher than claim because a household legitimately polls GET link-status, but
@@ -198,6 +206,8 @@ export interface AppOptions {
   allowedOrigins?: string[];
   /** Override the claim rate limiter (useful for testing). */
   claimLimiter?: RateLimiterBackend;
+  /** Override the guest session-restore rate limiter (useful for testing). */
+  claimSessionLimiter?: RateLimiterBackend;
   /** Override the account-link rate limiter (useful for testing). */
   accountLinkLimiter?: RateLimiterBackend;
   /** Override the CSV + JSON RSVP export per-user rate limiter (useful for testing). */
@@ -379,6 +389,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     vendorPortalOrigin = "https://vendor.cireweddings.com",
     allowedOrigins,
     claimLimiter = defaultClaimLimiter,
+    claimSessionLimiter = defaultClaimSessionLimiter,
     accountLinkLimiter = defaultAccountLinkLimiter,
     exportLimiter = defaultExportLimiter,
     inviteLimiter = defaultInviteLimiter,
@@ -576,6 +587,10 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // public read alongside the guest claim + invite routes.
       .use(createPrimaryWeddingRoutes(db))
       .use(createClaimRoutes(db, { webOrigin, limiter: claimLimiter, turnstileVerifier }))
+      // Session RESTORE for a household that already claimed. A sibling instance
+      // so it gets its own (page-load-sized) limiter instead of the claim
+      // endpoint's brute-force budget — same split as the hosts read/write pair.
+      .use(createClaimSessionRoutes(db, { webOrigin, limiter: claimSessionLimiter }))
       // No Turnstile on RSVP: guests reach it only with a valid `cire_session`
       // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check
       // here is pure friction. Claim + organiser login keep the gate.

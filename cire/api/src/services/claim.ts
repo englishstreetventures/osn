@@ -95,6 +95,207 @@ function eventImageCrop(key: string | null, raw: string | null): ImageCrop | nul
   return key ? decodeCrop(raw) : null;
 }
 
+/**
+ * The row shape both entry points below resolve before building a response —
+ * `lookup` by claim code, `restore` by the session's family id.
+ */
+type FamilyRow = typeof families.$inferSelect;
+
+/**
+ * Build the invite payload for an already-resolved household. Shared by
+ * `claimService.lookup` (code entry) and `claimService.restore` (an existing
+ * `cire_session` re-reading its own invite), so the two can never drift into
+ * serving different views of the same household — which matters because this
+ * payload is the ONLY delivery point for the events list and the closing
+ * section (S-H1). Pure read: the caller owns the credential check, the
+ * first-open write and the metrics.
+ */
+function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+
+    // Three genuinely INDEPENDENT reads, each keyed only off the already-resolved
+    // `family` row, so they're pipelined together with `Effect.all` (P-W2): on D1
+    // their three round-trips overlap (~1 fewer serial RTT on the hot path), and
+    // on bun:sqlite (tests/local) they resolve in-process so concurrency is a
+    // harmless no-op. The events read can't join this group — it depends on the
+    // event ids derived from `guestRows` below — so it stays sequential after.
+    //  (a) the wedding row — its slug scopes the first-party event-image paths,
+    //      and its RSVP-deadline columns tell the guest site whether (and when)
+    //      the invite locks. A family always belongs to a wedding (FK), so the
+    //      row is present; default to the family's weddingId if a slug is somehow
+    //      absent (image URLs would 404, but the rest of the claim is unaffected
+    //      — never fail the lookup on it).
+    //  (b) guests + their event-id memberships. Kept narrow (no events join) to
+    //      avoid the cartesian explosion of duplicating every event row — incl.
+    //      its JSON palette blob — once per invited guest.
+    //  (c) this family's RSVPs.
+    const {
+      wedding: [wedding],
+      closingRow: [closing],
+      guestRows,
+      rsvpRows,
+    } = yield* Effect.all(
+      {
+        wedding: dbQuery(() =>
+          db
+            .select({
+              slug: weddings.slug,
+              rsvpDeadline: weddings.rsvpDeadline,
+              rsvpDeadlineTimezone: weddings.rsvpDeadlineTimezone,
+            })
+            .from(weddings)
+            .where(eq(weddings.id, family.weddingId))
+            .all(),
+        ),
+        // The CLOSING SECTION (the couple's sign-off) rides the claim payload,
+        // NOT the public `GET /api/invite/:slug` — it is addressed to the
+        // invited household, so it is delivered only to a session that proved
+        // household membership, exactly like the events list beside it.
+        closingRow: dbQuery(() =>
+          db
+            .select({
+              message: weddingInviteCustomisations.footerMessage,
+              imageKey: weddingInviteCustomisations.footerImageKey,
+              imageCrop: weddingInviteCustomisations.footerImageCrop,
+              updatedAt: weddingInviteCustomisations.updatedAt,
+              imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
+            })
+            .from(weddingInviteCustomisations)
+            .where(eq(weddingInviteCustomisations.weddingId, family.weddingId))
+            .all(),
+        ),
+        guestRows: dbQuery(() =>
+          db
+            .select({
+              guestId: guests.id,
+              firstName: guests.firstName,
+              lastName: guests.lastName,
+              nickname: guests.nickname,
+              sortOrder: guests.sortOrder,
+              eventId: guestEvents.eventId,
+            })
+            .from(guests)
+            .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
+            .where(eq(guests.familyId, family.id))
+            .orderBy(asc(guests.sortOrder))
+            .all(),
+        ),
+        rsvpRows: dbQuery(() =>
+          db
+            .select({
+              guestId: rsvps.guestId,
+              eventId: rsvps.eventId,
+              status: rsvps.status,
+              dietary: rsvps.dietary,
+            })
+            .from(rsvps)
+            .innerJoin(guests, eq(rsvps.guestId, guests.id))
+            .where(eq(guests.familyId, family.id))
+            .all(),
+        ),
+      },
+      { concurrency: "unbounded" },
+    );
+    const slug = wedding?.slug ?? family.weddingId;
+
+    const memberMap = new Map<
+      string,
+      {
+        guestId: string;
+        firstName: string;
+        lastName: string;
+        nickname: string | null;
+        eventIds: string[];
+      }
+    >();
+    const eventIds = new Set<string>();
+    for (const row of guestRows) {
+      let member = memberMap.get(row.guestId);
+      if (!member) {
+        member = {
+          guestId: row.guestId,
+          firstName: row.firstName,
+          lastName: row.lastName,
+          nickname: row.nickname,
+          eventIds: [],
+        };
+        memberMap.set(row.guestId, member);
+      }
+      if (row.eventId !== null) {
+        member.eventIds.push(row.eventId);
+        eventIds.add(row.eventId);
+      }
+    }
+
+    const eventRows =
+      eventIds.size === 0
+        ? []
+        : yield* dbQuery(() =>
+            db
+              .select()
+              .from(events)
+              .where(inArray(events.id, [...eventIds]))
+              .all(),
+          );
+
+    const eventList: ClaimResponse["events"] = [];
+    for (const e of eventRows) {
+      const { palette, malformed } = decodePalette(e.dressCodePalette);
+      if (malformed) {
+        yield* Effect.logWarning(`malformed dress_code_palette`, { eventId: e.id });
+      }
+      eventList.push({
+        id: e.id,
+        name: e.name,
+        description: e.description,
+        startAt: e.startAt,
+        endAt: e.endAt,
+        timezone: e.timezone,
+        address: e.address ?? null,
+        dressCodeDescription: e.dressCodeDescription ?? null,
+        dressCodePalette: palette,
+        pinterestUrl: safeHttpUrl(e.pinterestUrl),
+        mapsUrl: safeHttpUrl(e.mapsUrl),
+        sortOrder: e.sortOrder ?? 0,
+        imageUrl: eventImageUrl(slug, e.id, e.eventImageKey),
+        imageCrop: eventImageCrop(e.eventImageKey, e.eventImageCrop),
+      });
+    }
+    eventList.sort((a, b) => a.sortOrder - b.sortOrder);
+
+    // The image URL's `?v=` tracks the IMAGE version like every other slot's
+    // (WT-P-I1), coalescing to `updatedAt` for rows that predate migration 0029.
+    const closingVersion = (closing?.imagesUpdatedAt ?? closing?.updatedAt)?.getTime() ?? 0;
+    return {
+      familyId: family.id,
+      publicId: family.publicId,
+      familyName: family.familyName,
+      preview: family.kind === "host",
+      members: Array.from(memberMap.values()),
+      events: eventList,
+      rsvps: rsvpRows,
+      // Resolved server-side so the banner the guest reads and the 403 the
+      // write path returns are computed by the same function — the client
+      // never turns the date into an instant itself.
+      rsvpDeadline: resolveRsvpDeadline(
+        wedding?.rsvpDeadline,
+        wedding?.rsvpDeadlineTimezone,
+        new Date(),
+      ),
+      closing: {
+        message: closing?.message ?? null,
+        imageUrl: closing?.imageKey
+          ? `/api/invite/${encodeURIComponent(slug)}/image/footer?v=${closingVersion}`
+          : null,
+        // Only surface a rectangle when there is an image to crop; `decodeCrop`
+        // drops a malformed/legacy value so a bad rect never reaches a style.
+        imageCrop: closing?.imageKey ? decodeCrop(closing.imageCrop) : null,
+      },
+    };
+  }).pipe(Effect.withSpan("cire.claim.buildResponse"));
+}
+
 export const claimService = {
   lookup(publicId: string): Effect.Effect<ClaimResponse, InvalidCredentials, DbService> {
     return Effect.gen(function* () {
@@ -147,191 +348,51 @@ export const claimService = {
         );
       }
 
-      // Three genuinely INDEPENDENT reads, each keyed only off the already-resolved
-      // `family` row, so they're pipelined together with `Effect.all` (P-W2): on D1
-      // their three round-trips overlap (~1 fewer serial RTT on the hot path), and
-      // on bun:sqlite (tests/local) they resolve in-process so concurrency is a
-      // harmless no-op. The events read can't join this group — it depends on the
-      // event ids derived from `guestRows` below — so it stays sequential after.
-      //  (a) the wedding row — its slug scopes the first-party event-image paths,
-      //      and its RSVP-deadline columns tell the guest site whether (and when)
-      //      the invite locks. A family always belongs to a wedding (FK), so the
-      //      row is present; default to the family's weddingId if a slug is somehow
-      //      absent (image URLs would 404, but the rest of the claim is unaffected
-      //      — never fail the lookup on it).
-      //  (b) guests + their event-id memberships. Kept narrow (no events join) to
-      //      avoid the cartesian explosion of duplicating every event row — incl.
-      //      its JSON palette blob — once per invited guest.
-      //  (c) this family's RSVPs.
-      const {
-        wedding: [wedding],
-        closingRow: [closing],
-        guestRows,
-        rsvpRows,
-      } = yield* Effect.all(
-        {
-          wedding: dbQuery(() =>
-            db
-              .select({
-                slug: weddings.slug,
-                rsvpDeadline: weddings.rsvpDeadline,
-                rsvpDeadlineTimezone: weddings.rsvpDeadlineTimezone,
-              })
-              .from(weddings)
-              .where(eq(weddings.id, family.weddingId))
-              .all(),
-          ),
-          // The CLOSING SECTION (the couple's sign-off) rides the claim payload,
-          // NOT the public `GET /api/invite/:slug` — it is addressed to the
-          // invited household, so it is delivered only to a session that proved
-          // household membership, exactly like the events list beside it.
-          closingRow: dbQuery(() =>
-            db
-              .select({
-                message: weddingInviteCustomisations.footerMessage,
-                imageKey: weddingInviteCustomisations.footerImageKey,
-                imageCrop: weddingInviteCustomisations.footerImageCrop,
-                updatedAt: weddingInviteCustomisations.updatedAt,
-                imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
-              })
-              .from(weddingInviteCustomisations)
-              .where(eq(weddingInviteCustomisations.weddingId, family.weddingId))
-              .all(),
-          ),
-          guestRows: dbQuery(() =>
-            db
-              .select({
-                guestId: guests.id,
-                firstName: guests.firstName,
-                lastName: guests.lastName,
-                nickname: guests.nickname,
-                sortOrder: guests.sortOrder,
-                eventId: guestEvents.eventId,
-              })
-              .from(guests)
-              .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
-              .where(eq(guests.familyId, family.id))
-              .orderBy(asc(guests.sortOrder))
-              .all(),
-          ),
-          rsvpRows: dbQuery(() =>
-            db
-              .select({
-                guestId: rsvps.guestId,
-                eventId: rsvps.eventId,
-                status: rsvps.status,
-                dietary: rsvps.dietary,
-              })
-              .from(rsvps)
-              .innerJoin(guests, eq(rsvps.guestId, guests.id))
-              .where(eq(guests.familyId, family.id))
-              .all(),
-          ),
-        },
-        { concurrency: "unbounded" },
-      );
-      const slug = wedding?.slug ?? family.weddingId;
-
-      const memberMap = new Map<
-        string,
-        {
-          guestId: string;
-          firstName: string;
-          lastName: string;
-          nickname: string | null;
-          eventIds: string[];
-        }
-      >();
-      const eventIds = new Set<string>();
-      for (const row of guestRows) {
-        let member = memberMap.get(row.guestId);
-        if (!member) {
-          member = {
-            guestId: row.guestId,
-            firstName: row.firstName,
-            lastName: row.lastName,
-            nickname: row.nickname,
-            eventIds: [],
-          };
-          memberMap.set(row.guestId, member);
-        }
-        if (row.eventId !== null) {
-          member.eventIds.push(row.eventId);
-          eventIds.add(row.eventId);
-        }
-      }
-
-      const eventRows =
-        eventIds.size === 0
-          ? []
-          : yield* dbQuery(() =>
-              db
-                .select()
-                .from(events)
-                .where(inArray(events.id, [...eventIds]))
-                .all(),
-            );
-
-      const eventList: ClaimResponse["events"] = [];
-      for (const e of eventRows) {
-        const { palette, malformed } = decodePalette(e.dressCodePalette);
-        if (malformed) {
-          yield* Effect.logWarning(`malformed dress_code_palette`, { eventId: e.id });
-        }
-        eventList.push({
-          id: e.id,
-          name: e.name,
-          description: e.description,
-          startAt: e.startAt,
-          endAt: e.endAt,
-          timezone: e.timezone,
-          address: e.address ?? null,
-          dressCodeDescription: e.dressCodeDescription ?? null,
-          dressCodePalette: palette,
-          pinterestUrl: safeHttpUrl(e.pinterestUrl),
-          mapsUrl: safeHttpUrl(e.mapsUrl),
-          sortOrder: e.sortOrder ?? 0,
-          imageUrl: eventImageUrl(slug, e.id, e.eventImageKey),
-          imageCrop: eventImageCrop(e.eventImageKey, e.eventImageCrop),
-        });
-      }
-      eventList.sort((a, b) => a.sortOrder - b.sortOrder);
-
-      // The image URL's `?v=` tracks the IMAGE version like every other slot's
-      // (WT-P-I1), coalescing to `updatedAt` for rows that predate migration 0029.
-      const closingVersion = (closing?.imagesUpdatedAt ?? closing?.updatedAt)?.getTime() ?? 0;
-      return {
-        familyId: family.id,
-        publicId: family.publicId,
-        familyName: family.familyName,
-        preview: family.kind === "host",
-        members: Array.from(memberMap.values()),
-        events: eventList,
-        rsvps: rsvpRows,
-        // Resolved server-side so the banner the guest reads and the 403 the
-        // write path returns are computed by the same function — the client
-        // never turns the date into an instant itself.
-        rsvpDeadline: resolveRsvpDeadline(
-          wedding?.rsvpDeadline,
-          wedding?.rsvpDeadlineTimezone,
-          new Date(),
-        ),
-        closing: {
-          message: closing?.message ?? null,
-          imageUrl: closing?.imageKey
-            ? `/api/invite/${encodeURIComponent(slug)}/image/footer?v=${closingVersion}`
-            : null,
-          // Only surface a rectangle when there is an image to crop; `decodeCrop`
-          // drops a malformed/legacy value so a bad rect never reaches a style.
-          imageCrop: closing?.imageKey ? decodeCrop(closing.imageCrop) : null,
-        },
-      };
+      return yield* buildClaimResponse(family);
     }).pipe(
       Effect.tap(() => Effect.sync(() => metricClaimAttempt("ok"))),
       Effect.tapError(() => Effect.sync(() => metricClaimAttempt("invalid_credentials"))),
       measureClaimLookup,
       Effect.withSpan("cire.claim.lookup"),
     );
+  },
+
+  /**
+   * Re-read the invite for a household that ALREADY proved membership — the
+   * `GET /api/claim/session` restore path, keyed on the `familyId` that
+   * `sessionAuth` derived from the `cire_session` cookie.
+   *
+   * Deliberately NOT a second credential surface: no claim code is accepted
+   * here, the caller cannot name a family, and the id comes only from a session
+   * this API minted. It returns exactly what `lookup` returns, because it is the
+   * same household looking at the same invite a second time.
+   *
+   * Two differences from `lookup`, both intentional:
+   *  - **No first-open write.** A restore is by definition not first contact;
+   *    the claim that minted this session already stamped `first_opened_at`, so
+   *    writing here would only add a per-page-load write for no signal.
+   *  - **Deactivation is re-checked.** Defence in depth, not a hole being
+   *    closed: `familyDeactivate` already deletes the family's live sessions in
+   *    the same commit as it sets `deactivated_at`, so a withdrawn invite's
+   *    cookie should never validate here at all. This is the belt to that
+   *    braces — if a session ever survives (a partial write, a future code path
+   *    that sets the marker without the revoke), the restore still refuses.
+   *    Same generic `InvalidCredentials` as `lookup`, so it is not an oracle.
+   */
+  restore(familyId: string): Effect.Effect<ClaimResponse, InvalidCredentials, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+
+      const [family] = yield* dbQuery(() =>
+        db.select().from(families).where(eq(families.id, familyId)).all(),
+      );
+      // A session whose family row is gone (deleted wedding / guest) is as good
+      // as no session — fail rather than 500.
+      if (!family) return yield* Effect.fail(new InvalidCredentials());
+      if (family.deactivatedAt !== null) return yield* Effect.fail(new InvalidCredentials());
+
+      return yield* buildClaimResponse(family);
+    }).pipe(measureClaimLookup, Effect.withSpan("cire.claim.restore"));
   },
 
   /** All events for one wedding (organiser view). weddingId is required —

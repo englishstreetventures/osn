@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-08-01
+last-reviewed: 2026-08-02
 ---
 
 # DPIA — Cire guest data
@@ -168,6 +168,48 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   [[soc2]].
 - **Minimisation copy.** RSVP form asks for dietary *requirements* only; no
   free-text prompt that invites medical detail.
+
+### C-M1 (2026-08-02) — the household session now auto-discloses, and cannot be ended
+
+**What changed.** `GET /api/claim/session` (branch `claude/invite-code-gating-hints-g8nw0o`)
+lets the guest site re-open an invite from an existing `cire_session` cookie.
+Before it, `cire_session` was in practice a *write* capability: the invite UI is
+gated on a claim result that only `POST /api/claim` could populate, so a
+returning visitor saw the code form regardless of the cookie. After it, opening
+the page renders the full household payload — guest names, per-event dietary
+free text (Art. 9), the couple's private closing note — with **zero
+interaction**, for the cookie's 30-day life.
+
+**Why this is a change in risk (Art. 35(11)).** The DPIA's risk analysis and the
+"household-mediated" characterisation in [[scope-matrix]] both rest on the claim
+code being the gate. Automatic disclosure on page load is a different disclosure
+model, and the device assumption it depends on — that the browser belongs to the
+household — is weakest exactly where this product is used: a family tablet, a
+phone handed to a relative, a venue kiosk, a hotel business centre.
+
+**Assessed residual risk: not high.** The disclosure is to a device the
+household itself authenticated, the payload is unchanged in content (no new
+field, no new recipient class — see C-L1 in [[data-map]]), and the scope is one
+household. Art. 36 prior consultation is not triggered.
+
+**Mitigations in place on the branch.**
+
+- The payload is `Cache-Control: no-store` + `Vary: Origin, Cookie`, so no
+  shared cache can retain or replay it to another household (S-H1).
+- The restore is bound to the wedding being rendered via `sessionOwnsWedding`,
+  so a session cannot disclose one household's data inside another wedding's
+  page (S-M1).
+- Deactivating a family still deletes its sessions in the same commit, and the
+  restore re-checks `deactivated_at` independently.
+
+**Outstanding mitigation — required, tracked as S-M2 in [[cire/wiki/todo/security]].**
+There is no guest sign-out: `sessionService.revoke` exists but is wired to no
+guest-facing route, and the guest site offers no session control at all. A
+credential that auto-exercises itself needs a user-controlled way to stop it.
+The planned fix is `POST /api/claim/signout` plus a "Not the <name> family?"
+control on the restored invite. Until it ships, the only ways to end a session
+are organiser-initiated (deactivate / remint) or 30-day expiry. Whether 30 days
+remains the right TTL for an auto-exercised cookie should be decided alongside it.
 
 ## 5. Consultation
 

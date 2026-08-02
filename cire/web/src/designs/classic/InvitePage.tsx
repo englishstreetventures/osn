@@ -1,7 +1,17 @@
 import { AuthProvider } from "@shared/rp-auth/solid";
-import { createEffect, createMemo, createResource, createSignal, Show, For } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  onCleanup,
+  onMount,
+  Show,
+  For,
+} from "solid-js";
 import { Toaster } from "solid-toast";
 
+import { createSessionRestore, noteClaimed } from "../../components/claim-session";
 import { createRsvpClosed } from "../../components/createRsvpClosed";
 import { DetailsModal } from "../../components/DetailsModal";
 import { EventCard } from "../../components/EventCard";
@@ -13,6 +23,7 @@ import {
 } from "../../components/invite-theme";
 import { InviteClosing } from "../../components/InviteClosing";
 import { LoginSection } from "../../components/LoginSection";
+import { prefetchOnIdle } from "../../components/prefetch-idle";
 import { PulseAccountLink } from "../../components/PulseAccountLink";
 import { deadlineNotice, formatDeadlineDay, RSVP_NOTICE_ID } from "../../components/rsvp-deadline";
 import { RsvpModal } from "../../components/RsvpModal";
@@ -88,6 +99,40 @@ export default function InvitePage(props: InvitePageProps) {
   const [claimResult, setClaimResult] = createSignal<ClaimResult | null>(null);
   const [rsvpEvent, setRsvpEvent] = createSignal<EventSummary | null>(null);
   const [detailsEvent, setDetailsEvent] = createSignal<EventSummary | null>(null);
+  // True when the invite opened from an EXISTING session rather than from a code
+  // the guest just typed. It suppresses the unlock choreography — there is no
+  // unlock to perform on a return visit, and a curtain-raise firing by itself on
+  // page load reads as a glitch. It is also what keeps the events section off
+  // `opacity-0`: that class is only safe when something is going to animate it
+  // back, and on this path nothing is.
+  const [restoredSession, setRestoredSession] = createSignal(false);
+
+  // Warm the two chunks that are otherwise fetched mid-interaction: the unlock
+  // sequence (imported inside `handleClaimed`, i.e. after the claim resolves)
+  // and the modal transitions (imported inside `AnimatedModal` on first open).
+  // Hints only — both call sites keep their own import and their own fallback.
+  onMount(() => {
+    const cancels = [
+      prefetchOnIdle(() => import("./UnlockReveal.motion")),
+      prefetchOnIdle(() => import("../../components/Modal.motion")),
+    ];
+    onCleanup(() => cancels.forEach((cancel) => cancel()));
+  });
+
+  // Returning guests: re-open the invite from the 30-day household session
+  // instead of asking for the code again.
+  createSessionRestore({
+    apiUrl: props.apiUrl,
+    slug: props.slug,
+    result: claimResult,
+    onRestored: (result) => {
+      // Order matters — `restoredSession` must be true before the events
+      // section first renders, or it paints at `opacity-0` with nothing queued
+      // to reveal it.
+      setRestoredSession(true);
+      setClaimResult(result);
+    },
+  });
 
   const siteUrl = () =>
     props.siteUrl ?? (typeof window !== "undefined" ? window.location.origin : "");
@@ -164,6 +209,10 @@ export default function InvitePage(props: InvitePageProps) {
 
   async function handleClaimed(result: ClaimResult) {
     setClaimResult(result);
+    // Mark this browser as having a household session, so the next visit
+    // restores instead of asking for the code again — and so a first-time
+    // visitor never spends a request on a guaranteed 401.
+    noteClaimed();
 
     // Wait a tick so SolidJS renders the events section into the DOM
     await new Promise((r) => setTimeout(r, 0));
@@ -198,7 +247,11 @@ export default function InvitePage(props: InvitePageProps) {
         {(data) => (
           <section
             ref={eventsSectionRef}
-            class="border-border border-y px-6 py-16 opacity-0 md:px-8 md:py-20"
+            class="border-border border-y px-6 py-16 md:px-8 md:py-20"
+            // Hidden until the unlock sequence reveals it — but ONLY on the
+            // code-entry path. A restored session has no reveal to wait for, so
+            // starting at zero opacity there would leave the invite blank.
+            classList={{ "opacity-0": !restoredSession() }}
             // The section paints whichever derived surface its tone names; the
             // `text-gold-ink` / `font-display` / `border-border` utilities on the
             // header and on every EventCard descendant already resolve the
