@@ -129,6 +129,13 @@ interface ChangeSummary {
   baseRevision: string;
   removeManual: boolean;
   /**
+   * Whether an id-less desired row may match an existing row by name. Persisted
+   * so the apply-time re-diff matches exactly as the preview did. A row written
+   * before this field existed has none — apply then derives it from the change's
+   * `kind`, which is a column and always right.
+   */
+  matchByName?: boolean;
+  /**
    * Which halves of the wedding the change is authoritative over — `"both"`
    * unless the organiser uploaded a single sheet. Read back at apply so the
    * re-diff manages exactly the halves the preview did; a legacy row written
@@ -284,12 +291,17 @@ export const createOrganiserChangeRoutes = (
                   decoded.desiredState.events,
                   decoded.desiredState.families as ParsedFamily[],
                   weddingId,
-                  { removeManual: decoded.removeManual, scope: decoded.scope },
+                  {
+                    removeManual: decoded.removeManual,
+                    scope: decoded.scope,
+                    matchByName: decoded.matchByName,
+                  },
                 );
 
                 const summary: ChangeSummary = {
                   baseRevision,
                   removeManual: decoded.removeManual,
+                  matchByName: decoded.matchByName,
                   scope: decoded.scope,
                   eventCreates: plan.eventCreates.length,
                   eventUpdates: plan.eventUpdates.length,
@@ -362,6 +374,27 @@ export const createOrganiserChangeRoutes = (
                   }),
                 ),
                 Effect.catchTags(catchParseErrors(set)),
+                Effect.catchTag("StaleDesiredState", (e) =>
+                  Effect.gen(function* () {
+                    // The draft named rows that no longer exist, so it was built
+                    // against state someone else has since changed. Same 409 the
+                    // baseRevision guard returns, for the same reason and with the
+                    // same remedy — reload and redo the edit — except this race
+                    // opened between LOAD and preview, which baseRevision (captured
+                    // at preview) cannot see. Refusing beats applying: with no name
+                    // fallback those rows reconcile as remove+create, dropping RSVPs
+                    // and re-minting a claim code the organiser never asked to touch.
+                    yield* Effect.logWarning("change refused: stale desired state", {
+                      changeKind: "editor",
+                      unresolved: e.unresolved,
+                    });
+                    set.status = 409;
+                    return {
+                      error: "State changed — reload the editor",
+                      reason: "stale_draft",
+                    };
+                  }),
+                ),
                 Effect.catchTag("R2Error", () =>
                   Effect.sync(() => {
                     set.status = 500;
@@ -444,7 +477,21 @@ export const createOrganiserChangeRoutes = (
                   desired.events,
                   desired.families as ParsedFamily[],
                   weddingId,
-                  { removeManual: stored.removeManual ?? false, scope },
+                  {
+                    removeManual: stored.removeManual ?? false,
+                    scope,
+                    // Decoded, not asserted — same rule as `scope` above, and it
+                    // matters more here: `??` only guards nullish, so a corrupt
+                    // falsy-but-present value (`0`, `""`) would sail through and
+                    // turn an IMPORT re-diff id-authoritative, making every id-less
+                    // sheet row a create and every existing row a removal. A row
+                    // written before this field existed falls back to the change's
+                    // `kind`: an editor save is id-authoritative, a sheet is not.
+                    matchByName: Option.getOrElse(
+                      Schema.decodeUnknownOption(Schema.Boolean)(stored.matchByName),
+                      () => row.kind !== "editor",
+                    ),
+                  },
                 );
 
                 // E3 checkpoint: snapshot the pre-change state at full fidelity
@@ -481,6 +528,27 @@ export const createOrganiserChangeRoutes = (
                   }),
                 ),
                 Effect.catchTags(catchParseErrors(set)),
+                Effect.catchTag("StaleDesiredState", (e) =>
+                  Effect.gen(function* () {
+                    // The draft named rows that no longer exist, so it was built
+                    // against state someone else has since changed. Same 409 the
+                    // baseRevision guard returns, for the same reason and with the
+                    // same remedy — reload and redo the edit — except this race
+                    // opened between LOAD and preview, which baseRevision (captured
+                    // at preview) cannot see. Refusing beats applying: with no name
+                    // fallback those rows reconcile as remove+create, dropping RSVPs
+                    // and re-minting a claim code the organiser never asked to touch.
+                    yield* Effect.logWarning("change refused: stale desired state", {
+                      changeKind: "editor",
+                      unresolved: e.unresolved,
+                    });
+                    set.status = 409;
+                    return {
+                      error: "State changed — reload the editor",
+                      reason: "stale_draft",
+                    };
+                  }),
+                ),
                 Effect.catchTag("R2Error", () =>
                   Effect.sync(() => {
                     set.status = 500;

@@ -379,6 +379,135 @@ describe("GET /api/organiser/weddings/:weddingId/guests", () => {
   });
 });
 
+/**
+ * The household-shaped read. It exists because `/guests` is guest-shaped: a
+ * household holding no guests produces no rows there, so it is invisible to
+ * anything that groups guests into households — including the guest editor's
+ * draft, whose absences are DELETIONS. Without this read the next editor save
+ * deleted such a household and its live claim code, silently.
+ */
+describe("GET /api/organiser/weddings/:weddingId/households", () => {
+  const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/households`;
+
+  /** A household with no guests at all — the row the guest read can't describe. */
+  function seedEmptyHousehold(db: Db) {
+    db.insert(families)
+      .values({
+        id: "fam_codeonly",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "CODEONLY-0001",
+        familyName: "Code Only",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+  }
+
+  it("returns 401 without a token", async () => {
+    const { app } = buildApp();
+    expect((await get(app, path)).status).toBe(401);
+  });
+
+  it("includes a household that holds no guests, with a zero count", async () => {
+    const { app, db } = buildApp();
+    seedEmptyHousehold(db);
+    const res = await get(app, path, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    const rows = (await res.json()) as { familyId: string; guestCount: number }[];
+    const empty = rows.find((r) => r.familyId === "fam_codeonly");
+    expect(empty).toBeDefined();
+    expect(empty!.guestCount).toBe(0);
+    // Populated households come back too, with their real headcount.
+    expect(rows.filter((r) => r.guestCount > 0).length).toBeGreaterThan(0);
+  });
+
+  it("excludes the host-preview family and the other wedding's households", async () => {
+    const { app, db } = buildApp();
+    db.insert(families)
+      .values({
+        id: "fam_host_preview",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "HOST-PREVIEW-1",
+        familyName: "Host preview",
+        kind: "host",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+    const rows = (await (await get(app, path, BOOTSTRAP_OWNER)).json()) as { familyId: string }[];
+    expect(rows.some((r) => r.familyId === "fam_host_preview")).toBe(false);
+    expect(rows.some((r) => r.familyId === "fam_other")).toBe(false);
+  });
+
+  it("returns 403 for a non-member and 404 for an unknown wedding", async () => {
+    const { app } = buildApp();
+    expect((await get(app, path, OTHER_OWNER)).status).toBe(403);
+    expect(
+      (await get(app, "/api/organiser/weddings/wed_nope/households", BOOTSTRAP_OWNER)).status,
+    ).toBe(404);
+  });
+
+  it("returns households oldest-first with epoch-ms timestamps", async () => {
+    const { app, db } = buildApp();
+    const shared = new Date("2026-07-01T10:00:00Z");
+    const cut = new Date("2026-07-02T11:30:00Z");
+    // Two guest-less households with distinct creation times, seeded newest
+    // first so a returned oldest-first order can't be an artefact of insert order.
+    db.insert(families)
+      .values({
+        id: "fam_newer",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "NEWER-0002",
+        familyName: "Newer",
+        createdAt: new Date("2026-07-10T00:00:00Z"),
+        updatedAt: new Date("2026-07-10T00:00:00Z"),
+      })
+      .run();
+    db.insert(families)
+      .values({
+        id: "fam_older",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "OLDER-0001",
+        familyName: "Older",
+        codeSharedAt: shared,
+        deactivatedAt: cut,
+        createdAt: new Date("2026-01-01T00:00:00Z"),
+        updatedAt: new Date("2026-01-01T00:00:00Z"),
+      })
+      .run();
+
+    const rows = (await (await get(app, path, BOOTSTRAP_OWNER)).json()) as {
+      familyId: string;
+      codeSharedAt: number | null;
+      deactivatedAt: number | null;
+    }[];
+
+    const older = rows.findIndex((r) => r.familyId === "fam_older");
+    const newer = rows.findIndex((r) => r.familyId === "fam_newer");
+    expect(older).toBeLessThan(newer);
+
+    // Drizzle decodes these `timestamp`-mode columns to `Date`; the wire shape is
+    // a number, and the editor's household cards are keyed off it.
+    const row = rows[older]!;
+    expect(row.codeSharedAt).toBe(shared.getTime());
+    expect(row.deactivatedAt).toBe(cut.getTime());
+  });
+
+  it("is marked uncacheable — the payload carries claim codes", async () => {
+    const { app } = buildApp();
+    // `families.public_id` is classified a CREDENTIAL in the compliance data map,
+    // and a response with no freshness directive is heuristically cacheable.
+    const res = await get(app, path, BOOTSTRAP_OWNER);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    const guestsRes = await get(
+      app,
+      `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests`,
+      BOOTSTRAP_OWNER,
+    );
+    expect(guestsRes.headers.get("cache-control")).toBe("no-store");
+  });
+});
+
 describe("GET /api/organiser/weddings/:weddingId/events", () => {
   it("returns 401 without a token", async () => {
     const { app } = buildApp();

@@ -57,6 +57,28 @@ const exportDefect = (set: { status?: number | string }, exportName: string, wed
   });
 
 /**
+ * The same treatment for the JSON roster reads (`/guests`, `/households`), which
+ * carry the identical payload class — household claim codes and guest names — in
+ * a different envelope. Two consequences follow from that, and both were missing
+ * until the guest editor started depending on these reads for delete-correctness:
+ * a failure has to leave an incident signal (weddingId only, never row data), and
+ * the response has to be marked uncacheable. `families.public_id` is classified a
+ * CREDENTIAL in the compliance data map, and a response with no freshness
+ * directive is heuristically cacheable by anything on the path.
+ */
+const rosterDefect = (set: { status?: number | string }, read: string, weddingId: string) =>
+  Effect.gen(function* () {
+    yield* Effect.logError("organiser roster read failed", { read, weddingId });
+    set.status = 500;
+    return { error: "Internal error" };
+  });
+
+/** Mark a claim-code-bearing JSON response uncacheable (see {@link rosterDefect}). */
+const noStore = (set: { headers: Record<string, string> }) => {
+  set.headers["cache-control"] = "no-store";
+};
+
+/**
  * Wedding-scoped organiser routes, mounted under /api/organiser. osnAuth()
  * gates every route in this instance (osnProfileId derived on every request).
  *
@@ -114,15 +136,28 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
             set.status = 500;
             return { error: "Internal error" };
           }
+          noStore(set);
           return runCire(
             claimService.getAllGuests(weddingId).pipe(
               Effect.provideService(DbService, db),
-              Effect.catchAllDefect(() =>
-                Effect.sync(() => {
-                  set.status = 500;
-                  return { error: "Internal error" };
-                }),
-              ),
+              Effect.catchAllDefect(() => rosterDefect(set, "guests", weddingId)),
+            ),
+          );
+        })
+        // Household-shaped companion to `/guests`: one row per family, INCLUDING
+        // families that currently hold no guests (which the guest-shaped read
+        // cannot represent). The guest editor loads it so a code-only household
+        // survives a draft save instead of reading as a deletion.
+        .get("/households", ({ weddingId, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          noStore(set);
+          return runCire(
+            claimService.getAllHouseholds(weddingId).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchAllDefect(() => rosterDefect(set, "households", weddingId)),
             ),
           );
         })

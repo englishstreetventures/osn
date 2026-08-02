@@ -86,6 +86,15 @@ export interface DecodedChange {
    */
   readonly removeManual: boolean;
   /**
+   * Whether an id-less desired row may match an existing row by NAME. `true` for
+   * a spreadsheet upload (a sheet without the fidelity columns has no ids at
+   * all); `false` for the editor front door, whose draft carries an id for every
+   * row that exists — so an id-less row there means "newly added", and adopting
+   * a same-named existing row would silently undo the organiser's deletion of
+   * it. See {@link import.DiffOptions.matchByName}.
+   */
+  readonly matchByName: boolean;
+  /**
    * The CSV texts to persist when the change came in as a spreadsheet upload,
    * so the change row keeps the uploaded sheets (legacy revert + apply re-diff).
    * A sheet the organiser did not upload is `null` — the row stores `""` in that
@@ -201,6 +210,9 @@ export function decodeChangeBody(
       return {
         desiredState: body.desiredState,
         removeManual: true,
+        // The draft is id-authoritative: every existing row carries its id, so an
+        // id-less row is a genuinely new one, never a same-named existing row.
+        matchByName: false,
         uploadedCsv: null,
         kind: "editor",
         scope: "both",
@@ -232,6 +244,8 @@ export function decodeChangeBody(
       },
       // Provenance default unless the organiser flipped the toggle.
       removeManual: body.removeManual ?? false,
+      // A sheet's rows are matched by name unless they carry the fidelity ids.
+      matchByName: true,
       uploadedCsv: { eventsCsv: body.eventsCsv ?? null, guestsCsv: body.guestsCsv ?? null },
       kind: "import",
       scope,

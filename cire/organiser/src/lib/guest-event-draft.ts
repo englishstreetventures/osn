@@ -34,6 +34,7 @@ import {
   normaliseName,
 } from "./guest-validation";
 import type { OrganiserGuestRow } from "./guests-store";
+import type { OrganiserHouseholdRow } from "./households-store";
 
 // ── Draft row shapes ─────────────────────────────────────────────────────────
 //
@@ -151,13 +152,26 @@ export interface DesiredStateWire {
 // ── Load: server rows → draft ─────────────────────────────────────────────────
 
 /**
- * Build a draft from the two cached server reads. Events come from the shared
- * events cache (the schedule the guests are invited to); guests come from the
- * flat organiser guest rows (one row per guest, grouped here into households by
+ * Build a draft from the cached server reads. Events come from the shared events
+ * cache (the schedule the guests are invited to); guests come from the flat
+ * organiser guest rows (one row per guest, grouped here into households by
  * `familyId`). Attendance is resolved event-id → event key so the matrix is
  * keyed the same way the draft references events.
+ *
+ * `households` is the household-shaped read, and it is load-bearing rather than
+ * decorative: the guest rows can only describe households that HOLD a guest, so
+ * a code-only household (added and not yet filled, or emptied by an earlier
+ * save) would be missing from the draft — and since the draft is the whole truth
+ * for a save, missing reads as DELETED. The pass below appends any household the
+ * guest rows didn't cover, so it shows up as an empty card the organiser can
+ * fill in or delete on purpose. Appended (not merged in place) so the existing
+ * first-seen-guest ordering of populated households is unchanged.
  */
-function buildDraft(events: EventRow[], guests: OrganiserGuestRow[]): DraftState {
+function buildDraft(
+  events: EventRow[],
+  guests: OrganiserGuestRow[],
+  households: OrganiserHouseholdRow[] = [],
+): DraftState {
   const draftEvents: DraftEvent[] = events
     .toSorted((a, b) => a.sortOrder - b.sortOrder)
     .map((e) => ({
@@ -200,6 +214,17 @@ function buildDraft(events: EventRow[], guests: OrganiserGuestRow[]): DraftState
       // Resolve invited event ids → the draft's event keys; drop any dangling id
       // (an event removed out from under us) defensively.
       eventKeys: g.events.map((id) => eventKeyById.get(id)).filter((k): k is string => Boolean(k)),
+    });
+  }
+
+  for (const h of households) {
+    if (byFamily.has(h.familyId)) continue;
+    byFamily.set(h.familyId, {
+      key: nextKey(),
+      id: h.familyId,
+      publicId: h.publicId,
+      familyName: h.familyName,
+      guests: [],
     });
   }
 
@@ -411,8 +436,13 @@ export interface GuestEventDraft {
   /** True when at least one undo step is available. */
   readonly canUndo: () => boolean;
 
-  /** Replace the draft + baseline from freshly-loaded server rows. */
-  load: (events: EventRow[], guests: OrganiserGuestRow[]) => void;
+  /** Replace the draft + baseline from freshly-loaded server rows. `households`
+   *  carries the guest-less households the guest rows can't describe. */
+  load: (
+    events: EventRow[],
+    guests: OrganiserGuestRow[],
+    households?: OrganiserHouseholdRow[],
+  ) => void;
 
   // Events-tab mutations (each records an undo checkpoint first). A new event's
   // `sortOrder` lands at the end; reorder rewrites every event's `sortOrder` to
@@ -461,6 +491,11 @@ export function createGuestEventDraft(): GuestEventDraft {
   const [draft, setDraft] = createStore<DraftState>({ events: [], families: [] });
   const [loaded, setLoaded] = createSignal(false);
   const [baseline, setBaseline] = createSignal<string>("");
+  // The loaded state itself, kept alongside its fingerprint so "discard" can
+  // restore it directly. The undo stack can NOT stand in for it: it is bounded,
+  // so a long editing session (every keystroke is a checkpoint) evicts the
+  // oldest snapshots and its first entry stops being the baseline.
+  const [baselineDraft, setBaselineDraft] = createSignal<DraftState>({ events: [], families: [] });
   // Undo stack of pre-mutation snapshots (bounded — deep editing sessions don't
   // need unbounded history, and the whole draft is small).
   const [undoStack, setUndoStack] = createSignal<DraftState[]>([]);
@@ -482,10 +517,15 @@ export function createGuestEventDraft(): GuestEventDraft {
     });
   }
 
-  function load(events: EventRow[], guests: OrganiserGuestRow[]) {
-    const built = buildDraft(events, guests);
+  function load(
+    events: EventRow[],
+    guests: OrganiserGuestRow[],
+    households: OrganiserHouseholdRow[] = [],
+  ) {
+    const built = buildDraft(events, guests, households);
     setDraft(reconcile(built, { key: "key" }));
     setBaseline(fingerprint(built));
+    setBaselineDraft(structuredClone(built));
     setUndoStack([]);
     setLoaded(true);
   }
@@ -667,18 +707,17 @@ export function createGuestEventDraft(): GuestEventDraft {
 
   function discard() {
     if (undoStack().length === 0 && !dirty()) return;
-    // Rewind to the FIRST snapshot if any, else the current draft is already the
-    // baseline. Simpler + robust: rebuild from the baseline fingerprint is not
-    // possible (it's a wire shape), so replay to the earliest undo snapshot.
-    const stack = undoStack();
-    if (stack.length > 0) {
-      setDraft(reconcile(stack[0]!, { key: "key" }));
-    }
+    // Restore the LOADED state, not the oldest undo snapshot: the undo stack is
+    // capped at UNDO_LIMIT, and every keystroke checkpoints, so in any session
+    // long enough to overflow it `stack[0]` is a mid-edit state — discarding to
+    // it left edits behind and still reported the draft clean.
+    setDraft(reconcile(structuredClone(baselineDraft()), { key: "key" }));
     setUndoStack([]);
   }
 
   function commit() {
     setBaseline(fingerprint(draft));
+    setBaselineDraft(snapshot(draft));
     setUndoStack([]);
   }
 

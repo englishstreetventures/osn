@@ -1,5 +1,5 @@
 import { useAuth } from "@shared/rp-auth/solid";
-import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { toast } from "solid-toast";
 
@@ -17,6 +17,13 @@ import {
   invalidateGuests,
   type OrganiserGuestRow,
 } from "../lib/guests-store";
+import {
+  ensureHouseholdsLoaded,
+  householdsAccessor,
+  invalidateHouseholds,
+  type OrganiserHouseholdRow,
+} from "../lib/households-store";
+import { registerUnsavedGuard } from "../lib/unsaved-guard";
 import ChangePreview, { type ChangePlan } from "./ChangePreview";
 import SectionIntro from "./SectionIntro";
 
@@ -52,9 +59,11 @@ export default function GuestsEditor(props: { weddingId: string }) {
   const changesUrl = (op: string) =>
     apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/${op}`);
 
-  /** Load events + guests through the shared caches, then seed the draft. */
+  /** Load events + guests + households through the shared caches, then seed the
+   *  draft. Households are read separately because the guest rows only describe
+   *  households that HOLD a guest — see `buildDraft`. */
   async function loadInto() {
-    const [events, guests] = await Promise.all([
+    const [events, guests, households] = await Promise.all([
       ensureEventsLoaded(props.weddingId, async () => {
         const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
         if (res.status === 401) {
@@ -73,17 +82,44 @@ export default function GuestsEditor(props: { weddingId: string }) {
         if (!res.ok) throw new Error("Failed to load guests");
         return (await res.json()) as OrganiserGuestRow[];
       }).then(() => guestsAccessor(props.weddingId)() ?? []),
+      ensureHouseholdsLoaded(props.weddingId, async () => {
+        const res = await authFetch(
+          apiUrl(`/api/organiser/weddings/${props.weddingId}/households`),
+        );
+        if (res.status === 401) {
+          redirectToLogin();
+          throw new Error("unauthenticated");
+        }
+        if (!res.ok) throw new Error("Failed to load households");
+        return (await res.json()) as OrganiserHouseholdRow[];
+      }).then(() => householdsAccessor(props.weddingId)() ?? []),
     ]);
-    store.load(events, guests);
+    store.load(events, guests, households);
   }
 
   onMount(async () => {
+    // A dirty draft is guarded twice: the dashboard's SPA navigation asks before
+    // switching module/tab (unsaved-guard), and the browser asks on tab close /
+    // reload. Without this, every unsaved edit — including a deletion — was
+    // dropped silently by a stray sidebar click, which reads exactly like "the
+    // guest I deleted came back".
+    onCleanup(registerUnsavedGuard(() => store.dirty()));
     try {
       await loadInto();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setLoadError("Could not load the guest list. Is the API running?");
     }
+  });
+
+  // The beforeunload listener exists ONLY while dirty — a persistently
+  // registered one makes the page ineligible for the back/forward cache in
+  // Firefox/Safari even with a clean draft (same rule as the invite builder).
+  createEffect(() => {
+    if (!store.dirty()) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", onBeforeUnload);
+    onCleanup(() => window.removeEventListener("beforeunload", onBeforeUnload));
   });
 
   // The draft's event list drives the attendance-matrix columns.
@@ -140,8 +176,11 @@ export default function GuestsEditor(props: { weddingId: string }) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        // 409 = a co-host applied in between; the previewed diff is stale.
+        // 409 = a co-host applied in between; the previewed diff is stale, so
+        // the modal is dismissed — re-confirming it could only 409 again, and
+        // the error itself renders in the sticky bar the modal was covering.
         if (res.status === 409) {
+          setPreview(null);
           throw new Error("The guest list changed elsewhere. Re-open Save to preview afresh.");
         }
         throw new Error(body.error ?? `Apply failed (${res.status})`);
@@ -151,6 +190,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
       // baseline resets (dirty ⇒ false).
       invalidateGuests(props.weddingId);
       invalidateEvents(props.weddingId);
+      invalidateHouseholds(props.weddingId);
       setPreview(null);
       await loadInto();
       store.commit();
@@ -246,6 +286,14 @@ export default function GuestsEditor(props: { weddingId: string }) {
                   onConfirm={() => void handleApply()}
                   onCancel={() => setPreview(null)}
                 />
+                {/* An apply error has to render HERE as well as in the sticky
+                    bar: the bar sits behind this modal's overlay, so a failed
+                    apply otherwise looked like nothing happened at all. */}
+                <Show when={saveError()}>
+                  <p class="border-error/20 bg-error/5 text-error mt-4 rounded-sm border p-3 text-[0.82rem]">
+                    {saveError()}
+                  </p>
+                </Show>
               </div>
             </div>
           </Portal>
@@ -400,6 +448,16 @@ function FamilyCard(props: {
           </tbody>
         </table>
       </div>
+
+      {/* A household CAN legitimately hold no guests — one added but not yet
+          filled in, or emptied by an earlier save. It stays in the list (and
+          keeps its claim code) until it is deleted on purpose, so say so rather
+          than rendering a bare header row. */}
+      <Show when={props.family.guests.length === 0}>
+        <p class="font-body text-text-muted text-[0.8rem]">
+          No guests in this household yet — its invite code won’t show anyone.
+        </p>
+      </Show>
 
       <button
         type="button"

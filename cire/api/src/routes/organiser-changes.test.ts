@@ -573,6 +573,301 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
     const remaining = db.select().from(families).all();
     expect(remaining.map((f) => f.familyName)).toEqual(["Editorhousehold"]);
   });
+
+  /**
+   * The editor expresses a deletion by ABSENCE — it posts the whole draft and
+   * the dropped row simply isn't in it. These walk the two shapes that used to
+   * swallow that: a guest whose first name collides with a sibling's (invisible
+   * to the removal scan) and a replacement guest reusing a deleted guest's name
+   * (which adopted the deleted row instead of replacing it). Both ended the same
+   * way for the organiser: apply succeeds, and the guest is back on reload.
+   */
+  describe("deleting a guest", () => {
+    /** Seed a household straight through the editor front door, then read back
+     *  the ids a real draft would have loaded. */
+    async function seedHousehold(
+      app: ReturnType<typeof buildApp>["app"],
+      db: ReturnType<typeof buildApp>["db"],
+      members: { firstName: string; lastName: string }[],
+    ) {
+      const seedState = {
+        ...desiredState,
+        families: [
+          {
+            publicId: "EDIT-FAM-0001",
+            familyName: "Editorhousehold",
+            guests: members.map((m) => ({
+              firstName: m.firstName,
+              lastName: m.lastName,
+              nickname: null,
+              eventNames: ["Mehndi"],
+            })),
+          },
+        ],
+      };
+      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, { desiredState: seedState });
+      const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, {
+        importId: ((await preview.json()) as { changeId: string }).changeId,
+      });
+      expect(applyRes.status).toBe(200);
+      return {
+        family: db.select().from(families).all()[0]!,
+        guestRows: db.select().from(guests).all(),
+        event: db.select().from(events).all()[0]!,
+      };
+    }
+
+    /** The draft the editor would post back: the loaded rows, minus `drop`. */
+    function draftWithout(
+      family: { id: string; publicId: string; familyName: string },
+      guestRows: { id: string; firstName: string; lastName: string }[],
+      drop: (g: { id: string }) => boolean,
+      add: { firstName: string; lastName: string }[] = [],
+    ) {
+      return {
+        ...desiredState,
+        families: [
+          {
+            id: family.id,
+            publicId: family.publicId,
+            familyName: family.familyName,
+            guests: [
+              ...guestRows
+                .filter((g) => !drop(g))
+                .map((g) => ({
+                  id: g.id,
+                  firstName: g.firstName,
+                  lastName: g.lastName,
+                  nickname: null,
+                  eventNames: ["Mehndi"],
+                })),
+              ...add.map((a) => ({ ...a, nickname: null, eventNames: ["Mehndi"] })),
+            ],
+          },
+        ],
+      };
+    }
+
+    it("removes a guest whose first name collides with a sibling's", async () => {
+      const { app, db } = buildApp();
+      const { family, guestRows } = await seedHousehold(app, db, [
+        { firstName: "Sam", lastName: "Editorhousehold" },
+        { firstName: "sam ", lastName: "Lee" },
+      ]);
+      expect(guestRows).toHaveLength(2);
+      const doomed = guestRows.find((g) => g.lastName === "Editorhousehold")!;
+
+      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        desiredState: draftWithout(family, guestRows, (g) => g.id === doomed.id),
+      });
+      const { changeId, plan } = (await preview.json()) as {
+        changeId: string;
+        plan: { guestRemoves: { id: string }[] };
+      };
+      expect(plan.guestRemoves.map((g) => g.id)).toEqual([doomed.id]);
+
+      const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { importId: changeId });
+      expect(applyRes.status).toBe(200);
+      expect(
+        db
+          .select()
+          .from(guests)
+          .all()
+          .map((g) => g.lastName),
+      ).toEqual(["Lee"]);
+    });
+
+    it("removes a guest even when a new guest reuses their first name", async () => {
+      const { app, db } = buildApp();
+      const { family, guestRows } = await seedHousehold(app, db, [
+        { firstName: "Nia", lastName: "Editorhousehold" },
+        { firstName: "Bo", lastName: "Editorhousehold" },
+      ]);
+      const doomed = guestRows.find((g) => g.firstName === "Bo")!;
+
+      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        desiredState: draftWithout(family, guestRows, (g) => g.id === doomed.id, [
+          { firstName: "Bo", lastName: "Newcomer" },
+        ]),
+      });
+      const { changeId, plan } = (await preview.json()) as {
+        changeId: string;
+        plan: { guestRemoves: { id: string }[]; guestCreates: unknown[] };
+      };
+      expect(plan.guestRemoves.map((g) => g.id)).toEqual([doomed.id]);
+      expect(plan.guestCreates).toHaveLength(1);
+
+      const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { importId: changeId });
+      expect(applyRes.status).toBe(200);
+      const after = db.select().from(guests).all();
+      // The old "Bo" is gone — the new one is a different row entirely.
+      expect(after.some((g) => g.id === doomed.id)).toBe(false);
+      expect(after.map((g) => g.lastName).toSorted()).toEqual(["Editorhousehold", "Newcomer"]);
+    });
+
+    it("keeps the deletion when apply re-diffs from the stored draft", async () => {
+      const { app, db } = buildApp();
+      const { family, guestRows } = await seedHousehold(app, db, [
+        { firstName: "Nia", lastName: "Editorhousehold" },
+        { firstName: "Bo", lastName: "Editorhousehold" },
+      ]);
+      const doomed = guestRows.find((g) => g.firstName === "Bo")!;
+
+      // Apply re-derives the desired state from R2 and re-diffs against live
+      // state, so the id-authoritative matching has to survive that round trip
+      // (it is read back off the change row, not re-decided from the request).
+      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        desiredState: draftWithout(family, guestRows, (g) => g.id === doomed.id, [
+          { firstName: "Bo", lastName: "Newcomer" },
+        ]),
+      });
+      const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, {
+        importId: ((await preview.json()) as { changeId: string }).changeId,
+      });
+      expect(applyRes.status).toBe(200);
+      expect(
+        db
+          .select()
+          .from(guests)
+          .all()
+          .some((g) => g.id === doomed.id),
+      ).toBe(false);
+    });
+
+    /**
+     * Apply re-reads `matchByName` off the persisted summary. A change previewed
+     * BEFORE this branch ships and applied after has no such field, so the
+     * fallback (`row.kind !== "editor"`) is the only thing deciding it — and it
+     * decides in both directions. Backwards, a pending editor change applies with
+     * name matching ON and swallows exactly the deletions this branch fixes; a
+     * pending import applies id-authoritatively and turns a routine re-upload into
+     * a mass remove+create of the whole roster.
+     */
+    it("derives matchByName from `kind` when the summary predates the field", async () => {
+      const { app, db } = buildApp();
+      const { family, guestRows } = await seedHousehold(app, db, [
+        { firstName: "Nia", lastName: "Editorhousehold" },
+        { firstName: "Bo", lastName: "Editorhousehold" },
+      ]);
+      const doomed = guestRows.find((g) => g.firstName === "Bo")!;
+
+      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        desiredState: draftWithout(family, guestRows, (g) => g.id === doomed.id, [
+          { firstName: "Bo", lastName: "Newcomer" },
+        ]),
+      });
+      const { changeId } = (await preview.json()) as { changeId: string };
+
+      // Rewrite the stored summary into its pre-branch shape.
+      const row = db.select().from(imports).where(eq(imports.id, changeId)).all()[0]!;
+      const legacy = JSON.parse(row.summary) as Record<string, unknown>;
+      delete legacy.matchByName;
+      db.update(imports)
+        .set({ summary: JSON.stringify(legacy) })
+        .where(eq(imports.id, changeId))
+        .run();
+
+      const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { importId: changeId });
+      expect(applyRes.status).toBe(200);
+      // kind = 'editor' ⇒ id-authoritative ⇒ the deletion still lands.
+      expect(
+        db
+          .select()
+          .from(guests)
+          .all()
+          .some((g) => g.id === doomed.id),
+      ).toBe(false);
+    });
+
+    it("a legacy summary on an IMPORT change still matches by name", async () => {
+      const { app, db } = buildApp();
+      await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        eventsCsv: EVENTS_CSV,
+        guestsCsv: GUESTS_CSV,
+      }).then(async (r) =>
+        ownerPost(app, `${CHANGES_BASE}/apply`, {
+          importId: ((await r.json()) as { changeId: string }).changeId,
+        }),
+      );
+      const before = db.select().from(guests).all();
+
+      // The same sheet again — a re-upload, which must be a fixpoint.
+      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        eventsCsv: EVENTS_CSV,
+        guestsCsv: GUESTS_CSV,
+      });
+      const { changeId } = (await preview.json()) as { changeId: string };
+      const row = db.select().from(imports).where(eq(imports.id, changeId)).all()[0]!;
+      const legacy = JSON.parse(row.summary) as Record<string, unknown>;
+      delete legacy.matchByName;
+      db.update(imports)
+        .set({ summary: JSON.stringify(legacy) })
+        .where(eq(imports.id, changeId))
+        .run();
+
+      const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { importId: changeId });
+      expect(applyRes.status).toBe(200);
+      // Same rows, same ids — not a remove+create of the whole roster.
+      expect(
+        db
+          .select()
+          .from(guests)
+          .all()
+          .map((g) => g.id)
+          .toSorted(),
+      ).toEqual(before.map((g) => g.id).toSorted());
+    });
+
+    /**
+     * `baseRevision` guards preview→apply; nothing guarded LOAD→preview. With no
+     * name fallback, a draft row whose id has since been deleted would reconcile
+     * as remove+create — dropping RSVPs and re-minting a claim code — so the diff
+     * refuses it outright.
+     */
+    it("409s a draft naming a guest that no longer exists", async () => {
+      const { app, db } = buildApp();
+      const { family, guestRows } = await seedHousehold(app, db, [
+        { firstName: "Nia", lastName: "Editorhousehold" },
+        { firstName: "Bo", lastName: "Editorhousehold" },
+      ]);
+
+      // A co-host deletes Bo out from under the open editor.
+      const gone = guestRows.find((g) => g.firstName === "Bo")!;
+      db.delete(guests).where(eq(guests.id, gone.id)).run();
+
+      // The draft still lists Bo, with its id — the shape a stale editor posts.
+      const res = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        desiredState: draftWithout(family, guestRows, () => false),
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as { error: string; reason: string };
+      expect(body.reason).toBe("stale_draft");
+      // Nothing was written, and the surviving guest is untouched.
+      expect(db.select().from(guests).all()).toHaveLength(1);
+    });
+
+    it("leaves a guest-less household alone — the editor carries it in the draft", async () => {
+      const { app, db } = buildApp();
+      const { family, guestRows } = await seedHousehold(app, db, [
+        { firstName: "Nia", lastName: "Editorhousehold" },
+      ]);
+
+      // Empty the household but keep it in the draft (what the editor now posts
+      // once households load separately from guests).
+      const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+        desiredState: draftWithout(family, guestRows, () => true),
+      });
+      const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, {
+        importId: ((await preview.json()) as { changeId: string }).changeId,
+      });
+      expect(applyRes.status).toBe(200);
+      expect(db.select().from(guests).all()).toHaveLength(0);
+      // The household — and its claim code — survive.
+      const remaining = db.select().from(families).all();
+      expect(remaining.map((f) => f.id)).toEqual([family.id]);
+      expect(remaining[0]!.publicId).toBe(family.publicId);
+    });
+  });
 });
 
 // ── Optimistic concurrency: 409 on stale baseRevision ───────────────────────

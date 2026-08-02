@@ -4,6 +4,7 @@ import { createSignal, For, Show } from "solid-js";
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
+import { invalidateHouseholds } from "../lib/households-store";
 
 /**
  * One row of the change list as returned by
@@ -174,6 +175,10 @@ export default function ChangeHistory(props: { weddingId: string }) {
       // the list first so the row flips to "Reverted" even if the reload no-ops.
       invalidateEvents(props.weddingId);
       invalidateGuests(props.weddingId);
+      // Same three-cache consistency unit as the import apply — a revert can
+      // resurrect or remove households, so the household cache is as stale as
+      // the other two.
+      invalidateHouseholds(props.weddingId);
       await loadList();
       window.location.reload();
     } catch (err) {

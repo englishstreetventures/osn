@@ -32,6 +32,7 @@ vi.mock("../lib/api", () => ({
 
 import { __resetEventsCache } from "../lib/events-store";
 import { __resetGuestsCache } from "../lib/guests-store";
+import { __resetHouseholdsCache } from "../lib/households-store";
 import EventsEditor from "./EventsEditor";
 
 function json(body: unknown) {
@@ -127,6 +128,7 @@ beforeEach(() => {
   authFetchMock.mockImplementation((url: string) => {
     if (String(url).endsWith("/events")) return Promise.resolve(json(EVENTS));
     if (String(url).endsWith("/guests")) return Promise.resolve(json([]));
+    if (String(url).endsWith("/households")) return Promise.resolve(json([]));
     return Promise.resolve(json({}));
   });
 });
@@ -136,6 +138,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   authFetchMock.mockReset();
   __resetGuestsCache();
+  __resetHouseholdsCache();
   __resetEventsCache();
 });
 

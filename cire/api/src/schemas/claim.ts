@@ -149,3 +149,30 @@ export const OrganiserGuestRow = Schema.Struct({
   deactivatedAt: Schema.NullOr(Schema.Number),
 });
 export type OrganiserGuestRow = Schema.Schema.Type<typeof OrganiserGuestRow>;
+
+/**
+ * One HOUSEHOLD as the organiser reads it — the family row itself, independent
+ * of whether it currently has any guests.
+ *
+ * {@link OrganiserGuestRow} is guest-shaped (one row per guest), so a household
+ * with no guests produces no rows at all and is invisible to every consumer that
+ * groups guests into households. That is a hole in the guest EDITOR specifically:
+ * its draft is the whole truth for a save, so a household it never saw reads as
+ * "deleted" and the next save removes it — silently destroying a live claim code.
+ * The editor loads this alongside the guest rows and carries the guest-less
+ * households through, so they can be filled in or deliberately deleted.
+ *
+ * Host-preview families (`kind = 'host'`) are excluded, exactly as they are from
+ * the guest read.
+ */
+export const OrganiserHouseholdRow = Schema.Struct({
+  familyId: Schema.String,
+  publicId: Schema.String,
+  familyName: Schema.String,
+  /** How many guests the household currently holds (0 for a code-only one). */
+  guestCount: Schema.Number,
+  codeSharedAt: Schema.NullOr(Schema.Number),
+  firstOpenedAt: Schema.NullOr(Schema.Number),
+  deactivatedAt: Schema.NullOr(Schema.Number),
+});
+export type OrganiserHouseholdRow = Schema.Schema.Type<typeof OrganiserHouseholdRow>;

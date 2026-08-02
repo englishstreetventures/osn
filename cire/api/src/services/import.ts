@@ -42,6 +42,25 @@ export class ImportError extends Data.TaggedError("ImportError")<{
   readonly cause?: unknown;
 }> {}
 
+/**
+ * An id-authoritative desired state (the editor front door — see
+ * {@link DiffOptions.matchByName}) named a row that no longer exists.
+ *
+ * Only the editor can raise this, and when it does the draft is provably stale:
+ * it carries ids it can only have got from a load, so an id that resolves to
+ * nothing means someone else deleted that row since. Refusing is the whole point
+ * — with name fallback off, a dangling row is not "unmatched", it is a REMOVE
+ * plus a CREATE: the RSVPs attached to it are deleted, and a household comes back
+ * with a fresh row carrying the claim code the draft still remembers, resurrecting
+ * an invite a co-host may have deliberately revoked. `baseRevision` catches the
+ * same race between preview and apply; this catches it between load and preview,
+ * which nothing else does.
+ */
+export class StaleDesiredState extends Data.TaggedError("StaleDesiredState")<{
+  /** How many desired rows named a row that is gone (never the ids themselves). */
+  readonly unresolved: number;
+}> {}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function normaliseName(s: string): string {
@@ -146,6 +165,22 @@ export interface DiffOptions {
    * does not do is touch a household or a guest row.
    */
   readonly scope?: ChangeScope;
+  /**
+   * Whether an id-less desired row may match an existing row BY NAME.
+   *
+   * `true` (default — a CSV upload): a sheet without the fidelity id columns has
+   * no other way to say "this is the same household/guest", so name matching is
+   * the whole matching story. Unchanged from the historical import.
+   *
+   * `false` (the editor's DesiredState front door): the draft is built from
+   * server rows, so it carries an id for EVERY row that exists and omits it only
+   * for a row the organiser just added. Honouring that literally is what makes a
+   * deletion stick: with name matching on, deleting "Sam" and adding a different
+   * "Sam" in one save resolved the new row to the deleted row — no `guestRemove`
+   * was emitted, the old row (and its RSVPs) survived under the new name, and
+   * the organiser saw the guest they deleted come back on reload.
+   */
+  readonly matchByName?: boolean;
 }
 
 export function diffAgainstDb(
@@ -153,13 +188,24 @@ export function diffAgainstDb(
   parsedFamilies: readonly ParsedFamily[],
   weddingId: string,
   options: DiffOptions = {},
-): Effect.Effect<ImportPlan, never, DbService> {
+): Effect.Effect<ImportPlan, StaleDesiredState, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
     // Default: manage only import-created rows (leave hand-added rows intact).
     const removeManual = options.removeManual ?? false;
     // Default: both halves authoritative (the two-sheet import / editor save).
     const scope = options.scope ?? "both";
+    // Default: an id-less row may still match by name (the CSV import's only
+    // matching rule). The editor front door turns this off — see DiffOptions.
+    const matchByName = options.matchByName ?? true;
+    /**
+     * Desired rows that named an id resolving to nothing. Only meaningful on the
+     * id-authoritative path: a CSV's dangling id is expected (it falls through to
+     * name matching by design), but the editor's is proof the draft is stale, and
+     * with no name fallback the row would reconcile as a destructive remove+create
+     * rather than an update. Counted here, refused below — see {@link StaleDesiredState}.
+     */
+    let unresolvedIds = 0;
     const manageEvents = scope !== "guests";
     const manageGuests = scope !== "events";
 
@@ -210,10 +256,14 @@ export function diffAgainstDb(
     if (manageEvents) {
       for (const parsed of parsedEvents) {
         const norm = normaliseName(parsed.name);
-        // Prefer id match (rename-safe); fall back to name; else create.
-        const existing =
-          (parsed.id !== undefined ? existingEventById.get(parsed.id) : undefined) ??
-          existingEventByNorm.get(norm);
+        // Prefer id match (rename-safe); fall back to name; else create. An
+        // existing row is claimed at most once — two desired events resolving to
+        // the same row would emit two updates for it and, worse, leave the second
+        // one's identity unrepresented.
+        const byId = parsed.id !== undefined ? existingEventById.get(parsed.id) : undefined;
+        if (parsed.id !== undefined && !byId) unresolvedIds += 1;
+        const candidate = byId ?? (matchByName ? existingEventByNorm.get(norm) : undefined);
+        const existing = candidate && !matchedEventIds.has(candidate.id) ? candidate : undefined;
         if (existing) {
           eventUpdates.push({ id: existing.id, event: parsed });
           eventIdByNorm.set(norm, existing.id);
@@ -286,9 +336,13 @@ export function diffAgainstDb(
 
     desiredFamilies.forEach((parsed, i) => {
       const norm = normaliseName(parsed.familyName);
-      const existing =
-        (parsed.id !== undefined ? existingFamilyById.get(parsed.id) : undefined) ??
-        existingFamilyByNorm.get(norm);
+      // Same claim-once rule as events: without it, two desired households that
+      // resolve to ONE existing row both reconcile against that row's guest list
+      // in turn, and the second pass removes every guest the first pass matched.
+      const byId = parsed.id !== undefined ? existingFamilyById.get(parsed.id) : undefined;
+      if (parsed.id !== undefined && !byId) unresolvedIds += 1;
+      const candidate = byId ?? (matchByName ? existingFamilyByNorm.get(norm) : undefined);
+      const existing = candidate && !matchedFamilyIds.has(candidate.id) ? candidate : undefined;
       if (existing) {
         familyIdByParsedIndex[i] = existing.id;
         matchedFamilyIds.add(existing.id);
@@ -334,17 +388,24 @@ export function diffAgainstDb(
         )
       : [];
 
-    /** Per-family map: normFirstName → existing guest row. */
-    const guestsByFamily = new Map<string, Map<string, (typeof existingGuests)[number]>>();
+    type ExistingGuest = (typeof existingGuests)[number];
+    /**
+     * Per-family LIST of existing guests, in DB order.
+     *
+     * Deliberately a list and not a `normFirstName → guest` map: two guests in
+     * one household can share a normalised first name (a sheet with "Sam" and
+     * "sam ", a household of two Guests). A map collapses them, and the removal
+     * scan below reads this collection — so a shadowed guest was invisible to
+     * the scan and could NEVER be deleted: the editor dropped the row, the diff
+     * emitted no `guestRemove`, and the guest reappeared on the next load.
+     */
+    const guestsByFamily = new Map<string, ExistingGuest[]>();
     /** Global id → existing guest row, for `Guest ID`-keyed matching. */
     const existingGuestById = new Map(existingGuests.map((g) => [g.id, g]));
     for (const g of existingGuests) {
-      let m = guestsByFamily.get(g.familyId);
-      if (!m) {
-        m = new Map();
-        guestsByFamily.set(g.familyId, m);
-      }
-      m.set(normaliseName(g.firstName), g);
+      const list = guestsByFamily.get(g.familyId);
+      if (list) list.push(g);
+      else guestsByFamily.set(g.familyId, [g]);
     }
 
     const guestCreates: GuestCreate[] = [];
@@ -353,10 +414,14 @@ export function diffAgainstDb(
     const eventLinkCreates: EventLink[] = [];
     const eventLinkRemoves: EventLink[] = [];
 
-    /** Track resolved guestId per (familyId, normFirstName) for link diff. */
-    const guestIdByKey = new Map<string, string>();
-    const keyOf = (familyId: string, firstName: string) =>
-      `${familyId}::${normaliseName(firstName)}`;
+    /**
+     * Resolved guest id per parsed (familyIndex, guestIndex) — what the event-link
+     * pass below reads. Keyed by POSITION, not by `(familyId, normFirstName)`: two
+     * guests in one household can normalise to the same first name, and a
+     * name-keyed map gave both of them the same id, so one guest collected both
+     * link sets and the other's invitations were diffed away on every save.
+     */
+    const guestIdByParsedIndex: string[][] = [];
 
     // Matched + new families
     desiredFamilies.forEach((parsedFamily, familyIndex) => {
@@ -365,37 +430,89 @@ export function diffAgainstDb(
       // this equals `!existingFamilyByNorm.has(norm)` (byte-identical); with ids
       // a renamed family stays existing so its guests reconcile in place.
       const isNewFamily = !matchedFamilyIds.has(familyId);
-      const existingGuestMap = isNewFamily
-        ? new Map<string, (typeof existingGuests)[number]>()
-        : (guestsByFamily.get(familyId) ?? new Map());
+      const existingList = isNewFamily ? [] : (guestsByFamily.get(familyId) ?? []);
+      const resolvedIds: string[] = [];
+      guestIdByParsedIndex[familyIndex] = resolvedIds;
 
       /** Existing guest ids in THIS family consumed by a match — unmatched ones
        *  are removals. Replaces the `seenFirstNames` scan so an id-matched guest
-       *  RENAME (old first name absent) isn't also flagged for removal. With no
-       *  ids present, a guest is matched by first name exactly as before, so this
-       *  set == the old "seen first names" set and removals are byte-identical. */
+       *  RENAME (old first name absent) isn't also flagged for removal. On the
+       *  no-id path with distinct first names (the ordinary sheet) this set is
+       *  exactly the name-matched set, so removals are what they always were. */
       const matchedGuestIds = new Set<string>();
 
-      parsedFamily.guests.forEach((parsedGuest, sortOrder) => {
-        // Prefer `Guest ID` (rename-safe); the id must belong to THIS family, so
-        // a stray cross-family id falls back to name matching. Then match by
-        // first name within the family (today's behaviour).
-        const candidateById =
-          parsedGuest.id !== undefined ? existingGuestById.get(parsedGuest.id) : undefined;
-        const matchedById = candidateById !== undefined && candidateById.familyId === familyId;
-        const existing = matchedById
-          ? candidateById
-          : existingGuestMap.get(normaliseName(parsedGuest.firstName));
-        if (existing) {
+      /** normFirstName → the household's existing guests with that name, in DB
+       *  order. A QUEUE, not a single row: duplicates within a household are
+       *  legal, and each parsed row must consume a DIFFERENT existing guest so a
+       *  re-import of a duplicate roster reconciles in place instead of matching
+       *  both rows to one row and orphaning the other. */
+      const byFirstName = new Map<string, ExistingGuest[]>();
+      for (const g of existingList) {
+        const key = normaliseName(g.firstName);
+        const queue = byFirstName.get(key);
+        if (queue) queue.push(g);
+        else byFirstName.set(key, [g]);
+      }
+      const takeByName = (firstName: string): ExistingGuest | undefined => {
+        const queue = byFirstName.get(normaliseName(firstName)) ?? [];
+        while (queue.length > 0) {
+          const candidate = queue.shift()!;
+          // Skip one already consumed by an id match in pass 1.
+          if (!matchedGuestIds.has(candidate.id)) return candidate;
+        }
+        return undefined;
+      };
+
+      const matched: (ExistingGuest | undefined)[] = [];
+      const matchedById: boolean[] = [];
+
+      // Pass 1 — stable ids. Resolved FIRST across the whole household, so a
+      // name match can never consume a row that a later parsed guest owns by id.
+      // The id must belong to THIS family (a stray cross-family id falls through
+      // to the name pass), and each existing row is claimed at most once.
+      parsedFamily.guests.forEach((parsedGuest, i) => {
+        if (parsedGuest.id === undefined) return;
+        const candidate = existingGuestById.get(parsedGuest.id);
+        // Gone, or in someone else's household (the editor has no move-guest
+        // affordance, so a cross-family id is as stale as a missing one).
+        if (!candidate || candidate.familyId !== familyId) {
+          unresolvedIds += 1;
+          return;
+        }
+        if (matchedGuestIds.has(candidate.id)) return;
+        matched[i] = candidate;
+        matchedById[i] = true;
+        matchedGuestIds.add(candidate.id);
+      });
+
+      // Pass 2 — name fallback for whatever is left. SKIPPED for an
+      // id-authoritative front door (the editor): there an absent id means "this
+      // row is new", so adopting a same-named existing row would silently cancel
+      // the deletion of the row the organiser dropped — and hand the new guest
+      // the old one's RSVPs.
+      if (matchByName) {
+        parsedFamily.guests.forEach((parsedGuest, i) => {
+          if (matched[i]) return;
+          const existing = takeByName(parsedGuest.firstName);
+          if (!existing) return;
+          matched[i] = existing;
           matchedGuestIds.add(existing.id);
-          guestIdByKey.set(keyOf(familyId, parsedGuest.firstName), existing.id);
+        });
+      }
+
+      // Pass 3 — emit ops in parsed order (parsed index ⇒ `sortOrder`).
+      parsedFamily.guests.forEach((parsedGuest, sortOrder) => {
+        const existing = matched[sortOrder];
+        if (existing) {
+          resolvedIds[sortOrder] = existing.id;
           // A first-name change is only meaningful on the id-matched path — a
           // name match means the first name is unchanged by definition, so we
           // never write `firstName` through there (keeps the no-id plan
           // byte-identical, incl. case-only differences that name matching
           // already folds together). On the id-matched path a genuine rename
           // becomes an update carrying the new firstName.
-          const firstNameChanged = matchedById && existing.firstName !== parsedGuest.firstName;
+          const firstNameChanged =
+            matchedById[sortOrder] === true && existing.firstName !== parsedGuest.firstName;
           if (
             firstNameChanged ||
             existing.lastName !== parsedGuest.lastName ||
@@ -420,14 +537,16 @@ export function diffAgainstDb(
             nickname: parsedGuest.nickname,
             sortOrder,
           });
-          guestIdByKey.set(keyOf(familyId, parsedGuest.firstName), id);
+          resolvedIds[sortOrder] = id;
         }
       });
 
       // Existing guests in this family not matched → remove (an id-less
-      // first-name change is a remove + create at this layer, as before).
+      // first-name change is a remove + create at this layer, as before). Scans
+      // the household's full guest LIST, so a guest whose first name collides
+      // with a sibling's is a removal candidate like any other.
       if (!isNewFamily) {
-        for (const existing of existingGuestMap.values()) {
+        for (const existing of existingList) {
           if (matchedGuestIds.has(existing.id)) continue;
           // Provenance default: a manually-added guest absent from the sheet is
           // preserved (unless the toggle / editor front door manages manual too).
@@ -442,6 +561,17 @@ export function diffAgainstDb(
       if (removedFamilyIds.has(g.familyId)) {
         guestRemoves.push({ id: g.id, firstName: g.firstName });
       }
+    }
+
+    // ── Stale-draft refusal (id-authoritative front doors only) ──────────────
+    // Every id in the desired state has now been looked up. On the editor path a
+    // miss means the draft was built against state that no longer exists, and
+    // because that path has no name fallback the miss would reconcile as a
+    // destructive remove+create rather than an update — see StaleDesiredState.
+    // Refused BEFORE the link/RSVP/entitlement reads below: nothing downstream
+    // can make the plan safe, so they would be work spent on a plan we discard.
+    if (!matchByName && unresolvedIds > 0) {
+      return yield* Effect.fail(new StaleDesiredState({ unresolved: unresolvedIds }));
     }
 
     // ── Event links ─────────────────────────────────────────────────────────
@@ -463,9 +593,9 @@ export function diffAgainstDb(
     const desiredLinks = new Set<string>();
 
     desiredFamilies.forEach((parsedFamily, familyIndex) => {
-      const familyId = familyIdByParsedIndex[familyIndex]!;
-      for (const parsedGuest of parsedFamily.guests) {
-        const guestId = guestIdByKey.get(keyOf(familyId, parsedGuest.firstName))!;
+      const resolvedIds = guestIdByParsedIndex[familyIndex]!;
+      parsedFamily.guests.forEach((parsedGuest, guestIndex) => {
+        const guestId = resolvedIds[guestIndex]!;
         for (const eventName of parsedGuest.eventNames) {
           const eventId = eventIdByNorm.get(normaliseName(eventName));
           if (!eventId) continue; // already validated upstream
@@ -475,7 +605,7 @@ export function diffAgainstDb(
             eventLinkCreates.push({ guestId, eventId });
           }
         }
-      }
+      });
     });
 
     // Existing links whose guest is being removed (or whose event is being
@@ -493,8 +623,57 @@ export function diffAgainstDb(
       }
     }
 
-    // ── Warnings: removed/renamed guests with non-pending RSVPs ─────────────
     const warnings: string[] = [];
+
+    // ── Claim-code collisions on a CARRIED publicId ──────────────────────────
+    // A create may carry its own code (the full-fidelity `Family Code` column, so
+    // an export→re-import keeps invites working). Nothing checked that the code
+    // was still free, and `families.public_id` is globally unique — so a code
+    // belonging to a live household made the INSERT fail mid-apply. That failure
+    // is the worst-placed one in the pipeline: applyImport commits in ≤50-statement
+    // chunks and stamps the before-image keys in the LAST batch, so a middle-chunk
+    // constraint violation leaves the wedding half-written, the change row still
+    // `preview`, and no before-image to revert to. Resolved here instead, where
+    // the organiser sees it in the preview: a taken code is dropped for a freshly
+    // minted one (a household with no working code is not an option — the code IS
+    // the invite), and the swap is called out as a warning. Codes freed by this
+    // same plan's removals stay reusable, which is what makes an export→delete→
+    // re-import round trip keep its codes.
+    const carriedCodes = familyCreates
+      .map((f, i) => ({ i, publicId: f.publicId }))
+      .filter((f) => desiredFamilies.some((d) => d.publicId === f.publicId));
+    if (carriedCodes.length > 0) {
+      const taken = yield* dbQuery(() =>
+        db
+          .select({ id: families.id, publicId: families.publicId })
+          .from(families)
+          .where(
+            inArray(
+              families.publicId,
+              carriedCodes.map((c) => c.publicId),
+            ),
+          )
+          .all(),
+      );
+      // Wedding-scope is deliberately NOT applied: the unique index is global, so
+      // another wedding's live code collides just as hard as this one's.
+      const liveCodes = new Set(
+        taken.filter((t) => !removedFamilyIds.has(t.id)).map((t) => t.publicId),
+      );
+      for (const c of carriedCodes) {
+        if (!liveCodes.has(c.publicId)) continue;
+        const create = familyCreates[c.i]!;
+        familyCreates[c.i] = {
+          ...create,
+          publicId: generateFamilyCode(create.familyName, codeStyle),
+        };
+        warnings.push(
+          `Household "${create.familyName}" asked for an invite code that is already in use, so a new code was minted for it.`,
+        );
+      }
+    }
+
+    // ── Warnings: removed/renamed guests with non-pending RSVPs ─────────────
     const guestsBeingLost = guestRemoves.map((g) => ({ id: g.id, firstName: g.firstName }));
 
     if (guestsBeingLost.length > 0) {

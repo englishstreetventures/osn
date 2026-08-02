@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   __resetGuestsCache,
   ensureGuestsLoaded,
+  guestsAccessor,
   hasCachedGuests,
   invalidateGuests,
   type OrganiserGuestRow,
@@ -71,5 +72,28 @@ describe("ensureGuestsLoaded", () => {
     expect(hasCachedGuests("wed_1")).toBe(false);
     await ensureGuestsLoaded("wed_1", fetcher);
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * The invalidate-then-reload path a change apply runs. Dropping the cache entry
+   * alone leaves the in-flight fetch's own `.then` free to write PRE-mutation rows
+   * into a fresh entry — i.e. the row the organiser just deleted comes back.
+   */
+  it("does not adopt a fetch that was in flight when the cache was invalidated", async () => {
+    let resolveStale!: (rows: OrganiserGuestRow[]) => void;
+    const stale = new Promise<OrganiserGuestRow[]>((r) => {
+      resolveStale = r;
+    });
+    const pending = ensureGuestsLoaded("wed_1", () => stale);
+
+    invalidateGuests("wed_1");
+    resolveStale([{ ...ROW, familyId: "stale" }]);
+    await pending;
+
+    const fresh = vi.fn(async () => [{ ...ROW, familyId: "fresh" }]);
+    await ensureGuestsLoaded("wed_1", fresh);
+
+    expect(fresh).toHaveBeenCalledTimes(1);
+    expect(guestsAccessor("wed_1")()?.map((r) => r.familyId)).toEqual(["fresh"]);
   });
 });

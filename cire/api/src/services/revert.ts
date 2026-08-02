@@ -80,7 +80,15 @@ function reconcileToSnapshot(
         )
       : [];
 
-    const plan = yield* diffAgainstDb(events, families as ParsedFamily[], weddingId, { scope });
+    // Revert always reconciles by NAME (`matchByName` defaults on), so the diff's
+    // id-authoritative refusal is unreachable here — a snapshot's dangling id
+    // falls back to name matching by design, which is exactly how a restore
+    // re-attaches rows that were removed and re-created since. `orDie` states
+    // that: if it ever fires it is a bug in the diff, not a revert the caller
+    // could handle.
+    const plan = yield* diffAgainstDb(events, families as ParsedFamily[], weddingId, {
+      scope,
+    }).pipe(Effect.orDie);
     return yield* applyImport(targetImportId, plan, weddingId, finalize);
   });
 }

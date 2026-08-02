@@ -31,6 +31,8 @@ vi.mock("../lib/api", () => ({
 
 import { __resetEventsCache } from "../lib/events-store";
 import { __resetGuestsCache } from "../lib/guests-store";
+import { __resetHouseholdsCache } from "../lib/households-store";
+import { confirmNavigation } from "../lib/unsaved-guard";
 import EventsEditor from "./EventsEditor";
 
 function json(body: unknown, status = 200) {
@@ -93,10 +95,23 @@ const GUESTS = [
   },
 ];
 
+const HOUSEHOLDS = [
+  {
+    familyId: "fam_a",
+    publicId: "SHARMA-KITE-77Q2",
+    familyName: "Sharma",
+    guestCount: 1,
+    codeSharedAt: null,
+    firstOpenedAt: null,
+    deactivatedAt: null,
+  },
+];
+
 function primeLoad() {
   authFetchMock.mockImplementation((url: string) => {
     if (String(url).endsWith("/events")) return Promise.resolve(json(EVENTS));
     if (String(url).endsWith("/guests")) return Promise.resolve(json(GUESTS));
+    if (String(url).endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
     return Promise.resolve(json({}));
   });
 }
@@ -117,6 +132,7 @@ describe("EventsEditor", () => {
     toastSuccess.mockReset();
     toastError.mockReset();
     __resetGuestsCache();
+    __resetHouseholdsCache();
     __resetEventsCache();
   });
 
@@ -237,6 +253,7 @@ describe("EventsEditor", () => {
       if (u.endsWith("/events"))
         return Promise.resolve(json([{ ...EVENTS[0], name: "Wedding Ceremony" }, EVENTS[1]]));
       if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+      if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
       return Promise.resolve(json({}));
     });
 
@@ -321,5 +338,35 @@ describe("EventsEditor", () => {
     // Reception is gone from the list; the draft is dirty.
     await waitFor(() => expect(screen.queryByText("Reception")).toBeNull());
     expect(screen.getByRole("button", { name: /Save changes/i })).toBeTruthy();
+  });
+
+  /**
+   * A schedule draft is as losable as a guest draft, and costlier: a deleted
+   * event cascades to its attendance links and RSVPs. Both layers of the guard
+   * are asserted here because the editor's own comment promises both, and the
+   * `beforeunload` half was missing while the comment claimed it.
+   */
+  it("guards navigation and tab-close while the draft is dirty", async () => {
+    primeLoad();
+    const add = vi.spyOn(window, "addEventListener");
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Reception")).toBeTruthy());
+
+    const beforeUnloadAdds = () => add.mock.calls.filter((c) => c[0] === "beforeunload").length;
+    expect(confirmNavigation()).toBe(true);
+    expect(beforeUnloadAdds()).toBe(0);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/i })[1]!);
+    await waitFor(() => expect(screen.getByRole("button", { name: /Save changes/i })).toBeTruthy());
+
+    // happy-dom ships no window.confirm — stub it, as unsaved-guard's own tests do.
+    const confirmSpy = vi.fn().mockReturnValue(false);
+    vi.stubGlobal("confirm", confirmSpy);
+    expect(confirmNavigation()).toBe(false);
+    expect(confirmSpy).toHaveBeenCalled();
+    vi.unstubAllGlobals();
+
+    await waitFor(() => expect(beforeUnloadAdds()).toBe(1));
+    add.mockRestore();
   });
 });

@@ -4,7 +4,9 @@ import {
   __resetEventsCache,
   ensureEventsLoaded,
   type EventRow,
+  eventsAccessor,
   hasCachedEvents,
+  invalidateEvents,
 } from "./events-store";
 
 /**
@@ -61,5 +63,28 @@ describe("ensureEventsLoaded", () => {
     await ensureEventsLoaded("wed_1", fetcher);
     await ensureEventsLoaded("wed_2", fetcher);
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * The invalidate-then-reload path a change apply runs. Dropping the cache entry
+   * alone leaves the in-flight fetch's own `.then` free to write PRE-mutation rows
+   * into a fresh entry — i.e. the row the organiser just deleted comes back.
+   */
+  it("does not adopt a fetch that was in flight when the cache was invalidated", async () => {
+    let resolveStale!: (rows: EventRow[]) => void;
+    const stale = new Promise<EventRow[]>((r) => {
+      resolveStale = r;
+    });
+    const pending = ensureEventsLoaded("wed_1", () => stale);
+
+    invalidateEvents("wed_1");
+    resolveStale([{ ...ROW, id: "stale" }]);
+    await pending;
+
+    const fresh = vi.fn(async () => [{ ...ROW, id: "fresh" }]);
+    await ensureEventsLoaded("wed_1", fresh);
+
+    expect(fresh).toHaveBeenCalledTimes(1);
+    expect(eventsAccessor("wed_1")()?.map((r) => r.id)).toEqual(["fresh"]);
   });
 });

@@ -493,3 +493,136 @@ describe("validateDraft — event field rules (E6)", () => {
     });
   });
 });
+
+describe("createGuestEventDraft — deletions reach the wire", () => {
+  it("a removed guest is gone from the draft AND from the DesiredState", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const ben = store.draft.families[0]!.guests[1]!;
+      store.removeGuest(ben.key);
+      expect(store.draft.families[0]!.guests.map((g) => g.firstName)).toEqual(["Ada"]);
+      // The wire is what the server diffs — a deletion is expressed by absence,
+      // so a row that survives serialisation is a deletion that never happens.
+      expect(store.toWire().families[0]!.guests.map((g) => g.id)).toEqual(["g_1"]);
+      expect(store.dirty()).toBe(true);
+      dispose();
+    });
+  });
+
+  it("a removed household is gone from the DesiredState", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      store.removeFamily(store.draft.families[0]!.key);
+      expect(store.toWire().families).toHaveLength(0);
+      expect(store.dirty()).toBe(true);
+      dispose();
+    });
+  });
+});
+
+describe("createGuestEventDraft — discard after a save", () => {
+  /** `commit()` adopts the saved draft as the new baseline. If it ever stopped
+   *  doing so, "discard" after a successful save would rewind to the PRE-save
+   *  state — resurrecting every row the organiser just deleted, in the UI, with
+   *  `dirty()` reporting false. Same silent resurrection this store exists to
+   *  prevent, one layer up, and the fingerprint-only dirty check can't see it. */
+  it("discards back to the COMMITTED state, not the loaded one", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      store.removeGuest(store.draft.families[0]!.guests[1]!.key);
+      store.commit(); // as handleApply does after a successful save
+      expect(store.dirty()).toBe(false);
+
+      store.addGuest(store.draft.families[0]!.key);
+      expect(store.dirty()).toBe(true);
+      store.discard();
+
+      // Back to one guest — the save stands, the post-save edit is gone.
+      expect(store.draft.families[0]!.guests.map((g) => g.firstName)).toEqual(["Ada"]);
+      expect(store.dirty()).toBe(false);
+      dispose();
+    });
+  });
+});
+
+describe("createGuestEventDraft — guest-less households", () => {
+  /** A household holding no guests can't be described by the guest rows, so the
+   *  editor loads it separately. Dropping it from the draft would read as a
+   *  deletion on the next save and take its claim code with it. */
+  const EMPTY_HOUSEHOLD = {
+    familyId: "fam_empty",
+    publicId: "EMPTY-CODE-0001",
+    familyName: "Code Only",
+    guestCount: 0,
+    codeSharedAt: null,
+    firstOpenedAt: null,
+    deactivatedAt: null,
+  };
+
+  function loadedWithEmpty() {
+    const store = createGuestEventDraft();
+    store.load(EVENTS, GUESTS, [
+      {
+        familyId: "fam_a",
+        publicId: "SHARMA-KITE-77Q2",
+        familyName: "Sharma",
+        guestCount: 2,
+        codeSharedAt: null,
+        firstOpenedAt: null,
+        deactivatedAt: null,
+      },
+      EMPTY_HOUSEHOLD,
+    ]);
+    return store;
+  }
+
+  it("appears in the draft with its id + code, and round-trips clean", () => {
+    createRoot((dispose) => {
+      const store = loadedWithEmpty();
+      const empty = store.draft.families.find((f) => f.id === "fam_empty");
+      expect(empty).toBeDefined();
+      expect(empty!.publicId).toBe("EMPTY-CODE-0001");
+      expect(empty!.guests).toHaveLength(0);
+      // Loading it is not an edit.
+      expect(store.dirty()).toBe(false);
+      // …and it survives serialisation, so the diff matches it by id instead of
+      // reading its absence as a removal.
+      const wire = store.toWire();
+      expect(wire.families.map((f) => f.id)).toEqual(["fam_a", "fam_empty"]);
+      dispose();
+    });
+  });
+
+  it("keeps the populated households in their existing order", () => {
+    createRoot((dispose) => {
+      const store = loadedWithEmpty();
+      expect(store.draft.families.map((f) => f.familyName)).toEqual(["Sharma", "Code Only"]);
+      dispose();
+    });
+  });
+});
+
+describe("createGuestEventDraft — discard past the undo limit", () => {
+  /** Every keystroke checkpoints, so a real editing session overflows the undo
+   *  stack easily. Discard used to rewind to the OLDEST retained snapshot — a
+   *  mid-edit state once the earliest ones had been evicted — and then declare
+   *  the draft clean, silently keeping edits the organiser asked to throw away. */
+  it("restores the loaded state, not the oldest surviving undo snapshot", () => {
+    createRoot((dispose) => {
+      const store = loaded();
+      const key = store.draft.families[0]!.guests[0]!.key;
+      // 150 mutations > UNDO_LIMIT (100), so the earliest snapshots are evicted.
+      for (let i = 0; i < 150; i++) {
+        store.updateGuest(key, { firstName: `Ada${i}` });
+      }
+      expect(store.dirty()).toBe(true);
+
+      store.discard();
+
+      expect(store.draft.families[0]!.guests[0]!.firstName).toBe("Ada");
+      expect(store.draft.families[0]!.guests).toHaveLength(2);
+      expect(store.dirty()).toBe(false);
+      dispose();
+    });
+  });
+});

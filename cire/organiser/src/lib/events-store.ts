@@ -103,7 +103,20 @@ export function patchCachedEvent(
  *  mutation that can change the event list — e.g. an import apply. */
 export function invalidateEvents(weddingId: string): void {
   cache.delete(weddingId);
+  // A load already in flight was issued against PRE-mutation state, so its rows
+  // are stale the moment this runs. Dropping the entry alone is not enough — the
+  // fetch's own `.then` would still write them into a fresh cache entry — so the
+  // wedding's GENERATION is bumped too, and a resolving fetch from an older
+  // generation discards its result instead of caching it. Without this, the
+  // editor's invalidate-then-reload after a successful save can re-cache exactly
+  // the rows the organiser just deleted.
+  inflight.delete(weddingId);
+  generation.set(weddingId, generationOf(weddingId) + 1);
 }
+
+/** Monotonic per-wedding load generation, bumped by every invalidation. */
+const generation = new Map<string, number>();
+const generationOf = (weddingId: string) => generation.get(weddingId) ?? 0;
 
 /** In-flight loads, keyed by weddingId, so panels mounting in the same tick
  *  share ONE fetch instead of racing two identical requests at the empty
@@ -124,11 +137,20 @@ export function ensureEventsLoaded(
   if (hasCachedEvents(weddingId)) return Promise.resolve();
   let pending = inflight.get(weddingId);
   if (!pending) {
-    pending = fetcher()
+    const startedAt = generationOf(weddingId);
+    const load = fetcher()
       .then((rows) => {
+        // A newer invalidation landed while this was in flight — its rows describe
+        // state that has since been mutated, so drop them rather than cache them.
+        if (generationOf(weddingId) !== startedAt) return;
         setCachedEvents(weddingId, rows);
       })
-      .finally(() => inflight.delete(weddingId));
+      .finally(() => {
+        // Only clear the slot if it is still OURS: an invalidation may already
+        // have replaced it with a newer load.
+        if (inflight.get(weddingId) === load) inflight.delete(weddingId);
+      });
+    pending = load;
     inflight.set(weddingId, pending);
   }
   return pending;
@@ -138,4 +160,5 @@ export function ensureEventsLoaded(
 export function __resetEventsCache(): void {
   cache.clear();
   inflight.clear();
+  generation.clear();
 }

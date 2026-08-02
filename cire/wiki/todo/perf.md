@@ -5,12 +5,20 @@ related:
   - "[[index]]"
   - "[[review-findings]]"
   - "[[host-portal-layout]]"
-last-reviewed: 2026-08-01
+last-reviewed: 2026-08-02
 ---
 
 # Performance Backlog
 
 See [[review-findings]] for severity prefix conventions.
+
+### Guest-deletion fix — row identity + the households read (claude/cire-guest-deletion-bug-ve85ng, 2026-08-02)
+
+Pre-merge performance review. **Clean on three of the four things the change could plausibly have cost.** The new two-pass guest matcher is still linear per household — building the name queue, the id pass, the name pass, the emit pass and the removal scan are each one sweep, so a household is `O(parsed + existing)` and the wedding-wide diff stays `O(guests)`; nothing became quadratic. `/households` is index-served on both sides (`families_wedding_idx` for the `WHERE`, `guests_family_id_sort_idx` for the join). The new `beforeunload` listener is registered only while `dirty()` is true, so bfcache eligibility is preserved. The draft's baseline `structuredClone` is the smallest allocation on that path — around 1% on top of an undo stack that already retains up to 100 snapshots — so it is explicitly **not** the thing to optimise if the editor is ever found slow (measure `UNDO_LIMIT` and the per-keystroke `JSON.stringify` fingerprint first).
+
+- [x] **P-W1** (fixed on branch) — **`/households` fanned the LEFT JOIN out one row per guest to compute a `guestCount` nothing read.** It returned `N_guests + N_emptyFamilies` rows where `N_families` would do (roughly 3x the row count and the D1-to-Worker serialisation for a typical wedding), on the editor's cold-load path, and made a household-shaped read scale on GUESTS. **Fixed:** `count(guests.id)` + `GROUP BY families.id`, so SQLite counts inside the index scan and the JS grouping loop is gone; the field is kept (it is what makes a code-only household self-describing in the response) at one row per household. This also shrinks the `ORDER BY families.created_at` sort set to one row per household, which is why **P-I2** (no covering `(wedding_id, created_at)` index) is filed as won't-fix: the ordering is a presentation detail over a set bounded by household count, and paying b-tree write cost on every family insert to serve one editor read is the wrong trade — the same one that got the `family_name` index dropped in migration 0053.
+- [ ] **P-W2 / P-I1** — **the events editor fetches (and posts back) the whole guest roster it never renders, and now a third read with it.** `EventsEditor.loadInto` pulls `/events`, `/guests` **and** `/households` because `decodeChangeBody` hardcodes `scope: "both"` for `kind: "editor"`, so `toWire()` must echo the entire DesiredState on save. `/guests` is the heaviest organiser read (double join, `N_guests x N_eventsPerGuest` rows), so changing an event's start time on a 300-guest wedding waits on three round-trips and ~1000 joined rows — plus three `weddingMember()` authz pairs, since `hostsService.authorize` re-reads `weddings` (and `wedding_hosts` for a non-owner) per request. **Fix:** let the editor front door carry a `ChangeScope` and have `EventsEditor` post `scope: "events"`, dropping both guest-side reads; or merge `/guests` + `/households` into one response, since the same `Promise.all` always consumes both. **Verify first:** under `scope: "events"` the link cleanup for a REMOVED event runs against an empty `existingGuests`, so confirm `eventLinkRemoves` is still emitted for deleted events before flipping it — otherwise deleting an event orphans its `guest_events` rows. Filed rather than fixed: it is a front-door contract change, and this branch is a data-loss fix.
+- [ ] **P-I3 (informational)** — `takeByName` uses `Array.prototype.shift`, which re-indexes, so a household with `k` guests sharing a normalised first name degrades to `O(k^2)` in the name pass. `k` is a household size (realistically under 10), so this is a non-issue in practice and is recorded only so the pattern is not copied into a wedding-scoped loop. If touched, replace the array queue with a per-name cursor index.
 
 ### RSVP CSV per-event dietary + editor co-host add (claude/rsvp-notice-contrast-fix-m5px1l, 2026-08-01)
 

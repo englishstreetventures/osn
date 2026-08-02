@@ -5,8 +5,8 @@ related:
   - "[[platform-plan]]"
   - "[[spreadsheet-import]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-07-31
-updated: 2026-07-31 (§3.1 — ChangeScope: a spreadsheet upload may carry one sheet or both)
+last-reviewed: 2026-08-02
+updated: 2026-08-02 (§3.2 — row identity: what makes a deletion stick)
 ---
 
 # Guest + Event Editor — plan
@@ -66,6 +66,27 @@ The distinction it draws is the load-bearing one: **an absent sheet is not an em
 
 Persistence + replay: `scope` lives on the change row's summary JSON, so apply's TOCTOU re-diff manages exactly the halves preview did, and a guests-only apply re-hydrates the event list from **live** state rather than a preview-time snapshot. A row written before this existed has no `scope` and defaults to `both`. The R2 upload slot for an un-uploaded sheet holds `""` — `scope`, not the stored bytes, is what marks it absent. Revert is unaffected on the before-image path (a before-image always captures both halves); the legacy prior-import path additionally treats a blank stored half as "not captured" and selects only `kind='import'` predecessors — an editor row's slots are JSON + `""`, byte-wise indistinguishable from an events-only upload, so without the `kind` filter the blank-half inference would feed a DesiredState blob to the CSV parser. Neither a partial upload nor an editor save can therefore become a mass delete.
 
+### 3.2 Row identity — the contract that makes a DELETION stick
+
+A desired-state reconcile has no delete verb: a deletion is **absence**. Everything the diff does about identity therefore doubles as a decision about what gets deleted, and every way of getting identity wrong shows up to the organiser as the same symptom — apply succeeds, and the row they deleted is back on the next load. Three rules hold it together (`services/import.ts`):
+
+1. **An existing row is claimed by at most one desired row.** Two desired households resolving to one existing row used to reconcile against that row's guest list twice in sequence, and the second pass removed every guest the first had just matched. A claimed row is now off the table; the second desired row creates.
+2. **Removal candidates are the household's full guest LIST, not one row per distinct first name.** Two guests in a household can normalise to the same first name (a sheet with `Sam` and `sam `, a household of two `Guest`s). The per-family collection used to be a `normFirstName → guest` map, so one of the pair was shadowed out of it entirely — invisible to the removal scan, so deleting it emitted no op at all, and invisible to the link pass, so its event invitations were diffed away on every save. Name matching still exists, but as a per-name **queue** each desired row consumes from, so a duplicate roster reconciles in place and re-imports idempotently.
+3. **`matchByName` is a property of the FRONT DOOR, not of the row.** Ids are resolved first across the whole household, then names fill in the rest — but only when the caller says names are meaningful:
+
+| Front door | `matchByName` | Why |
+|---|---|---|
+| Spreadsheet upload | `true` | A sheet without the fidelity id columns has no other way to say "same household/guest". An absent id means "this sheet doesn't carry ids". |
+| Editor DesiredState | `false` | The draft is built from server rows, so it carries an id for every row that EXISTS. An absent id means "the organiser just added this". |
+
+The editor case is the one that bites. With name matching on, deleting `Bo` and adding a different `Bo` in the same save resolved the new row to the deleted row: no `guestRemove`, the old row survived under the new name, and it kept the deleted guest's RSVPs. `matchByName` is decided in `decodeChangeBody`, persisted on the change row's summary, and re-read at apply so the TOCTOU re-diff matches as the preview did — a legacy row without the field falls back to `kind !== 'editor'`, which is a column and always right.
+
+**A dangling id means the draft is STALE, and the diff refuses it.** Rules 1–3 make deletion work; this one bounds what the id-authoritative path may destroy when it is wrong. `baseRevision` is captured at PREVIEW and re-checked at apply, so it covers preview→apply — but the editor builds its draft at LOAD, and nothing covered load→preview. With name fallback off that window is destructive rather than merely stale: a draft row whose id a co-host has since deleted is no longer "unmatched", it is a REMOVE plus a CREATE — the RSVPs on that row are deleted, and a household returns as a fresh row carrying the `publicId` the draft still remembers, resurrecting an invite someone deliberately revoked. So an id that resolves to nothing (or, for a guest, to another household) fails the diff with `StaleDesiredState`, and both verbs answer 409 `stale_draft`: reload and redo. A spreadsheet's dangling id is untouched by this — there it means "this sheet has no ids", and falling through to name matching is the whole design.
+
+**A guest-less household is not a deleted household.** `GET /guests` is guest-shaped, so a household holding no guests produces no rows there and cannot be described by it. Since the editor's draft is the whole truth, a household it never saw would read as a deletion and the next save would remove it — and its live claim code with it. `GET .../households` (§7) is the household-shaped read the editor loads alongside the guests for exactly this reason; guest-less households appear as empty cards that can be filled in or deleted on purpose.
+
+**A carried claim code is checked before it can fail an INSERT.** A create may bring its own `publicId` (the full-fidelity `Family Code` column, so an export→re-import keeps invites working), and `families.public_id` is globally unique. An already-taken code used to reach the insert and violate the constraint mid-apply — the worst place in the pipeline for a failure, because `applyImport` commits in ≤50-statement chunks and stamps the before-image keys in the LAST batch, so the wedding ends up half-written, the change row still `preview`, and nothing to revert to. The diff now resolves it instead: a code still held by a household this plan is not removing is dropped for a freshly minted one, with a warning in the preview. Codes freed by the same plan's removals stay reusable, so export→delete→re-import keeps its codes.
+
 ## 4. Checkpoints + revert — before-image model (fixes G3)
 
 Generalise `imports` into a **change history**:
@@ -107,12 +128,14 @@ Gated `weddingMember()` today; flip to `weddingEditor()` when platform PR 2 (rol
 | `POST .../changes/revert` | `{changeId}` — before-image restore (§4). |
 | `GET .../changes/list` | Paginated history (imports + editor saves), as `/import/list` today. |
 | `GET .../export/{events,guests}.csv` | Round-trip export (§5), `?fidelity=full` optional. |
+| `GET .../households` | Household-shaped roster read (`weddingMember()`) — one row per family INCLUDING guest-less ones, which the guest-shaped `/guests` cannot represent. The editor loads it so a code-only household survives a draft save (§3.2). |
 
 The existing `/import/{preview,apply,revert,list}` routes stay mounted as a **one-release alias** over the same factories (the repo's decided route-move convention), then get deleted.
 
 ## 8. Frontend (cire/organiser)
 
-- **Draft store** (`lib/guest-event-draft.ts`): load server state → SolidJS store draft; dirty tracking; id-stable rows; client-side edit stack giving in-session undo and "discard draft" for free (no server round-trips while editing).
+- **Draft store** (`lib/guest-event-draft.ts`): load server state → SolidJS store draft; dirty tracking; id-stable rows; client-side edit stack giving in-session undo and "discard draft" for free (no server round-trips while editing). It loads THREE reads — events, guests, and households (`lib/households-store.ts`) — because a guest-less household exists only in the third (§3.2). "Discard" restores the snapshot taken at load, **not** the oldest surviving undo entry: the undo stack is bounded and every keystroke checkpoints, so in any session long enough to overflow it the oldest entry is a mid-edit state, and discarding to it silently kept edits while reporting the draft clean.
+- **Unsaved-changes guard**: both editors register `lib/unsaved-guard.ts` while mounted and a `beforeunload` listener while dirty (the invite-builder pattern). Without it a stray module/tab click threw the whole draft away with no prompt — indistinguishable, from the organiser's side, from a delete that didn't take.
 - **Events tab**: `EventTable` gains an edit mode — add/edit via a drawer form (name, start/end + timezone, address, dress-code description, palette editor reusing `ColorPicker`, Pinterest/Maps URLs), delete with impact confirm, drag-to-re-order (writes `sortOrder`).
 - **Guests tab**: household-grouped editable list — add household, add/rename guest (id-preserving), nickname, per-guest × per-event **attendance checkbox matrix**, delete guest/household.
 - **Save flow**: sticky unsaved-changes bar → Save posts the draft to `changes/preview` → modal renders the plan + warnings (extract `ImportPanel`'s plan-rendering into a shared component) → confirm applies → refetch + toast. Field-invalid drafts can't be submitted; errors render inline.

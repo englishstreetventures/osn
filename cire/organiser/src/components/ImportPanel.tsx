@@ -6,6 +6,7 @@ import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { downloadBlob, downloadCsv } from "../lib/download";
 import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
+import { invalidateHouseholds } from "../lib/households-store";
 import { formatImportError } from "../lib/import-errors";
 import type { ImportErrorBody } from "../lib/import-errors";
 import {
@@ -201,6 +202,10 @@ export default function ImportPanel(props: { weddingId: string }) {
       // re-mounts every module fresh; invalidating keeps the caches honest even
       // if the reload is ever removed.
       invalidateGuests(props.weddingId);
+      // Households are the third of one consistency unit — invalidating two of the
+      // three is what leaves a stale household in the editor draft, and a stale
+      // household in an id-authoritative draft is a destructive remove+create.
+      invalidateHouseholds(props.weddingId);
       window.location.reload();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
