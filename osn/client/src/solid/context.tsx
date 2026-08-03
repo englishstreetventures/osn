@@ -11,7 +11,7 @@ import {
 } from "solid-js";
 
 import { OsnAuth, createOsnAuthLive, type OsnAuthConfig } from "../service";
-import { StorageLive } from "../storage";
+import { Storage, StorageLive } from "../storage";
 import type { PublicProfile, Session } from "../tokens";
 
 interface AuthContextValue {
@@ -40,10 +40,17 @@ export const AuthContext = createContext<AuthContextValue>();
 
 interface AuthProviderProps extends ParentProps {
   config: OsnAuthConfig;
+  /**
+   * The `Storage` layer backing the session. Defaults to `StorageLive`
+   * (`localStorage`). Callers on a platform where `localStorage` must never
+   * hold auth data (e.g. iOS) pass a different layer, such as
+   * `createEphemeralStorage()`.
+   */
+  storage?: Layer.Layer<Storage>;
 }
 
 export function AuthProvider(props: AuthProviderProps) {
-  const layer = createOsnAuthLive(props.config).pipe(Layer.provide(StorageLive));
+  const layer = createOsnAuthLive(props.config).pipe(Layer.provide(props.storage ?? StorageLive));
 
   const run = <A,>(eff: Effect.Effect<A, unknown, OsnAuth>): Promise<A> =>
     Effect.runPromise(

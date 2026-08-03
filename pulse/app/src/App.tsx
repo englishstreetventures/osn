@@ -1,3 +1,4 @@
+import { createEphemeralStorage } from "@osn/client";
 import { AuthProvider } from "@osn/client/solid";
 import { Router, Route, useLocation } from "@solidjs/router";
 import { lazy, Show } from "solid-js";
@@ -7,6 +8,7 @@ import { Header } from "./components/Header";
 import { NativeTabBar } from "./components/NativeTabBar";
 import { OnboardingGate } from "./components/OnboardingGate";
 import { OSN_ISSUER_URL } from "./lib/auth";
+import { isIosWebview } from "./lib/platform";
 
 import "./App.css";
 
@@ -62,8 +64,13 @@ function Layout(props: { children?: unknown }) {
 }
 
 export default function App() {
+  // On iOS, localStorage must never hold auth session data (no access token,
+  // no account metadata) — the session survives a cold start through the
+  // Keychain-backed refresh cookie instead (see `nativeSession.ts`).
+  const storage = isIosWebview() ? createEphemeralStorage() : undefined;
+
   return (
-    <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
+    <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }} storage={storage}>
       <Router root={Layout}>
         <Route path="/" component={ExplorePage} />
         <Route path="/events/:id" component={EventDetailPage} />

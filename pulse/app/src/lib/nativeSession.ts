@@ -2,6 +2,7 @@ import { setSessionFetch, type SessionFetch } from "@osn/client";
 import { invoke } from "@tauri-apps/api/core";
 
 import { OSN_ISSUER_URL } from "./auth";
+import { isIosWebview } from "./platform";
 
 /**
  * Routes the native transport handles, mirroring `ALLOWED_PATHS` in
@@ -26,20 +27,6 @@ interface NativeResponse {
   status: number;
   headers: [string, string][];
   body: string;
-}
-
-/**
- * True on an iOS Tauri webview, false on desktop Tauri and in a browser.
- *
- * Both halves matter. Without the Tauri check there is no `invoke` to call;
- * without the iOS check a desktop build would route through a plugin whose
- * desktop implementation deliberately fails, when its own cookie jar works
- * perfectly well.
- */
-function isIosWebview(): boolean {
-  if (typeof window === "undefined") return false;
-  if (!("__TAURI_INTERNALS__" in window)) return false;
-  return /iPad|iPhone|iPod/.test(navigator.userAgent);
 }
 
 /** Turn the plugin's plain response into a real `Response`. */

@@ -3,12 +3,12 @@ import { Effect, Layer } from "effect";
 import { vi } from "vitest";
 
 import { OsnAuth, createOsnAuthLive } from "../src/service";
-import { createMemoryStorage } from "../src/storage";
+import { createEphemeralStorage } from "../src/storage";
 
 const config = { issuerUrl: "https://osn.example.com" };
 
 function createTestLayer() {
-  return createOsnAuthLive(config).pipe(Layer.provide(createMemoryStorage()));
+  return createOsnAuthLive(config).pipe(Layer.provide(createEphemeralStorage()));
 }
 
 /** Build a fake JWT whose payload contains the given `sub` claim. */
