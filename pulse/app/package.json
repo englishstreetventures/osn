@@ -1,6 +1,6 @@
 {
   "name": "@pulse/app",
-  "version": "0.20.2",
+  "version": "0.20.3",
   "private": true,
   "description": "Pulse - Events platform for OSN",
   "type": "module",
