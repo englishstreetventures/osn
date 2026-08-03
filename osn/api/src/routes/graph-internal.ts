@@ -9,6 +9,7 @@ import { Elysia, t } from "elysia";
 
 import { requireArc } from "../lib/arc-middleware";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
+import { makeSafeError } from "../lib/safe-error";
 import { createGraphService } from "../services/graph";
 
 // ---------------------------------------------------------------------------
@@ -71,15 +72,9 @@ const PERMITTED_SCOPES = new Set([
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Extracts a safe, non-leaking message from a caught error. */
-function safeError(e: unknown): string {
-  if (e instanceof Error) {
-    if ("_tag" in e && (e._tag === "GraphError" || e._tag === "NotFoundError")) {
-      return (e as { message: string }).message;
-    }
-  }
-  return "Request failed";
-}
+// Expose only tagged GraphError / NotFoundError messages; swallow DB internals.
+// FiberFailure-aware — see `makeSafeError` for why a plain `_tag` check fails.
+const safeError = makeSafeError(["GraphError", "NotFoundError"]);
 
 /**
  * Normalises a handle the same way the user-facing identifier resolution does —

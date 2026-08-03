@@ -5,6 +5,7 @@ import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
+import { makeSafeError } from "../lib/safe-error";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createOrganisationService } from "../services/organisation";
 
@@ -32,14 +33,9 @@ function extractToken(authorization: string | undefined): string | null {
   return match ? match[1] : null;
 }
 
-function safeError(e: unknown): string {
-  if (e instanceof Error) {
-    if ("_tag" in e && (e._tag === "OrgError" || e._tag === "NotFoundError")) {
-      return (e as { message: string }).message;
-    }
-  }
-  return "Request failed";
-}
+// Expose only tagged OrgError / NotFoundError messages; swallow DB internals.
+// FiberFailure-aware — see `makeSafeError` for why a plain `_tag` check fails.
+const safeError = makeSafeError(["OrgError", "NotFoundError"]);
 
 // TypeBox schemas
 const HandleParam = t.Object({

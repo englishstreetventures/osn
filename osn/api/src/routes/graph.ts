@@ -5,6 +5,7 @@ import { Effect, Layer } from "effect";
 import { Elysia, t } from "elysia";
 
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
+import { makeSafeError } from "../lib/safe-error";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createGraphService } from "../services/graph";
 
@@ -39,16 +40,9 @@ function extractToken(authorization: string | undefined): string | null {
   return match ? match[1] : null;
 }
 
-/** Extracts a safe, non-leaking message from a caught error. */
-function safeError(e: unknown): string {
-  if (e instanceof Error) {
-    // Expose only tagged GraphError / NotFoundError messages; swallow DB internals
-    if ("_tag" in e && (e._tag === "GraphError" || e._tag === "NotFoundError")) {
-      return (e as { message: string }).message;
-    }
-  }
-  return "Request failed";
-}
+// Expose only tagged GraphError / NotFoundError messages; swallow DB internals.
+// FiberFailure-aware — see `makeSafeError` for why a plain `_tag` check fails.
+const safeError = makeSafeError(["GraphError", "NotFoundError"]);
 
 // TypeBox schema for validated handle params (M4)
 const HandleParam = t.Object({

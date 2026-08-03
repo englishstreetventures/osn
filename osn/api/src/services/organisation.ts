@@ -10,6 +10,9 @@ import { withOrgMemberOp, withOrgOp } from "../metrics";
 // Errors
 // ---------------------------------------------------------------------------
 
+// `message` reaches clients verbatim via the routes' `safeError` allowlist
+// (S-M17) — construct with static string literals only, never interpolated
+// causes or user input. Pinned by tests/lib/safe-error-static-messages.test.ts.
 export class OrgError extends Data.TaggedError("OrgError")<{
   readonly message: string;
 }> {}

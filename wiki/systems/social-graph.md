@@ -85,7 +85,14 @@ Apps that own a close-friends-style list (e.g. Pulse — see [[pulse-close-frien
 
 ## Error Handling
 
-Graph routes use `safeError()` so that only `GraphError` and `NotFoundError` messages reach clients (S-M17). Raw DB/Effect errors never leave the server. Error objects logged via `Effect.logError` go through `safeErrorSummary()` which extracts only `_tag` + `message` (S-L9).
+Graph routes use `safeError` (built via `makeSafeError` in `osn/api/src/lib/safe-error.ts`) so that only `GraphError` and `NotFoundError` messages reach clients (S-M17). Raw DB/Effect errors never leave the server. Error objects logged via `Effect.logError` go through `safeErrorSummary()` which extracts only `_tag` + `message` (S-L9).
+
+`makeSafeError` is `FiberFailure`-aware: handlers run service effects through `ManagedRuntime.runPromise` (see `makeAppRunner`), which rejects with a `FiberFailure` wrapping the typed failure — never the tagged error itself. The earlier per-route `safeError` copies checked `_tag` on the caught value directly, so the check never matched and every business-rule failure ("Connection already exists", "Cannot connect to yourself", …) reached clients as the generic "Request failed" — surfacing in `@osn/social` as an unexplained "Request failed" toast on Connect. The helper unwraps the cause first (`Runtime.isFiberFailure` → `Cause.failureOption`), then applies the tag allowlist. The organisation routes share the same helper with `OrgError`/`NotFoundError`. Regression tests: `tests/lib/safe-error.test.ts`, `tests/routes/graph-error-messages.test.ts`, `tests/routes/organisation-error-messages.test.ts`.
+
+Two properties of the allowlist are deliberate:
+
+- **Messages are static literals only.** Because allow-listed messages reach clients verbatim, every `GraphError`/`OrgError`/`NotFoundError` construction must use a hardcoded string — never an interpolated cause or user input. The constraint is stated on the error classes and pinned by `tests/lib/safe-error-static-messages.test.ts`.
+- **Block detectability is accepted.** A blocked requester's `POST /graph/connections/:handle` returns "Cannot send connection request", which is distinguishable from "Connection already exists" — so a determined user can infer they were blocked. This is the standard social-platform trade-off (block state is inferable through other channels regardless) and is intentional, not a leak.
 
 ## Input Validation
 

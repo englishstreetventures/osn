@@ -14,6 +14,13 @@ last-reviewed: 2026-08-02
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
 
+## Graph/org error contract fix (2026-08-02) — prep-pr review
+
+Findings from the security review of the `makeSafeError` branch (the fix for tagged route errors collapsing into a generic "Request failed"). Both Low; both closed on the branch before merge.
+
+- [x] **S-L1 (graph) — block-status oracle became reachable once tagged messages actually surface.** With the FiberFailure unwrap fixed, `POST /graph/connections/:handle` distinguishes "Cannot send connection request" (blocked) from "Connection already exists", so a requester can infer they were blocked. **Closed as accepted-by-design** — block state is inferable through other channels on any social platform; documented as intentional in [[social-graph]] §Error Handling rather than re-hidden.
+- [x] **S-L2 (graph/org) — S-M17 now rests on an unenforced "static messages only" invariant.** `makeSafeError` forwards allow-listed `GraphError`/`OrgError`/`NotFoundError` messages verbatim, so a future `new GraphError({ message: \`...${cause}\` })` would silently re-open the DB-internals leak. **Fixed** — the constraint is stated on the error-class definitions and pinned by `osn/api/tests/lib/safe-error-static-messages.test.ts`, which fails on any non-literal message construction in the graph/organisation services.
+
 ## OSN search proximity ranking (2026-08-02) — prep-pr review
 
 Findings from the security review of the search-ranking branch. Both were **introduced by that branch and fixed on it before merge**; neither reached `main`.

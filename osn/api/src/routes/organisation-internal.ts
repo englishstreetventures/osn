@@ -4,6 +4,7 @@ import { Elysia, t } from "elysia";
 
 import { requireArc } from "../lib/arc-middleware";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
+import { makeSafeError } from "../lib/safe-error";
 import { createOrganisationService } from "../services/organisation";
 
 // ---------------------------------------------------------------------------
@@ -48,14 +49,9 @@ function orgSummary(o: {
   };
 }
 
-function safeError(e: unknown): string {
-  if (e instanceof Error) {
-    if ("_tag" in e && (e._tag === "OrgError" || e._tag === "NotFoundError")) {
-      return (e as { message: string }).message;
-    }
-  }
-  return "Request failed";
-}
+// Expose only tagged OrgError / NotFoundError messages; swallow DB internals.
+// FiberFailure-aware — see `makeSafeError` for why a plain `_tag` check fails.
+const safeError = makeSafeError(["OrgError", "NotFoundError"]);
 
 // ---------------------------------------------------------------------------
 // Internal organisation routes — ARC token protected
