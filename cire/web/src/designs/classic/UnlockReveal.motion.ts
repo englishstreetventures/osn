@@ -26,17 +26,40 @@ function prefersReducedMotion(): boolean {
  * The reveal's end state, applied with no animation: login form gone, welcome
  * and events visible. This is what every animated step below settles on, so a
  * reduced-motion guest sees exactly the same invite — it simply arrives at once.
+ *
+ * Note what this does NOT touch: the `display` of the login form and the welcome
+ * banner. Those two belong to SolidJS, which drives them from the island's
+ * `revealed` signal — see {@link RevealHooks}.
  */
-function settleRevealed(
-  loginForm: HTMLElement,
-  welcomeEl: HTMLElement,
-  eventsSection: HTMLElement,
-) {
-  loginForm.style.display = "none";
-  welcomeEl.style.display = "";
+function settleRevealed(welcomeEl: HTMLElement, eventsSection: HTMLElement, hooks?: RevealHooks) {
+  hooks?.onFormHidden?.();
   welcomeEl.style.opacity = "1";
   eventsSection.style.display = "";
   eventsSection.style.opacity = "1";
+}
+
+/**
+ * The one thing this sequence cannot do itself: swap the code form out for the
+ * welcome banner.
+ *
+ * Both elements' `display` is a reactive SolidJS binding, and Solid diffs a
+ * style binding against the last value IT wrote. So an imperative
+ * `loginForm.style.display = "none"` from here does not just duplicate the
+ * binding — it desynchronises it: Solid still believes `display` is `""`, and
+ * every later attempt to restore the form is a no-op it skips. The form could
+ * never be shown again for the life of the page. That is latent rather than live
+ * today only because nothing sets `claimResult` back to `null`; a sign-out or a
+ * rolled-back claim would surface it immediately.
+ *
+ * So the sequence reports the moment instead of performing it, and the island
+ * flips one signal. One owner for `display`, and the choreography also gets the
+ * fade it was written for: the form is still on screen while step 1 runs,
+ * whereas the old arrangement had Solid hide it the instant the claim resolved —
+ * a beat before this ran — leaving the fade-out animating an invisible element.
+ */
+export interface RevealHooks {
+  /** Fired once the code form has faded out and should leave the layout. */
+  onFormHidden?: () => void;
 }
 
 function tryAnimate(run: () => { finished: Promise<unknown> }): Promise<unknown> {
@@ -62,10 +85,11 @@ export async function unlockRevealSequence(
   loginForm: HTMLElement,
   welcomeEl: HTMLElement,
   eventsSection: HTMLElement,
+  hooks?: RevealHooks,
 ) {
   // Reduced motion: skip the choreography, land on the same end state.
   if (prefersReducedMotion()) {
-    settleRevealed(loginForm, welcomeEl, eventsSection);
+    settleRevealed(welcomeEl, eventsSection, hooks);
     return;
   }
 
@@ -77,10 +101,10 @@ export async function unlockRevealSequence(
       { duration: 0.35, ease: "easeIn" },
     ),
   );
-  loginForm.style.display = "none";
+  // Faded out — hand the swap back to the island, which owns `display`.
+  hooks?.onFormHidden?.();
 
   // 2. Reveal welcome message
-  welcomeEl.style.display = "";
   welcomeEl.style.opacity = "1";
   void tryAnimate(() =>
     animate(

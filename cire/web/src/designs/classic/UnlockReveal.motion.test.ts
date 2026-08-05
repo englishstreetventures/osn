@@ -25,19 +25,33 @@ describe("unlockRevealSequence", () => {
     eventsSection = document.createElement("div");
   });
 
-  it("hides the login form after fade-out", async () => {
-    const p = unlockRevealSequence(loginForm, welcomeEl, eventsSection);
+  // `display` on the form and the welcome banner belongs to SolidJS — the
+  // sequence REPORTS the swap and must never perform it, or it desynchronises
+  // Solid's style binding for the life of the page. These two pin that split.
+  it("reports the login form hidden after fade-out, without touching display", async () => {
+    const onFormHidden = vi.fn();
+    const p = unlockRevealSequence(loginForm, welcomeEl, eventsSection, { onFormHidden });
     await vi.advanceTimersByTimeAsync(300);
     await p;
-    expect(loginForm.style.display).toBe("none");
+    expect(onFormHidden).toHaveBeenCalledTimes(1);
+    expect(loginForm.style.display).toBe("");
   });
 
-  it("reveals the welcome element", async () => {
+  it("leaves the welcome element's display alone and only lifts its opacity", async () => {
     welcomeEl.style.display = "none";
     const p = unlockRevealSequence(loginForm, welcomeEl, eventsSection);
     await vi.advanceTimersByTimeAsync(300);
     await p;
-    expect(welcomeEl.style.display).toBe("");
+    // Untouched — the island's `revealed` signal is what clears this.
+    expect(welcomeEl.style.display).toBe("none");
+    expect(welcomeEl.style.opacity).toBe("1");
+  });
+
+  it("runs without hooks at all", async () => {
+    const p = unlockRevealSequence(loginForm, welcomeEl, eventsSection);
+    await vi.advanceTimersByTimeAsync(300);
+    await p;
+    expect(eventsSection.style.opacity).toBe("1");
   });
 
   it("reveals the events section", async () => {
@@ -63,11 +77,11 @@ describe("unlockRevealSequence", () => {
     animateMock.mockImplementation(() => {
       throw new Error("boom");
     });
-    const p = unlockRevealSequence(loginForm, welcomeEl, eventsSection);
+    const onFormHidden = vi.fn();
+    const p = unlockRevealSequence(loginForm, welcomeEl, eventsSection, { onFormHidden });
     await vi.advanceTimersByTimeAsync(300);
     await p;
-    expect(loginForm.style.display).toBe("none");
-    expect(welcomeEl.style.display).toBe("");
+    expect(onFormHidden).toHaveBeenCalledTimes(1);
     expect(eventsSection.style.display).toBe("");
     expect(eventsSection.style.opacity).toBe("1");
   });
@@ -146,10 +160,11 @@ describe("unlockRevealSequence", () => {
 
     it("reveals everything with no animation at all", async () => {
       eventsSection.style.display = "none";
-      welcomeEl.style.display = "none";
-      await unlockRevealSequence(loginForm, welcomeEl, eventsSection);
-      expect(loginForm.style.display).toBe("none");
-      expect(welcomeEl.style.display).toBe("");
+      const onFormHidden = vi.fn();
+      await unlockRevealSequence(loginForm, welcomeEl, eventsSection, { onFormHidden });
+      // Same split as the animated path: reported, not written.
+      expect(onFormHidden).toHaveBeenCalledTimes(1);
+      expect(loginForm.style.display).toBe("");
       expect(welcomeEl.style.opacity).toBe("1");
       expect(eventsSection.style.display).toBe("");
       expect(eventsSection.style.opacity).toBe("1");

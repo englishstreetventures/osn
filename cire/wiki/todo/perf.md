@@ -5,12 +5,19 @@ related:
   - "[[index]]"
   - "[[review-findings]]"
   - "[[host-portal-layout]]"
-last-reviewed: 2026-08-02
+last-reviewed: 2026-08-05
 ---
 
 # Performance Backlog
 
 See [[review-findings]] for severity prefix conventions.
+
+### Claim-field contrast + reveal ownership (`claude/cire-invites-claim-input-bug-8q0ev8`, 2026-08-05)
+
+Full pass over the invite's initial-load JS while investigating a "the claim box disappears" report. The branch itself is perf-neutral (a Tailwind class change, one extra signal, one optional callback param — the reveal sequence now does strictly *less* DOM work, since it no longer writes `display` at all). Two things worth recording:
+
+- [ ] **P-W1 — the invite's largest chunk is post-claim-only code, statically imported.** `InvitePage.tsx` statically imports `RsvpModal`, `DetailsModal`, `EventCard`, `PulseAccountLink`, `AuthProvider` (`@shared/rp-auth/solid`) and `solid-toast`'s `Toaster`, so Rollup collects them into one shared chunk — **60,164 B raw / 19,041 B gz, ~44% of the page's ~43 KB gzipped initial JS**. Every one renders only inside `<Show when={claimResult()}>`; none is needed to paint the code form. It is downloaded and parsed on every invite load, including the majority case where the guest is still on the hero, competing for last-mile bandwidth with the preloaded hero (the LCP element) on exactly the 4G phones the bug was reported from. **Fix:** wrap the post-claim subtree in `lazy()` — the modals and the `PulseAccountLink` + `Toaster` + `AuthProvider` block are each already behind a `Show`, so they are a drop-in; `EventCard` follows the same gate. Filed rather than fixed: it is a bundle-shape change and that branch was a user-facing bug fix.
+- **Measured, no action: `client:visible={{ rootMargin: "600px" }}` on `InvitePage` does not defer anything.** Astro's `visible.js` observes the island's *children*; the claim `<section>` starts at exactly `100dvh` (the hero is `min-h-dvh`), so a 600px root margin intersects at scroll position 0 on every realistic viewport — including when a long couple title stretches the hero to ~1.3× viewport. The island already hydrates at load, gated only by chunk arrival. Confirmed in-browser (`ssr=false` at 444ms, no scrolling). A `client:load` swap was tried on that branch and **reverted**: it buys roughly one frame plus the skipped IO setup, and the rationale first written for it was wrong. Recorded so it is not re-proposed as a fix. Note the consequence for **P-I2**/**P-I3** below: their "`client:visible` keeps this off the LCP path" framing was never load-bearing, so their tiers rest on the `requestIdleCallback` gating instead.
 
 ### Guests-editor review — household rename fix (`claude/cire-web-editor-household-name-qcfkb4`, 2026-08-02)
 

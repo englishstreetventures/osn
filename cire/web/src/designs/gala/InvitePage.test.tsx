@@ -108,6 +108,28 @@ describe("gala InvitePage", () => {
     expect(queryByTestId("events-column")).toBeNull();
   });
 
+  // Drift guard: gala renders its own claim markup rather than reusing
+  // LoginSection, so the code field's contrast contract has to be asserted in
+  // both packs or the two silently diverge. Same values, same reasoning — see
+  // the note in components/LoginSection.tsx.
+  it("draws the code field one step off its surface, like classic", () => {
+    const { getByPlaceholderText } = render(() => <InvitePage apiUrl="https://api.test" />);
+    const cls = (getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).className;
+
+    expect(cls).toContain("bg-text/[0.045]");
+    expect(cls).toContain("border-text/55");
+    expect(cls).not.toContain("border-border");
+    expect(cls).not.toContain("bg-transparent");
+    // T-S2: classic asserts BOTH halves of the focus affordance, so gala must
+    // too — a half-copied drift guard drifts.
+    expect(cls).toContain("focus:border-gold");
+    expect(cls).toContain("focus-visible:outline-[var(--invite-focus)]");
+    // A placeholder is not an accessible name, and it vanishes on input.
+    expect((getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement).getAttribute("aria-label")).toBe(
+      "Invitation code",
+    );
+  });
+
   it("renders the events section with a data-event-card wrapper per event after a claim", async () => {
     vi.stubGlobal(
       "fetch",
@@ -760,6 +782,15 @@ describe("gala InvitePage", () => {
       await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
       // The single-member fixture greets the individual, not the household.
       expect(getByText(/Dear Priya/)).toBeTruthy();
+      // T-U2: and the code form is actually GONE, not merely behind the events.
+      // A restore runs no choreography, so `setRevealed(true)` in `onRestored`
+      // is the only thing that flips it — drop that line and every returning
+      // guest loads their invite with the form still sitting on top of it. The
+      // greeting assertion above cannot see that: textContent queries match
+      // inside a `display: none` subtree.
+      expect((getByText("Enter Your Code").parentElement as HTMLElement).style.display).toBe(
+        "none",
+      );
     });
 
     it("sends the household cookie on the restore read", async () => {
@@ -868,6 +899,89 @@ describe("gala InvitePage", () => {
       expect(restore.mock.calls.some((c) => String(c[0]).includes("/api/claim/session"))).toBe(
         false,
       );
+    });
+  });
+  // Ported verbatim from classic (T-U1): gala renders its own claim markup
+  // instead of reusing `LoginSection`, so `LoginSection.test.tsx`'s swap tests
+  // protect classic only. Without these, reverting BOTH of gala's `revealed`
+  // bindings back to `claimResult()` — undoing the fix entirely — passes.
+  describe("form/welcome swap", () => {
+    async function claimWith(sequence: (...args: never[]) => Promise<void> | void) {
+      const { unlockRevealSequence } = await import("./UnlockReveal.motion");
+      vi.mocked(unlockRevealSequence).mockImplementation(
+        sequence as unknown as typeof unlockRevealSequence,
+      );
+      vi.stubGlobal(
+        "fetch",
+        noSession(
+          vi.fn().mockResolvedValue(
+            new Response(JSON.stringify(claim), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          ),
+        ),
+      );
+      const screen = render(() => <InvitePage apiUrl="https://api.test" />);
+      fireEvent.input(screen.getByPlaceholderText(/PATEL-JOY/), {
+        target: { value: "SHARMA-JOY-RK97" },
+      });
+      fireEvent.click(screen.getByText("Open Invitation"));
+      return screen;
+    }
+
+    /** The form's wrapper — the element whose `display` the swap drives. */
+    const formPanel = (screen: { getByText: (t: string) => HTMLElement }) =>
+      screen.getByText("Enter Your Code").parentElement as HTMLElement;
+
+    it("hides the form when the sequence reports it faded out", async () => {
+      const { getByText } = await claimWith(((_f, _w, _e, hooks) => {
+        (hooks as { onFormHidden?: () => void } | undefined)?.onFormHidden?.();
+        return Promise.resolve();
+      }) as never);
+      await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
+    });
+
+    it("keeps the form up until that moment — the fade needs it on screen", async () => {
+      let release: (() => void) | undefined;
+      const { getByText } = await claimWith(
+        (() => new Promise<void>((resolve) => (release = resolve))) as never,
+      );
+      await waitFor(() => expect(release).toBeDefined());
+      expect(formPanel({ getByText }).style.display).toBe("");
+      release!();
+      await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
+    });
+
+    it("hides the form when REPORTED, not merely when the sequence ends", async () => {
+      // T-U3: the mirror of the test above. Holding the sequence open after it
+      // reports is the only way to tell "hidden on report" from "hidden by the
+      // `finally`" — once the promise settles the `finally` masks the
+      // difference, which is why dropping the `onFormHidden` wiring was
+      // otherwise invisible.
+      let release: (() => void) | undefined;
+      const { getByText } = await claimWith(((_f, _w, _e, hooks) => {
+        (hooks as { onFormHidden?: () => void } | undefined)?.onFormHidden?.();
+        return new Promise<void>((resolve) => (release = resolve));
+      }) as never);
+      await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
+      expect(release).toBeDefined();
+      release!();
+    });
+
+    it("still completes the swap when the sequence throws", async () => {
+      // A motion chunk that fails to load must never leave the claim form
+      // sitting on top of a claimed invite — the `finally` in handleClaimed.
+      const { getByText, queryByText } = await claimWith((() => {
+        throw new Error("chunk failed");
+      }) as never);
+      await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
+      expect(queryByText(/Dear Priya/)).toBeTruthy();
+    });
+
+    it("still completes the swap when the sequence never reports", async () => {
+      const { getByText } = await claimWith((() => Promise.resolve()) as never);
+      await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
     });
   });
 });

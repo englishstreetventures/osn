@@ -1,5 +1,6 @@
 import { AuthProvider } from "@shared/rp-auth/solid";
 import {
+  batch,
   createEffect,
   createMemo,
   createResource,
@@ -106,6 +107,16 @@ export default function InvitePage(props: InvitePageProps) {
   // `opacity-0`: that class is only safe when something is going to animate it
   // back, and on this path nothing is.
   const [restoredSession, setRestoredSession] = createSignal(false);
+  // Whether the post-claim view has taken over from the code form. Deliberately
+  // NOT derived from `claimResult`: the swap is choreographed, so the form has
+  // to stay in the layout for the length of its fade-out — a beat after the
+  // claim resolves. This signal is the SINGLE owner of both elements' `display`
+  // (`LoginSection`'s `revealed` prop); the motion sequence reports the moment
+  // via `onFormHidden` and never writes `display` itself, because an imperative
+  // write desynchronises Solid's style binding permanently — Solid diffs against
+  // the last value it wrote, so it would skip every later attempt to restore the
+  // form. See `RevealHooks` in ./UnlockReveal.motion.
+  const [revealed, setRevealed] = createSignal(false);
 
   // Warm the two chunks that are otherwise fetched mid-interaction: the unlock
   // sequence (imported inside `handleClaimed`, i.e. after the claim resolves)
@@ -125,13 +136,25 @@ export default function InvitePage(props: InvitePageProps) {
     apiUrl: props.apiUrl,
     slug: props.slug,
     result: claimResult,
-    onRestored: (result) => {
+    onRestored: (result) =>
       // Order matters — `restoredSession` must be true before the events
       // section first renders, or it paints at `opacity-0` with nothing queued
-      // to reveal it.
-      setRestoredSession(true);
-      setClaimResult(result);
-    },
+      // to reveal it. `revealed` goes with it for the same reason: a restore
+      // runs no choreography, so nothing would ever flip it, and the code form
+      // would sit on top of the household's own invite.
+      //
+      // `batch` so the three commit as one (S-L1). Solid runs style bindings
+      // synchronously on write, so unbatched there is a window — one statement
+      // wide today — where `revealed` is true and `claimResult` is still null:
+      // the form hidden, the welcome banner rendering from nothing. Nothing
+      // paints in it now, but it is the state that hides the only door into the
+      // invite committed ahead of the result that justifies hiding it, and any
+      // later `await` or transition between these lines would open it for real.
+      batch(() => {
+        setRestoredSession(true);
+        setRevealed(true);
+        setClaimResult(result);
+      }),
   });
 
   const siteUrl = () =>
@@ -217,17 +240,25 @@ export default function InvitePage(props: InvitePageProps) {
     // Wait a tick so SolidJS renders the events section into the DOM
     await new Promise((r) => setTimeout(r, 0));
 
-    if (loginFormRef && welcomeRef && eventsSectionRef) {
-      try {
+    try {
+      if (loginFormRef && welcomeRef && eventsSectionRef) {
         const { unlockRevealSequence } = await import("./UnlockReveal.motion");
-        await unlockRevealSequence(loginFormRef, welcomeRef, eventsSectionRef);
-      } catch {
-        // The motion chunk failed to load (offline mid-session, stale deploy) —
-        // reveal without the animation; the invite must never stay hidden.
+        await unlockRevealSequence(loginFormRef, welcomeRef, eventsSectionRef, {
+          onFormHidden: () => setRevealed(true),
+        });
+      } else if (eventsSectionRef) {
         eventsSectionRef.style.opacity = "1";
       }
-    } else if (eventsSectionRef) {
-      eventsSectionRef.style.opacity = "1";
+    } catch {
+      // The motion chunk failed to load (offline mid-session, stale deploy) —
+      // reveal without the animation; the invite must never stay hidden.
+      if (eventsSectionRef) eventsSectionRef.style.opacity = "1";
+    } finally {
+      // The swap completes even when the choreography did not. A failed chunk,
+      // a missing ref or a throw mid-sequence must never leave the code form
+      // sitting on top of an invite this guest has already claimed. Idempotent —
+      // the happy path has normally set it already, from `onFormHidden`.
+      setRevealed(true);
     }
   }
 
@@ -236,6 +267,7 @@ export default function InvitePage(props: InvitePageProps) {
       <LoginSection
         apiUrl={props.apiUrl}
         result={claimResult()}
+        revealed={revealed()}
         onClaimed={handleClaimed}
         formRef={(el) => (loginFormRef = el)}
         welcomeRef={(el) => (welcomeRef = el)}

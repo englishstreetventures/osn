@@ -9,6 +9,20 @@ interface LoginSectionProps {
   apiUrl: string;
   result: ClaimResult | null;
   onClaimed: (result: ClaimResult) => void;
+  /**
+   * Which half of this section is on screen: `false` ⇒ the code form, `true` ⇒
+   * the welcome banner. Absent ⇒ derived from `result`, i.e. the plain instant
+   * swap, which is what a caller that doesn't choreograph the unlock wants.
+   *
+   * It is a separate signal from `result` because the swap is CHOREOGRAPHED: the
+   * form fades out before it leaves the layout, so it has to stay displayed for
+   * the length of that fade — a beat after the claim has already resolved. This
+   * prop is the single owner of both elements' `display`; the motion sequence
+   * reports when to flip it and never writes `display` itself — see the
+   * `RevealHooks` note in each design pack's `UnlockReveal.motion.ts` for why
+   * an imperative write there would desynchronise this binding permanently.
+   */
+  revealed?: boolean;
   formRef?: (el: HTMLDivElement) => void;
   welcomeRef?: (el: HTMLDivElement) => void;
   /**
@@ -34,6 +48,11 @@ export function LoginSection(props: LoginSectionProps) {
     result: () => props.result,
     onClaimed: (result) => props.onClaimed(result),
   });
+
+  // Falls back to `result` so the section still swaps for a caller that passes
+  // no `revealed` — and it is only ever READ here, never written, so this
+  // component cannot latch itself into either half.
+  const showWelcome = () => props.revealed ?? props.result !== null;
 
   // A claim code can cover one guest or a whole household. A single-guest code
   // greets the person individually ("Dear {name}"); a multi-guest code greets
@@ -62,7 +81,7 @@ export function LoginSection(props: LoginSectionProps) {
     >
       <div class="mx-auto max-w-[540px] text-center md:max-w-[640px]">
         {/* Login form — visible before claim */}
-        <div ref={props.formRef} style={{ display: props.result ? "none" : "" }}>
+        <div ref={props.formRef} style={{ display: showWelcome() ? "none" : "" }}>
           <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
             Your Invitation
           </p>
@@ -82,7 +101,33 @@ export function LoginSection(props: LoginSectionProps) {
               // A border tint alone is too quiet to mark focus on the page's
               // one input; the ring keeps keyboard users oriented. Text cursor
               // on a text field — the pointer belongs on buttons only.
-              class="border-border font-body text-text placeholder:text-text-muted focus:border-gold w-full cursor-text rounded-sm border bg-transparent px-4 py-3.5 text-center text-base tracking-[0.1em] uppercase transition-colors duration-200 placeholder:tracking-[0.04em] placeholder:normal-case focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+              //
+              // The fill and the border are both drawn from `--color-text` (the
+              // scheme's ink) at alpha rather than from a surface token, because
+              // the organiser picks which surface this section sits on
+              // (`welcome_tone`: ground / card / raised). A fixed token would be
+              // invisible on the tone that happens to match it; ink-at-alpha is
+              // one step away from WHATEVER is behind it on every palette, and
+              // in the right direction — it darkens a light scheme and lightens
+              // a dark one.
+              //
+              // `border-border` — the same ink at 0.12 — measured 1.27:1 against
+              // this section on the live invite, so the field read as flat page
+              // (and as a twin of the outlined submit button below it). WCAG 2.1
+              // SC 1.4.11 asks **3:1** of the visual boundary that identifies a
+              // control, and this is the guest site's only input, so under the
+              // bar is not an option. 0.55 is the lowest alpha that clears it on
+              // the WORST preset/tone pair — garden/ground at 3.23:1, measured
+              // by compositing over every `PALETTE_PRESETS` entry × all three
+              // tones in a real browser. The fill stays deliberately faint
+              // (~1.09:1): it only has to read as a well, the border is what the
+              // standard governs.
+              class="border-text/55 bg-text/[0.045] font-body text-text placeholder:text-text-muted focus:border-gold w-full cursor-text rounded-sm border px-4 py-3.5 text-center text-base tracking-[0.1em] uppercase transition-colors duration-200 placeholder:tracking-[0.04em] placeholder:normal-case focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+              // A placeholder is not an accessible name — it is not exposed as
+              // one, and it disappears the moment the guest types. Without this
+              // the only control on the page is an unnamed edit field to a
+              // screen reader or voice control (WCAG SC 3.3.2 / 4.1.2).
+              aria-label="Invitation code"
               placeholder="e.g. PATEL-JOY-RK97"
               value={claim.code()}
               onInput={(e) => claim.setCode(e.currentTarget.value)}
@@ -119,7 +164,7 @@ export function LoginSection(props: LoginSectionProps) {
         </div>
 
         {/* Welcome message — visible after claim */}
-        <div ref={props.welcomeRef} style={{ display: props.result ? "" : "none" }}>
+        <div ref={props.welcomeRef} style={{ display: showWelcome() ? "" : "none" }}>
           <Show when={props.result?.preview}>
             <p
               class="border-gold/40 bg-gold/5 text-gold-ink mx-auto mb-6 max-w-[420px] rounded-sm border px-4 py-3 text-[0.78rem] tracking-[0.08em] uppercase"

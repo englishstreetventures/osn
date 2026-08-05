@@ -30,17 +30,30 @@ function prefersReducedMotion(): boolean {
  * welcome and events visible. This is what every animated step below settles
  * on, so a reduced-motion guest sees exactly the same invite — it simply
  * arrives at once.
+ *
+ * As in classic, the `display` of the claim form and the welcome banner is NOT
+ * touched here — SolidJS owns it. See {@link RevealHooks}.
  */
-function settleRevealed(
-  loginForm: HTMLElement,
-  welcomeEl: HTMLElement,
-  eventsSection: HTMLElement,
-) {
-  loginForm.style.display = "none";
-  welcomeEl.style.display = "";
+function settleRevealed(welcomeEl: HTMLElement, eventsSection: HTMLElement, hooks?: RevealHooks) {
+  hooks?.onFormHidden?.();
   welcomeEl.style.opacity = "1";
   eventsSection.style.display = "";
   eventsSection.style.opacity = "1";
+}
+
+/**
+ * The swap this sequence reports rather than performs — verbatim from classic,
+ * including the reason. Both elements' `display` is a reactive SolidJS binding,
+ * and Solid diffs a style binding against the last value IT wrote, so an
+ * imperative write from here desynchronises the binding permanently: Solid goes
+ * on believing `display` is `""` and skips every later attempt to restore the
+ * form. The island flips one signal instead, keeping a single owner for
+ * `display` — and the form now stays on screen for the fade-out in step 1,
+ * which the old arrangement animated after Solid had already hidden it.
+ */
+export interface RevealHooks {
+  /** Fired once the claim form has faded out and should leave the layout. */
+  onFormHidden?: () => void;
 }
 
 function tryAnimate(run: () => { finished: Promise<unknown> }): Promise<unknown> {
@@ -66,10 +79,11 @@ export async function unlockRevealSequence(
   loginForm: HTMLElement,
   welcomeEl: HTMLElement,
   eventsSection: HTMLElement,
+  hooks?: RevealHooks,
 ) {
   // Reduced motion: skip the choreography, land on the same end state.
   if (prefersReducedMotion()) {
-    settleRevealed(loginForm, welcomeEl, eventsSection);
+    settleRevealed(welcomeEl, eventsSection, hooks);
     return;
   }
 
@@ -81,10 +95,10 @@ export async function unlockRevealSequence(
       { duration: 0.3, ease: "easeIn" },
     ),
   );
-  loginForm.style.display = "none";
+  // Faded out — hand the swap back to the island, which owns `display`.
+  hooks?.onFormHidden?.();
 
   // 2. Reveal welcome message
-  welcomeEl.style.display = "";
   welcomeEl.style.opacity = "1";
   void tryAnimate(() =>
     animate(
