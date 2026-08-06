@@ -10,12 +10,12 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-06
 ---
 
 # Zap
 
-Zap is OSN's end-to-end encrypted messaging app. The backend (`@zap/api`, `@zap/db`) is scaffolded and runs on **port 3002**. The Tauri client (`@zap/app`) has not been started yet — see `wiki/TODO.md` for milestone status.
+Zap is OSN's end-to-end encrypted messaging app. The backend (`@zap/api`, `@zap/db`) is scaffolded and runs on **port 3002**. The `@zap/app` client has not been started yet — see `wiki/TODO.md` for milestone status.
 
 ## Status by package
 
@@ -23,7 +23,7 @@ Zap is OSN's end-to-end encrypted messaging app. The backend (`@zap/api`, `@zap/
 |---|---|---|
 | `@zap/api` | Elysia messaging server (port 3002) | M0 scaffolded — routes/services skeleton in place; M1 (1:1 DMs over Signal) in progress |
 | `@zap/db` | Drizzle + SQLite schema (chats, messages, group state) | M0 scaffolded |
-| `@zap/app` | Tauri + SolidJS messaging client | Not started |
+| `@zap/app` | SolidJS messaging client | Not started |
 
 The Signal Protocol implementation lives in `@shared/crypto` (alongside ARC tokens), not in `zap/` — every OSN app that needs E2E messaging consumes it from there.
 
@@ -39,7 +39,7 @@ The Signal Protocol implementation lives in `@shared/crypto` (alongside ARC toke
 
 | Milestone | Scope |
 |---|---|
-| **M0 – Scaffold** | Tauri / API / DB skeletons, OSN auth integration, test infra, Turbo pipeline |
+| **M0 – Scaffold** | App / API / DB skeletons, OSN auth integration, test infra, Turbo pipeline |
 | **M1 – 1:1 DMs** | Signal Protocol (Double Ratchet, **PQXDH** — X25519 + ML-KEM-768 hybrid; classical-only X3DH is HNDL-exposed), message CRUD, WebSocket transport, read/delivery receipts, disappearing messages |
 | **M2 – Group chats** | MLS or Sender Keys for group encryption (hybrid PQ KEM required either way), roles, invites; Pulse event-chat hookup |
 | **M3 – Organisation chats** | Verified accounts, dashboards, embeddable widget, e-commerce hooks |

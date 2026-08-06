@@ -80,11 +80,9 @@ export async function completeOnboarding(
 // ---------------------------------------------------------------------------
 // Platform permission helpers
 //
-// Standard browser APIs work in: web browsers, Tauri desktop webviews
-// (macOS/Windows/Linux), and Tauri 2.x mobile webviews (iOS WKWebView,
-// Android WebView). For a more native iOS prompt experience we'd later
-// adopt @tauri-apps/plugin-geolocation + plugin-notification — wired
-// through the same `requestX` functions so callers stay unchanged.
+// Standard browser APIs — this module only ever runs in a browser tab.
+// The native iOS app is a separate Swift target with its own permission
+// prompts; it does not load this bundle.
 // ---------------------------------------------------------------------------
 
 /**

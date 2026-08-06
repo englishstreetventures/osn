@@ -2,19 +2,11 @@ import { A } from "@solidjs/router";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { Icon } from "../components/Icon";
-import { onGlassPanelEvent, updateGlassPanels, type GlassPanel } from "../lib/glass";
 import type { EventItem } from "../lib/types";
 import type { VenueSummary } from "../lib/venues";
 
 // NYC bounding box for coordinate projection
 const BBOX = { minLng: -74.03, maxLng: -73.88, minLat: 40.63, maxLat: 40.76 };
-
-// Native zoom-button step/bounds — the map layer scales visually by this
-// factor per tap, proving the native → JS event path in the on-device
-// verification screenshot.
-const ZOOM_MIN = 1;
-const ZOOM_MAX = 2.5;
-const ZOOM_STEP = 0.25;
 
 function proj(lat: number, lng: number, w: number, h: number): [number, number] {
   const x = ((lng - BBOX.minLng) / (BBOX.maxLng - BBOX.minLng)) * w;
@@ -266,8 +258,6 @@ function HeatmapCanvas(props: {
 function TimeScrubber(props: {
   hour: number;
   onHourChange: (h: number) => void;
-  nativeGlass: boolean;
-  lockedHeight?: number;
   ref?: (el: HTMLDivElement) => void;
 }) {
   const displayHour = () => {
@@ -290,68 +280,58 @@ function TimeScrubber(props: {
   return (
     <div
       ref={props.ref}
-      class="rounded-xl p-3"
-      classList={{ "border border-white/60": !props.nativeGlass }}
+      class="rounded-xl border border-white/60 p-3"
       style={{
-        background: props.nativeGlass
-          ? "transparent"
-          : "color-mix(in oklab, var(--card) 92%, transparent)",
-        "backdrop-filter": props.nativeGlass ? "none" : "blur(14px)",
-        "box-shadow": props.nativeGlass ? "none" : "var(--shadow-sm)",
-        // Native draws the real controls once `nativeGlass` is true — this
-        // div becomes a bare rect the glass host measures for placement.
-        // Pin it to the last real (pre-native) content height so it doesn't
-        // collapse once its children below are unmounted.
-        height: props.nativeGlass && props.lockedHeight ? `${props.lockedHeight}px` : undefined,
+        background: "color-mix(in oklab, var(--card) 92%, transparent)",
+        "backdrop-filter": "blur(14px)",
+        "box-shadow": "var(--shadow-sm)",
       }}
     >
-      <Show when={!props.nativeGlass}>
-        <div class="mb-2.5 flex items-center justify-between text-[11.5px]">
-          <span
-            class="text-muted-foreground tracking-wider uppercase"
-            style={{ "font-family": "var(--font-mono)", "font-size": "11px" }}
-          >
-            HEAT AT
-          </span>
-          <span
-            style={{
-              "font-family": "var(--font-serif)",
-              "font-size": "19px",
-              "letter-spacing": "-0.01em",
-            }}
-          >
-            {displayHour()}{" "}
-            <span
-              class="text-muted-foreground text-[12px] italic"
-              style={{ "font-family": "var(--font-sans)" }}
-            >
-              · {label()}
-            </span>
-          </span>
-        </div>
-        <input
-          type="range"
-          min="0"
-          max="23"
-          step="1"
-          value={props.hour}
-          onInput={(e) => props.onHourChange(parseInt(e.currentTarget.value))}
-          class="explore-slider w-full"
-          style={{
-            background: `linear-gradient(90deg, var(--foreground) 0%, var(--foreground) ${pct()}%, var(--border) ${pct()}%, var(--border) 100%)`,
-          }}
-        />
-        <div
-          class="text-muted-foreground mt-1.5 flex justify-between text-[9.5px] tracking-wider uppercase"
-          style={{ "font-family": "var(--font-mono)" }}
+      <div class="mb-2.5 flex items-center justify-between text-[11.5px]">
+        <span
+          class="text-muted-foreground tracking-wider uppercase"
+          style={{ "font-family": "var(--font-mono)", "font-size": "11px" }}
         >
-          <span>12AM</span>
-          <span>6</span>
-          <span>NOON</span>
-          <span>6</span>
-          <span>11PM</span>
-        </div>
-      </Show>
+          HEAT AT
+        </span>
+        <span
+          style={{
+            "font-family": "var(--font-serif)",
+            "font-size": "19px",
+            "letter-spacing": "-0.01em",
+          }}
+        >
+          {displayHour()}{" "}
+          <span
+            class="text-muted-foreground text-[12px] italic"
+            style={{ "font-family": "var(--font-sans)" }}
+          >
+            · {label()}
+          </span>
+        </span>
+      </div>
+      <input
+        type="range"
+        min="0"
+        max="23"
+        step="1"
+        value={props.hour}
+        onInput={(e) => props.onHourChange(parseInt(e.currentTarget.value))}
+        class="explore-slider w-full"
+        style={{
+          background: `linear-gradient(90deg, var(--foreground) 0%, var(--foreground) ${pct()}%, var(--border) ${pct()}%, var(--border) 100%)`,
+        }}
+      />
+      <div
+        class="text-muted-foreground mt-1.5 flex justify-between text-[9.5px] tracking-wider uppercase"
+        style={{ "font-family": "var(--font-mono)" }}
+      >
+        <span>12AM</span>
+        <span>6</span>
+        <span>NOON</span>
+        <span>6</span>
+        <span>11PM</span>
+      </div>
     </div>
   );
 }
@@ -389,22 +369,11 @@ export function ExploreMap(props: {
   onHoverEvent?: (id: string | null) => void;
 }) {
   let wrapRef: HTMLDivElement | undefined;
-  let scrubberRef: HTMLDivElement | undefined;
-  let zoomRef: HTMLDivElement | undefined;
   const [size, setSize] = createSignal({ w: 700, h: 900 });
   const [hour, setHour] = createSignal(new Date().getHours());
-  // Driven only by the native zoom buttons (see the `nativeGlass` effect
-  // below) — the DOM zoom cluster's own "Zoom in" button has never had a
-  // click handler and stays inert everywhere else, unchanged.
-  const [zoom, setZoom] = createSignal(1);
-  // True once the native glass host has confirmed both panels are placed —
-  // only then do we strip the CSS `backdrop-filter` fallback. Stays false on
-  // desktop and in-browser, where `updateGlassPanels` rejects.
-  const [nativeGlass, setNativeGlass] = createSignal(false);
-  // Last real (pre-native) rendered height of the time-scrubber box, so the
-  // native placeholder div has a stable size to report once its children
-  // are unmounted (see `TimeScrubber`'s `lockedHeight` prop).
-  const [scrubberHeight, setScrubberHeight] = createSignal<number>();
+  // The DOM zoom cluster's "Zoom in"/"Layers" buttons have never had a click
+  // handler and stay inert — this signal has no way to change, unchanged.
+  const [zoom] = createSignal(1);
   const [hoveredPin, setHoveredPin] = createSignal<{
     event: EventItem;
     x: number;
@@ -435,113 +404,6 @@ export function ExploreMap(props: {
     onCleanup(() => {
       ro.disconnect();
       if (resizeTimer) clearTimeout(resizeTimer);
-    });
-  });
-
-  // Places native glass panels directly over the webview at the DOM
-  // controls' current viewport rects. Rects are in CSS px, which is also the
-  // webview's own point space at the standard device-width viewport scale,
-  // so no unit conversion happens here. Rejects on desktop/browser, where
-  // the CSS `backdrop-filter` fallback stays in charge.
-  // Rects of the last push that was actually sent, so a scroll that ends up
-  // reporting the same geometry — the sticky pane's rect stops changing once
-  // it is stuck — costs no IPC. A rAF-throttled scroll handler otherwise
-  // fires one round-trip per frame for the whole scroll.
-  let lastPushed = "";
-
-  const pushGlassPanels = () => {
-    if (!scrubberRef || !zoomRef) return;
-    const s = scrubberRef.getBoundingClientRect();
-    const z = zoomRef.getBoundingClientRect();
-    if (s.height > 0) setScrubberHeight(s.height);
-    const key = `${s.left},${s.top},${s.width},${s.height}|${z.left},${z.top},${z.width},${z.height}`;
-    if (key === lastPushed) return;
-    lastPushed = key;
-    const panels: GlassPanel[] = [
-      {
-        id: "time-scrubber",
-        x: s.left,
-        y: s.top,
-        width: s.width,
-        height: s.height,
-        cornerRadius: 12,
-      },
-      {
-        id: "zoom-controls",
-        x: z.left,
-        y: z.top,
-        width: z.width,
-        height: z.height,
-        cornerRadius: 10,
-      },
-    ];
-    updateGlassPanels(panels)
-      .then(() => setNativeGlass(true))
-      .catch(() => setNativeGlass(false));
-  };
-
-  onMount(() => {
-    pushGlassPanels();
-    // The scrubber panel's own width tracks the map width (`right-4 left-4`),
-    // so a ResizeObserver on it catches container resizes. The zoom cluster
-    // is intrinsically sized (`right-4 bottom-4`) — its box never resizes,
-    // only its position shifts — so a container resize is covered instead by
-    // the `size()` effect below, and a viewport resize (e.g. rotation) by
-    // the window listener here.
-    const ro = new ResizeObserver(() => pushGlassPanels());
-    ro.observe(scrubberRef!);
-    ro.observe(zoomRef!);
-    window.addEventListener("resize", pushGlassPanels);
-    // None of the above fire for a pure position shift with no size change —
-    // e.g. a web font swapping in after first paint and growing the hero
-    // text above this pane, which pushes the pane (and both refs) down
-    // without resizing wrapRef itself. Re-measure once fonts settle to catch
-    // that case.
-    document.fonts?.ready?.then(() => pushGlassPanels());
-    // `.explore-map-pane` is `sticky top-0` — scrolling past its natural
-    // (pre-stuck) position changes both refs' viewport rects continuously
-    // with no resize involved. Re-measure on scroll, rAF-throttled, so the
-    // native panels track the sticky transition instead of freezing at the
-    // rect captured on mount.
-    let scrollFrame: number | undefined;
-    const onScroll = () => {
-      if (scrollFrame != null) return;
-      scrollFrame = requestAnimationFrame(() => {
-        scrollFrame = undefined;
-        pushGlassPanels();
-      });
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    onCleanup(() => {
-      ro.disconnect();
-      window.removeEventListener("resize", pushGlassPanels);
-      window.removeEventListener("scroll", onScroll);
-      if (scrollFrame != null) cancelAnimationFrame(scrollFrame);
-      updateGlassPanels([]).catch(() => {});
-    });
-  });
-
-  createEffect(() => {
-    size();
-    pushGlassPanels();
-  });
-
-  // Subscribe to the native panels' own events once they're confirmed live —
-  // never on desktop/browser, where `addPluginListener` would just hang
-  // waiting on a channel the Rust side rejects up front (see desktop.rs).
-  createEffect(() => {
-    if (!nativeGlass()) return;
-    const unsubs: Promise<() => void>[] = [
-      onGlassPanelEvent<void>("zoomIn", () =>
-        setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2))),
-      ),
-      onGlassPanelEvent<void>("zoomOut", () =>
-        setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2))),
-      ),
-      onGlassPanelEvent<{ hour: number }>("hourChanged", (payload) => setHour(payload.hour)),
-    ];
-    onCleanup(() => {
-      unsubs.forEach((p) => p.then((unsub) => unsub()).catch(() => {}));
     });
   });
 
@@ -785,48 +647,30 @@ export function ExploreMap(props: {
 
       {/* Controls overlay */}
       <div class="absolute top-4 right-4 left-4 z-[3]">
-        <TimeScrubber
-          hour={hour()}
-          onHourChange={setHour}
-          nativeGlass={nativeGlass()}
-          lockedHeight={scrubberHeight()}
-          ref={(el) => (scrubberRef = el)}
-        />
+        <TimeScrubber hour={hour()} onHourChange={setHour} />
       </div>
 
       {/* Legend */}
       <Legend />
 
-      {/* Zoom controls — native draws the buttons once `nativeGlass` is
-          true; this div becomes a bare 34×69 rect (its own intrinsic size,
-          pinned explicitly since the buttons that produced it are gone) for
-          the glass host to measure. */}
-      <div
-        ref={(el) => (zoomRef = el)}
-        class="absolute right-4 bottom-4 z-[3] flex flex-col overflow-hidden rounded-[10px]"
-        classList={{ "bg-card border-border border shadow-sm": !nativeGlass() }}
-        style={{
-          width: nativeGlass() ? "34px" : undefined,
-          height: nativeGlass() ? "69px" : undefined,
-        }}
-      >
-        <Show when={!nativeGlass()}>
-          <button
-            type="button"
-            class="hover:bg-secondary grid h-[34px] w-[34px] place-items-center"
-            title="Zoom in"
-          >
-            <Icon name="plus" size={14} />
-          </button>
-          <div class="bg-border h-px" />
-          <button
-            type="button"
-            class="hover:bg-secondary grid h-[34px] w-[34px] place-items-center"
-            title="Layers"
-          >
-            <Icon name="layers" size={14} />
-          </button>
-        </Show>
+      {/* Zoom controls. The "Zoom in" and "Layers" buttons have never had a
+          click handler and stay inert — the map itself is not zoomable. */}
+      <div class="bg-card border-border absolute right-4 bottom-4 z-[3] flex flex-col overflow-hidden rounded-[10px] border shadow-sm">
+        <button
+          type="button"
+          class="hover:bg-secondary grid h-[34px] w-[34px] place-items-center"
+          title="Zoom in"
+        >
+          <Icon name="plus" size={14} />
+        </button>
+        <div class="bg-border h-px" />
+        <button
+          type="button"
+          class="hover:bg-secondary grid h-[34px] w-[34px] place-items-center"
+          title="Layers"
+        >
+          <Icon name="layers" size={14} />
+        </button>
       </div>
     </div>
   );

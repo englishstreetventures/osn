@@ -2,7 +2,7 @@
 
 OSN's end-to-end encrypted messaging app. `@zap/api` and `@zap/db` are
 scaffolded (M0 done; M1 — 1:1 DMs over Signal — in flight on port
-3002). The Tauri client `@zap/app` has not been started yet.
+3002). The `@zap/app` client has not been started yet.
 Implementation is tracked in [`../wiki/TODO.md`](../wiki/TODO.md) and
 [`../wiki/apps/zap.md`](../wiki/apps/zap.md).
 
@@ -16,7 +16,7 @@ overbearing. Modern, secure, transparent.
 It mirrors `pulse/`. Each user-facing OSN app gets its own domain
 directory + workspace prefix:
 
-- `@zap/app` — Tauri + SolidJS frontend (planned)
+- `@zap/app` — SolidJS frontend (planned)
 - `@zap/api` — Elysia messaging backend (port 3002)
 - `@zap/db` — Drizzle + SQLite schema (chats, messages, group state)
 
@@ -74,7 +74,7 @@ Same as Pulse unless a real reason emerges:
 | Layer           | Tool                                                |
 | --------------- | --------------------------------------------------- |
 | Runtime         | Bun                                                 |
-| Frontend        | Tauri + SolidJS (iOS first)                         |
+| Frontend        | SolidJS (iOS first)                                 |
 | Backend         | Elysia + Eden                                       |
 | ORM / DB        | Drizzle + SQLite (→ Supabase later)                 |
 | Functional core | Effect.ts                                           |

@@ -101,7 +101,7 @@ Secure, playful messaging that doubles as the ecosystem's support and announceme
 - **Organisation tooling** — dashboards for triage, agent assignment, analytics, SLA monitoring and audit.
 - **Locality and government channels** — users opt into a locality (home city, plus a temporary one while travelling) and get official notices — floods, evacuations, public safety. AI-assisted queries route people to authoritative answers ("where is the nearest relief centre?") in real time.
 
-`@zap/api` and `@zap/db` are scaffolded (M0 done, M1 in flight). `@zap/app`, the Tauri + SolidJS client, has not started. See `wiki/TODO.md` and `wiki/apps/zap.md`.
+`@zap/api` and `@zap/db` are scaffolded (M0 done, M1 in flight). `@zap/app`, the SolidJS client, has not started. See `wiki/TODO.md` and `wiki/apps/zap.md`.
 
 ### Social media (spec only, deferred)
 
@@ -123,7 +123,7 @@ osn/              # @osn/* — identity stack
   landing/          # Marketing site, Astro + Solid (:4324)
 
 pulse/            # @pulse/* — events stack
-  app/              # Tauri + SolidJS client
+  app/              # SolidJS client (browser SPA)
   api/              # Elysia + Eden events server (:3001)
   db/               # Drizzle schema — events, RSVPs
   landing/          # Marketing site (:4325)
@@ -153,8 +153,6 @@ shared/           # @shared/* — cross-cutting utilities
   turnstile/         # Key-optional, fail-closed Turnstile verifier
   typescript-config/ # base / node / solid tsconfigs
 ```
-
-Each Tauri app keeps the standard layout: `src/` SolidJS frontend, `src-tauri/` Rust layer with iOS and Android targets.
 
 **Prefix rule:** every workspace sits under exactly one of `osn/`, `pulse/`, `zap/`, `cire/` or `shared/`, and its `package.json` `name` uses the matching prefix.
 
@@ -188,7 +186,6 @@ Four environments, two drivers, one Drizzle type:
 - **Standalone apps first**, working toward a hybrid super-app
 - **iOS first**, then web, then Android (Android deferred)
 - **SolidJS** everywhere; **Astro + Solid** for the web surfaces and marketing sites
-- **Tauri** for native builds
 - Shared components in `@osn/ui`, built on Kobalte in the Zaidan (shadcn-for-Solid) style
 
 ### Messaging architecture
@@ -217,7 +214,6 @@ So Pulse users can join event chats without installing Zap.
 | Email | Resend HTTP API |
 | Frontend framework | SolidJS |
 | Web / marketing sites | Astro + Solid, on Cloudflare Pages |
-| Native apps | Tauri |
 | Monorepo | Turborepo |
 | Testing | Vitest + @effect/vitest |
 | Linting | oxlint |

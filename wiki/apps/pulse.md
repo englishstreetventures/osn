@@ -8,7 +8,7 @@ packages:
   - "@pulse/api"
   - "@pulse/db"
 port: 3001
-last-reviewed: 2026-07-23
+last-reviewed: 2026-08-06
 ---
 
 # Pulse
@@ -18,9 +18,8 @@ Pulse is OSN's event management app. Users create, discover, and RSVP to events 
 ## Architecture
 
 ```
-@pulse/app (Tauri + SolidJS, iOS target ready)
+@pulse/app (SolidJS browser SPA)
   ├── SolidJS frontend (src/)
-  ├── Rust + Tauri native layer (src-tauri/)
   └── Consumes @osn/client, @osn/ui, @pulse/api
 
 @pulse/api (Elysia + Eden, binary, port 3001)

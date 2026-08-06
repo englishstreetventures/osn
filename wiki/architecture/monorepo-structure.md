@@ -47,7 +47,7 @@ packages:
   - "@shared/redis"
   - "@shared/turnstile"
   - "@shared/typescript-config"
-last-reviewed: 2026-07-26
+last-reviewed: 2026-08-06
 ---
 
 # Monorepo Structure
@@ -59,7 +59,7 @@ The monorepo is organised by **domain**. Five top-level directories, five worksp
 | Dir | Prefix | What lives here |
 |-----|--------|-----------------|
 | `osn/` | `@osn/*` | Identity stack — auth, social graph, organisations, recommendations, SDK, UI components, landing site, social management app |
-| `pulse/` | `@pulse/*` | Events stack — Tauri client, events API (port 3001), DB |
+| `pulse/` | `@pulse/*` | Events stack — client, events API (port 3001), DB |
 | `zap/` | `@zap/*` | Messaging stack — API (port 3002), DB. App is planned |
 | `cire/` | `@cire/*` | Wedding-invite stack — guest site, organiser portal, vendor portal, API, DB, theme validators, marketing site |
 | `shared/` | `@shared/*` | Cross-cutting utilities consumable by any stack |
@@ -75,16 +75,15 @@ osn/
   social/              # @osn/social — SolidJS web app for identity + graph management (port 1422)
   landing/             # @osn/landing — Astro + Solid marketing site (port 4324)
 pulse/
-  app/                 # @pulse/app — Tauri + SolidJS (iOS target ready)
+  app/                 # @pulse/app — SolidJS browser SPA
     src/               #   SolidJS frontend
-    src-tauri/         #   Rust + Tauri native layer
   api/                 # @pulse/api — Elysia + Eden events server (port 3001)
   db/                  # @pulse/db — Drizzle + SQLite (events, RSVPs)
   landing/             # @pulse/landing — Astro + Solid marketing site (port 4325)
 zap/
   api/                 # @zap/api — Elysia messaging server (port 3002) — M0 scaffolded; M1+ in flight (see TODO.md)
   db/                  # @zap/db — Drizzle schema (chats, messages, group state)
-                       # @zap/app — planned (Tauri + SolidJS messaging client)
+                       # @zap/app — planned (SolidJS messaging client)
 cire/
   web/                 # @cire/web — Astro + SolidJS guest invite site (port 4321; prod invite.cireweddings.com)
   organiser/           # @cire/organiser — Astro + SolidJS organiser portal (port 4322; prod host.cireweddings.com)
@@ -131,7 +130,7 @@ Cross-domain access (e.g. Pulse reading OSN's social graph) goes through a bridg
 
 ## Tech Stack
 
-Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite locally and Cloudflare D1 in the deployed tiers (a Supabase Postgres migration is deferred — see `wiki/TODO.md`), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Tauri, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest.
+Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite locally and Cloudflare D1 in the deployed tiers (a Supabase Postgres migration is deferred — see `wiki/TODO.md`), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest.
 
 ## Source Files
 

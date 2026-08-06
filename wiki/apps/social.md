@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-08-02
+last-reviewed: 2026-08-06
 ---
 
 # Social
@@ -32,7 +32,7 @@ last-reviewed: 2026-08-02
   └── Talks to @osn/api (port 4000) directly over REST
 ```
 
-No Tauri wrapper yet — the app ships as a web build only. Tauri wrapping is tracked in `wiki/TODO.md` as a Phase 2 item.
+The app ships as a web build only.
 
 ## Pages
 

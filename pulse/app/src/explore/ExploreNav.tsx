@@ -20,7 +20,6 @@ import { toast } from "solid-toast";
 import { Icon } from "../components/Icon";
 import { registrationClient, loginClient, recoveryClient } from "../lib/authClients";
 import { setShowCreateForm } from "../lib/createEventSignal";
-import { nativeTabBarActive } from "../lib/nativeTabBar";
 import { TABS } from "../lib/tabs";
 import { getTokenClaims } from "../lib/utils";
 
@@ -112,35 +111,31 @@ export function ExploreNav(props: {
             <span class="pb-0.5 text-[26px] tracking-tight">Pulse</span>
           </div>
 
-          {/* Tabs. Hidden once the native tab bar is up: it carries the same
-              routes, and two sets of tabs on one screen is one too many. */}
-          <Show when={!nativeTabBarActive()}>
-            <nav class="flex gap-0.5">
-              <For each={TABS}>
-                {(tab) => (
-                  <Show when={tab.id === "home" || session()}>
-                    <button
-                      type="button"
-                      class={`relative rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors ${
-                        tab.disabled
-                          ? "text-muted-foreground/40 cursor-default"
-                          : isActiveTab(tab.path)
-                            ? "explore-tab-active bg-secondary text-foreground"
-                            : "text-muted-foreground hover:bg-secondary hover:text-foreground"
-                      }`}
-                      onClick={() => {
-                        if (tab.path) navigate(tab.path);
-                      }}
-                      aria-disabled={tab.disabled ? true : undefined}
-                      tabindex={tab.disabled ? -1 : undefined}
-                    >
-                      {tab.label}
-                    </button>
-                  </Show>
-                )}
-              </For>
-            </nav>
-          </Show>
+          <nav class="flex gap-0.5">
+            <For each={TABS}>
+              {(tab) => (
+                <Show when={tab.id === "home" || session()}>
+                  <button
+                    type="button"
+                    class={`relative rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors ${
+                      tab.disabled
+                        ? "text-muted-foreground/40 cursor-default"
+                        : isActiveTab(tab.path)
+                          ? "explore-tab-active bg-secondary text-foreground"
+                          : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    }`}
+                    onClick={() => {
+                      if (tab.path) navigate(tab.path);
+                    }}
+                    aria-disabled={tab.disabled ? true : undefined}
+                    tabindex={tab.disabled ? -1 : undefined}
+                  >
+                    {tab.label}
+                  </button>
+                </Show>
+              )}
+            </For>
+          </nav>
 
           {/* Right side */}
           <div class="ml-auto flex items-center gap-2.5">

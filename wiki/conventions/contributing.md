@@ -6,17 +6,12 @@ related:
   - "[[commands]]"
   - "[[review-findings]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-06
 ---
 
 # Contributing
 
 ## Development Conventions
-
-### App Scaffolding
-
-- Create **Tauri apps** with the CLI (`bunx create-tauri-app`), not by hand
-- Follow the existing Pulse app structure for new Tauri apps
 
 ### Technology Choices
 
@@ -35,7 +30,7 @@ The messaging backend (`@zap/api`) is a **shared service**:
 
 **iOS > Web > Android**
 
-Android is deferred. iOS is the primary target for Tauri apps. Web support follows from the SolidJS frontend.
+Android is deferred. iOS is the primary native target (Swift). Web support follows from the SolidJS frontend.
 
 ## Code Quality
 

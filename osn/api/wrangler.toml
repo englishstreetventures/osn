@@ -33,10 +33,7 @@ OSN_RP_ID = "localhost"
 OSN_RP_NAME = "OSN"
 OSN_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:5173,http://localhost:4326,http://localhost:4321"
 OSN_ISSUER_URL = "http://localhost:8787"
-# `tauri://localhost` is the Origin the Pulse iOS webview sends — wry serves the
-# bundle over a custom scheme, so it is a real tuple origin, not `null`
-# (measured: spikes/n1-glass-webview).
-OSN_CORS_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:4326,http://localhost:4321,tauri://localhost"
+OSN_CORS_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:4326,http://localhost:4321"
 
 # Local `wrangler dev` D1 (miniflare). database_id is ignored locally but
 # required syntactically; reuse the dev id so `--local` and `--remote dev` share
@@ -118,7 +115,7 @@ OSN_RP_ID = "localhost"
 OSN_RP_NAME = "OSN (dev)"
 OSN_ORIGIN = "http://localhost:1422"
 OSN_ISSUER_URL = "http://localhost:8787"
-OSN_CORS_ORIGIN = "http://localhost:1422,tauri://localhost"
+OSN_CORS_ORIGIN = "http://localhost:1422"
 
 [[env.dev.d1_databases]]
 binding = "DB"
@@ -170,9 +167,6 @@ OSN_RP_ID = "staging.osn.example"
 OSN_RP_NAME = "OSN (staging)"
 OSN_ORIGIN = "https://staging.osn.example"
 OSN_ISSUER_URL = "https://api.staging.osn.example"
-# TODO(pulse-ios): add `,tauri://localhost` when a Pulse iOS build is first
-# pointed at staging. Held back until then — the same list feeds the CSRF origin
-# guard, so an entry no shipped client uses only widens the guard.
 OSN_CORS_ORIGIN = "https://staging.osn.example"
 
 [[env.staging.d1_databases]]
@@ -245,9 +239,6 @@ OSN_RP_ID = "musubi.social"
 OSN_RP_NAME = "OSN"
 OSN_ORIGIN = "https://musubi.social"
 OSN_ISSUER_URL = "https://id.musubi.social"
-# TODO(pulse-ios): add `,tauri://localhost` on the deploy that first serves a
-# shipped Pulse iOS build. Deliberately absent until then, per the rule above —
-# re-add an origin only when it genuinely fetches this Worker from a browser.
 OSN_CORS_ORIGIN = "https://musubi.social"
 # Sender stays on cireweddings.com: Resend has no verified musubi.social domain, and
 # a sender it cannot authenticate fails closed — which would take OTP with it,

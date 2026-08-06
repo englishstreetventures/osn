@@ -49,7 +49,7 @@ The remote environment already has the repo checked out in the working directory
 Explore the OSN codebase and produce a concise implementation plan for the feature described in $ARGUMENTS.
 
 The plan should:
-- Identify relevant existing files and patterns (Effect.ts services, Elysia routes, Drizzle schema, SolidJS/Tauri frontend)
+- Identify relevant existing files and patterns (Effect.ts services, Elysia routes, Drizzle schema, SolidJS frontend)
 - List the files that need to be created or modified
 - Outline the implementation steps in order
 - Flag any Effect.ts, WebSocket, or E2E encryption considerations

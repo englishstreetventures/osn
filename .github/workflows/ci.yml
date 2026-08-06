@@ -36,14 +36,6 @@ jobs:
       - name: Format check
         run: bun run fmt:check
 
-      # Cheap on a clean checkout, and load-bearing the moment a macOS iOS
-      # build job runs before it — see scripts/check-gen-apple-diff.sh.
-      - name: Guard the committed iOS Xcode project
-        run: bash scripts/check-gen-apple-diff.test.sh
-
-      - name: Check for a regenerated iOS Xcode project
-        run: bash scripts/check-gen-apple-diff.sh
-
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest

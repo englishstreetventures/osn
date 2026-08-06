@@ -9,7 +9,7 @@ related:
   - "[[step-up]]"
   - "[[sessions]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-06
 ---
 
 # Auth Flow Failure Runbook
@@ -56,7 +56,6 @@ flowchart TD
 | Symptom | Likely cause | Action |
 |---|---|---|
 | `400 invalid_request` on `/login/passkey/complete` | Challenge expired or never persisted | Call `/begin` again. Check that the request does not hit the unknown-identifier branch (S-M1 enumeration safety returns synthetic options) |
-| `400` on Tauri webview | Platform does not support WebAuthn | Give the user the FIDO2 / cross-device fallback or the recovery-code path |
 | Repeated 401 on first ceremony after enrollment | Counter mismatch / signing key replaced | Inspect `passkeys` table, confirm the `credentialId` registered matches the one being asserted |
 | `400 invalid_request` for known-good identifier | Account has 0 passkeys (legacy / corrupt) | Recover the account with recovery-code login. Then enroll a passkey again |
 

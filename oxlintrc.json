@@ -92,12 +92,5 @@
       }
     }
   ],
-  "ignorePatterns": [
-    "node_modules",
-    "dist",
-    ".turbo",
-    "src-tauri/target",
-    "*.gen.ts",
-    "*.astro"
-  ]
+  "ignorePatterns": ["node_modules", "dist", ".turbo", "*.gen.ts", "*.astro"]
 }

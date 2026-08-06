@@ -5,7 +5,7 @@ tags: [convention, reference]
 related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-06
 ---
 
 # CLI Commands Reference
@@ -78,18 +78,6 @@ bun run changeset        # Create a new changeset (required for every PR)
 bun run clean            # git clean -fdX (remove ignored files)
 bun run reset            # clean + reinstall all dependencies
 ```
-
-## Tauri
-
-Run from the app directory (e.g. `pulse/app/`):
-
-```bash
-bunx tauri init          # Initialize a new Tauri app
-bunx tauri dev           # Start Tauri dev server
-bunx tauri build         # Build Tauri app for distribution
-```
-
-Create Tauri apps with the CLI (`bunx create-tauri-app`), not by hand.
 
 ## Workspace Installs
 

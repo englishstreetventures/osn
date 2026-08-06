@@ -12,8 +12,7 @@ Set up the OSN development environment. Check each requirement in order and inst
 | Database | Drizzle ORM + SQLite → Supabase |
 | Functional effects | Effect.ts |
 | Frontend | SolidJS, Astro |
-| Native apps | Tauri 2 (iOS primary, desktop) |
-| Native language | Rust (2021 edition) |
+| Native apps | Swift (iOS) |
 | Validation | Valibot |
 | Testing | Vitest + @effect/vitest |
 | Linting | oxlint |
@@ -44,22 +43,7 @@ Verify: `bun --version` should output `1.3.10`.
 
 ---
 
-## Step 3 — Rust
-
-Run `rustc --version`.
-
-- If not installed: install rustup (the recommended Rust toolchain manager):
-  ```
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-  ```
-  Then follow the prompts and run `source ~/.cargo/env` (or restart the shell).
-- If installed: run `rustup update` to ensure the toolchain is current.
-
-Rust is required for Tauri (`pulse/app/src-tauri`). The project uses the 2021 edition.
-
----
-
-## Step 4 — Xcode Command Line Tools (macOS, required for Tauri/iOS)
+## Step 3 — Xcode Command Line Tools (macOS, required for iOS builds)
 
 Run `xcode-select -p`.
 
@@ -68,7 +52,7 @@ Run `xcode-select -p`.
 
 ---
 
-## Step 5 — GitHub CLI
+## Step 4 — GitHub CLI
 
 Run `gh --version`.
 
@@ -84,7 +68,7 @@ The `gh` CLI is used by `/prep-pr` to open pull requests and by `/new-feat` to c
 
 ---
 
-## Step 6 — SSH signing key
+## Step 5 — SSH signing key
 
 Git supports SSH keys for commit signing (simpler than GPG). Check and configure it before applying git config.
 
@@ -114,7 +98,7 @@ Once configured, the `commit.gpgsign` setting in the next step will sign all com
 
 ---
 
-## Step 6b — Git configuration
+## Step 5b — Git configuration
 
 Check and apply the following recommended git settings. For each one, run the check command — if it is not already set, show the user what it does and ask whether to apply it. Apply all confirmed settings with `git config --global`.
 
@@ -129,7 +113,7 @@ After applying, confirm by running `git config --global --list | grep -E 'rerere
 
 ---
 
-## Step 7 — Install dependencies
+## Step 6 — Install dependencies
 
 From the repo root, run:
 ```
@@ -140,7 +124,7 @@ This installs all workspace dependencies including `oxlint`, `oxfmt`, `lefthook`
 
 ---
 
-## Step 8 — Git hooks
+## Step 7 — Git hooks
 
 Run `bunx lefthook install` to register the pre-commit and pre-push hooks defined in `lefthook.yml`.
 
@@ -152,7 +136,7 @@ Verify by running `bunx lefthook run pre-commit` — it should complete without 
 
 ---
 
-## Step 9 — Verify the setup
+## Step 8 — Verify the setup
 
 Run the following checks in parallel and report results:
 
@@ -170,5 +154,4 @@ If all three pass, the environment is ready. Report any failures with the full o
 |---|---|---|
 | `bun` | `brew install bun` | Everything |
 | `gh` | `brew install gh` | `/prep-pr` skill, opening PRs |
-| `rustup` / Rust | via `curl` (see step 3) | Tauri native layer |
-| Xcode CLT | `xcode-select --install` | Tauri/iOS builds |
+| Xcode CLT | `xcode-select --install` | iOS builds |

@@ -7,34 +7,17 @@
  */
 
 /**
- * The Origin a Tauri v2 webview serializes on iOS. wry registers the app's
- * assets under the `tauri://` custom scheme, so the document's origin is a real
- * tuple — `tauri://localhost` — not the opaque `null` an opaque-origin document
- * would send. Measured on an iOS 26 simulator and read off the wire, not
- * inferred: see `spikes/n1-glass-webview`.
- *
- * Two things follow. First, we allowlist the string rather than `null`, which
- * would have handed the same access to every sandboxed iframe on the web.
- * Second, the string is Tauri's platform default, so it identifies "a Tauri
- * app", not "our Tauri app" — but an attacker who can already run native code
- * on the device can forge any Origin header they like, so nothing is lost. The
- * guard defends against browsers, which cannot forge it.
- */
-export const IOS_WEBVIEW_ORIGIN = "tauri://localhost";
-
-/**
- * Frontend dev ports used by the monorepo's Tauri apps. Used as the CORS
- * fallback when `OSN_CORS_ORIGIN` is unset in a non-secure (local) env, so
- * handle checks and passkey ceremonies work out-of-the-box. Kept separate
- * from the WebAuthn `OSN_ORIGIN` — that defaults to 5173 for the SDK's
- * example app and is a distinct concern.
+ * Frontend dev ports used by the monorepo's apps. Used as the CORS fallback
+ * when `OSN_CORS_ORIGIN` is unset in a non-secure (local) env, so handle
+ * checks and passkey ceremonies work out-of-the-box. Kept separate from the
+ * WebAuthn `OSN_ORIGIN` — that defaults to 5173 for the SDK's example app and
+ * is a distinct concern.
  */
 export const LOCAL_DEV_CORS_ORIGINS = [
   "http://localhost:1420", // @pulse/app
   "http://localhost:1422", // @osn/social
   "http://localhost:4321", // @cire/web (guest "Link my Pulse account" island)
   "http://localhost:4322", // @cire/organiser (OSN passkey sign-in)
-  IOS_WEBVIEW_ORIGIN, // @pulse/app running on iOS
 ] as const;
 
 export type CorsEnv = Readonly<Record<string, string | undefined>>;

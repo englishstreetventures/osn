@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 
-import { IOS_WEBVIEW_ORIGIN } from "../../src/lib/cors-config";
 import { createOriginGuard } from "../../src/lib/origin-guard";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -130,34 +129,25 @@ describe("createOriginGuard", () => {
     expect(result.error).toBe("forbidden");
   });
 
-  describe("iOS webview origin", () => {
-    const iosGuard = createOriginGuard({
-      allowedOrigins: new Set([IOS_WEBVIEW_ORIGIN]),
-    });
+  it("still rejects a literal `null` Origin", () => {
+    // A sandboxed iframe sends `Origin: null`, which must never match an
+    // allowlist entry regardless of scheme.
+    const ctx = makeContext("POST", "http://localhost:4000/handle/alice", "null");
+    const result = guard(ctx) as { error: string };
+    expect(ctx.set.status).toBe(403);
+    expect(result.error).toBe("forbidden");
+  });
 
-    it("admits a state-changing request from tauri://localhost", () => {
-      const ctx = makeContext("POST", "http://localhost:4000/handle/alice", IOS_WEBVIEW_ORIGIN);
-      expect(iosGuard(ctx)).toBeUndefined();
-    });
-
-    it("still rejects a literal `null` Origin", () => {
-      // A sandboxed iframe sends `Origin: null`. The iOS webview does not
-      // (N1 spike), so `null` stays outside the allowlist and stays rejected.
-      const ctx = makeContext("POST", "http://localhost:4000/handle/alice", "null");
-      const result = iosGuard(ctx) as { error: string };
-      expect(ctx.set.status).toBe(403);
-      expect(result.error).toBe("forbidden");
-    });
-
-    it("rejects a lookalike custom-scheme origin", () => {
-      const ctx = makeContext(
-        "POST",
-        "http://localhost:4000/handle/alice",
-        "tauri://localhost.evil.com",
-      );
-      const result = iosGuard(ctx) as { error: string };
-      expect(ctx.set.status).toBe(403);
-      expect(result.error).toBe("forbidden");
-    });
+  it("rejects an origin that merely has an allowed origin as a string prefix", () => {
+    // `http://localhost:5173.evil.com` starts with the allowed origin as a
+    // substring — the guard must match the whole origin, not a prefix.
+    const ctx = makeContext(
+      "POST",
+      "http://localhost:4000/handle/alice",
+      "http://localhost:5173.evil.com",
+    );
+    const result = guard(ctx) as { error: string };
+    expect(ctx.set.status).toBe(403);
+    expect(result.error).toBe("forbidden");
   });
 });

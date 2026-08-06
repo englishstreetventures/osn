@@ -7,7 +7,7 @@ related:
   - "[[scope-matrix]]"
   - "[[sessions]]"
   - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-06
 ---
 
 # ePrivacy Directive
@@ -53,7 +53,7 @@ Per the EDPB Guidelines 2/2023:
 | `osn_session` cookie | HttpOnly, Secure, SameSite=Lax, Path=/, refresh token | ✓ Strictly necessary for authenticated session | First-party only. |
 | `localStorage:@osn/client:account_session` | Profile-scoped access tokens, active profile id | ✓ Strictly necessary | First-party only. The 5-min TTL limits the damage. |
 | `localStorage:@pulse/app:*` (theme, last-tab, draft-event) | UX state | Borderline — request-driven UX state, generally accepted as exempt under "user-friendly design" tests | Document on the privacy notice anyway. |
-| Tauri OS keychain (planned) | Refresh / session tokens on native | ✓ Strictly necessary | iOS Keychain / Android Keystore equivalent. |
+| iOS Keychain (planned) | Refresh / session tokens on native | ✓ Strictly necessary | iOS Keychain / Android Keystore equivalent. |
 
 ## Project changes required
 
@@ -61,5 +61,5 @@ Tracked with `C-` IDs:
 
 1. **Cookie + storage inventory** in the privacy notice — the table above, in plain language. **Partly done (C-H4, PR #124):** the cire guest site now publishes a `/privacy` notice covering its first-party storage. The OSN-landing-side inventory (the table above) is still pending. See [[changelog/compliance-fixes]]. ID: rolled into **C-H4**.
 2. **Lint rule against new third-party scripts** — pre-commit hook fails if any HTML / Astro template references a script tag with a non-OSN origin. Forces explicit decision. ID: **C-L18**.
-3. **CSP `connect-src` audit** — Pulse Tauri CSP has a transitional `https:` entry (S-L3-follow-up); pin to known origins so no hidden third-party requests can fire. Also covers ePrivacy. ID: rolled into existing S-L3.
+3. **CSP `connect-src` audit** — moot: this tracked a transitional `https:` entry in Pulse's native-shell CSP config (S-L3-follow-up); that shell is removed, so the config no longer exists. ID: rolled into existing S-L3, closed.
 4. **Banner scaffold** in `@osn/landing` — built but not mounted; mounting requires a code change + DPO sign-off. Forces a deliberate decision the day someone wants to add an analytics tag. ID: **C-L19**.

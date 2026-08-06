@@ -1,10 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import {
-  IOS_WEBVIEW_ORIGIN,
-  assertCorsOriginsConfigured,
-  resolveCorsOrigins,
-} from "../../src/lib/cors-config";
+import { assertCorsOriginsConfigured, resolveCorsOrigins } from "../../src/lib/cors-config";
 
 describe("resolveCorsOrigins", () => {
   it("falls back to monorepo dev ports when OSN_CORS_ORIGIN is unset in a non-secure env", () => {
@@ -13,7 +9,6 @@ describe("resolveCorsOrigins", () => {
       "http://localhost:1422",
       "http://localhost:4321",
       "http://localhost:4322",
-      "tauri://localhost",
     ]);
   });
 
@@ -51,29 +46,13 @@ describe("resolveCorsOrigins", () => {
     ).toEqual(["https://app.example.com", "http://localhost:1420"]);
   });
 
-  it("carries the iOS webview origin through an explicit OSN_CORS_ORIGIN", () => {
-    expect(
-      resolveCorsOrigins(
-        { OSN_CORS_ORIGIN: `https://app.example.com, ${IOS_WEBVIEW_ORIGIN}` },
-        true,
-      ),
-    ).toContain("tauri://localhost");
-  });
-
-  it("normalises a trailing slash on the iOS webview origin", () => {
-    // `tauri://localhost/` is what an operator copying from a browser bar
-    // would paste; it must still match the Origin header WebKit sends.
-    expect(resolveCorsOrigins({ OSN_CORS_ORIGIN: "TAURI://LocalHost/" }, true)).toEqual([
-      "tauri://localhost",
-    ]);
-  });
-
   it("never allowlists a literal `null` origin", () => {
-    // The N1 spike proved the iOS webview sends a real tuple origin, so
-    // nothing needs `null` — and allowlisting it would admit every sandboxed
+    // Nothing needs `null` — allowlisting it would admit every sandboxed
     // iframe on the web.
     expect(resolveCorsOrigins({}, false)).not.toContain("null");
-    expect(resolveCorsOrigins({ OSN_CORS_ORIGIN: IOS_WEBVIEW_ORIGIN }, true)).not.toContain("null");
+    expect(resolveCorsOrigins({ OSN_CORS_ORIGIN: "https://app.example.com" }, true)).not.toContain(
+      "null",
+    );
   });
 
   it("prefers an explicit OSN_CORS_ORIGIN over the local-dev fallback", () => {

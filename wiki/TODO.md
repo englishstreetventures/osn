@@ -164,11 +164,10 @@ The review found these sound: the token-verification core (audience enforced ins
 
 ## Zap (`zap/app` + `zap/api` + `zap/db`)
 
-OSN's messaging app. Stack matches Pulse (Bun, Tauri+Solid, Elysia+Eden, Drizzle+SQLite, Effect.ts) unless a real reason to differ emerges. Signal Protocol lives in `@osn/crypto`, not `zap/`.
+OSN's messaging app. Stack matches Pulse (Bun, Solid, Elysia+Eden, Drizzle+SQLite, Effect.ts) unless a real reason to differ emerges. Signal Protocol lives in `@osn/crypto`, not `zap/`.
 
 ### M0 — Scaffold (remaining)
 
-- [ ] `bunx create-tauri-app` for `@zap/app` (iOS target enabled, Solid template)
 - [ ] `@zap/app` consumes `@osn/client` + `@osn/ui/auth` for sign-in (re-uses `<SignIn>` / `<Register>` from Pulse)
 - [ ] Register `zap-app` and `zap-api` in `service_accounts` + `service_account_keys` (ARC issuer rows + initial key)
 
@@ -667,7 +666,7 @@ Open findings only. Completed fixes move to [[changelog/security-fixes]].
 - [x] S-L6 (account-deletion) — **Fixed (2026-07-05)** — Pulse `requireArc` early-exit branches now record the shared `arc.token.verification` counter (malformed / `unknown_issuer` / new `revoked_key` / `scope_denied`); paths reaching `verifyArcToken` were already self-reported. See [[observability/overview]], [[changelog/security-fixes]]
 - [ ] S-L7 (osn) — The five native rate-limit `namespace_id`s (2001–2005 in `osn/api/wrangler.toml`) are account-scoped and unverified against the live Cloudflare account. A collision with another Worker's namespace silently merges global counters (no deploy error). Confirm 2001–2005 are unused in the osn-api account at deploy (cire uses 1001; no in-repo collision) — see [[rate-limiting]], [[runbooks/production-deploy]] (ratelimit-hardening branch review)
 - [ ] S-L8 (osn) — `[observability] head_sampling_rate = 1` in `osn/api/wrangler.toml` captures every Workers invocation. No PII concern today (redacting `osnLoggerLayer` unchanged, no client IP logged), but revisit the sampling rate once invocation volume grows for cost/retention — see [[observability/overview]] (ratelimit-hardening branch review)
-- [ ] S-L3-follow-up (pulse) — Tauri CSP `connect-src` includes a transitional `https:` entry because production `@osn/api` + `@pulse/api` origins aren't pinned in-repo. Replace with the deployed origins once they land in env. See [[changelog/security-fixes]] entry "Pulse Tauri CSP allowlist (2026-04-25)"
+- [x] S-L3-follow-up (pulse) — moot: tracked a transitional `https:` entry in Pulse's native-shell CSP `connect-src` (production `@osn/api` + `@pulse/api` origins weren't pinned in-repo). That shell was removed in this PR, config no longer exists. See [[changelog/security-fixes]] (CSP allowlist, 2026-04-25)
 - [x] S-L7 — `jwtSecret` falls back to `"dev-secret"` — **Superseded**: symmetric `OSN_JWT_SECRET` removed entirely; replaced by ES256 key pair (`OSN_JWT_PRIVATE_KEY`/`OSN_JWT_PUBLIC_KEY`); startup guard uses `OSN_ENV` — see [[arc-tokens]]
 - [x] S-L29 — `/graph/internal/*` mounted under open CORS. **Fixed** — `cors()` now uses `OSN_CORS_ORIGIN`; local dev fallback = monorepo Tauri dev ports (`:1420`, `:1422`); wildcard removed; derivation extracted to `resolveCorsOrigins` (see `osn/api/src/lib/cors-config.ts`) — see `[[arc-tokens]]`
 - [x] S-L1 (cors) — `resolveCorsOrigins` initially tied the local-dev fallback to `OSN_ENV`, so a non-local deploy missing both `OSN_ENV` and `OSN_CORS_ORIGIN` would silently pick up dev ports instead of failing closed. **Fixed** — fallback now gated on the same `cookieConfig.secure` signal used for cookie hardening; the S-L4 boot-time check covers both predicates.
@@ -995,7 +994,6 @@ Findings from auditing OSN auth against [The Copenhagen Book](https://thecopenha
 | Max profiles per account | Set to 5 via `accounts.maxProfiles`; make configurable? | Before launch |
 | Self-interaction policy | Two profiles from same account CAN interact (preventing it leaks the link) | Multi-account P6 privacy audit |
 | Build-time `cn()` evaluation — see [[component-library]] | `tailwind-merge` runs at runtime. Options: Vite plugin, drop to `clsx`-only | When bundle size is a concern |
-| Tauri passkey support on iOS | Webview lacks WebAuthn natively — auto-skips passkey step. Options: `tauri-plugin-webauthn`, custom plugin, wait for upstream | When iOS build of Pulse is ready for sign-in |
 | Email Worker per-recipient rate-limit bound — see [[email]] | Prevents OSN from flooding an inbox under bug / abuse. Tune once we have send-rate telemetry | After first week of real traffic |
 | Dry-run flag for email — see [[email]] | `OSN_EMAIL_DRY_RUN` env knob that short-circuits before Worker dispatch; useful for staging smoke tests | When we need it |
 | KYC vendor for V-M1 / V-M2 — see [[verified-identity]] | Persona (top AU age-assurance trial scorer; combined estimation + verification) vs idvPacific (AU-domiciled DVS gateway, OCR-first) vs Equifax IDMatrix (heavyweight gateway) vs MATTR/GBG (mDL-native; mDL roadmap partner) | V-M0 vendor RFP |

@@ -1,6 +1,5 @@
 import { Button } from "@osn/ui/ui/button";
 import { Card } from "@osn/ui/ui/card";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import type * as Leaflet from "leaflet";
 import { onCleanup, onMount, Show } from "solid-js";
 
@@ -59,13 +58,7 @@ export function MapPreview(props: {
     const url = `https://maps.apple.com/?daddr=${encodeURIComponent(
       `${props.latitude},${props.longitude}`,
     )}`;
-    try {
-      await openUrl(url);
-    } catch {
-      // On non-Tauri web targets `openUrl` is unavailable — fall back to
-      // a regular anchor navigation.
-      window.open(url, "_blank", "noopener,noreferrer");
-    }
+    window.open(url, "_blank", "noopener,noreferrer");
   }
 
   return (

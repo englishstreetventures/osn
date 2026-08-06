@@ -6,7 +6,7 @@ related:
   - "[[identity-model]]"
   - "[[arc-tokens]]"
   - "[[component-library]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-06
 ---
 
 # Pulse Onboarding
@@ -127,6 +127,6 @@ All attribute types are bounded string-literal unions (no profileId / accountId 
 
 ## Future extensions
 
-- Native Tauri permission plugins (`@tauri-apps/plugin-geolocation`, `@tauri-apps/plugin-notification`) for first-class iOS/Android prompts. Currently uses the standard browser APIs which work in WKWebView/Android WebView but route through the JS layer.
+- `@pulse/app` uses the standard browser geolocation/notification APIs; the native iOS app is a separate Swift target with its own permission prompts and does not load this bundle.
 - Settings page surface for revisiting captured prefs (interests, reminder opt-in). The service already has the `updateOnboardingPrefs` shape sketched out; it needs a route + UI.
 - Friend-suggestion step (post-step-3) once OSN exposes a "people on Pulse you may know" recommendation feed.

@@ -2,9 +2,6 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
 
-// @ts-expect-error process is a nodejs global
-const host = process.env.TAURI_DEV_HOST;
-
 /**
  * AZ-P-I1. `/authorize` is a cold cross-origin landing: the browser arrives
  * from the relying party with no warm connection to the OSN issuer, so
@@ -58,19 +55,10 @@ export default defineConfig(async () => ({
   plugins: [tailwindcss(), solid(), issuerPreconnect()],
 
   clearScreen: false,
+  // Fixed port so dependent tooling can rely on it; fail rather than
+  // silently move to another port.
   server: {
     port: 1422,
     strictPort: true,
-    host: host || false,
-    hmr: host
-      ? {
-          protocol: "ws",
-          host,
-          port: 1423,
-        }
-      : undefined,
-    watch: {
-      ignored: ["**/src-tauri/**"],
-    },
   },
 }));

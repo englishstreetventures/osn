@@ -2,7 +2,7 @@
 title: OSN Wiki
 aliases: [home, map of content, MOC]
 tags: [index]
-last-reviewed: 2026-07-27
+last-reviewed: 2026-08-06
 ---
 
 # OSN Wiki
@@ -20,7 +20,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[backend-patterns]] — Elysia route factories, Effect pipelines, service layer
 - [[schema-layers]] — Elysia TypeBox (HTTP) vs Effect Schema (domain)
 - [[s2s-patterns]] — graphBridge, cross-package calls, ARC token flow
-- [[frontend-patterns]] — SolidJS, Tauri, shared UI tokens, lazy loading
+- [[frontend-patterns]] — SolidJS, shared UI tokens, lazy loading
 - [[component-library]] — Zaidan/shadcn-style components, Kobalte primitives, CVA variants
 
 ## Systems

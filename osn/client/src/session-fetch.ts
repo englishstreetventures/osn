@@ -2,18 +2,14 @@
  * The seam through which cookie-bearing requests leave this package.
  *
  * Every browser has a cookie jar, so on the web this is `fetch` and nothing
- * more. iOS is the exception. Pulse's webview serves its document from
- * `tauri://localhost`, and WebKit treats a custom-scheme document as cross-site
- * to every real host — so it refuses to *store* the session cookie at all, no
- * matter which `SameSite` value the server offers (measured: `document.cookie`
- * empty, no `Cookie` header on the next request, `WKHTTPCookieStore` empty).
- * Injecting the cookie into `WKHTTPCookieStore` from Swift does not help
- * either; the jar itself is unusable for that origin.
+ * more. A native iOS app is the exception: it has no browser cookie jar at
+ * all, so the session cookie needs somewhere else to live and a transport
+ * that knows to send it.
  *
- * So on iOS the app installs a transport that runs the request outside WebKit,
- * through a Rust command that keeps the cookie in the Keychain. That transport
- * is deliberately narrow — it accepts only the five routes that actually depend
- * on the cookie — and it lives in the app, not here.
+ * So on iOS the app installs a transport that runs the request outside any
+ * webview, keeping the cookie in the Keychain instead. That transport is
+ * deliberately narrow — it accepts only the routes that actually depend on
+ * the cookie — and it lives in the app, not here.
  *
  * What stays here is everything that decides *when* to call: the terminal-vs-
  * transient classification, the retry backoff, the single-flight guards in

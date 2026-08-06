@@ -1,10 +1,4 @@
-import {
-  fireEvent,
-  render,
-  cleanup,
-  waitFor,
-  waitForElementToBeRemoved,
-} from "@solidjs/testing-library";
+import { fireEvent, render, cleanup } from "@solidjs/testing-library";
 // @vitest-environment happy-dom
 import type { JSX } from "solid-js";
 import { describe, it, expect, afterEach, vi } from "vitest";
@@ -12,24 +6,6 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { ExploreMap } from "../../src/explore/ExploreMap";
 import type { VenueSummary } from "../../src/lib/venues";
 import { wrapRouter } from "../helpers/router";
-
-// Mocks the native-glass plugin bridge so the `nativeGlass` effect in
-// ExploreMap goes live under test (real `updateGlassPanels` rejects outside
-// Tauri). `glassHandlers` captures each event's handler so tests can invoke
-// it directly, standing in for a real `zoomIn`/`zoomOut`/`hourChanged` event
-// arriving from the native panel.
-const { glassHandlers, updateGlassPanelsMock } = vi.hoisted(() => ({
-  glassHandlers: {} as Record<string, (payload: never) => void>,
-  updateGlassPanelsMock: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("../../src/lib/glass", () => ({
-  updateGlassPanels: updateGlassPanelsMock,
-  onGlassPanelEvent: vi.fn((event: string, handler: (payload: never) => void) => {
-    glassHandlers[event] = handler;
-    return Promise.resolve(() => {});
-  }),
-}));
 
 const venueRow = (overrides: Partial<VenueSummary>): VenueSummary => ({
   id: "ven_x",
@@ -431,9 +407,6 @@ describe("ExploreMap", () => {
     vi.useFakeTimers();
     try {
       const { container } = render(() => <ExploreMap events={eventsWithGeo} />);
-      // Index 0, not -1: the native-glass panels' own onMount now creates a
-      // second ResizeObserver (over the scrubber/zoom refs) right after this
-      // one, so "last created" no longer means "the wrapRef size observer".
       const ro = ResizeObserverStub.instances[0]!;
       const baseMap = () => container.querySelector("svg")!;
 
@@ -462,110 +435,5 @@ describe("ExploreMap", () => {
       vi.unstubAllGlobals();
       ResizeObserverStub.instances = [];
     }
-  });
-});
-
-// N7 event-path coverage. NOTE: this is unit-test-only — it mocks the
-// plugin bridge and asserts the JS-side wiring; it does not exercise the
-// real native panel's touch handling. No on-device tap-through of the
-// native glass buttons/slider was performed for this change (see the
-// changeset + done report for the N7 native-glass-controls work).
-describe("native glass plugin-event wiring (N7)", () => {
-  const heatEvent = {
-    id: "evt_heat",
-    title: "Heat Event",
-    status: "upcoming" as const,
-    startTime: "2030-06-01T12:00:00.000Z",
-    category: "music",
-    venue: "Heat Venue",
-    latitude: 40.7,
-    longitude: -73.9,
-  };
-  // Computed the same way the source does, so the assertion doesn't depend
-  // on the test machine's timezone.
-  const eventHour = new Date(heatEvent.startTime).getHours();
-
-  let getContextSpy: ReturnType<typeof vi.spyOn> | undefined;
-
-  afterEach(() => {
-    getContextSpy?.mockRestore();
-    getContextSpy = undefined;
-    for (const key of Object.keys(glassHandlers)) delete glassHandlers[key];
-    updateGlassPanelsMock.mockClear();
-  });
-
-  // Stubs canvas 2d context so HeatmapCanvas's draw effect actually runs
-  // under happy-dom (which has no real canvas backend) and records each
-  // radial-gradient radius so hour-driven redraws are observable.
-  function stubCanvasContext() {
-    const gradientCalls: number[] = [];
-    const fakeCtx = {
-      scale: vi.fn(),
-      clearRect: vi.fn(),
-      createRadialGradient: vi.fn(
-        (_x0: number, _y0: number, _r0: number, _x1: number, _y1: number, r1: number) => {
-          gradientCalls.push(r1);
-          return { addColorStop: vi.fn() };
-        },
-      ),
-      beginPath: vi.fn(),
-      arc: vi.fn(),
-      fill: vi.fn(),
-      globalCompositeOperation: "source-over",
-      fillStyle: "",
-    };
-    getContextSpy = vi
-      .spyOn(HTMLCanvasElement.prototype, "getContext")
-      .mockReturnValue(fakeCtx as unknown as CanvasRenderingContext2D);
-    return gradientCalls;
-  }
-
-  it("steps zoom by 0.25 per zoomIn/zoomOut event, clamped to [1, 2.5]", async () => {
-    stubCanvasContext();
-    const { container, queryByText } = render(() => <ExploreMap events={[heatEvent]} />);
-    await waitForElementToBeRemoved(() => queryByText("HEAT AT"));
-
-    const mapLayer = container.querySelector(".relative.h-full.w-full.overflow-hidden")
-      ?.firstElementChild as HTMLElement;
-    expect(mapLayer.style.transform).toBe("scale(1)");
-
-    for (let i = 0; i < 10; i++) glassHandlers.zoomIn(undefined as never);
-    // 10 steps of 0.25 would be 3.5 unclamped — asserts the ZOOM_MAX clamp.
-    expect(mapLayer.style.transform).toBe("scale(2.5)");
-
-    for (let i = 0; i < 20; i++) glassHandlers.zoomOut(undefined as never);
-    // Asserts the ZOOM_MIN clamp on the way back down.
-    expect(mapLayer.style.transform).toBe("scale(1)");
-
-    glassHandlers.zoomIn(undefined as never);
-    expect(mapLayer.style.transform).toBe("scale(1.25)");
-  });
-
-  it("drives the heatmap render off an hourChanged event's payload", async () => {
-    const gradientCalls = stubCanvasContext();
-    render(() => <ExploreMap events={[heatEvent]} />);
-    await waitFor(() => expect(glassHandlers.hourChanged).toBeTruthy());
-
-    // The `hour` signal is seeded from the wall clock, so on a machine whose
-    // current hour already equals one of the two hours asserted below, that
-    // assignment is not a change and no redraw happens. Park the hour six
-    // hours off the event first; both measured hours are then real changes
-    // whatever time the suite runs at.
-    glassHandlers.hourChanged({ hour: (eventHour + 6) % 24 } as never);
-
-    gradientCalls.length = 0;
-    glassHandlers.hourChanged({ hour: eventHour } as never);
-    const nearRadius = gradientCalls.at(-1);
-
-    gradientCalls.length = 0;
-    glassHandlers.hourChanged({ hour: (eventHour + 12) % 24 } as never);
-    const farRadius = gradientCalls.at(-1);
-
-    expect(nearRadius).toBeDefined();
-    expect(farRadius).toBeDefined();
-    // Heat radius grows the closer the scrubbed hour is to the event's own
-    // hour — proving the plugin event's payload reaches HeatmapCanvas's
-    // `hour` prop, not just that a redraw happened.
-    expect(nearRadius!).toBeGreaterThan(farRadius!);
   });
 });

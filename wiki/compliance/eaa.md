@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[scope-matrix]]"
   - "[[component-library]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-06
 ---
 
 # EAA — Accessibility
@@ -31,7 +31,7 @@ as "consumer-oriented services" once we have EU users.
 | `@osn/landing` | Astro static site, simple markup | Run `axe-core` audit; document. |
 | `@osn/social` | Solid + Kobalte; Kobalte primitives are accessible by default | Custom components (ProfileSwitcher, SecurityEventsBanner) need an audit. |
 | `@pulse/app` | Solid + Kobalte; map + calendar are custom | The map's keyboard support is unproven; audit. |
-| `@zap/app` | Not shipped | Build accessibility into the Tauri spec. |
+| `@zap/app` | Not shipped | Build accessibility in from the start. |
 
 ## Project changes required
 
@@ -48,18 +48,6 @@ Tracked with `C-` IDs:
 5. **Pulse calendar non-colour state cues** — icons / text labels distinguish "Not Started / Started / Ongoing / Finished" beyond colour. ID: **C-L15**.
 6. **Accessibility statement** on `@osn/landing/legal/accessibility` listing supported AT, known gaps, contact. EAA Art. 13 requires this. ID: **C-L16**.
 7. **Captions for any video content** on `@osn/landing`. EAA Art. 4. ID: **C-L17**.
-
-## Tauri-specific risks
-
-Tauri webviews on iOS / Android inherit the platform AT story. Two
-specifics worth flagging early:
-
-- **VoiceOver focus traps** — Solid's reactive DOM updates can confuse
-  focus order if we manipulate it imperatively. Stick to
-  declarative `<For>` / `<Show>` and let Kobalte handle focus
-  management.
-- **Dynamic Type / large fonts** — iOS users routinely set 200% font
-  size. Verify Pulse + Zap do not break layout under that condition.
 
 ## See also
 

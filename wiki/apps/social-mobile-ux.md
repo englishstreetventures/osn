@@ -9,7 +9,7 @@ related:
   - "[[social]]"
   - "[[authorize-ui]]"
   - "[[component-library]]"
-last-reviewed: 2026-08-02
+last-reviewed: 2026-08-06
 ---
 
 # Social — Mobile UX analysis & plan
@@ -230,7 +230,7 @@ after Phase 0.
 
 ## Non-goals (for now)
 
-- Native wrapper (Tauri) — separate, already-deferred track.
+- Native wrapper — separate, already-deferred track.
 - PWA install/offline — worth a look after the shell work, not part of it.
 - Editing `@osn/ui` primitives to be responsive — cire and pulse own their
   breakpoints; everything here stays app-scoped.

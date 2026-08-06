@@ -71,7 +71,6 @@ Read all changed source files in the affected workspaces and examine them for th
 
 - CORS policy changes that widen allowed origins beyond what is necessary
 - Secrets or API keys present in any non-`.env` file
-- Changes to Tauri capabilities (`src-tauri/capabilities/`) that grant broader OS permissions than needed
 
 ---
 
