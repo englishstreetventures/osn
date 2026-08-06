@@ -2,12 +2,19 @@
 title: "Security Fixes"
 tags: [changelog]
 related: [[TODO]], [[index]]
-last-reviewed: 2026-07-30
+last-reviewed: 2026-08-06
 ---
 
 # Security Fixes
 
 Archive of completed security findings, moved here from the Security Backlog in [[TODO]] (and the `wiki/todo/security.md` shard).
+
+### RSVP success confirmation — review findings (fixed on `claude/cire-rsvp-success-feedback-phnf60`, 2026-08-06)
+
+The branch itself reviewed **security-neutral**: no new network call, payload field, dependency, DOM sink, or auth/session/consent boundary change. The live region interpolates `props.event.name` through Solid's `insert()`, which text-nodes primitives and never parses HTML — the same mechanism already used for the `<h3>` on main, so no new sink. The C-H2 Art. 9(2)(a) dietary gate is byte-identical and slightly tightened (the confirmed state also disables the dietary field and its consent box). Two Low hardening notes were found and fixed in the same branch.
+
+- [x] **S-L1** (asymmetric resubmit guard) — `handleSubmit` guarded the new terminal `saved()` state explicitly but left the in-flight window to the submit button's `disabled` attribute alone. That attribute only stops paths routing through the button: a programmatic `form.requestSubmit()` or a dispatched `submit` event reaches the handler regardless, and a second concurrent POST would overwrite `inFlight`, orphaning the first request's `AbortController` so unmount could no longer cancel it. Not guest-reachable, and `POST /api/rsvp` is an idempotent `onConflictDoUpdate` that re-checks session, family ownership, preview ban and deadline — hence Low. **Fixed:** `if (saved() || loading()) return;`, making the handler the single authority on when a submit may run rather than splitting it between JS and browser behaviour.
+- [x] **S-L2** (dwell timer registered after a parent could unmount) — `props.onSubmitted?.()` ran *before* `enterSavedState()` registered the 900ms `setTimeout`. A parent that responded to `onSubmitted` by unmounting the sheet would run `onCleanup` first, leaving the timer registered afterwards, never cleared, firing `onClose()` on a disposed instance. Latent only — both `InvitePage` packs merely `setClaimResult` — but it is the mirror image of the failure the component's own cleanup comment exists to prevent. **Fixed:** the timer is registered before the rows are handed up (both now inside one `batch`), keeping the timer's lifetime strictly inside the component's whatever a future parent does.
 
 ### Invite builder UX pass — review findings (fixed on claude/invite-builder-structure-review-ali18d, 2026-07-30)
 

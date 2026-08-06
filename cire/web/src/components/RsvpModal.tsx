@@ -1,4 +1,5 @@
 import {
+  batch,
   createEffect,
   createMemo,
   createSignal,
@@ -9,6 +10,7 @@ import {
 } from "solid-js";
 
 import { AnimatedModal } from "./AnimatedModal";
+import { SAVED_DWELL_MS } from "./rsvp-saved";
 import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
 
 interface RsvpModalProps {
@@ -88,12 +90,39 @@ export function RsvpModal(props: RsvpModalProps) {
   const [responses, setResponses] = createSignal<Record<string, MemberState>>(initialResponses());
   const [error, setError] = createSignal<string | null>(null);
   const [loading, setLoading] = createSignal(false);
+  // Terminal success state: the reply is recorded, the Save button is filling
+  // gold behind a drawn tick, and the sheet is counting down to closing itself.
+  const [saved, setSaved] = createSignal(false);
   const titleId = createUniqueId();
 
   // Abort the in-flight submit if the modal unmounts mid-request — keeps the
   // setError / setLoading writes from landing on a disposed instance.
   let inFlight: AbortController | null = null;
   onCleanup(() => inFlight?.abort());
+
+  // Same reasoning for the dwell timer: a guest who dismisses the confirmation
+  // early (Escape, the close chip, a backdrop tap) unmounts this component, and
+  // a surviving timer would then call `onClose` a second time on a disposed
+  // instance.
+  let dwellTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => {
+    if (dwellTimer !== undefined) clearTimeout(dwellTimer);
+  });
+
+  /**
+   * Enter the confirmed state and hand the sheet a deadline to close itself.
+   *
+   * Deliberately does NOT call `onSubmitted` — the host preview reaches this
+   * too, and a preview must show the guest's confirmation without ever claiming
+   * data was written. The real success path calls `onSubmitted` itself.
+   */
+  function enterSavedState() {
+    setSaved(true);
+    dwellTimer = setTimeout(() => {
+      dwellTimer = undefined;
+      props.onClose();
+    }, SAVED_DWELL_MS);
+  }
 
   function setAttending(guestId: string, attending: Attending) {
     setResponses((prev) => ({
@@ -116,9 +145,11 @@ export function RsvpModal(props: RsvpModalProps) {
     }));
   }
 
-  // Disable every control both while a submit is in flight and once the RSVP
-  // deadline has passed — the two reasons a guest can't change their answer.
-  const locked = () => loading() || (props.closed ?? false);
+  // Disable every control while a submit is in flight, once it has succeeded,
+  // and once the RSVP deadline has passed — the three reasons a guest can't
+  // change their answer. (After a success the sheet is already closing; letting
+  // the fields stay live would invite edits that could never be sent.)
+  const locked = () => loading() || saved() || (props.closed ?? false);
 
   // C-L2: the deadline can pass with this sheet open, and closing it unmounts
   // the submit button. If focus was ON that button, the browser drops focus to
@@ -144,6 +175,23 @@ export function RsvpModal(props: RsvpModalProps) {
   async function handleSubmit(e: SubmitEvent) {
     e.preventDefault();
     setError(null);
+
+    // The confirmed state is terminal — the sheet is already closing itself and
+    // a second POST would rewrite the same rows. The Save button advertises
+    // this with `aria-disabled` rather than `disabled`, precisely so it can
+    // keep focus (disabling the focused control drops focus to `<body>`,
+    // outside this `aria-modal` dialog — the C-L2 failure below), which leaves
+    // the guard here as the thing that actually stops the resubmit.
+    //
+    // `loading()` is guarded here too (S-L1), even though the button carries a
+    // real `disabled` in that state. The attribute only stops paths that route
+    // through the button — a programmatic `form.requestSubmit()` or a dispatched
+    // `submit` event reaches this handler regardless, and a second concurrent
+    // POST would overwrite `inFlight`, orphaning the first request's
+    // AbortController so unmount could no longer cancel it. Guarding both states
+    // here makes this function the single authority on when a submit may run,
+    // rather than splitting that between JS and browser behaviour.
+    if (saved() || loading()) return;
 
     // Past the deadline there is no submit button to press; a form-level Enter
     // could still fire this, and the server would refuse it anyway.
@@ -173,9 +221,12 @@ export function RsvpModal(props: RsvpModalProps) {
     }
 
     // Host preview: the form validated like the real thing, but we stop here —
-    // no network call, nothing persisted. Just close as if it had been sent.
+    // no network call, nothing persisted. It still plays the confirmation,
+    // because the point of preview is to let a host feel exactly what a guest
+    // feels; a preview that skipped straight to a closed sheet would hide the
+    // one piece of feedback this change exists to add.
     if (props.preview) {
-      props.onClose();
+      enterSavedState();
       return;
     }
 
@@ -208,10 +259,33 @@ export function RsvpModal(props: RsvpModalProps) {
 
       if (res.status === 200) {
         const data = (await res.json()) as { rsvps: RsvpSummary[] };
-        // Solid signal writes are synchronous, so the order here is safe even
-        // if the parent unmounts the modal on `onClose`.
-        props.onSubmitted?.(data.rsvps);
-        props.onClose();
+        // All three writes in one `batch` (P-I1). We are past an `await`, so
+        // without it each is its own synchronous graph walk: `locked()` is a
+        // plain accessor rather than a memo, so every `disabled={locked()}`
+        // site subscribes individually — both toggles per member, the dietary
+        // field, the consent box, Cancel, and the submit button's own
+        // disabled/aria-disabled/classList. Unbatched, `setLoading(false)`
+        // re-enables all of them and `setSaved(true)` immediately locks them
+        // again: double the attribute writes, and a fully-unlocked intermediate
+        // state, on the exact frame the 500ms sweep starts.
+        //
+        // Order inside the batch is load-bearing (S-L2): `enterSavedState`
+        // registers the dwell timer BEFORE `onSubmitted` hands rows to the
+        // parent. A parent that responded by unmounting this sheet would
+        // otherwise run `onCleanup` first and leave the timer to be registered
+        // afterwards — never cleared, firing `onClose` on a disposed instance
+        // ~900ms later. Registering first keeps the timer's lifetime strictly
+        // inside the component's, whatever the parent does.
+        //
+        // `onClose` is not called here — `enterSavedState` holds the sheet open
+        // for the confirmation and then closes it. The rows still reach the
+        // page immediately, so the events section behind the confirmation is
+        // already showing the new answer when the sheet lifts off it.
+        batch(() => {
+          setLoading(false);
+          enterSavedState();
+          props.onSubmitted?.(data.rsvps);
+        });
         return;
       }
 
@@ -391,6 +465,18 @@ export function RsvpModal(props: RsvpModalProps) {
           </p>
         </Show>
 
+        {/* The confirmation, spoken. The visible cue is a colour sweep and a
+            tick inside a button that a screen reader has no reason to re-read,
+            so the success needs saying somewhere it will be announced.
+
+            Rendered unconditionally with its text swapped, rather than wrapped
+            in a `<Show>`: assistive tech announces a CHANGE inside a live
+            region it was already watching, and a region that springs into
+            existence alongside its content is frequently missed. */}
+        <p class="sr-only" role="status">
+          {saved() ? `Your RSVP for ${props.event.name} has been saved.` : ""}
+        </p>
+
         {/* Sits flush on the sheet's bottom edge — the panel drops its own
             bottom padding (`flushBottom`) rather than this bar cancelling it
             with a negative margin: `bottom: 0` resolves against the scrollport,
@@ -402,7 +488,21 @@ export function RsvpModal(props: RsvpModalProps) {
             class="border-border font-body text-text-muted hover:border-gold-dim hover:text-text flex-1 cursor-pointer rounded-sm border bg-transparent px-4 py-3 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:opacity-40"
             ref={dismissRef}
             onClick={() => props.onClose()}
-            disabled={loading()}
+            // Nothing left to cancel once the reply is in and the sheet is
+            // closing itself — and an early `onClose` here would race the
+            // dwell timer for the same call.
+            //
+            // `&& !props.closed` is load-bearing, not defensive (T-M2). Past the
+            // deadline this button relabels to "Close" and becomes the sheet's
+            // ONLY control — and it is the target of the C-L2 focus rescue
+            // above, which calls `.focus()` on it. `.focus()` is a no-op on a
+            // disabled button. The deadline can flip INSIDE the 900ms dwell,
+            // unmounting the focused submit button; without this clause the
+            // rescue would fire into a disabled control and strand focus on
+            // `<body>`, outside an `aria-modal` dialog with no keyboard way
+            // back in. That is exactly the failure C-L2 exists to prevent, so
+            // the confirmed state must not be able to reintroduce it.
+            disabled={(loading() || saved()) && !props.closed}
           >
             {/* Past the deadline there is nothing to cancel — the sheet is a
                 view, so its one button says so. */}
@@ -411,12 +511,71 @@ export function RsvpModal(props: RsvpModalProps) {
           {/* No submit button once RSVPs are closed: a disabled Save invites a
               guest to keep clicking at a door that won't open. */}
           <Show when={!props.closed}>
+            {/* `relative` + `overflow-hidden` so the gold fill below can be an
+                absolutely-positioned child clipped to the button's rounded
+                corners. The fill and the label are BOTH positioned boxes with
+                `z-index: auto`, so DOM order alone decides the paint order —
+                the label comes second and therefore sits on top, with no
+                magic number escaping `lib/z-index`. */}
             <button
               type="submit"
-              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg disabled:hover:text-gold-ink flex-1 cursor-pointer rounded-sm border bg-transparent px-4 py-3 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+              class="border-gold font-body text-gold-ink relative flex-1 overflow-hidden rounded-sm border bg-transparent px-4 py-3 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              classList={{
+                // Hover-to-fill only while the button is still a button. Once
+                // it is confirming, the sweep owns its background.
+                "hover:bg-gold hover:text-bg disabled:hover:text-gold-ink": !saved(),
+                // The in-flight fade, spelled out rather than left to
+                // `disabled:opacity-40`: the confirmed state also needs the
+                // button non-submittable, and a variant keyed on `disabled`
+                // would drag a 40% fade onto the one state that must look
+                // most alive.
+                "opacity-40": loading(),
+                "cursor-pointer": !saved(),
+                "cursor-default": saved(),
+              }}
               disabled={loading()}
+              // Not `disabled`: this button holds keyboard focus at the moment
+              // the reply lands, and disabling a focused control drops focus to
+              // `<body>` — outside an `aria-modal` dialog, with no keyboard way
+              // back in (the same failure C-L2 documents below). `aria-disabled`
+              // states the same thing without moving focus; `handleSubmit`
+              // enforces it.
+              aria-disabled={saved() || undefined}
             >
-              {loading() ? "Saving…" : "Save"}
+              {/* The sweep. Mounted at `scale-x-0` from the start and never
+                  conditionally rendered, because a CSS transition needs a
+                  starting frame to travel from — an element created already in
+                  its end state simply appears there. */}
+              <span
+                aria-hidden="true"
+                class="bg-gold absolute inset-0 origin-left scale-x-0 transition-transform duration-500 ease-out"
+                classList={{ "scale-x-100": saved() }}
+              />
+              {/* Delayed so the ink flips to the dark on-gold colour once the
+                  fill has actually reached the text, not before it sets off. */}
+              <span
+                class="relative flex items-center justify-center gap-2 transition-colors delay-200 duration-200"
+                classList={{ "text-bg": saved() }}
+              >
+                <Show when={saved()}>
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    class="h-4 w-4 shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    {/* `stroke-dasharray` of 20 slightly over-covers the ~19.8
+                        path so it starts fully hidden; the keyframe walks the
+                        offset back to 0 to draw it. */}
+                    <path d="M5 13l4 4L19 7" stroke-dasharray="20" class="animate-tick-draw" />
+                  </svg>
+                </Show>
+                {saved() ? "Saved" : loading() ? "Saving…" : "Save"}
+              </span>
             </button>
           </Show>
         </div>

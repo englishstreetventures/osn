@@ -42,6 +42,28 @@
   --font-display: "Cormorant Garamond", Georgia, serif;
   --font-body: "Lato", system-ui, sans-serif;
   --default-font-family: var(--font-body);
+
+  /* The tick that confirms a recorded RSVP, drawing itself in behind the gold
+     sweep that fills the Save button (see `components/rsvp-saved.ts` for the
+     timing contract these two numbers are half of — the other half is the
+     `duration-500` on the fill layer, and the dwell that keeps the sheet open
+     long enough to read the result).
+
+     `both` so the path holds its undrawn state through the delay and its drawn
+     state afterwards; without it the tick would flash in whole, then draw.
+
+     Reduced motion needs no special case here: the global block below clamps
+     animation-duration and -delay, so the path simply starts drawn. */
+  --animate-tick-draw: tick-draw 340ms ease-out 180ms both;
+}
+
+@keyframes tick-draw {
+  from {
+    stroke-dashoffset: 20;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 /*
