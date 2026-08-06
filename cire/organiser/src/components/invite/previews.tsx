@@ -20,6 +20,7 @@ import { createMemo, createSignal, Show } from "solid-js";
 
 import { apiUrl } from "../../lib/api";
 import { cropAspectRatio, cropBackgroundStyle, type ImageCrop } from "../../lib/image-crop";
+import { designLayout } from "./design-layout";
 import { DEFAULTS } from "./model";
 
 /**
@@ -102,8 +103,12 @@ export function HeroSample(props: {
   backdropBlur: number;
   /** The surface the hero's tone paints, behind the gradient. */
   surface: string;
+  /** The wedding's design pack id — decides where the title block sits (see
+   *  `design-layout.ts`). Absent ⇒ the default pack's centred hero. */
+  design?: string;
   class?: string;
 }) {
+  const layout = () => designLayout(props.design);
   const src = () => previewVariantSrc(props.imageUrl);
   const cropStyle = () => {
     const url = src();
@@ -117,8 +122,16 @@ export function HeroSample(props: {
     // inline card) sitting inside a much wider organiser screen — `vw` used to
     // resolve against that wide screen, so the title read wildly oversized for
     // the tiny box it was actually in.
+    // The anchoring is the pack's single loudest structural move — classic
+    // centres the title in the frame, gala pins it bottom-left (the editorial
+    // hero it is named for). Both class strings are literal, per the Tailwind
+    // scanner rule: a computed `items-${…}` emits no CSS at all.
     <div
-      class={`@container relative flex items-center justify-center overflow-hidden ${props.class ?? "h-44"}`}
+      class={`@container relative flex overflow-hidden ${
+        layout().heroAnchor === "center"
+          ? "items-center justify-center"
+          : "flex-col items-start justify-end p-3"
+      } ${props.class ?? "h-44"}`}
       style={{
         "background-color": props.surface,
         "background-image": PREVIEW_HERO_GRADIENT,
@@ -160,7 +173,9 @@ export function HeroSample(props: {
           tinted by the scheme's derived panel colour. Painted only when opacity
           > 0 (mirrors the guest behaviour). */}
       <div
-        class="relative flex items-center justify-center rounded-xl px-6 py-4"
+        class={`relative flex rounded-xl px-6 py-4 ${
+          layout().heroAnchor === "center" ? "items-center justify-center" : "items-start"
+        }`}
         style={
           props.backdropOpacity > 0
             ? {
@@ -175,7 +190,9 @@ export function HeroSample(props: {
             as each fallback, taken from `@cire/theme` rather than retyped, so
             a pack that changes its base can't leave this sample behind. */}
         <span
-          class="max-w-full text-center leading-none break-words"
+          class={`max-w-full leading-none break-words ${
+            layout().heroAnchor === "center" ? "text-center" : "text-left"
+          }`}
           style={{
             color: "var(--color-gold)",
             "font-family": "var(--font-display)",
@@ -209,6 +226,9 @@ export function HeroPreview(props: {
   tokens: Record<string, string>;
   /** The surface the hero's tone paints, behind the gradient. */
   surface: string;
+  /** The wedding's design pack id — forwarded so the inline card shows the same
+   *  hero shape the composed pane does. */
+  design?: string;
 }) {
   const [device, setDevice] = createSignal<PreviewDevice>("desktop");
   const activeCrop = () =>
@@ -234,6 +254,7 @@ export function HeroPreview(props: {
           backdropOpacity={props.backdropOpacity}
           backdropBlur={props.backdropBlur}
           surface={props.surface}
+          design={props.design}
           class={device() === "phone" ? "mx-auto h-64 w-40" : "h-44"}
         />
       </div>
@@ -268,8 +289,20 @@ export function SectionSample(props: {
   body: string;
   /** Optional mini event card (the events section's preview). */
   card?: { name: string; meta: string };
+  /** The wedding's design pack id — decides copy alignment (see
+   *  `design-layout.ts`). Absent ⇒ the default pack's centred column. */
+  design?: string;
+  /** Close the header with a hairline rule where the pack does (gala's events
+   *  section). Only honoured when the pack asks for it. */
+  rule?: boolean;
+  /** Render the content as an INSET bordered panel rather than filling the
+   *  surface — gala's code-entry card, which sits on the section instead of
+   *  being it. Only honoured when the pack asks for it. */
+  panel?: boolean;
   class?: string;
 }) {
+  const layout = () => designLayout(props.design);
+  const leftAligned = () => layout().align === "left";
   // Memoised on the image + crop alone: the props object this sample receives is
   // rebuilt by the builder on every keystroke in the closing note, and without
   // this the URL string-building and the four `toFixed(4)` calls re-run per
@@ -348,7 +381,26 @@ export function SectionSample(props: {
           </Show>
         )}
       </Show>
-      <div class="flex flex-1 flex-col items-center justify-center gap-1.5 p-4 text-center">
+      {/* The content block. Classic centres it on the section's own axis; gala
+          runs it along the leading edge. When the pack asks for a PANEL (gala's
+          code-entry card) the block also stops filling the surface: it becomes a
+          bordered card sitting on it, narrow and flush left, which is what an
+          organiser is looking at when they compare the two packs' claim screens.
+          Every class string is literal — see the Tailwind scanner note above. */}
+      <div
+        class={`flex flex-1 flex-col justify-center gap-1.5 ${
+          leftAligned() ? "items-start text-left" : "items-center text-center"
+        } ${
+          props.panel && layout().welcome === "panel"
+            ? "m-4 max-w-[11rem] rounded-sm border p-3"
+            : "p-4"
+        }`}
+        style={
+          props.panel && layout().welcome === "panel"
+            ? { "border-color": "var(--color-border)" }
+            : undefined
+        }
+      >
         <Show when={props.eyebrow}>
           <span
             style={{ color: "var(--color-gold)" }}
@@ -373,6 +425,15 @@ export function SectionSample(props: {
           >
             {props.heading}
           </span>
+        </Show>
+        {/* Gala closes its events header with a full-width hairline before the
+            cards; classic runs straight from heading to list. */}
+        <Show when={props.rule && layout().eventsRule}>
+          <hr
+            aria-hidden="true"
+            class="h-0 w-full border-t"
+            style={{ "border-color": "var(--color-border)" }}
+          />
         </Show>
         {/* Body sample in the body font on the section surface, so the font and
           the text-on-surface contrast are both visible. Weight + style are
@@ -431,6 +492,11 @@ export function SectionPreview(props: {
   imageCrop?: ImageCrop | null;
   body: string;
   card?: { name: string; meta: string };
+  /** The wedding's design pack id — forwarded for the same reason as on the
+   *  hero: the inline card and the composed pane must show one shape. */
+  design?: string;
+  rule?: boolean;
+  panel?: boolean;
 }) {
   return (
     <div class="flex flex-col gap-1.5 @4xl/builder:hidden">
@@ -448,6 +514,9 @@ export function SectionPreview(props: {
           imageCrop={props.imageCrop}
           body={props.body}
           card={props.card}
+          design={props.design}
+          rule={props.rule}
+          panel={props.panel}
           class="min-h-28"
         />
         <figcaption

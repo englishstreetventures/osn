@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-templates]]"
-last-reviewed: 2026-08-02
+last-reviewed: 2026-08-06
 ---
 
 # Invite Builder
@@ -776,6 +776,7 @@ endpoints; `solid-toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 | `invite/PreviewPane.tsx` | The composed whole-invite preview markup (exports `PreviewPaneProps`) — sticky side pane at wide widths |
 | `invite/PreviewModal.tsx` | The SAME composed preview in a mobile modal, opened by the "Preview" button beside the section tabs |
 | `invite/DesignPicker.tsx` | Design radiogroup, roving tabindex, `aria-disabled` locked cards, thumbnails |
+| `invite/design-layout.ts` | Per-pack structural signature the previews render (hero anchoring, copy alignment, code-entry panel, events rule) — drift-guarded against the catalog |
 | `invite/ImageField.tsx` | Upload/crop/remove per slot, inline per-slot errors, remove confirm lives in the builder |
 | `lib/unsaved-guard.ts` | Cross-component dirty registry; `OrganiserApp.setRoute` confirms before SPA navigation |
 
@@ -939,6 +940,43 @@ guest's background-fraction technique — the framing never lies) and the phone
 frame uses the hero's phone rectangle, falling back to the desktop crop
 exactly as the guest site does. Tone pickers render **as their surface**
 (swatch buttons on the scoped tokens), not as text-only chips.
+
+**The preview follows the DESIGN PACK too (2026-08-06).** It didn't, for as
+long as there was more than one pack: colours, fonts and copy were exact and
+the layout — the one thing a design pack actually *is* — was a fiction, so
+switching Classic → Gala changed the radio card and nothing else in the
+miniature. `invite/design-layout.ts` now names each pack's structural signature
+and `HeroSample`/`SectionSample` render it, in all three presentations at once
+(inline cards, sticky pane, mobile modal):
+
+| | `classic` | `gala` |
+|---|---|---|
+| Hero copy | centred in the frame | anchored bottom-left (editorial) |
+| Section copy | centred column | left-aligned |
+| Code entry | full-bleed band | narrow bordered panel, flush left |
+| Events header | heading, then cards | heading closed by a hairline rule |
+
+Every row traces to the pack's own markup — gala's hero is `items-start
+justify-end` against classic's centred block, its columns are `text-left`
+against classic's `text-center`, its claim panel is a `max-w-[400px]` bordered
+card rather than a section band, its events header closes with a full-width
+`<hr>`. It is deliberately a **sketch, not a second implementation**: the packs
+in `cire/web/src/designs/<id>/` own the real markup, and re-rendering it here at
+miniature scale would be a copy to drift. What is described is the handful of
+moves that read at 20rem wide and that an organiser is actually choosing
+between. `design-layout.test.ts` asserts every catalog id has an entry of its
+own (a KEY-set assertion — comparing stringified shapes would fail the first
+time two packs legitimately shared a signature, and a guard that fails for a
+legitimate reason is a guard that gets deleted), and
+`designLayout()` falls back to `DEFAULT_DESIGN_ID` for an id this build's
+catalog doesn't carry — via `Object.hasOwn`, because a bare lookup resolves
+PROTOTYPE keys, so `constructor`/`__proto__`/`toString` each returned something
+truthy, the `??` never fired, and every field read `undefined`: a fourth,
+unintended shape (S-L2) — the same fallback the guest registry's `resolveDesignId`
+makes, so the two can't disagree about what an unknown id renders as. The pane
+names the pack it is showing ("Gala design"), because the packs differ in
+layout rather than colour: unlabelled, a re-shaped preview reads as a rendering
+glitch instead of the design changing.
 
 **Mobile preview modal (2026-07-30).** Below `@4xl/builder` there is no room
 for the sticky side pane, and the inline per-section previews only ever show

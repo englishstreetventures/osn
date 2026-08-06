@@ -24,6 +24,7 @@
 import { createMemo, createSignal } from "solid-js";
 import { createStore, produce, reconcile, unwrap } from "solid-js/store";
 
+import { isDateOnly } from "./event-datetime";
 import type { EventRow } from "./events-store";
 import {
   isBlankName,
@@ -35,6 +36,7 @@ import {
 } from "./guest-validation";
 import type { OrganiserGuestRow } from "./guests-store";
 import type { OrganiserHouseholdRow } from "./households-store";
+import { browserTimeZone } from "./timezones";
 
 // ── Draft row shapes ─────────────────────────────────────────────────────────
 //
@@ -329,13 +331,22 @@ export function validateDraft(draft: DraftState): FieldError[] {
       }
     }
 
+    // A date-only value is the drawer's half-filled state (a day picked, no
+    // time yet — see `event-datetime.ts`). Still an error, so Save stays shut
+    // and nothing invents a midnight, but named precisely: the organiser is one
+    // field away, and "not a valid date, time & timezone offset" doesn't say
+    // which one.
     if (isBlankName(evt.startAt)) {
       errors.push({ key: evt.key, message: "Start date & time is required." });
+    } else if (isDateOnly(evt.startAt)) {
+      errors.push({ key: evt.key, message: "Start time is required." });
     } else if (!isIsoTimestamp(evt.startAt)) {
       errors.push({ key: evt.key, message: "Start must be a valid date, time & timezone offset." });
     }
     // End is optional ("" ⇒ open-ended); only shape-check a present value.
-    if (evt.endAt.trim().length > 0 && !isIsoTimestamp(evt.endAt)) {
+    if (isDateOnly(evt.endAt)) {
+      errors.push({ key: evt.key, message: "End time is required." });
+    } else if (evt.endAt.trim().length > 0 && !isIsoTimestamp(evt.endAt)) {
       errors.push({ key: evt.key, message: "End must be a valid date, time & timezone offset." });
     }
 
@@ -558,7 +569,13 @@ export function createGuestEventDraft(): GuestEventDraft {
           name: "",
           startAt: "",
           endAt: "",
-          timezone: "",
+          // Seeded with the organiser's OWN zone rather than blank. A wedding is
+          // overwhelmingly in the zone the person planning it is sitting in, and
+          // the alternative — an empty required field on every new event — made
+          // the zone something to be re-typed by hand each time (which is how a
+          // "+10:00 in November" Sydney event happens). Still fully editable in
+          // the drawer's dropdown.
+          timezone: browserTimeZone(),
           address: null,
           dressCodeDescription: null,
           dressCodePalette: [],

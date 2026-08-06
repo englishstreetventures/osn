@@ -26,6 +26,7 @@
  * model that would unify them needs API support — tracked in the cire wiki.
  */
 
+import { DEFAULT_DESIGN_ID } from "@cire/invite-designs";
 import {
   derivePalette,
   fontStack,
@@ -57,6 +58,7 @@ import { registerUnsavedGuard } from "../../lib/unsaved-guard";
 import PaletteField, { resolvedSeeds } from "../PaletteField";
 import Button from "../ui/Button";
 import Notice from "../ui/Notice";
+import { designLayout } from "./design-layout";
 import DesignPicker from "./DesignPicker";
 import {
   ChoiceField,
@@ -610,8 +612,14 @@ export default function InviteBuilder(props: InviteBuilderProps) {
   // Fires immediately on card click — no dirty-tracking, one PUT per selection.
   const [savingDesign, setSavingDesign] = createSignal(false);
 
+  /** The server-acknowledged design pack. One accessor rather than three
+   *  `?? "classic"` literals: the picker's checked card, the previews' shape and
+   *  the "is this a no-op click?" guard have to be reading the same thing, or a
+   *  preview can show one pack while the radio says another. */
+  const currentDesign = () => data()?.designId ?? DEFAULT_DESIGN_ID;
+
   const selectDesign = async (designId: string) => {
-    if (savingDesign() || (data()?.designId ?? "classic") === designId) return;
+    if (savingDesign() || currentDesign() === designId) return;
     setSavingDesign(true);
     try {
       const res = await authFetch(apiUrl(`${base()}/design`), {
@@ -1003,7 +1011,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                   >
                     <DesignPicker
                       entitlements={props.entitlements}
-                      currentId={d().designId ?? "classic"}
+                      currentId={currentDesign()}
                       saving={savingDesign()}
                       onSelect={(id) => void selectDesign(id)}
                       previewHref={designPreviewHref}
@@ -1106,6 +1114,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         backdropBlur={draft.titleBackdropBlur}
                         tokens={previewTokens()}
                         surface={toneSurface("hero")}
+                        design={currentDesign()}
                       />
                     </Show>
                     <ImageField
@@ -1221,6 +1230,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         label="Our Story"
                         tokens={previewTokens()}
                         surface={toneSurface("story")}
+                        design={currentDesign()}
                         eyebrow={sampleCopy(draft.storyEyebrow, DEFAULTS.storyEyebrow, 40)}
                         heading={sampleCopy(draft.storyHeading, DEFAULTS.storyHeading, 60)}
                         body={sampleCopy(draft.storyBody, DEFAULTS.storyBody)}
@@ -1253,6 +1263,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         label="Code Entry & Welcome"
                         tokens={previewTokens()}
                         surface={toneSurface("welcome")}
+                        design={currentDesign()}
+                        panel={designLayout(currentDesign()).welcome === "panel"}
                         eyebrow="Your Invitation"
                         heading="Enter Your Code"
                         body={sampleCopy(draft.welcomeMessage, DEFAULTS.welcomeMessage)}
@@ -1292,6 +1304,8 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         label="Events Section"
                         tokens={previewTokens()}
                         surface={toneSurface("details")}
+                        design={currentDesign()}
+                        rule={designLayout(currentDesign()).eventsRule}
                         eyebrow={sampleCopy(draft.detailsEyebrow, DEFAULTS.detailsEyebrow, 40)}
                         heading={sampleCopy(draft.detailsHeading, DEFAULTS.detailsHeading, 60)}
                         body="Event names, dates and the Respond buttons follow these colours."
@@ -1335,6 +1349,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                         label="Closing Section"
                         tokens={previewTokens()}
                         surface={toneSurface("welcome")}
+                        design={currentDesign()}
                         imageUrl={d().footer?.imageUrl ?? null}
                         imageCrop={d().footer?.imageCrop ?? null}
                         body={
@@ -1379,6 +1394,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                       <PreviewPane
                         tokens={previewTokens()}
                         toneSurface={toneSurface}
+                        design={currentDesign()}
                         hero={heroSlot()}
                         story={storySlot()}
                         welcome={welcomeSlot()}
@@ -1398,6 +1414,7 @@ export default function InviteBuilder(props: InviteBuilderProps) {
                 onClose={() => setPreviewModalOpen(false)}
                 tokens={previewTokens()}
                 toneSurface={toneSurface}
+                design={currentDesign()}
                 hero={heroSlot()}
                 story={storySlot()}
                 welcome={welcomeSlot()}

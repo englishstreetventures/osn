@@ -4,7 +4,7 @@ tags: [systems, web, api]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-08-06
 ---
 
 # Invite design selector
@@ -32,8 +32,10 @@ round-trips.
   DetailsModal, EventCard, PulseAccountLink, invite-theme, invite-images) stay
   in `components/`.
 - **Organiser** — Design section in `InviteBuilder`; card per catalog entry,
-  lock badge on unentitled premium designs, instant save. The inline WYSIWYG
-  preview stays classic-shaped; other designs preview via the live invite link.
+  lock badge on unentitled premium designs, instant save. **The live previews
+  follow the pack** (2026-08-06): `invite/design-layout.ts` names each pack's
+  structural signature and `HeroSample`/`SectionSample` render it, so switching
+  designs visibly re-shapes the miniature. See [[invite-builder]] §preview.
 
 ## Adding a design
 
@@ -42,7 +44,11 @@ round-trips.
 2. New pack folder `cire/web/src/designs/<id>/` + registry entry. Each pack's
    `Document.astro` owns its font preloads and islands, so guests never
    download another design's assets.
-3. Tier `premium` → gate already enforced; no api change.
+3. Row in `cire/organiser/src/components/invite/design-layout.ts` describing how
+   the pack is SHAPED, so the builder's preview stops previewing it as Classic.
+   Not optional — `design-layout.test.ts` asserts every catalog id has its own
+   entry, so step 1 without this fails the organiser suite.
+4. Tier `premium` → gate already enforced; no api change.
 
 ## Testing seams
 

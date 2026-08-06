@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 /**
  * EventsEditor is the interactive events editor (E6): a re-orderable event list
@@ -46,7 +46,10 @@ const EVENTS = [
     slug: "ceremony",
     sortOrder: 0,
     startAt: "2026-11-14T15:00:00+11:00",
-    endAt: "",
+    // A real end, not "": `joinIso(stamped(splitIso(""), zone))` returns ""
+    // whatever the implementation does, so an empty one left the `endAt` half
+    // of `setTimezone`'s patch provably unexercised.
+    endAt: "2026-11-14T17:00:00+11:00",
     timezone: "Australia/Sydney",
     address: "St Mary's",
     description: "",
@@ -206,6 +209,264 @@ describe("EventsEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
     // A drawer opens for the new (blank) event, and a "New — saved on apply" badge shows.
     await waitFor(() => expect(screen.getByText(/saved on apply/i)).toBeTruthy());
+  });
+
+  // ── Start/End date + timezone ────────────────────────────────────────────
+  //
+  // The drawer reads each date back out of the ISO string it just wrote, so a
+  // join that dropped a date lacking a time made the picker a silent no-op on
+  // exactly the events that need it most — every newly-added one. These pin the
+  // date surviving on its own, and the zone (not a hand-picked UTC offset)
+  // deciding what offset the finished timestamp carries.
+
+  it("keeps a start date picked before any time is typed", async () => {
+    primeLoad();
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
+    await waitFor(() => expect(screen.getByText(/saved on apply/i)).toBeTruthy());
+
+    // A brand-new event has no time, so this is the exact case that used to
+    // bounce straight back to the placeholder.
+    fireEvent.click(screen.getByLabelText(/Start date, no date set/i));
+    const grid = await waitFor(() => screen.getAllByRole("grid")[0]!);
+    const today = grid.querySelector<HTMLButtonElement>('[aria-current="date"]')!;
+    const pickedLabel = today.getAttribute("aria-label")!;
+    fireEvent.click(today);
+
+    // The trigger now shows the picked day rather than "Pick a date…".
+    await waitFor(() => expect(screen.getByLabelText(`Start date: ${pickedLabel}`)).toBeTruthy());
+    // …and it is a blocking partial, not an invented midnight.
+    expect(screen.getByText(/Start time is required/i)).toBeTruthy();
+    expect(
+      (screen.getByRole("button", { name: /Save changes/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it("carries a new event from picked-date to a full zone-derived timestamp", async () => {
+    // Pinned clock: the picker on a blank value opens on TODAY's month, and
+    // this test needs a specific month (and a date whose zone offset is a fixed
+    // known quantity — November in Sydney is AEDT).
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-11-01T09:00:00+11:00"));
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+
+    primeLoad();
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
+    await waitFor(() => expect(screen.getByText(/saved on apply/i)).toBeTruthy());
+    fireEvent.input(screen.getByLabelText("Event name"), { target: { value: "Mehendi" } });
+
+    // The whole fix-1 + fix-2 interaction on the flow it was written for:
+    // `joinIso`'s partial, `splitIso`'s date-only parse, `stamped()` against
+    // `splitIso`'s `+00:00` fallback offset, and `validateDraft`'s new branch.
+    fireEvent.change(screen.getByLabelText("Timezone"), {
+      target: { value: "Australia/Sydney" },
+    });
+    fireEvent.click(screen.getByLabelText(/Start date, no date set/i));
+    const grid = await waitFor(() => screen.getAllByRole("grid")[0]!);
+    fireEvent.click(within(grid).getByRole("gridcell", { name: /14 November 2026/ }));
+    await waitFor(() => expect(screen.getByText(/Start time is required/i)).toBeTruthy());
+
+    // 11:30, not 15:00 — the Ceremony fixture already starts at 15:00 on this
+    // date, and its row shows the same string.
+    fireEvent.input(screen.getByLabelText("Start time"), { target: { value: "11:30" } });
+
+    // November in Sydney is AEDT: the offset must be the one the ZONE is on for
+    // this event's own date, not the `+00:00` the partial carried.
+    await waitFor(() => expect(screen.getByText(/2026-11-14T11:30:00\+11:00/)).toBeTruthy());
+    expect(screen.queryByText(/Start time is required/i)).toBeNull();
+    expect(
+      (screen.getByRole("button", { name: /Save changes/i }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("treats a half-filled End the same way, and clearing it re-opens the save", async () => {
+    primeLoad();
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    // Ceremony is complete, so any block here comes from the End edit alone.
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+    await waitFor(() => expect(screen.getByLabelText("End time")).toBeTruthy());
+    fireEvent.input(screen.getByLabelText("End time"), { target: { value: "" } });
+
+    // A date with no time is the same blocking partial on the End side…
+    await waitFor(() => expect(screen.getByText(/End time is required/i)).toBeTruthy());
+    expect(
+      (screen.getByRole("button", { name: /Save changes/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    // …and clearing the DATE collapses it to "" (open-ended), which is valid.
+    fireEvent.click(screen.getByLabelText(/^End date:/i));
+    fireEvent.click(await waitFor(() => screen.getByText("Clear date")));
+    await waitFor(() => expect(screen.queryByText(/End time is required/i)).toBeNull());
+    expect(
+      (screen.getByRole("button", { name: /Save changes/i }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+  });
+
+  it("offers a timezone dropdown seeded with the organiser's own zone, not a UTC offset", async () => {
+    primeLoad();
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /Add event/i }));
+    const zone = (await waitFor(() => screen.getByLabelText("Timezone"))) as HTMLSelectElement;
+    expect(zone.tagName).toBe("SELECT");
+    expect(zone.value).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    // The raw-offset pickers are gone — an offset is a fact about a zone on a
+    // date, not a second thing to ask for.
+    expect(screen.queryByLabelText(/UTC offset/i)).toBeNull();
+  });
+
+  it("derives the offset from the chosen zone and the event's own date, for BOTH ends", async () => {
+    primeLoad();
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    // Ceremony runs 15:00–17:00 +11:00 in Sydney. Re-homing it to Brisbane
+    // (no DST) must restamp BOTH offsets to +10:00 without touching either
+    // wall clock — the organiser moved the wedding, not the ceremony's hours.
+    // Dropping `endAt` from the patch would leave a 15:00+10:00 start against
+    // a 17:00+11:00 end: a reception an hour shorter than anyone typed.
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+    const zone = (await waitFor(() => screen.getByLabelText("Timezone"))) as HTMLSelectElement;
+    fireEvent.change(zone, { target: { value: "Australia/Brisbane" } });
+
+    await waitFor(() => expect(screen.getByText(/2026-11-14T15:00:00\+10:00/)).toBeTruthy());
+    expect((screen.getByLabelText("Start time") as HTMLInputElement).value).toBe("15:00");
+    expect((screen.getByLabelText("End time") as HTMLInputElement).value).toBe("17:00");
+    // The select kept its new value — the option list is not rebuilt under it.
+    expect(zone.value).toBe("Australia/Brisbane");
+
+    // And the end really is restamped, not merely left alone: it reaches the
+    // wire as +10:00.
+    await waitFor(() => expect(screen.getByRole("button", { name: /Save changes/i })).toBeTruthy());
+    authFetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith("/changes/preview")) {
+        return Promise.resolve(
+          json({
+            changeId: "chg_1",
+            baseRevision: "genesis",
+            warnings: [],
+            plan: {
+              eventCreates: [],
+              eventUpdates: [],
+              eventRemovals: [],
+              familyCreates: [],
+              familyUpdates: [],
+              familyRemovals: [],
+              guestCreates: [],
+              guestUpdates: [],
+              guestRemovals: [],
+              attendanceCreates: [],
+              attendanceRemovals: [],
+            },
+          }),
+        );
+      }
+      return Promise.resolve(json({}));
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+    await waitFor(() =>
+      expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/changes/preview"))).toBe(
+        true,
+      ),
+    );
+    const body = JSON.parse(
+      authFetchMock.mock.calls.find((c) => String(c[0]).endsWith("/changes/preview"))![1].body,
+    );
+    const ceremony = body.desiredState.events.find(
+      (e: { name: string }) => e.name === "Ceremony",
+    ) as { startAt: string; endAt: string; timezone: string };
+    expect(ceremony.startAt).toBe("2026-11-14T15:00:00+10:00");
+    expect(ceremony.endAt).toBe("2026-11-14T17:00:00+10:00");
+    expect(ceremony.timezone).toBe("Australia/Brisbane");
+  });
+
+  it("keeps an unresolvable imported zone's stored offset when another field is edited", async () => {
+    // A spreadsheet import can carry a free-text zone this tz database can't
+    // resolve ("AEST"). `stamped()` falls back to the offset already on the
+    // value, so touching the time must not silently shift the event by hours.
+    authFetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith("/events")) {
+        return Promise.resolve(
+          json([
+            { ...EVENTS[0], timezone: "AEST", startAt: "2026-11-14T15:00:00+10:00", endAt: "" },
+          ]),
+        );
+      }
+      if (u.endsWith("/guests")) return Promise.resolve(json([]));
+      if (u.endsWith("/households")) return Promise.resolve(json([]));
+      return Promise.resolve(json({}));
+    });
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+    const zone = (await waitFor(() => screen.getByLabelText("Timezone"))) as HTMLSelectElement;
+    // The unknown zone leads the list under "Current", so the select shows what
+    // is actually stored rather than the first option in the tz database.
+    expect(zone.value).toBe("AEST");
+
+    fireEvent.input(screen.getByLabelText("Start time"), { target: { value: "16:00" } });
+    await waitFor(() => expect(screen.getByText(/2026-11-14T16:00:00\+10:00/)).toBeTruthy());
+    // The hint names the zone but claims no offset it can't actually derive.
+    // Read through `aria-describedby` rather than by text: "AEST" is also the
+    // label of the "Current" option, so a bare text query is ambiguous.
+    const hint = document.getElementById(zone.getAttribute("aria-describedby")!)!;
+    expect(hint.textContent).toBe("AEST");
+  });
+
+  it("shows an empty zone as empty, not as the first zone in the database", async () => {
+    // A legacy row can hold `timezone: ""`. A `<select>` whose value matches no
+    // option displays the FIRST one, so without an explicit empty option this
+    // read as "Africa/Abidjan" while the draft still held "" — and the
+    // free-text escape hatch that used to make that recoverable is gone.
+    authFetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith("/events")) return Promise.resolve(json([{ ...EVENTS[0], timezone: "" }]));
+      if (u.endsWith("/guests")) return Promise.resolve(json([]));
+      if (u.endsWith("/households")) return Promise.resolve(json([]));
+      return Promise.resolve(json({}));
+    });
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+    const zone = (await waitFor(() => screen.getByLabelText("Timezone"))) as HTMLSelectElement;
+    expect(zone.value).toBe("");
+    expect(screen.getByText("Select a timezone…")).toBeTruthy();
+    // …and the required-field error agrees with what the control shows.
+    expect(screen.getByText(/Timezone is required/i)).toBeTruthy();
+  });
+
+  it("spells out the zone and the offset it is on for this event's date", async () => {
+    primeLoad();
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    // The hint is the ONLY place the derived offset is shown — it is the whole
+    // user-facing replacement for the deleted "UTC offset" select.
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+    await waitFor(() =>
+      expect(screen.getByText("Australia/Sydney (AEDT) — UTC+11:00 on this date.")).toBeTruthy(),
+    );
+
+    fireEvent.change(screen.getByLabelText("Timezone"), {
+      target: { value: "Australia/Brisbane" },
+    });
+    await waitFor(() =>
+      expect(screen.getByText("Australia/Brisbane (AEST) — UTC+10:00 on this date.")).toBeTruthy(),
+    );
   });
 
   it("runs the save flow: preview → shared modal → apply → toast", async () => {

@@ -4,6 +4,7 @@ import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
+import { browserTimeZone, describeTimeZone } from "../lib/timezones";
 import DatePicker from "./DatePicker";
 import SectionIntro from "./SectionIntro";
 import Button from "./ui/Button";
@@ -28,44 +29,11 @@ interface WeddingProfile {
   rsvpDeadlineTimezone: string | null;
 }
 
-/** The organiser's own zone, used to stamp a deadline they've just picked. A
- *  browser that won't name its zone (ancient/locked-down) falls back to UTC —
- *  the same default the API applies to a zone-less deadline. */
-function browserTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
-
-/** Zone-name formatters, cached by zone (P-I3). Construction is the expensive
- *  part; only successful lookups are stored, so an unresolvable zone costs a
- *  throwaway construction and can't grow the map. */
-const zoneNameFormatters = new Map<string, Intl.DateTimeFormat>();
-
-function zoneNameFormatter(zone: string): Intl.DateTimeFormat | null {
-  const cached = zoneNameFormatters.get(zone);
-  if (cached) return cached;
-  try {
-    const formatter = new Intl.DateTimeFormat("en-AU", { timeZone: zone, timeZoneName: "short" });
-    zoneNameFormatters.set(zone, formatter);
-    return formatter;
-  } catch {
-    return null;
-  }
-}
-
-/** "Australia/Sydney" → "Australia/Sydney (AEST)" where the runtime can name
- *  the abbreviation, so the hint says something an organiser recognises. */
-function describeTimeZone(zone: string, on: string | null): string {
-  const at = on ? new Date(`${on}T12:00:00Z`) : new Date();
-  if (Number.isNaN(at.getTime())) return zone;
-  const short = zoneNameFormatter(zone)
-    ?.formatToParts(at)
-    .find((p) => p.type === "timeZoneName")?.value;
-  return short && short !== zone ? `${zone} (${short})` : zone;
-}
+// `browserTimeZone` + `describeTimeZone` used to live here. They moved to
+// `lib/timezones.ts` unchanged when the events drawer needed the same two
+// answers ("which zone is this organiser in?" and "what do I call it?") — two
+// copies of a cached-`Intl.DateTimeFormat` helper is exactly the kind of thing
+// that drifts quietly.
 
 /** Kept for the two blocks that are NOT a control: the read-only invite link,
  *  and the standing notes beside a DatePicker (which draws its own label). Every
