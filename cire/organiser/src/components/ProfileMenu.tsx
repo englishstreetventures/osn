@@ -1,13 +1,22 @@
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
 import type { RpSession } from "@shared/rp-auth";
-import { Show } from "solid-js";
+import { For, Show } from "solid-js";
+
+import { haptic, hapticsAvailable } from "../lib/haptics";
+import {
+  hapticsEnabled,
+  setHapticsEnabled,
+  setThemePreference,
+  type ThemePreference,
+  themePreference,
+} from "../lib/theme";
 
 /**
- * The masthead's account affordance: an avatar button opening a menu with the
- * account-scoped actions (security, sign out). Those used to sit in the
- * top-level view nav next to Weddings, which put "who am I" housekeeping on the
- * same axis as "what am I working on" — the conventional avatar-menu splits the
- * two, and frees the nav for wedding-scoped sections only.
+ * The top bar's account affordance: an avatar button opening a menu with
+ * everything scoped to the person rather than to a wedding — appearance,
+ * haptics, security, sign out. Those used to sit in a portal-wide nav row next
+ * to Weddings, which put "who am I" housekeeping on the same axis as "what am I
+ * working on"; an avatar menu splits the two and leaves the bar for the work.
  *
  * The trigger shows the account's avatar when the session carries one, else the
  * first letter of whatever identifies the account best (display name → handle →
@@ -18,6 +27,20 @@ const itemClass =
   "font-body flex w-full cursor-pointer items-center rounded-sm px-3 py-2 text-[0.76rem] " +
   "tracking-[0.12em] uppercase outline-none transition-colors duration-(--dur-fast) " +
   "text-text-muted data-[highlighted]:bg-gold/10 data-[highlighted]:text-gold";
+
+/** The same row, plus room for the indicator column the settings rows carry. */
+const settingClass = `${itemClass} justify-between gap-4`;
+
+const groupLabelClass =
+  "font-body text-text-faint px-3 pt-2 pb-1 text-[0.6rem] tracking-[0.18em] uppercase";
+
+/** "System" first because it is the default, and the only one that keeps
+ *  following the host's OS after they close the menu. */
+const THEME_OPTIONS: { value: ThemePreference; label: string }[] = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
 
 export default function ProfileMenu(props: {
   session: RpSession | null | undefined;
@@ -76,6 +99,65 @@ export default function ProfileMenu(props: {
               )}
             </Show>
           </div>
+          <DropdownMenu.Separator class="bg-border/60 mx-1 my-1 h-px border-0" />
+
+          {/* Appearance and haptics stay open on select: both are things you
+              try, look at (or feel), and try again — closing the menu after
+              each one would make comparing them a three-click job. */}
+          <DropdownMenu.Group>
+            <DropdownMenu.GroupLabel class={groupLabelClass}>Appearance</DropdownMenu.GroupLabel>
+            <DropdownMenu.RadioGroup
+              value={themePreference()}
+              onChange={(next) => setThemePreference(next as ThemePreference)}
+            >
+              <For each={THEME_OPTIONS}>
+                {(option) => (
+                  <DropdownMenu.RadioItem
+                    value={option.value}
+                    closeOnSelect={false}
+                    class={settingClass}
+                  >
+                    {option.label}
+                    <DropdownMenu.ItemIndicator class="text-gold shrink-0 text-[0.7rem]">
+                      ✓
+                    </DropdownMenu.ItemIndicator>
+                  </DropdownMenu.RadioItem>
+                )}
+              </For>
+            </DropdownMenu.RadioGroup>
+          </DropdownMenu.Group>
+
+          {/* Offered wherever the portal can deliver feedback — which includes
+              iOS, where the API check says no and the switch fallback says yes.
+              Feedback a host cannot turn off is the failure worth avoiding. */}
+          <Show when={hapticsAvailable()}>
+            <DropdownMenu.CheckboxItem
+              checked={hapticsEnabled()}
+              closeOnSelect={false}
+              onChange={(checked) => {
+                setHapticsEnabled(checked);
+                // Fire the confirmation *after* enabling, so turning it on
+                // demonstrates itself.
+                if (checked) haptic("commit");
+              }}
+              class={settingClass}
+            >
+              Haptics
+              <span
+                aria-hidden="true"
+                class={`relative h-4 w-7 shrink-0 rounded-full transition-colors duration-(--dur-fast) ${
+                  hapticsEnabled() ? "bg-gold" : "bg-border"
+                }`}
+              >
+                <span
+                  class={`bg-bg absolute top-0.5 h-3 w-3 rounded-full transition-[left] duration-(--dur-fast) ease-(--ease-out) ${
+                    hapticsEnabled() ? "left-3.5" : "left-0.5"
+                  }`}
+                />
+              </span>
+            </DropdownMenu.CheckboxItem>
+          </Show>
+
           <DropdownMenu.Separator class="bg-border/60 mx-1 my-1 h-px border-0" />
           <DropdownMenu.Item class={itemClass} onSelect={() => props.onSecurity()}>
             Security &amp; passkeys

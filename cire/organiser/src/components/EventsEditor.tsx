@@ -28,6 +28,7 @@ import {
   invalidateGuests,
   type OrganiserGuestRow,
 } from "../lib/guests-store";
+import { haptic } from "../lib/haptics";
 import {
   ensureHouseholdsLoaded,
   householdsAccessor,
@@ -114,10 +115,33 @@ export default function EventsEditor(props: { weddingId: string }) {
    *  rather than a re-order, and guessing which would be worse than silence. */
   const clearAnnouncement = () => setAnnouncement("");
 
+  /** The slot the pointer was last over, so `onDragOver` can tell a real slot
+   *  change from the stream of same-slot events solid-dnd emits per pointer
+   *  move. Only the change is worth a tick. */
+  let lastOverKey: string | null = null;
+
+  /** Lift-off. The row detaches from the list here, so this is the moment the
+   *  drag becomes real to the host — the buzz is what a physical control's
+   *  detent gives you when it leaves its seat. */
+  function handleDragStart() {
+    lastOverKey = null;
+    haptic("pickup");
+  }
+
+  /** Crossing into another row's slot. One light tick per slot, so a drag down
+   *  a long list reads as counting rows rather than as one continuous smear. */
+  function handleDragOver({ droppable }: SortableDragEvent) {
+    const key = droppable ? String(droppable.id) : null;
+    if (key === lastOverKey) return;
+    lastOverKey = key;
+    if (key) haptic("step");
+  }
+
   /** Commit a drop. solid-dnd hands back the dragged row and the row it landed
    *  on; both ids are draft keys, so the move is their two indices in the current
    *  order. `reorderEvents` itself no-ops on same-index/out-of-range. */
   function handleDragEnd({ draggable, droppable }: SortableDragEvent) {
+    lastOverKey = null;
     if (!droppable) return;
     const keys = eventKeys();
     const from = keys.indexOf(String(draggable.id));
@@ -126,6 +150,9 @@ export default function EventsEditor(props: { weddingId: string }) {
     const name = store.draft.events[from]?.name ?? "";
     store.reorderEvents(from, to);
     announceMove(name, to);
+    // Only a drop that actually moved something gets the commit buzz — a row
+    // dropped back where it started has changed nothing to confirm.
+    haptic("commit");
   }
 
   /** Keyboard re-order: move the row at `index` one slot in `delta`'s direction.
@@ -137,6 +164,9 @@ export default function EventsEditor(props: { weddingId: string }) {
     const name = store.draft.events[index]?.name ?? "";
     store.reorderEvents(index, to);
     announceMove(name, to);
+    // The keyboard path has no pick-up or hover phase — each press IS the move,
+    // so it gets the same confirmation a drop does.
+    haptic("commit");
   }
 
   const changesUrl = (op: string) =>
@@ -349,7 +379,12 @@ export default function EventsEditor(props: { weddingId: string }) {
           {/* `DragDropSensors` registers solid-dnd's pointer sensor; the grip's own
               Arrow-key handler covers keyboard (solid-dnd has no keyboard sensor).
               `closestCenter` is the right detector for a single-column list. */}
-          <DragDropProvider onDragEnd={handleDragEnd} collisionDetector={closestCenter}>
+          <DragDropProvider
+            onDragStart={handleDragStart}
+            onDragOver={handleDragOver}
+            onDragEnd={handleDragEnd}
+            collisionDetector={closestCenter}
+          >
             <DragDropSensors />
             <ul class="flex flex-col gap-3" data-testid="event-list">
               <SortableProvider ids={eventKeys()}>

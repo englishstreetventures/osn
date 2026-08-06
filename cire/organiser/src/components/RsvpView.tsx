@@ -2,6 +2,7 @@ import { useAuth } from "@shared/rp-auth/solid";
 import { createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { haptic } from "../lib/haptics";
 import SectionIntro from "./SectionIntro";
 
 interface RsvpViewProps {
@@ -139,6 +140,7 @@ export default function RsvpView(props: RsvpViewProps) {
     if (!target) return;
     const dietary = formDietary().trim();
     if (dietary.length > 0 && !formConsent()) {
+      haptic("reject");
       setFormError("Confirm the guest consented before storing dietary requirements.");
       return;
     }
@@ -161,19 +163,25 @@ export default function RsvpView(props: RsvpViewProps) {
       );
       if (res.status === 401) return redirectToLogin();
       if (res.status === 403) {
+        haptic("reject");
         setFormError("You don't have permission to record RSVPs.");
         setSaving(false);
         return;
       }
       if (!res.ok) {
+        haptic("reject");
         setFormError("Could not save this RSVP. Please try again.");
         setSaving(false);
         return;
       }
+      // Recorded. The reload that follows redraws the whole list, so the buzz
+      // is the only thing that marks *this* row as the one that changed.
+      haptic("commit");
       closeEditor();
       await load();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       setFormError("Could not save this RSVP. Please try again.");
       setSaving(false);
     }

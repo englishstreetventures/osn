@@ -21,12 +21,13 @@ import {
   serializeRoute,
 } from "../lib/dashboard-route";
 import { CIRE_API_URL } from "../lib/osn";
+import { initTheme } from "../lib/theme";
 import { confirmNavigation } from "../lib/unsaved-guard";
+import CommandPalette from "./CommandPalette";
 import type { WeddingSummary } from "./CreateWeddingForm";
 import ModuleShell from "./ModuleShell";
-import PreviewInviteButton from "./PreviewInviteButton";
-import ProfileMenu from "./ProfileMenu";
 import SecurityPanel from "./SecurityPanel";
+import TopBar from "./TopBar";
 import WeddingList from "./WeddingList";
 
 type WeddingsState =
@@ -53,14 +54,26 @@ function RequireAuth(props: ParentProps) {
   });
 
   return (
-    <Show when={session()} fallback={<Loading label="Checking session…" />}>
+    <Show
+      when={session()}
+      fallback={
+        // The signed-in tree owns the page measure (the top bar is full-bleed,
+        // so `page-frame` moved inside it). This fallback renders instead of
+        // that tree, so it carries its own frame or it sits against the edge.
+        <div class="page-frame py-10">
+          <Loading label="Checking session…" />
+        </div>
+      }
+    >
       {props.children}
     </Show>
   );
 }
 
-/** The chosen wedding's dashboard — the context header plus the module shell
- *  (left module rail + panel), scoped to whichever wedding the organiser opened.
+/** The chosen wedding's dashboard — the module shell (left module rail +
+ *  panel), scoped to whichever wedding the organiser opened. It has no header
+ *  of its own: which wedding is open, the role badge and "preview invite" all
+ *  live in the top bar now, so the first thing under the chrome is the work.
  *  Access follows the caller's role: EDITOR co-hosts get the full read/edit
  *  dashboard (import, invite design, event locations, and the settings panel's
  *  RSVP-by date — the API gates writes with weddingEditor); VIEWER co-hosts get
@@ -81,9 +94,8 @@ function WeddingDashboard(props: {
   sub: () => string;
   onModule: (module: Module) => void;
   onSub: (sub: string) => void;
-  onBack: () => void;
   /** A Settings save changed the name/slug — bubble it up so the wedding list
-   *  (and this header) reflect it without a refetch. */
+   *  (and the top bar's switcher) reflect it without a refetch. */
   onWeddingUpdated: (patch: { displayName: string; slug: string }) => void;
 }) {
   const isOwner = () => props.wedding.role === "owner";
@@ -92,78 +104,23 @@ function WeddingDashboard(props: {
   // the portal from offering actions that would 403.
   const canEdit = () => props.wedding.role !== "viewer";
 
-  const ROLE_BADGE: Record<string, { label: string; title: string }> = {
-    owner: { label: "Owner", title: "You created this wedding and manage who hosts it" },
-    editor: { label: "Editor", title: "You can view and edit this wedding" },
-    viewer: {
-      label: "Viewer",
-      title: "You can view this wedding — ask the owner for editor access to make changes",
-    },
-  };
-  const roleBadge = () => ROLE_BADGE[props.wedding.role] ?? ROLE_BADGE.editor!;
-
   return (
-    <div class="flex flex-col gap-8">
-      {/* ── Wedding context header — "which wedding am I editing" + the two
-          things every organiser wants up top: preview it, share it. ───────── */}
-      <header class="border-border flex flex-col gap-4 border-b pb-6">
-        <button
-          type="button"
-          onClick={() => props.onBack()}
-          class="font-body text-text-muted hover:text-gold self-start text-[0.72rem] tracking-[0.16em] uppercase transition-colors duration-(--dur-fast)"
-        >
-          <span aria-hidden="true" class="mr-2">
-            ←
-          </span>
-          All weddings
-        </button>
-        <div class="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-          <div class="flex min-w-0 flex-col gap-2">
-            <span class="font-body text-gold text-[0.68rem] tracking-[0.22em] uppercase">
-              {props.wedding.slug}
-            </span>
-            <div class="flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-2">
-              <h1 class="font-display text-text text-[clamp(1.75rem,5cqi,2.5rem)] leading-[1.1] font-light">
-                {props.wedding.displayName}
-              </h1>
-              <span
-                class="border-gold/40 text-gold font-body shrink-0 rounded-sm border px-2 py-0.5 text-[0.6rem] tracking-[0.16em] uppercase"
-                title={roleBadge().title}
-              >
-                {roleBadge().label}
-              </span>
-            </div>
-          </div>
-          <PreviewInviteButton weddingId={props.wedding.id} />
-        </div>
-      </header>
-
-      <ModuleShell
-        weddingId={props.wedding.id}
-        weddingName={props.wedding.displayName}
-        weddingSlug={props.wedding.slug}
-        canManage={isOwner()}
-        canEdit={canEdit()}
-        module={props.module()}
-        sub={props.sub()}
-        onModule={props.onModule}
-        onSub={props.onSub}
-        onWeddingUpdated={props.onWeddingUpdated}
-        entitlements={props.wedding.entitlements ?? []}
-        guestCap={props.wedding.guestCap ?? 100}
-      />
-    </div>
+    <ModuleShell
+      weddingId={props.wedding.id}
+      weddingName={props.wedding.displayName}
+      weddingSlug={props.wedding.slug}
+      canManage={isOwner()}
+      canEdit={canEdit()}
+      module={props.module()}
+      sub={props.sub()}
+      onModule={props.onModule}
+      onSub={props.onSub}
+      onWeddingUpdated={props.onWeddingUpdated}
+      entitlements={props.wedding.entitlements ?? []}
+      guestCap={props.wedding.guestCap ?? 100}
+    />
   );
 }
-
-/** Portal-level nav. Weddings is the only section that lives here — the
- *  account-scoped views (security, sign out) sit under the profile menu on the
- *  other side of the bar. Same segmented shape as the module sub-tabs so the
- *  two levels of navigation read as one system. */
-const navClass = (active: boolean) =>
-  `font-body rounded-sm px-3 py-1.5 text-[0.76rem] tracking-[0.12em] uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
-    active ? "bg-gold/12 text-gold" : "text-text-muted hover:text-text hover:bg-surface/60"
-  }`;
 
 function initialRoute(): DashboardRoute {
   if (typeof window === "undefined") return LIST_ROUTE;
@@ -180,6 +137,10 @@ function Dashboard() {
   // active tab, mirrored into the URL hash so a hard refresh restores it and a
   // shared link reopens it. Seeded from the hash on first paint.
   const [route, setRouteSignal] = createSignal<DashboardRoute>(initialRoute());
+
+  // The ⌘K palette is chrome-level state — it opens over whichever view is
+  // showing, and the shortcut that opens it is registered inside the palette.
+  const [paletteOpen, setPaletteOpen] = createSignal(false);
 
   // Write the hash with replaceState by default (tab switches) so they don't
   // pile up history entries; explicit navigations (open a wedding, go back to
@@ -335,94 +296,90 @@ function Dashboard() {
     redirectToLogin();
   }
 
+  /** What the top bar names when no wedding is open. With one open, the
+   *  switcher names it instead and this is unused. */
+  const sectionLabel = () => (view() === "security" ? "Security" : "All weddings");
+
   return (
-    // `@container/page` is the outermost query context: the two views that sit
-    // outside the module shell (the wedding list, the create form) size off it.
-    <div class="@container/page flex flex-col gap-8">
-      <div class="border-border flex flex-wrap items-center justify-between gap-4 border-b pb-4">
-        <nav
-          class="border-border bg-surface/30 flex items-center gap-1 rounded-sm border p-1"
-          aria-label="Portal sections"
-        >
-          <button
-            type="button"
-            onClick={() => selectView("weddings")}
-            aria-current={view() === "weddings" ? "page" : undefined}
-            class={navClass(view() === "weddings")}
-          >
-            Weddings
-          </button>
-        </nav>
-        <ProfileMenu
-          session={session()}
-          onSecurity={() => selectView("security")}
-          onSignOut={() => void signOut()}
-        />
-      </div>
+    <>
+      <TopBar
+        session={session()}
+        wedding={selected()}
+        weddings={weddings() ?? []}
+        sectionLabel={sectionLabel()}
+        onWedding={selectWedding}
+        onAll={backToList}
+        onSecurity={() => selectView("security")}
+        onSignOut={() => void signOut()}
+        onOpenPalette={() => setPaletteOpen(true)}
+      />
 
-      <Show when={view() === "security"}>
-        <div class="flex flex-col gap-6">
-          {/* Security no longer sits in the top-level nav, so the view carries
-              its own way back — same affordance as a wedding's dashboard. */}
-          <button
-            type="button"
-            onClick={backToList}
-            class="font-body text-text-muted hover:text-gold self-start text-[0.72rem] tracking-[0.16em] uppercase transition-colors duration-(--dur-fast)"
-          >
-            <span aria-hidden="true" class="mr-2">
-              ←
-            </span>
-            All weddings
-          </button>
+      <CommandPalette
+        open={paletteOpen()}
+        onOpenChange={setPaletteOpen}
+        wedding={selected()}
+        weddings={weddings() ?? []}
+        onModule={selectModule}
+        onWedding={selectWedding}
+        onAll={backToList}
+        onSecurity={() => selectView("security")}
+        onSignOut={() => void signOut()}
+      />
+
+      {/* `@container/page` is the outermost query context for the views that sit
+          outside the module shell (the wedding list, the create form). The main
+          element carries the page measure: the bar above is full-bleed so its
+          hairline runs edge to edge, while its contents share this gutter. */}
+      <main class="page-frame @container/page flex flex-col gap-8 py-8 @2xl/frame:py-10">
+        <Show when={view() === "security"}>
           <SecurityPanel />
-        </div>
-      </Show>
+        </Show>
 
-      <Show when={view() === "weddings"}>
-        <Show when={loaded()} fallback={<Loading label="Loading weddings…" />}>
-          <Show when={loadError()}>
-            {(message) => (
-              <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
-                {message()}
-              </p>
-            )}
-          </Show>
+        <Show when={view() === "weddings"}>
+          <Show when={loaded()} fallback={<Loading label="Loading weddings…" />}>
+            <Show when={loadError()}>
+              {(message) => (
+                <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
+                  {message()}
+                </p>
+              )}
+            </Show>
 
-          <Show when={!loadError() && weddings()}>
-            {(list) => (
-              <Show
-                when={selected()}
-                fallback={
-                  <WeddingList
-                    weddings={list()}
-                    onSelect={(w) => selectWedding(w)}
-                    onCreated={handleCreated}
-                  />
-                }
-              >
-                {(wedding) => (
-                  <WeddingDashboard
-                    wedding={wedding()}
-                    module={() => {
-                      const r = route();
-                      return r.view === "weddings" ? r.module : DEFAULT_MODULE;
-                    }}
-                    sub={() => {
-                      const r = route();
-                      return r.view === "weddings" ? r.sub : defaultSub(DEFAULT_MODULE);
-                    }}
-                    onModule={selectModule}
-                    onSub={selectSub}
-                    onBack={backToList}
-                    onWeddingUpdated={(patch) => handleWeddingUpdated(wedding().id, patch)}
-                  />
-                )}
-              </Show>
-            )}
+            <Show when={!loadError() && weddings()}>
+              {(list) => (
+                <Show
+                  when={selected()}
+                  fallback={
+                    <WeddingList
+                      weddings={list()}
+                      onSelect={(w) => selectWedding(w)}
+                      onCreated={handleCreated}
+                    />
+                  }
+                >
+                  {(wedding) => (
+                    <WeddingDashboard
+                      wedding={wedding()}
+                      module={() => {
+                        const r = route();
+                        return r.view === "weddings" ? r.module : DEFAULT_MODULE;
+                      }}
+                      sub={() => {
+                        const r = route();
+                        return r.view === "weddings" ? r.sub : defaultSub(DEFAULT_MODULE);
+                      }}
+                      onModule={selectModule}
+                      onSub={selectSub}
+                      onWeddingUpdated={(patch) => handleWeddingUpdated(wedding().id, patch)}
+                    />
+                  )}
+                </Show>
+              )}
+            </Show>
           </Show>
         </Show>
-      </Show>
-    </div>
+      </main>
+    </>
   );
 }
 
@@ -431,6 +388,11 @@ function Dashboard() {
  * SolidJS context across islands, so AuthProvider wraps everything here.
  */
 export default function OrganiserApp() {
+  // The inline boot script already put the right theme on `data-theme` before
+  // first paint; this takes over from it, so a host who follows their system
+  // theme sees the portal change with it rather than at the next reload.
+  onMount(() => onCleanup(initTheme()));
+
   return (
     <AuthProvider config={{ apiBase: CIRE_API_URL }}>
       <RequireAuth>

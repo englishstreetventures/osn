@@ -3,6 +3,7 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { invalidateVendors } from "../lib/vendors-store";
 import EnquireDialog from "./EnquireDialog";
@@ -167,13 +168,18 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
         },
       );
       if (res.status === 201 || res.status === 409) {
+        // 409 is "already on the list" — from where the host stands the vendor
+        // is now in the wedding either way, so both confirm.
         markInWedding(listingId);
         invalidateVendors(props.weddingId);
+        haptic("commit");
       } else if (!res.ok) {
+        haptic("reject");
         setAddError("Couldn't add this vendor. Please try again.");
       }
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       setAddError("Couldn't add this vendor. Please try again.");
     } finally {
       setAddingId(null);
@@ -197,7 +203,11 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
     void doAdd(listingId, pickerCategory());
   };
 
+  /** Escape, the scrim and the close button all land here, and nothing else
+   *  does — `doAdd` deliberately leaves the modal open so the host can see the
+   *  listing flip to "in your wedding" — so the dismiss buzz belongs here. */
   const closeModal = () => {
+    haptic("dismiss");
     setModalListing(null);
     setPickerListingId(null);
     setPickerCategory("");

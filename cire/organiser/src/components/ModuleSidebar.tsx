@@ -2,32 +2,8 @@ import { Dialog } from "@kobalte/core/dialog";
 import { createSignal, For, onCleanup } from "solid-js";
 
 import type { Module } from "../lib/dashboard-route";
-
-/** A module's nav entry. `glyph` is a small leading mark that makes the row
- *  scannable; `hint` is its one-line description — a native tooltip on the
- *  rail, and visible text in the sheet (touch has no hover, so the hint would
- *  otherwise be unreachable on the surface that needs it most). */
-interface ModuleDef {
-  id: Module;
-  label: string;
-  glyph: string;
-  hint: string;
-}
-
-/** The module nav, in workflow order: land on Overview, then build the day
- *  (Schedule) → invite the people (Guests) → dress it up (Invite) → housekeeping
- *  (Settings). Every module has a read view, so the whole nav is visible to
- *  viewers; write-only surfaces are gated inside each module, not hidden here. */
-const MODULE_NAV: ModuleDef[] = [
-  { id: "overview", label: "Overview", glyph: "◈", hint: "Your wedding at a glance" },
-  { id: "schedule", label: "Schedule", glyph: "◇", hint: "Your ceremony, reception, and more" },
-  { id: "checklist", label: "Checklist", glyph: "✓", hint: "Your planning tasks by lead time" },
-  { id: "budget", label: "Budget", glyph: "$", hint: "Estimates, quotes, and payments" },
-  { id: "vendors", label: "Vendors", glyph: "⬡", hint: "Track and book your suppliers" },
-  { id: "guests", label: "Guests", glyph: "✎", hint: "Households, invites, and RSVPs" },
-  { id: "invite", label: "Invite", glyph: "✦", hint: "Photos, story, colours, and codes" },
-  { id: "settings", label: "Settings", glyph: "✧", hint: "Profile, budget, and co-hosts" },
-];
+import { haptic } from "../lib/haptics";
+import { MODULE_NAV, moduleDef } from "../lib/module-nav";
 
 /** Shared row shape for both surfaces, so the rail and the sheet read as the
  *  same control at two sizes rather than as two different navs. */
@@ -65,7 +41,7 @@ export default function ModuleSidebar(props: {
 }) {
   const [sheetOpen, setSheetOpen] = createSignal(false);
 
-  const current = () => MODULE_NAV.find((mod) => mod.id === props.active) ?? MODULE_NAV[0]!;
+  const current = () => moduleDef(props.active);
 
   const select = (module: Module) => {
     props.onSelect(module);
@@ -137,7 +113,18 @@ export default function ModuleSidebar(props: {
 
       {/* ── Narrow container: trigger + sheet ──────────────────────────── */}
       <div class="@2xl/shell:hidden" ref={watchNarrowSurface}>
-        <Dialog open={sheetOpen()} onOpenChange={setSheetOpen}>
+        {/* The dismiss haptic hangs off `onOpenChange` rather than off
+            `setSheetOpen`, which is exactly the split we want: escape, the
+            scrim and the close button all come through here, while picking a
+            module (which closes the sheet by setting the signal directly) stays
+            silent — a module switch is navigation, not a dismissal. */}
+        <Dialog
+          open={sheetOpen()}
+          onOpenChange={(open) => {
+            if (!open) haptic("dismiss");
+            setSheetOpen(open);
+          }}
+        >
           <Dialog.Trigger
             class={`${rowBase} border-border bg-surface/40 text-text hover:border-gold-dim justify-between border px-4 py-3 text-[0.82rem]`}
           >

@@ -6,6 +6,7 @@ import { toast } from "solid-toast";
 import { redirectToLogin } from "../lib/api";
 import { enquiryErrorMessage, EnquiryApiError, openEnquiry } from "../lib/enquiries-api";
 import { type EnquiryListItem, upsertCachedEnquiry } from "../lib/enquiries-store";
+import { haptic } from "../lib/haptics";
 
 export interface EnquireDialogProps {
   open: boolean;
@@ -22,6 +23,15 @@ export default function EnquireDialog(props: EnquireDialogProps) {
   const [message, setMessage] = createSignal("");
   const [sending, setSending] = createSignal(false);
 
+  /** Close without sending. Every path that abandons the dialog — the scrim,
+   *  the Cancel button — goes through here, so the "nothing happened" buzz is
+   *  written once. The send path closes without it: a successful send already
+   *  confirmed itself, and two buzzes in a row would read as two events. */
+  const dismiss = () => {
+    haptic("dismiss");
+    props.onClose();
+  };
+
   const handleSend = async () => {
     const text = message().trim();
     if (!text || sending()) return;
@@ -34,6 +44,9 @@ export default function EnquireDialog(props: EnquireDialogProps) {
         vendorName: props.vendorName,
       });
       upsertCachedEnquiry(props.weddingId, item);
+      // Sent. The dialog is about to vanish and the toast sits at the edge of
+      // vision, so the buzz is what tells the host the message actually left.
+      haptic("commit");
       toast.success("Enquiry sent");
       props.onSent?.(item);
       setMessage("");
@@ -42,6 +55,9 @@ export default function EnquireDialog(props: EnquireDialogProps) {
       if (err instanceof EnquiryApiError && err.status === 401) {
         redirectToLogin();
       } else {
+        // The dialog stays open with the message still in it — buzz so the
+        // host doesn't read the unchanged dialog as "nothing happened yet".
+        haptic("reject");
         toast.error(enquiryErrorMessage(err));
       }
     } finally {
@@ -58,7 +74,7 @@ export default function EnquireDialog(props: EnquireDialogProps) {
         <div
           class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
           onClick={(e) => {
-            if (e.target === e.currentTarget) props.onClose();
+            if (e.target === e.currentTarget) dismiss();
           }}
         >
           <div
@@ -98,7 +114,7 @@ export default function EnquireDialog(props: EnquireDialogProps) {
               </button>
               <button
                 type="button"
-                onClick={props.onClose}
+                onClick={dismiss}
                 class="text-text-muted hover:text-text text-[0.78rem]"
               >
                 Cancel

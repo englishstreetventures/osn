@@ -1,3 +1,4 @@
+import { haptic } from "./haptics";
 import { CIRE_WEB_URL } from "./osn";
 
 /**
@@ -41,8 +42,19 @@ export function buildInviteMessage(
  * for non-secure contexts (HTTP / older browsers) where `navigator.clipboard`
  * is unavailable. Never throws — a failure resolves to `false` so the caller can
  * surface a "copy this manually" affordance instead of crashing.
+ *
+ * Every copy in the portal comes through here, so the haptic lives here too: a
+ * copy is the one action whose whole result is invisible — nothing on screen
+ * changes, and the toast that follows is easy to miss on a phone held at arm's
+ * length. The buzz is the receipt.
  */
 export async function copyToClipboard(text: string): Promise<boolean> {
+  const ok = await writeClipboard(text);
+  haptic(ok ? "commit" : "reject");
+  return ok;
+}
+
+async function writeClipboard(text: string): Promise<boolean> {
   try {
     if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);

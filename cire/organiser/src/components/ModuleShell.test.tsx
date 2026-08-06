@@ -315,4 +315,108 @@ describe("ModuleShell", () => {
       expect(screen.queryByTestId("vendors")).toBeNull();
     });
   });
+
+  /**
+   * The sub-tab strip follows the APG tabs pattern with **manual activation**:
+   * arrows move focus, Enter/Space selects. That choice is load-bearing rather
+   * than stylistic — every panel behind a tab mounts a view that fetches, so
+   * selection-follows-focus would fire a request per keypress on the way past.
+   * These tests pin the half of the pattern that has no visible symptom when it
+   * breaks: the roving tabindex, the wiring between tab and panel, and the fact
+   * that moving focus does *not* select.
+   */
+  describe("sub-tab keyboard semantics (APG tabs, manual activation)", () => {
+    /** Guests carries three visible tabs for an editor — Households / Edit /
+     *  RSVPs — so Home and End have somewhere to travel that the arrows don't. */
+    const tabs = () => screen.getAllByRole("tab");
+
+    it("keeps only the selected tab in the tab order", () => {
+      renderShell({ module: "guests", sub: "edit" });
+      const order = tabs().map((t) => [t.textContent, t.getAttribute("tabindex")]);
+      expect(order).toEqual([
+        ["Households", "-1"],
+        ["Edit", "0"],
+        ["RSVPs", "-1"],
+      ]);
+    });
+
+    it("points every tab at the module's one panel, and the panel back at the selected tab", () => {
+      renderShell({ module: "guests", sub: "rsvps" });
+      const panel = screen.getByRole("tabpanel");
+      expect(panel.id).toBe("subpanel-guests");
+      for (const tab of tabs()) expect(tab.getAttribute("aria-controls")).toBe("subpanel-guests");
+      // The panel names itself after whichever tab is selected, so a screen
+      // reader entering the panel hears the view it is actually in.
+      expect(panel.getAttribute("aria-labelledby")).toBe("subtab-guests-rsvps");
+      expect(document.getElementById("subtab-guests-rsvps")?.textContent).toBe("RSVPs");
+    });
+
+    it("moves focus with the arrow keys without selecting", () => {
+      const { onSub } = renderShell({ module: "guests", sub: "list" });
+      const [households, edit] = tabs();
+      households!.focus();
+      fireEvent.keyDown(households!, { key: "ArrowRight" });
+      expect(document.activeElement).toBe(edit);
+      // The whole point of manual activation: focus landed on Edit, but the
+      // guest editor has not mounted and no sub change was reported.
+      expect(onSub).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("guests-editor")).toBeNull();
+    });
+
+    it("wraps at both ends", () => {
+      renderShell({ module: "guests", sub: "list" });
+      const list = tabs();
+      const [households, , rsvps] = list;
+      households!.focus();
+      fireEvent.keyDown(households!, { key: "ArrowLeft" });
+      expect(document.activeElement).toBe(rsvps);
+      fireEvent.keyDown(rsvps!, { key: "ArrowRight" });
+      expect(document.activeElement).toBe(households);
+    });
+
+    it("jumps to the ends with Home and End", () => {
+      renderShell({ module: "guests", sub: "edit" });
+      const [households, edit, rsvps] = tabs();
+      edit!.focus();
+      fireEvent.keyDown(edit!, { key: "End" });
+      expect(document.activeElement).toBe(rsvps);
+      fireEvent.keyDown(rsvps!, { key: "Home" });
+      expect(document.activeElement).toBe(households);
+    });
+
+    it("selects the focused tab on click, and only then swaps the panel", () => {
+      const { onSub } = renderShell({ module: "guests", sub: "list" });
+      const [, edit] = tabs();
+      edit!.focus();
+      fireEvent.click(edit!);
+      expect(onSub).toHaveBeenCalledWith("edit");
+      expect(screen.getByTestId("guests-editor")).toBeTruthy();
+      expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
+        "subtab-guests-edit",
+      );
+    });
+
+    it("claims no tab role at all for a module with a single view", () => {
+      // Overview has no sub-tabs. A lone tab is not a tablist, and a panel with
+      // nothing to label it must not advertise a tabpanel role — that would
+      // promise a strip the host can never find.
+      renderShell({ module: "overview" });
+      expect(screen.queryByRole("tablist")).toBeNull();
+      expect(screen.queryByRole("tab")).toBeNull();
+      expect(screen.queryByRole("tabpanel")).toBeNull();
+    });
+
+    it("re-mints the tab/panel id pair when the module changes", () => {
+      // Ids are derived from the module so the pair can never straddle two
+      // modules mid-switch and leave aria-labelledby pointing at a dead node.
+      const { setModule, setSub } = renderShell({ module: "guests", sub: "list" });
+      expect(screen.getByRole("tabpanel").id).toBe("subpanel-guests");
+      setModule("settings");
+      setSub("hosts");
+      const panel = screen.getByRole("tabpanel");
+      expect(panel.id).toBe("subpanel-settings");
+      expect(panel.getAttribute("aria-labelledby")).toBe("subtab-settings-hosts");
+      expect(document.getElementById("subtab-settings-hosts")).toBeTruthy();
+    });
+  });
 });

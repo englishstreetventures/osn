@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-08-02
+last-reviewed: 2026-08-06
 ---
 
 # Security Backlog
@@ -256,3 +256,26 @@ Pre-merge compliance gates confirmed **N/A**: no new personal-data or retention-
 subprocessor** (the library makes zero outbound calls — no `fetch`/XHR/WebSocket/dynamic `import()` in its
 bundle, so no `subprocessors.md` row is owed), no consent-based processing, no UGC or ranking surface, no
 age-gate-relevant collection, no DPIA trigger.
+
+**Host-portal chrome, ⌘K and haptics (`feat/cire-portal-chrome`) — security review (2026-08-06).**
+**No Critical, no High.** Phase 2 of the portal redesign: one sticky `TopBar` replacing four stacked bands, a
+`combobox`-over-`listbox` command palette, an account menu, and `web-haptics` behind a five-name wrapper.
+Verified clean: no `innerHTML`/`set:html` anywhere in `cire/organiser/src`, so wedding names, host display
+names and the section label are escaped by construction; the palette runs only closures built in
+`CommandPalette` itself (`Command.run` is never sourced from data); no authz change — the bar renders a role
+*chip* off `wedding.role` and gates nothing, every write is still `weddingOwner()`/`weddingEditor()`-gated
+server-side; `web-haptics@0.0.6` is pinned exactly (no caret), has no install scripts, and reaches only
+`navigator.vibrate` plus a hidden `<input type="checkbox" switch>` — no network, no storage beyond the one
+`localStorage` preference key this branch writes.
+
+- [x] **CHR-S-L1** (fixed on branch) — **the haptics off switch was hidden on the only platform that buzzes.** The account-menu switch was gated on `WebHaptics.isSupported`, i.e. `typeof navigator.vibrate === "function"` — `false` on iOS Safari, which is the one platform where the library's hidden-switch fallback plays a real system haptic, and `true` on desktop Chrome, where the API exists and does nothing. The control was therefore shown exactly where it had no effect and hidden exactly where a host might want it off. Feedback a host cannot silence is the failure worth avoiding. Now `hapticsAvailable()`, which asks whether there is a document to deliver through and leaves the delivery decision to the library's own guards — that is deliberately not the question the Vibration API answers.
+- [x] **CHR-S-L2** (fixed on branch) — `ROLE_BADGE[role] ?? ROLE_BADGE.editor` badged a role the portal does not recognise as **Editor**. Roles come off the API and the chip grants nothing, but a co-host told they are an Editor and then refused by `weddingEditor()` has been misled by the UI. Now falls back to the least privileged chip the portal knows (Viewer), with the reasoning in a comment and a test pinning it. Understating beats overstating when the label carries no authority either way.
+- [ ] **CHR-S-L3** — **`cire/organiser/public/_headers` still carries no Content-Security-Policy.** Pre-existing and unchanged by this branch, but its weight goes up twice here: this is the first **non-workspace runtime dependency** in the portal (`web-haptics`), and `ProfileMenu` renders an avatar from an arbitrary https host out of the OIDC `picture` claim — so `img-src` belongs in the eventual policy alongside `script-src` and `connect-src`. The sink itself is guarded: `httpsAvatarUrl()` renders only an absolute `https:` URL and falls back to the account's initial otherwise. Deliberately not fixed here — a CSP for this origin is its own change with its own testing, and half a policy bolted onto a redesign is how you ship one that breaks a module nobody exercised. See `[[wiki/apps/cire]]`.
+- [ ] **CHR-S-L4** (accepted, no change — deliberate) — the palette's document-level handler calls `preventDefault()` on ⌘K / Ctrl+K, taking the binding from Firefox's and Chrome's address-bar search. Kept: ⌘K is the near-universal palette binding (Linear, Slack, GitHub, Notion, Vercel all claim it) and a host arriving from any of them will try it first. The handler deliberately does not exempt text fields either — a host pressing it mid-typing is asking to leave what they are typing in.
+
+Also recorded, no action: two `jsx-a11y` warnings are **accepted** on `CommandPalette.tsx`
+(`no-noninteractive-element-to-interactive-role`, `prefer-tag-over-role` on `<ul role="listbox">` /
+`<li role="option">`). Those roles are exactly what the WAI-ARIA combobox-over-listbox pattern requires, and
+the tag the second rule suggests cannot host a filtered list with `aria-activedescendant` while focus stays in
+the input. oxlint does not honour `eslint-disable-next-line`, so there is no way to annotate them at the
+callsite — hence the row here instead.

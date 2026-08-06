@@ -3,6 +3,7 @@ import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { TIMEFRAME_BUCKETS, type TimeframeBucket } from "../lib/checklist-buckets";
+import { haptic } from "../lib/haptics";
 import {
   ensureTasksLoaded,
   invalidateTasks,
@@ -99,12 +100,15 @@ export default function ChecklistView(props: ChecklistViewProps) {
 
   const toggleDone = async (task: TaskRow) => {
     const nextStatus = task.status === "done" ? "open" : "done";
-    // Optimistic flip.
+    // Optimistic flip. The haptic rides with it rather than with the response:
+    // the tick is what the host is confirming, and a buzz arriving a network
+    // round-trip after the box changed would read as a second, separate event.
     patchCache(
       (peekCachedTasks(props.weddingId) ?? []).map((t) =>
         t.id === task.id ? { ...t, status: nextStatus } : t,
       ),
     );
+    haptic("commit");
     try {
       const res = await authFetch(
         apiUrl(`/api/organiser/weddings/${props.weddingId}/tasks/${task.id}`),
@@ -121,6 +125,8 @@ export default function ChecklistView(props: ChecklistViewProps) {
         (peekCachedTasks(props.weddingId) ?? []).map((t) => (t.id === updated.id ? updated : t)),
       );
     } catch {
+      // The optimistic tick is about to be taken back — say so.
+      haptic("reject");
       setError("Couldn't update that task.");
       void reload();
     }

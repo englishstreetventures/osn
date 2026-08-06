@@ -21,7 +21,8 @@
     "cropperjs": "^2.1.1",
     "solid-js": "^1.9.14",
     "solid-toast": "^0.5.0",
-    "tailwindcss": "^4.3.3"
+    "tailwindcss": "^4.3.3",
+    "web-haptics": "0.0.6"
   },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",

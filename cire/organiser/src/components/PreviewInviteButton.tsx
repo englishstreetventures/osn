@@ -74,13 +74,16 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
     }
   }
 
+  // Sized to the top bar's action row (h-9, matching the palette trigger)
+  // rather than to a page button — it lives in the chrome now, and a 44px
+  // control there would set the bar's height instead of fitting inside it.
   return (
     <button
       type="button"
       onClick={() => void preview()}
       disabled={loading()}
       aria-busy={loading()}
-      class="border-gold font-body text-gold hover:bg-gold hover:text-bg min-h-11 rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+      class="border-gold-dim font-body text-gold hover:bg-gold hover:text-bg hover:border-gold flex h-9 items-center rounded-sm border bg-transparent px-3.5 text-[0.72rem] tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
     >
       {loading() ? "Preparing…" : "Preview invite"}
     </button>

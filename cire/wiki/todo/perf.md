@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[review-findings]]"
   - "[[host-portal-layout]]"
-last-reviewed: 2026-08-05
+last-reviewed: 2026-08-06
 ---
 
 # Performance Backlog
@@ -355,3 +355,20 @@ layout reads because keyed `<For>` moves the `<li>` nodes by identity. Both fixe
 Also recorded, no action: a drag is strictly **cheaper** than the arrows it replaced for multi-slot moves —
 solid-dnd reorders only visually during the drag and commits once on drop, so moving an event four positions is
 1 `reorderEvents` (1 checkpoint, 1 revalidation) where four ▲/▼ clicks were 4 and 8.
+
+**Host-portal chrome, ⌘K and haptics (`feat/cire-portal-chrome`) — perf review (2026-08-06).**
+Bundle delta is **measured** (three builds in the same tree — `origin/main`, the stack parent
+`feat/cire-portal-tokens`, and this branch — largest emitted chunk diffed): `OrganiserApp` goes
+**512,152 → 531,322 B raw, 137,701 → 143,503 B gzip = +18.7 KiB raw / +5.7 KiB gzip**. The tokens PR beneath
+this one emits a **byte-identical** chunk (same content hash as main) — it is CSS only, so the whole delta is
+this branch's. No Critical.
+
+- [x] **CHR-P-W1** (fixed on branch) — **the page had no first paint at all.** `client:only="solid-js"` renders nothing at build time, and the old `index.astro` shipped an empty container — so the document had no text LCP candidate in the HTML and painted blank until the island's JavaScript arrived and ran. Fixed by putting the sticky bar's *first frame* in the static markup — same height, same hairline, same wordmark in the same place — which `TopBar` removes on mount. The comment this replaced had rejected a static wrapper because it "would show as an empty band until hydration"; putting the wordmark inside it answers that, since the band is then the real bar rather than a placeholder for it. It is `aria-hidden` and holds no controls, because nothing in it works until the island is up. Removal is hung off **TopBar's** `onMount`, not `OrganiserApp`'s, so the static bar survives the `RequireAuth` "Checking session…" phase and the real one replaces it in the frame it first paints. Pinned by a test — two stacked sticky bars is the failure mode if the removal is ever dropped, and it is invisible to any test that never renders the static one.
+- [ ] **CHR-P-W2** (accepted, no change — deliberate) — the sticky bar is `bg-bg/85` over `backdrop-blur-md`, forcing a compositing pass behind it on every scroll frame, and blur is among the more expensive filters on low-end mobile GPUs. Kept: translucent blurred chrome over scrolling content is the design direction this redesign was asked for, and the cost is constant per frame over a fixed 56–64 px band rather than growing with the page. Revisit if a real device shows scroll jank.
+- [ ] **CHR-P-W3** — **`OrganiserApp` is over Vite's 500 kB chunk-size warning, and this branch widens the overshoot.** The build has printed `Some chunks are larger than 500 kB after minification` since before this branch — main is already 512,152 B, ~12 kB past the limit — but this branch takes it to 531,322 B, ~31 kB past. **DND-P-I1** predicted exactly this and set the rule: *the next sizeable addition anywhere in `OrganiserApp` should route-split rather than pile on*. This is that addition and it did not route-split, so the rule is now overdue rather than pending. The obvious first cut is the palette: `CommandPalette` is a Kobalte dialog nobody sees until ⌘K, and a `lazy()` boundary there costs a request the host is already waiting on a keystroke for. Phases 3–5 add primitives and rebuild every module in this same chunk — do the split before them, not after. See `[[wiki/apps/cire]]`.
+- [x] **CHR-P-I1** (fixed on branch) — the palette rebuilt every row on every keystroke: `commands` and `results` were plain accessors, so each read produced a fresh array of fresh objects, and `<For>` reconciles by reference — it tore down and rebuilt every row and heading instead of reordering them. Both are `createMemo`s now, for reference identity rather than for the arithmetic (the list is a dozen rows and filtering it is free). The highlight-clamp effect is also gated on `props.open`, so a theme change or a refreshed wedding list no longer runs it against a palette nobody is looking at.
+
+Also recorded, no action: the haptics wrapper reuses **one** `WebHaptics` engine across the app rather than
+constructing one per call (asserted by test), and every call site is a discrete user gesture — a tap, a drop,
+a confirm — so there is no per-frame or per-keystroke haptic path to budget for. `web-haptics@0.0.6` is ~1 KiB
+of the +18.7 KiB above; the rest is the palette, the switcher and the account menu, all Kobalte.

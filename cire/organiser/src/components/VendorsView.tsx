@@ -2,6 +2,10 @@ import { useAuth } from "@shared/rp-auth/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+// The portal's single clipboard choke point — it carries the fallback path for
+// non-secure contexts and the copy haptic, neither of which a bare
+// `navigator.clipboard.writeText` gets.
+import { copyToClipboard } from "../lib/invite-message";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import {
   ensureVendorsLoaded,
@@ -471,7 +475,7 @@ export default function VendorsView(props: VendorsViewProps) {
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() => void navigator.clipboard.writeText(claimUrl()!)}
+                                  onClick={() => void copyToClipboard(claimUrl()!)}
                                   class="text-gold-dim hover:text-gold shrink-0 text-[0.76rem] underline-offset-2 hover:underline"
                                 >
                                   Copy

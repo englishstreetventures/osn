@@ -95,6 +95,7 @@
         "solid-js": "^1.9.14",
         "solid-toast": "^0.5.0",
         "tailwindcss": "^4.3.3",
+        "web-haptics": "0.0.6",
       },
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
@@ -161,7 +162,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.15.0",
+      "version": "3.17.1",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@osn/db": "workspace:*",
@@ -189,7 +190,7 @@
     },
     "osn/client": {
       "name": "@osn/client",
-      "version": "2.8.0",
+      "version": "2.12.0",
       "dependencies": {
         "effect": "^3.22.0",
       },
@@ -207,7 +208,7 @@
     },
     "osn/db": {
       "name": "@osn/db",
-      "version": "0.20.0",
+      "version": "0.20.4",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -226,7 +227,7 @@
     },
     "osn/landing": {
       "name": "@osn/landing",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.1",
         "@tailwindcss/vite": "^4.3.3",
@@ -248,7 +249,7 @@
     },
     "osn/social": {
       "name": "@osn/social",
-      "version": "0.9.0",
+      "version": "0.11.1",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -273,7 +274,7 @@
     },
     "osn/ui": {
       "name": "@osn/ui",
-      "version": "1.7.0",
+      "version": "1.7.6",
       "dependencies": {
         "@kobalte/core": "^0.13.12",
         "@osn/client": "workspace:*",
@@ -300,7 +301,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.24.11",
+      "version": "0.24.17",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -328,7 +329,7 @@
     },
     "pulse/app": {
       "name": "@pulse/app",
-      "version": "0.16.15",
+      "version": "0.20.3",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -359,7 +360,7 @@
     },
     "pulse/db": {
       "name": "@pulse/db",
-      "version": "0.18.4",
+      "version": "0.18.8",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -378,7 +379,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.1",
         "@tailwindcss/vite": "^4.3.3",
@@ -400,7 +401,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.9.1",
+      "version": "0.9.5",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -416,7 +417,7 @@
     },
     "shared/db-utils": {
       "name": "@shared/db-utils",
-      "version": "0.4.0",
+      "version": "0.6.0",
       "dependencies": {
         "drizzle-orm": "^0.45.2",
         "effect": "^3.22.0",
@@ -431,7 +432,7 @@
     },
     "shared/email": {
       "name": "@shared/email",
-      "version": "0.4.4",
+      "version": "0.4.5",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "^3.22.0",
@@ -444,7 +445,7 @@
     },
     "shared/feature-flags": {
       "name": "@shared/feature-flags",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "dependencies": {
         "@growthbook/growthbook": "^1.6.5",
         "@shared/observability": "workspace:*",
@@ -456,7 +457,7 @@
     },
     "shared/observability": {
       "name": "@shared/observability",
-      "version": "0.13.0",
+      "version": "0.13.1",
       "dependencies": {
         "@effect/opentelemetry": "^0.64.0",
         "@effect/platform": "^0.97.0",
@@ -481,7 +482,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.3.1",
+      "version": "0.3.5",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "^6.2.4",
@@ -497,7 +498,7 @@
     },
     "shared/rate-limit": {
       "name": "@shared/rate-limit",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "vitest": "^4.1.10",
@@ -505,7 +506,7 @@
     },
     "shared/redis": {
       "name": "@shared/redis",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "dependencies": {
         "@upstash/redis": "^1.38.0",
         "effect": "^3.22.0",
@@ -519,7 +520,7 @@
     },
     "shared/rp-auth": {
       "name": "@shared/rp-auth",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -539,7 +540,7 @@
     },
     "shared/turnstile": {
       "name": "@shared/turnstile",
-      "version": "0.2.7",
+      "version": "0.2.8",
       "dependencies": {
         "@shared/observability": "workspace:*",
       },
@@ -554,7 +555,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.8.9",
+      "version": "0.8.13",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -580,7 +581,7 @@
     },
     "zap/db": {
       "name": "@zap/db",
-      "version": "0.5.2",
+      "version": "0.5.6",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -2407,6 +2408,8 @@
     "vscode-uri": ["vscode-uri@3.1.0", "", {}, "sha512-/BpdSx+yCQGnCvecbyXdxHDkuk55/G3xwnC0GqY4gmQ3j+A+g8kzzgB4Nk/SINjqn6+waqw3EgbVF2QKExkRxQ=="],
 
     "w3c-xmlserializer": ["w3c-xmlserializer@5.0.0", "", { "dependencies": { "xml-name-validator": "^5.0.0" } }, "sha512-o8qghlI8NZHU1lLPrpi2+Uq7abh4GGPpYANlalzWxyWteJOCsr/P+oPBA49TOLu5FTZO4d3F9MnWJfiMo4BkmA=="],
+
+    "web-haptics": ["web-haptics@0.0.6", "", { "peerDependencies": { "react": ">=18", "react-dom": ">=18", "svelte": ">=4", "vue": ">=3" }, "optionalPeers": ["react", "react-dom", "svelte", "vue"] }, "sha512-eCzcf1LDi20+Fr0x9V3OkX92k0gxEQXaHajmhXHitsnk6SxPeshv8TBtBRqxyst8HI1uf2FyFVE7QS3jo1gkrw=="],
 
     "web-namespaces": ["web-namespaces@2.0.1", "", {}, "sha512-bKr1DkiNa2krS7qxNtdrtHAmzuYGFQLiQ13TsorsdT6ULTkPLKuu5+GsFpDlg6JFjUTwX2DyhMPG2be8uPrqsQ=="],
 

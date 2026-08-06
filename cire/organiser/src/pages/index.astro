@@ -26,28 +26,34 @@ import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
       `@container/frame` wraps the whole document so the page gutters respond to
       the width the frame actually has. Every other measurement inside the app
       derives from this one, which is why nothing here uses a media query.
+
+      There is no masthead. The old one stacked a "Cire" eyebrow and a "Host
+      Dashboard" title above a portal nav above a per-wedding header — three
+      bands of chrome before the first thing an organiser came to do. The island
+      renders one sticky top bar instead, and owns `<main>` with it.
+
+      The bar below is that bar's first frame, not a placeholder for it: same
+      height, same hairline, same wordmark in the same place, so the page has
+      something to paint (and a text LCP candidate) before the island's
+      JavaScript has run, and the real bar replaces it without moving anything.
+      TopBar removes it on mount. It is `aria-hidden` and holds no controls —
+      nothing here works until the island is up, and a screen reader should not
+      be offered a wordmark that does nothing.
     -->
     <div class="@container/frame">
-      <!-- The masthead is a full-bleed band with a hairline under it; the
-           content below shares the same `page-frame` measure so the rule reads
-           as a margin line, not a floating divider. `page-frame` (global.css)
-           replaces the old fixed 1100px cap: gutters and measure both scale
-           with the frame, so a widescreen gets a wide dashboard instead of a
-           narrow column between two empty margins. -->
-      <header class="border-border border-b">
-        <div class="page-frame @2xl/frame:py-8 flex flex-col gap-2 py-6">
-          <p class="font-body text-gold text-[0.7rem] uppercase tracking-[0.24em]">
-            Cire
-          </p>
-          <h1 class="font-display text-[clamp(1.9rem,7cqi,3rem)] font-light leading-[1.05] text-text">
-            Host Dashboard
-          </h1>
+      <header
+        id="boot-chrome"
+        aria-hidden="true"
+        class="border-border bg-bg/85 sticky top-0 z-30 border-b backdrop-blur-md"
+      >
+        <div class="page-frame flex h-14 items-center gap-2 @2xl/frame:h-16">
+          <span class="flex shrink-0 items-center gap-2 px-1.5 py-1.5">
+            <span class="text-gold text-[0.85rem] leading-none">✦</span>
+            <span class="font-display text-text text-[1.05rem] leading-none font-light tracking-[0.02em]">Cire</span>
+          </span>
         </div>
       </header>
-
-      <main class="page-frame @2xl/frame:py-10 py-8">
-        <OrganiserApp client:only="solid-js" />
-      </main>
+      <OrganiserApp client:only="solid-js" />
     </div>
   </body>
 </html>
