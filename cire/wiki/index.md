@@ -3,7 +3,7 @@ title: "Cire Wiki — Map of Content"
 tags: [index]
 aliases: [home, map of content, MOC]
 related: []
-last-reviewed: 2026-07-31
+last-reviewed: 2026-08-06
 ---
 
 # Cire Wiki
@@ -41,6 +41,7 @@ Map of Content for the Cire wedding invite project.
 
 ## Conventions
 
+- [[browser-tests]] — the real-Chromium Vitest project: what belongs in it, why jsdom can't cover it, and how it is wired
 - [[contributing]] — branch strategy, commit signing, hooks, observability rules
 - [[review-findings]] — severity prefixes, four-field format, backlog maintenance
 

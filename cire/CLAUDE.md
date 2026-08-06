@@ -43,6 +43,7 @@ Update the relevant shard when: a task is completed, a new concern is discovered
 | Check PR/branch conventions     | `[[wiki/conventions/contributing]]`           |
 | Add a third-party embed / script to the guest site | `[[wiki/architecture/consent]]` |
 | Add drag-to-reorder to a list (solid-dnd + the keyboard path it lacks) | `[[wiki/architecture/drag-and-drop]]` |
+| Write a test that needs real CSS, layout or paint order | `[[wiki/conventions/browser-tests]]` |
 | Understand observability rules  | `[[wiki/observability/overview]]`             |
 | Look up review finding IDs      | `[[wiki/conventions/review-findings]]`        |
 | Debug a production issue        | Browse `wiki/runbooks/`                       |
@@ -157,6 +158,7 @@ describe("POST /api/claim", () => {
 ```
 
 - Test files live alongside source: `*.test.ts` co-located with the module
+- **`*.browser.test.tsx` runs in a real Chromium**, not jsdom — for anything needing computed CSS, layout, paint/stacking order, sticky behaviour or media emulation. Opt-in (`bun run --cwd cire/web test:browser`), its own CI step. jsdom parses no stylesheet and reports zeroed rects, so a class-contract assertion in the fast tier and a measurement in the browser tier are complements, not duplicates. See `[[wiki/conventions/browser-tests]]`
 - Run tests: `bun run test` (all workspaces, turbo) or `bun run --cwd cire/api test`
 - Integration tests use a local D1 instance via `wrangler dev` — do not mock the database
 - Note: platform convention elsewhere in the monorepo is `it.effect` + `createTestLayer()` — cire alignment is tracked in root `wiki/TODO.md` (Deferred Decisions)
@@ -208,6 +210,8 @@ bun run test                         # All packages (turbo)
 bun run --cwd cire/api test
 bun run --cwd cire/web test
 bun run --cwd cire/organiser test    # SolidJS islands (vitest + happy-dom)
+bun run --cwd cire/web test:browser  # real-Chromium tier (CSS/layout/paint) — see [[wiki/conventions/browser-tests]]
+bun run test:browser                 # every package with a browser tier (turbo)
 
 # Lint + Format (root config)
 bun run lint                         # oxlint

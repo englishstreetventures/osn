@@ -2,7 +2,7 @@
 title: "Contributing Conventions"
 tags: [convention]
 related: [[review-findings]], [[monorepo-structure]], [[overview]]
-last-reviewed: 2026-07-23
+last-reviewed: 2026-08-06
 ---
 
 # Contributing Conventions

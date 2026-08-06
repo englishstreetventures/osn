@@ -125,6 +125,23 @@ jobs:
       - name: D1 integration tests
         run: bun run test:d1
 
+      # The browser tier (`*.browser.test.tsx`) runs in a real Chromium, because
+      # jsdom computes no CSS and no layout — so stacking order, sticky
+      # positioning, Tailwind's compiled output and the reduced-motion clamp are
+      # all invisible to `bun run test`. Split out for the same reason as the D1
+      # step above: it needs a dependency the default path doesn't, and keeping
+      # it separate leaves the fast tier fast.
+      #
+      # `--with-deps` installs Chromium's shared libraries as well as the
+      # browser; on ubuntu-latest the browser alone is not enough. Only chromium
+      # is installed — the tier pins a single instance, so pulling Firefox and
+      # WebKit too would be ~3x the download for nothing.
+      - name: Install Chromium for browser tests
+        run: bunx playwright install --with-deps chromium
+
+      - name: Browser tests
+        run: bun run test:browser
+
   ci:
     name: CI
     if: always()
