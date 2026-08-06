@@ -14,6 +14,7 @@ import {
   setCachedBudget,
 } from "../lib/budget-store";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
+import Notice from "./ui/Notice";
 
 interface BudgetViewProps {
   weddingId: string;
@@ -330,9 +331,9 @@ export default function BudgetView(props: BudgetViewProps) {
   return (
     <div class="flex flex-col gap-6">
       <Show when={error()}>
-        <p class="border-error/40 text-error rounded-sm border px-3 py-2 text-[0.82rem]">
+        <Notice tone="error" alert>
           {error()}
-        </p>
+        </Notice>
       </Show>
 
       {/* Summary — spent vs cap, owner cap editor. */}

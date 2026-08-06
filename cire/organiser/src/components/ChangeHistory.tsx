@@ -5,6 +5,7 @@ import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
 import { invalidateHouseholds } from "../lib/households-store";
+import Notice from "./ui/Notice";
 
 /**
  * One row of the change list as returned by
@@ -208,9 +209,7 @@ export default function ChangeHistory(props: { weddingId: string }) {
 
       <div class="border-border/60 flex flex-col gap-4 border-t px-4 py-5">
         <Show when={error()}>
-          <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
-            {error()}
-          </p>
+          <Notice tone="error">{error()}</Notice>
         </Show>
 
         <Show when={loading() && entries() === null}>

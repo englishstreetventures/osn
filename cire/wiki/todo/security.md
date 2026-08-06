@@ -299,3 +299,28 @@ no-noninteractive-tabindex` … `oxlint-enable` pair rather than the next-line f
 on a later line than the element's opening tag, `oxlint-disable-next-line` covers only the line immediately
 after it, and a `//` comment cannot go inside a JSX opening tag — so the next-line form silently fails to
 suppress and the build stays red for a rule that was answered in the comment above it.
+
+**Host-portal read surfaces (`feat/cire-portal-read-surfaces`) — security review (2026-08-06).**
+Phase 4 of the redesign: the Overview, the module read views and five tables move onto the Phase 3
+primitives, and three write panels go behind `lazy()`. **No findings** — the diff adds no sink, no origin and
+no gate.
+
+The three things a refactor of this shape could plausibly break were each checked rather than assumed. **No
+new HTML sink:** every primitive that spreads rest props takes `SafeProps<E>`, so `innerHTML` is a compile
+error at the call site (**PRIM-S-L1** above), and no call site in the diff passes anything but `class`, a
+variant, a label and children. **No new attribute interpolation of untrusted text** except
+`RsvpView`'s `label={`Replies for ${event.name}`}`, which Solid sets with `setAttribute` on an `aria-label`
+and which was already rendered as visible text in the caption directly above it. **No weakened role gate:**
+the `<Suspense>` boundaries went *inside* the existing `<Show when={props.canEdit}>`, not around them, so a
+viewer does not render the component and therefore never fetches the chunk — the occurrence counts of
+`canEdit` / `canManage` / `entitlements` are identical on both sides of the range in all eight touched files.
+`Meter`'s `transform: scaleX()` is fed by `meterPct()`, which clamps and returns 0 for anything non-finite —
+a tighter guard than the hand-written `width:` bars it replaces.
+
+- [x] **RS-C-L1** (fixed on branch) — **Getting Started's step count stopped being announced.** The old rail
+  reported progress in items (`aria-valuemin=0`, `aria-valuemax={total()}`, `aria-valuenow={completed()}`), so
+  the visible "2 / 4 done" beside it was marked `aria-hidden` as a duplicate. The shared `Meter` reports a
+  percentage instead — correct for a progressbar, and what every other bar in the portal now says — which
+  left the count announced nowhere. The `aria-hidden` is gone, so a screen reader gets "2 / 4 done" from the
+  text and "Setup progress, 50%" from the rail. Worth recording because the loss is invisible in the diff:
+  nothing was deleted, an attribute elsewhere simply stopped being redundant.

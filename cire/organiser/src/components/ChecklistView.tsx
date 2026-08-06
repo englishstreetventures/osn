@@ -12,6 +12,7 @@ import {
   type TaskRow,
   tasksAccessor,
 } from "../lib/tasks-store";
+import Notice from "./ui/Notice";
 
 interface ChecklistViewProps {
   weddingId: string;
@@ -185,9 +186,9 @@ export default function ChecklistView(props: ChecklistViewProps) {
   return (
     <div class="flex flex-col gap-6">
       <Show when={error()}>
-        <p class="border-error/40 text-error rounded-sm border px-3 py-2 text-[0.82rem]">
+        <Notice tone="error" alert>
           {error()}
-        </p>
+        </Notice>
       </Show>
 
       <Show when={props.canEdit}>

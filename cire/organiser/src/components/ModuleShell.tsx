@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { For, lazy, Show, Suspense } from "solid-js";
 
 import { createAutoSize } from "../lib/auto-size";
 import { peekCachedBudget } from "../lib/budget-store";
@@ -9,13 +9,10 @@ import BudgetView from "./BudgetView";
 import ChecklistView from "./ChecklistView";
 import DirectoryBrowseView from "./DirectoryBrowseView";
 import EnquiriesView from "./EnquiriesView";
-import EventsEditor from "./EventsEditor";
 import EventTable from "./EventTable";
-import GuestsEditor from "./GuestsEditor";
 import GuestTable from "./GuestTable";
 import HostsPanel from "./HostsPanel";
 import ImportPanel from "./ImportPanel";
-import InviteBuilder from "./InviteBuilder";
 import ModuleSidebar from "./ModuleSidebar";
 import Overview from "./Overview";
 import RemintPanel from "./RemintPanel";
@@ -23,6 +20,72 @@ import RsvpView from "./RsvpView";
 import SettingsPanel from "./SettingsPanel";
 import UpsellPanel from "./UpsellPanel";
 import VendorsView from "./VendorsView";
+
+/**
+ * The three big write surfaces, split out of the first load.
+ *
+ * The portal is one `client:only` island, so everything a module might show
+ * used to arrive before the Overview could paint — including the invite builder
+ * (its own tree plus every design in `@cire/invite-designs`) and the events
+ * editor (which drags in solid-dnd). None of the three is on the path to the
+ * page an organiser actually lands on, and two of them are closed to a viewer
+ * entirely. They now arrive when the sub-tab that shows them is chosen.
+ *
+ * The rest stay eager on purpose: they are the read views, they are small, and
+ * a rail click that pauses is a worse trade than the bytes.
+ */
+const loadEventsEditor = () => import("./EventsEditor");
+const loadGuestsEditor = () => import("./GuestsEditor");
+const loadInviteBuilder = () => import("./InviteBuilder");
+
+const EventsEditor = lazy(loadEventsEditor);
+const GuestsEditor = lazy(loadGuestsEditor);
+const InviteBuilder = lazy(loadInviteBuilder);
+
+/**
+ * Which sub-tab hides which chunk, so pointing at one can start its fetch.
+ *
+ * Deferring the bytes is the point of the split; paying for them on the click
+ * rather than on the intent is what would turn a first-load win into a
+ * first-interaction stall. A hover or a keyboard focus on the sub-tab is enough
+ * warning to cover the round trip, and by the time the click lands the module is
+ * usually resolved — so the panel mounts without the fallback below ever
+ * painting. The module registry dedupes, so warming twice costs nothing and
+ * warming a chunk that is already in costs nothing either.
+ */
+const PANEL_LOADERS: Record<string, () => Promise<unknown>> = {
+  "schedule:edit": loadEventsEditor,
+  "guests:edit": loadGuestsEditor,
+  "invite:design": loadInviteBuilder,
+};
+
+function warmPanel(module: Module, sub: string): void {
+  // Fire and forget: a failed prefetch is not an error, it just means the real
+  // mount pays the cost it would have paid anyway.
+  void PANEL_LOADERS[`${module}:${sub}`]?.().catch(() => {});
+}
+
+/** What a panel shows while its chunk is in flight. Deliberately a line of text
+ *  rather than a skeleton: a skeleton that flashes reads as a fault, and with
+ *  the prefetch above this is usually not painted at all.
+ *
+ *  The min-height is not decoration. This sits inside the auto-sized frame, so a
+ *  fallback of its natural height (one line) would collapse the panel to ~40px,
+ *  animate down, then snap back up when the chunk lands — two layout passes and
+ *  two visible jumps where an eager panel had none. Holding roughly a panel's
+ *  worth of height keeps the swap reading as one movement.
+ *
+ *  `aria-busy` is what tells a screen reader the panel is still coming. */
+function PanelLoading() {
+  return (
+    <p
+      class="font-body text-text-muted flex min-h-[20rem] items-start py-8 text-[0.85rem]"
+      aria-busy="true"
+    >
+      Loading…
+    </p>
+  );
+}
 
 interface ModuleShellProps {
   weddingId: string;
@@ -244,6 +307,8 @@ export default function ModuleShell(props: ModuleShellProps) {
                         aria-selected={active() === subTab.id}
                         tabindex={active() === subTab.id ? 0 : -1}
                         onKeyDown={(event) => onTabKeyDown(event, index())}
+                        onPointerEnter={() => warmPanel(props.module, subTab.id)}
+                        onFocus={() => warmPanel(props.module, subTab.id)}
                         onClick={() => props.onSub(subTab.id)}
                         class={`font-body relative flex items-center gap-2 rounded-sm px-3.5 py-1.5 text-[0.74rem] tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
                           active() === subTab.id
@@ -297,7 +362,9 @@ export default function ModuleShell(props: ModuleShellProps) {
                 {/* Interactive events editor (E6) — a pure write surface, editor-gated
               (the API also gates changes/* with weddingEditor()). */}
                 <Show when={active() === "edit" && props.canEdit}>
-                  <EventsEditor weddingId={props.weddingId} />
+                  <Suspense fallback={<PanelLoading />}>
+                    <EventsEditor weddingId={props.weddingId} />
+                  </Suspense>
                 </Show>
               </Show>
 
@@ -362,7 +429,9 @@ export default function ModuleShell(props: ModuleShellProps) {
                 {/* Interactive editor (E5) — a pure write surface, editor-gated (the
               API also gates changes/* with weddingEditor()). */}
                 <Show when={active() === "edit" && props.canEdit}>
-                  <GuestsEditor weddingId={props.weddingId} />
+                  <Suspense fallback={<PanelLoading />}>
+                    <GuestsEditor weddingId={props.weddingId} />
+                  </Suspense>
                 </Show>
                 <Show when={active() === "rsvps"}>
                   <RsvpView weddingId={props.weddingId} canEdit={props.canEdit} />
@@ -384,11 +453,13 @@ export default function ModuleShell(props: ModuleShellProps) {
                       </p>
                     }
                   >
-                    <InviteBuilder
-                      weddingId={props.weddingId}
-                      weddingSlug={props.weddingSlug}
-                      entitlements={props.entitlements}
-                    />
+                    <Suspense fallback={<PanelLoading />}>
+                      <InviteBuilder
+                        weddingId={props.weddingId}
+                        weddingSlug={props.weddingSlug}
+                        entitlements={props.entitlements}
+                      />
+                    </Suspense>
                   </Show>
                 </Show>
                 <Show when={active() === "codes" && props.canManage}>

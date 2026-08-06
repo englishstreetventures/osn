@@ -17,6 +17,9 @@ import {
 } from "../lib/guests-store";
 import { buildInviteMessage, copyToClipboard } from "../lib/invite-message";
 import SectionIntro from "./SectionIntro";
+import EmptyState from "./ui/EmptyState";
+import Notice from "./ui/Notice";
+import { Table, Td, Th } from "./ui/Table";
 
 interface FamilyGroup {
   familyId: string;
@@ -325,19 +328,14 @@ export default function GuestTable(props: GuestTableProps) {
       </Show>
 
       <Show when={error()}>
-        <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
-          {error()}
-        </p>
+        <Notice tone="error">{error()}</Notice>
       </Show>
 
       <Show when={!loading() && !error() && !hasGuests()}>
-        <div class="border-border bg-surface/30 flex flex-col items-start gap-2 rounded-sm border border-dashed p-8 text-center">
-          <p class="font-display text-gold-dim w-full text-[1.2rem]">No guests yet</p>
-          <p class="font-body text-text-muted w-full text-[0.85rem] leading-relaxed">
-            Import your guests sheet from the Spreadsheet Import above to build the list. Each
-            household gets its own code and invite message to share.
-          </p>
-        </div>
+        <EmptyState
+          title="No guests yet"
+          description="Import your guests sheet from the Spreadsheet Import above to build the list. Each household gets its own code and invite message to share."
+        />
       </Show>
 
       <Show when={!loading() && !error() && hasGuests()}>
@@ -346,177 +344,165 @@ export default function GuestTable(props: GuestTableProps) {
           {families().length === 1 ? "household" : "households"}
         </p>
 
-        <div class="overflow-x-auto">
-          <table class="font-body w-full border-collapse text-[0.88rem]">
-            <thead>
-              <tr>
-                <th class="border-border text-gold border-b px-4 py-3 text-left text-[0.72rem] font-normal tracking-[0.1em] whitespace-nowrap uppercase">
-                  Guest Name
-                </th>
-                <th class="border-border text-gold border-b px-4 py-3 text-left text-[0.72rem] font-normal tracking-[0.1em] whitespace-nowrap uppercase">
-                  Events
-                </th>
-                <th class="border-border text-gold border-b px-4 py-3 text-left text-[0.72rem] font-normal tracking-[0.1em] whitespace-nowrap uppercase">
-                  Family Code
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              <For each={families()}>
-                {(family) => (
-                  <>
-                    <tr>
-                      <td
-                        colspan="3"
-                        class={`border-border bg-surface/50 border-b px-4 py-2 ${
-                          isDeactivated(family) ? "opacity-50" : ""
-                        }`}
-                      >
-                        <div class="flex flex-wrap items-center justify-between gap-3">
-                          <span class="font-display text-gold-dim flex items-center gap-2 text-[1rem]">
-                            {family.familyName}
-                            <Show when={isDeactivated(family)}>
-                              <span
-                                class="font-body border-error/40 text-error rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
-                                title="Deactivated — this household's code no longer opens the invite. Reactivate to restore it."
-                              >
-                                Deactivated — code disabled
-                              </span>
-                            </Show>
-                            {/* Status badges are suppressed while deactivated —
+        <Table label="Guests" class="font-body">
+          <thead>
+            <tr>
+              <Th>Guest Name</Th>
+              <Th>Events</Th>
+              <Th>Family Code</Th>
+            </tr>
+          </thead>
+          <tbody>
+            <For each={families()}>
+              {(family) => (
+                <>
+                  <tr>
+                    <td
+                      colspan="3"
+                      class={`border-border bg-surface/50 border-b px-4 py-2 ${
+                        isDeactivated(family) ? "opacity-50" : ""
+                      }`}
+                    >
+                      <div class="flex flex-wrap items-center justify-between gap-3">
+                        <span class="font-display text-gold-dim flex items-center gap-2 text-[1rem]">
+                          {family.familyName}
+                          <Show when={isDeactivated(family)}>
+                            <span
+                              class="font-body border-error/40 text-error rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                              title="Deactivated — this household's code no longer opens the invite. Reactivate to restore it."
+                            >
+                              Deactivated — code disabled
+                            </span>
+                          </Show>
+                          {/* Status badges are suppressed while deactivated —
                                 the "Deactivated" label is the only relevant state
                                 then. "Opened" (a real guest claim) otherwise takes
                                 precedence over the copy-only "Sent". */}
-                            <Show when={!isDeactivated(family)}>
-                              <Show
-                                when={isOpened(family)}
-                                fallback={
-                                  <Show when={isShared(family)}>
-                                    <span
-                                      class="font-body text-gold/80 border-gold/30 rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
-                                      title="Sent — you copied this family's invite message"
-                                    >
-                                      Sent
-                                    </span>
-                                  </Show>
-                                }
-                              >
-                                <span
-                                  class="font-body bg-gold text-bg rounded-sm px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
-                                  title={`Opened — a guest opened this invite (code used) on ${formatOpenedDate(
-                                    family.firstOpenedAt!,
-                                  )}`}
-                                >
-                                  Opened
-                                </span>
-                              </Show>
-                            </Show>
-                          </span>
-                          <div class="flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => void copyMessage(family)}
-                              class="font-body text-text-muted hover:text-gold hover:border-gold border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors"
+                          <Show when={!isDeactivated(family)}>
+                            <Show
+                              when={isOpened(family)}
+                              fallback={
+                                <Show when={isShared(family)}>
+                                  <span
+                                    class="font-body text-gold/80 border-gold/30 rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                    title="Sent — you copied this family's invite message"
+                                  >
+                                    Sent
+                                  </span>
+                                </Show>
+                              }
                             >
-                              Copy message
-                            </button>
-                            {/* Deactivate is confirm-gated (cuts off a live code);
+                              <span
+                                class="font-body bg-gold text-bg rounded-sm px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                title={`Opened — a guest opened this invite (code used) on ${formatOpenedDate(
+                                  family.firstOpenedAt!,
+                                )}`}
+                              >
+                                Opened
+                              </span>
+                            </Show>
+                          </Show>
+                        </span>
+                        <div class="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void copyMessage(family)}
+                            class="font-body text-text-muted hover:text-gold hover:border-gold border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors"
+                          >
+                            Copy message
+                          </button>
+                          {/* Deactivate is confirm-gated (cuts off a live code);
                                 Reactivate is a direct restore. Owner-only —
                                 code management sits above editor writes. */}
-                            <Show when={props.canManage}>
-                              <Show
-                                when={isDeactivated(family)}
-                                fallback={
-                                  <Show
-                                    when={confirmingId() === family.familyId}
-                                    fallback={
-                                      <button
-                                        type="button"
-                                        onClick={() => setConfirmingId(family.familyId)}
-                                        disabled={togglingId() === family.familyId}
-                                        class="font-body text-text-muted hover:text-error hover:border-error/60 border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
-                                        title="Disable this household's code (e.g. a withdrawn invite). Reversible — their guests and RSVPs are kept."
-                                      >
-                                        Deactivate
-                                      </button>
-                                    }
-                                  >
-                                    <span class="font-body text-text-muted text-[0.7rem] tracking-[0.05em]">
-                                      Disable this code?
-                                    </span>
+                          <Show when={props.canManage}>
+                            <Show
+                              when={isDeactivated(family)}
+                              fallback={
+                                <Show
+                                  when={confirmingId() === family.familyId}
+                                  fallback={
                                     <button
                                       type="button"
-                                      onClick={() => void toggleDeactivated(family, true)}
+                                      onClick={() => setConfirmingId(family.familyId)}
                                       disabled={togglingId() === family.familyId}
-                                      class="border-error bg-error font-body text-bg rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition hover:opacity-90 disabled:opacity-40"
+                                      class="font-body text-text-muted hover:text-error hover:border-error/60 border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
+                                      title="Disable this household's code (e.g. a withdrawn invite). Reversible — their guests and RSVPs are kept."
                                     >
-                                      {togglingId() === family.familyId
-                                        ? "Deactivating…"
-                                        : "Confirm"}
+                                      Deactivate
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmingId(null)}
-                                      disabled={togglingId() === family.familyId}
-                                      class="font-body text-text-muted text-[0.7rem] underline-offset-4 hover:underline disabled:opacity-40"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </Show>
-                                }
-                              >
-                                <button
-                                  type="button"
-                                  onClick={() => void toggleDeactivated(family, false)}
-                                  disabled={togglingId() === family.familyId}
-                                  class="font-body text-gold hover:border-gold border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
-                                  title="Re-enable this household's code — their guests and RSVPs were kept."
+                                  }
                                 >
-                                  {togglingId() === family.familyId
-                                    ? "Reactivating…"
-                                    : "Reactivate"}
-                                </button>
-                              </Show>
+                                  <span class="font-body text-text-muted text-[0.7rem] tracking-[0.05em]">
+                                    Disable this code?
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => void toggleDeactivated(family, true)}
+                                    disabled={togglingId() === family.familyId}
+                                    class="border-error bg-error font-body text-bg rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition hover:opacity-90 disabled:opacity-40"
+                                  >
+                                    {togglingId() === family.familyId ? "Deactivating…" : "Confirm"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmingId(null)}
+                                    disabled={togglingId() === family.familyId}
+                                    class="font-body text-text-muted text-[0.7rem] underline-offset-4 hover:underline disabled:opacity-40"
+                                  >
+                                    Cancel
+                                  </button>
+                                </Show>
+                              }
+                            >
+                              <button
+                                type="button"
+                                onClick={() => void toggleDeactivated(family, false)}
+                                disabled={togglingId() === family.familyId}
+                                class="font-body text-gold hover:border-gold border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
+                                title="Re-enable this household's code — their guests and RSVPs were kept."
+                              >
+                                {togglingId() === family.familyId ? "Reactivating…" : "Reactivate"}
+                              </button>
+                            </Show>
+                          </Show>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                  <For each={family.members}>
+                    {(member, index) => (
+                      <tr class="hover:[&>td]:bg-surface">
+                        <Td class="pl-8 align-middle font-normal">
+                          {member.firstName} {member.lastName}
+                        </Td>
+                        <Td class="align-middle">
+                          <div class="flex flex-wrap gap-1.5">
+                            <For each={member.events}>
+                              {(eventId) => (
+                                <span
+                                  class="bg-gold/10 text-gold inline-block rounded-sm px-2 py-0.5 text-[0.72rem] tracking-[0.06em] uppercase"
+                                  title={eventId}
+                                >
+                                  {eventNameById().get(eventId) ?? eventId}
+                                </span>
+                              )}
+                            </For>
+                            <Show when={member.events.length === 0}>
+                              <span class="text-text-muted text-[0.8rem]">--</span>
                             </Show>
                           </div>
-                        </div>
-                      </td>
-                    </tr>
-                    <For each={family.members}>
-                      {(member, index) => (
-                        <tr class="hover:[&>td]:bg-surface">
-                          <td class="border-border text-text border-b px-4 py-3 pl-8 align-middle font-normal">
-                            {member.firstName} {member.lastName}
-                          </td>
-                          <td class="border-border border-b px-4 py-3 align-middle">
-                            <div class="flex flex-wrap gap-1.5">
-                              <For each={member.events}>
-                                {(eventId) => (
-                                  <span
-                                    class="bg-gold/10 text-gold inline-block rounded-sm px-2 py-0.5 text-[0.72rem] tracking-[0.06em] uppercase"
-                                    title={eventId}
-                                  >
-                                    {eventNameById().get(eventId) ?? eventId}
-                                  </span>
-                                )}
-                              </For>
-                              <Show when={member.events.length === 0}>
-                                <span class="text-text-muted text-[0.8rem]">--</span>
-                              </Show>
-                            </div>
-                          </td>
-                          <td class="border-border text-text-muted border-b px-4 py-3 align-middle font-mono text-[0.82rem] tracking-[0.06em]">
-                            <Show when={index() === 0}>{family.publicId}</Show>
-                          </td>
-                        </tr>
-                      )}
-                    </For>
-                  </>
-                )}
-              </For>
-            </tbody>
-          </table>
-        </div>
+                        </Td>
+                        <Td class="text-text-muted align-middle font-mono tracking-[0.06em]">
+                          <Show when={index() === 0}>{family.publicId}</Show>
+                        </Td>
+                      </tr>
+                    )}
+                  </For>
+                </>
+              )}
+            </For>
+          </tbody>
+        </Table>
       </Show>
     </div>
   );

@@ -30,6 +30,7 @@ import type { WeddingSummary } from "./CreateWeddingForm";
 import ModuleShell from "./ModuleShell";
 import SecurityPanel from "./SecurityPanel";
 import TopBar from "./TopBar";
+import Notice from "./ui/Notice";
 import WeddingList from "./WeddingList";
 
 /**
@@ -381,13 +382,7 @@ function Dashboard() {
 
         <Show when={view() === "weddings"}>
           <Show when={loaded()} fallback={<Loading label="Loading weddings…" />}>
-            <Show when={loadError()}>
-              {(message) => (
-                <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
-                  {message()}
-                </p>
-              )}
-            </Show>
+            <Show when={loadError()}>{(message) => <Notice tone="error">{message()}</Notice>}</Show>
 
             <Show when={!loadError() && weddings()}>
               {(list) => (

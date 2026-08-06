@@ -1,5 +1,7 @@
 import { For, Show } from "solid-js";
 
+import { Table, Td, Th } from "./ui/Table";
+
 // The SHARED change-preview renderer (guest+event editor §8): "extract
 // ImportPanel's plan-rendering into a shared component so both ImportPanel and
 // the editor save-flow render the same preview". Both front doors of the
@@ -78,42 +80,36 @@ export function PlanCounts(props: { plan: ChangePlan }) {
   ];
 
   return (
-    <table class="font-body w-full border-collapse text-[0.88rem]">
+    <Table label="Diff counts" class="font-body">
       <thead>
         <tr>
-          <th class="border-border text-gold border-b px-3 py-2 text-left text-[0.72rem] font-normal tracking-[0.1em] uppercase">
+          <Th>
             <span class="sr-only">Record type</span>
-          </th>
-          <th class="border-border text-gold border-b px-3 py-2 text-right text-[0.72rem] font-normal tracking-[0.1em] uppercase">
-            Create
-          </th>
-          <th class="border-border text-gold border-b px-3 py-2 text-right text-[0.72rem] font-normal tracking-[0.1em] uppercase">
-            Update
-          </th>
-          <th class="border-border text-gold border-b px-3 py-2 text-right text-[0.72rem] font-normal tracking-[0.1em] uppercase">
-            Remove
-          </th>
+          </Th>
+          <Th class="text-right">Create</Th>
+          <Th class="text-right">Update</Th>
+          <Th class="text-right">Remove</Th>
         </tr>
       </thead>
       <tbody>
         <For each={rows()}>
           {(r) => (
             <tr>
-              <td class="border-border text-text border-b px-3 py-2">{r.label}</td>
-              <td class="border-border text-text-muted border-b px-3 py-2 text-right font-mono">
+              <Td>{r.label}</Td>
+              <Td numeric class="text-text-muted">
                 {r.create}
-              </td>
-              <td class="border-border text-text-muted border-b px-3 py-2 text-right font-mono">
+              </Td>
+              <Td numeric class="text-text-muted">
                 {r.update}
-              </td>
-              <td class="border-border text-text-muted border-b px-3 py-2 text-right font-mono">
+              </Td>
+              <Td numeric class="text-text-muted">
                 {r.remove}
-              </td>
+              </Td>
             </tr>
           )}
         </For>
       </tbody>
-    </table>
+    </Table>
   );
 }
 

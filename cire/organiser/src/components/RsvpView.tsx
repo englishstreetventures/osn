@@ -4,6 +4,9 @@ import { createSignal, For, onMount, Show } from "solid-js";
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import SectionIntro from "./SectionIntro";
+import EmptyState from "./ui/EmptyState";
+import Notice from "./ui/Notice";
+import { Table, Td, Th } from "./ui/Table";
 
 interface RsvpViewProps {
   weddingId: string;
@@ -208,18 +211,14 @@ export default function RsvpView(props: RsvpViewProps) {
       </Show>
 
       <Show when={error()}>
-        <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
-          {error()}
-        </p>
+        <Notice tone="error">{error()}</Notice>
       </Show>
 
       <Show when={!loading() && !error() && !hasEvents()}>
-        <div class="border-border bg-surface/30 flex flex-col items-start gap-2 rounded-sm border border-dashed p-8 text-center">
-          <p class="font-display text-gold-dim w-full text-[1.2rem]">No events yet</p>
-          <p class="font-body text-text-muted w-full text-[0.85rem] leading-relaxed">
-            Add your events and invite guests — their replies will appear here.
-          </p>
-        </div>
+        <EmptyState
+          title="No events yet"
+          description="Add your events and invite guests — their replies will appear here."
+        />
       </Show>
 
       <Show when={!loading() && !error() && hasEvents()}>
@@ -263,106 +262,79 @@ export default function RsvpView(props: RsvpViewProps) {
                     </p>
                   }
                 >
-                  <div class="overflow-x-auto">
-                    <table class="font-body w-full border-collapse text-[0.86rem]">
-                      <caption class="sr-only">RSVPs for {event.name}</caption>
-                      <thead>
-                        <tr>
-                          <th
-                            scope="col"
-                            class="border-border text-gold border-b px-4 py-2.5 text-left text-[0.7rem] font-normal tracking-[0.1em] whitespace-nowrap uppercase"
-                          >
-                            Guest
-                          </th>
-                          <th
-                            scope="col"
-                            class="border-border text-gold border-b px-4 py-2.5 text-left text-[0.7rem] font-normal tracking-[0.1em] whitespace-nowrap uppercase"
-                          >
-                            Household
-                          </th>
-                          <th
-                            scope="col"
-                            class="border-border text-gold border-b px-4 py-2.5 text-left text-[0.7rem] font-normal tracking-[0.1em] whitespace-nowrap uppercase"
-                          >
-                            Status
-                          </th>
-                          <th
-                            scope="col"
-                            class="border-border text-gold border-b px-4 py-2.5 text-left text-[0.7rem] font-normal tracking-[0.1em] whitespace-nowrap uppercase"
-                          >
-                            Dietary
-                          </th>
-                          <Show when={props.canEdit}>
-                            <th
-                              scope="col"
-                              class="border-border text-gold border-b px-4 py-2.5 text-right text-[0.7rem] font-normal tracking-[0.1em] whitespace-nowrap uppercase"
-                            >
-                              <span class="sr-only">Actions</span>
-                            </th>
-                          </Show>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <For each={event.guests}>
-                          {(guest) => (
-                            <>
-                              <tr class="hover:[&>td]:bg-surface">
-                                <td class="border-border text-text border-b px-4 py-2.5 align-middle">
-                                  {guest.firstName} {guest.lastName}
-                                  <Show when={guest.consentSource === "organiser_attested"}>
-                                    {" "}
-                                    <span
-                                      class="border-gold/40 text-gold ml-1 inline-block rounded-sm border px-1.5 py-0.5 text-[0.55rem] tracking-[0.12em] uppercase"
-                                      title="Recorded by a host (phone/paper RSVP)"
-                                    >
-                                      Host-entered
-                                    </span>
-                                  </Show>
-                                </td>
-                                <td class="border-border text-text-muted border-b px-4 py-2.5 align-middle">
-                                  {guest.familyName}
-                                </td>
-                                <td class="border-border border-b px-4 py-2.5 align-middle">
+                  <Table label={`Replies for ${event.name}`} class="font-body">
+                    <caption class="sr-only">RSVPs for {event.name}</caption>
+                    <thead>
+                      <tr>
+                        <Th>Guest</Th>
+                        <Th>Household</Th>
+                        <Th>Status</Th>
+                        <Th>Dietary</Th>
+                        <Show when={props.canEdit}>
+                          <Th class="text-right">
+                            <span class="sr-only">Actions</span>
+                          </Th>
+                        </Show>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <For each={event.guests}>
+                        {(guest) => (
+                          <>
+                            <tr class="hover:[&>td]:bg-surface">
+                              <Td class="align-middle">
+                                {guest.firstName} {guest.lastName}
+                                <Show when={guest.consentSource === "organiser_attested"}>
+                                  {" "}
                                   <span
-                                    class={`font-body inline-block rounded-sm px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase ${STATUS_META[guest.status].class}`}
+                                    class="border-gold/40 text-gold ml-1 inline-block rounded-sm border px-1.5 py-0.5 text-[0.55rem] tracking-[0.12em] uppercase"
+                                    title="Recorded by a host (phone/paper RSVP)"
                                   >
-                                    {STATUS_META[guest.status].label}
+                                    Host-entered
                                   </span>
-                                </td>
-                                <td class="border-border text-text-muted border-b px-4 py-2.5 align-middle">
-                                  <Show
-                                    when={guest.dietary.trim().length > 0}
-                                    fallback={<span class="text-text-muted">--</span>}
-                                  >
-                                    {guest.dietary}
-                                  </Show>
-                                </td>
-                                <Show when={props.canEdit}>
-                                  <td class="border-border border-b px-4 py-2.5 text-right align-middle">
-                                    <button
-                                      type="button"
-                                      class="border-border text-text-muted hover:text-text hover:border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.08em] uppercase"
-                                      onClick={() =>
-                                        openEditor(event.id, guest, {
-                                          status: guest.status,
-                                          dietary: guest.dietary,
-                                        })
-                                      }
-                                    >
-                                      Edit
-                                    </button>
-                                  </td>
                                 </Show>
-                              </tr>
-                              <Show when={props.canEdit && isEditing(event.id, guest.guestId)}>
-                                {renderEditorRow()}
+                              </Td>
+                              <Td class="text-text-muted align-middle">{guest.familyName}</Td>
+                              <Td class="align-middle">
+                                <span
+                                  class={`font-body inline-block rounded-sm px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase ${STATUS_META[guest.status].class}`}
+                                >
+                                  {STATUS_META[guest.status].label}
+                                </span>
+                              </Td>
+                              <Td class="text-text-muted align-middle">
+                                <Show
+                                  when={guest.dietary.trim().length > 0}
+                                  fallback={<span class="text-text-muted">--</span>}
+                                >
+                                  {guest.dietary}
+                                </Show>
+                              </Td>
+                              <Show when={props.canEdit}>
+                                <Td class="text-right align-middle">
+                                  <button
+                                    type="button"
+                                    class="border-border text-text-muted hover:text-text hover:border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.08em] uppercase"
+                                    onClick={() =>
+                                      openEditor(event.id, guest, {
+                                        status: guest.status,
+                                        dietary: guest.dietary,
+                                      })
+                                    }
+                                  >
+                                    Edit
+                                  </button>
+                                </Td>
                               </Show>
-                            </>
-                          )}
-                        </For>
-                      </tbody>
-                    </table>
-                  </div>
+                            </tr>
+                            <Show when={props.canEdit && isEditing(event.id, guest.guestId)}>
+                              {renderEditorRow()}
+                            </Show>
+                          </>
+                        )}
+                      </For>
+                    </tbody>
+                  </Table>
                 </Show>
 
                 {/* Record a reply for an invited guest who hasn't responded. */}

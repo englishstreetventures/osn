@@ -18,6 +18,8 @@ import {
   type ImageCrop,
 } from "../lib/image-crop";
 import SectionIntro from "./SectionIntro";
+import EmptyState from "./ui/EmptyState";
+import Notice from "./ui/Notice";
 
 const ImageCropModal = lazy(() => import("./ImageCropModal"));
 
@@ -230,19 +232,14 @@ export default function EventTable(props: EventTableProps) {
       </Show>
 
       <Show when={error()}>
-        <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
-          {error()}
-        </p>
+        <Notice tone="error">{error()}</Notice>
       </Show>
 
       <Show when={!loading() && !error() && !hasEvents()}>
-        <div class="border-border bg-surface/30 flex flex-col items-start gap-2 rounded-sm border border-dashed p-8 text-center">
-          <p class="font-display text-gold-dim w-full text-[1.2rem]">No events yet</p>
-          <p class="font-body text-text-muted w-full text-[0.85rem] leading-relaxed">
-            Import your events sheet from the Spreadsheet Import above. Add the events first —
-            guests are matched to events that already exist.
-          </p>
-        </div>
+        <EmptyState
+          title="No events yet"
+          description="Import your events sheet from the Spreadsheet Import above. Add the events first — guests are matched to events that already exist."
+        />
       </Show>
 
       <Show when={!loading() && !error() && hasEvents()}>

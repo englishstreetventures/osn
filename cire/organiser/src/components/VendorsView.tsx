@@ -16,6 +16,7 @@ import {
   vendorsAccessor,
 } from "../lib/vendors-store";
 import EnquireDialog from "./EnquireDialog";
+import Notice from "./ui/Notice";
 
 /** Vendor pipeline stages in workflow order. */
 const VENDOR_STATUSES = [
@@ -245,9 +246,9 @@ export default function VendorsView(props: VendorsViewProps) {
   return (
     <div class="flex flex-col gap-6">
       <Show when={error()}>
-        <p class="border-error/40 text-error rounded-sm border px-3 py-2 text-[0.82rem]">
+        <Notice tone="error" alert>
           {error()}
-        </p>
+        </Notice>
       </Show>
 
       {/* Add vendor (editor). */}

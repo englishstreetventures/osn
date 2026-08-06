@@ -16,6 +16,9 @@ import { ensureTasksLoaded, peekCachedTasks, taskCounts, type TaskRow } from "..
 import { ensureVendorsLoaded, vendorCount, type VendorRow } from "../lib/vendors-store";
 import GettingStarted from "./GettingStarted";
 import SectionIntro from "./SectionIntro";
+import Card, { CardCta, CardEyebrow, cardClass } from "./ui/Card";
+import Meter from "./ui/Meter";
+import Stat from "./ui/Stat";
 
 /** The Overview home — the module shell's landing view. It answers "how's the
  *  wedding tracking?" at a glance: a countdown to the date, RSVP totals rolled
@@ -132,59 +135,10 @@ function formatWeddingDate(isoDate: string): string {
   }).format(date);
 }
 
-/** One card shell for the whole Overview grid. Every card — read-only or
- *  clickable — is the same rectangle with the same rule, padding, and internal
- *  rhythm; only the hover response tells you which ones go somewhere. Before,
- *  three shells were in play (`bg-surface/30`, `bg-surface/15`, and a gradient),
- *  which made the grid read as three unrelated groups of cards. */
-const cardBase = "border-border bg-surface/30 flex flex-col gap-3 rounded-sm border p-5";
-
-/** The one card that carries the wedding date. Same rectangle as every other
- *  card, with the rule in gold rather than the neutral border — one card in the
- *  grid is allowed to be the loudest, and it is the countdown. */
-const cardBaseAccent = "border-gold/30 bg-surface/30 flex flex-col gap-3 rounded-sm border p-5";
-
-/** Added to a card that is itself a button. */
-const cardLink =
-  "hover:border-gold-dim hover:bg-surface/50 text-left transition-colors duration-(--dur-base) ease-(--ease-out)";
-
-/** The gold label every card leads with. One weight, one tracking, everywhere. */
-const cardEyebrow = "font-body text-gold text-[0.7rem] tracking-[0.18em] uppercase";
-
-/** The "go to the module" line at the foot of a card. */
-const cardCta =
-  "font-body text-gold-dim hover:text-gold group/cta flex items-center gap-1.5 self-start text-[0.78rem] transition-colors duration-(--dur-fast)";
-
-/** The arrow inside a {@link cardCta}, nudged on hover. */
-const cardCtaArrow =
-  "transition-transform duration-(--dur-base) ease-(--ease-out) group-hover/cta:translate-x-1";
-
-/** A thin meter used by the RSVP / Budget / Checklist cards. `over` renders in a
- *  warning tone and is used when a value exceeds its max (e.g. over-budget). */
-function ProgressBar(props: {
-  value: number;
-  max: number;
-  tone?: "gold" | "over";
-  label?: string;
-}) {
-  const pct = () =>
-    props.max <= 0 ? 0 : Math.min(100, Math.max(0, (props.value / props.max) * 100));
-  return (
-    <div
-      class="bg-surface/60 h-1.5 w-full overflow-hidden rounded-full"
-      role="progressbar"
-      aria-valuenow={Math.round(pct())}
-      aria-valuemin={0}
-      aria-valuemax={100}
-      aria-label={props.label ?? "Progress"}
-    >
-      <div
-        class={`h-full rounded-full ${props.tone === "over" ? "bg-error/80" : "bg-gold"}`}
-        style={{ width: `${pct()}%` }}
-      />
-    </div>
-  );
-}
+/** A card whose whole rectangle is the control — it jumps to a module. The
+ *  classes rather than the `<Card>` component, because this one is a `<button>`
+ *  and a `<div role="button">` would be the worse answer. */
+const cardLinkClass = cardClass({ interactive: true });
 
 export default function Overview(props: {
   weddingId: string;
@@ -388,8 +342,8 @@ export default function Overview(props: {
   const spentSoFarMemo = createMemo(() => spentSoFar(props.weddingId));
 
   const WhatsNext = () => (
-    <div class={cardBase}>
-      <p class={cardEyebrow}>What&rsquo;s next</p>
+    <Card>
+      <CardEyebrow>What&rsquo;s next</CardEyebrow>
       <Show
         when={agenda().length > 0}
         fallback={
@@ -438,7 +392,7 @@ export default function Overview(props: {
           </For>
         </ul>
       </Show>
-    </div>
+    </Card>
   );
 
   return (
@@ -492,8 +446,8 @@ export default function Overview(props: {
                 stretched cards on a 1300px row. */}
             <div class="auto-grid [--auto-grid-min:15rem]">
               {/* ── Countdown ─────────────────────────────────────────────── */}
-              <div class={cardBaseAccent}>
-                <p class={cardEyebrow}>Countdown</p>
+              <Card tone="accent">
+                <CardEyebrow>Countdown</CardEyebrow>
                 <Show
                   when={weddingDate()}
                   fallback={
@@ -504,12 +458,9 @@ export default function Overview(props: {
                       <button
                         type="button"
                         onClick={() => props.onNavigate("settings", "wedding")}
-                        class={cardCta}
+                        class="self-start"
                       >
-                        Set your wedding date
-                        <span aria-hidden="true" class={cardCtaArrow}>
-                          →
-                        </span>
+                        <CardCta>Set your wedding date</CardCta>
                       </button>
                     </>
                   }
@@ -547,14 +498,7 @@ export default function Overview(props: {
                           const abs = Math.abs(days);
                           const unit = abs === 1 ? "day" : "days";
                           return (
-                            <div class="flex flex-col gap-0.5">
-                              <p class="font-display text-gold text-[2rem] leading-none font-light tabular-nums">
-                                {abs}
-                              </p>
-                              <p class="font-body text-text text-[0.9rem]">
-                                {days > 0 ? `${unit} to go` : `${unit} ago`}
-                              </p>
-                            </div>
+                            <Stat value={abs} label={days > 0 ? `${unit} to go` : `${unit} ago`} />
                           );
                         })()}
                       </Show>
@@ -564,11 +508,11 @@ export default function Overview(props: {
                     </>
                   )}
                 </Show>
-              </div>
+              </Card>
 
               {/* ── RSVP totals ───────────────────────────────────────────── */}
-              <div class={cardBase}>
-                <p class={cardEyebrow}>RSVPs</p>
+              <Card>
+                <CardEyebrow>RSVPs</CardEyebrow>
                 <Show
                   when={data()?.rsvps && data()!.rsvps!.eventCount > 0}
                   fallback={
@@ -590,7 +534,7 @@ export default function Overview(props: {
                             {r.eventCount === 1 ? "event" : "events"}
                           </span>
                         </div>
-                        <ProgressBar value={r.responded} max={r.invited} label="RSVP responses" />
+                        <Meter value={r.responded} max={r.invited} label="RSVP responses" />
                         <dl class="font-body text-text-muted grid grid-cols-2 gap-x-4 gap-y-1 text-[0.78rem]">
                           <div class="flex justify-between gap-2">
                             <dt>Declined</dt>
@@ -631,22 +575,19 @@ export default function Overview(props: {
                         <button
                           type="button"
                           onClick={() => props.onNavigate("guests", "rsvps")}
-                          class={cardCta}
+                          class="self-start"
                         >
-                          See replies per event
-                          <span aria-hidden="true" class={cardCtaArrow}>
-                            →
-                          </span>
+                          <CardCta>See replies per event</CardCta>
                         </button>
                       </>
                     );
                   })()}
                 </Show>
-              </div>
+              </Card>
 
               {/* ── Guests + schedule snapshot ─────────────────────────────── */}
-              <div class={cardBase}>
-                <p class={cardEyebrow}>Guests &amp; schedule</p>
+              <Card>
+                <CardEyebrow>Guests &amp; schedule</CardEyebrow>
                 <dl class="font-body text-text-muted flex flex-col gap-1.5 text-[0.85rem]">
                   <div class="flex justify-between gap-2">
                     <dt>Households</dt>
@@ -666,22 +607,19 @@ export default function Overview(props: {
                 <button
                   type="button"
                   onClick={() => props.onNavigate("guests", "list")}
-                  class={cardCta}
+                  class="self-start"
                 >
-                  Open the guest list
-                  <span aria-hidden="true" class={cardCtaArrow}>
-                    →
-                  </span>
+                  <CardCta>Open the guest list</CardCta>
                 </button>
-              </div>
+              </Card>
 
               {/* ── Checklist snapshot (Phase 1 — live open-task count) ─────── */}
               <button
                 type="button"
                 onClick={() => props.onNavigate("checklist")}
-                class={`${cardBase} ${cardLink}`}
+                class={cardLinkClass}
               >
-                <p class={cardEyebrow}>Checklist</p>
+                <CardEyebrow>Checklist</CardEyebrow>
                 <Show
                   when={taskCounts(props.weddingId)}
                   fallback={<p class="text-text-muted text-[0.82rem]">Loading your tasks…</p>}
@@ -700,11 +638,7 @@ export default function Overview(props: {
                       <p class="text-text-muted text-[0.76rem]">
                         {tc().done} of {tc().total} done
                       </p>
-                      <ProgressBar
-                        value={tc().done}
-                        max={tc().total}
-                        label="Checklist completion"
-                      />
+                      <Meter value={tc().done} max={tc().total} label="Checklist completion" />
                     </Show>
                   )}
                 </Show>
@@ -714,9 +648,9 @@ export default function Overview(props: {
               <button
                 type="button"
                 onClick={() => props.onNavigate("vendors")}
-                class={`${cardBase} ${cardLink}`}
+                class={cardLinkClass}
               >
-                <p class={cardEyebrow}>Vendors</p>
+                <CardEyebrow>Vendors</CardEyebrow>
                 <Show
                   when={vendorCountValue() !== null}
                   fallback={<p class="text-text-muted text-[0.82rem]">Loading your vendors…</p>}
@@ -741,9 +675,9 @@ export default function Overview(props: {
               <button
                 type="button"
                 onClick={() => props.onNavigate("budget")}
-                class={`${cardBase} ${cardLink}`}
+                class={cardLinkClass}
               >
-                <p class={cardEyebrow}>Budget</p>
+                <CardEyebrow>Budget</CardEyebrow>
                 <Show
                   when={spentSoFarMemo() !== null}
                   fallback={<p class="text-text-muted text-[0.82rem]">Loading your budget…</p>}
@@ -781,7 +715,7 @@ export default function Overview(props: {
                       const spent = spentSoFarMemo() ?? 0;
                       return (
                         <Show when={cap != null}>
-                          <ProgressBar
+                          <Meter
                             value={spent}
                             max={cap!}
                             tone={spent > cap! ? "over" : "gold"}

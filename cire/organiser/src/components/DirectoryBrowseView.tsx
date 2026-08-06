@@ -7,6 +7,7 @@ import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { invalidateVendors } from "../lib/vendors-store";
 import EnquireDialog from "./EnquireDialog";
+import Notice from "./ui/Notice";
 
 interface BrowseListing {
   id: string;
@@ -284,22 +285,16 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
 
       {/* Global error */}
       <Show when={error()}>
-        <p
-          role="alert"
-          class="border-error/40 text-error rounded-sm border px-3 py-2 text-[0.82rem]"
-        >
+        <Notice tone="error" alert>
           {error()}
-        </p>
+        </Notice>
       </Show>
 
       {/* Add error */}
       <Show when={addError()}>
-        <p
-          role="alert"
-          class="border-error/40 text-error rounded-sm border px-3 py-2 text-[0.82rem]"
-        >
+        <Notice tone="error" alert>
           {addError()}
-        </p>
+        </Notice>
       </Show>
 
       {/* Loading */}

@@ -161,7 +161,7 @@ describe("ModuleShell", () => {
     expect(screen.getByTestId("events")).toBeTruthy();
   });
 
-  it("shows the Schedule sub-tabs (Events + Edit) and switches to the events editor", () => {
+  it("shows the Schedule sub-tabs (Events + Edit) and switches to the events editor", async () => {
     const { onSub } = renderShell({ module: "schedule", sub: "list" });
     expect(screen.getByRole("tab", { name: /Events/ })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Edit/ })).toBeTruthy();
@@ -170,7 +170,9 @@ describe("ModuleShell", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: /Edit/ }));
     expect(onSub).toHaveBeenCalledWith("edit");
-    expect(screen.getByTestId("events-editor")).toBeTruthy();
+    // `findBy`, not `getBy`: the editor is lazy() — it arrives a microtask after
+    // the tab is chosen, behind the panel's Suspense fallback.
+    expect(await screen.findByTestId("events-editor")).toBeTruthy();
     expect(screen.queryByTestId("events")).toBeNull();
   });
 
@@ -204,13 +206,14 @@ describe("ModuleShell", () => {
     expect(screen.getByTestId("codes")).toBeTruthy();
   });
 
-  it("hides the owner-only Codes sub from a co-host and falls a deep link back", () => {
+  it("hides the owner-only Codes sub from a co-host and falls a deep link back", async () => {
     // A co-host (editor) deep-linking invite/codes must not see the owner-only
     // Codes panel — it resolves to the invite module's default (Design) sub.
     renderShell({ canManage: false, canEdit: true, module: "invite", sub: "codes" });
     expect(screen.queryByRole("tab", { name: /Codes/ })).toBeNull();
     expect(screen.queryByTestId("codes")).toBeNull();
-    expect(screen.getByTestId("invite-design")).toBeTruthy();
+    // The builder is lazy() — awaited for the same reason the events editor is.
+    expect(await screen.findByTestId("invite-design")).toBeTruthy();
   });
 
   describe("settings profile — RSVP-by is the co-host's one writable field", () => {
@@ -384,13 +387,14 @@ describe("ModuleShell", () => {
       expect(document.activeElement).toBe(households);
     });
 
-    it("selects the focused tab on click, and only then swaps the panel", () => {
+    it("selects the focused tab on click, and only then swaps the panel", async () => {
       const { onSub } = renderShell({ module: "guests", sub: "list" });
       const [, edit] = tabs();
       edit!.focus();
       fireEvent.click(edit!);
       expect(onSub).toHaveBeenCalledWith("edit");
-      expect(screen.getByTestId("guests-editor")).toBeTruthy();
+      // The guests editor is lazy() — awaited, like the other two write panels.
+      expect(await screen.findByTestId("guests-editor")).toBeTruthy();
       expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
         "subtab-guests-edit",
       );
