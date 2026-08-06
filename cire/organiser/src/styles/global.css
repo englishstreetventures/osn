@@ -1,29 +1,212 @@
-/* Hallmark · pre-emit critique: P5 H5 E5 S4 R5 V4
- * genre: editorial · theme: cire house (preserved) · scope: app shell
- * contrast: pass (46-50) · motion: cut (CSS only) · nav: rail + sheet
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5
+ * genre: editorial · theme: cire house, two ramps · scope: app shell
+ * contrast: asserted in tokens.test.ts · motion: cut (CSS only) · nav: rail + sheet
  */
 @import "tailwindcss";
 
-/*
- * The portal used to render @osn/ui's sign-in components, so this file scanned
- * `osn/ui/src` for their Tailwind classes and declared the `base:` variant they
- * relied on. Sign-in is a redirect to musubi now and no @osn/ui component is
- * mounted here, so both are gone. The shadcn-style semantic tokens below stay —
- * cire's own components are written against them.
+/* ── The two ramps ──────────────────────────────────────────────────────────
+ * Every colour in the portal is one of the custom properties below, and every
+ * Tailwind colour utility is a `@theme` alias onto one of them. That
+ * indirection is the whole theming mechanism: swapping `data-theme` on <html>
+ * re-points the aliases, and nothing else in the app knows a theme exists.
+ *
+ * Dark is the default and lives on bare `:root`, so a document with no
+ * `data-theme` and no JavaScript still renders the house look. Light arrives
+ * two ways — the system preference (for a first visit with no stored choice)
+ * and an explicit `data-theme="light"` (what `lib/theme.ts` writes). The
+ * attribute selectors come last and are more specific, so an explicit choice
+ * always beats the system.
+ *
+ * Authored in OKLCH because the ramps are built by moving lightness at a fixed
+ * hue; in sRGB hex the same moves shift hue and the greens drift blue.
+ *
+ * `styles/tokens.test.ts` asserts the contrast contract stated in each comment
+ * below — including compositing the translucent tokens over their ground, which
+ * a naive ratio would overstate.
  */
-@theme {
-  --color-bg: oklch(19.96% 0.0331 147.34);
-  --color-surface: oklch(22.7% 0.0275 152.78);
-  --color-surface-raised: oklch(27.87% 0.0393 149.62);
-  --color-border: oklch(85.51% 0.069 144.94 / 0.1);
-  --color-text: oklch(94.62% 0.0111 89.72);
-  --color-text-muted: oklch(94.62% 0.0111 89.72 / 0.5);
-  --color-gold: oklch(74.99% 0.0854 82.08);
-  --color-gold-dim: oklch(74.99% 0.0854 82.08 / 0.35);
-  --color-error: oklch(67.56% 0.1401 21.48);
-  --color-success: oklch(75.96% 0.1421 146.94);
-  --font-display: "Cormorant Garamond", Georgia, serif;
-  --font-body: "Lato", system-ui, sans-serif;
+:root {
+  color-scheme: dark;
+
+  /* Grounds. `bg` is the page; `bg-deep` is what the page recedes to behind a
+     sticky bar or under a scrim. `surface` is a card, `surface-raised` a menu
+     or popover above it, `surface-sunk` a well (an input, a code block). */
+  --bg: oklch(16.8% 0.026 148);
+  --bg-deep: oklch(13.2% 0.021 148);
+  --surface: oklch(20.6% 0.028 149);
+  --surface-raised: oklch(24.4% 0.032 149);
+  --surface-sunk: oklch(14.4% 0.022 148);
+
+  /* Edges. `border` is a hairline — decoration, held to no contrast floor,
+     because a card is told apart by its surface and not by its edge.
+     `border-strong` is the visible boundary of a control that has no fill (an
+     input, an outline button) and clears WCAG 3:1 against both grounds. */
+  --border: oklch(85% 0.06 145 / 0.11);
+  --border-strong: oklch(85% 0.06 145 / 0.44);
+
+  /* Ink. `text` and `text-muted` clear 4.5:1; `text-faint` clears 3:1 and is
+     therefore for large text, ornament and disabled states only. */
+  --text: oklch(94.6% 0.011 90);
+  --text-muted: oklch(94.6% 0.011 90 / 0.58);
+  --text-faint: oklch(94.6% 0.011 90 / 0.4);
+
+  /* Brand — #2F4B26. It is a *fill*: the ground of a primary button, the wash
+     behind an active row. `brand-ink` is the readable-on-a-ground variant, and
+     `on-brand` is what sits on top of a brand fill. */
+  --brand: oklch(38% 0.072 141);
+  --brand-hi: oklch(46% 0.083 141);
+  --brand-ink: oklch(80% 0.098 143);
+  --brand-wash: oklch(38% 0.072 141 / 0.55);
+  --on-brand: oklch(96% 0.008 90);
+
+  /* Gold is metal, not ink: rules, ornament, the seal, a hairline gradient. It
+     carries no contrast contract and must never be readable text — that is
+     what `gold-ink` is for. */
+  --gold: oklch(75% 0.085 82);
+  --gold-dim: oklch(75% 0.085 82 / 0.3);
+  --gold-ink: oklch(84% 0.072 84);
+
+  /* Status. Separate from the accent, as status colour always should be. */
+  --success: oklch(76% 0.142 147);
+  --warn: oklch(80% 0.125 78);
+  --error: oklch(68% 0.14 21);
+
+  /* The focus ring is its own token rather than an alias of gold: gold is
+     unreadable on the light ground and a focus indicator has a 3:1 floor. */
+  --focus: oklch(75% 0.085 82);
+
+  /* Depth. One inner highlight along the top edge of a raised surface — the
+     single trick that makes a flat card read as a lit object rather than a
+     rectangle — plus two drop shadows. */
+  --inner-lip: inset 0 1px 0 oklch(100% 0 0 / 0.045);
+  --elev-1: 0 1px 2px oklch(0% 0 0 / 0.32);
+  --elev-2: 0 12px 32px -8px oklch(0% 0 0 / 0.55);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+
+    /* Warm, and deliberately below #DBDBDB: an unintended light mode at night
+       should not be a flashbang. The neutrals carry a trace of the accent's
+       hue rather than being a pure grey. */
+    --bg: oklch(88.6% 0.011 92);
+    --bg-deep: oklch(84.5% 0.014 92);
+    --surface: oklch(92.4% 0.009 92);
+    --surface-raised: oklch(95.2% 0.007 92);
+    --surface-sunk: oklch(85.8% 0.013 92);
+
+    --border: oklch(44% 0.022 340 / 0.18);
+    --border-strong: oklch(44% 0.022 340 / 0.74);
+
+    --text: oklch(27% 0.018 340);
+    --text-muted: oklch(44% 0.022 340);
+    --text-faint: oklch(44% 0.022 340 / 0.74);
+
+    --brand: oklch(38% 0.072 141);
+    --brand-hi: oklch(33% 0.066 141);
+    --brand-ink: oklch(36% 0.07 141);
+    --brand-wash: oklch(38% 0.072 141 / 0.12);
+    --on-brand: oklch(96% 0.008 90);
+
+    --gold: oklch(64% 0.095 78);
+    --gold-dim: oklch(64% 0.095 78 / 0.34);
+    --gold-ink: oklch(46% 0.082 74);
+
+    --success: oklch(46% 0.115 148);
+    --warn: oklch(48% 0.105 62);
+    --error: oklch(50% 0.15 25);
+
+    --focus: oklch(38% 0.072 141);
+
+    --inner-lip: inset 0 1px 0 oklch(100% 0 0 / 0.6);
+    --elev-1: 0 1px 2px oklch(30% 0.02 340 / 0.12);
+    --elev-2: 0 12px 32px -8px oklch(30% 0.02 340 / 0.22);
+  }
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: oklch(88.6% 0.011 92);
+  --bg-deep: oklch(84.5% 0.014 92);
+  --surface: oklch(92.4% 0.009 92);
+  --surface-raised: oklch(95.2% 0.007 92);
+  --surface-sunk: oklch(85.8% 0.013 92);
+
+  --border: oklch(44% 0.022 340 / 0.18);
+  --border-strong: oklch(44% 0.022 340 / 0.74);
+
+  --text: oklch(27% 0.018 340);
+  --text-muted: oklch(44% 0.022 340);
+  --text-faint: oklch(44% 0.022 340 / 0.74);
+
+  --brand: oklch(38% 0.072 141);
+  --brand-hi: oklch(33% 0.066 141);
+  --brand-ink: oklch(36% 0.07 141);
+  --brand-wash: oklch(38% 0.072 141 / 0.12);
+  --on-brand: oklch(96% 0.008 90);
+
+  --gold: oklch(64% 0.095 78);
+  --gold-dim: oklch(64% 0.095 78 / 0.34);
+  --gold-ink: oklch(46% 0.082 74);
+
+  --success: oklch(46% 0.115 148);
+  --warn: oklch(48% 0.105 62);
+  --error: oklch(50% 0.15 25);
+
+  --focus: oklch(38% 0.072 141);
+
+  --inner-lip: inset 0 1px 0 oklch(100% 0 0 / 0.6);
+  --elev-1: 0 1px 2px oklch(30% 0.02 340 / 0.12);
+  --elev-2: 0 12px 32px -8px oklch(30% 0.02 340 / 0.22);
+}
+
+/* ── Motion ─────────────────────────────────────────────────────────────────
+ * Three durations, two easings, no animation library in this package by
+ * design. Every duration is `calc(… * var(--motion-scale))` so the fixtures
+ * page can slow the whole app to 0.1× and the reference behaviours can be
+ * judged frame by frame. Nothing in the app writes `--motion-scale`.
+ */
+:root {
+  --motion-scale: 1;
+  --dur-fast: calc(120ms * var(--motion-scale));
+  --dur-base: calc(200ms * var(--motion-scale));
+  --dur-slow: calc(320ms * var(--motion-scale));
+}
+
+/* Every design token is an *alias* onto the ramp above, never a literal value.
+ * That is what makes `data-theme` work with no rebuild and no JavaScript beyond
+ * setting one attribute: `.bg-surface` compiles to
+ * `background-color: var(--color-surface)`, `--color-surface` resolves to
+ * `var(--surface)`, and `--surface` is whichever ramp is currently winning.
+ *
+ * Deliberately *not* `@theme inline`. `inline` would paste `var(--surface)`
+ * straight into each utility and stop emitting `--color-surface` as a real
+ * custom property — which would break two things that depend on it:
+ *
+ * - the invite preview, where `previews.tsx` / `PaletteField.tsx` write
+ *   `style={{ color: "var(--color-gold)" }}` and rely on the *nearest* scope
+ *   defining it (the invite's own palette inside a preview, the portal's ramp
+ *   outside one);
+ * - anything reading a token from JavaScript via `getComputedStyle`.
+ *
+ * `static` for the same reason. Tailwind only emits the theme variables it can
+ * see a utility using, and it reads source as text — so a token spelled only
+ * inside a `style={{ … }}` object is invisible to it and would not be emitted
+ * at all. Today every such token happens to also be used as a class somewhere,
+ * which means the invite preview works by luck: deleting the last `text-gold`
+ * in the package would silently unset the gold in it. `static` emits the whole
+ * block and takes the luck out.
+ */
+@theme static {
+  /* Typography. Both families are self-hosted by Astro's font pipeline, which
+     defines `--font-ui` / `--font-flair` on :root (see astro.config.mjs); the
+     aliases here are what components spell as `font-body` / `font-display`.
+     Schibsted Grotesk carries the whole tool — a portal is read as data, not
+     as stationery — and Cormorant Garamond survives on exactly three things:
+     the wordmark, a wedding's name, and the invite preview. */
+  --font-body: var(--font-ui);
+  --font-display: var(--font-flair);
   --default-font-family: var(--font-body);
 
   /* Corner radius — one scale, sharp end of the range. The house look is
@@ -33,40 +216,58 @@
   --radius-md: 6px;
   --radius-pill: 999px;
 
-  /* Motion — no animation library in this package by design, so every
-     transition below is CSS and every duration is one of these three. */
-  --dur-fast: 120ms;
-  --dur-base: 200ms;
-  --dur-slow: 320ms;
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
   /* Focus — one ring everywhere, never animated, always visible. */
   --focus-ring-width: 2px;
   --focus-ring-offset: 2px;
-  --focus-ring-color: var(--color-gold);
-}
+  --focus-ring-color: var(--focus);
 
-/* shadcn-style semantic tokens used by @osn/ui, mapped to the cire palette. */
-@theme inline {
-  --color-background: var(--color-bg);
-  --color-foreground: var(--color-text);
-  --color-card: var(--color-surface);
-  --color-card-foreground: var(--color-text);
-  --color-popover: var(--color-surface-raised);
-  --color-popover-foreground: var(--color-text);
-  --color-primary: var(--color-gold);
-  --color-primary-foreground: var(--color-bg);
-  --color-secondary: var(--color-surface-raised);
-  --color-secondary-foreground: var(--color-text);
-  --color-muted: var(--color-surface);
-  --color-muted-foreground: var(--color-text-muted);
-  --color-accent: var(--color-surface-raised);
-  --color-accent-foreground: var(--color-text);
-  --color-destructive: var(--color-error);
-  --color-destructive-foreground: var(--color-text);
-  --color-input: var(--color-border);
-  --color-ring: var(--color-gold);
+  --color-bg: var(--bg);
+  --color-bg-deep: var(--bg-deep);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunk: var(--surface-sunk);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+  --color-brand: var(--brand);
+  --color-brand-hi: var(--brand-hi);
+  --color-brand-ink: var(--brand-ink);
+  --color-brand-wash: var(--brand-wash);
+  --color-on-brand: var(--on-brand);
+  --color-gold: var(--gold);
+  --color-gold-dim: var(--gold-dim);
+  --color-gold-ink: var(--gold-ink);
+  --color-success: var(--success);
+  --color-warn: var(--warn);
+  --color-error: var(--error);
+  --color-focus: var(--focus);
+
+  /* shadcn-style semantic tokens, mapped onto the ramp. Primary is the brand
+     green in both themes, so `primary-foreground` is a near-white in both —
+     it is what sits on a brand fill, not the page ground. */
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--text);
+  --color-popover: var(--surface-raised);
+  --color-popover-foreground: var(--text);
+  --color-primary: var(--brand);
+  --color-primary-foreground: var(--on-brand);
+  --color-secondary: var(--surface-raised);
+  --color-secondary-foreground: var(--text);
+  --color-muted: var(--surface);
+  --color-muted-foreground: var(--text-muted);
+  --color-accent: var(--surface-raised);
+  --color-accent-foreground: var(--text);
+  --color-destructive: var(--error);
+  --color-destructive-foreground: var(--on-brand);
+  --color-input: var(--border-strong);
+  --color-ring: var(--focus);
 }
 
 @layer base {
@@ -77,16 +278,27 @@
     /* `clip`, never `hidden`: `hidden` on the root turns the document into a
        scroll container and breaks `position: sticky` in the shell header. */
     overflow-x: clip;
+    /* The ramps swap instantly on a theme flip; nothing about a colour change
+       should feel like it is loading. */
+    background: var(--bg);
   }
 
   body {
-    background: var(--color-bg);
-    color: var(--color-text);
+    background: var(--bg);
+    color: var(--text);
     font-family: var(--font-body);
     font-weight: 400;
     line-height: 1.5;
     min-height: 100dvh;
     overflow-x: clip;
+  }
+
+  /* Digits that sit in a column — a budget, a guest count, a date — line up.
+     Cheaper and more reliable than reaching for a second numeric family. */
+  table,
+  time,
+  [data-numeric] {
+    font-variant-numeric: tabular-nums;
   }
 
   /* Display type is always roman. Cormorant's italic is lovely in running copy
@@ -101,6 +313,7 @@
     /* Wedding names and vendor names are user data and can be one long word. */
     overflow-wrap: anywhere;
     min-width: 0;
+    text-wrap: balance;
   }
 
   /* One focus ring for the whole dashboard. Never animated, never removed —
@@ -146,8 +359,8 @@
  */
 
 /**
- * The page's own width. The masthead and everything under it both wear it, so
- * the header's hairline reads as a margin line rather than a floating divider.
+ * The page's own width. The top bar and everything under it both wear it, so
+ * the bar's hairline reads as a margin line rather than a floating divider.
  *
  * Nothing here steps: gutters grow with the frame's inline size, and the
  * measure runs to 100rem — wide enough for the rail, a full-width panel and the
@@ -194,6 +407,30 @@
   display: grid;
   gap: var(--auto-grid-gap, 1rem);
   grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--auto-grid-min, 18rem)), 1fr));
+}
+
+/* ── Ornament ───────────────────────────────────────────────────────────────
+ * The house's one piece of decoration: a rule that is a gradient rather than a
+ * flat line, brightest in the middle where the eye lands. It is the only place
+ * gold is allowed to touch a full-width element.
+ */
+@utility gilt-rule {
+  height: 1px;
+  border: 0;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--gold-dim) 18%,
+    var(--gold) 50%,
+    var(--gold-dim) 82%,
+    transparent
+  );
+}
+
+/* The lit top edge that turns a flat panel into an object. Paired with a
+ * border, never used alone. */
+@utility lip {
+  box-shadow: var(--inner-lip);
 }
 
 /* ── Nav sheet motion ───────────────────────────────────────────────────────

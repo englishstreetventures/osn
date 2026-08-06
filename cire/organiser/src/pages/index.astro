@@ -1,6 +1,9 @@
 ---
+import { Font } from 'astro:assets'
+
 import '../styles/global.css'
 import OrganiserApp from '../components/OrganiserApp'
+import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -8,9 +11,15 @@ import OrganiserApp from '../components/OrganiserApp'
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Host Dashboard — Cire</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400;1,700&family=Lato:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap" rel="stylesheet" />
+    <!-- Before the stylesheet, before first paint, before anything can be seen:
+         resolve the host's theme onto `data-theme`. `is:inline` keeps Astro from
+         bundling it into a deferred module, which would be a frame too late. -->
+    <script is:inline set:html={THEME_BOOT_SCRIPT}></script>
+    <!-- Self-hosted; see the `fonts` block in astro.config.mjs. Both faces are
+         preloaded because both are above the fold — the wordmark is Cormorant
+         and everything beside it is Schibsted. -->
+    <Font cssVariable="--font-ui" preload />
+    <Font cssVariable="--font-flair" preload />
   </head>
   <body>
     <!--

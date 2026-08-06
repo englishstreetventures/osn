@@ -1,6 +1,9 @@
 ---
+import { Font } from 'astro:assets'
+
 import '../styles/global.css'
 import SignInPanel from '../components/SignInPanel'
+import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
 ---
 <!DOCTYPE html>
 <html lang="en">
@@ -8,9 +11,12 @@ import SignInPanel from '../components/SignInPanel'
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sign in — Host Dashboard — Cire</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;0,700;1,300;1,400;1,700&family=Lato:ital,wght@0,300;0,400;0,700;1,300;1,400;1,700&display=swap" rel="stylesheet" />
+    <!-- Same boot script as the dashboard, for the same reason: sign-in is the
+         first page a host sees, and it is the one most likely to be opened at
+         night. It must not paint a frame of the wrong theme. -->
+    <script is:inline set:html={THEME_BOOT_SCRIPT}></script>
+    <Font cssVariable="--font-ui" preload />
+    <Font cssVariable="--font-flair" preload />
   </head>
   <body>
     <!-- Same `page-frame` gutters as the dashboard, with its own measure: a
