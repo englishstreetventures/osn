@@ -16,9 +16,26 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Self-test the allowlist before trusting it, so a parser regression fails
+      # here rather than silently waving PRs through with no changelog.
+      - name: Test changeset-required allowlist
+        run: bash scripts/changeset-required.test.sh
+
       - name: Check for changeset
         run: |
-          files=$(git diff --name-only origin/main...HEAD | grep '^\.changeset/.*\.md$' | grep -v README.md || true)
+          diff=$(git diff --name-only origin/main...HEAD)
+
+          # A PR touching nothing any versioned package ships — Swift/Xcode
+          # scaffolding, CI, wiki — has no honest package to name in a
+          # changeset. Skip the requirement rather than force a false changelog
+          # entry against an unrelated package. The allowlist and its reasoning
+          # live in scripts/changeset-required.sh.
+          if [ "$(printf '%s\n' "$diff" | bash scripts/changeset-required.sh)" = "skip" ]; then
+            echo "✅ Nothing versioned touched — changeset not required."
+            exit 0
+          fi
+
+          files=$(echo "$diff" | grep '^\.changeset/.*\.md$' | grep -v README.md || true)
           if [ -z "$files" ]; then
             echo "❌ No changeset found. Run 'bun run changeset' to add one."
             exit 1

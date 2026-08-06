@@ -1,0 +1,27 @@
+name: Pulse
+options:
+  bundleIdPrefix: com.osn
+  deploymentTarget:
+    iOS: "26.0"
+packages:
+  OSNShared:
+    path: ../../shared/swift/OSNShared
+targets:
+  Pulse:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Sources
+    dependencies:
+      - package: OSNShared
+        product: OSNKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.osn.pulse
+        DEVELOPMENT_TEAM: FV59Y8RSUH
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        GENERATE_INFOPLIST_FILE: "YES"
+        SWIFT_VERSION: "6.2"

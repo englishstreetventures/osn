@@ -218,3 +218,9 @@ wiki/business/
 # [[cire/wiki/conventions/browser-tests]].
 **/__screenshots__/
 **/.vitest-attachments/
+
+# Xcode / SwiftPM (generated, never committed)
+*.xcodeproj
+.build/
+DerivedData/
+.swiftpm/

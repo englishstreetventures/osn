@@ -1,0 +1,103 @@
+name: Swift CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # macOS runner minutes bill at a multiple of Linux, so the iOS build only
+  # runs when a push/PR actually touches Swift/Xcode files. GitHub Actions
+  # has no native per-job `paths:` filter (that key only gates whole
+  # workflows), so this job computes the equivalent itself from `git diff`
+  # against the two commits GitHub already gives us for each event type.
+  #
+  # Everything Swift shares one macOS job. `swift test` cannot run on Linux:
+  # SwiftUI ships only in Apple SDKs, and `swift test` builds *every* target,
+  # so `OSNUI` fails with `no such module 'SwiftUI'` before any test runs —
+  # the same package-level-`platforms:` fact that forces the macOS-purity rule.
+  # One job rather than two also means one checkout and one runner spin-up, and
+  # a failing shared package skips a build that would only fail again.
+  changes:
+    name: detect Swift/Xcode changes
+    runs-on: ubuntu-latest
+    outputs:
+      ios: ${{ steps.filter.outputs.ios }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="origin/main"
+          else
+            base="$BEFORE_SHA"
+          fi
+
+          # A diff that cannot be computed must mean "run", not "skip". GitHub
+          # sets `event.before` to the all-zero SHA on a branch's first push and
+          # to an orphaned commit after a force-push; `git diff` exits 128 on
+          # both. Swallowing that into an empty diff would silently skip both
+          # Swift jobs and let a broken build reach main under a green tick.
+          # One wasted macOS run costs money; a false negative costs correctness.
+          if changed=$(git diff --name-only "$base" HEAD 2>&1); then
+            echo "$changed"
+
+            if echo "$changed" | grep -qE '^(shared/swift/|pulse/ios/|\.github/workflows/ci-swift\.yml$)'; then
+              echo "ios=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "ios=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "cannot diff against '$base': $changed"
+            echo "assuming Swift/iOS changed"
+            echo "ios=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  swift:
+    name: swift test + xcodebuild (Pulse)
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain / SDK info
+        run: |
+          swift --version
+          xcodebuild -version
+          xcodebuild -showsdks | head
+
+      - name: swift test
+        working-directory: shared/swift/OSNShared
+        run: swift test
+
+      # Not on the runner image. XcodeGen is the only reason `.xcodeproj` can
+      # stay out of git, so the install is part of the deal, not an extra.
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: xcodegen generate
+        working-directory: pulse/ios
+        run: xcodegen generate
+
+      # `EXCLUDED_ARCHS=x86_64` halves the compile work. A generic simulator
+      # destination builds arm64 *and* x86_64; GitHub's macOS runners are Apple
+      # Silicon, so the Intel slice can never run there. Excluding the arch
+      # rather than naming a concrete device keeps this from breaking whenever
+      # the runner image changes which simulators it ships.
+      - name: xcodebuild
+        working-directory: pulse/ios
+        run: |
+          xcodebuild -scheme Pulse \
+            -destination 'generic/platform=iOS Simulator' \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO \
+            EXCLUDED_ARCHS=x86_64 \
+            build
