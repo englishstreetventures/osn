@@ -40,7 +40,11 @@ in ways that have already shipped:
 | The global `prefers-reduced-motion` clamp actually applying | Requires the cascade plus media emulation |
 
 The pre-existing answer to all of these is **text-matching drift guards** —
-`styles/root-type-scale.test.ts`, `components/rsvp-saved.test.ts`,
+`styles/root-type-scale.test.ts`, `components/rsvp-responded.test.ts` (the
+tick keyframe's drift guard — moved here from `rsvp-saved.test.ts` when the
+recorded-reply confirmation itself moved off the Save button onto the events
+section's Respond button, `claude/rsvp-respond-button-feedback-fop0di`,
+2026-08-06),
 `components/invite-theme.test.ts` all `readFileSync` a CSS file and regex it.
 Those are still worth having: they are fast, and they catch a source change. But
 they pin only that the source *says* the right thing, never that the render

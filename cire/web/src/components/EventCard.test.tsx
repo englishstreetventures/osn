@@ -1,8 +1,16 @@
 import { render, cleanup, fireEvent } from "@solidjs/testing-library";
+import { batch, createSignal } from "solid-js";
 import { describe, it, expect, afterEach, vi } from "vitest";
 
 import { EventCard } from "./EventCard";
+import { HOLD_MS, TICK_DELAY_MS, TOTAL_DURATION_MS } from "./rsvp-responded";
 import type { EventSummary } from "./types";
+
+function respondButton(container: HTMLElement) {
+  return [...container.querySelectorAll("button")].find(
+    (b) => b.textContent === "Respond" || b.textContent === "RSVPs closed",
+  ) as HTMLButtonElement;
+}
 
 const baseEvent: EventSummary = {
   id: "9f7a2c14-1b3d-4e5f-8a01-000000000001",
@@ -274,5 +282,220 @@ describe("EventCard", () => {
     ));
     fireEvent.click(getByRole("button", { name: "Event Details" }));
     expect(onDetails).toHaveBeenCalledWith(baseEvent);
+  });
+
+  describe("recorded-reply confirmation", () => {
+    /**
+     * The confirmation PR #380 shipped on the RSVP sheet's Save button — a
+     * fill sweep and a drawn tick — moved here (`rsvp-responded.ts`): first as
+     * the same flourish on Respond, then settling into a permanent green tick
+     * once it fades. happy-dom computes no CSS, so these pin the contract the
+     * visuals hang off — which classes are present, when — not what a guest
+     * actually sees. The durations themselves are guarded in
+     * `rsvp-responded.test.ts`.
+     */
+
+    it("shows no tick at all before any reply is recorded", () => {
+      const { container } = render(() => (
+        <EventCard event={baseEvent} onRespond={noop} onDetails={noop} />
+      ));
+      // A tick on an event nobody has answered would claim a reply that was
+      // never sent.
+      expect(respondButton(container).querySelector("svg")).toBeNull();
+    });
+
+    it("shows a permanent green tick when responded, with no fill and no draw animation", () => {
+      const { container } = render(() => (
+        <EventCard event={baseEvent} responded onRespond={noop} onDetails={noop} />
+      ));
+      const button = respondButton(container);
+      const fill = button.querySelector("span[aria-hidden='true']") as HTMLElement;
+      expect(fill.className).not.toContain("scale-x-100");
+      const path = button.querySelector("svg path") as SVGPathElement;
+      expect(path).toBeTruthy();
+      // Loaded already-answered, not just-drawn: no dash trick, no keyframe.
+      expect(path.hasAttribute("stroke-dasharray")).toBe(false);
+      expect(path.getAttribute("class") ?? "").not.toContain("animate-tick-draw");
+      const svg = path.closest("svg") as SVGElement;
+      expect(svg.getAttribute("class")).toContain("text-success");
+      expect(svg.getAttribute("class")).not.toContain("text-bg");
+    });
+
+    it("mounts the fill collapsed from the start, so the sweep has a frame to travel from", () => {
+      const { container } = render(() => (
+        <EventCard event={baseEvent} onRespond={noop} onDetails={noop} />
+      ));
+      const fill = respondButton(container).querySelector(
+        "span[aria-hidden='true']",
+      ) as HTMLElement;
+      expect(fill).toBeTruthy();
+      expect(fill.className).toContain("scale-x-0");
+      expect(fill.className).toContain("bg-success");
+      expect(fill.className).toContain("transition-transform");
+    });
+
+    it("does not celebrate on mount even if justResponded starts true", () => {
+      // The parent never actually does this — `justResponded` only ever
+      // flips true from a live confirmation — but the guard is the same one
+      // `responded` follows, and must hold here too: only a fresh transition
+      // celebrates.
+      const { container } = render(() => (
+        <EventCard event={baseEvent} justResponded onRespond={noop} onDetails={noop} />
+      ));
+      expect(respondButton(container).querySelector("svg")).toBeNull();
+    });
+
+    it("plays the sweep-in/hold/fade choreography once justResponded flips true, settling on a permanent tick", async () => {
+      vi.useFakeTimers();
+      try {
+        const onCelebrated = vi.fn();
+        const [responded, setResponded] = createSignal(false);
+        const [justResponded, setJustResponded] = createSignal(false);
+        const { container } = render(() => (
+          <EventCard
+            event={baseEvent}
+            responded={responded()}
+            justResponded={justResponded()}
+            onCelebrated={onCelebrated}
+            onRespond={noop}
+            onDetails={noop}
+          />
+        ));
+        const button = respondButton(container);
+
+        // Mirrors the real wiring: the parent's `claimResult` (driving
+        // `responded`) and `justResponded` both flip inside the same
+        // `RsvpModal` batch — see `onConfirmed`/`onSubmitted` there.
+        batch(() => {
+          setResponded(true);
+          setJustResponded(true);
+        });
+
+        // Sweep-in: filled immediately, tick drawing.
+        const fill = button.querySelector("span[aria-hidden='true']") as HTMLElement;
+        expect(fill.className).toContain("scale-x-100");
+        let path = button.querySelector("svg path") as SVGPathElement;
+        expect(path.getAttribute("stroke-dasharray")).toBe("20");
+        expect(path.getAttribute("class")).toContain("animate-tick-draw");
+        let svg = path.closest("svg") as SVGElement;
+        expect(svg.getAttribute("class")).toContain("text-bg");
+
+        // Still holding, filled, part-way through the tick's own delay.
+        await vi.advanceTimersByTimeAsync(TICK_DELAY_MS);
+        expect(fill.className).toContain("scale-x-100");
+
+        // Past the hold: the fade-out has started and the tick's ink has
+        // switched to its permanent colour.
+        await vi.advanceTimersByTimeAsync(HOLD_MS - TICK_DELAY_MS);
+        expect(fill.className).not.toContain("scale-x-100");
+        path = button.querySelector("svg path") as SVGPathElement;
+        svg = path.closest("svg") as SVGElement;
+        expect(svg.getAttribute("class")).toContain("text-success");
+        expect(onCelebrated).not.toHaveBeenCalled();
+
+        // Celebration over: the tick stays, now undrawn (no dash trick), and
+        // the parent is told so it can arm the next confirmation.
+        await vi.advanceTimersByTimeAsync(TOTAL_DURATION_MS - HOLD_MS);
+        path = button.querySelector("svg path") as SVGPathElement;
+        expect(path).toBeTruthy();
+        expect(path.hasAttribute("stroke-dasharray")).toBe(false);
+        expect(onCelebrated).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("restarts the choreography from the top when a re-submit lands mid-celebration", async () => {
+      // Documented behaviour in `playCelebration`: an edited, re-submitted
+      // reply arriving while the previous celebration is still fading must
+      // restart from the sweep-in, not layer a second pair of timers over the
+      // first (which would fire `onCelebrated` twice, once early).
+      vi.useFakeTimers();
+      try {
+        const onCelebrated = vi.fn();
+        const [justResponded, setJustResponded] = createSignal(false);
+        const { container } = render(() => (
+          <EventCard
+            event={baseEvent}
+            responded
+            justResponded={justResponded()}
+            onCelebrated={onCelebrated}
+            onRespond={noop}
+            onDetails={noop}
+          />
+        ));
+        const button = respondButton(container);
+        const fill = () => button.querySelector("span[aria-hidden='true']") as HTMLElement;
+
+        setJustResponded(true);
+        expect(fill().className).toContain("scale-x-100");
+
+        // Well into the hold — mid-celebration, nowhere near the end.
+        await vi.advanceTimersByTimeAsync(HOLD_MS / 2);
+        expect(fill().className).toContain("scale-x-100");
+
+        // The edited reply: a fresh false→true transition before the first
+        // celebration has finished. NOT batched — in production these are two
+        // separate calls at two separate times (`onCelebrated` resetting to
+        // null, then a LATER `onConfirmed` setting it again), never one atomic
+        // write the effect could coalesce away.
+        setJustResponded(false);
+        setJustResponded(true);
+        expect(fill().className).toContain("scale-x-100");
+
+        // If the restart failed to cancel the FIRST celebration's timers, the
+        // original hold would have expired by now (HOLD_MS/2 + HOLD_MS/2) and
+        // faded the fill despite the restart.
+        await vi.advanceTimersByTimeAsync(HOLD_MS / 2);
+        expect(fill().className).toContain("scale-x-100");
+
+        // The restarted celebration completes on its OWN full timeline,
+        // measured from the restart point (HOLD_MS/2 in) — exactly one
+        // `onCelebrated`, not the original (already-elapsed) one.
+        await vi.advanceTimersByTimeAsync(TOTAL_DURATION_MS - HOLD_MS / 2);
+        expect(onCelebrated).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps the permanent tick visible on the closed, outlined RSVPs-closed button too", () => {
+      // The tick and `rsvpClosed` gate independent parts of the markup — a
+      // household that answered before the deadline should still see their
+      // tick after RSVPs shut, on the relabelled secondary-styled button.
+      const { container } = render(() => (
+        <EventCard event={baseEvent} rsvpClosed responded onRespond={noop} onDetails={noop} />
+      ));
+      const button = respondButton(container);
+      expect(button.textContent).toBe("RSVPs closed");
+      const path = button.querySelector("svg path") as SVGPathElement;
+      expect(path).toBeTruthy();
+      expect(path.closest("svg")!.getAttribute("class")).toContain("text-success");
+    });
+
+    it("clears its timers on unmount mid-celebration", async () => {
+      // A surviving timer firing `onCelebrated` on a disposed instance is the
+      // same class of bug `RsvpModal`'s dwell timer guards against.
+      vi.useFakeTimers();
+      try {
+        const onCelebrated = vi.fn();
+        const [justResponded, setJustResponded] = createSignal(false);
+        const { unmount } = render(() => (
+          <EventCard
+            event={baseEvent}
+            justResponded={justResponded()}
+            onCelebrated={onCelebrated}
+            onRespond={noop}
+            onDetails={noop}
+          />
+        ));
+        setJustResponded(true);
+        unmount();
+        await vi.advanceTimersByTimeAsync(TOTAL_DURATION_MS * 2);
+        expect(onCelebrated).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

@@ -2,7 +2,7 @@ import { render, cleanup, fireEvent, waitFor, within } from "@solidjs/testing-li
 import { createSignal } from "solid-js";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
-import { INK_FLIP_DELAY_MS, SAVED_DWELL_MS, SWEEP_DURATION_MS } from "./rsvp-saved";
+import { SAVED_DWELL_MS } from "./rsvp-saved";
 import { RsvpModal } from "./RsvpModal";
 import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
 
@@ -800,48 +800,72 @@ describe("RsvpModal", () => {
       expect(getByRole("button", { name: "Saved" })).toBeTruthy();
     });
 
-    it("sweeps the gold fill across the button once the reply is recorded", async () => {
+    it("carries no fill sweep or tick — that confirmation now plays on the Respond button", async () => {
+      // PR #380 put a gold fill sweep and a drawn tick on THIS button, which is
+      // gone by the time a guest could register either — the sheet closes over
+      // it. The choreography moved to `EventCard`'s Respond button, which is
+      // still on screen once this sheet closes; see `rsvp-responded.ts`.
       await confirmOnce();
       const submit = document.querySelector("button[type='submit']") as HTMLElement;
-      const fill = submit.querySelector("span[aria-hidden='true']") as HTMLElement;
-
-      // `origin-left` is the whole gesture: without it the fill grows from the
-      // centre outwards and the left-to-right sweep is simply gone.
-      expect(fill.className).toContain("origin-left");
-      expect(fill.className).toContain("scale-x-100");
-      expect(fill.className).toContain("bg-gold");
-      // The duration is written in CSS but reasoned about in JS (the dwell has
-      // to outlast it), so pin the two together — see `rsvp-saved.ts`.
-      expect(fill.className).toContain(`duration-${SWEEP_DURATION_MS}`);
-    });
-
-    it("mounts the fill collapsed from the start, so the sweep has a frame to travel from", () => {
-      // The bug this prevents: rendering the fill only once saved. A CSS
-      // transition needs a starting frame — an element created already at its
-      // end state just appears there, and the sweep silently becomes a pop.
-      render(() => (
-        <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
-      ));
-      const submit = document.querySelector("button[type='submit']") as HTMLElement;
-      const fill = submit.querySelector("span[aria-hidden='true']") as HTMLElement;
-      expect(fill).toBeTruthy();
-      expect(fill.className).toContain("scale-x-0");
-      expect(fill.className).toContain("transition-transform");
-      // The tick is the one part that IS conditional — a permanent tick on an
-      // unpressed Save button would claim a reply that was never sent.
+      expect(submit.querySelector("span[aria-hidden='true']")).toBeNull();
       expect(submit.querySelector("svg")).toBeNull();
     });
 
-    it("draws a tick that the reduced-motion clamp can land instantly", async () => {
-      await confirmOnce();
-      const path = document.querySelector("button[type='submit'] svg path") as SVGPathElement;
-      expect(path).toBeTruthy();
-      // The dash pair is what makes the stroke drawable at all; the keyframe
-      // walks the offset, so the dasharray has to be on the element.
-      expect(path.getAttribute("stroke-dasharray")).toBe("20");
-      expect(path.getAttribute("class")).toContain("animate-tick-draw");
-      // Decorative — the live region below carries the meaning.
-      expect(path.closest("svg")!.getAttribute("aria-hidden")).toBe("true");
+    it("fires onConfirmed the instant the reply is recorded — before the dwell, not after", async () => {
+      // `onConfirmed` is the events section's cue to start ITS confirmation
+      // behind this sheet, so it needs to fire immediately, not after the
+      // ~900ms dwell that holds this sheet open.
+      const onConfirmed = vi.fn();
+      const rsvps: RsvpSummary[] = [
+        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+      ];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ rsvps }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+      render(() => (
+        <RsvpModal
+          event={event}
+          members={[priya]}
+          apiUrl="https://api.test"
+          onClose={() => {}}
+          onConfirmed={onConfirmed}
+        />
+      ));
+      fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+      fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
+      await waitFor(() => expect(onConfirmed).toHaveBeenCalledTimes(1));
+    });
+
+    it("fires onConfirmed for a host preview too, without ever calling onSubmitted", async () => {
+      // Preview must show the guest's confirmation without ever claiming data
+      // was written — `onConfirmed` (the celebration) fires; `onSubmitted` (the
+      // write) never does.
+      const onConfirmed = vi.fn();
+      const onSubmitted = vi.fn();
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      render(() => (
+        <RsvpModal
+          event={event}
+          members={[priya]}
+          apiUrl="https://api.test"
+          preview
+          onClose={() => {}}
+          onConfirmed={onConfirmed}
+          onSubmitted={onSubmitted}
+        />
+      ));
+      fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+      fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
+      await waitFor(() => expect(onConfirmed).toHaveBeenCalledTimes(1));
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(onSubmitted).not.toHaveBeenCalled();
     });
 
     it("announces the recorded reply in a live region", async () => {
@@ -907,27 +931,6 @@ describe("RsvpModal", () => {
         true,
       );
       expect((within(fs).getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
-    });
-
-    it("flips the label's ink onto the fill, on the delay the contract states", async () => {
-      // Losing `text-bg` leaves gold text and a gold-stroked tick on the gold
-      // fill — the confirmation goes near-invisible exactly when it must be
-      // read. The delay is pinned with it so the flip can't drift past the
-      // sweep and land after the fill has already arrived.
-      const { getByRole } = await confirmOnce();
-      const submit = getByRole("button", { name: "Saved" });
-      const label = submit.querySelector("span:not([aria-hidden])") as HTMLElement;
-      expect(label.className).toContain("text-bg");
-      expect(label.className).toContain(`delay-${INK_FLIP_DELAY_MS}`);
-    });
-
-    it("does not tint the label before the reply lands", () => {
-      render(() => (
-        <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
-      ));
-      const submit = document.querySelector("button[type='submit']") as HTMLElement;
-      const label = submit.querySelector("span:not([aria-hidden])") as HTMLElement;
-      expect(label.className).not.toContain("text-bg");
     });
 
     it("never wears the in-flight fade while confirming", async () => {
@@ -1016,10 +1019,6 @@ describe("RsvpModal", () => {
       // Assert the NEGATIVE of every signal the confirmed state owns.
       const save = getByRole("button", { name: "Save" });
       expect(save.getAttribute("aria-disabled")).toBeNull();
-      const fill = save.querySelector("span[aria-hidden='true']") as HTMLElement;
-      expect(fill.className).toContain("scale-x-0");
-      expect(fill.className).not.toContain("scale-x-100");
-      expect(save.querySelector("svg")).toBeNull();
       const fs = fieldsetFor("Priya");
       expect((within(fs).getByText("Attending") as HTMLButtonElement).disabled).toBe(false);
       expect((getByRole("button", { name: "Cancel" }) as HTMLButtonElement).disabled).toBe(false);
@@ -1073,10 +1072,7 @@ describe("RsvpModal", () => {
       expect(rsvps()).toEqual(updated);
       // And the confirmation is untouched by it.
       const save = getByRole("button", { name: "Saved" });
-      expect((save.querySelector("span[aria-hidden='true']") as HTMLElement).className).toContain(
-        "scale-x-100",
-      );
-      expect(save.querySelector("svg path")).toBeTruthy();
+      expect(save.getAttribute("aria-disabled")).toBe("true");
       expect(within(fieldsetFor("Priya")).getByText("Attending").getAttribute("aria-pressed")).toBe(
         "true",
       );

@@ -44,6 +44,16 @@ interface RsvpModalProps {
   themeVars?: Record<string, string>;
   onClose: () => void;
   onSubmitted?: (updated: RsvpSummary[]) => void;
+  /**
+   * Fired the instant the sheet enters its confirmed state — for BOTH the
+   * real submit path and the host preview no-op, since preview exists to show
+   * a host exactly what a guest sees. This is what tells the events section
+   * behind the sheet to play the Respond-button confirmation (see
+   * `rsvp-responded.ts`); it is deliberately separate from `onSubmitted`,
+   * which fires only on the real path and is what actually persists the
+   * reply. Preview's celebration is real; preview's data write is not.
+   */
+  onConfirmed?: () => void;
 }
 
 type Attending = "attending" | "declined" | null;
@@ -118,6 +128,7 @@ export function RsvpModal(props: RsvpModalProps) {
    */
   function enterSavedState() {
     setSaved(true);
+    props.onConfirmed?.();
     dwellTimer = setTimeout(() => {
       dwellTimer = undefined;
       props.onClose();
@@ -266,8 +277,9 @@ export function RsvpModal(props: RsvpModalProps) {
         // field, the consent box, Cancel, and the submit button's own
         // disabled/aria-disabled/classList. Unbatched, `setLoading(false)`
         // re-enables all of them and `setSaved(true)` immediately locks them
-        // again: double the attribute writes, and a fully-unlocked intermediate
-        // state, on the exact frame the 500ms sweep starts.
+        // again: double the attribute writes, and a fully-unlocked
+        // intermediate state, on the exact frame the button's label flips to
+        // "Saved".
         //
         // Order inside the batch is load-bearing (S-L2): `enterSavedState`
         // registers the dwell timer BEFORE `onSubmitted` hands rows to the
@@ -465,9 +477,11 @@ export function RsvpModal(props: RsvpModalProps) {
           </p>
         </Show>
 
-        {/* The confirmation, spoken. The visible cue is a colour sweep and a
-            tick inside a button that a screen reader has no reason to re-read,
-            so the success needs saying somewhere it will be announced.
+        {/* The confirmation, spoken. The visible cue is a label swap on a
+            button a screen reader has no reason to re-read (and, once the
+            sheet closes, a colour sweep and a tick on a DIFFERENT button
+            behind it — see `EventCard`), so the success needs saying
+            somewhere it will be announced.
 
             Rendered unconditionally with its text swapped, rather than wrapped
             in a `<Show>`: assistive tech announces a CHANGE inside a live
@@ -511,19 +525,17 @@ export function RsvpModal(props: RsvpModalProps) {
           {/* No submit button once RSVPs are closed: a disabled Save invites a
               guest to keep clicking at a door that won't open. */}
           <Show when={!props.closed}>
-            {/* `relative` + `overflow-hidden` so the gold fill below can be an
-                absolutely-positioned child clipped to the button's rounded
-                corners. The fill and the label are BOTH positioned boxes with
-                `z-index: auto`, so DOM order alone decides the paint order —
-                the label comes second and therefore sits on top, with no
-                magic number escaping `lib/z-index`. */}
+            {/* The animated confirmation — a fill sweep and a drawn tick —
+                used to live on this button. It moved to the events section's
+                Respond button (`onConfirmed` above, choreography in
+                `rsvp-responded.ts`), which is still on screen once this sheet
+                closes and this one is not. What stays here is the label swap
+                and the lock, so the sheet still visibly holds its result for
+                `SAVED_DWELL_MS` rather than just vanishing. */}
             <button
               type="submit"
-              class="border-gold font-body text-gold-ink relative flex-1 overflow-hidden rounded-sm border bg-transparent px-4 py-3 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg disabled:hover:text-gold-ink flex-1 rounded-sm border bg-transparent px-4 py-3 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:hover:bg-transparent"
               classList={{
-                // Hover-to-fill only while the button is still a button. Once
-                // it is confirming, the sweep owns its background.
-                "hover:bg-gold hover:text-bg disabled:hover:text-gold-ink": !saved(),
                 // The in-flight fade, spelled out rather than left to
                 // `disabled:opacity-40`: the confirmed state also needs the
                 // button non-submittable, and a variant keyed on `disabled`
@@ -542,40 +554,7 @@ export function RsvpModal(props: RsvpModalProps) {
               // enforces it.
               aria-disabled={saved() || undefined}
             >
-              {/* The sweep. Mounted at `scale-x-0` from the start and never
-                  conditionally rendered, because a CSS transition needs a
-                  starting frame to travel from — an element created already in
-                  its end state simply appears there. */}
-              <span
-                aria-hidden="true"
-                class="bg-gold absolute inset-0 origin-left scale-x-0 transition-transform duration-500 ease-out"
-                classList={{ "scale-x-100": saved() }}
-              />
-              {/* Delayed so the ink flips to the dark on-gold colour once the
-                  fill has actually reached the text, not before it sets off. */}
-              <span
-                class="relative flex items-center justify-center gap-2 transition-colors delay-200 duration-200"
-                classList={{ "text-bg": saved() }}
-              >
-                <Show when={saved()}>
-                  <svg
-                    aria-hidden="true"
-                    viewBox="0 0 24 24"
-                    class="h-4 w-4 shrink-0"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    {/* `stroke-dasharray` of 20 slightly over-covers the ~19.8
-                        path so it starts fully hidden; the keyframe walks the
-                        offset back to 0 to draw it. */}
-                    <path d="M5 13l4 4L19 7" stroke-dasharray="20" class="animate-tick-draw" />
-                  </svg>
-                </Show>
-                {saved() ? "Saved" : loading() ? "Saving…" : "Save"}
-              </span>
+              {saved() ? "Saved" : loading() ? "Saving…" : "Save"}
             </button>
           </Show>
         </div>

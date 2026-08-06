@@ -2,6 +2,7 @@ import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
 import { noteClaimed } from "../../components/claim-session";
+import { TOTAL_DURATION_MS } from "../../components/rsvp-responded";
 import type { ClaimResult, RsvpSummary } from "../../components/types";
 import { noSession, withSession } from "../../test-support/claim-fetch";
 import InvitePage from "./InvitePage";
@@ -90,6 +91,25 @@ const claim: ClaimResult = {
   ],
   rsvps: [{ guestId: "guest-1", eventId: "event-1", status: "attending", dietary: "Vegetarian" }],
 };
+
+// `claim`'s single member is only invited to Mehndi (`eventIds: ["event-1"]`)
+// — `hasHouseholdResponded` requires an invite before it will ever call an
+// event answered, so the confirmation-wiring tests below (which DO answer
+// Reception) need a variant where the member is invited to both.
+const claimBothEvents: ClaimResult = {
+  ...claim,
+  members: [{ ...claim.members[0]!, eventIds: ["event-1", "event-2"] }],
+};
+
+/** The real (unmocked) EventCard's Respond button for a given event's card. */
+function respondButtonFor(container: HTMLElement, eventName: string) {
+  const card = [...container.querySelectorAll("[data-event-card]")].find((el) =>
+    el.textContent?.includes(eventName),
+  ) as HTMLElement;
+  return [...card.querySelectorAll("button")].find(
+    (b) => b.textContent === "Respond" || b.textContent === "RSVPs closed",
+  ) as HTMLButtonElement;
+}
 
 describe("gala InvitePage", () => {
   afterEach(() => {
@@ -982,6 +1002,108 @@ describe("gala InvitePage", () => {
     it("still completes the swap when the sequence never reports", async () => {
       const { getByText } = await claimWith((() => Promise.resolve()) as never);
       await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
+    });
+  });
+
+  describe("recorded-reply confirmation wiring", () => {
+    // Neither `EventCard` nor `RsvpModal` alone can catch a bug in the glue
+    // between them — each is tested in isolation with directly-injected props.
+    // These exercise the real (unmocked) `EventCard` behind the mocked
+    // `RsvpModal` stub, the same way the production page composes them.
+    // `claim` already carries a second, UNANSWERED event (Reception) alongside
+    // the already-answered Mehndi, so no separate fixture is needed here.
+    beforeEach(() => noteClaimed());
+    afterEach(() => {
+      document.cookie = "cire_claimed=; Path=/; Max-Age=0";
+    });
+
+    it("shows the permanent tick from data alone, with no RsvpModal ever opened", async () => {
+      vi.stubGlobal(
+        "fetch",
+        withSession(
+          claim,
+          vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ theme: null }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          ) as unknown as typeof fetch,
+        ),
+      );
+      const { container } = render(() => (
+        <InvitePage apiUrl="https://api.test" slug="anita-and-ben" />
+      ));
+      await waitFor(() => expect(container.querySelector("[data-event-card]")).toBeTruthy());
+
+      // Mehndi is already on file in the claim payload's `rsvps` — the tick
+      // must come purely from `respondedEventIds`, never having gone through a
+      // live confirmation.
+      expect(respondButtonFor(container, "Mehndi").querySelector("svg")).toBeTruthy();
+      // Reception has no row yet — no tick to claim a reply that was never sent.
+      expect(respondButtonFor(container, "Reception").querySelector("svg")).toBeNull();
+    });
+
+    it("plays EventCard's confirmation from RsvpModal's onConfirmed, and resets so a later edit celebrates again", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.stubGlobal(
+          "fetch",
+          withSession(
+            claimBothEvents,
+            vi.fn().mockResolvedValue(
+              new Response(JSON.stringify({ theme: null }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              }),
+            ) as unknown as typeof fetch,
+          ),
+        );
+        const { container } = render(() => (
+          <InvitePage apiUrl="https://api.test" slug="anita-and-ben" />
+        ));
+        await vi.advanceTimersByTimeAsync(0);
+
+        const respond = respondButtonFor(container, "Reception");
+        expect(respond.querySelector("svg")).toBeNull();
+        fireEvent.click(respond);
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(capturedProps.value).not.toBeNull();
+        expect((capturedProps.value!.event as { id: string }).id).toBe("event-2");
+
+        // The instant RsvpModal would call `onConfirmed` (inside its own
+        // `enterSavedState`, for both a real submit and the host preview).
+        (capturedProps.value!.onConfirmed as () => void)();
+        let fill = respond.querySelector("span[aria-hidden='true']") as HTMLElement;
+        expect(fill.className).toContain("scale-x-100");
+        let path = respond.querySelector("svg path") as SVGPathElement;
+        expect(path.getAttribute("class")).toContain("animate-tick-draw");
+
+        // The data landing too, as the real batched write does.
+        (capturedProps.value!.onSubmitted as (r: RsvpSummary[]) => void)([
+          ...claimBothEvents.rsvps,
+          { guestId: "guest-1", eventId: "event-2", status: "attending", dietary: "" },
+        ]);
+
+        // The celebration settles: fill gone, tick stays, now undrawn.
+        await vi.advanceTimersByTimeAsync(TOTAL_DURATION_MS);
+        path = respond.querySelector("svg path") as SVGPathElement;
+        expect(path).toBeTruthy();
+        expect(path.hasAttribute("stroke-dasharray")).toBe(false);
+        fill = respond.querySelector("span[aria-hidden='true']") as HTMLElement;
+        expect(fill.className).not.toContain("scale-x-100");
+
+        // The regression this guards: if `onCelebrated` ever stopped resetting
+        // `justRespondedEventId` to null, THIS second confirmation (an edited,
+        // re-submitted reply) would be a silent no-op instead of celebrating
+        // again — `justResponded` would already be stuck `true` with nothing
+        // left to transition from `false`.
+        (capturedProps.value!.onConfirmed as () => void)();
+        fill = respond.querySelector("span[aria-hidden='true']") as HTMLElement;
+        expect(fill.className).toContain("scale-x-100");
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

@@ -1,4 +1,4 @@
-import { Show } from "solid-js";
+import { batch, createEffect, createSignal, onCleanup, on, Show } from "solid-js";
 
 import { cropAspectRatio, cropBackgroundStyle } from "./image-crop";
 import { buildSrcSet, variantSrc } from "./invite-images";
@@ -7,6 +7,7 @@ import { buildSrcSet, variantSrc } from "./invite-images";
 // no source dimensions (a legacy crop), so the box keeps today's fixed shape.
 const EVENT_DEFAULT_ASPECT = 4 / 3;
 import { formatEventDay, venueLine } from "./event-details";
+import { HOLD_MS, TOTAL_DURATION_MS } from "./rsvp-responded";
 import type { EventSummary } from "./types";
 
 interface EventCardProps {
@@ -45,6 +46,31 @@ interface EventCardProps {
    * did. Optional — the button is still self-describing without it.
    */
   rsvpClosedNoticeId?: string;
+  /**
+   * True once this household's RSVP for this event is on file — driven by
+   * data (`hasHouseholdResponded` in `rsvp-responded.ts`), not by anything
+   * that happened this session. Renders a permanent green tick on Respond, no
+   * animation: a guest who reopens the invite tomorrow should see the same
+   * mark a guest who just submitted settles into, without watching it draw.
+   */
+  responded?: boolean;
+  /**
+   * Pulses true for exactly one render the instant THIS event's reply is
+   * confirmed (see `RsvpModal`'s `onConfirmed`) — the transition from false
+   * to true is what plays the sweep-in/hold/fade-out choreography documented
+   * in `rsvp-responded.ts`. An event that starts `true` on mount (it cannot,
+   * in practice — the parent only ever flips this from a live confirmation —
+   * but the guard exists regardless) plays no animation, matching `responded`
+   * above: only a fresh transition celebrates.
+   */
+  justResponded?: boolean;
+  /**
+   * Fired once the celebration has fully played out (fill faded back, tick
+   * settled), so the parent can reset `justResponded` back to false and be
+   * ready to celebrate the NEXT confirmation for this event (an edited,
+   * re-submitted reply) rather than only ever the first one.
+   */
+  onCelebrated?: () => void;
   onRespond: (event: EventSummary) => void;
   onDetails: (event: EventSummary) => void;
 }
@@ -58,6 +84,59 @@ export function EventCard(props: EventCardProps) {
     return `${props.apiUrl}${path}`;
   };
   const isAlt = () => props.orientation === "alt";
+
+  // The Respond-button confirmation (see `rsvp-responded.ts`). `celebrating`
+  // spans the whole choreography (sweep-in through fade-out) and gates
+  // whether the tick renders at all when `responded` is false, such as during
+  // the host preview's ephemeral flourish (see `RsvpModal`'s `onConfirmed`) —
+  // preview never sets `responded`, since nothing was actually written.
+  // `filled` is the sub-state that actually drives the green fill: true
+  // through the sweep-in and the hold, false once the fade-out starts, so it
+  // can double as the tick's ink switch (on-fill while filled, permanent
+  // `text-success` once it isn't).
+  const [celebrating, setCelebrating] = createSignal(false);
+  const [filled, setFilled] = createSignal(false);
+
+  let fadeTimer: ReturnType<typeof setTimeout> | undefined;
+  let endTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => {
+    if (fadeTimer !== undefined) clearTimeout(fadeTimer);
+    if (endTimer !== undefined) clearTimeout(endTimer);
+  });
+
+  function playCelebration() {
+    // A re-submit (edited reply) while a previous celebration is still
+    // fading out restarts the choreography from the top rather than layering
+    // a second pair of timers over the first.
+    if (fadeTimer !== undefined) clearTimeout(fadeTimer);
+    if (endTimer !== undefined) clearTimeout(endTimer);
+    batch(() => {
+      setCelebrating(true);
+      setFilled(true);
+    });
+    fadeTimer = setTimeout(() => {
+      fadeTimer = undefined;
+      setFilled(false);
+    }, HOLD_MS);
+    endTimer = setTimeout(() => {
+      endTimer = undefined;
+      setCelebrating(false);
+      props.onCelebrated?.();
+    }, TOTAL_DURATION_MS);
+  }
+
+  // Only a real false→true transition celebrates. `on`'s `prev` is
+  // `undefined` on the effect's first run, so a card that somehow mounts with
+  // `justResponded` already true (the parent never does this in practice)
+  // plays no animation — same rule `responded` follows on its own.
+  createEffect(
+    on(
+      () => props.justResponded,
+      (justResponded, previously) => {
+        if (justResponded && previously !== undefined && !previously) playCelebration();
+      },
+    ),
+  );
 
   return (
     <article class="border-border bg-surface-raised rounded-sm border px-6 py-7">
@@ -104,7 +183,7 @@ export function EventCard(props: EventCardProps) {
                 inactive-component exemption to lean on, and the outlined pair
                 beside it is a contrast combination this card already ships. */}
             <button
-              class="font-body min-h-11 flex-1 rounded-sm border px-5 py-3 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
+              class="font-body relative min-h-11 flex-1 overflow-hidden rounded-sm border px-5 py-3 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"
               classList={{
                 "bg-gold text-bg hover:bg-gold/85 border-transparent": !props.rsvpClosed,
                 "border-border text-text-muted cursor-not-allowed bg-transparent": props.rsvpClosed,
@@ -118,7 +197,54 @@ export function EventCard(props: EventCardProps) {
               aria-disabled={props.rsvpClosed ? "true" : undefined}
               aria-describedby={props.rsvpClosed ? props.rsvpClosedNoticeId : undefined}
             >
-              {props.rsvpClosed ? "RSVPs closed" : "Respond"}
+              {/* The confirmation fill. Mounted at `scale-x-0` from the start
+                  and never conditionally rendered, because a CSS transition
+                  needs a starting frame to travel from — an element created
+                  already in its end state simply appears there. Invisible
+                  outside a celebration since `filled` only ever turns true
+                  from `playCelebration`. */}
+              <span
+                aria-hidden="true"
+                class="bg-success absolute inset-0 origin-left scale-x-0 transition-transform duration-500 ease-out"
+                classList={{ "scale-x-100": filled() }}
+              />
+              <span class="relative flex items-center justify-center gap-2">
+                {/* Conditional, not merely invisible: a tick mounted for an
+                    event nobody has answered would claim a reply that was
+                    never sent. Shown for a genuinely recorded reply
+                    (`responded`) OR the mid-celebration flourish (which also
+                    covers host preview — see `RsvpModal`'s `onConfirmed`). */}
+                <Show when={props.responded || celebrating()}>
+                  <svg
+                    aria-hidden="true"
+                    viewBox="0 0 24 24"
+                    class="h-4 w-4 shrink-0"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    classList={{
+                      // On-fill ink while the green sweep is up, matching the
+                      // label; the permanent green signifier only once it's
+                      // gone (settled, or was already gone — a page load with
+                      // an existing reply never plays the fill at all).
+                      "text-bg": filled(),
+                      "text-success": !filled(),
+                    }}
+                  >
+                    <Show when={celebrating()} fallback={<path d="M5 13l4 4L19 7" />}>
+                      {/* `stroke-dasharray` of 20 slightly over-covers the
+                          ~19.8 path so it starts fully hidden; the keyframe
+                          walks the offset back to 0 to draw it. Only during a
+                          live celebration — the settled/preloaded tick above
+                          is simply drawn, not animated into being. */}
+                      <path d="M5 13l4 4L19 7" stroke-dasharray="20" class="animate-tick-draw" />
+                    </Show>
+                  </svg>
+                </Show>
+                {props.rsvpClosed ? "RSVPs closed" : "Respond"}
+              </span>
             </button>
             <button
               class="border-border font-body text-text-muted hover:border-gold hover:text-gold-ink min-h-11 flex-1 rounded-sm border bg-transparent px-5 py-3 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200 sm:flex-none sm:py-2.5"

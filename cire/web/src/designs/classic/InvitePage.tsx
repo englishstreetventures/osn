@@ -27,6 +27,7 @@ import { LoginSection } from "../../components/LoginSection";
 import { prefetchOnIdle } from "../../components/prefetch-idle";
 import { PulseAccountLink } from "../../components/PulseAccountLink";
 import { deadlineNotice, formatDeadlineDay, RSVP_NOTICE_ID } from "../../components/rsvp-deadline";
+import { hasHouseholdResponded } from "../../components/rsvp-responded";
 import { RsvpModal } from "../../components/RsvpModal";
 import type { ClaimResult, EventSummary, RsvpSummary } from "../../components/types";
 
@@ -100,6 +101,13 @@ export default function InvitePage(props: InvitePageProps) {
   const [claimResult, setClaimResult] = createSignal<ClaimResult | null>(null);
   const [rsvpEvent, setRsvpEvent] = createSignal<EventSummary | null>(null);
   const [detailsEvent, setDetailsEvent] = createSignal<EventSummary | null>(null);
+  // Which event's Respond button should play the recorded-reply confirmation
+  // right now (see `EventCard`'s `justResponded`/`onCelebrated` and
+  // `rsvp-responded.ts`). Reset to null once that card reports the
+  // choreography finished, so the NEXT confirmation for the same event (an
+  // edited, re-submitted reply) is a fresh false→true transition rather than
+  // a no-op.
+  const [justRespondedEventId, setJustRespondedEventId] = createSignal<string | null>(null);
   // True when the invite opened from an EXISTING session rather than from a code
   // the guest just typed. It suppresses the unlock choreography — there is no
   // unlock to perform on a return visit, and a curtain-raise firing by itself on
@@ -226,6 +234,19 @@ export default function InvitePage(props: InvitePageProps) {
   const rsvpClosed = createRsvpClosed(rsvpDeadline);
   const rsvpNotice = createMemo(() => deadlineNotice(rsvpDeadline(), rsvpClosed()));
 
+  // The permanent green tick on Respond: which events this household already
+  // has an RSVP on file for. Recomputed whenever `onSubmitted` writes fresh
+  // rows back into `claimResult`.
+  const respondedEventIds = createMemo(() => {
+    const data = claimResult();
+    if (!data) return new Set<string>();
+    return new Set(
+      data.events
+        .filter((e) => hasHouseholdResponded(e, data.members, data.rsvps))
+        .map((e) => e.id),
+    );
+  });
+
   let loginFormRef: HTMLDivElement;
   let welcomeRef: HTMLDivElement;
   let eventsSectionRef: HTMLElement;
@@ -342,6 +363,9 @@ export default function InvitePage(props: InvitePageProps) {
                         orientation={index() % 2 === 0 ? "norm" : "alt"}
                         rsvpClosed={rsvpClosed()}
                         rsvpClosedNoticeId={RSVP_NOTICE_ID}
+                        responded={respondedEventIds().has(event.id)}
+                        justResponded={justRespondedEventId() === event.id}
+                        onCelebrated={() => setJustRespondedEventId(null)}
                         onRespond={setRsvpEvent}
                         onDetails={setDetailsEvent}
                       />
@@ -414,6 +438,9 @@ export default function InvitePage(props: InvitePageProps) {
               if (!current) return;
               setClaimResult({ ...current, rsvps: updated });
             }}
+            // Fires for the preview no-op too, which never touches
+            // `claimResult` — see `respondedEventIds`'s comment.
+            onConfirmed={() => setJustRespondedEventId(event().id)}
           />
         )}
       </Show>
