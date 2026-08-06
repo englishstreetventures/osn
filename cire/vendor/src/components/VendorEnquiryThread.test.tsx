@@ -28,7 +28,7 @@ vi.mock("../lib/enquiries-store", () => ({
   getEnquiryMessages: (...args: any[]) => mockGetEnquiryMessages(...args),
   replyToEnquiry: (...args: any[]) => mockReplyToEnquiry(...args),
   submitQuote: (...args: any[]) => mockSubmitQuote(...args),
-  friendlyEnquiryError: (...args: any[]) => mockFriendlyEnquiryError(...args),
+  friendlyEnquiryError: (err: unknown) => mockFriendlyEnquiryError(err),
 }));
 
 // Mock solid-toast so we can verify toast calls without a real DOM toaster.
@@ -245,13 +245,34 @@ describe("VendorEnquiryThread", () => {
     await waitFor(() => expect(screen.getByLabelText(/quote amount/i)).toBeInTheDocument());
 
     fireEvent.input(screen.getByLabelText(/quote amount/i), { target: { value: "50" } });
-    const noteInput = screen.getByPlaceholderText(/note/i);
+    // By label, not by placeholder: `Field` mints the id and the `for`, so the
+    // note box has a real accessible name now and the placeholder is free to be
+    // an example rather than a stand-in label.
+    const noteInput = screen.getByLabelText(/note/i);
     fireEvent.input(noteInput, { target: { value: "Includes setup" } });
     fireEvent.click(screen.getByRole("button", { name: /send quote/i }));
 
     await waitFor(() =>
       expect(mockSubmitQuote).toHaveBeenCalledWith(mockAuthFetch, "enq_1", 5000, "Includes setup"),
     );
+  });
+
+  it("describes the quote box with the formatted amount without naming it that", async () => {
+    mockGetEnquiryMessages.mockResolvedValue([]);
+    render(() => (
+      <VendorEnquiryThread enquiryId="enq_1" ownProfileId="p-vendor" onBack={() => {}} />
+    ));
+
+    await waitFor(() => expect(screen.getByLabelText(/quote amount/i)).toBeInTheDocument());
+    const amount = screen.getByLabelText(/quote amount/i);
+    fireEvent.input(amount, { target: { value: "1200" } });
+
+    // The running total is a *description*. It used to live inside the
+    // `<label>`, which made it part of the input's accessible name — so the box
+    // announced itself as "Quote amount $1,200.00" and re-announced the whole
+    // thing on every keystroke.
+    await waitFor(() => expect(amount).toHaveAccessibleDescription(/1,200/));
+    expect(amount).toHaveAccessibleName(/^quote amount$/i);
   });
 
   it("disables send quote button when amount is 0", async () => {

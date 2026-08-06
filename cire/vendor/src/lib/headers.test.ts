@@ -38,9 +38,23 @@ describe("_headers", () => {
     expect(csp).not.toContain("musubi.social");
   });
 
-  it("allowlists Google Fonts, which the page shells still link", () => {
-    expect(csp).toContain("style-src 'self' 'unsafe-inline' https://fonts.googleapis.com");
-    expect(csp).toContain("font-src 'self' https://fonts.gstatic.com");
+  it("allowlists no font or stylesheet origin — both faces are self-hosted", () => {
+    // `astro.config.mjs` downloads Schibsted Grotesk and Cormorant Garamond at
+    // build time via `fontProviders.google()`, so nothing links or fetches
+    // Google's origins any more. Re-adding a `<link>` to a page shell without
+    // re-adding the origin here would break the face under enforcement; this is
+    // what makes that a failing test rather than a silent fallback to Georgia.
+    expect(csp).toContain("style-src 'self' 'unsafe-inline'");
+    expect(csp).toContain("font-src 'self'");
+    expect(csp).not.toContain("fonts.googleapis.com");
+    expect(csp).not.toContain("fonts.gstatic.com");
+  });
+
+  it("keeps the inline theme-boot script running", () => {
+    // `THEME_BOOT_SCRIPT` is `is:inline` on all three shells so it resolves the
+    // theme before first paint. An inline script cannot be an external hashed
+    // file, so this source is load-bearing, not incidental.
+    expect(csp).toContain("script-src 'self' 'unsafe-inline'");
   });
 
   it("denies framing, embedding and workers", () => {

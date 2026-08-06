@@ -1,10 +1,16 @@
 import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
-import { createResource, createSignal, onMount, Show } from "solid-js";
+import { createResource, createSignal, onCleanup, onMount, Show } from "solid-js";
 
+import { haptic } from "../lib/haptics";
 import { CIRE_API_URL } from "../lib/osn";
+import { initTheme } from "../lib/theme";
 import { consumeClaim, fetchClaimPreview } from "../lib/vendor-store";
 import type { OrgSummary } from "../lib/vendor-store";
 import OrgPicker from "./OrgPicker";
+import Button from "./ui/Button";
+import Card, { CardEyebrow } from "./ui/Card";
+import Loading from "./ui/Loading";
+import Notice from "./ui/Notice";
 
 /** Where the invite token waits while the vendor is away signing in. */
 const CLAIM_TOKEN_KEY = "cire.vendor.claim-token";
@@ -43,68 +49,70 @@ function ClaimContent() {
   const handleClaim = async (org: OrgSummary) => {
     try {
       await consumeClaim(authFetch, token(), org.id);
+      haptic("commit");
       sessionStorage.removeItem(CLAIM_TOKEN_KEY);
       window.location.href = "/#/orgs/" + org.id;
     } catch {
       // Spent or rejected either way — do not leave it parked for a reload.
+      haptic("reject");
       sessionStorage.removeItem(CLAIM_TOKEN_KEY);
       setInvalidLink(true);
     }
   };
 
+  const isDead = () => invalidLink() || (preview.state === "ready" && preview() === null);
+
   return (
-    <div class="font-body flex flex-col gap-8">
-      {/* Invalid / expired / consumed token */}
-      <Show when={invalidLink() || (preview.state === "ready" && preview() === null)}>
-        <p class="text-text text-[0.95rem]">This invite link is no longer valid.</p>
+    <div class="flex flex-col gap-8">
+      {/* Invalid / expired / consumed token. It was a bare grey line of text
+          before, which is the same treatment the page gives its body copy — the
+          one message on this page that means "stop" read as prose. `alert` only
+          on the branch reached by *doing* something (a claim that came back
+          rejected), not on the one that was already true when the page loaded. */}
+      <Show when={isDead()}>
+        <Notice tone="error" alert={invalidLink()}>
+          This invite link is no longer valid. Ask whoever sent it for a new one.
+        </Notice>
+      </Show>
+
+      <Show when={preview.loading}>
+        <Loading label="Checking invite…" />
       </Show>
 
       {/* Valid preview — show invite banner */}
       <Show when={preview.state === "ready" && preview() !== null && !invalidLink()}>
-        <div class="flex flex-col gap-2">
-          <p class="text-text-muted text-[0.82rem] tracking-[0.1em] uppercase">
-            You've been invited to claim
+        <Card tone="accent">
+          <CardEyebrow>You've been invited to claim</CardEyebrow>
+          <p class="font-display text-text text-[1.6rem] leading-tight font-light">
+            {preview()?.name}
           </p>
-          <p class="text-text text-[1.1rem] font-medium">
-            <strong>{preview()?.name}</strong>
-          </p>
-        </div>
+        </Card>
 
         {/* Auth gate */}
         <Show
           when={session() !== null && session() !== undefined}
           fallback={
             <div class="flex flex-col gap-4">
-              <p class="text-text-muted text-[0.85rem]">
+              <p class="font-body text-text-muted text-[0.88rem] leading-relaxed">
                 Sign in with your musubi account to continue. We'll bring you straight back here.
               </p>
-              <button
-                type="button"
+              <Button
+                variant="primary"
                 onClick={() => signIn(new URL("/claim", window.location.origin).toString())}
-                class="border-gold font-body text-gold hover:bg-gold hover:text-bg self-start rounded-sm border px-5 py-2.5 text-[0.82rem] tracking-[0.1em] uppercase transition-colors duration-200"
+                class="self-start"
               >
                 Continue with musubi
-              </button>
+              </Button>
             </div>
           }
         >
           <div class="flex flex-col gap-4">
-            <h2 class="text-gold font-body text-[0.72rem] tracking-[0.2em] uppercase">
+            <h2 class="font-body text-gold text-[0.7rem] tracking-[0.18em] uppercase">
               Choose the organisation that owns this listing
             </h2>
             <OrgPicker onPick={(org) => void handleClaim(org)} />
           </div>
         </Show>
-      </Show>
-
-      {/* Loading state */}
-      <Show when={preview.loading}>
-        <p
-          role="status"
-          class="font-body text-text-muted animate-pulse text-[0.88rem] tracking-[0.1em] uppercase"
-        >
-          Checking invite…
-        </p>
       </Show>
     </div>
   );
@@ -116,6 +124,10 @@ function ClaimContent() {
  * and walks the user through sign-in → org pick → consume claim.
  */
 export default function ClaimApp() {
+  // This page is its own document, so it needs its own subscription to the OS
+  // theme — `VendorApp` is not mounted here to do it.
+  onMount(() => onCleanup(initTheme()));
+
   return (
     <AuthProvider config={{ apiBase: CIRE_API_URL }}>
       <ClaimContent />

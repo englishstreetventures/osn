@@ -200,7 +200,7 @@ From the /prep-pr Step 6 security/EAA/compliance review. **Resolved on this bran
 
 Deferred (platform-wide or later-slice — NOT PR B regressions):
 
-- [ ] **VP-S-L2 / VP-C-M1** — the vendor portal (like `@cire/organiser`, `@cire/web`, `@cire/landing`) loads Google Fonts from `fonts.googleapis.com`/`fonts.gstatic.com` via `<link>` (no SRI; sends visitor IP to Google LLC, a US processor). Platform-wide pre-existing pattern, not introduced here. Fix once, platform-wide: **self-host** the two families (`Cormorant Garamond` + `Lato`) under each app's `public/fonts/` (eliminates both the supply-chain/no-SRI gap and the GDPR Art. 44 transfer / subprocessor-registration need). Until then, note Google LLC (Fonts) is an undocumented subprocessor across all cire frontends. **Partly done 2026-08-06:** `@cire/organiser` now self-hosts Schibsted Grotesk + Cormorant Garamond (Astro `fontProviders.google()` downloads them at build time), so the host portal sends no visitor IP to Google and its CSP carries no Google origins. `@cire/vendor`, `@cire/web` and `@cire/landing` still `<link>` the stylesheet — same fix applies. See `[[wiki/compliance/subprocessors]]`.
+- [ ] **VP-S-L2 / VP-C-M1** — the vendor portal (like `@cire/organiser`, `@cire/web`, `@cire/landing`) loads Google Fonts from `fonts.googleapis.com`/`fonts.gstatic.com` via `<link>` (no SRI; sends visitor IP to Google LLC, a US processor). Platform-wide pre-existing pattern, not introduced here. Fix once, platform-wide: **self-host** the two families (`Cormorant Garamond` + `Lato`) under each app's `public/fonts/` (eliminates both the supply-chain/no-SRI gap and the GDPR Art. 44 transfer / subprocessor-registration need). Until then, note Google LLC (Fonts) is an undocumented subprocessor across all cire frontends. **Partly done 2026-08-06:** `@cire/organiser` **and `@cire/vendor`** now self-host Schibsted Grotesk + Cormorant Garamond (Astro `fontProviders.google()` downloads them at build time), so neither portal sends a visitor IP to Google and neither CSP carries a Google origin — `cire/vendor/src/lib/headers.test.ts` asserts their *absence*, so a re-added `<link>` fails the suite. **`@cire/web` and `@cire/landing` are what remain** — same fix applies. Worth noting the vendor case was the sharpest of the four: `/claim` is opened straight from an emailed invite, so it told Google about every vendor who followed a link before rendering a word. See `[[wiki/compliance/subprocessors]]`.
 - [x] **VP-S-L3** (fixed 2026-08-06, `chore/cire-portal-hardening` — both portals together, see the CHR-S-L3 / VP-S-L3 note at the end of this file) — the vendor portal `_headers` ships the same deliberately-partial CSP as `@cire/organiser` (`frame-ancestors 'none'` only; no restrictive `script-src`/`connect-src`, which would break the passkey ceremony + `authFetch` silent-refresh + `@osn/ui`). A full hardened portal CSP (host-restricted `script-src`/`connect-src`/`font-src`, report-only first) is the same tracked follow-up as the organiser's — do both together. `cire/web` already has a structured CSP in `src/lib/security-headers.ts` to model from.
 - [ ] **VP-C-M3** — DSA Art. 30 trader-traceability: when the **consumer-facing directory browse** ships (Vendors S3+, not this slice — Slice 1 has no public browse surface), scope whether `cireweddings.com`'s vendor directory is a DSA "online platform allowing consumers to conclude distance contracts with traders". If yes, gate a listing going `live` behind collecting Art. 30 traceability fields (business name/address/phone/email/registration ID + self-declaration). File `wiki/compliance/dpia/dsa-trader-traceability.md` at that point. Not applicable while the directory is organiser-private + claim-only. **Update (2026-07-18 — Vendors S3 shipped):** S3 is organiser-only browse (access-controlled via `weddingMember()` gate; no public browse surface, no on-platform contracting). DSA Art. 30 still does not apply — the gate is revisited when public browse and/or enquiries ship.
 - [ ] **VP-C-L1** — the registration surface a vendor reaches from this portal inherits the platform's pending age-gate (root `C-H8`). **Moved 2026-07-28**: `SignInPanel` no longer renders `@osn/ui Register` itself — its "Create account with musubi" button sends `prompt=create` to the issuer, so the form now lives on musubi's consent screen (`AuthorizeSignIn`). The gate therefore belongs on that one screen, where it covers every relying party at once, not on this portal. B2B audience → under-13 use extremely unlikely. Documentation-only.
@@ -355,3 +355,57 @@ a tighter guard than the hand-written `width:` bars it replaces.
   left the count announced nowhere. The `aria-hidden` is gone, so a screen reader gets "2 / 4 done" from the
   text and "Setup progress, 50%" from the rail. Worth recording because the loss is invisible in the diff:
   nothing was deleted, an attribute elsewhere simply stopped being redundant.
+
+**Vendor portal redesign (`claude/cire-vendor-portal-redesign-9tdbul`) — security review (2026-08-06).**
+Brings #372–#378 across to `cire/vendor`. **No open findings**; three things the diff touches that a
+reviewer would want checked, each verified rather than assumed.
+
+**The CSP got tighter, not looser.** `style-src` and `font-src` drop `https://fonts.googleapis.com` /
+`https://fonts.gstatic.com` — a source change, not a guess: `astro.config.mjs` now downloads both faces at
+build time via `fontProviders.google()` and none of the three page shells links the stylesheet.
+`headers.test.ts` asserts their **absence** now, so re-adding a `<link>` without re-adding the origin fails
+the suite rather than silently falling back to Georgia under enforcement. `script-src 'unsafe-inline'` was
+already there and is now load-bearing (the `is:inline` theme-boot script must run before first paint); that
+is recorded in `_headers` so it is not "cleaned up" later.
+
+**The avatar sink came with `ProfileMenu`.** The OIDC `picture` claim is unvalidated at every hop — traced
+end to end: `osn/api` `oidc.ts` sets it from `profile.avatarUrl`, `@shared/osn-auth-client` reads it with a
+bare `stringOrNull`, `cire/api` persists it, and it arrives here as `RpSession.avatarUrl`. The port keeps the
+host portal's guard verbatim — an absolute `https:` URL or nothing, `new URL` throwing on a relative or
+malformed string — now in `AccountAvatar.httpsAvatarUrl`, with `ProfileMenu.test.tsx` pinning it against
+`http:`, `javascript:` and an unparseable string. The XSS half is closed.
+
+- [ ] **VP-S-L4** — **the `img-src` restraint on that sink is staged, not active, and the comment said
+  otherwise.** `img-src` appears only on the **Report-Only** line; the enforced header is
+  `frame-ancestors 'none'; object-src 'none'; base-uri 'self'` and carries no `img-src` at all. So today it
+  files a violation report and blocks nothing. Harmless while nothing populates the claim (osn-api writes
+  `avatarUrl` null on registration and on erasure and has no update path), but the moment OSN ships avatar
+  hosting, any https host a user names receives a request carrying the vendor's IP and a
+  `strict-origin-when-cross-origin` Referer, on every page load — a tracking pixel with a self-service
+  subscribe button. **Fixed on this branch:** the `_headers` comment now says the mitigation is staged and
+  names the milestone. **Still open:** promoting the Report-Only policy to enforcement, bound to the same
+  milestone as avatar hosting. **`cire/organiser/public/_headers` carries the identical overstated claim and
+  wants the same correction.**
+
+**Two new links leave the origin** (the empty org list's "create one in musubi", the profile menu's "account
+& passkeys"). Both are `target="_blank" rel="noopener noreferrer"`, both asserted in tests, so neither hands
+`window.opener` to musubi. Both point at `PUBLIC_OSN_ACCOUNT_URL`, which is build-time config, not
+user data.
+
+Also worth recording: **`astro check` covers this package now**, though that landed on main independently as
+`cire-vendor-type-check` while this branch was open — both arrived at the same script and, bar one, the same
+fixes. The error worth naming is an `AuthProvider` handed a non-existent `issuerUrl` key instead of
+`apiBase`. Not exploitable (the suites mock `useAuth`, so the value was never read), but exactly the shape of
+thing that stops being harmless the day a test stops mocking — and it sat there for as long as the package
+was outside the gate.
+
+- [ ] **VP-T-S1..S4** (test coverage, deferred) — from the same review round. Not security findings, recorded
+  here so they are not lost: `Chip`'s four tones are not asserted distinct (its siblings all pin their variant
+  maps, and the reason `Chip` exists is that the call sites used fixed sRGB that does not re-point on a theme
+  flip — worth a test that no rendered chip class matches `/\b(bg|text)-(blue|green|red|amber)-\d{3}\b/`);
+  `statusTone`'s `quoted` branch — the one this branch rewrote — is unasserted; `ProfileMenu`'s `detail()`
+  branches and the avatar *happy* path are thinner than the organiser file they were ported from (only the
+  rejection side of the https guard is tested, which would still pass if the guard rejected everything);
+  and `VendorApp`'s new chrome/panel seam has no integration test, so a mis-wired `onView` would pass every
+  unit test. The three gaps the review called blocking — the haptics switch, the persistent save-error
+  `Notice`, and `shortDate`'s clock-skew clamp — were closed on this branch.

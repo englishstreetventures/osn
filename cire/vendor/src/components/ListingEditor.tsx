@@ -3,13 +3,15 @@ import { createEffect, createMemo, createResource, createSignal, For, Show } fro
 import { toast } from "solid-toast";
 
 import { friendlyError } from "../lib/api";
+import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { fetchListing, putListing } from "../lib/vendor-store";
-
-// ── Tailwind class constants (mirrors organiser visual idiom) ──────────────
-const labelClass = "font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase";
-const inputClass =
-  "border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-3 py-2 text-[0.95rem] transition-colors outline-none placeholder:opacity-40 disabled:opacity-40 w-full";
+import Button from "./ui/Button";
+import Card, { CardEyebrow } from "./ui/Card";
+import Chip from "./ui/Chip";
+import Field, { Checkbox, Fieldset, Input, Select, Textarea } from "./ui/Field";
+import Loading from "./ui/Loading";
+import Notice from "./ui/Notice";
 
 // ── Price-band options ─────────────────────────────────────────────────────
 const PRICE_BANDS = [
@@ -19,6 +21,18 @@ const PRICE_BANDS = [
   { value: "$$$", label: "$$$" },
   { value: "$$$$", label: "$$$$" },
 ] as const;
+
+/** The required-field mark: seen as a glyph, read as a word. */
+function Required() {
+  return (
+    <>
+      <span aria-hidden="true" class="text-gold">
+        {" *"}
+      </span>
+      <span class="sr-only"> (required)</span>
+    </>
+  );
+}
 
 interface ListingEditorProps {
   orgId: string;
@@ -50,6 +64,9 @@ export default function ListingEditor(props: ListingEditorProps) {
 
   const [seeded, setSeeded] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
+  // Set when a save comes back rejected, so the message lands on the field
+  // rather than only in a toast that has since faded.
+  const [saveError, setSaveError] = createSignal<string | null>(null);
 
   // Seed form once when the resource settles (idiomatic SolidJS — no reactive side-effects).
   createEffect(() => {
@@ -117,11 +134,18 @@ export default function ListingEditor(props: ListingEditorProps) {
     };
 
     setSaving(true);
+    setSaveError(null);
     try {
       await putListing(authFetch, props.orgId, input);
+      // The change took. Fired here rather than in `Button`, which cannot know
+      // whether a press turned into anything.
+      haptic("commit");
       toast.success("Listing saved");
     } catch (err) {
-      toast.error(friendlyError(err));
+      haptic("reject");
+      const message = friendlyError(err);
+      setSaveError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -129,240 +153,213 @@ export default function ListingEditor(props: ListingEditorProps) {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div class="border-border bg-surface/30 flex flex-col gap-6 rounded-sm border p-6">
+    <Card>
       {/* Header row: title + listed badge */}
       <div class="flex items-start justify-between gap-4">
-        <div>
-          <p class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-            Directory listing
-          </p>
-          <h2 class="text-text font-body mt-0.5 text-[1.05rem] font-medium">{props.orgName}</h2>
+        <div class="flex min-w-0 flex-col gap-0.5">
+          <CardEyebrow>Directory listing</CardEyebrow>
+          <h2 class="font-display text-text text-[1.4rem] leading-tight font-light">
+            {props.orgName}
+          </h2>
         </div>
         <Show when={listing()}>
-          {(l) => (
-            <span
-              class={`font-body rounded-full px-3 py-1 text-[0.72rem] tracking-[0.1em] uppercase ${
-                l().listed === "live"
-                  ? "bg-green-500/15 text-green-400"
-                  : "bg-surface/40 text-text-muted"
-              }`}
-            >
-              {l().listed}
-            </span>
-          )}
+          {(l) => <Chip tone={l().listed === "live" ? "live" : "neutral"}>{l().listed}</Chip>}
         </Show>
       </div>
 
-      {/* Loading state */}
       <Show when={listing.loading}>
-        <p
-          role="status"
-          class="font-body text-text-muted animate-pulse text-[0.88rem] tracking-[0.1em] uppercase"
-        >
-          Loading listing…
-        </p>
+        <Loading label="Loading listing…" />
       </Show>
 
-      {/* Error state */}
       <Show when={listing.error}>
-        <p
-          role="alert"
-          class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]"
-        >
+        <Notice tone="error" alert>
           Could not load your listing. Please refresh.
-        </p>
+        </Notice>
       </Show>
 
       {/* Form — rendered once seeded (includes empty-form case for new orgs) */}
       <Show when={!listing.loading && !listing.error && seeded()}>
         <form class="flex flex-col gap-5" noValidate onSubmit={handleSave}>
-          {/* Name */}
-          <label class="flex flex-col gap-1.5" for="listing-name">
-            <span class={labelClass}>
-              Name{" "}
-              <span aria-hidden="true" class="text-gold">
-                *
-              </span>
-            </span>
-            <input
-              id="listing-name"
-              type="text"
-              value={name()}
-              onInput={(e) => setName(e.currentTarget.value)}
-              required
-              aria-required="true"
-              maxLength={200}
-              autocomplete="off"
-              class={inputClass}
-            />
-          </label>
+          <Field
+            label={
+              <>
+                Name
+                <Required />
+              </>
+            }
+          >
+            {(field) => (
+              <Input
+                {...field}
+                value={name()}
+                onInput={(e) => setName(e.currentTarget.value)}
+                required
+                aria-required="true"
+                maxLength={200}
+                autocomplete="off"
+              />
+            )}
+          </Field>
 
-          {/* Categories */}
-          <fieldset class="flex flex-col gap-2">
-            <legend class={`${labelClass} mb-1`}>
-              Categories{" "}
-              <span aria-hidden="true" class="text-gold">
-                *
-              </span>
-              <span class="sr-only">(select at least one)</span>
-            </legend>
-            <div class="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
+          <Fieldset
+            legend={
+              <>
+                Categories
+                <Required />
+                <span class="sr-only"> — select at least one</span>
+              </>
+            }
+          >
+            {/* Intrinsic rather than `grid-cols-2 sm:grid-cols-3`: the label
+                lengths are what decide how many fit, not the viewport, and this
+                panel is narrower than the window on every screen. */}
+            <div class="auto-grid [--auto-grid-gap:0.5rem] [--auto-grid-min:11rem]">
               <For each={SERVICE_CATEGORIES}>
-                {(cat) => {
-                  const id = `cat-${cat.key}`;
-                  return (
-                    <label class="flex cursor-pointer items-center gap-2" for={id}>
-                      <input
-                        id={id}
-                        type="checkbox"
-                        checked={checked()[cat.key] ?? false}
-                        onChange={(e) => toggleCategory(cat.key, e.currentTarget.checked)}
-                        class="accent-gold h-4 w-4 cursor-pointer rounded"
-                      />
-                      <span class="font-body text-text text-[0.88rem]">
-                        {categoryLabel(cat.key)}
-                      </span>
-                    </label>
-                  );
-                }}
+                {(cat) => (
+                  <Checkbox
+                    checked={checked()[cat.key] ?? false}
+                    onChange={(next) => toggleCategory(cat.key, next)}
+                    label={categoryLabel(cat.key)}
+                  />
+                )}
               </For>
             </div>
-          </fieldset>
+          </Fieldset>
 
-          {/* Description */}
-          <label class="flex flex-col gap-1.5" for="listing-description">
-            <span class={labelClass}>Description</span>
-            <textarea
-              id="listing-description"
-              value={description()}
-              onInput={(e) => setDescription(e.currentTarget.value)}
-              rows={3}
-              maxLength={2000}
-              class={`${inputClass} resize-y`}
-            />
-          </label>
-
-          {/* Contact fields — 2-col grid */}
-          <div class="grid gap-4 sm:grid-cols-2">
-            <label class="flex flex-col gap-1.5" for="listing-email">
-              <span class={labelClass}>Email</span>
-              <input
-                id="listing-email"
-                type="email"
-                value={email()}
-                onInput={(e) => setEmail(e.currentTarget.value)}
-                autocomplete="off"
-                class={inputClass}
+          <Field label="Description" hint="Shown to couples browsing the directory.">
+            {(field) => (
+              <Textarea
+                {...field}
+                value={description()}
+                onInput={(e) => setDescription(e.currentTarget.value)}
+                rows={3}
+                maxLength={2000}
               />
-            </label>
+            )}
+          </Field>
 
-            <label class="flex flex-col gap-1.5" for="listing-phone">
-              <span class={labelClass}>Phone</span>
-              <input
-                id="listing-phone"
-                type="tel"
-                value={phone()}
-                onInput={(e) => setPhone(e.currentTarget.value)}
-                autocomplete="off"
-                class={inputClass}
-              />
-            </label>
+          <div class="auto-grid [--auto-grid-min:16rem]">
+            <Field label="Email">
+              {(field) => (
+                <Input
+                  {...field}
+                  type="email"
+                  value={email()}
+                  onInput={(e) => setEmail(e.currentTarget.value)}
+                  autocomplete="off"
+                />
+              )}
+            </Field>
 
-            <label class="flex flex-col gap-1.5" for="listing-website">
-              <span class={labelClass}>Website</span>
-              <input
-                id="listing-website"
-                type="url"
-                value={website()}
-                onInput={(e) => setWebsite(e.currentTarget.value)}
-                autocomplete="off"
-                class={inputClass}
-              />
-            </label>
+            <Field label="Phone">
+              {(field) => (
+                <Input
+                  {...field}
+                  type="tel"
+                  value={phone()}
+                  onInput={(e) => setPhone(e.currentTarget.value)}
+                  autocomplete="off"
+                />
+              )}
+            </Field>
 
-            <label class="flex flex-col gap-1.5" for="listing-instagram">
-              <span class={labelClass}>Instagram</span>
-              <input
-                id="listing-instagram"
-                type="text"
-                value={instagram()}
-                onInput={(e) => setInstagram(e.currentTarget.value)}
-                placeholder="@handle"
-                autocomplete="off"
-                class={inputClass}
-              />
-            </label>
+            <Field label="Website">
+              {(field) => (
+                <Input
+                  {...field}
+                  type="url"
+                  value={website()}
+                  onInput={(e) => setWebsite(e.currentTarget.value)}
+                  autocomplete="off"
+                />
+              )}
+            </Field>
+
+            <Field label="Instagram">
+              {(field) => (
+                <Input
+                  {...field}
+                  value={instagram()}
+                  onInput={(e) => setInstagram(e.currentTarget.value)}
+                  placeholder="@handle"
+                  autocomplete="off"
+                />
+              )}
+            </Field>
           </div>
 
-          {/* Location */}
-          <label class="flex flex-col gap-1.5" for="listing-location">
-            <span class={labelClass}>Location</span>
-            <input
-              id="listing-location"
-              type="text"
-              value={locationText()}
-              onInput={(e) => setLocationText(e.currentTarget.value)}
-              placeholder="e.g. Sydney, NSW"
-              autocomplete="off"
-              class={inputClass}
-            />
-          </label>
-
-          {/* Price band + min/max — 3-col grid */}
-          <div class="grid gap-4 sm:grid-cols-3">
-            <label class="flex flex-col gap-1.5" for="listing-price-band">
-              <span class={labelClass}>Price band</span>
-              <select
-                id="listing-price-band"
-                value={priceBand()}
-                onChange={(e) => setPriceBand(e.currentTarget.value)}
-                class={`${inputClass} cursor-pointer`}
-              >
-                <For each={PRICE_BANDS}>
-                  {(band) => <option value={band.value}>{band.label}</option>}
-                </For>
-              </select>
-            </label>
-
-            <label class="flex flex-col gap-1.5" for="listing-price-min">
-              <span class={labelClass}>Price min ($)</span>
-              <input
-                id="listing-price-min"
-                type="number"
-                min="0"
-                step="0.01"
-                value={priceMin()}
-                onInput={(e) => setPriceMin(e.currentTarget.value)}
-                placeholder="0.00"
-                class={inputClass}
+          <Field label="Location">
+            {(field) => (
+              <Input
+                {...field}
+                value={locationText()}
+                onInput={(e) => setLocationText(e.currentTarget.value)}
+                placeholder="e.g. Sydney, NSW"
+                autocomplete="off"
               />
-            </label>
+            )}
+          </Field>
 
-            <label class="flex flex-col gap-1.5" for="listing-price-max">
-              <span class={labelClass}>Price max ($)</span>
-              <input
-                id="listing-price-max"
-                type="number"
-                min="0"
-                step="0.01"
-                value={priceMax()}
-                onInput={(e) => setPriceMax(e.currentTarget.value)}
-                placeholder="0.00"
-                class={inputClass}
-              />
-            </label>
+          <div class="auto-grid [--auto-grid-min:11rem]">
+            <Field label="Price band">
+              {(field) => (
+                <Select
+                  {...field}
+                  value={priceBand()}
+                  onChange={(e) => setPriceBand(e.currentTarget.value)}
+                >
+                  <For each={PRICE_BANDS}>
+                    {(band) => <option value={band.value}>{band.label}</option>}
+                  </For>
+                </Select>
+              )}
+            </Field>
+
+            <Field label="Price min ($)">
+              {(field) => (
+                <Input
+                  {...field}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={priceMin()}
+                  onInput={(e) => setPriceMin(e.currentTarget.value)}
+                  placeholder="0.00"
+                />
+              )}
+            </Field>
+
+            <Field label="Price max ($)">
+              {(field) => (
+                <Input
+                  {...field}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={priceMax()}
+                  onInput={(e) => setPriceMax(e.currentTarget.value)}
+                  placeholder="0.00"
+                />
+              )}
+            </Field>
           </div>
 
-          {/* Save button */}
-          <button
-            type="submit"
-            disabled={saveDisabled()}
-            class="border-gold bg-gold font-body text-bg hover:bg-gold-dim self-start rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-          >
+          {/* The rejection, kept on screen. A toast is the notification; this is
+              the record of it, and it is what is still there when the vendor
+              looks back up from the field they were fixing. */}
+          <Show when={saveError()}>
+            {(message) => (
+              <Notice tone="error" alert>
+                {message()}
+              </Notice>
+            )}
+          </Show>
+
+          <Button type="submit" variant="primary" disabled={saveDisabled()} class="self-start">
             {saving() ? "Saving…" : "Save listing"}
-          </button>
+          </Button>
         </form>
       </Show>
-    </div>
+    </Card>
   );
 }

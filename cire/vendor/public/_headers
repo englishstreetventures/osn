@@ -5,7 +5,7 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Content-Security-Policy: frame-ancestors 'none'; object-src 'none'; base-uri 'self'
   Reporting-Endpoints: csp-endpoint="https://api.cireweddings.com/api/csp-report"
-  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-attr 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://api.cireweddings.com http://localhost:8787; connect-src 'self' https://api.cireweddings.com http://localhost:8787; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://api.cireweddings.com http://localhost:8787; connect-src 'self' https://api.cireweddings.com http://localhost:8787; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
 
 /claim*
   Referrer-Policy: no-referrer
@@ -17,17 +17,46 @@
 # real-browser pass over sign-in, the claim link and the enquiry list comes back
 # clean. Flip the header name to `Content-Security-Policy` then.
 #
-# Differences from `cire/organiser/public/_headers`, all audited from source:
-#   - Google Fonts stay in `style-src`/`font-src`: the three page shells still
-#     <link> the Cormorant + Lato stylesheet. The organiser self-hosts its faces
-#     (`fontProviders.google()` at build time) and needs neither origin. Self-
-#     host here too and both entries go.
-#   - No `blob:` in `img-src`: no cropper, no object URLs, no <img> at all today
-#     (`data:` is kept for inline SVG data URIs).
+# GOOGLE FONTS ARE GONE from `style-src` and `font-src`, and that is a source
+# change rather than a tightening on a guess: `astro.config.mjs` now downloads
+# Schibsted Grotesk and Cormorant Garamond at build time via
+# `fontProviders.google()`, and none of the three page shells links
+# fonts.googleapis.com any more. The comment that stood here said "self-host
+# here too and both entries go" — this is that. It matters most on `/claim`,
+# which is opened straight from an emailed invite: that page used to tell Google
+# about every vendor who followed the link, before rendering a word.
+#
+# `script-src 'unsafe-inline'` is now load-bearing rather than incidental: the
+# theme-boot script (`THEME_BOOT_SCRIPT`) is `is:inline` on all three shells so
+# it can run before first paint, and an inline script cannot be an external
+# hashed file. Astro's island bootstrap is external `/_astro/*` and covered
+# by 'self'.
+#
+# Other differences from `cire/organiser/public/_headers`, audited from source:
+#   - No `blob:` in `img-src`: no cropper, no object URLs (`data:` is kept for
+#     inline SVG data URIs).
 #   - `connect-src` is cire-api only. Sign-in is a top-level redirect through
 #     cire/api's OIDC leg and account management links out to musubi — both
 #     navigations, which no `connect-src` governs. The localhost entry keeps a
 #     local `wrangler pages dev dist` pointed at a local API.
+#
+# On avatars: `ProfileMenu` renders the OIDC `picture` claim, which can point at
+# ANY https host — it is unvalidated at every hop between osn-api and here, so
+# the sink (`AccountAvatar.httpsAvatarUrl`) is what enforces the scheme.
+#
+# The `img-src` above does NOT currently restrain it, and it is worth being
+# precise about why, because the organiser's copy of this comment reads as
+# though it does. `img-src` lives only on the REPORT-ONLY line; the enforced
+# header carries `frame-ancestors`, `object-src` and `base-uri` and nothing
+# else. So the allowlist is **staged, not active**: today it would only file a
+# violation report, not block the request.
+#
+# That is fine while nothing populates the claim — osn-api writes `avatarUrl`
+# null on registration and on erasure, and has no update path — but it is the
+# thing to fix *before* OSN ships avatar hosting, or the portal starts issuing
+# a request to a user-named host on every page load, carrying the vendor's IP
+# and a `strict-origin-when-cross-origin` Referer. Bind promoting this policy to
+# enforcement to that milestone, and add the avatar host here at the same time.
 #
 # The `/claim*` rule above only overrides `Referrer-Policy` (a claim token rides
 # in the URL); Cloudflare merges the rules, so that path keeps both CSP headers.

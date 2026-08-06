@@ -433,3 +433,75 @@ replaced compiled to a static attribute — about 2 ms extra render on a 150-gue
 site varies either prop today. **Deliberately not done:** a primitive whose `class` silently stops tracking is
 a trap for the next caller, and the guest table is the only row-unbounded surface in the portal. If it ever
 measures as a problem the fix is a `<For>`-level one, not a per-cell one.
+
+**Vendor portal redesign (`claude/cire-vendor-portal-redesign-9tdbul`) — performance review (2026-08-06).**
+The reviewer measured the branch rather than reasoning about it: it built `main` and the branch, diffed the
+emitted chunk graph, and sized each dependency in an isolated esbuild bundle. **VP-P-W4 was fixed on the
+branch**; the rest are queued below.
+
+- [x] **VP-P-W4** (fixed on branch) — **Kobalte was eager on the dashboard's critical path.** `ProfileMenu`
+  statically imported `@kobalte/core/dropdown-menu` — **85.8 KB raw / 28.6 KB gzip**, and roughly 80% of the
+  `+35.7 KB gz` the dashboard bundle grew by — for a menu most sessions never open. It is the package's
+  *only* Kobalte consumer (`grep -c kobalte` over `main`'s chunks = 0), so the branch would have converted a
+  free `package.json` listing into a real download on a `client:only` island, where nothing renders until the
+  whole graph has downloaded and executed. This is the clearest case of something that reads as a straight
+  port but is not one: `cire/organiser` already has Kobalte in its graph for dialogs, the command palette and
+  the nav sheet, so the same component is free there and is the whole cost here. Now `lazy()`, behind an
+  `AccountAvatar` placeholder that shares the trigger's class and contents so the swap moves nothing, warmed
+  on idle and again on pointer-enter/focus, with a click routed through `autoOpen` so a press that lands
+  first is not swallowed. Two things fell out of writing it: the Suspense fallback had to be the *button*
+  (a non-focusable fallback drops a keyboard user's focus to `<body>` mid-interaction), and `autoOpen` has to
+  fire a frame after mount or Kobalte's dismissable layer reads the opening click as an interaction outside
+  itself and closes again.
+
+- [ ] **VP-P-W5 / VP-S-L5** — **a failed build-time font fetch degrades silently instead of failing the
+  build.** `astro.config.mjs` makes `GET https://fonts.google.com/metadata/fonts` a hard dependency of
+  `bun run build`. Reproduced: when it 403s, Astro logs two `No data found for font family …` warnings, emits
+  an **empty** `dist/_astro/fonts/`, **zero** `@font-face` rules and **zero** preloads, sets
+  `--font-ui: "Schibsted Grotesk-<hash>", system-ui` — a family nothing defines — and **exits 0**.
+  `deploy.yml`'s `deploy-cire-vendor` runs `build` then `wrangler pages deploy dist` with nothing in between,
+  so that artefact ships: the redesign's whole typographic layer gone, on a green CI run, with no alert. Fix:
+  assert after build that `dist/_astro/fonts/` is non-empty (or that the emitted CSS contains an
+  `@font-face`) and fail if not. **Applies to `@cire/organiser` too** — same unguarded pattern, so write the
+  guard once and apply it to both. Also worth adding `node_modules/.astro` to the CI cache path; the current
+  key covers only `~/.bun/install/cache`, so every deploy re-downloads both families.
+
+- [ ] **VP-P-W6** — **`<Font preload />` preloads every subset, forcing `latin-ext` past its own
+  `unicode-range`.** Partly fixed on this branch: all three vendor shells now pass
+  `preload={[{ subset: "latin" }]}`. A subsetted `@font-face` carries a `unicode-range` and is only fetched
+  when the page uses a codepoint in it, but `<link rel=preload as=font>` bypasses `unicode-range` entirely
+  and fetches unconditionally at the top priority band — so bare `preload` guaranteed a download of two files
+  the portal never renders a glyph from. **`@cire/organiser` still has the bare form and is worse** (its
+  Cormorant ships `normal` *and* `italic`, so it emits 6 preloads to vendor's former 4).
+
+- [ ] **VP-P-I5** — **the auto-size `ResizeObserver` spans a user-resizable `<textarea>`, and the reflow
+  guard only keys on width.** `ListingEditor`'s description box is `resize-y` inside `VendorApp`'s
+  `createAutoSize()` frame. Dragging its grip changes height continuously *at a fixed width*, and
+  `apply()`'s guard is `lastWidth !== width` — so a fixed-width drag reads as a content swap: every observer
+  delivery within the 480px cap sets `overflow: hidden`, `contain: layout paint` and a fresh 200ms transition
+  it never finishes, forcing a synchronous `getBoundingClientRect()` per frame. Exactly the failure
+  `auto-size.ts`'s own "A reflow is not a change of content" section was written to prevent, arriving through
+  the one axis the guard does not watch. Narrow fix: `resize-none` on a textarea inside an auto-sized panel.
+  **Inherited, not introduced** — `lib/auto-size.ts` is byte-identical to the organiser's, and the organiser's
+  `Textarea` is `resize-y` inside `ModuleShell`'s auto-sized panel too.
+
+- [ ] **VP-P-I6** — **no `Cache-Control` for `/_astro/*` now that the fonts are first-party.** They
+  previously came from `fonts.gstatic.com` with `max-age=31536000, immutable`; moving them to our origin
+  without an equivalent header trades a guaranteed year-long cache for whatever Pages defaults to. Every path
+  under `/_astro/` is content-hashed, so `immutable` is unconditionally safe. Verify the current default with
+  a `curl -I` against the deployed origin first. **Same gap in `@cire/organiser`.**
+
+- [ ] **VP-P-I7** — **`ListingEditor`'s comment overstates the per-row isolation of the category
+  checkboxes.** It claims toggling one key "only re-runs the expression for that checkbox (VP-P-W1)", citing
+  a closed finding as evidence. It is one signal holding one object with default reference equality and
+  `toggleCategory` spreads a fresh one, so all 14 rows recompute on every toggle. The cost is 14 boolean
+  reads — nothing — so the *comment* is what should change, not the code. Unchanged from `main`; the branch
+  only reformatted the surrounding JSX.
+
+Checked and clean, worth recording so it is not re-litigated: `@theme static` costs **910 B raw / ~150 B gz**
+over plain `@theme` (measured by rebuilding both ways) — the CSS growth is the two ramps, not the directive;
+the keyed panel `<Show>` refetches on exactly the same transitions `main` already unmounted on, so the fetch
+count is unchanged; `sliding-pill` shares one `ResizeObserver` across track and items with per-element
+`unobserve` on cleanup and a `samePlace()` bail-out; `auto-size` filters `transitionend` to its own frame's
+height and carries an 800ms backstop so a frame torn out mid-move cannot be stranded; and `web-haptics` is
+**2.3 KB gz**, lazily instantiated behind a `typeof document` guard.

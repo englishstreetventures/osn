@@ -98,4 +98,31 @@ describe("VendorEnquiryInbox", () => {
     // Check that a currency-formatted amount is shown (contains "2,500" or "2500")
     expect(screen.getByText(/2[,.]?500/)).toBeInTheDocument();
   });
+
+  // ── Relative age (T-U3) ─────────────────────────────────────────────────────
+
+  it("never renders a negative age when the server clock runs ahead", async () => {
+    // `lastMessageAt` and `Date.now()` come from two different clocks. A message
+    // written a second ago on a machine whose clock is a minute fast used to
+    // render as "-1m ago".
+    mockListEnquiries.mockResolvedValue([{ ...baseItem, lastMessageAt: Date.now() + 90_000 }]);
+    render(() => <VendorEnquiryInbox onOpen={vi.fn()} />);
+
+    const age = await screen.findByText(/ago$/);
+    expect(age).toHaveTextContent("0m ago");
+  });
+
+  it("formats the three bands it has", async () => {
+    for (const [offsetMs, expected] of [
+      [5 * 60_000, "5m ago"],
+      [3 * 3600_000, "3h ago"],
+      [6 * 86_400_000, "6d ago"],
+    ] as const) {
+      mockListEnquiries.mockResolvedValue([{ ...baseItem, lastMessageAt: Date.now() - offsetMs }]);
+      const { unmount } = render(() => <VendorEnquiryInbox onOpen={vi.fn()} />);
+      const age = await screen.findByText(/ago$/);
+      expect({ expected, got: age.textContent }).toEqual({ expected, got: expected });
+      unmount();
+    }
+  });
 });

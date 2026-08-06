@@ -3,31 +3,44 @@ import { createResource, For, Show } from "solid-js";
 
 import { listEnquiries, type VendorEnquiryListItem } from "../lib/enquiries-store";
 import { categoryLabel } from "../lib/service-categories";
+import { cardClass } from "./ui/Card";
+import Chip, { type ChipTone } from "./ui/Chip";
+import EmptyState from "./ui/EmptyState";
+import Loading from "./ui/Loading";
+import Notice from "./ui/Notice";
 
-// ── Tailwind class constants (mirrors vendor portal idiom) ─────────────────
-const labelClass = "font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase";
-
-// Status chip colour map
-function statusChipClass(status: VendorEnquiryListItem["status"]): string {
+/**
+ * A status, as a tone.
+ *
+ * The old map reached straight for the raw Tailwind palette —
+ * `bg-blue-500/10 text-blue-400` for "quoted" — which is a fixed sRGB pair that
+ * does not move when the theme flips. On the light ramp it was a bright blue
+ * smear. These are ramp tones, so they re-point with everything else.
+ */
+function statusTone(status: VendorEnquiryListItem["status"]): ChipTone {
   switch (status) {
     case "open":
-      return "bg-gold/10 text-gold";
+      return "active";
     case "quoted":
-      return "bg-blue-500/10 text-blue-400";
+      return "quoted";
     case "closed":
-      return "bg-surface/40 text-text-muted";
+      return "neutral";
   }
 }
 
-// Short relative date (e.g. "2 h ago", "3 d ago")
+/**
+ * Short relative age: "4m ago", "3h ago", "6d ago".
+ *
+ * Clamped at zero. `Date.now()` and the server's `lastMessageAt` come from two
+ * different clocks, so a message written a second ago on a machine whose clock
+ * is a minute slow used to render as "-1m ago".
+ */
 function shortDate(epochMs: number): string {
-  const diffMs = Date.now() - epochMs;
-  const diffMins = Math.floor(diffMs / 60_000);
+  const diffMins = Math.max(0, Math.floor((Date.now() - epochMs) / 60_000));
   if (diffMins < 60) return `${diffMins}m ago`;
   const diffHours = Math.floor(diffMins / 60);
   if (diffHours < 24) return `${diffHours}h ago`;
-  const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d ago`;
+  return `${Math.floor(diffHours / 24)}d ago`;
 }
 
 interface VendorEnquiryInboxProps {
@@ -44,70 +57,64 @@ export default function VendorEnquiryInbox(props: VendorEnquiryInboxProps) {
 
   return (
     <div class="flex flex-col gap-4">
-      {/* Header */}
-      <div>
-        <p class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">Enquiries</p>
-        <h2 class="text-text font-body mt-0.5 text-[1.05rem] font-medium">Your inbox</h2>
+      <div class="flex flex-col gap-0.5">
+        <p class="font-body text-gold text-[0.7rem] tracking-[0.18em] uppercase">Enquiries</p>
+        <h2 class="font-display text-text text-[1.4rem] leading-tight font-light">Your inbox</h2>
       </div>
 
-      {/* Loading */}
       <Show when={rows.loading}>
-        <p
-          role="status"
-          class="font-body text-text-muted animate-pulse text-[0.88rem] tracking-[0.1em] uppercase"
-        >
-          Loading enquiries…
-        </p>
+        <Loading label="Loading enquiries…" />
       </Show>
 
-      {/* Error */}
       <Show when={rows.error}>
-        <p
-          role="alert"
-          class="border-error/40 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]"
-        >
+        <Notice tone="error" alert>
           Could not load enquiries. Please refresh.
-        </p>
+        </Notice>
       </Show>
 
-      {/* Empty state */}
       <Show when={!rows.loading && !rows.error && (rows()?.length ?? 0) === 0}>
-        <p class="text-text-muted font-body text-[0.9rem]">No enquiries yet.</p>
+        <EmptyState
+          title="No enquiries yet"
+          description="When a couple asks about one of your listings, their message lands here."
+        />
       </Show>
 
-      {/* Row list */}
       <Show when={!rows.loading && !rows.error && (rows()?.length ?? 0) > 0}>
-        <ul class="flex flex-col gap-2">
+        <ul class="flex list-none flex-col gap-2 p-0">
           <For each={rows()}>
             {(item) => (
               <li>
                 <button
                   type="button"
                   onClick={() => props.onOpen(item.id)}
-                  class="border-border bg-surface/30 hover:bg-surface/50 flex w-full flex-col gap-1 rounded-sm border px-4 py-3 text-left transition-colors"
+                  class={`${cardClass({ interactive: true })} w-full gap-1.5 p-4`}
                   aria-label={`${item.weddingName} – ${categoryLabel(item.category)}`}
                 >
-                  {/* Primary row: couple name + status chip */}
                   <div class="flex items-center justify-between gap-3">
-                    <span class="text-text font-body font-medium">{item.weddingName}</span>
-                    <span
-                      class={`font-body rounded-full px-2 py-0.5 text-[0.68rem] tracking-[0.1em] uppercase ${statusChipClass(item.status)}`}
-                    >
-                      {item.status}
+                    <span class="font-body text-text min-w-0 truncate font-medium">
+                      {item.weddingName}
                     </span>
+                    <Chip tone={statusTone(item.status)}>{item.status}</Chip>
                   </div>
 
-                  {/* Secondary row: category + quote + date */}
-                  <div class="flex items-center gap-3">
-                    <span class={labelClass}>{categoryLabel(item.category)}</span>
+                  <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
+                      {categoryLabel(item.category)}
+                    </span>
                     <Show when={item.quotedMinor != null}>
-                      <span class="text-gold font-body text-[0.78rem]">
+                      <span class="font-body text-gold-ink text-[0.78rem] tabular-nums">
                         {aud.format(item.quotedMinor! / 100)}
                       </span>
                     </Show>
-                    <span class="text-text-muted font-body ml-auto text-[0.72rem]">
+                    {/* A machine-readable timestamp under the human one: "6d
+                        ago" is unreadable out of context, and a `<time>` is what
+                        gives the exact moment to anything that wants it. */}
+                    <time
+                      datetime={new Date(item.lastMessageAt).toISOString()}
+                      class="font-body text-text-muted ml-auto text-[0.72rem]"
+                    >
                       {shortDate(item.lastMessageAt)}
-                    </span>
+                    </time>
                   </div>
                 </button>
               </li>

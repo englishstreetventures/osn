@@ -67,12 +67,16 @@ describe("OrgPicker", () => {
   it("shows the OSN empty-state (no create form) when the caller has no organisations", async () => {
     vi.spyOn(store, "listMyOrgs").mockResolvedValue([]);
     renderPicker();
-    await waitFor(() =>
-      expect(
-        screen.getByText(/no organisations are associated with your account/i),
-      ).toBeInTheDocument(),
-    );
-    expect(screen.getByText(/create one in your OSN account/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/no organisations yet/i)).toBeInTheDocument());
+    expect(screen.getByText(/vendors publish through an OSN organisation/i)).toBeInTheDocument();
+
+    // The empty state names its own exit AND opens it. It used to say "create
+    // one in your OSN account, then return here" with nothing to click.
+    const out = screen.getByRole("link", { name: /create one in musubi/i });
+    expect(out).toHaveAttribute("href", expect.stringContaining("/settings/organisations"));
+    // A new tab reached from our origin must not be handed `window.opener`.
+    expect(out).toHaveAttribute("rel", expect.stringContaining("noopener"));
+
     // The portal must NOT offer org creation itself — that lives in OSN.
     expect(screen.queryByLabelText(/handle/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /create organisation/i })).not.toBeInTheDocument();

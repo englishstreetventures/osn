@@ -173,7 +173,7 @@ The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS
 | Screen | Path | Description |
 |---|---|---|
 | Sign-in | `/` (unauthenticated) | One button. `SignInPanel` calls `startSignIn` from `@shared/rp-auth` — a top-level navigation to cire-api's `/api/auth/oidc/start` — and the passkey ceremony happens on musubi's own origin. A second "Create account with musubi" button (`startCreateAccount`, the same call plus `prompt=create`) was removed 2026-08-06: only the issuer knows whether this person already has an account, its sign-in screen carries its own "No account yet? Create one", and asking here just made cire guess. On mount the panel also calls `resumeSession`, which asks `GET /api/auth/session` behind the rendered page and sends a vendor who still holds a cire session to the dashboard — the button shows either way |
-| Org picker | `/` (authenticated, no listing) | `OrgPicker` island — lists the vendor's existing OSN orgs; on pick, transitions to the listing editor. **The portal does NOT create organisations** — an org is an OSN account-level entity created in the OSN app. A vendor with no org sees an empty-state ("No organisations are associated with your account… create one in your OSN account") and must create one in OSN first. _Follow-up: once the OSN org-management surface is deployed to a reachable URL, the empty-state becomes a link to it — tracked in [[todo/platform]]._ |
+| Org picker | `/` (authenticated, no listing) | `OrgPicker` island — lists the vendor's existing OSN orgs; on pick, transitions to the listing editor. **The portal does NOT create organisations** — an org is an OSN account-level entity created in the OSN app. A vendor with no org sees an `EmptyState` and must create one in musubi first. _Follow-up closed 2026-08-06:_ the empty state is now a **link** to `PUBLIC_OSN_ACCOUNT_URL`/settings/organisations, not two paragraphs of instructions with nothing to click. |
 | Listing editor | `/` (authenticated, listing found) | `ListingEditor` island — loads the vendor's directory listing via `GET /api/vendor/listing` and lets them update name, description, category, website URL; saves via `PUT /api/vendor/listing` |
 | Claim landing | `/claim` | `ClaimApp` island — renders a claim preview (listing name + organiser) from `GET /api/vendor/claim/preview?token=<raw>`; on "Accept" calls `POST /api/vendor/claim` with the raw token + selected org id; strips the token from the URL via `history.replaceState` immediately on mount (**token-strip**) |
 
@@ -183,6 +183,39 @@ The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS
 - **cire-api** — `/api/vendor/*` routes gated by `osnAuth()` plus an inline ARC org-membership check. Called via the `authFetch` from `@shared/rp-auth`, which sends `credentials: "include"`. Cross-origin (portal → `api.cireweddings.com`), so cire-api's `WEB_ORIGIN` must include `vendor.cireweddings.com`.
 
 `vendor.cireweddings.com` stays in osn-api's `OSN_CORS_ORIGIN` for now but no longer earns its place; pruning is tracked in `[[wiki/runbooks/production-deploy]]`. It is **not** in `OSN_ORIGIN` — that list is the WebAuthn expected-origin allowlist, and with the RP ID on `musubi.social` a ceremony from a cireweddings.com host is illegal whatever the list says.
+
+### Look and feel
+
+**Redesigned 2026-08-06**, bringing across the host-portal work of #372–#378.
+The portal now shares `cire/organiser`'s design system: the two OKLCH ramps
+(dark default, light via both `prefers-color-scheme` and an explicit
+`data-theme`), self-hosted Schibsted Grotesk + Cormorant Garamond, the shared
+`ui/` primitives, and one sticky top bar in place of the old masthead-plus-nav-row.
+
+The deltas — narrower measure, no italic, a three-name haptics vocabulary,
+`cire.vendor.*` storage keys, a two-tab strip instead of a command palette, and
+account management as a link out rather than an in-portal panel — are recorded
+in **`cire/vendor/DESIGN.md`**, which is deliberately a delta document: the
+system itself lives in `cire/organiser/DESIGN.md`.
+
+The ramps are **copied, not imported** (a cross-package CSS import would make
+Tailwind scan the other package's source). `cire/vendor/src/styles/tokens.test.ts`
+reads both stylesheets and fails on any drift between them, on top of asserting
+the contrast contract.
+
+Two consequences worth knowing about outside the portal:
+
+- **The redesign is type-checked.** `astro check` reaching this package is
+  *not* this branch's doing — `cire-vendor-type-check` landed it independently
+  on main, along with fixes for the six errors it had been hiding. This branch
+  arrived at the same script and (bar one) the same fixes in parallel, which is
+  its own small argument that the gate was overdue. What the branch adds is a
+  much larger surface for it to check: 53 files, 0 errors.
+- **The CSP lost both Google Fonts origins.** `style-src` and `font-src` are
+  `'self'` now that the faces are self-hosted, which the `_headers` comment had
+  been anticipating. It matters most on `/claim`, opened straight from an
+  emailed invite: that page used to tell Google about every vendor who followed
+  a link, before rendering a word.
 
 ### Token-stripping + Referrer-Policy
 

@@ -3,23 +3,18 @@ import { createEffect, createSignal, onCleanup, onMount, type ParentProps, Show 
 import { Toaster } from "solid-toast";
 
 import { redirectToLogin } from "../lib/api";
+import { createAutoSize } from "../lib/auto-size";
 import { CIRE_API_URL } from "../lib/osn";
+import { initTheme } from "../lib/theme";
 import type { OrgSummary } from "../lib/vendor-store";
 import ListingEditor from "./ListingEditor";
 import OrgPicker from "./OrgPicker";
+import TopBar from "./TopBar";
+import Button from "./ui/Button";
+import Loading from "./ui/Loading";
 import VendorEnquiryInbox from "./VendorEnquiryInbox";
 import VendorEnquiryThread from "./VendorEnquiryThread";
-
-function Loading(props: { label: string }) {
-  return (
-    <p
-      role="status"
-      class="font-body text-text-muted animate-pulse text-[0.88rem] tracking-[0.1em] uppercase"
-    >
-      {props.label}
-    </p>
-  );
-}
+import type { VendorView } from "./ViewTabs";
 
 /**
  * Gate: session() is undefined while the SDK restores the session, null
@@ -33,7 +28,14 @@ function RequireAuth(props: ParentProps) {
   });
 
   return (
-    <Show when={session()} fallback={<Loading label="Checking session…" />}>
+    <Show
+      when={session()}
+      fallback={
+        <div class="page-frame py-16">
+          <Loading label="Checking session…" />
+        </div>
+      }
+    >
       {props.children}
     </Show>
   );
@@ -60,16 +62,16 @@ function clearOrgHash() {
 }
 
 /** Derive the initial view from the hash on first paint. */
-function initialView(): "listings" | "enquiries" {
+function initialView(): VendorView {
   if (typeof window === "undefined") return "listings";
   return window.location.hash === "#/enquiries" ? "enquiries" : "listings";
 }
 
 function Dashboard() {
-  const { logout, activeProfileId } = useAuth();
+  const { logout, activeProfileId, session } = useAuth();
 
   // ── View toggle (account-level: "listings" | "enquiries") ────────────────
-  const [view, setView] = createSignal<"listings" | "enquiries">(initialView());
+  const [view, setView] = createSignal<VendorView>(initialView());
 
   // Selected enquiry id — null when the inbox is shown; set to render the thread.
   const [selectedEnquiryId, setSelectedEnquiryId] = createSignal<string | null>(null);
@@ -87,6 +89,11 @@ function Dashboard() {
     setView("listings");
     setSelectedEnquiryId(null);
     clearOrgHash();
+  }
+
+  function goView(next: VendorView) {
+    if (next === "enquiries") goEnquiries();
+    else goListings();
   }
 
   // ── Org selection (listings view) ─────────────────────────────────────────
@@ -148,84 +155,99 @@ function Dashboard() {
     redirectToLogin();
   }
 
-  // Shared top-bar button base classes
-  const navBtnBase =
-    "font-body text-[0.82rem] tracking-[0.1em] uppercase underline-offset-4 transition hover:underline";
+  // The design law: the panel keeps its box and animates to the new content's
+  // height, so nothing in the chrome above it moves when a view is swapped.
+  // The frame holds no height at rest — see `lib/auto-size.ts`.
+  const panel = createAutoSize();
+
+  // What the panel is currently showing, as one value. The key on the inner
+  // `panel-in` box: change it and the fade replays, leave it and it does not.
+  // Selecting an org or opening an enquiry is a content swap like any other, so
+  // both are in the key.
+  const panelKey = () =>
+    view() === "enquiries"
+      ? `enquiries:${selectedEnquiryId() ?? "inbox"}`
+      : `listings:${selectedOrg()?.id ?? "picker"}`;
 
   return (
-    <div class="flex flex-col gap-8">
-      {/* Top bar */}
-      <div class="flex flex-wrap items-center justify-between gap-4">
-        {/* Back to all orgs — only visible in listings view when an org is selected */}
-        <Show when={view() === "listings" && selectedOrg()}>
-          <button
-            type="button"
-            onClick={() => clearSelection()}
-            class={`${navBtnBase} text-text-muted hover:text-gold self-start`}
-          >
-            ← All organisations
-          </button>
-        </Show>
+    <>
+      <TopBar
+        session={session()}
+        view={view()}
+        onView={goView}
+        onHome={goListings}
+        onSignOut={() => void signOut()}
+      />
 
-        {/* Right-side controls: view toggle + sign out */}
-        <div class="ml-auto flex items-center gap-4">
-          {/* Listings / Enquiries toggle */}
-          <button
-            type="button"
-            onClick={() => goListings()}
-            class={`${navBtnBase} ${view() === "listings" ? "text-gold" : "text-text-muted hover:text-gold"}`}
-          >
-            Listings
-          </button>
-          <button
-            type="button"
-            onClick={() => goEnquiries()}
-            class={`${navBtnBase} ${view() === "enquiries" ? "text-gold" : "text-text-muted hover:text-gold"}`}
-          >
-            Enquiries
-          </button>
+      <main class="page-frame py-8 @2xl/frame:py-10">
+        <div ref={panel.frame}>
+          {/* `flow-root` so a child's top margin cannot escape the measured box
+              and change the height depending on whether the frame was clipped
+              at the time. */}
+          <div ref={panel.content} class="flow-root">
+            <Show when={panelKey()} keyed>
+              {(key: string) => (
+                <div class="panel-in" data-panel={key}>
+                  {/* ── Listings view ── */}
+                  <Show when={view() === "listings"}>
+                    <Show
+                      when={selectedOrg()}
+                      fallback={<OrgPicker onPick={(o) => selectAndHash(o)} />}
+                    >
+                      {(o) => (
+                        <div class="flex flex-col gap-4">
+                          <Button
+                            variant="quiet"
+                            size="sm"
+                            onClick={() => clearSelection()}
+                            class="self-start"
+                          >
+                            ← All organisations
+                          </Button>
+                          <ListingEditor orgId={o().id} orgName={o().name} />
+                        </div>
+                      )}
+                    </Show>
+                  </Show>
 
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            class={`${navBtnBase} text-text-muted hover:text-gold`}
-          >
-            Sign out
-          </button>
+                  {/* ── Enquiries view ── */}
+                  <Show when={view() === "enquiries"}>
+                    <Show
+                      when={selectedEnquiryId()}
+                      fallback={<VendorEnquiryInbox onOpen={setSelectedEnquiryId} />}
+                    >
+                      {(id) => (
+                        <VendorEnquiryThread
+                          enquiryId={id()}
+                          ownProfileId={activeProfileId() ?? ""}
+                          onBack={() => setSelectedEnquiryId(null)}
+                        />
+                      )}
+                    </Show>
+                  </Show>
+                </div>
+              )}
+            </Show>
+          </div>
         </div>
-      </div>
-
-      {/* ── Listings view ── */}
-      <Show when={view() === "listings"}>
-        <Show when={selectedOrg()} fallback={<OrgPicker onPick={(o) => selectAndHash(o)} />}>
-          {(o) => <ListingEditor orgId={o().id} orgName={o().name} />}
-        </Show>
-      </Show>
-
-      {/* ── Enquiries view ── */}
-      <Show when={view() === "enquiries"}>
-        <Show
-          when={selectedEnquiryId()}
-          fallback={<VendorEnquiryInbox onOpen={setSelectedEnquiryId} />}
-        >
-          {(id) => (
-            <VendorEnquiryThread
-              enquiryId={id()}
-              ownProfileId={activeProfileId() ?? ""}
-              onBack={() => setSelectedEnquiryId(null)}
-            />
-          )}
-        </Show>
-      </Show>
-    </div>
+      </main>
+    </>
   );
 }
 
 /**
  * Single root island for the vendor dashboard page. AuthProvider wraps
  * everything so all nested components share the same auth context.
+ *
+ * The island owns the chrome and `<main>`, rather than being dropped into a
+ * masthead the `.astro` page built. One row of chrome, and the island is what
+ * knows which view is open — so the bar and the panel cannot disagree.
  */
 export default function VendorApp() {
+  // Keep following the OS after the boot script's one-shot resolution: a vendor
+  // on "system" whose machine flips at sunset sees the portal flip with it.
+  onMount(() => onCleanup(initTheme()));
+
   return (
     <AuthProvider config={{ apiBase: CIRE_API_URL }}>
       <RequireAuth>

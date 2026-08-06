@@ -1,28 +1,38 @@
 ---
+import { Font } from 'astro:assets'
+
 import '../styles/global.css'
 import SignInPanel from '../components/SignInPanel'
+import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
 ---
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Login — Vendor — Cire</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
+    <title>Sign in — Vendor — Cire</title>
+    <script is:inline set:html={THEME_BOOT_SCRIPT}></script>
+    <Font cssVariable="--font-ui" preload={[{ subset: "latin" }]} />
+    <Font cssVariable="--font-flair" preload={[{ subset: "latin" }]} />
   </head>
-  <body>
-    <main class="mx-auto max-w-[480px] px-8 py-24">
-      <header class="mb-8 flex flex-col gap-2 text-center">
-        <p class="font-body text-[0.72rem] uppercase tracking-[0.2em] text-gold">
-          Vendor Portal
-        </p>
-        <h1 class="font-display text-[clamp(1.8rem,4vw,2.5rem)] font-light italic leading-[1.1] text-text">
-          Login
+  <!--
+    No island owns this page's chrome, so the theme is whatever the boot script
+    resolved. That is the whole of it: there is nothing here to keep in sync
+    with an OS that flips mid-session, and the one control that would change it
+    lives behind the sign-in this page exists to get past.
+
+    `--page-max` is the knob `page-frame` reads. A sign-in card at the portal's
+    full measure is a 68rem-wide box holding two buttons.
+  -->
+  <body class="@container/frame">
+    <main class="page-frame flex min-h-dvh flex-col justify-center py-16 [--page-max:26rem]">
+      <header class="mb-8 flex flex-col gap-1.5 text-center">
+        <p class="font-body text-gold text-[0.7rem] tracking-[0.18em] uppercase">Vendor Portal</p>
+        <h1 class="font-display text-text text-[clamp(1.9rem,5cqi,2.6rem)] leading-[1.1] font-light">
+          Sign in
         </h1>
       </header>
-      <div class="rounded-sm border border-border bg-surface p-8">
+      <div class="border-border bg-surface/30 lip rounded-sm border p-8">
         <SignInPanel client:only="solid-js" />
       </div>
     </main>

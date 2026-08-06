@@ -119,4 +119,37 @@ describe("ListingEditor", () => {
       ),
     );
   });
+
+  // ── The save-error record (T-U2) ────────────────────────────────────────────
+
+  it("keeps a rejected save on the surface, not only in a toast", async () => {
+    vi.spyOn(store, "fetchListing").mockResolvedValue(listing());
+    vi.spyOn(store, "putListing").mockRejectedValue(new Error("not_org_member"));
+    renderEditor();
+
+    await waitFor(() => expect(screen.getByLabelText(/^name/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /save listing/i }));
+
+    // A toast is the notification; this is the record of it — what is still
+    // there when the vendor looks back up from the field they were fixing.
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/don't have access to that organisation/i);
+  });
+
+  it("clears the previous rejection when the next save succeeds", async () => {
+    vi.spyOn(store, "fetchListing").mockResolvedValue(listing());
+    const put = vi.spyOn(store, "putListing").mockRejectedValue(new Error("not_org_member"));
+    renderEditor();
+
+    await waitFor(() => expect(screen.getByLabelText(/^name/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /save listing/i }));
+    await screen.findByRole("alert");
+
+    put.mockResolvedValue(listing());
+    fireEvent.click(screen.getByRole("button", { name: /save listing/i }));
+
+    // Both directions of the signal: a stale error left on screen after a
+    // successful save is its own bug.
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+  });
 });
