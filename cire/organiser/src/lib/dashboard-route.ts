@@ -10,7 +10,7 @@
  *   #/w/<weddingId>/<module>/<sub>          → that wedding + a module + a sub-view
  *   #/security                              → the account-security view
  *
- * `<module>` is one of overview | guests | schedule | invite | settings, and each
+ * `<module>` is one of overview | guests | events | invite | settings, and each
  * module carries an optional `<sub>` (e.g. `guests/rsvps`, `invite/codes`,
  * `settings/hosts`). Deeper sub-state (open modals, a selected row) is
  * intentionally NOT deep-linked yet — see the wiki.
@@ -22,11 +22,11 @@
  */
 
 /** The module a wedding dashboard can be showing. Order = sidebar order:
- *  land on Overview, then the day (Schedule) → the people (Guests) → the invite
+ *  land on Overview, then the day (Events) → the people (Guests) → the invite
  *  → housekeeping (Settings). */
 export const MODULES = [
   "overview",
-  "schedule",
+  "events",
   "checklist",
   "budget",
   "vendors",
@@ -47,14 +47,16 @@ export function isModule(value: string): value is Module {
  * The valid sub-views per module. The FIRST entry is the module's default sub
  * (left implicit in the canonical URL). A module with a single implicit view
  * uses the sentinel `"index"`. Sub-routes that are role-gated (invite/codes is
- * owner-only, guests/import is editor-only) still parse here — the parser can't
- * see the caller's role; the shell resolves the visible sub when it renders.
+ * owner-only; the `edit` subs are editor-only) still parse here — the parser
+ * can't see the caller's role; the shell resolves the visible sub when it
+ * renders. (There is no `guests/import` sub: the CSV import lives INSIDE each
+ * module's `edit` sub, not on a route of its own.)
  */
 export const MODULE_SUBS: Record<Module, readonly string[]> = {
   overview: ["index"],
-  // Schedule gains an `edit` sub in E6 (the events editor) alongside the
-  // read-only `list` view (the old Events tab). `edit` is editor-only.
-  schedule: ["list", "edit"],
+  // Events gains an `edit` sub in E6 (the events editor) alongside the
+  // read-only `list` view. `edit` is editor-only.
+  events: ["list", "edit"],
   checklist: ["index"],
   budget: ["index"],
   vendors: ["index", "browse", "enquiries"],
@@ -97,7 +99,7 @@ export const LIST_ROUTE: DashboardRoute = {
  * `#/weddings/<id>/rsvps` — still opens to the right place for one release.
  */
 const LEGACY_TAB_ALIAS: Record<string, { module: Module; sub: string }> = {
-  events: { module: "schedule", sub: "list" },
+  events: { module: "events", sub: "list" },
   guests: { module: "guests", sub: "list" },
   rsvps: { module: "guests", sub: "rsvps" },
   invite: { module: "invite", sub: "design" },

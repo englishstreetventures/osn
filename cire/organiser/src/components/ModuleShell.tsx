@@ -8,11 +8,11 @@ import { createSlidingPill } from "../lib/sliding-pill";
 import BudgetView from "./BudgetView";
 import ChecklistView from "./ChecklistView";
 import DirectoryBrowseView from "./DirectoryBrowseView";
+import EditWorkspace from "./EditWorkspace";
 import EnquiriesView from "./EnquiriesView";
 import EventTable from "./EventTable";
 import GuestTable from "./GuestTable";
 import HostsPanel from "./HostsPanel";
-import ImportPanel from "./ImportPanel";
 import ModuleSidebar from "./ModuleSidebar";
 import Overview from "./Overview";
 import RemintPanel from "./RemintPanel";
@@ -53,11 +53,26 @@ const InviteBuilder = lazy(loadInviteBuilder);
  * painting. The module registry dedupes, so warming twice costs nothing and
  * warming a chunk that is already in costs nothing either.
  */
-const PANEL_LOADERS: Record<string, () => Promise<unknown>> = {
-  "schedule:edit": loadEventsEditor,
+/**
+ * Keyed `module:sub`, and TYPED so a stale module segment fails `tsc` rather
+ * than going quiet (T-U2 / P-I3). The lookup below is `?.()` over a swallowed
+ * rejection, so a key naming a module that no longer exists produces no error,
+ * no warning and no failing test — the only symptom is that hovering the tab
+ * stops warming the chunk and every click pays the full round trip behind
+ * `PanelLoading`, which is precisely the "first-load win turned into a
+ * first-interaction stall" this map exists to prevent. The `events`-for-
+ * `schedule` rename this file just went through is exactly that hazard. The
+ * template-literal type catches half of it here; `ModuleShell.test.tsx` pins the
+ * sub half, which types can't reach.
+ */
+const PANEL_LOADERS: Partial<Record<`${Module}:${string}`, () => Promise<unknown>>> = {
+  "events:edit": loadEventsEditor,
   "guests:edit": loadGuestsEditor,
   "invite:design": loadInviteBuilder,
 };
+
+/** The map's keys, for the drift guard in `ModuleShell.test.tsx`. */
+export const PANEL_LOADER_KEYS = Object.keys(PANEL_LOADERS);
 
 function warmPanel(module: Module, sub: string): void {
   // Fire and forget: a failed prefetch is not an error, it just means the real
@@ -130,8 +145,8 @@ interface SubDef {
 }
 
 const MODULE_SUB_TABS: Partial<Record<Module, SubDef[]>> = {
-  schedule: [
-    { id: "list", label: "Events" },
+  events: [
+    { id: "list", label: "List" },
     { id: "edit", label: "Edit", edit: true },
   ],
   vendors: [
@@ -161,7 +176,7 @@ const panelId = (module: Module) => `subpanel-${module}`;
 
 /**
  * The per-wedding module shell — the IA replacement for the flat DashboardTabs.
- * A left module rail (Overview / Schedule / Guests / Invite / Settings) plus,
+ * A left module rail (Overview / Events / Guests / Invite / Settings) plus,
  * inside a module that has them, a row of sub-tabs. The active module + sub are
  * controlled by the parent (OrganiserApp owns the URL hash so a deep link /
  * hard refresh restores the exact view), reported back via `onModule` / `onSub`.
@@ -173,7 +188,7 @@ const panelId = (module: Module) => `subpanel-${module}`;
  */
 export default function ModuleShell(props: ModuleShellProps) {
   // The visible sub-tabs for the current module, filtered by role. Overview and
-  // Schedule have no sub-tabs (single view), so they return [].
+  // Checklist have no sub-tabs (single view), so they return [].
   const subTabs = (): SubDef[] => {
     const defs = MODULE_SUB_TABS[props.module] ?? [];
     return defs.filter((s) => {
@@ -354,17 +369,24 @@ export default function ModuleShell(props: ModuleShellProps) {
                 />
               </Show>
 
-              {/* ── Schedule: Events (read) + Edit ───────────────────────────── */}
-              <Show when={props.module === "schedule"}>
+              {/* ── Events: List (read) + Edit ───────────────────────────────── */}
+              <Show when={props.module === "events"}>
                 <Show when={active() === "list"}>
                   <EventTable weddingId={props.weddingId} weddingSlug={props.weddingSlug} />
                 </Show>
-                {/* Interactive events editor (E6) — a pure write surface, editor-gated
-              (the API also gates changes/* with weddingEditor()). */}
+                {/* Edit = the on-page editor OR an events CSV import, behind one
+              choice. A pure write surface, editor-gated (the API also gates
+              changes/* with weddingEditor()). */}
                 <Show when={active() === "edit" && props.canEdit}>
-                  <Suspense fallback={<PanelLoading />}>
-                    <EventsEditor weddingId={props.weddingId} />
-                  </Suspense>
+                  <EditWorkspace
+                    weddingId={props.weddingId}
+                    kind="events"
+                    editor={() => (
+                      <Suspense fallback={<PanelLoading />}>
+                        <EventsEditor weddingId={props.weddingId} />
+                      </Suspense>
+                    )}
+                  />
                 </Show>
               </Show>
 
@@ -412,26 +434,27 @@ export default function ModuleShell(props: ModuleShellProps) {
               {/* ── Guests: Households + RSVPs ───────────────────────────────── */}
               <Show when={props.module === "guests"}>
                 <Show when={active() === "list"}>
-                  <div class="flex flex-col gap-8">
-                    {/* Import is a WRITE surface (weddingEditor()-gated) — viewers
-                  don't see it. It rehomes here with the guest list it feeds. */}
-                    <Show when={props.canEdit}>
-                      <ImportPanel weddingId={props.weddingId} />
-                    </Show>
-                    <GuestTable
-                      weddingId={props.weddingId}
-                      canManage={props.canManage}
-                      weddingName={props.weddingName}
-                      weddingSlug={props.weddingSlug}
-                    />
-                  </div>
+                  <GuestTable
+                    weddingId={props.weddingId}
+                    canManage={props.canManage}
+                    weddingName={props.weddingName}
+                    weddingSlug={props.weddingSlug}
+                  />
                 </Show>
-                {/* Interactive editor (E5) — a pure write surface, editor-gated (the
-              API also gates changes/* with weddingEditor()). */}
+                {/* Edit = the on-page editor OR a guests CSV import, behind one
+              choice. A pure write surface, editor-gated (the API also gates
+              changes/* with weddingEditor()) — the import moved off the read
+              tab, where it sat above the list carrying BOTH sheets. */}
                 <Show when={active() === "edit" && props.canEdit}>
-                  <Suspense fallback={<PanelLoading />}>
-                    <GuestsEditor weddingId={props.weddingId} />
-                  </Suspense>
+                  <EditWorkspace
+                    weddingId={props.weddingId}
+                    kind="guests"
+                    editor={() => (
+                      <Suspense fallback={<PanelLoading />}>
+                        <GuestsEditor weddingId={props.weddingId} />
+                      </Suspense>
+                    )}
+                  />
                 </Show>
                 <Show when={active() === "rsvps"}>
                   <RsvpView weddingId={props.weddingId} canEdit={props.canEdit} />

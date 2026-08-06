@@ -170,7 +170,7 @@ export default function EventTable(props: EventTableProps) {
       <SectionIntro
         eyebrow="Events"
         title="The day, hour by hour"
-        description="Every event your guests can be invited to — the details come from your spreadsheet import. Add one photo per event here to bring each card to life."
+        description="Every event your guests can be invited to — the details come from Edit, by hand or from a spreadsheet. Add one photo per event here to bring each card to life."
         actions={
           <Show when={!loading() && !error() && hasEvents()}>
             <button
@@ -200,7 +200,7 @@ export default function EventTable(props: EventTableProps) {
       <Show when={!loading() && !error() && !hasEvents()}>
         <EmptyState
           title="No events yet"
-          description="Import your events sheet from the Spreadsheet Import above. Add the events first — guests are matched to events that already exist."
+          description="Head to Edit to add them — by hand, or by uploading an events sheet. Add the events first: guests are matched to events that already exist."
         />
       </Show>
 

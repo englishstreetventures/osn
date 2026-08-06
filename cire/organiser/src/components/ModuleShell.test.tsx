@@ -3,11 +3,11 @@ import { cleanup, fireEvent, render, screen, within } from "@solidjs/testing-lib
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Module } from "../lib/dashboard-route";
+import { isModule, isSubOf, type Module } from "../lib/dashboard-route";
 
 /**
  * ModuleShell is the IA replacement for the flat tab bar: a left module rail
- * (Overview / Schedule / Guests / Invite / Settings) plus, inside a module that
+ * (Overview / Events / Guests / Invite / Settings) plus, inside a module that
  * has them, a row of sub-tabs. The active module + sub are controlled by the
  * parent (OrganiserApp owns the URL hash). The leaf panels are stubbed to
  * data-testids so this asserts only the shell glue: module navigation + active
@@ -31,7 +31,14 @@ vi.mock("./GuestTable", () => ({
   default: (p: { weddingId: string }) => <div data-testid="guests">{p.weddingId}</div>,
 }));
 vi.mock("./ImportPanel", () => ({
-  default: (p: { weddingId: string }) => <div data-testid="import">{p.weddingId}</div>,
+  // Surfaces `kind`: the whole point of the split is that the events module gets
+  // an events import and the guests module a guests one, and a mock that reads
+  // only weddingId would keep passing if both panels asked for the same sheet.
+  default: (p: { weddingId: string; kind: string }) => (
+    <div data-testid="import" data-kind={p.kind}>
+      {p.weddingId}
+    </div>
+  ),
 }));
 vi.mock("./RsvpView", () => ({
   default: (p: { weddingId: string }) => <div data-testid="rsvps">{p.weddingId}</div>,
@@ -91,7 +98,7 @@ vi.mock("./EnquiriesView", () => ({
   default: (p: { weddingId: string }) => <div data-testid="enquiries-view">{p.weddingId}</div>,
 }));
 
-import ModuleShell from "./ModuleShell";
+import ModuleShell, { PANEL_LOADER_KEYS } from "./ModuleShell";
 
 /** Render with controllable module + sub signals so a test can drive the
  *  parent's "active view" the way OrganiserApp would on a hash change. */
@@ -140,7 +147,7 @@ describe("ModuleShell", () => {
 
   it("renders the module rail with every module and lands on Overview", () => {
     renderShell({});
-    for (const label of ["Overview", "Schedule", "Guests", "Invite", "Settings"]) {
+    for (const label of ["Overview", "Events", "Guests", "Invite", "Settings"]) {
       expect(within(rail()).getByRole("button", { name: new RegExp(label) })).toBeTruthy();
     }
     expect(screen.getByTestId("overview")).toBeTruthy();
@@ -156,14 +163,14 @@ describe("ModuleShell", () => {
 
   it("reports a module switch up via onModule and follows the controlled prop", () => {
     const { onModule } = renderShell({});
-    fireEvent.click(within(rail()).getByRole("button", { name: /Schedule/ }));
-    expect(onModule).toHaveBeenCalledWith("schedule");
+    fireEvent.click(within(rail()).getByRole("button", { name: /Events/ }));
+    expect(onModule).toHaveBeenCalledWith("events");
     expect(screen.getByTestId("events")).toBeTruthy();
   });
 
-  it("shows the Schedule sub-tabs (Events + Edit) and switches to the events editor", async () => {
-    const { onSub } = renderShell({ module: "schedule", sub: "list" });
-    expect(screen.getByRole("tab", { name: /Events/ })).toBeTruthy();
+  it("shows the Events sub-tabs (List + Edit) and switches to the events editor", async () => {
+    const { onSub } = renderShell({ module: "events", sub: "list" });
+    expect(screen.getByRole("tab", { name: /List/ })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Edit/ })).toBeTruthy();
     // The read view shows the events table.
     expect(screen.getByTestId("events")).toBeTruthy();
@@ -176,10 +183,10 @@ describe("ModuleShell", () => {
     expect(screen.queryByTestId("events")).toBeNull();
   });
 
-  it("hides the Schedule Edit sub from a read-only viewer", () => {
+  it("hides the Events Edit sub from a read-only viewer", () => {
     // A viewer can't edit — the editor-only Edit sub is filtered out, so the
     // sub-tab bar collapses to a single view and the editor is never reachable.
-    renderShell({ canManage: false, canEdit: false, module: "schedule", sub: "edit" });
+    renderShell({ canManage: false, canEdit: false, module: "events", sub: "edit" });
     expect(screen.queryByRole("tab", { name: /Edit/ })).toBeNull();
     expect(screen.queryByTestId("events-editor")).toBeNull();
     // Falls back to the read events table.
@@ -190,9 +197,9 @@ describe("ModuleShell", () => {
     const { onSub } = renderShell({ module: "guests", sub: "list" });
     expect(screen.getByRole("tab", { name: /Households/ })).toBeTruthy();
     expect(screen.getByRole("tab", { name: /RSVPs/ })).toBeTruthy();
-    // Households sub shows the import (write surface) + the guest table.
+    // The Households sub is a READ view now — the import moved into Edit.
     expect(screen.getByTestId("guests")).toBeTruthy();
-    expect(screen.getByTestId("import")).toBeTruthy();
+    expect(screen.queryByTestId("import")).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: /RSVPs/ }));
     expect(onSub).toHaveBeenCalledWith("rsvps");
@@ -269,8 +276,70 @@ describe("ModuleShell", () => {
     });
   });
 
+  /**
+   * The CSV import moved out of the Guests READ tab (where it sat above the
+   * household list carrying BOTH sheets) and into each module's Edit sub, as the
+   * alternative to the on-page editor. These pin the two halves that have no
+   * visible symptom when they break: that Edit offers the choice at all, and that
+   * each module's import is scoped to its OWN sheet.
+   */
+  describe("chunk prefetch map", () => {
+    it("keys PANEL_LOADERS on module:sub pairs that actually exist", () => {
+      // `warmPanel` looks these up as `${module}:${sub}` and swallows a miss
+      // (`?.()` + `.catch(() => {})`), so a key naming a module or sub that no
+      // longer exists is invisible: no error, no failing test, just the hover
+      // prefetch quietly dead and `PanelLoading` flashing on every Edit click.
+      // The `schedule` → `events` rename is exactly that hazard, and this is the
+      // same drift-guard shape the root CLAUDE.md prescribes for any constant
+      // that has to agree with a string somewhere else.
+      expect(PANEL_LOADER_KEYS.length).toBeGreaterThan(0);
+      for (const key of PANEL_LOADER_KEYS) {
+        const [module, sub] = key.split(":");
+        expect(isModule(module!), `${key}: "${module}" is not a module`).toBe(true);
+        expect(isSubOf(module as Module, sub!), `${key}: "${sub}" is not a sub of ${module}`).toBe(
+          true,
+        );
+      }
+    });
+  });
+
+  describe("edit sub — web editor or spreadsheet import", () => {
+    const importMode = () => screen.getByRole("radio", { name: /spreadsheet import/i });
+
+    it("lands on the editor, with import one click away", async () => {
+      renderShell({ module: "guests", sub: "edit" });
+      expect(await screen.findByTestId("guests-editor")).toBeTruthy();
+      expect(screen.queryByTestId("import")).toBeNull();
+      expect(importMode().getAttribute("aria-checked")).toBe("false");
+    });
+
+    it("swaps the guests editor for a GUESTS import", async () => {
+      renderShell({ module: "guests", sub: "edit" });
+      await screen.findByTestId("guests-editor");
+      fireEvent.click(importMode());
+      expect(screen.getByTestId("import").getAttribute("data-kind")).toBe("guests");
+      expect(screen.queryByTestId("guests-editor")).toBeNull();
+    });
+
+    it("swaps the events editor for an EVENTS import", async () => {
+      renderShell({ module: "events", sub: "edit" });
+      await screen.findByTestId("events-editor");
+      fireEvent.click(importMode());
+      expect(screen.getByTestId("import").getAttribute("data-kind")).toBe("events");
+      expect(screen.queryByTestId("events-editor")).toBeNull();
+    });
+
+    it("keeps the import out of a viewer's reach entirely", () => {
+      // Edit is editor-gated, so a viewer deep-linking it lands on the read view
+      // and never sees the mode switch, let alone the import.
+      renderShell({ canManage: false, canEdit: false, module: "events", sub: "edit" });
+      expect(screen.queryByRole("radiogroup")).toBeNull();
+      expect(screen.queryByTestId("import")).toBeNull();
+    });
+  });
+
   describe("viewer read-only", () => {
-    it("hides the import write surface on the guest list", () => {
+    it("hides the import write surface from the guest list", () => {
       renderShell({ canManage: false, canEdit: false, module: "guests", sub: "list" });
       expect(screen.getByTestId("guests")).toBeTruthy();
       // Import is a pure write surface — a viewer doesn't see it.

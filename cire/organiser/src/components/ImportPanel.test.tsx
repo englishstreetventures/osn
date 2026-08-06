@@ -3,11 +3,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-li
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * ImportPanel renders the upload form, the "CSV format" help disclosure, and the
- * two "Download template" controls. These tests cover the new help + template
- * affordances: the instructions render, the disclosure is keyboard-accessible,
- * and clicking a download control produces a Blob whose first line is the exact
- * header row the cire-api parser requires.
+ * ImportPanel is now scoped to ONE sheet — the module it lives in. The events
+ * module's Edit sub gets an events import, the guests module's a guests import,
+ * and neither can reach the other's half of the wedding.
+ *
+ * These cover: the per-kind surface (one input, one template, one guide), the
+ * single-sheet request body (the omitted key is what leaves the other half
+ * alone), the format guide's open-once-then-collapse behaviour, the
+ * mandatory-column marking, and the failure/export paths.
  */
 
 const redirectToLoginMock = vi.hoisted(() => vi.fn());
@@ -23,6 +26,29 @@ vi.mock("../lib/api", () => ({
   redirectToLogin: redirectToLoginMock,
 }));
 
+const invalidateEventsMock = vi.hoisted(() => vi.fn());
+const invalidateGuestsMock = vi.hoisted(() => vi.fn());
+const invalidateHouseholdsMock = vi.hoisted(() => vi.fn());
+
+// Spied, not stubbed wholesale: the apply path's own comment calls dropping ONE
+// of the three the thing that "leaves a stale household in an id-authoritative
+// draft", i.e. a destructive remove+create on the next editor save. Import and
+// the editor now sit one radio click apart inside the same EditWorkspace, over
+// the same weddingId-keyed caches, so that no longer needs a navigation to bite.
+vi.mock("../lib/events-store", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  invalidateEvents: invalidateEventsMock,
+}));
+vi.mock("../lib/guests-store", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  invalidateGuests: invalidateGuestsMock,
+}));
+vi.mock("../lib/households-store", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  invalidateHouseholds: invalidateHouseholdsMock,
+}));
+
+import { resetImportHelpSeen } from "../lib/import-help";
 import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 import ImportPanel from "./ImportPanel";
 
@@ -39,6 +65,10 @@ const realRevoke = URL.revokeObjectURL;
 beforeEach(() => {
   createdBlobs.length = 0;
   revoked = [];
+  // The format guide opens itself once per browser, remembered in localStorage —
+  // which persists across renders within a file. Each test starts as a fresh
+  // organiser unless it says otherwise.
+  resetImportHelpSeen();
   URL.createObjectURL = (blob: Blob) => {
     createdBlobs.push(blob);
     return `blob:mock/${createdBlobs.length}`;
@@ -52,6 +82,9 @@ afterEach(() => {
   cleanup();
   resetOrganiserMocks();
   redirectToLoginMock.mockReset();
+  invalidateEventsMock.mockReset();
+  invalidateGuestsMock.mockReset();
+  invalidateHouseholdsMock.mockReset();
   URL.createObjectURL = realCreate;
   URL.revokeObjectURL = realRevoke;
 });
@@ -66,29 +99,152 @@ async function blobText(blob: Blob): Promise<string> {
   });
 }
 
-describe("ImportPanel — CSV format help", () => {
-  it("renders both upload inputs", () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
-    expect(screen.getByText(/events\.csv/i)).toBeTruthy();
-    expect(screen.getByText(/guests\.csv/i)).toBeTruthy();
+function csvFile(name: string, body = "x") {
+  return new File([body], name, { type: "text/csv" });
+}
+
+/** Pick a file on the panel's one input, by the label's `for` (the control is a
+ *  sibling of its label, wired by id rather than wrapped). */
+function choose(file: File) {
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  Object.defineProperty(input, "files", { value: [file], configurable: true });
+  fireEvent.change(input);
+}
+
+const previewButton = () => screen.getByRole("button", { name: /^preview$/i }) as HTMLButtonElement;
+
+describe("ImportPanel — one sheet per module", () => {
+  it("offers only the events sheet in the events module", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    expect(document.querySelectorAll('input[type="file"]')).toHaveLength(1);
+    expect(screen.getByText("events.csv")).toBeTruthy();
+    expect(screen.queryByText("guests.csv")).toBeNull();
+    expect(screen.getByRole("button", { name: /download events template/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /download guests template/i })).toBeNull();
   });
 
-  it("explains the events-before-guests ordering", () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
-    // The instructions mention importing events before guests. Text spans nested
-    // elements (e.g. <strong>events first</strong>), so assert on the flattened
-    // body text rather than a single element.
+  it("offers only the guests sheet in the guests module", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    expect(document.querySelectorAll('input[type="file"]')).toHaveLength(1);
+    expect(screen.getByText("guests.csv")).toBeTruthy();
+    expect(screen.queryByText("events.csv")).toBeNull();
+    expect(screen.getByRole("button", { name: /download guests template/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /download events template/i })).toBeNull();
+  });
+
+  it("shows only that sheet's guidance — no sheet toggle to get lost in", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    expect(screen.queryByRole("tablist", { name: /choose a sheet/i })).toBeNull();
+    const body = document.body.textContent ?? "";
+    expect(body).toContain("One row per event.");
+    expect(body).not.toContain("One row per guest.");
+  });
+
+  it("keeps the events-before-guests ordering note on the guests sheet, where it applies", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    // Text spans nested elements (e.g. <strong>events first</strong>), so assert
+    // on the flattened body text rather than a single element.
     const body = (document.body.textContent ?? "").toLowerCase();
     expect(body).toContain("events first");
-    expect(body).toMatch(/events.*before the guests sheet|before the guests/);
+    expect(body).toContain("before the guests sheet");
+  });
+});
+
+describe("ImportPanel — CSV format help", () => {
+  const helpDetails = () =>
+    [...document.querySelectorAll("details")].find((d) =>
+      /csv format/i.test(d.querySelector("summary")?.textContent ?? ""),
+    )!;
+
+  it("exposes the format help as a native disclosure (details/summary)", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    expect(helpDetails()).toBeTruthy();
+    expect(helpDetails().querySelector("summary")?.textContent ?? "").toMatch(/csv format/i);
   });
 
-  it("documents the truthy invite cell values once the Guests sheet + tips are open", () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
-    // The truthy-cell tokens live in the Guests sheet's "Formatting tips" aside,
-    // which is behind the (initially inactive) Guests tab + a collapsed disclosure.
-    // Reveal it the way an organiser would: switch to Guests, then open the tips.
-    fireEvent.click(screen.getByRole("tab", { name: /guests sheet/i }));
+  it("opens itself — and glows — the FIRST time an organiser meets it", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    expect(helpDetails().open).toBe(true);
+    expect(helpDetails().className).toContain("attention-glow");
+  });
+
+  it("starts collapsed and quiet on every visit after that", () => {
+    // First visit marks the bit on mount…
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    cleanup();
+    // …so the second panel — either sheet, the bit is shared — starts closed.
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    expect(helpDetails().open).toBe(false);
+    expect(helpDetails().className).not.toContain("attention-glow");
+  });
+
+  it("drops the glow as soon as the disclosure is touched", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    fireEvent.click(helpDetails().querySelector("summary")!);
+    expect(helpDetails().className).not.toContain("attention-glow");
+  });
+
+  it("does not mistake its own opening for a touch", () => {
+    // Setting `open` fires a `toggle` event, in happy-dom and in browsers alike.
+    // A toggle listener would therefore drop the glow in the same tick it was
+    // added, and the one cue the guide has would never paint.
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    fireEvent(helpDetails(), new Event("toggle"));
+    expect(helpDetails().className).toContain("attention-glow");
+  });
+
+  it("leads with step 1 = New here? / download the template", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    // The first numbered step card heads with the "New here?" download prompt.
+    const firstStep = document.querySelector("ol > li");
+    expect(firstStep).toBeTruthy();
+    const text = (firstStep?.textContent ?? "").toLowerCase();
+    expect(text).toContain("1");
+    expect(text).toContain("new here?");
+    expect(text).toContain("download");
+  });
+
+  it("renders the mandatory-vs-optional key", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    const body = (document.body.textContent ?? "").toLowerCase();
+    expect(body).toContain("indicates mandatory fields");
+    expect(body).toContain("indicates optional fields");
+  });
+
+  it("renders the key exactly once", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    const keys = [...document.querySelectorAll("*")].filter(
+      (el) => el.children.length === 0 && /^Key$/.test((el.textContent ?? "").trim()),
+    );
+    expect(keys.length).toBe(1);
+  });
+
+  it("marks mandatory columns by more than colour, in ink strong enough to read", () => {
+    // The chips were `text-gold-dim` — `--gold` at ~30% alpha, and `--gold`
+    // itself is metal with no text contract (~2.4:1 in the light ramp). The
+    // readable variant is `--gold-ink`, held to 4.5:1 over bg/surface by
+    // `styles/tokens.test.ts`. Plus a `*` and an sr-only word, so the
+    // distinction survives greyscale, a colour-vision deficiency and a screen
+    // reader alike (WCAG 1.4.1).
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    const chip = [...document.querySelectorAll("code")].find((c) =>
+      (c.textContent ?? "").startsWith("Event Name"),
+    )!;
+    expect(chip.className).toContain("text-gold-ink");
+    expect(chip.className).not.toContain("text-gold-dim");
+    expect(chip.textContent).toContain("*");
+    expect(chip.querySelector(".sr-only")?.textContent).toMatch(/mandatory/i);
+
+    // An optional column carries neither marker.
+    const optional = [...document.querySelectorAll("code")].find(
+      (c) => (c.textContent ?? "").trim() === "Location",
+    )!;
+    expect(optional.textContent).not.toContain("*");
+    expect(optional.querySelector(".sr-only")).toBeNull();
+  });
+
+  it("documents the truthy invite cell values once the guests tips are open", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
     const tips = [...document.querySelectorAll("details > summary")].find((s) =>
       /formatting tips/i.test(s.textContent ?? ""),
     );
@@ -99,79 +255,8 @@ describe("ImportPanel — CSV format help", () => {
     expect(body).toMatch(/\byes\b/);
   });
 
-  it("toggles step 2 between the Events and Guests sheets (one at a time)", () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
-    const eventsTab = screen.getByRole("tab", { name: /events sheet/i });
-    const guestsTab = screen.getByRole("tab", { name: /guests sheet/i });
-
-    // Events is selected first; its guidance ("One row per event.") is on screen
-    // and the Guests guidance ("One row per guest.") is not yet rendered.
-    expect(eventsTab.getAttribute("aria-selected")).toBe("true");
-    expect(guestsTab.getAttribute("aria-selected")).toBe("false");
-    let body = document.body.textContent ?? "";
-    expect(body).toContain("One row per event.");
-    expect(body).not.toContain("One row per guest.");
-
-    // Switching to Guests swaps the visible guidance — only one sheet shows.
-    fireEvent.click(guestsTab);
-    expect(guestsTab.getAttribute("aria-selected")).toBe("true");
-    expect(eventsTab.getAttribute("aria-selected")).toBe("false");
-    body = document.body.textContent ?? "";
-    expect(body).toContain("One row per guest.");
-    expect(body).not.toContain("One row per event.");
-  });
-
-  it("keeps the sheet tablist out of the tab order (tab buttons are the stops)", () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
-    const tablist = screen.getByRole("tablist", { name: /choose a sheet/i });
-    // tabIndex -1: focusable programmatically for the roving-focus pattern,
-    // but not a redundant keyboard tab stop alongside the tab buttons.
-    expect(tablist.tabIndex).toBe(-1);
-  });
-
-  it("renders the mandatory-vs-optional key exactly once (shared, not per sheet)", () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
-    const keys = [...document.querySelectorAll("*")].filter(
-      (el) => el.children.length === 0 && /^Key$/.test((el.textContent ?? "").trim()),
-    );
-    expect(keys.length).toBe(1);
-    // And it survives a sheet switch — it lives above the toggle, not inside a tab.
-    fireEvent.click(screen.getByRole("tab", { name: /guests sheet/i }));
-    const stillThere = [...document.querySelectorAll("*")].filter(
-      (el) => el.children.length === 0 && /^Key$/.test((el.textContent ?? "").trim()),
-    );
-    expect(stillThere.length).toBe(1);
-  });
-
-  it("exposes the format help as a native disclosure (details/summary)", () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
-    const summary = document.querySelector("details > summary");
-    expect(summary).toBeTruthy();
-    expect(summary?.textContent ?? "").toMatch(/csv format|how to|format/i);
-  });
-
-  it("leads with step 1 = New here? / download the template", () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
-    // The first numbered step card heads with the "New here?" download prompt
-    // (reordered from step 3 → step 1). The first <li> in the steps <ol> is the
-    // first step card, led by its numbered badge.
-    const firstStep = document.querySelector("ol > li");
-    expect(firstStep).toBeTruthy();
-    const text = (firstStep?.textContent ?? "").toLowerCase();
-    expect(text).toContain("1");
-    expect(text).toContain("new here?");
-    expect(text).toContain("download");
-  });
-
-  it("renders the mandatory-vs-optional key", () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
-    const body = (document.body.textContent ?? "").toLowerCase();
-    expect(body).toContain("indicates mandatory fields");
-    expect(body).toContain("indicates optional fields");
-  });
-
   it("links the word IANA to the tz database list, opening in a new tab", () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
     const link = [...document.querySelectorAll("a")].find(
       (a) => (a.textContent ?? "").trim() === "IANA",
     );
@@ -184,7 +269,7 @@ describe("ImportPanel — CSV format help", () => {
   });
 
   it("documents the events timestamp + dress-code palette formats", () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
     const body = document.body.textContent ?? "";
     // A LOCAL wall clock — the guidance must show the same shape the template
     // emits and the parser wants, with no offset for an organiser to get wrong.
@@ -195,29 +280,11 @@ describe("ImportPanel — CSV format help", () => {
 });
 
 /**
- * Single-sheet uploads: either input may be left empty. The panel must send ONLY
- * the sheets that were chosen — omitting a key is what tells the API to leave
- * that half of the wedding alone, where an empty string would read as "an empty
- * sheet" and reconcile by deleting everything.
+ * The panel must send ONLY its own sheet. Omitting the other key is what tells
+ * the API to leave that half of the wedding alone, where an empty string would
+ * read as "an empty sheet" and reconcile by deleting everything.
  */
 describe("ImportPanel — single-sheet uploads", () => {
-  function csvFile(name: string, body: string) {
-    return new File([body], name, { type: "text/csv" });
-  }
-
-  function fileInput(label: RegExp): HTMLInputElement {
-    // By the label's `for`, not by nesting: the control is a sibling of its
-    // label now, wired by id rather than wrapped.
-    const el = [...document.querySelectorAll("label")].find((l) => label.test(l.textContent ?? ""));
-    return document.getElementById(el!.getAttribute("for")!) as HTMLInputElement;
-  }
-
-  function choose(label: RegExp, file: File) {
-    const input = fileInput(label);
-    Object.defineProperty(input, "files", { value: [file], configurable: true });
-    fireEvent.change(input);
-  }
-
   function previewBody(): Record<string, unknown> {
     return JSON.parse(String(authFetchMock.mock.calls[0]![1].body)) as Record<string, unknown>;
   }
@@ -246,11 +313,11 @@ describe("ImportPanel — single-sheet uploads", () => {
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
 
-  it("posts only eventsCsv when just the events sheet is chosen", async () => {
+  it("posts only eventsCsv from the events module", async () => {
     authFetchMock.mockResolvedValueOnce(previewResponse("events"));
-    render(() => <ImportPanel weddingId="wed_a" />);
-    choose(/events\.csv/i, csvFile("events.csv", "Event Name,Start,Timezone\r\n"));
-    fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    choose(csvFile("events.csv", "Event Name,Start,Timezone\r\n"));
+    fireEvent.click(previewButton());
 
     await waitFor(() => expect(authFetchMock).toHaveBeenCalled());
     const body = previewBody();
@@ -259,11 +326,11 @@ describe("ImportPanel — single-sheet uploads", () => {
     expect(body).not.toHaveProperty("guestsCsv");
   });
 
-  it("posts only guestsCsv when just the guests sheet is chosen", async () => {
+  it("posts only guestsCsv from the guests module", async () => {
     authFetchMock.mockResolvedValueOnce(previewResponse("guests"));
-    render(() => <ImportPanel weddingId="wed_a" />);
-    choose(/guests\.csv/i, csvFile("guests.csv", "Family ID,Family Name\r\n"));
-    fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    choose(csvFile("guests.csv", "Family ID,Family Name\r\n"));
+    fireEvent.click(previewButton());
 
     await waitFor(() => expect(authFetchMock).toHaveBeenCalled());
     const body = previewBody();
@@ -271,74 +338,106 @@ describe("ImportPanel — single-sheet uploads", () => {
     expect(body).not.toHaveProperty("eventsCsv");
   });
 
-  it("posts both sheets when both are chosen", async () => {
-    authFetchMock.mockResolvedValueOnce(previewResponse("both"));
-    render(() => <ImportPanel weddingId="wed_a" />);
-    choose(/events\.csv/i, csvFile("events.csv", "Event Name,Start,Timezone\r\n"));
-    choose(/guests\.csv/i, csvFile("guests.csv", "Family ID,Family Name\r\n"));
-    fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
-
-    await waitFor(() => expect(authFetchMock).toHaveBeenCalled());
-    const body = previewBody();
-    expect(body).toHaveProperty("eventsCsv");
-    expect(body).toHaveProperty("guestsCsv");
+  it("keeps Preview disabled until a sheet is chosen", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    expect(previewButton().disabled).toBe(true);
+    choose(csvFile("guests.csv"));
+    expect(previewButton().disabled).toBe(false);
   });
 
-  it("keeps Preview disabled until at least one sheet is chosen", async () => {
-    authFetchMock.mockResolvedValueOnce(previewResponse("guests"));
-    render(() => <ImportPanel weddingId="wed_a" />);
-    const preview = screen.getByRole("button", { name: /^preview$/i }) as HTMLButtonElement;
-    expect(preview.disabled).toBe(true);
-
-    choose(/guests\.csv/i, csvFile("guests.csv", "Family ID,Family Name\r\n"));
-    expect(preview.disabled).toBe(false);
+  it("names the half this upload leaves alone", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    choose(csvFile("guests.csv"));
+    expect(document.body.textContent ?? "").toMatch(/events won't be touched/i);
   });
 
-  it("names which half a one-sheet upload leaves alone", () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
-    choose(/guests\.csv/i, csvFile("guests.csv", "Family ID,Family Name\r\n"));
-    expect(document.body.textContent ?? "").toMatch(/schedule won't be touched/i);
-
-    // Swapping to an events-only selection flips the reassurance.
-    fireEvent.click(screen.getByRole("button", { name: /remove guests\.csv/i }));
-    choose(/events\.csv/i, csvFile("events.csv", "Event Name,Start,Timezone\r\n"));
+  it("names the other half in the events module too", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    choose(csvFile("events.csv"));
     expect(document.body.textContent ?? "").toMatch(/guest list won't be touched/i);
   });
 
   it("Remove clears the chosen sheet and any preview computed from it", async () => {
     authFetchMock.mockResolvedValueOnce(previewResponse("guests"));
-    render(() => <ImportPanel weddingId="wed_a" />);
-    choose(/guests\.csv/i, csvFile("guests.csv", "Family ID,Family Name\r\n"));
-    fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    choose(csvFile("guests.csv"));
+    fireEvent.click(previewButton());
     await waitFor(() => expect(screen.getByText(/diff preview/i)).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: /remove guests\.csv/i }));
     // The stale plan is dropped, so Apply can't commit a diff for a file that is
     // no longer selected, and Preview goes back to disabled.
     expect(screen.queryByText(/diff preview/i)).toBeNull();
-    expect((screen.getByRole("button", { name: /^preview$/i }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect(previewButton().disabled).toBe(true);
   });
 
-  it("errors only when neither sheet is chosen", () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
+  it("drops a standing preview when a DIFFERENT file is picked (S-M1)", async () => {
+    // The bug this pins: preview file A, then re-pick file B on the same input.
+    // The diff and its "Apply import" button stayed on screen holding A's
+    // importId, so Apply committed A — a bulk reconcile of one half of the
+    // wedding — while the control named B. `clearFile` documented the invariant
+    // and held it for Remove only; re-selection is the commoner gesture.
+    authFetchMock.mockResolvedValueOnce(previewResponse("guests"));
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    choose(csvFile("guests-old.csv"));
+    fireEvent.click(previewButton());
+    await waitFor(() => expect(screen.getByText(/diff preview/i)).toBeTruthy());
+
+    choose(csvFile("guests-new.csv"));
+    expect(screen.queryByText(/diff preview/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /apply import/i })).toBeNull();
+    // Still armed for the NEW file — dropping the plan must not disable Preview.
+    expect(previewButton().disabled).toBe(false);
+  });
+
+  it("refuses an oversized file before reading or uploading it (S-L1)", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    const tooBig = csvFile("huge.csv");
+    // A real 1MB+ File would make the suite allocate it; the panel reads `.size`.
+    Object.defineProperty(tooBig, "size", { value: 2 * 1024 * 1024 });
+    choose(tooBig);
+    fireEvent.click(previewButton());
+
+    expect(screen.getByText(/limit is 1 MB per import/i)).toBeTruthy();
+    // The point of the guard: nothing was read and nothing was sent.
+    expect(authFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails before the network when the file can't be read (T-S3)", async () => {
+    // `reader.error` is a DOMException, whose `instanceof Error` result varies by
+    // engine — so without a deliberate message this surfaces either a cryptic
+    // `NotReadableError` or a bare "Preview failed.". What must never happen is
+    // posting an empty body, because an empty sheet means "delete everything".
+    const RealFileReader = globalThis.FileReader;
+    class FailingReader extends RealFileReader {
+      override readAsText() {
+        setTimeout(() => this.dispatchEvent(new Event("error")), 0);
+      }
+    }
+    vi.stubGlobal("FileReader", FailingReader);
+    try {
+      render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+      choose(csvFile("guests.csv"));
+      fireEvent.click(previewButton());
+
+      await waitFor(() => expect(screen.getByText(/couldn't be read/i)).toBeTruthy());
+      expect(authFetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("errors when no sheet is chosen", () => {
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
     // The submit button is disabled with nothing chosen, so submit the form
     // directly — the guard has to hold even if the disabled state is bypassed.
     fireEvent.submit(document.querySelector("form")!);
-    expect(screen.getByText(/choose an events\.csv or a guests\.csv file/i)).toBeTruthy();
+    expect(screen.getByText(/choose an? events\.csv file/i)).toBeTruthy();
     expect(authFetchMock).not.toHaveBeenCalled();
   });
 });
 
 describe("ImportPanel — surfacing import failures", () => {
-  function choose(label: RegExp, file: File) {
-    const el = [...document.querySelectorAll("label")].find((l) => label.test(l.textContent ?? ""));
-    const input = document.getElementById(el!.getAttribute("for")!) as HTMLInputElement;
-    Object.defineProperty(input, "files", { value: [file], configurable: true });
-    fireEvent.change(input);
-  }
-
   it("renders the row, column, sheet and fix hint from a 422 — not the bare error", async () => {
     authFetchMock.mockResolvedValueOnce(
       new Response(
@@ -352,12 +451,9 @@ describe("ImportPanel — surfacing import failures", () => {
         { status: 422, headers: { "Content-Type": "application/json" } },
       ),
     );
-    render(() => <ImportPanel weddingId="wed_a" />);
-    choose(
-      /events\.csv/i,
-      new File(["Event Name,Start,Timezone\r\n"], "events_export.csv", { type: "text/csv" }),
-    );
-    fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    choose(csvFile("events_export.csv", "Event Name,Start,Timezone\r\n"));
+    fireEvent.click(previewButton());
 
     await waitFor(() => expect(document.body.textContent).toMatch(/row 4/i));
     const body = document.body.textContent ?? "";
@@ -405,9 +501,9 @@ describe("ImportPanel — surfacing import failures", () => {
         }),
       );
 
-    render(() => <ImportPanel weddingId="wed_a" />);
-    choose(/guests\.csv/i, new File(["x"], "guests.csv", { type: "text/csv" }));
-    fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    choose(csvFile("guests.csv"));
+    fireEvent.click(previewButton());
     await waitFor(() => expect(screen.getByText(/diff preview/i)).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: /apply import/i }));
@@ -425,7 +521,7 @@ describe("ImportPanel — surfacing import failures", () => {
           JSON.stringify({
             importId: "chg_1",
             changeId: "chg_1",
-            scope: "both",
+            scope: "guests",
             warnings: [],
             plan: {
               eventCreates: [],
@@ -466,15 +562,23 @@ describe("ImportPanel — surfacing import failures", () => {
         ),
       );
 
-    render(() => <ImportPanel weddingId="wed_a" />);
-    choose(/guests\.csv/i, new File(["x"], "guests.csv", { type: "text/csv" }));
-    fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    choose(csvFile("guests.csv"));
+    fireEvent.click(previewButton());
     await waitFor(() => expect(screen.getByText(/diff preview/i)).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: /apply import/i }));
     await waitFor(() => expect(document.body.textContent).toMatch(/applied/i));
     expect(document.body.textContent).toContain("families: +2 / ~1 / -0");
     expect(document.body.textContent).not.toContain("undefined");
+
+    // T-S2 — all THREE caches, not two. The source comment names the failure:
+    // "a stale household in an id-authoritative draft is a destructive
+    // remove+create", and the editor is now one radio click away over the very
+    // same weddingId-keyed stores.
+    expect(invalidateEventsMock).toHaveBeenCalledWith("wed_a");
+    expect(invalidateGuestsMock).toHaveBeenCalledWith("wed_a");
+    expect(invalidateHouseholdsMock).toHaveBeenCalledWith("wed_a");
   });
 
   it("falls back to ~0 families updated when an older API omits the field", async () => {
@@ -484,7 +588,7 @@ describe("ImportPanel — surfacing import failures", () => {
           JSON.stringify({
             importId: "chg_1",
             changeId: "chg_1",
-            scope: "both",
+            scope: "guests",
             warnings: [],
             plan: {
               eventCreates: [],
@@ -523,14 +627,65 @@ describe("ImportPanel — surfacing import failures", () => {
         ),
       );
 
-    render(() => <ImportPanel weddingId="wed_a" />);
-    choose(/guests\.csv/i, new File(["x"], "guests.csv", { type: "text/csv" }));
-    fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    choose(csvFile("guests.csv"));
+    fireEvent.click(previewButton());
     await waitFor(() => expect(screen.getByText(/diff preview/i)).toBeTruthy());
 
     fireEvent.click(screen.getByRole("button", { name: /apply import/i }));
     await waitFor(() => expect(document.body.textContent).toMatch(/applied/i));
     expect(document.body.textContent).toContain("families: +1 / ~0 / -0");
+  });
+
+  it("bounces an expired token on PREVIEW to login rather than rendering it (T-S1)", async () => {
+    // Access JWTs live 5 minutes, and this is the portal's longest-dwell surface:
+    // pick a file, read the guide, preview, re-read the diff, apply. These two
+    // calls are the likeliest in the portal to meet an expired token, and the
+    // failure mode is a raw error string in a Notice with the panel looking
+    // broken rather than a redirect.
+    authFetchMock.mockRejectedValueOnce(new Error("AuthExpiredError"));
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    choose(csvFile("guests.csv"));
+    fireEvent.click(previewButton());
+
+    await waitFor(() => expect(redirectToLoginMock).toHaveBeenCalled());
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("bounces an expired token on APPLY too (T-S1)", async () => {
+    authFetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            importId: "chg_1",
+            scope: "guests",
+            warnings: [],
+            plan: {
+              eventCreates: [],
+              eventUpdates: [],
+              eventRemoves: [],
+              familyCreates: [],
+              familyRemoves: [],
+              guestCreates: [],
+              guestUpdates: [],
+              guestRemoves: [],
+              eventLinkCreates: [],
+              eventLinkRemoves: [],
+              warnings: [],
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockRejectedValueOnce(new Error("AuthExpiredError"));
+
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
+    choose(csvFile("guests.csv"));
+    fireEvent.click(previewButton());
+    await waitFor(() => expect(screen.getByText(/diff preview/i)).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: /apply import/i }));
+    await waitFor(() => expect(redirectToLoginMock).toHaveBeenCalled());
   });
 
   it("names the offending column on a 422 missing-column failure", async () => {
@@ -540,9 +695,9 @@ describe("ImportPanel — surfacing import failures", () => {
         { status: 422, headers: { "Content-Type": "application/json" } },
       ),
     );
-    render(() => <ImportPanel weddingId="wed_a" />);
-    choose(/events\.csv/i, new File(["x"], "events.csv", { type: "text/csv" }));
-    fireEvent.click(screen.getByRole("button", { name: /^preview$/i }));
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
+    choose(csvFile("events.csv"));
+    fireEvent.click(previewButton());
 
     await waitFor(() => expect(document.body.textContent).toMatch(/"Timezone" column/i));
   });
@@ -550,7 +705,7 @@ describe("ImportPanel — surfacing import failures", () => {
 
 describe("ImportPanel — download templates", () => {
   it("downloads an events template whose first line is the exact parser header row", async () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
     fireEvent.click(screen.getByRole("button", { name: /download events template/i }));
 
     await waitFor(() => expect(createdBlobs.length).toBeGreaterThan(0));
@@ -562,7 +717,7 @@ describe("ImportPanel — download templates", () => {
   });
 
   it("downloads a guests template whose first line is the exact parser header row", async () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
     fireEvent.click(screen.getByRole("button", { name: /download guests template/i }));
 
     await waitFor(() => expect(createdBlobs.length).toBeGreaterThan(0));
@@ -573,7 +728,7 @@ describe("ImportPanel — download templates", () => {
   });
 
   it("revokes the object URL after triggering the download", async () => {
-    render(() => <ImportPanel weddingId="wed_a" />);
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
     fireEvent.click(screen.getByRole("button", { name: /download events template/i }));
     await waitFor(() => expect(revoked.length).toBeGreaterThan(0));
   });
@@ -585,7 +740,7 @@ describe("ImportPanel — download current data (round-trip export)", () => {
     authFetchMock.mockResolvedValueOnce(
       new Response(csv, { status: 200, headers: { "Content-Type": "text/csv" } }),
     );
-    render(() => <ImportPanel weddingId="wed_a" />);
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
     fireEvent.click(screen.getByRole("button", { name: /download current events/i }));
 
     await waitFor(() => expect(createdBlobs.length).toBeGreaterThan(0));
@@ -595,9 +750,9 @@ describe("ImportPanel — download current data (round-trip export)", () => {
     expect(await blobText(createdBlobs[0]!)).toBe(csv);
   });
 
-  it("hits the guests export URL for the guests button", async () => {
+  it("hits the guests export URL from the guests module", async () => {
     authFetchMock.mockResolvedValueOnce(new Response("Family ID", { status: 200 }));
-    render(() => <ImportPanel weddingId="wed_a" />);
+    render(() => <ImportPanel weddingId="wed_a" kind="guests" />);
     fireEvent.click(screen.getByRole("button", { name: /download current guests/i }));
 
     await waitFor(() =>
@@ -609,7 +764,7 @@ describe("ImportPanel — download current data (round-trip export)", () => {
 
   it("redirects to login on a 401 export instead of surfacing an error", async () => {
     authFetchMock.mockResolvedValueOnce(new Response("unauthorised", { status: 401 }));
-    render(() => <ImportPanel weddingId="wed_a" />);
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
     fireEvent.click(screen.getByRole("button", { name: /download current events/i }));
 
     await waitFor(() => expect(redirectToLoginMock).toHaveBeenCalled());
@@ -619,7 +774,7 @@ describe("ImportPanel — download current data (round-trip export)", () => {
 
   it("surfaces a failed export inline instead of downloading", async () => {
     authFetchMock.mockResolvedValueOnce(new Response("nope", { status: 500 }));
-    render(() => <ImportPanel weddingId="wed_a" />);
+    render(() => <ImportPanel weddingId="wed_a" kind="events" />);
     fireEvent.click(screen.getByRole("button", { name: /download current events/i }));
 
     await waitFor(() => expect(screen.getByText(/export failed \(500\)/i)).toBeTruthy());

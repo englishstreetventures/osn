@@ -114,11 +114,42 @@ describe("dashboard-route", () => {
       });
     });
 
+    describe("the retired `schedule` module id", () => {
+      // `schedule` was renamed `events` (2026-08-06) with NO alias — a deliberate
+      // call, so it is worth stating rather than leaving as an absence. What the
+      // absence means in practice: `serializeRoute` wrote `#/w/<id>/schedule…`
+      // into history and bookmarks for as long as the module IA has existed, and
+      // every one of those now degrades to Overview with the sub dropped. That is
+      // link rot, not a privilege leak (the fallback lands on a READ view), and
+      // it is the same fallback any hand-edited or future-renamed module gets.
+      // If a support message ever makes the alias worth adding, this is the test
+      // that should change.
+      for (const hash of ["#/w/wed_1/schedule", "#/w/wed_1/schedule/edit"]) {
+        it(`degrades ${hash} to the default module rather than aliasing it`, () => {
+          expect(parseRoute(hash)).toEqual({
+            view: "weddings",
+            weddingId: "wed_1",
+            module: DEFAULT_MODULE,
+            sub: defaultSub(DEFAULT_MODULE),
+          });
+        });
+      }
+
+      it("still resolves the module the rename produced", () => {
+        expect(parseRoute("#/w/wed_1/events/edit")).toEqual({
+          view: "weddings",
+          weddingId: "wed_1",
+          module: "events",
+          sub: "edit",
+        });
+      });
+    });
+
     describe("legacy pre-IA aliases (kept for one release)", () => {
       // The flat `#/weddings/:id/:tab` bookmarks must still open to the right
       // module/sub so an organiser's saved link doesn't break silently.
       const cases: Array<[string, { module: string; sub: string }]> = [
-        ["events", { module: "schedule", sub: "list" }],
+        ["events", { module: "events", sub: "list" }],
         ["guests", { module: "guests", sub: "list" }],
         ["rsvps", { module: "guests", sub: "rsvps" }],
         ["invite", { module: "invite", sub: "design" }],
@@ -207,8 +238,8 @@ describe("dashboard-route", () => {
     const routes: DashboardRoute[] = [
       LIST_ROUTE,
       { view: "weddings", weddingId: "wed_1", module: "overview", sub: "index" },
-      { view: "weddings", weddingId: "wed_1", module: "schedule", sub: "list" },
-      { view: "weddings", weddingId: "wed_1", module: "schedule", sub: "edit" },
+      { view: "weddings", weddingId: "wed_1", module: "events", sub: "list" },
+      { view: "weddings", weddingId: "wed_1", module: "events", sub: "edit" },
       { view: "weddings", weddingId: "wed_1", module: "guests", sub: "list" },
       { view: "weddings", weddingId: "wed_1", module: "guests", sub: "rsvps" },
       { view: "weddings", weddingId: "wed_1", module: "invite", sub: "design" },

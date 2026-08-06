@@ -35,7 +35,7 @@ describe("ModuleSidebar", () => {
       .map((b) => b.textContent);
     expect(labels).toEqual([
       "◈Overview",
-      "◇Schedule",
+      "◇Events",
       "✓Checklist",
       "$Budget",
       "⬡Vendors",

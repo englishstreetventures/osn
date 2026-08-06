@@ -200,7 +200,7 @@ describe("formatImportError — column problems", () => {
     });
     expect(msg).toContain('"Sangeet"');
     // The fix is order-of-operations: the event has to exist first.
-    expect(msg).toMatch(/events sheet|Schedule tab/i);
+    expect(msg).toMatch(/events sheet|Events tab/i);
   });
 
   it("says which characters trip the formula guard", () => {

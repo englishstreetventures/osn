@@ -13,7 +13,7 @@ export interface ModuleDef {
 }
 
 /** The module nav, in workflow order: land on Overview, then build the day
- *  (Schedule) → invite the people (Guests) → dress it up (Invite) → housekeeping
+ *  (Events) → invite the people (Guests) → dress it up (Invite) → housekeeping
  *  (Settings). Every module has a read view, so the whole nav is visible to
  *  viewers; write-only surfaces are gated inside each module, not hidden here.
  *
@@ -22,7 +22,7 @@ export interface ModuleDef {
  *  module that exists in one but not the others is a bug nobody notices. */
 export const MODULE_NAV: ModuleDef[] = [
   { id: "overview", label: "Overview", glyph: "◈", hint: "Your wedding at a glance" },
-  { id: "schedule", label: "Schedule", glyph: "◇", hint: "Your ceremony, reception, and more" },
+  { id: "events", label: "Events", glyph: "◇", hint: "Your ceremony, reception, and more" },
   { id: "checklist", label: "Checklist", glyph: "✓", hint: "Your planning tasks by lead time" },
   { id: "budget", label: "Budget", glyph: "$", hint: "Estimates, quotes, and payments" },
   { id: "vendors", label: "Vendors", glyph: "⬡", hint: "Track and book your suppliers" },

@@ -78,7 +78,7 @@ describe("CommandPalette", () => {
   it("offers every module of the open wedding, grouped under Go to", () => {
     mount();
     expect(screen.getByText("Go to")).toBeTruthy();
-    for (const label of ["Overview", "Schedule", "Guests", "Invite", "Settings"]) {
+    for (const label of ["Overview", "Events", "Guests", "Invite", "Settings"]) {
       expect(screen.getByText(label)).toBeTruthy();
     }
   });
@@ -122,7 +122,7 @@ describe("CommandPalette", () => {
     expect(activeRow()?.textContent).toContain("Overview");
     fireEvent.keyDown(input(), { key: "ArrowDown" });
     expect(document.activeElement).toBe(input());
-    expect(activeRow()?.textContent).toContain("Schedule");
+    expect(activeRow()?.textContent).toContain("Events");
     fireEvent.keyDown(input(), { key: "ArrowUp" });
     expect(activeRow()?.textContent).toContain("Overview");
   });
@@ -158,7 +158,7 @@ describe("CommandPalette", () => {
     const { onModule, onOpenChange } = mount();
     fireEvent.keyDown(input(), { key: "ArrowDown" });
     fireEvent.keyDown(input(), { key: "Enter" });
-    expect(onModule).toHaveBeenCalledWith("schedule");
+    expect(onModule).toHaveBeenCalledWith("events");
     // Closed before the command navigates — a dialog still trapping focus while
     // the view behind it swaps is how focus ends up on <body>.
     expect(onOpenChange).toHaveBeenCalledWith(false);

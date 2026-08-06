@@ -145,7 +145,7 @@ export default function Overview(props: {
   /** Jump to another module (+ optional sub) — wired to the shell's navigation
    *  so an Overview card can send the organiser to the right place. */
   onNavigate: (
-    module: "guests" | "schedule" | "checklist" | "budget" | "vendors" | "invite" | "settings",
+    module: "guests" | "events" | "checklist" | "budget" | "vendors" | "invite" | "settings",
     sub?: string,
   ) => void;
 }) {
@@ -361,7 +361,7 @@ export default function Overview(props: {
                   onClick={() =>
                     props.onNavigate(
                       item.kind === "event"
-                        ? "schedule"
+                        ? "events"
                         : item.kind === "payment"
                           ? "budget"
                           : "checklist",
@@ -425,7 +425,7 @@ export default function Overview(props: {
             onJump={(tab) => {
               // GettingStarted still speaks the old tab vocabulary; map its jumps
               // onto the module shell.
-              if (tab === "events") props.onNavigate("schedule");
+              if (tab === "events") props.onNavigate("events");
               else if (tab === "guests") props.onNavigate("guests", "list");
               else if (tab === "invite") props.onNavigate("invite", "design");
             }}
@@ -585,9 +585,9 @@ export default function Overview(props: {
                 </Show>
               </Card>
 
-              {/* ── Guests + schedule snapshot ─────────────────────────────── */}
+              {/* ── Guests + events snapshot ─────────────────────────────── */}
               <Card>
-                <CardEyebrow>Guests &amp; schedule</CardEyebrow>
+                <CardEyebrow>Guests &amp; events</CardEyebrow>
                 <dl class="font-body text-text-muted flex flex-col gap-1.5 text-[0.85rem]">
                   <div class="flex justify-between gap-2">
                     <dt>Households</dt>

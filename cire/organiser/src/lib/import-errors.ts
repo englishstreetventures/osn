@@ -157,7 +157,7 @@ export function formatImportError(status: number, body: ImportErrorBody): string
 
     case "Unmatched event column": {
       const sheet = sheetLabel(body.sheet) ?? "your guests sheet";
-      return `"${String(body.column)}" in ${sheet} doesn't match any of your events. Every column after the fixed ones is read as an event's attendance column, so its heading has to be an event name exactly. If this is a new event, add it first — upload your events sheet, or add it on the Schedule tab — then upload your guests.`;
+      return `"${String(body.column)}" in ${sheet} doesn't match any of your events. Every column after the fixed ones is read as an event's attendance column, so its heading has to be an event name exactly. If this is a new event, add it first — upload your events sheet, or add it on the Events tab — then upload your guests.`;
     }
 
     case "Formula-injection guard tripped":

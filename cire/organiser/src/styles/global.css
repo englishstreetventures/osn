@@ -492,3 +492,55 @@
     animation: sheet-panel-out var(--dur-base) var(--ease-in-out);
   }
 }
+
+/* ── Attention glow ─────────────────────────────────────────────────────────
+ * A slow gold breath around a box that wants to be noticed once — today, the
+ * CSV format guide the first time an organiser meets an import panel. Three
+ * pulses and it stops on its own: a permanent pulse stops being a signal and
+ * starts being noise, and the class is dropped the moment the box is touched.
+ *
+ * **The shadow is static; only `opacity` animates** (P-W1). Chromium composites
+ * animations of `transform`, `opacity`, `filter` and `backdrop-filter` and
+ * nothing else — an animated `box-shadow` runs on the main thread and re-paints
+ * and re-rasters the element's whole visual rect every frame, with the
+ * `color-mix()` re-resolved each time. On the first run this box is the OPEN
+ * guide, i.e. the tallest thing on screen, and the 7.8s of pulsing lands exactly
+ * while the organiser is scrolling and reading it. Painting the ring once on a
+ * pseudo-element and fading that element instead promotes it to its own
+ * compositor layer: rastered once, re-composited by the GPU, and off the thread
+ * that scrolling needs.
+ *
+ * A pseudo-element rather than the box itself, because it also keeps the ring
+ * from fighting the element's own border utility, moves nothing in layout
+ * (`position: absolute` + `inset: 0`), and leaves the focus ring's space free —
+ * a keyboard focus ring lands on top of it and stays legible. Suppressed
+ * entirely by the reduced-motion block above, which leaves the guide simply
+ * expanded, which is the actual affordance.
+ */
+@keyframes attention-glow {
+  0%,
+  100% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@utility attention-glow {
+  position: relative;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    opacity: 0;
+    will-change: opacity;
+    box-shadow:
+      0 0 0 3px color-mix(in oklch, var(--gold) 34%, transparent),
+      0 0 18px 2px color-mix(in oklch, var(--gold) 20%, transparent);
+    animation: attention-glow calc(2.6s * var(--motion-scale)) var(--ease-in-out) 3;
+  }
+}

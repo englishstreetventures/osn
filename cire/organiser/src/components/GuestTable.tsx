@@ -334,7 +334,7 @@ export default function GuestTable(props: GuestTableProps) {
       <Show when={!loading() && !error() && !hasGuests()}>
         <EmptyState
           title="No guests yet"
-          description="Import your guests sheet from the Spreadsheet Import above to build the list. Each household gets its own code and invite message to share."
+          description="Head to Edit to build the list — add households by hand, or upload a guests sheet. Each household gets its own code and invite message to share."
         />
       </Show>
 

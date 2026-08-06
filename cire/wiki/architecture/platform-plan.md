@@ -38,7 +38,7 @@ The refactor thesis: **promote Guests and Schedule to first-class, invite-indepe
 ```
 Wedding (profile: date, location, guest estimate, currency, budget)
 ├── Guests      — households + guests + per-event attendance   (source of truth)
-├── Schedule    — events / run-sheet                           (source of truth)
+├── Events      — events / run-sheet (module was named Schedule) (source of truth)
 ├── Invite      — claim codes, theming, RSVP *channel*         (consumer of Guests + Schedule)
 ├── Vendors     — CRM → directory, availability, enquiries     (consumer of profile + Schedule)
 ├── Budget      — categories, estimates → quotes → actuals     (consumer of Vendors + pricing engine)

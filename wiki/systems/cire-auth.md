@@ -209,7 +209,7 @@ Both exclude tombstoned accounts (`deletedAt IS NULL`), so an account mid-deleti
 > **removed** — that demo wedding is deleted by migration
 > `0015_drop_bootstrap_wedding.sql`. (`feat/cire-organiser-open-access`.)
 
-> The earlier `ownedWedding()` middleware (which derived a single owned wedding and 400'd when a caller owned more than one) was **removed** when organisers gained the ability to own multiple weddings — the import routes now take an explicit `:weddingId` under `weddingOwner()`.
+> The earlier `ownedWedding()` middleware (which derived a single owned wedding and 400'd when a caller owned more than one) was **removed** when organisers gained the ability to own multiple weddings — the import routes now take an explicit `:weddingId`. They sit under **`weddingEditor()`**, not `weddingOwner()` (corrected 2026-08-06, C-L2: this line lagged the move; the capability matrix above has always been right). Owner or `editor` co-host may preview and apply; a read-only `viewer` gets 403 `read_only_role`.
 
 ### Error-code design: 403 vs 401 (real bug class)
 

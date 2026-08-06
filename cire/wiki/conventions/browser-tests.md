@@ -7,19 +7,35 @@ related:
   - "[[index]]"
 packages:
   - "@cire/web"
+  - "@cire/organiser"
 last-reviewed: 2026-08-06
 ---
 
 # Browser Tests
 
-A second Vitest project in `@cire/web` that runs a handful of tests in a **real
-Chromium** instead of jsdom. Files are named `*.browser.test.ts(x)`.
+A second Vitest project — in `@cire/web` and, since 2026-08-06, in
+`@cire/organiser` — that runs a handful of tests in a **real Chromium** instead
+of jsdom/happy-dom. Files are named `*.browser.test.ts(x)`.
 
 ```bash
-bun run --cwd cire/web test           # fast tier (jsdom) — the default
-bun run --cwd cire/web test:browser   # browser tier
-bun run test:browser                  # every package that has one (turbo)
+bun run --cwd cire/web test                 # fast tier (jsdom) — the default
+bun run --cwd cire/web test:browser         # browser tier
+bun run --cwd cire/organiser test:run       # fast tier (happy-dom)
+bun run --cwd cire/organiser test:browser   # browser tier
+bun run test:browser                        # every package that has one (turbo)
 ```
+
+The organiser's tier exists for one thing the portal has and the guest site
+doesn't: **two ramps and mostly translucent ink tokens**. `tokens.test.ts`
+measures the tokens as authored; only a browser can measure what an organiser's
+screen ends up with once `bg-gold/12` over `bg-surface/30` over the page has
+been composited under the text — which is exactly how the CSV panel's mandatory
+column chips came to be marked in ink at **1.8:1** (dark) and **1.3:1** (light)
+with a green suite. `ImportPanel.browser.test.tsx` measures the painted result
+in both ramps; see the `paintedBackdrop` / `paintedInk` helpers there, which
+composite on a 1×1 canvas rather than parsing colours by hand (the canvas parses
+whatever syntax `getComputedStyle` returns — Tailwind's `/12` modifier computes
+to a `color-mix` result Chrome serialises as `oklab(… / .12)`).
 
 ## Why it exists
 
@@ -69,7 +85,8 @@ browser test proves the outcome. `RsvpModal.test.tsx` and
 
 ## How it is wired
 
-`cire/web/vitest.config.ts` defines two projects:
+`cire/web/vitest.config.ts` and `cire/organiser/vitest.config.ts` each define two
+projects:
 
 - **`unit`** — jsdom, `exclude`s `**/*.browser.test.{ts,tsx}`
 - **`browser`** — `include`s only `src/**/*.browser.test.{ts,tsx}`, Playwright
@@ -102,10 +119,10 @@ component test in the package.
 
 ### Media emulation
 
-`prefers-reduced-motion` is a property of the browser *context*, so nothing
-inside the page can change it. `src/test-support/browser-commands.ts` registers
-an `emulateMedia` browser command that runs in the node process with the
-Playwright `page` handle:
+`prefers-reduced-motion` and `prefers-color-scheme` are properties of the browser
+*context*, so nothing inside the page can change them.
+`src/test-support/browser-commands.ts` registers an `emulateMedia` browser
+command that runs in the node process with the Playwright `page` handle:
 
 ```ts
 await emulate({ reducedMotion: "reduce" });
@@ -116,6 +133,12 @@ file, so a leaked preference silently rewrites every later assertion about
 motion. A second `browser.instances` entry with `contextOptions.reducedMotion`
 would also work, but runs the *entire* suite twice to serve the few tests that
 care.
+
+The organiser's copy of the command also takes `colorScheme` (its two ramps are
+`prefers-color-scheme` plus a `data-theme` override, and the ink contract has to
+hold in both), and augments Vitest's `BrowserCommands` interface so `commands`
+is typed at the call site rather than cast — `@cire/web`'s copy predates that
+and still casts.
 
 ## Running it locally
 
