@@ -3,14 +3,17 @@ import {
   createEffect,
   createResource,
   createSignal,
+  lazy,
   onCleanup,
   onMount,
   type ParentProps,
   Show,
+  Suspense,
 } from "solid-js";
 import { Toaster } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { createCommandShortcut } from "../lib/command-shortcut";
 import {
   type DashboardRoute,
   DEFAULT_MODULE,
@@ -23,12 +26,21 @@ import {
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/theme";
 import { confirmNavigation } from "../lib/unsaved-guard";
-import CommandPalette from "./CommandPalette";
 import type { WeddingSummary } from "./CreateWeddingForm";
 import ModuleShell from "./ModuleShell";
 import SecurityPanel from "./SecurityPanel";
 import TopBar from "./TopBar";
 import WeddingList from "./WeddingList";
+
+/**
+ * The palette is the one piece of chrome nobody sees until they ask for it, and
+ * it is not small — a dialog, a filtered listbox, the module catalogue and the
+ * theme switch. Splitting it out is the portal's only route-level split that
+ * costs nothing in reach: the shortcut that summons it lives in
+ * `lib/command-shortcut`, so it is bound from the first paint whether or not
+ * this chunk has arrived.
+ */
+const CommandPalette = lazy(() => import("./CommandPalette"));
 
 type WeddingsState =
   | { kind: "error"; message: string }
@@ -139,8 +151,33 @@ function Dashboard() {
   const [route, setRouteSignal] = createSignal<DashboardRoute>(initialRoute());
 
   // The ⌘K palette is chrome-level state — it opens over whichever view is
-  // showing, and the shortcut that opens it is registered inside the palette.
+  // showing. Two signals rather than one: `open` is what the dialog reads,
+  // `summoned` latches on the first open and never clears, so the chunk is
+  // fetched and mounted once instead of on every ⌘K.
   const [paletteOpen, setPaletteOpen] = createSignal(false);
+  const [paletteSummoned, setPaletteSummoned] = createSignal(false);
+
+  function setPalette(open: boolean) {
+    if (open) setPaletteSummoned(true);
+    setPaletteOpen(open);
+  }
+
+  createCommandShortcut(() => setPalette(!paletteOpen()));
+
+  // Warm the chunk while the browser is idle, so the first ⌘K opens on the
+  // frame it is pressed rather than after a round trip. Idle, not eager: the
+  // point of the split is to keep it off the path to first paint, and putting
+  // it back on that path with a bare `import()` at mount would undo it.
+  onMount(() => {
+    const warm = () => void import("./CommandPalette");
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(warm, { timeout: 4000 });
+      onCleanup(() => cancelIdleCallback(id));
+    } else {
+      const id = setTimeout(warm, 2000);
+      onCleanup(() => clearTimeout(id));
+    }
+  });
 
   // Write the hash with replaceState by default (tab switches) so they don't
   // pile up history entries; explicit navigations (open a wedding, go back to
@@ -311,20 +348,27 @@ function Dashboard() {
         onAll={backToList}
         onSecurity={() => selectView("security")}
         onSignOut={() => void signOut()}
-        onOpenPalette={() => setPaletteOpen(true)}
+        onOpenPalette={() => setPalette(true)}
       />
 
-      <CommandPalette
-        open={paletteOpen()}
-        onOpenChange={setPaletteOpen}
-        wedding={selected()}
-        weddings={weddings() ?? []}
-        onModule={selectModule}
-        onWedding={selectWedding}
-        onAll={backToList}
-        onSecurity={() => selectView("security")}
-        onSignOut={() => void signOut()}
-      />
+      {/* No Suspense fallback on purpose: the palette is an overlay, and a
+          spinner where an overlay is about to be is worse than the overlay
+          arriving a frame later. */}
+      <Show when={paletteSummoned()}>
+        <Suspense>
+          <CommandPalette
+            open={paletteOpen()}
+            onOpenChange={setPalette}
+            wedding={selected()}
+            weddings={weddings() ?? []}
+            onModule={selectModule}
+            onWedding={selectWedding}
+            onAll={backToList}
+            onSecurity={() => selectView("security")}
+            onSignOut={() => void signOut()}
+          />
+        </Suspense>
+      </Show>
 
       {/* `@container/page` is the outermost query context for the views that sit
           outside the module shell (the wedding list, the create form). The main

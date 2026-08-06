@@ -1,8 +1,10 @@
 import { For, Show } from "solid-js";
 
+import { createAutoSize } from "../lib/auto-size";
 import { peekCachedBudget } from "../lib/budget-store";
 import { defaultSub, isSubOf, type Module } from "../lib/dashboard-route";
 import { moduleDef } from "../lib/module-nav";
+import { createSlidingPill } from "../lib/sliding-pill";
 import BudgetView from "./BudgetView";
 import ChecklistView from "./ChecklistView";
 import DirectoryBrowseView from "./DirectoryBrowseView";
@@ -141,6 +143,16 @@ export default function ModuleShell(props: ModuleShellProps) {
   // handler can reach, so a stale ref past the new length is never read.
   const tabRefs: HTMLButtonElement[] = [];
 
+  // The strip's selected background, as one box that travels rather than one
+  // per tab that switches on and off. The strip wraps at narrow panel widths,
+  // which is why the pill measures both axes.
+  const pill = createSlidingPill(active);
+
+  // The panel takes the height of whatever view the tabs swapped in, and moves
+  // between the two rather than jumping. Nothing is held at rest — see the note
+  // in `auto-size.ts` for why that matters on a panel this general.
+  const panelSize = createAutoSize();
+
   function focusTab(index: number) {
     const count = subTabs().length;
     if (count === 0) return;
@@ -202,14 +214,29 @@ export default function ModuleShell(props: ModuleShellProps) {
                   selection-follows-focus would fire a request per keypress. */}
               <Show when={subTabs().length > 1}>
                 <div
-                  class="border-border bg-surface/30 inline-flex max-w-full flex-wrap gap-1 rounded-sm border p-1"
+                  ref={pill.track}
+                  class="border-border bg-surface/30 relative inline-flex max-w-full flex-wrap gap-1 rounded-sm border p-1"
                   role="tablist"
                   aria-label="Views"
                 >
+                  {/* The selection, as a box that moves. It sits behind the tabs
+                      (they are `relative`, it is not stacked over them), so it
+                      reads as the selected tab's own background. */}
+                  <span
+                    aria-hidden="true"
+                    class="bg-gold/12 pointer-events-none absolute top-0 left-0 rounded-sm"
+                    style={pill.style()}
+                  />
                   <For each={subTabs()}>
                     {(subTab, index) => (
                       <button
-                        ref={(el) => (tabRefs[index()] = el)}
+                        ref={(el) => {
+                          // Two things want this element: the roving tabindex,
+                          // which reaches tabs by position, and the pill, which
+                          // reaches them by id. One ref, both told.
+                          tabRefs[index()] = el;
+                          pill.item(subTab.id)(el);
+                        }}
                         type="button"
                         role="tab"
                         id={tabId(props.module, subTab.id)}
@@ -218,9 +245,9 @@ export default function ModuleShell(props: ModuleShellProps) {
                         tabindex={active() === subTab.id ? 0 : -1}
                         onKeyDown={(event) => onTabKeyDown(event, index())}
                         onClick={() => props.onSub(subTab.id)}
-                        class={`font-body flex items-center gap-2 rounded-sm px-3.5 py-1.5 text-[0.74rem] tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
+                        class={`font-body relative flex items-center gap-2 rounded-sm px-3.5 py-1.5 text-[0.74rem] tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) ${
                           active() === subTab.id
-                            ? "bg-gold/12 text-gold"
+                            ? "text-gold"
                             : "text-text-muted hover:text-text hover:bg-surface/60"
                         }`}
                       >
@@ -239,151 +266,158 @@ export default function ModuleShell(props: ModuleShellProps) {
               it, so the tab contract points at this element. It only claims the
               role when there are tabs to label it. */}
           <div
+            ref={panelSize.frame}
             id={panelId(props.module)}
             role={subTabs().length > 1 ? "tabpanel" : undefined}
             aria-labelledby={subTabs().length > 1 ? tabId(props.module, active()) : undefined}
             tabindex={subTabs().length > 1 ? 0 : undefined}
             class="outline-none"
           >
-            {/* ── Overview ─────────────────────────────────────────────────── */}
-            <Show when={props.module === "overview"}>
-              <Overview
-                weddingId={props.weddingId}
-                onNavigate={(module, sub) => {
-                  props.onModule(module);
-                  if (sub) props.onSub(sub);
-                }}
-              />
-            </Show>
-
-            {/* ── Schedule: Events (read) + Edit ───────────────────────────── */}
-            <Show when={props.module === "schedule"}>
-              <Show when={active() === "list"}>
-                <EventTable weddingId={props.weddingId} weddingSlug={props.weddingSlug} />
-              </Show>
-              {/* Interactive events editor (E6) — a pure write surface, editor-gated
-              (the API also gates changes/* with weddingEditor()). */}
-              <Show when={active() === "edit" && props.canEdit}>
-                <EventsEditor weddingId={props.weddingId} />
-              </Show>
-            </Show>
-
-            {/* ── Checklist: freeform tasks by lead-time bucket ────────────── */}
-            <Show when={props.module === "checklist"}>
-              <ChecklistView weddingId={props.weddingId} canEdit={props.canEdit} />
-            </Show>
-
-            {/* ── Budget: per-category items + payments ────────────────────── */}
-            <Show when={props.module === "budget"}>
-              <BudgetView
-                weddingId={props.weddingId}
-                canEdit={props.canEdit}
-                canManage={props.canManage}
-              />
-            </Show>
-
-            {/* ── Vendors: CRM ("My vendors") + directory Browse ──────────── */}
-            <Show when={props.module === "vendors"}>
-              <Show
-                when={props.entitlements.includes("vendors")}
-                fallback={<UpsellPanel feature="vendors" />}
-              >
-                <Show when={active() === "index"}>
-                  <VendorsView
-                    weddingId={props.weddingId}
-                    currency={peekCachedBudget(props.weddingId)?.currency ?? "AUD"}
-                    canEdit={props.canEdit}
-                    canManage={props.canManage}
-                  />
-                </Show>
-                <Show when={active() === "browse"}>
-                  <DirectoryBrowseView weddingId={props.weddingId} canEdit={props.canEdit} />
-                </Show>
-                <Show when={active() === "enquiries"}>
-                  <EnquiriesView
-                    weddingId={props.weddingId}
-                    currency={peekCachedBudget(props.weddingId)?.currency ?? "AUD"}
-                    canEdit={props.canEdit}
-                  />
-                </Show>
-              </Show>
-            </Show>
-
-            {/* ── Guests: Households + RSVPs ───────────────────────────────── */}
-            <Show when={props.module === "guests"}>
-              <Show when={active() === "list"}>
-                <div class="flex flex-col gap-8">
-                  {/* Import is a WRITE surface (weddingEditor()-gated) — viewers
-                  don't see it. It rehomes here with the guest list it feeds. */}
-                  <Show when={props.canEdit}>
-                    <ImportPanel weddingId={props.weddingId} />
-                  </Show>
-                  <GuestTable
-                    weddingId={props.weddingId}
-                    canManage={props.canManage}
-                    weddingName={props.weddingName}
-                    weddingSlug={props.weddingSlug}
-                  />
-                </div>
-              </Show>
-              {/* Interactive editor (E5) — a pure write surface, editor-gated (the
-              API also gates changes/* with weddingEditor()). */}
-              <Show when={active() === "edit" && props.canEdit}>
-                <GuestsEditor weddingId={props.weddingId} />
-              </Show>
-              <Show when={active() === "rsvps"}>
-                <RsvpView weddingId={props.weddingId} canEdit={props.canEdit} />
-              </Show>
-            </Show>
-
-            {/* ── Invite: Design + Codes ───────────────────────────────────── */}
-            <Show when={props.module === "invite"}>
-              <Show when={active() === "design"}>
-                {/* The builder is one big write surface; a viewer sees the invite
-                itself via the header's "Preview invite" (member-gated) instead. */}
-                <Show
-                  when={props.canEdit}
-                  fallback={
-                    <p class="border-border bg-surface/30 text-text-muted rounded-sm border p-6 text-[0.88rem]">
-                      You have view-only access to this wedding. Use “Preview invite” above to see
-                      the invitation as guests will — ask the owner for editor access to customise
-                      it.
-                    </p>
-                  }
-                >
-                  <InviteBuilder
-                    weddingId={props.weddingId}
-                    weddingSlug={props.weddingSlug}
-                    entitlements={props.entitlements}
-                  />
-                </Show>
-              </Show>
-              <Show when={active() === "codes" && props.canManage}>
-                <RemintPanel weddingId={props.weddingId} />
-              </Show>
-            </Show>
-
-            {/* ── Settings: Profile + Co-hosts ─────────────────────────────── */}
-            <Show when={props.module === "settings"}>
-              <Show when={active() === "wedding"}>
-                <SettingsPanel
+            {/* The measured box has to be a child of the frame, and `flow-root`
+                is what makes the measurement honest: without it a first or last
+                child's margin collapses through the wrapper, so the height read
+                differs depending on whether the frame is currently clipped. */}
+            <div ref={panelSize.content} class="flow-root">
+              {/* ── Overview ─────────────────────────────────────────────────── */}
+              <Show when={props.module === "overview"}>
+                <Overview
                   weddingId={props.weddingId}
-                  canManage={props.canManage}
-                  canEditRsvpDeadline={props.canEdit}
-                  onWeddingUpdated={props.onWeddingUpdated}
+                  onNavigate={(module, sub) => {
+                    props.onModule(module);
+                    if (sub) props.onSub(sub);
+                  }}
                 />
               </Show>
-              <Show when={active() === "hosts"}>
-                {/* Two flags, because the API has two gates here: adding a
+
+              {/* ── Schedule: Events (read) + Edit ───────────────────────────── */}
+              <Show when={props.module === "schedule"}>
+                <Show when={active() === "list"}>
+                  <EventTable weddingId={props.weddingId} weddingSlug={props.weddingSlug} />
+                </Show>
+                {/* Interactive events editor (E6) — a pure write surface, editor-gated
+              (the API also gates changes/* with weddingEditor()). */}
+                <Show when={active() === "edit" && props.canEdit}>
+                  <EventsEditor weddingId={props.weddingId} />
+                </Show>
+              </Show>
+
+              {/* ── Checklist: freeform tasks by lead-time bucket ────────────── */}
+              <Show when={props.module === "checklist"}>
+                <ChecklistView weddingId={props.weddingId} canEdit={props.canEdit} />
+              </Show>
+
+              {/* ── Budget: per-category items + payments ────────────────────── */}
+              <Show when={props.module === "budget"}>
+                <BudgetView
+                  weddingId={props.weddingId}
+                  canEdit={props.canEdit}
+                  canManage={props.canManage}
+                />
+              </Show>
+
+              {/* ── Vendors: CRM ("My vendors") + directory Browse ──────────── */}
+              <Show when={props.module === "vendors"}>
+                <Show
+                  when={props.entitlements.includes("vendors")}
+                  fallback={<UpsellPanel feature="vendors" />}
+                >
+                  <Show when={active() === "index"}>
+                    <VendorsView
+                      weddingId={props.weddingId}
+                      currency={peekCachedBudget(props.weddingId)?.currency ?? "AUD"}
+                      canEdit={props.canEdit}
+                      canManage={props.canManage}
+                    />
+                  </Show>
+                  <Show when={active() === "browse"}>
+                    <DirectoryBrowseView weddingId={props.weddingId} canEdit={props.canEdit} />
+                  </Show>
+                  <Show when={active() === "enquiries"}>
+                    <EnquiriesView
+                      weddingId={props.weddingId}
+                      currency={peekCachedBudget(props.weddingId)?.currency ?? "AUD"}
+                      canEdit={props.canEdit}
+                    />
+                  </Show>
+                </Show>
+              </Show>
+
+              {/* ── Guests: Households + RSVPs ───────────────────────────────── */}
+              <Show when={props.module === "guests"}>
+                <Show when={active() === "list"}>
+                  <div class="flex flex-col gap-8">
+                    {/* Import is a WRITE surface (weddingEditor()-gated) — viewers
+                  don't see it. It rehomes here with the guest list it feeds. */}
+                    <Show when={props.canEdit}>
+                      <ImportPanel weddingId={props.weddingId} />
+                    </Show>
+                    <GuestTable
+                      weddingId={props.weddingId}
+                      canManage={props.canManage}
+                      weddingName={props.weddingName}
+                      weddingSlug={props.weddingSlug}
+                    />
+                  </div>
+                </Show>
+                {/* Interactive editor (E5) — a pure write surface, editor-gated (the
+              API also gates changes/* with weddingEditor()). */}
+                <Show when={active() === "edit" && props.canEdit}>
+                  <GuestsEditor weddingId={props.weddingId} />
+                </Show>
+                <Show when={active() === "rsvps"}>
+                  <RsvpView weddingId={props.weddingId} canEdit={props.canEdit} />
+                </Show>
+              </Show>
+
+              {/* ── Invite: Design + Codes ───────────────────────────────────── */}
+              <Show when={props.module === "invite"}>
+                <Show when={active() === "design"}>
+                  {/* The builder is one big write surface; a viewer sees the invite
+                itself via the header's "Preview invite" (member-gated) instead. */}
+                  <Show
+                    when={props.canEdit}
+                    fallback={
+                      <p class="border-border bg-surface/30 text-text-muted rounded-sm border p-6 text-[0.88rem]">
+                        You have view-only access to this wedding. Use “Preview invite” above to see
+                        the invitation as guests will — ask the owner for editor access to customise
+                        it.
+                      </p>
+                    }
+                  >
+                    <InviteBuilder
+                      weddingId={props.weddingId}
+                      weddingSlug={props.weddingSlug}
+                      entitlements={props.entitlements}
+                    />
+                  </Show>
+                </Show>
+                <Show when={active() === "codes" && props.canManage}>
+                  <RemintPanel weddingId={props.weddingId} />
+                </Show>
+              </Show>
+
+              {/* ── Settings: Profile + Co-hosts ─────────────────────────────── */}
+              <Show when={props.module === "settings"}>
+                <Show when={active() === "wedding"}>
+                  <SettingsPanel
+                    weddingId={props.weddingId}
+                    canManage={props.canManage}
+                    canEditRsvpDeadline={props.canEdit}
+                    onWeddingUpdated={props.onWeddingUpdated}
+                  />
+                </Show>
+                <Show when={active() === "hosts"}>
+                  {/* Two flags, because the API has two gates here: adding a
                   co-host is `weddingEditor()` (so `canEdit`), while changing a
                   role or removing one stays `weddingOwner()`. */}
-                <HostsPanel
-                  weddingId={props.weddingId}
-                  canManage={props.canManage}
-                  canAdd={props.canEdit}
-                />
+                  <HostsPanel
+                    weddingId={props.weddingId}
+                    canManage={props.canManage}
+                    canAdd={props.canEdit}
+                  />
+                </Show>
               </Show>
-            </Show>
+            </div>
           </div>
         </div>
       </div>

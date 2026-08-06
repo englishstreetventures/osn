@@ -4,6 +4,7 @@ import { createSignal, For, onCleanup } from "solid-js";
 import type { Module } from "../lib/dashboard-route";
 import { haptic } from "../lib/haptics";
 import { MODULE_NAV, moduleDef } from "../lib/module-nav";
+import { createSlidingPill } from "../lib/sliding-pill";
 
 /** Shared row shape for both surfaces, so the rail and the sheet read as the
  *  same control at two sizes rather than as two different navs. */
@@ -13,6 +14,10 @@ const rowBase =
 
 const rowIdle = "text-text-muted hover:text-text hover:bg-surface/50";
 const rowActive = "text-gold bg-gold/10";
+
+/** The rail's active row carries no background of its own — the pill behind it
+ *  is the background, and it travels. Colour is all the row has to change. */
+const railActive = "text-gold";
 
 /**
  * The dashboard's module nav.
@@ -42,6 +47,11 @@ export default function ModuleSidebar(props: {
   const [sheetOpen, setSheetOpen] = createSignal(false);
 
   const current = () => moduleDef(props.active);
+
+  // The rail's marker. One box that moves to the active row, rather than eight
+  // that switch on and off. It only drives the rail: the sheet is a modal the
+  // host opens, picks from and closes, so nothing there is ever watched moving.
+  const pill = createSlidingPill(() => props.active);
 
   const select = (module: Module) => {
     props.onSelect(module);
@@ -77,30 +87,34 @@ export default function ModuleSidebar(props: {
           from being stretched to the panel's height by the flex row — a
           full-height flex item has nothing to slide against. */}
       <nav
+        ref={pill.track}
         aria-label="Wedding modules"
-        class="hidden w-52 shrink-0 flex-col gap-0.5 @2xl/shell:sticky @2xl/shell:top-6 @2xl/shell:flex @2xl/shell:self-start @5xl/shell:w-56"
+        class="relative hidden w-52 shrink-0 flex-col gap-0.5 @2xl/shell:sticky @2xl/shell:top-6 @2xl/shell:flex @2xl/shell:self-start @5xl/shell:w-56"
       >
+        {/* The marker: one box, told where to be. It sits under the rows (they
+            are `relative`, it is not stacked above them), so it reads as the
+            active row's own background even though it belongs to the nav. */}
+        <span
+          aria-hidden="true"
+          class="bg-gold/10 pointer-events-none absolute top-0 left-0 rounded-sm"
+          style={pill.style()}
+        >
+          <span class="bg-gold absolute inset-y-1 left-0 w-[2px] rounded-full" />
+        </span>
         <For each={MODULE_NAV}>
           {(mod) => {
             const isActive = () => props.active === mod.id;
             return (
               <button
+                ref={pill.item(mod.id)}
                 type="button"
                 aria-current={isActive() ? "page" : undefined}
                 title={mod.hint}
                 onClick={() => props.onSelect(mod.id)}
                 class={`${rowBase} relative px-3 py-2 text-[0.82rem] ${
-                  isActive() ? rowActive : rowIdle
+                  isActive() ? railActive : rowIdle
                 }`}
               >
-                {/* The marker is an overlay rather than a border so the label
-                    keeps the same x-position active or not — no 2px jump. */}
-                <span
-                  aria-hidden="true"
-                  class={`absolute inset-y-1 left-0 w-[2px] rounded-full transition-colors duration-(--dur-fast) ${
-                    isActive() ? "bg-gold" : "bg-transparent"
-                  }`}
-                />
                 <span aria-hidden="true" class="w-4 shrink-0 text-center text-[0.95em] opacity-80">
                   {mod.glyph}
                 </span>

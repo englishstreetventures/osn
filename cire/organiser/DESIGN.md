@@ -198,7 +198,26 @@ whole app to 0.1× and a reference behaviour can be judged frame by frame. Nothi
 in the app itself writes it.
 
 `prefers-reduced-motion: reduce` is a global kill switch in `@layer base`, not a
-per-component branch.
+per-component branch. It sets `transition-duration` and `animation-duration` with
+`!important`, which beats an inline style — so a hook that writes a duration
+inline still stops, and no hook needs a `matchMedia` check of its own.
+
+Two hooks carry the design law of §1, both in `src/lib/`:
+
+- **`createAutoSize`** — animates a frame between its own heights, then hands the
+  height back to the content. It holds **nothing at rest**: no pixel height
+  survives the transition, so a resized window, a changed font size or a late
+  image never fights a stale number. The measured wrapper is a `flow-root`, so a
+  child's top margin cannot escape it and change the answer depending on whether
+  the frame was clipped at the time.
+- **`createSlidingPill`** — moves one highlight between tabs instead of
+  cross-fading one highlight per tab. That is what makes a strip read as a single
+  control rather than a row of them. The pill's row must be `relative`: an
+  absolutely positioned element paints above non-positioned siblings in the same
+  stacking context, and without it the underlay covers its own labels.
+
+The sheet variant of the module nav deliberately gets no pill. A pill measures a
+strip the eye can see all of at once, and a sheet is a list.
 
 **Focus.** One ring for the whole dashboard: 2px solid `--focus`, 2px offset,
 never animated, never removed — the shell is keyboard-driven. It deliberately
@@ -257,3 +276,46 @@ dragging SolidJS and a module-scope signal graph into Astro's server bundle.
 Every failure in it resolves to a theme rather than an exception: `localStorage`
 throws outright in some private-browsing modes, and a browser with no `matchMedia`
 is given the house dark.
+
+---
+
+## 7. Components
+
+`src/components/ui/` holds the parts every module is built from. They are
+class-mapping components: they own a look and its variants, and almost no
+behaviour. A part that grows real behaviour takes its own file with it.
+
+There is no `clsx`, no `tailwind-merge` and no `cva` in this package. Classes are
+plain template literals, because Tailwind's scanner reads source as text and a
+class that is computed at runtime emits no CSS at all — silently. Composition is
+by variant map, and the caller's own `class` is appended last.
+
+| Part | What it is |
+| --- | --- |
+| `Button` | Four variants — `primary`, `outline`, `quiet`, `danger` — and three sizes, `sm`, `md`, `icon`. `type="button"` is set **before** the spread, so a toolbar control inside a settings form does not submit it, and a caller who means `submit` can still say so. |
+| `Card`, `cardClass`, `CardEyebrow`, `CardCta` | The raised surface, plus its two furnishings. `cardClass` is exported so a surface that has to be an `<a>` or a `<button>` gets the same look without wrapping. The `interactive` option adds the hover treatment — which is a promise that the whole rectangle is clickable, so a card that is not a control must not wear it. |
+| `Notice` | Four tones. Error, warn and success each carry a distinct glyph plus an `sr-only` word; `info` is unmarked, because nothing has happened. `alert` opts into `role="alert"` and is for a note that appeared **in answer to something** — a standing note that was on screen before the host arrived has nothing to interrupt anyone about. |
+| `EmptyState` | A title, an optional line of prose, and the one thing to do about it. |
+| `Meter`, `meterPct` | A thin bar. Scaled by transform rather than resized — see the file. `meterPct` clamps at both ends and reads a zero or missing maximum as empty, not as a division by zero. |
+| `Stat` | A figure, then what it is, then an optional hint. |
+| `Table`, `Th`, `Td` | The five tables as one set of parts. The wrapper scrolls so the page never does, and it is a named, focusable `<section>` so the columns past the right edge are reachable without a mouse. `label` is required. |
+
+### Two rules that apply to all of them
+
+**Anything spread onto an element takes `SafeProps`.** Solid's `HTMLAttributes`
+includes `innerHTML`, `innerText` and `textContent`, and dom-expressions assigns
+`innerHTML` unescaped. `SafeProps<E>` (`src/components/ui/props.ts`) is
+`ComponentProps<E>` with those three removed, so a call site cannot pass
+unsanitised markup through a primitive without noticing.
+
+**Colour never carries a meaning on its own.** The error and warn tones are the
+closest pair in the palette, and about one host in twelve cannot tell them apart.
+Every state that reports an outcome pairs its hue with a shape and a word.
+
+### Testing them
+
+`ui.test.tsx` asserts what a call site can rely on — that the variants differ
+from each other, that props reach the DOM, that the accessibility wiring is
+there, and that the one piece of arithmetic in the set is right. It does not
+assert class strings: that pins the current answer rather than the contract, and
+turns every move of the design into a test edit.

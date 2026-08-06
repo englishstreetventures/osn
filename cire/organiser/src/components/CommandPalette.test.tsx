@@ -192,26 +192,9 @@ describe("CommandPalette", () => {
     expect(activeRow()).toBe(schedule);
   });
 
-  it("opens on ⌘K and closes on a second press, from anywhere on the page", async () => {
-    const { onOpenChange } = mount({ open: false });
-    fireEvent.keyDown(document, { key: "k", metaKey: true });
-    expect(onOpenChange).toHaveBeenLastCalledWith(true);
-    await waitFor(() => expect(screen.getByRole("combobox")).toBeTruthy());
-    fireEvent.keyDown(document, { key: "k", metaKey: true });
-    expect(onOpenChange).toHaveBeenLastCalledWith(false);
-  });
-
-  it("takes Ctrl+K and a capitalised K too", () => {
-    const { onOpenChange } = mount({ open: false });
-    fireEvent.keyDown(document, { key: "K", ctrlKey: true });
-    expect(onOpenChange).toHaveBeenLastCalledWith(true);
-  });
-
-  it("ignores a bare k", () => {
-    const { onOpenChange } = mount({ open: false });
-    fireEvent.keyDown(document, { key: "k" });
-    expect(onOpenChange).not.toHaveBeenCalled();
-  });
+  // The ⌘K binding itself moved to `lib/command-shortcut` when the palette
+  // became a lazy chunk — a shortcut that has to work before the component
+  // exists cannot live inside it. Its tests moved with it.
 
   it("reopens empty and at the top", async () => {
     // A palette that reopens holding the last search is one you have to clear

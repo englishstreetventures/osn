@@ -279,3 +279,23 @@ Also recorded, no action: two `jsx-a11y` warnings are **accepted** on `CommandPa
 the tag the second rule suggests cannot host a filtered list with `aria-activedescendant` while focus stays in
 the input. oxlint does not honour `eslint-disable-next-line`, so there is no way to annotate them at the
 callsite — hence the row here instead.
+
+**Host-portal UI primitives (`feat/cire-portal-primitives`) — security review (2026-08-06).**
+**No Critical, no High.** Phase 3 of the portal redesign: seven shared components in
+`cire/organiser/src/components/ui/` plus two motion utilities. No network, no storage, no authz surface — the
+set is class mapping and geometry, and the two findings that matter are about what a *call site* can hand
+them. Verified clean: no `innerHTML`/`set:html` added anywhere, no new dependency of any kind, no new
+`localStorage` key, and nothing in the set reads a URL, a claim or a role.
+
+- [x] **PRIM-S-L1** (fixed on branch) — **the primitives accepted `innerHTML` without ever naming it.** `Button`, `Notice`, `Th` and `Td` spread their rest props onto an element, and their props were typed `ComponentProps<"button">` and friends. Solid's `HTMLAttributes` includes `innerHTML`, `innerText` and `textContent`, and dom-expressions assigns `innerHTML` **unescaped** — so any call site could pass unsanitised markup through a component whose whole job is to be boring, and the grep that would find it (`innerHTML` in `src/`) would find nothing, because the word is at the call site rather than in the component. All four now take `SafeProps<E>`, which is `Omit<ComponentProps<E>, "innerHTML" | "innerText" | "textContent">`. Type-level, not runtime: it removes the affordance rather than sanitising anything, which is the right shape for a prop nobody has a use for.
+- [x] **PRIM-C-L1** (fixed on branch) — `Notice` signalled its outcome with hue alone, and about one host in twelve cannot tell the four apart; error and warn are the closest pair in this palette. The three notices that report an **outcome** — error, warn, success — now each carry a distinct `aria-hidden` glyph plus an `sr-only` word, so "saved" and "could not save" are different shapes as well as different colours and read out loud correctly. `info` stays unmarked: nothing has happened, so there is no outcome to signal. Pinned by tests asserting the three glyphs are distinct and that the alert's text content begins `Error:`.
+- [x] **PRIM-C-L2** (fixed on branch) — the guest table's off-screen columns were unreachable from the keyboard. The wrapper scrolls rather than the page, and **WebKit — most of this product's traffic — does not make an overflow container focusable on its own**, so a host who does not use a mouse could not reach the email column at all. The wrapper is now a named `<section>` with `tabindex="0"`, which is a region, so the name and the role come from the same attribute. `label` is **required** rather than optional: an unnamed tab stop on the way past is worse than the bug it fixes, and each of the five tables can say in one word what it holds.
+
+Also recorded, no action: two lint annotations. `Meter` keeps an accepted `jsx-a11y(prefer-tag-over-role)`
+warning on `role="progressbar"` — `<progress>` takes its bar and its track from the platform and resists both
+differently in every engine, and the one thing this element has to do is be the portal's gold on the portal's
+surface (same call as `ClaimApp.tsx:103`). `Table` carries a **block** `oxlint-disable
+no-noninteractive-tabindex` … `oxlint-enable` pair rather than the next-line form: oxfmt puts `tabindex="0"`
+on a later line than the element's opening tag, `oxlint-disable-next-line` covers only the line immediately
+after it, and a `//` comment cannot go inside a JSX opening tag — so the next-line form silently fails to
+suppress and the build stays red for a rule that was answered in the comment above it.

@@ -1,5 +1,5 @@
 import { Dialog } from "@kobalte/core/dialog";
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 import type { Module } from "../lib/dashboard-route";
 import { haptic } from "../lib/haptics";
@@ -182,19 +182,6 @@ export default function CommandPalette(props: {
       run(active());
     }
   }
-
-  // ⌘K / Ctrl+K from anywhere, including from inside a text field — the host is
-  // asking to leave whatever they are typing in, so we don't exempt inputs.
-  onMount(() => {
-    const onDocumentKey = (event: KeyboardEvent) => {
-      if (event.key !== "k" && event.key !== "K") return;
-      if (!event.metaKey && !event.ctrlKey) return;
-      event.preventDefault();
-      props.onOpenChange(!props.open);
-    };
-    document.addEventListener("keydown", onDocumentKey);
-    onCleanup(() => document.removeEventListener("keydown", onDocumentKey));
-  });
 
   // Every open starts from an empty query at the top of the list. A palette
   // that reopens holding the last search is a palette you have to clear before
