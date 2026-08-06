@@ -2,8 +2,32 @@
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  Content-Security-Policy: frame-ancestors 'none'
   Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy: frame-ancestors 'none'; object-src 'none'; base-uri 'self'
+  Reporting-Endpoints: csp-endpoint="https://api.cireweddings.com/api/csp-report"
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; style-src-attr 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://api.cireweddings.com http://localhost:8787; connect-src 'self' https://api.cireweddings.com http://localhost:8787; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
 
 /claim*
   Referrer-Policy: no-referrer
+
+# Landed with the organiser's policy (VP-S-L3 said do both together — the two
+# portals share a shape). Same staging: an ENFORCED line carrying only
+# directives that cannot break a working page, plus a REPORT-ONLY line carrying
+# the real lock-down, reporting to cire-api's first-party collector until a
+# real-browser pass over sign-in, the claim link and the enquiry list comes back
+# clean. Flip the header name to `Content-Security-Policy` then.
+#
+# Differences from `cire/organiser/public/_headers`, all audited from source:
+#   - Google Fonts stay in `style-src`/`font-src`: the three page shells still
+#     <link> the Cormorant + Lato stylesheet. The organiser self-hosts its faces
+#     (`fontProviders.google()` at build time) and needs neither origin. Self-
+#     host here too and both entries go.
+#   - No `blob:` in `img-src`: no cropper, no object URLs, no <img> at all today
+#     (`data:` is kept for inline SVG data URIs).
+#   - `connect-src` is cire-api only. Sign-in is a top-level redirect through
+#     cire/api's OIDC leg and account management links out to musubi — both
+#     navigations, which no `connect-src` governs. The localhost entry keeps a
+#     local `wrangler pages dev dist` pointed at a local API.
+#
+# The `/claim*` rule above only overrides `Referrer-Policy` (a claim token rides
+# in the URL); Cloudflare merges the rules, so that path keeps both CSP headers.

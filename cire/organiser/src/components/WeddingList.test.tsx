@@ -22,14 +22,29 @@ vi.mock("./CreateWeddingForm", () => ({
   ),
 }));
 
+import type { WeddingSummary } from "./CreateWeddingForm";
 import WeddingList from "./WeddingList";
 
-const ONE = [
-  { id: "wed_a", slug: "alice-bob", displayName: "Alice & Bob", role: "owner" as const },
+const ONE: WeddingSummary[] = [
+  {
+    id: "wed_a",
+    slug: "alice-bob",
+    displayName: "Alice & Bob",
+    role: "owner",
+    entitlements: [],
+    guestCap: 100,
+  },
 ];
-const MANY = [
-  { id: "wed_a", slug: "alice-bob", displayName: "Alice & Bob", role: "owner" as const },
-  { id: "wed_c", slug: "cara-dan", displayName: "Cara & Dan", role: "host" as const },
+const MANY: WeddingSummary[] = [
+  ...ONE,
+  {
+    id: "wed_c",
+    slug: "cara-dan",
+    displayName: "Cara & Dan",
+    role: "editor",
+    entitlements: [],
+    guestCap: 100,
+  },
 ];
 
 describe("WeddingList", () => {

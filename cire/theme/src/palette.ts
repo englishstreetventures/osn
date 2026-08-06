@@ -303,7 +303,11 @@ function basePreset(preset: string | null | undefined): PalettePresetKey {
  * contrast report all go through it.
  */
 export function resolveSeeds(
-  seeds: Partial<PaletteSeeds> | null | undefined,
+  // A per-role `null` means "not picked, fall back to the preset" — the shape
+  // the organiser's `PaletteState.seeds` actually holds, and what the `??`
+  // below has always done with it. The old `Partial<PaletteSeeds>` said
+  // otherwise and forced a cast at the one real caller.
+  seeds: Partial<Record<keyof PaletteSeeds, string | null>> | null | undefined,
   preset?: string | null,
 ): PaletteSeeds {
   const base = PALETTE_PRESETS[basePreset(preset)];

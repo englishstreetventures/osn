@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+import { type Mock, vi } from "vitest";
 
 /**
  * Shared module mocks for the organiser component suites.
@@ -23,13 +23,13 @@ import { vi } from "vitest";
  */
 
 /** `authFetch` from the mocked `useAuth()`. Set per test with `mockResolvedValue`. */
-export const authFetchMock = vi.fn();
+export const authFetchMock: Mock = vi.fn();
 /** Called when the mocked `redirectToLogin()` fires. */
-export const redirectSpy = vi.fn();
+export const redirectSpy: Mock = vi.fn();
 /** Receives the message passed to `toast.success(...)`. */
-export const toastSuccess = vi.fn();
+export const toastSuccess: Mock = vi.fn();
 /** Receives the message passed to `toast.error(...)`. */
-export const toastError = vi.fn();
+export const toastError: Mock = vi.fn();
 
 /** Factory for `vi.mock("@shared/rp-auth/solid", ...)`. */
 export function rpAuthSolidMock() {

@@ -309,7 +309,7 @@ describe("EnquiriesView", () => {
     await screen.findByText(shortDate(Date.now()));
 
     const listReads = authFetch.mock.calls.filter(
-      ([url]: [string]) => !String(url).includes("/messages") && !String(url).includes("/reply"),
+      ([url]: unknown[]) => !String(url).includes("/messages") && !String(url).includes("/reply"),
     );
     expect(listReads).toHaveLength(0);
   });

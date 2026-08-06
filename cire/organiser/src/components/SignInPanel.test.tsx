@@ -20,7 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const startSignIn = vi.fn();
 const startCreateAccount = vi.fn();
 const clearAuthError = vi.fn();
-const resumeSession = vi.fn(() => Promise.resolve(false));
+const resumeSession = vi.fn((..._args: unknown[]) => Promise.resolve(false));
 let authError: string | null = null;
 
 vi.mock("@shared/rp-auth", () => ({
