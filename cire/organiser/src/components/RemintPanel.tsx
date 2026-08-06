@@ -3,8 +3,11 @@ import { createSignal, For, onMount, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { haptic } from "../lib/haptics";
 import type { CodeStyle } from "./CreateWeddingForm";
 import SectionIntro from "./SectionIntro";
+import Button from "./ui/Button";
+import { Fieldset } from "./ui/Field";
 
 interface RemintPanelProps {
   weddingId: string;
@@ -86,16 +89,19 @@ export default function RemintPanel(props: RemintPanelProps) {
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
+        haptic("reject");
         toast.error("Could not re-mint the codes. Please try again.");
         return;
       }
       const body = (await res.json()) as { reminted: number };
+      haptic("commit");
       toast.success(`Re-minted ${body.reminted} family codes`);
       setConfirming(false);
       // The new codes start un-shared.
       setSharedCount(0);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       toast.error("Could not re-mint the codes. Is the API running?");
     } finally {
       setBusy(false);
@@ -110,10 +116,7 @@ export default function RemintPanel(props: RemintPanelProps) {
         description="Each household has a private code they enter to open your invite and RSVP. If you'd rather they were shorter and friendlier — or longer and harder to guess — switch the style here. Re-minting replaces every code, so any code you've already shared will stop working."
       />
 
-      <fieldset class="m-0 flex flex-col gap-1.5 border-0 p-0">
-        <legend class="font-body text-text-muted mb-1.5 text-[0.72rem] tracking-[0.1em] uppercase">
-          New code style
-        </legend>
+      <Fieldset legend="New code style">
         <div class="flex flex-col gap-2 @lg/panel:flex-row">
           <For each={STYLE_OPTIONS}>
             {(option) => (
@@ -143,17 +146,17 @@ export default function RemintPanel(props: RemintPanelProps) {
             )}
           </For>
         </div>
-      </fieldset>
+      </Fieldset>
 
       <Show when={!confirming()}>
-        <button
-          type="button"
+        <Button
+          variant="primary"
+          class="self-start"
           onClick={() => setConfirming(true)}
           disabled={loading() || familyCount() === 0}
-          class="border-gold bg-gold font-body text-bg hover:bg-gold-dim self-start rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
         >
           Re-mint all codes
-        </button>
+        </Button>
       </Show>
 
       <Show when={confirming()}>
@@ -172,17 +175,15 @@ export default function RemintPanel(props: RemintPanelProps) {
             <span class="text-gold">{targetStyle()}</span> style? This can&apos;t be undone.
           </p>
           <div class="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={() => void remint()}
-              disabled={busy()}
-              class="border-error bg-error font-body text-bg rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition hover:opacity-90 disabled:opacity-40"
-            >
+            <Button variant="danger" onClick={() => void remint()} disabled={busy()}>
               {busy() ? "Re-minting…" : "Yes, re-mint"}
-            </button>
+            </Button>
             <button
               type="button"
-              onClick={() => setConfirming(false)}
+              onClick={() => {
+                haptic("dismiss");
+                setConfirming(false);
+              }}
               disabled={busy()}
               class="font-body text-text-muted text-[0.82rem] underline-offset-4 hover:underline disabled:opacity-40"
             >

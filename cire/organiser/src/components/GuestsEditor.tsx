@@ -17,6 +17,7 @@ import {
   invalidateGuests,
   type OrganiserGuestRow,
 } from "../lib/guests-store";
+import { haptic } from "../lib/haptics";
 import {
   ensureHouseholdsLoaded,
   householdsAccessor,
@@ -26,6 +27,11 @@ import {
 import { registerUnsavedGuard } from "../lib/unsaved-guard";
 import ChangePreview, { type ChangePlan } from "./ChangePreview";
 import SectionIntro from "./SectionIntro";
+import Button from "./ui/Button";
+import EmptyState from "./ui/EmptyState";
+import { Input } from "./ui/Field";
+import Notice from "./ui/Notice";
+import { Table, Td, Th } from "./ui/Table";
 
 interface PreviewResponse {
   changeId: string;
@@ -156,6 +162,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
       setPreview((await res.json()) as PreviewResponse);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       setSaveError(err instanceof Error ? err.message : "Preview failed.");
     } finally {
       setBusy(false);
@@ -194,9 +201,11 @@ export default function GuestsEditor(props: { weddingId: string }) {
       setPreview(null);
       await loadInto();
       store.commit();
+      haptic("commit");
       toast.success("Guest list saved");
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       setSaveError(err instanceof Error ? err.message : "Apply failed.");
     } finally {
       setBusy(false);
@@ -211,21 +220,17 @@ export default function GuestsEditor(props: { weddingId: string }) {
         description="Add households and guests, set who's invited to each event, and save. Every change is previewed before it's applied — you'll see exactly what will change."
         actions={
           <Show when={store.loaded()}>
-            <button
-              type="button"
-              onClick={store.addFamily}
-              class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition"
-            >
+            <Button variant="outline" size="sm" onClick={store.addFamily}>
               Add household
-            </button>
+            </Button>
           </Show>
         }
       />
 
       <Show when={loadError()}>
-        <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
+        <Notice tone="error" alert>
           {loadError()}
-        </p>
+        </Notice>
       </Show>
 
       <Show when={!store.loaded() && !loadError()}>
@@ -240,12 +245,15 @@ export default function GuestsEditor(props: { weddingId: string }) {
         <Show
           when={store.draft.families.length > 0}
           fallback={
-            <div class="border-border bg-surface/30 flex flex-col items-start gap-2 rounded-sm border border-dashed p-8 text-center">
-              <p class="font-display text-gold-dim w-full text-[1.2rem]">No households yet</p>
-              <p class="font-body text-text-muted w-full text-[0.85rem]">
-                Add a household to start building your guest list.
-              </p>
-            </div>
+            <EmptyState
+              title="No households yet"
+              description="Add a household to start building your guest list."
+              action={
+                <Button variant="outline" size="sm" onClick={store.addFamily}>
+                  Add household
+                </Button>
+              }
+            />
           }
         >
           <div class="flex flex-col gap-6">
@@ -290,9 +298,9 @@ export default function GuestsEditor(props: { weddingId: string }) {
                     bar: the bar sits behind this modal's overlay, so a failed
                     apply otherwise looked like nothing happened at all. */}
                 <Show when={saveError()}>
-                  <p class="border-error/20 bg-error/5 text-error mt-4 rounded-sm border p-3 text-[0.82rem]">
+                  <Notice tone="error" alert class="mt-4">
                     {saveError()}
-                  </p>
+                  </Notice>
                 </Show>
               </div>
             </div>
@@ -317,36 +325,50 @@ export default function GuestsEditor(props: { weddingId: string }) {
                 </Show>
               </span>
               <div class="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={store.undo}
+                <Button
+                  variant="quiet"
+                  size="sm"
+                  onClick={() => {
+                    haptic("step");
+                    store.undo();
+                  }}
                   disabled={!store.canUndo() || busy()}
-                  class="font-body text-text-muted hover:text-gold border-border rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
                 >
                   Undo
-                </button>
-                <button
-                  type="button"
-                  onClick={store.discard}
+                </Button>
+                {/* Danger, where the card's "Delete household" is quiet: this
+                    one throws away every unsaved edit at once and there is no
+                    preview between the click and the loss. */}
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => {
+                    haptic("dismiss");
+                    store.discard();
+                  }}
                   disabled={busy()}
-                  class="font-body text-text-muted hover:text-error border-border rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
                 >
                   Discard changes
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => void handleSave()}
                   disabled={busy() || hasErrors()}
-                  class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-4 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
                 >
                   {busy() ? "Working…" : "Save changes"}
-                </button>
+                </Button>
               </div>
             </div>
+            {/* The bar's own error, in its own box rather than a full-bleed
+                strip: the strip shared the bar's background and read as part of
+                the chrome instead of as something that just failed. */}
             <Show when={saveError()}>
-              <p class="border-error/20 bg-error/5 text-error page-frame border-t py-2 text-[0.82rem]">
-                {saveError()}
-              </p>
+              <div class="page-frame pb-3">
+                <Notice tone="error" alert>
+                  {saveError()}
+                </Notice>
+              </div>
             </Show>
           </div>
         </Portal>
@@ -396,58 +418,54 @@ function FamilyCard(props: {
               {props.family.publicId}
             </span>
           </Show>
-          <button
-            type="button"
+          {/* Quiet, not danger: nothing is destroyed on this click. It marks the
+              household for removal, and `ChangePreview` spells out the cost
+              before anything is applied. A red button per card would shout
+              louder than what the button does. */}
+          <Button
+            variant="quiet"
+            size="sm"
             onClick={() => props.store.removeFamily(props.family.key)}
-            class="font-body text-text-muted hover:text-error hover:border-error/60 border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors"
             title="Delete this household. Its claim code is disabled and any RSVPs are discarded — you'll confirm the impact before it's applied."
           >
             Delete household
-          </button>
+          </Button>
         </div>
       </div>
 
       <For each={famErrors()}>{(msg) => <p class="text-error text-[0.78rem]">{msg}</p>}</For>
 
-      <div class="overflow-x-auto">
-        <table class="font-body w-full border-collapse text-[0.85rem]">
-          <thead>
-            <tr>
-              <th class="border-border text-gold border-b px-2 py-2 text-left text-[0.66rem] font-normal tracking-[0.1em] uppercase">
-                First name
-              </th>
-              <th class="border-border text-gold border-b px-2 py-2 text-left text-[0.66rem] font-normal tracking-[0.1em] uppercase">
-                Last name
-              </th>
-              <th class="border-border text-gold border-b px-2 py-2 text-left text-[0.66rem] font-normal tracking-[0.1em] uppercase">
-                Nickname
-              </th>
-              <For each={props.events}>
-                {(evt) => (
-                  <th class="border-border text-gold border-b px-2 py-2 text-center text-[0.66rem] font-normal tracking-[0.1em] uppercase">
-                    {evt.name || "Untitled event"}
-                  </th>
-                )}
-              </For>
-              <th class="border-border border-b px-2 py-2">
-                <span class="sr-only">Actions</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            <For each={props.family.guests}>
-              {(guest) => (
-                <GuestRow
-                  guest={guest}
-                  events={props.events}
-                  errors={props.errorsByKey.get(guest.key) ?? []}
-                  store={props.store}
-                />
-              )}
+      {/* The shared `Table`, which also makes the sideways scroll reachable from
+          a keyboard — the bare `overflow-x-auto` div it replaces could only be
+          scrolled with a pointer, and this is the one table in the portal that
+          grows a column per event. */}
+      <Table label={`Guests in ${props.family.familyName || "this household"}`}>
+        <thead>
+          <tr>
+            <Th>First name</Th>
+            <Th>Last name</Th>
+            <Th>Nickname</Th>
+            <For each={props.events}>
+              {(evt) => <Th align="center">{evt.name || "Untitled event"}</Th>}
             </For>
-          </tbody>
-        </table>
-      </div>
+            <Th>
+              <span class="sr-only">Actions</span>
+            </Th>
+          </tr>
+        </thead>
+        <tbody>
+          <For each={props.family.guests}>
+            {(guest) => (
+              <GuestRow
+                guest={guest}
+                events={props.events}
+                errors={props.errorsByKey.get(guest.key) ?? []}
+                store={props.store}
+              />
+            )}
+          </For>
+        </tbody>
+      </Table>
 
       {/* A household CAN legitimately hold no guests — one added but not yet
           filled in, or emptied by an earlier save. It stays in the list (and
@@ -459,13 +477,14 @@ function FamilyCard(props: {
         </p>
       </Show>
 
-      <button
-        type="button"
+      <Button
+        variant="outline"
+        size="sm"
+        class="self-start"
         onClick={() => props.store.addGuest(props.family.key)}
-        class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 self-start rounded-sm border px-3 py-1.5 text-[0.7rem] tracking-[0.1em] uppercase transition"
       >
         Add guest
-      </button>
+      </Button>
     </div>
   );
 }
@@ -481,32 +500,37 @@ function GuestRow(props: {
   return (
     <>
       <tr class="hover:[&>td]:bg-surface/50">
-        <td class="border-border border-b px-2 py-2">
-          <input
-            type="text"
+        <Td>
+          {/* No `Field` around these: the column heading names the control, so a
+              visible label per cell would repeat it 200 times down the page.
+              `aria-label` carries the name instead. */}
+          <Input
+            size="sm"
             value={props.guest.firstName}
             aria-label="First name"
             aria-invalid={props.errors.length > 0}
             onInput={(e) =>
               props.store.updateGuest(props.guest.key, { firstName: e.currentTarget.value })
             }
-            class="border-border bg-bg text-text focus:border-gold w-full rounded-sm border px-2 py-1 outline-none"
           />
-        </td>
-        <td class="border-border border-b px-2 py-2">
-          <input
-            type="text"
+        </Td>
+        <Td>
+          <Input
+            size="sm"
             value={props.guest.lastName}
             aria-label="Last name"
             onInput={(e) =>
               props.store.updateGuest(props.guest.key, { lastName: e.currentTarget.value })
             }
-            class="border-border bg-bg text-text focus:border-gold w-full rounded-sm border px-2 py-1 outline-none"
           />
-        </td>
-        <td class="border-border border-b px-2 py-2">
-          <input
-            type="text"
+        </Td>
+        <Td>
+          {/* The muted text colour is gone on purpose: it set `color`, which
+              `Input` also sets, and two utilities on one property resolve by
+              stylesheet order rather than by class order. The em-dash
+              placeholder already says the field is optional. */}
+          <Input
+            size="sm"
             value={props.guest.nickname ?? ""}
             aria-label="Nickname"
             placeholder="—"
@@ -515,12 +539,11 @@ function GuestRow(props: {
                 nickname: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
               })
             }
-            class="border-border bg-bg text-text-muted focus:border-gold w-full rounded-sm border px-2 py-1 outline-none"
           />
-        </td>
+        </Td>
         <For each={props.events}>
           {(evt) => (
-            <td class="border-border border-b px-2 py-2 text-center">
+            <Td class="text-center">
               <input
                 type="checkbox"
                 checked={props.guest.eventKeys.includes(evt.key)}
@@ -528,10 +551,10 @@ function GuestRow(props: {
                 onChange={() => props.store.toggleAttendance(props.guest.key, evt.key)}
                 class="accent-gold h-4 w-4 cursor-pointer"
               />
-            </td>
+            </Td>
           )}
         </For>
-        <td class="border-border border-b px-2 py-2 text-right">
+        <Td class="text-right">
           <button
             type="button"
             onClick={() => props.store.removeGuest(props.guest.key)}
@@ -540,7 +563,7 @@ function GuestRow(props: {
           >
             Remove
           </button>
-        </td>
+        </Td>
       </tr>
       <Show when={props.errors.length > 0}>
         <tr>

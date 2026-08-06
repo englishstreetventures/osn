@@ -7,6 +7,8 @@ import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
 import { invalidateVendors } from "../lib/vendors-store";
 import EnquireDialog from "./EnquireDialog";
+import Button from "./ui/Button";
+import Field, { Input, Select } from "./ui/Field";
 import Notice from "./ui/Notice";
 
 interface BrowseListing {
@@ -225,62 +227,53 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
     <div class="flex flex-col gap-6">
       {/* Filter bar */}
       <div class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4">
-        <label class="flex flex-col gap-1">
-          <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-            Category
-          </span>
-          <select
-            value={category()}
-            onChange={(e) => {
-              setCategory(e.currentTarget.value);
-              resetAndFetch();
-            }}
-            class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-          >
-            <option value="">All categories</option>
-            <For each={SERVICE_CATEGORIES}>{(c) => <option value={c.key}>{c.label}</option>}</For>
-          </select>
-        </label>
+        <Field label="Category">
+          {(field) => (
+            <Select
+              {...field}
+              value={category()}
+              onChange={(e) => {
+                setCategory(e.currentTarget.value);
+                resetAndFetch();
+              }}
+            >
+              <option value="">All categories</option>
+              <For each={SERVICE_CATEGORIES}>{(c) => <option value={c.key}>{c.label}</option>}</For>
+            </Select>
+          )}
+        </Field>
 
-        <label class="flex min-w-[10rem] flex-1 flex-col gap-1">
-          <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-            Keyword
-          </span>
-          <input
-            type="text"
-            value={q()}
-            onInput={(e) => {
-              setQ(e.currentTarget.value);
-              scheduleSearch();
-            }}
-            placeholder="Search vendors…"
-            class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-          />
-        </label>
+        <Field label="Keyword" class="min-w-[10rem] flex-1">
+          {(field) => (
+            <Input
+              {...field}
+              value={q()}
+              onInput={(e) => {
+                setQ(e.currentTarget.value);
+                scheduleSearch();
+              }}
+              placeholder="Search vendors…"
+            />
+          )}
+        </Field>
 
-        <label class="flex flex-col gap-1">
-          <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-            Location
-          </span>
-          <input
-            type="text"
-            value={location()}
-            onInput={(e) => {
-              setLocation(e.currentTarget.value);
-              scheduleSearch();
-            }}
-            placeholder="City or region…"
-            class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-          />
-        </label>
+        <Field label="Location">
+          {(field) => (
+            <Input
+              {...field}
+              value={location()}
+              onInput={(e) => {
+                setLocation(e.currentTarget.value);
+                scheduleSearch();
+              }}
+              placeholder="City or region…"
+            />
+          )}
+        </Field>
 
-        <button
-          type="button"
-          onClick={clearFilters}
-          class="text-text-muted hover:text-text rounded-sm border border-transparent px-3 py-2 text-[0.82rem]"
-        >
+        <Button variant="quiet" onClick={clearFilters}>
           Clear filters
-        </button>
+        </Button>
       </div>
 
       {/* Global error */}
@@ -375,15 +368,14 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                         when={pickerListingId() === item.id}
                         fallback={
                           <div class="flex items-center gap-2">
-                            <button
-                              type="button"
-                              aria-label="Add to wedding"
+                            <Button
+                              variant="primary"
+                              size="sm"
                               disabled={addingId() === item.id}
                               onClick={() => handleAddClick(item)}
-                              class="bg-gold text-bg rounded-sm px-3 py-1 text-[0.78rem] tracking-[0.06em] uppercase disabled:opacity-60"
                             >
                               {addingId() === item.id ? "Adding…" : "Add to wedding"}
-                            </button>
+                            </Button>
                             <button
                               type="button"
                               aria-label={`Enquire with ${item.name}`}
@@ -416,25 +408,25 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                             </For>
                           </fieldset>
                           <div class="flex gap-2">
-                            <button
-                              type="button"
+                            <Button
+                              variant="primary"
+                              size="sm"
                               aria-label="Confirm add"
                               onClick={() => handlePickerConfirm(item.id)}
-                              class="bg-gold text-bg rounded-sm px-3 py-1 text-[0.78rem] tracking-[0.06em] uppercase"
                             >
                               Confirm
-                            </button>
-                            <button
-                              type="button"
+                            </Button>
+                            <Button
+                              variant="quiet"
+                              size="sm"
                               aria-label="Cancel category selection"
                               onClick={() => {
                                 setPickerListingId(null);
                                 setPickerCategory("");
                               }}
-                              class="text-text-muted hover:text-text text-[0.78rem]"
                             >
                               Cancel
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       </Show>
@@ -449,15 +441,14 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
         {/* Load more */}
         <Show when={listings().length < total()}>
           <div class="flex justify-center pt-2">
-            <button
-              type="button"
+            <Button
+              variant="quiet"
               aria-label={`Load more vendors, showing ${listings().length} of ${total()}`}
               onClick={() => void fetchPage(offset() + PAGE_SIZE, true)}
               disabled={loading()}
-              class="border-border text-text-muted hover:text-text rounded-sm border px-4 py-2 text-[0.82rem] disabled:opacity-60"
             >
               {loading() ? "Loading…" : "Load more"}
-            </button>
+            </Button>
           </div>
         </Show>
       </Show>
@@ -585,15 +576,14 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                     <Show
                       when={pickerListingId() === ml().id}
                       fallback={
-                        <button
-                          type="button"
-                          aria-label="Add to wedding"
+                        <Button
+                          variant="primary"
+                          class="self-start"
                           disabled={addingId() === ml().id}
                           onClick={() => handleAddClick(ml())}
-                          class="bg-gold text-bg self-start rounded-sm px-4 py-2 text-[0.82rem] tracking-[0.08em] uppercase disabled:opacity-60"
                         >
                           {addingId() === ml().id ? "Adding…" : "Add to wedding"}
-                        </button>
+                        </Button>
                       }
                     >
                       <div class="flex flex-col gap-2">
@@ -617,25 +607,25 @@ export default function DirectoryBrowseView(props: DirectoryBrowseViewProps) {
                           </For>
                         </fieldset>
                         <div class="flex gap-2">
-                          <button
-                            type="button"
+                          <Button
+                            variant="primary"
+                            size="sm"
                             aria-label="Confirm add"
                             onClick={() => handlePickerConfirm(ml().id)}
-                            class="bg-gold text-bg rounded-sm px-3 py-1 text-[0.78rem] tracking-[0.06em] uppercase"
                           >
                             Confirm
-                          </button>
-                          <button
-                            type="button"
+                          </Button>
+                          <Button
+                            variant="quiet"
+                            size="sm"
                             aria-label="Cancel category selection"
                             onClick={() => {
                               setPickerListingId(null);
                               setPickerCategory("");
                             }}
-                            class="text-text-muted hover:text-text text-[0.78rem]"
                           >
                             Cancel
-                          </button>
+                          </Button>
                         </div>
                       </div>
                     </Show>

@@ -12,6 +12,10 @@ last-reviewed: 2026-08-06
 
 See [[overview]] for observability rules that apply to all security-sensitive code paths. See [[review-findings]] for severity prefix conventions.
 
+### Host-portal redesign phase 5 — write surfaces (`feat/cire-portal-write-surfaces`, 2026-08-06)
+
+Pre-merge security review of the `Field` primitive and the twenty write surfaces converted onto it. **No Critical/High/Medium/Low findings.** Verified rather than assumed: no `innerHTML`, `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, `new Function` or `href={…}` sink on any added line, and `SafeProps<E>` — which exists to `Omit` `innerHTML`/`innerText`/`textContent` off a Solid element's props — survives the `Omit<…, "size"> & { size?: ControlSize }` intersection the three controls layer on top, so none of them can be handed markup. Every `{...rest}` in the diff lands on a native `input`/`select`/`textarea`, with `class` the only prop composed into an attribute. No new PII reaches a log line, a URL, an `aria-label` or an error string — the labels added are field names, not values. Every `canEdit`/`canAdd`/`canSave` gate in the touched files appears in the diff only as unchanged context; the one `canAdd` hit inside a changed hunk is copy text moved into an `EmptyState` description, not a gate.
+
 ### Household-rename fix — familyUpdates op (`claude/cire-web-editor-household-name-qcfkb4`, 2026-08-02)
 
 Pre-PR security review of the new family UPDATE path. **No Critical/High/Medium findings** — the op is tenant-isolated by construction (`existingFamilyById` is built from wedding-scoped reads only; a foreign/dangling id on the editor path fails the whole diff with `StaleDesiredState` → 409), parameterised Drizzle throughout, counts-only in logs and summaries, and claim codes are pinned untouched by tests on both apply and revert.

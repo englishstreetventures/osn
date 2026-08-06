@@ -2,9 +2,13 @@ import { createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import type { EnquiryListItem, EnquiryMessage } from "../lib/enquiries-store";
+import { haptic } from "../lib/haptics";
 // ENQ-P-W3: shared, memoised formatters — see `lib/money.ts`.
 import { formatMinor } from "../lib/money";
 import { categoryLabel } from "../lib/service-categories";
+import Button from "./ui/Button";
+import Field, { Textarea } from "./ui/Field";
+import Notice from "./ui/Notice";
 
 interface EnquiryThreadProps {
   enquiry: EnquiryListItem;
@@ -35,8 +39,10 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
       .onSend(text)
       .then(() => {
         setDraft("");
+        haptic("commit");
       })
       .catch(() => {
+        haptic("reject");
         toast.error("Couldn't send your message. Please try again.");
       })
       .finally(() => {
@@ -64,11 +70,12 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
         </div>
       </div>
 
-      {/* Non-E2E notice */}
-      <p class="border-border bg-surface/20 text-text-muted rounded-sm border px-3 py-2 text-[0.78rem]">
+      {/* Non-E2E notice. `info`, and no `alert`: it is standing house-keeping
+          about the channel, not a response to anything the host just did. */}
+      <Notice tone="info">
         Enquiries aren't end-to-end encrypted. cire can read these messages to keep the marketplace
         safe — please don't share passwords or card details.
-      </p>
+      </Notice>
 
       {/* Quote card */}
       <Show when={props.enquiry.quotedMinor != null}>
@@ -80,13 +87,18 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
             {fmtMinor(props.enquiry.quotedMinor!, props.currency)}
           </span>
           <Show when={props.canEdit}>
-            <button
-              type="button"
-              onClick={() => void props.onAddToBudget()}
-              class="bg-gold text-bg rounded-sm px-3 py-1.5 text-[0.78rem] tracking-[0.08em] uppercase"
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => {
+                void props
+                  .onAddToBudget()
+                  .then(() => haptic("commit"))
+                  .catch(() => haptic("reject"));
+              }}
             >
               Add to budget
-            </button>
+            </Button>
           </Show>
         </div>
       </Show>
@@ -97,9 +109,9 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
           <p class="text-text-muted text-[0.85rem] italic">Loading messages…</p>
         </Show>
         <Show when={props.error}>
-          <p class="border-error/40 bg-error/5 text-error rounded-sm border px-3 py-2 text-[0.82rem]">
+          <Notice tone="error" alert>
             {props.error}
-          </p>
+          </Notice>
         </Show>
         <For each={props.messages}>
           {(m) => {
@@ -120,22 +132,28 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
 
       {/* Send box (hidden when !canEdit) */}
       <Show when={props.canEdit}>
-        <div class="flex gap-2">
-          <textarea
-            placeholder="Write a reply…"
-            value={draft()}
-            onInput={(e) => setDraft(e.currentTarget.value)}
-            rows={3}
-            class="border-border bg-bg text-text flex-1 resize-none rounded-sm border px-3 py-2 text-[0.9rem]"
-          />
-          <button
-            type="button"
+        <div class="flex items-end gap-2">
+          {/* The label is hidden, not absent: the box sits under a thread whose
+              heading already says whose it is, but a screen reader still needs
+              the control named. */}
+          <Field label="Reply" labelHidden class="flex-1">
+            {(field) => (
+              <Textarea
+                {...field}
+                placeholder="Write a reply…"
+                value={draft()}
+                onInput={(e) => setDraft(e.currentTarget.value)}
+                rows={3}
+              />
+            )}
+          </Field>
+          <Button
+            variant="primary"
             onClick={handleSend}
             disabled={sending() || draft().trim() === ""}
-            class="bg-gold text-bg self-end rounded-sm px-4 py-2 text-[0.82rem] tracking-[0.08em] uppercase disabled:opacity-50"
           >
             Send
-          </button>
+          </Button>
         </div>
       </Show>
     </div>

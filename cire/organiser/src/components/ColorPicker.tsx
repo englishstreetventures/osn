@@ -6,6 +6,8 @@ import { type Color, parseColor } from "@kobalte/core/colors";
 import { Popover } from "@kobalte/core/popover";
 import { createEffect, createSignal, createUniqueId, Show } from "solid-js";
 
+import { Input } from "./ui/Field";
+
 /**
  * The colour a picker shows when nothing is set and the caller names no
  * fallback. Callers that know the real default — the scheme editor, which knows
@@ -269,9 +271,13 @@ export default function ColorPicker(props: {
                 >
                   Hex
                 </label>
-                <input
+                {/* The shared control, but NOT wrapped in `Field`: the label,
+                    the id and the describedby here point at a `role="status"`
+                    note about a value that was KEPT, which is not the assertive
+                    error `Field` would announce. */}
+                <Input
+                  size="sm"
                   id={hexId}
-                  type="text"
                   value={hexText()}
                   onInput={(e) => onHexInput(e.currentTarget)}
                   onBlur={onHexBlur}
@@ -281,7 +287,7 @@ export default function ColorPicker(props: {
                   autocorrect="off"
                   spellcheck={false}
                   placeholder="#RRGGBB"
-                  class="border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-2.5 py-1.5 text-[0.82rem] tabular-nums outline-none"
+                  class="tabular-nums"
                 />
                 <Show when={discarded()}>
                   {(kept) => (

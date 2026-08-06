@@ -203,10 +203,10 @@ describe("ImportPanel — single-sheet uploads", () => {
   }
 
   function fileInput(label: RegExp): HTMLInputElement {
-    const span = [...document.querySelectorAll("label > span")].find((s) =>
-      label.test(s.textContent ?? ""),
-    );
-    return span!.parentElement!.querySelector("input[type=file]")!;
+    // By the label's `for`, not by nesting: the control is a sibling of its
+    // label now, wired by id rather than wrapped.
+    const el = [...document.querySelectorAll("label")].find((l) => label.test(l.textContent ?? ""));
+    return document.getElementById(el!.getAttribute("for")!) as HTMLInputElement;
   }
 
   function choose(label: RegExp, file: File) {
@@ -330,10 +330,8 @@ describe("ImportPanel — single-sheet uploads", () => {
 
 describe("ImportPanel — surfacing import failures", () => {
   function choose(label: RegExp, file: File) {
-    const span = [...document.querySelectorAll("label > span")].find((s) =>
-      label.test(s.textContent ?? ""),
-    );
-    const input = span!.parentElement!.querySelector("input[type=file]")!;
+    const el = [...document.querySelectorAll("label")].find((l) => label.test(l.textContent ?? ""));
+    const input = document.getElementById(el!.getAttribute("for")!) as HTMLInputElement;
     Object.defineProperty(input, "files", { value: [file], configurable: true });
     fireEvent.change(input);
   }

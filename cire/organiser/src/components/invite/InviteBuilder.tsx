@@ -49,11 +49,14 @@ import { createStore } from "solid-js/store";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../../lib/api";
+import { haptic } from "../../lib/haptics";
 import type { ImageCrop } from "../../lib/image-crop";
 import { isFooterEmpty, isHeroEmpty, isStoryEmpty } from "../../lib/invite-emptiness";
 import { CIRE_WEB_URL } from "../../lib/osn";
 import { registerUnsavedGuard } from "../../lib/unsaved-guard";
 import PaletteField, { resolvedSeeds } from "../PaletteField";
+import Button from "../ui/Button";
+import Notice from "../ui/Notice";
 import DesignPicker from "./DesignPicker";
 import {
   ChoiceField,
@@ -593,9 +596,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
         setSavedTheme(themeBody);
         mutate((await themeRes.json()) as InviteCustomisation);
       }
+      haptic("commit");
       toast.success("Invite saved");
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       setError(err instanceof Error ? err.message : "Save failed.");
     } finally {
       setSaving(false);
@@ -616,12 +621,14 @@ export default function InviteBuilder(props: InviteBuilderProps) {
       });
       if (!res.ok) throw new Error(`Design save failed (${res.status})`);
       mutate((await res.json()) as InviteCustomisation);
+      haptic("commit");
       toast.success("Design updated");
     } catch (err) {
       if (isAuthExpired(err)) {
         redirectToLogin();
         return;
       }
+      haptic("reject");
       toast.error("Could not update the design");
     } finally {
       setSavingDesign(false);
@@ -1401,25 +1408,22 @@ export default function InviteBuilder(props: InviteBuilderProps) {
               {/* ── Save bar — sticky so it's reachable from any section ── */}
               <div class="border-border bg-bg/90 sticky bottom-0 z-10 -mx-6 -mb-6 flex flex-col gap-3 rounded-b-sm border-t px-6 py-4 backdrop-blur">
                 <Show when={error()}>
-                  <p
-                    class="border-error/20 bg-error/5 text-error rounded-sm border p-3 text-[0.85rem]"
-                    role="alert"
-                  >
+                  <Notice tone="error" alert>
                     {error()}
-                  </p>
+                  </Notice>
                 </Show>
                 <div class="flex flex-wrap items-center gap-4">
-                  <button
+                  <Button
                     type="submit"
+                    variant="primary"
                     onClick={(e) => {
                       e.preventDefault();
                       void saveInvite();
                     }}
                     disabled={saving() || !isDirty()}
-                    class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-5 py-2.5 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
                   >
                     {saving() ? "Saving…" : "Save invite"}
-                  </button>
+                  </Button>
                   <Show
                     when={isDirty()}
                     fallback={

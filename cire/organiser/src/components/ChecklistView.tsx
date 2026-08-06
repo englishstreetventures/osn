@@ -12,6 +12,8 @@ import {
   type TaskRow,
   tasksAccessor,
 } from "../lib/tasks-store";
+import Button from "./ui/Button";
+import Field, { Input, Select } from "./ui/Field";
 import Notice from "./ui/Notice";
 
 interface ChecklistViewProps {
@@ -93,7 +95,9 @@ export default function ChecklistView(props: ChecklistViewProps) {
       if (!res.ok) throw new Error(`create ${res.status}`);
       const { task } = (await res.json()) as { task: TaskRow };
       patchCache([...(peekCachedTasks(props.weddingId) ?? []), task]);
+      haptic("commit");
     } catch {
+      haptic("reject");
       setError("Couldn't add that task.");
       void reload();
     }
@@ -135,6 +139,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
 
   const deleteTask = async (task: TaskRow) => {
     patchCache((peekCachedTasks(props.weddingId) ?? []).filter((t) => t.id !== task.id));
+    haptic("commit");
     try {
       const res = await authFetch(
         apiUrl(`/api/organiser/weddings/${props.weddingId}/tasks/${task.id}`),
@@ -143,6 +148,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`delete ${res.status}`);
     } catch {
+      haptic("reject");
       setError("Couldn't delete that task.");
       void reload();
     }
@@ -196,47 +202,42 @@ export default function ChecklistView(props: ChecklistViewProps) {
           onSubmit={addTask}
           class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
         >
-          <label class="flex min-w-[12rem] flex-1 flex-col gap-1">
-            <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-              Task
-            </span>
-            <input
-              type="text"
-              value={newTitle()}
-              onInput={(e) => setNewTitle(e.currentTarget.value)}
-              placeholder="Book the venue"
-              class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-            />
-          </label>
-          <label class="flex flex-col gap-1">
-            <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-              When
-            </span>
-            <select
-              value={newBucket()}
-              onChange={(e) => setNewBucket(e.currentTarget.value as TimeframeBucket)}
-              class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-            >
-              <For each={TIMEFRAME_BUCKETS}>{(b) => <option value={b.key}>{b.label}</option>}</For>
-            </select>
-          </label>
-          <label class="flex flex-col gap-1">
-            <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-              Due (optional)
-            </span>
-            <input
-              type="date"
-              value={newDue()}
-              onInput={(e) => setNewDue(e.currentTarget.value)}
-              class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-            />
-          </label>
-          <button
-            type="submit"
-            class="bg-gold text-bg rounded-sm px-4 py-2 text-[0.82rem] tracking-[0.08em] uppercase"
-          >
+          <Field label="Task" class="min-w-[12rem] flex-1">
+            {(field) => (
+              <Input
+                {...field}
+                value={newTitle()}
+                onInput={(e) => setNewTitle(e.currentTarget.value)}
+                placeholder="Book the venue"
+              />
+            )}
+          </Field>
+          <Field label="When">
+            {(field) => (
+              <Select
+                {...field}
+                value={newBucket()}
+                onChange={(e) => setNewBucket(e.currentTarget.value as TimeframeBucket)}
+              >
+                <For each={TIMEFRAME_BUCKETS}>
+                  {(b) => <option value={b.key}>{b.label}</option>}
+                </For>
+              </Select>
+            )}
+          </Field>
+          <Field label="Due (optional)">
+            {(field) => (
+              <Input
+                {...field}
+                type="date"
+                value={newDue()}
+                onInput={(e) => setNewDue(e.currentTarget.value)}
+              />
+            )}
+          </Field>
+          <Button type="submit" variant="primary">
             Add task
-          </button>
+          </Button>
         </form>
       </Show>
 

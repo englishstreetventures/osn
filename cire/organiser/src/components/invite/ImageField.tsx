@@ -9,6 +9,7 @@
 import { createSignal, lazy, Show, Suspense } from "solid-js";
 
 import { apiUrl } from "../../lib/api";
+import { haptic } from "../../lib/haptics";
 import {
   CROP_ASPECT,
   cropAspectRatio,
@@ -16,6 +17,8 @@ import {
   type CropSlot,
   type ImageCrop,
 } from "../../lib/image-crop";
+import Button from "../ui/Button";
+import Notice from "../ui/Notice";
 import { InstantBadge } from "./fields";
 
 const ImageCropModal = lazy(() => import("../ImageCropModal"));
@@ -124,38 +127,25 @@ export default function ImageField(props: {
           class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
         />
         <Show when={props.url}>
-          <button
-            type="button"
-            onClick={() => setCropping("desktop")}
-            class="font-body text-gold text-[0.82rem] underline-offset-4 hover:underline"
-          >
+          <Button variant="outline" size="sm" onClick={() => setCropping("desktop")}>
             Crop
-          </button>
+          </Button>
           <Show when={hasMobileCrop()}>
-            <button
-              type="button"
-              onClick={() => setCropping("mobile")}
-              class="font-body text-gold text-[0.82rem] underline-offset-4 hover:underline"
-            >
+            <Button variant="outline" size="sm" onClick={() => setCropping("mobile")}>
               Phone crop
-            </button>
+            </Button>
           </Show>
-          <button
-            type="button"
-            onClick={() => props.onRemove()}
-            class="font-body text-text-muted text-[0.82rem] underline-offset-4 hover:underline"
-          >
+          {/* Danger, not quiet: removing the photo takes effect on the live
+              invite straight away — there is no save bar to change your mind at. */}
+          <Button variant="danger" size="sm" onClick={() => props.onRemove()}>
             Remove
-          </button>
+          </Button>
         </Show>
       </div>
       <Show when={props.error}>
-        <p
-          role="alert"
-          class="border-error/20 bg-error/5 text-error rounded-sm border p-2 text-[0.8rem]"
-        >
+        <Notice tone="error" alert>
           {props.error}
-        </p>
+        </Notice>
       </Show>
       <Show when={hasMobileCrop()}>
         <p class="font-body text-text-muted text-[0.72rem]">
@@ -172,7 +162,10 @@ export default function ImageField(props: {
               initialCrop={props.crop}
               onSave={props.onSaveCrop}
               onReset={() => props.onSaveCrop(null)}
-              onClose={() => setCropping(null)}
+              onClose={() => {
+                haptic("dismiss");
+                setCropping(null);
+              }}
             />
           </Suspense>
         )}
@@ -186,7 +179,10 @@ export default function ImageField(props: {
               initialCrop={props.cropMobile ?? null}
               onSave={(c) => props.onSaveCropMobile!(c)}
               onReset={() => props.onSaveCropMobile!(null)}
-              onClose={() => setCropping(null)}
+              onClose={() => {
+                haptic("dismiss");
+                setCropping(null);
+              }}
             />
           </Suspense>
         )}

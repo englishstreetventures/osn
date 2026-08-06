@@ -3,7 +3,12 @@ import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { haptic } from "../lib/haptics";
 import SectionIntro from "./SectionIntro";
+import Button from "./ui/Button";
+import EmptyState from "./ui/EmptyState";
+import Field, { Fieldset, Input } from "./ui/Field";
+import Notice from "./ui/Notice";
 
 /** A co-host's role — mirrors the API's closed enum (`editor` writes modules,
  *  `viewer` is read-only). Legacy `host` rows are normalised server-side. */
@@ -95,6 +100,11 @@ export default function HostsPanel(props: HostsPanelProps) {
   // True row count from the API; compared against what we rendered.
   const [total, setTotal] = createSignal(0);
   const truncated = () => total() > hosts().length;
+  // `Field` takes a list; this form only ever raises the one message at a time.
+  const addErrors = () => {
+    const message = addError();
+    return message ? [message] : undefined;
+  };
 
   // --- Handle autocomplete state ---------------------------------------------
   const [suggestions, setSuggestions] = createSignal<HandleSuggestion[]>([]);
@@ -301,11 +311,13 @@ export default function HostsPanel(props: HostsPanelProps) {
       });
       if (res.status === 401) return redirectToLogin();
       if (res.status === 404) {
+        haptic("reject");
         setAddError(`No OSN account found for ${value.startsWith("@") ? value : `@${value}`}.`);
         return;
       }
       if (res.status === 409) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
+        haptic("reject");
         setAddError(
           body.error === "owner_is_host"
             ? "You already host this wedding as its owner."
@@ -314,10 +326,12 @@ export default function HostsPanel(props: HostsPanelProps) {
         return;
       }
       if (res.status === 503) {
+        haptic("reject");
         setAddError("Adding hosts isn't available on this deployment yet.");
         return;
       }
       if (!res.ok) {
+        haptic("reject");
         setAddError("Could not add that host. Please try again.");
         return;
       }
@@ -331,6 +345,7 @@ export default function HostsPanel(props: HostsPanelProps) {
       // would keep offering someone whose click now leads straight to a 409.
       connectionsFetched = false;
       cachedConnections = [];
+      haptic("commit");
       toast.success(
         `Added ${body.host.handle ? `@${body.host.handle}` : "host"} as ${
           body.host.role === "viewer" ? "a viewer" : "an editor"
@@ -338,6 +353,7 @@ export default function HostsPanel(props: HostsPanelProps) {
       );
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       setAddError("Could not add that host. Is the API running?");
     } finally {
       setAdding(false);
@@ -352,13 +368,16 @@ export default function HostsPanel(props: HostsPanelProps) {
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
+        haptic("reject");
         toast.error("Could not remove that host. Please try again.");
         return;
       }
       setHosts((prev) => prev.filter((h) => h.osnProfileId !== host.osnProfileId));
+      haptic("commit");
       toast.success(`Removed ${label}.`);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       toast.error("Could not remove that host. Is the API running?");
     }
   }
@@ -375,15 +394,18 @@ export default function HostsPanel(props: HostsPanelProps) {
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {
+        haptic("reject");
         toast.error("Could not change that host's role. Please try again.");
         return;
       }
       setHosts((prev) =>
         prev.map((h) => (h.osnProfileId === host.osnProfileId ? { ...h, role: nextRole } : h)),
       );
+      haptic("commit");
       toast.success(`${label} is now ${nextRole === "viewer" ? "a viewer" : "an editor"}.`);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       toast.error("Could not change that host's role. Is the API running?");
     } finally {
       setRoleBusyId(null);
@@ -406,119 +428,110 @@ export default function HostsPanel(props: HostsPanelProps) {
 
       <Show when={props.canAdd}>
         <form class="flex flex-col gap-3" onSubmit={add}>
-          <div class="flex flex-col gap-1.5">
-            <label
-              for="host-handle"
-              class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase"
-            >
-              OSN handle
-            </label>
-            <div class="flex flex-wrap items-center gap-3">
-              {/* Combobox: a text input that suggests matching OSN profiles as the
-                  organiser types. The manual type-and-submit path is preserved —
-                  the dropdown is additive and never required to add a host. */}
-              <div class="relative min-w-[12rem] flex-1">
-                <input
-                  id="host-handle"
-                  name="osnHandle"
-                  type="text"
-                  value={handle()}
-                  maxLength={64}
-                  placeholder="@alice"
-                  autocomplete="off"
-                  autocapitalize="none"
-                  spellcheck={false}
-                  role="combobox"
-                  aria-expanded={open()}
-                  aria-controls={LISTBOX_ID}
-                  aria-autocomplete="list"
-                  aria-activedescendant={
-                    open() && activeIdx() >= 0 ? optionId(activeIdx()) : undefined
-                  }
-                  aria-invalid={addError() ? "true" : undefined}
-                  aria-describedby={addError() ? "host-handle-error" : undefined}
-                  onInput={(e) => onHandleInput(e.currentTarget.value)}
-                  onKeyDown={onHandleKeyDown}
-                  // Delay close so a click on a suggestion (which blurs the input)
-                  // still registers before the list unmounts.
-                  onBlur={() => setTimeout(closeSuggestions, 120)}
-                  onFocus={() => void onHandleFocus()}
-                  disabled={adding()}
-                  class="border-border bg-bg font-body text-text focus:border-gold w-full rounded-sm border px-3 py-2 text-[0.95rem] transition-colors outline-none placeholder:opacity-40 disabled:opacity-40"
-                />
-                <Show when={open() && suggestions().length > 0}>
-                  <div class="border-border bg-bg absolute top-full right-0 left-0 z-10 mt-1 overflow-hidden rounded-sm border shadow-lg">
-                    {/* Caption for the on-focus case only: with nothing typed the
-                        list IS the organiser's connections, and saying so is what
-                        makes an unprompted dropdown legible rather than startling. */}
-                    <Show when={browsingConnections()}>
-                      <p class="border-border text-text-muted font-body border-b px-3 py-2 text-[0.68rem] tracking-[0.1em] uppercase">
-                        From your OSN connections
-                      </p>
-                    </Show>
-                    <ul
-                      id={LISTBOX_ID}
-                      role="listbox"
-                      aria-label={
-                        browsingConnections() ? "Your OSN connections" : "Matching OSN profiles"
-                      }
-                      class="max-h-60 overflow-auto"
-                    >
-                      <For each={suggestions()}>
-                        {(s, i) => (
-                          <li
-                            id={optionId(i())}
-                            role="option"
-                            aria-selected={activeIdx() === i()}
-                            // onMouseDown (not click) so the input's onBlur doesn't
-                            // close the list before the selection lands.
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              pick(s);
-                            }}
-                            onMouseEnter={() => setActiveIdx(i())}
-                            class="flex cursor-pointer flex-col gap-0.5 px-3 py-2 text-left"
-                            classList={{
-                              "bg-surface": activeIdx() === i(),
-                            }}
-                          >
-                            <span class="flex flex-wrap items-center gap-2">
-                              <span class="font-body text-gold-dim text-[0.9rem]">@{s.handle}</span>
-                              {/* Only on the mixed list — when every row is a
-                                  connection the caption already said so, and a
-                                  badge on every row is noise. */}
-                              <Show when={s.connected && !browsingConnections()}>
-                                <span class="border-gold/40 text-gold font-body rounded-sm border px-1.5 py-0.5 text-[0.58rem] tracking-[0.14em] uppercase">
-                                  Connected
+          {/* `Field` owns the label, the id and the error wiring. The message
+              used to sit at the very bottom of the form, below the role cards —
+              far enough from the box it was about that reading the two together
+              took a scroll. */}
+          <Field label="OSN handle" errors={addErrors()}>
+            {(field) => (
+              <div class="flex flex-wrap items-center gap-3">
+                {/* Combobox: a text input that suggests matching OSN profiles as
+                    the organiser types. The manual type-and-submit path is
+                    preserved — the dropdown is additive and never required. */}
+                <div class="relative min-w-[12rem] flex-1">
+                  <Input
+                    {...field}
+                    name="osnHandle"
+                    value={handle()}
+                    maxLength={64}
+                    placeholder="@alice"
+                    autocomplete="off"
+                    autocapitalize="none"
+                    spellcheck={false}
+                    role="combobox"
+                    aria-expanded={open()}
+                    aria-controls={LISTBOX_ID}
+                    aria-autocomplete="list"
+                    aria-activedescendant={
+                      open() && activeIdx() >= 0 ? optionId(activeIdx()) : undefined
+                    }
+                    onInput={(e) => onHandleInput(e.currentTarget.value)}
+                    onKeyDown={onHandleKeyDown}
+                    // Delay close so a click on a suggestion (which blurs the
+                    // input) still registers before the list unmounts.
+                    onBlur={() => setTimeout(closeSuggestions, 120)}
+                    onFocus={() => void onHandleFocus()}
+                    disabled={adding()}
+                  />
+                  <Show when={open() && suggestions().length > 0}>
+                    <div class="border-border bg-bg absolute top-full right-0 left-0 z-10 mt-1 overflow-hidden rounded-sm border shadow-lg">
+                      {/* Caption for the on-focus case only: with nothing typed the
+                          list IS the organiser's connections, and saying so is what
+                          makes an unprompted dropdown legible rather than startling. */}
+                      <Show when={browsingConnections()}>
+                        <p class="border-border text-text-muted font-body border-b px-3 py-2 text-[0.68rem] tracking-[0.1em] uppercase">
+                          From your OSN connections
+                        </p>
+                      </Show>
+                      <ul
+                        id={LISTBOX_ID}
+                        role="listbox"
+                        aria-label={
+                          browsingConnections() ? "Your OSN connections" : "Matching OSN profiles"
+                        }
+                        class="max-h-60 overflow-auto"
+                      >
+                        <For each={suggestions()}>
+                          {(s, i) => (
+                            <li
+                              id={optionId(i())}
+                              role="option"
+                              aria-selected={activeIdx() === i()}
+                              // onMouseDown (not click) so the input's onBlur doesn't
+                              // close the list before the selection lands.
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                pick(s);
+                              }}
+                              onMouseEnter={() => setActiveIdx(i())}
+                              class="flex cursor-pointer flex-col gap-0.5 px-3 py-2 text-left"
+                              classList={{
+                                "bg-surface": activeIdx() === i(),
+                              }}
+                            >
+                              <span class="flex flex-wrap items-center gap-2">
+                                <span class="font-body text-gold-dim text-[0.9rem]">
+                                  @{s.handle}
+                                </span>
+                                {/* Only on the mixed list — when every row is a
+                                    connection the caption already said so, and a
+                                    badge on every row is noise. */}
+                                <Show when={s.connected && !browsingConnections()}>
+                                  <span class="border-gold/40 text-gold font-body rounded-sm border px-1.5 py-0.5 text-[0.58rem] tracking-[0.14em] uppercase">
+                                    Connected
+                                  </span>
+                                </Show>
+                              </span>
+                              <Show when={s.displayName}>
+                                <span class="font-body text-text-muted text-[0.78rem]">
+                                  {s.displayName}
                                 </span>
                               </Show>
-                            </span>
-                            <Show when={s.displayName}>
-                              <span class="font-body text-text-muted text-[0.78rem]">
-                                {s.displayName}
-                              </span>
-                            </Show>
-                          </li>
-                        )}
-                      </For>
-                    </ul>
-                  </div>
-                </Show>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                    </div>
+                  </Show>
+                </div>
+                <Button type="submit" variant="primary" disabled={adding()}>
+                  {adding() ? "Adding…" : "Add host"}
+                </Button>
               </div>
-              <button
-                type="submit"
-                disabled={adding()}
-                class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-              >
-                {adding() ? "Adding…" : "Add host"}
-              </button>
-            </div>
-          </div>
+            )}
+          </Field>
 
-          <fieldset class="m-0 flex flex-col gap-1.5 border-0 p-0">
-            <legend class="font-body text-text-muted mb-1.5 text-[0.72rem] tracking-[0.1em] uppercase">
-              Access
-            </legend>
+          <Fieldset legend="Access">
             <div class="flex flex-col gap-2 @lg/panel:flex-row">
               <For each={ROLE_OPTIONS}>
                 {(option) => (
@@ -548,16 +561,7 @@ export default function HostsPanel(props: HostsPanelProps) {
                 )}
               </For>
             </div>
-          </fieldset>
-          <Show when={addError()}>
-            <p
-              id="host-handle-error"
-              role="alert"
-              class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]"
-            >
-              {addError()}
-            </p>
-          </Show>
+          </Fieldset>
         </form>
       </Show>
 
@@ -570,12 +574,9 @@ export default function HostsPanel(props: HostsPanelProps) {
       </Show>
 
       <Show when={error()}>
-        <p
-          role="alert"
-          class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]"
-        >
+        <Notice tone="error" alert>
           {error()}
-        </p>
+        </Notice>
       </Show>
 
       <Show when={!loading() && !error()}>
@@ -583,23 +584,22 @@ export default function HostsPanel(props: HostsPanelProps) {
             a seat the owner can't remove, and every seat can read the household
             claim codes and the dietary export. */}
         <Show when={truncated()}>
-          <p
-            role="alert"
-            class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]"
-          >
+          <Notice tone="error" alert>
             Showing {hosts().length} of {total()} co-hosts. Contact support — some seats on this
             wedding aren&apos;t listed here and can&apos;t be removed from this screen.
-          </p>
+          </Notice>
         </Show>
         <Show
           when={hosts().length > 0}
           fallback={
-            <p class="border-border bg-surface/30 text-text-muted rounded-sm border p-6 text-[0.88rem]">
-              No co-hosts yet.{" "}
-              {props.canAdd
-                ? "Add one above to share this wedding."
-                : "Only the owner manages this wedding for now."}
-            </p>
+            <EmptyState
+              title="No co-hosts yet"
+              description={
+                props.canAdd
+                  ? "Add one above to share this wedding."
+                  : "Only the owner manages this wedding for now."
+              }
+            />
           }
         >
           <ul class="flex flex-col gap-2">

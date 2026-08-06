@@ -40,6 +40,10 @@ import ChangePreview, { type ChangePlan } from "./ChangePreview";
 import ColorPicker from "./ColorPicker";
 import DatePicker from "./DatePicker";
 import SectionIntro from "./SectionIntro";
+import Button from "./ui/Button";
+import EmptyState from "./ui/EmptyState";
+import Field, { Fieldset, Input, Select, Textarea } from "./ui/Field";
+import Notice from "./ui/Notice";
 
 interface PreviewResponse {
   changeId: string;
@@ -266,6 +270,9 @@ export default function EventsEditor(props: { weddingId: string }) {
       `Delete "${evt.name || "this event"}"? Any RSVPs for it are discarded and its uploaded image is removed. You'll confirm the full impact before it's applied.`,
     );
     if (!ok) return;
+    // The row is gone from the draft the moment this returns — the buzz confirms
+    // the confirm dialog's answer took, before the save that makes it permanent.
+    haptic("commit");
     store.removeEvent(evt.key);
     if (editingKey() === evt.key) setEditingKey(null);
   }
@@ -288,6 +295,7 @@ export default function EventsEditor(props: { weddingId: string }) {
       setPreview((await res.json()) as PreviewResponse);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       setSaveError(err instanceof Error ? err.message : "Preview failed.");
     } finally {
       setBusy(false);
@@ -321,9 +329,11 @@ export default function EventsEditor(props: { weddingId: string }) {
       setEditingKey(null);
       await loadInto();
       store.commit();
+      haptic("commit");
       toast.success("Schedule saved");
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       setSaveError(err instanceof Error ? err.message : "Apply failed.");
     } finally {
       setBusy(false);
@@ -338,21 +348,17 @@ export default function EventsEditor(props: { weddingId: string }) {
         description="Add the events your guests can be invited to, drag them by the grip to re-order, set the details, and save. Every change is previewed before it's applied — you'll see exactly what will change, including anything that affects RSVPs or images."
         actions={
           <Show when={store.loaded()}>
-            <button
-              type="button"
-              onClick={handleAdd}
-              class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition"
-            >
+            <Button variant="outline" size="sm" onClick={handleAdd}>
               Add event
-            </button>
+            </Button>
           </Show>
         }
       />
 
       <Show when={loadError()}>
-        <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
+        <Notice tone="error" alert>
           {loadError()}
-        </p>
+        </Notice>
       </Show>
 
       <Show when={!store.loaded() && !loadError()}>
@@ -367,13 +373,15 @@ export default function EventsEditor(props: { weddingId: string }) {
         <Show
           when={store.draft.events.length > 0}
           fallback={
-            <div class="border-border bg-surface/30 flex flex-col items-start gap-2 rounded-sm border border-dashed p-8 text-center">
-              <p class="font-display text-gold-dim w-full text-[1.2rem]">No events yet</p>
-              <p class="font-body text-text-muted w-full text-[0.85rem]">
-                Add an event to start building your schedule. Guests are matched to events that
-                exist.
-              </p>
-            </div>
+            <EmptyState
+              title="No events yet"
+              description="Add an event to start building your schedule. Guests are matched to events that exist."
+              action={
+                <Button variant="outline" size="sm" onClick={handleAdd}>
+                  Add event
+                </Button>
+              }
+            />
           }
         >
           {/* `DragDropSensors` registers solid-dnd's pointer sensor; the grip's own
@@ -425,7 +433,10 @@ export default function EventsEditor(props: { weddingId: string }) {
             event={evt()}
             errors={errorsByKey().get(evt().key) ?? []}
             onPatch={(patch) => store.updateEvent(evt().key, patch)}
-            onClose={() => setEditingKey(null)}
+            onClose={() => {
+              haptic("dismiss");
+              setEditingKey(null);
+            }}
           />
         )}
       </Show>
@@ -475,37 +486,37 @@ export default function EventsEditor(props: { weddingId: string }) {
                 </Show>
               </span>
               <div class="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
+                <Button
+                  variant="quiet"
+                  size="sm"
                   onClick={() => {
                     store.undo();
                     clearAnnouncement();
                   }}
                   disabled={!store.canUndo() || busy()}
-                  class="font-body text-text-muted hover:text-gold border-border rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
                 >
                   Undo
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
                   onClick={() => {
                     store.discard();
                     clearAnnouncement();
                     setEditingKey(null);
                   }}
                   disabled={busy()}
-                  class="font-body text-text-muted hover:text-error border-border rounded-sm border px-3 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
                 >
                   Discard changes
-                </button>
-                <button
-                  type="button"
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
                   onClick={() => void handleSave()}
                   disabled={busy() || hasErrors()}
-                  class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-4 py-1.5 text-[0.72rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
                 >
                   {busy() ? "Working…" : "Save changes"}
-                </button>
+                </Button>
               </div>
             </div>
             <Show when={store.warnings().length > 0 && !hasErrors()}>
@@ -660,28 +671,21 @@ function EventRowCard(props: {
       </div>
 
       <div class="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={props.onEdit}
-          class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-3 py-1.5 text-[0.7rem] tracking-[0.1em] uppercase transition"
-        >
+        <Button variant="outline" size="sm" onClick={props.onEdit}>
           Edit
-        </button>
-        <button
-          type="button"
-          onClick={props.onDelete}
-          class="font-body text-text-muted hover:text-error hover:border-error/60 border-border rounded-sm border px-3 py-1.5 text-[0.7rem] tracking-[0.1em] uppercase transition-colors"
-        >
+        </Button>
+        <Button variant="quiet" size="sm" onClick={props.onDelete}>
           Delete
-        </button>
+        </Button>
       </div>
     </li>
   );
 }
 
-const fieldLabel = "font-body text-text-muted text-[0.66rem] tracking-[0.14em] uppercase";
-const fieldInput =
-  "border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-3 py-1.5 text-[0.9rem] outline-none";
+/** The palette group's heading. Not a `Field` label: the group holds a list of
+ *  swatch rows rather than one control, so there is nothing for a `for` to point
+ *  at. Kept in step with `Field`'s own label by hand. */
+const fieldLabel = "font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase";
 
 /** The add/edit drawer — a right-hand panel with the full event form. Every
  *  field writes straight through to the draft (no local staging), so undo/
@@ -746,133 +750,135 @@ function EventDrawer(props: {
           </div>
 
           <Show when={props.errors.length > 0}>
-            <div class="border-error/20 bg-error/5 mb-5 flex flex-col gap-1 rounded-sm border p-3">
-              <For each={props.errors}>
-                {(msg) => <p class="text-error text-[0.8rem]">{msg}</p>}
-              </For>
-            </div>
+            <Notice tone="error" alert class="mb-5">
+              <For each={props.errors}>{(msg) => <p>{msg}</p>}</For>
+            </Notice>
           </Show>
 
           <div class="flex flex-col gap-5">
-            <label class="flex flex-col gap-1.5">
-              <span class={fieldLabel}>Event name</span>
-              <input
-                type="text"
-                value={props.event.name}
-                aria-label="Event name"
-                onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
-                class={fieldInput}
-              />
-            </label>
+            <Field label="Event name">
+              {(field) => (
+                <Input
+                  {...field}
+                  value={props.event.name}
+                  onInput={(e) => props.onPatch({ name: e.currentTarget.value })}
+                />
+              )}
+            </Field>
 
             {/* Start: date + time + offset. */}
-            <fieldset class="flex flex-col gap-2 border-none p-0">
-              <legend class={fieldLabel}>Start</legend>
+            <Fieldset legend="Start">
               <DatePicker
                 label="Start date"
                 value={start().date || null}
                 onChange={(v) => setStart("date", v)}
               />
               <div class="flex flex-wrap items-end gap-3">
-                <label class="flex flex-col gap-1.5">
-                  <span class={fieldLabel}>Time</span>
-                  <input
-                    type="time"
-                    value={start().time}
-                    aria-label="Start time"
-                    onInput={(e) => setStart("time", e.currentTarget.value)}
-                    class={fieldInput}
-                  />
-                </label>
-                <label class="flex flex-col gap-1.5">
-                  <span class={fieldLabel}>UTC offset</span>
-                  <select
-                    value={start().offset}
-                    aria-label="Start UTC offset"
-                    onChange={(e) => setStart("offset", e.currentTarget.value)}
-                    class={fieldInput}
-                  >
-                    <For each={OFFSET_OPTIONS}>{(o) => <option value={o}>{o}</option>}</For>
-                  </select>
-                </label>
+                {/* The visible label is "Time" — the legend above says which time.
+                    An `aria-label` names it in full anyway: a legend is only
+                    reliably announced for a radio group, and "Time" on its own is
+                    the same word as the end field's. Keeping the visible text
+                    inside the spoken name is what WCAG 2.5.3 asks for. */}
+                <Field label="Time">
+                  {(field) => (
+                    <Input
+                      {...field}
+                      type="time"
+                      value={start().time}
+                      aria-label="Start time"
+                      onInput={(e) => setStart("time", e.currentTarget.value)}
+                    />
+                  )}
+                </Field>
+                <Field label="UTC offset">
+                  {(field) => (
+                    <Select
+                      {...field}
+                      value={start().offset}
+                      aria-label="Start UTC offset"
+                      onChange={(e) => setStart("offset", e.currentTarget.value)}
+                    >
+                      <For each={OFFSET_OPTIONS}>{(o) => <option value={o}>{o}</option>}</For>
+                    </Select>
+                  )}
+                </Field>
               </div>
-            </fieldset>
+            </Fieldset>
 
             {/* End (optional). */}
-            <fieldset class="flex flex-col gap-2 border-none p-0">
-              <legend class={fieldLabel}>End (optional)</legend>
+            <Fieldset legend="End (optional)">
               <DatePicker
                 label="End date"
                 value={end().date || null}
                 onChange={(v) => setEnd("date", v)}
               />
               <div class="flex flex-wrap items-end gap-3">
-                <label class="flex flex-col gap-1.5">
-                  <span class={fieldLabel}>Time</span>
-                  <input
-                    type="time"
-                    value={end().time}
-                    aria-label="End time"
-                    onInput={(e) => setEnd("time", e.currentTarget.value)}
-                    class={fieldInput}
-                  />
-                </label>
-                <label class="flex flex-col gap-1.5">
-                  <span class={fieldLabel}>UTC offset</span>
-                  <select
-                    value={end().offset}
-                    aria-label="End UTC offset"
-                    onChange={(e) => setEnd("offset", e.currentTarget.value)}
-                    class={fieldInput}
-                  >
-                    <For each={OFFSET_OPTIONS}>{(o) => <option value={o}>{o}</option>}</For>
-                  </select>
-                </label>
+                <Field label="Time">
+                  {(field) => (
+                    <Input
+                      {...field}
+                      type="time"
+                      value={end().time}
+                      aria-label="End time"
+                      onInput={(e) => setEnd("time", e.currentTarget.value)}
+                    />
+                  )}
+                </Field>
+                <Field label="UTC offset">
+                  {(field) => (
+                    <Select
+                      {...field}
+                      value={end().offset}
+                      aria-label="End UTC offset"
+                      onChange={(e) => setEnd("offset", e.currentTarget.value)}
+                    >
+                      <For each={OFFSET_OPTIONS}>{(o) => <option value={o}>{o}</option>}</For>
+                    </Select>
+                  )}
+                </Field>
               </div>
-            </fieldset>
+            </Fieldset>
 
-            <label class="flex flex-col gap-1.5">
-              <span class={fieldLabel}>Timezone (IANA name)</span>
-              <input
-                type="text"
-                value={props.event.timezone}
-                aria-label="Timezone"
-                placeholder="Australia/Sydney"
-                onInput={(e) => props.onPatch({ timezone: e.currentTarget.value })}
-                class={fieldInput}
-              />
-            </label>
+            <Field label="Timezone (IANA name)">
+              {(field) => (
+                <Input
+                  {...field}
+                  value={props.event.timezone}
+                  placeholder="Australia/Sydney"
+                  onInput={(e) => props.onPatch({ timezone: e.currentTarget.value })}
+                />
+              )}
+            </Field>
 
-            <label class="flex flex-col gap-1.5">
-              <span class={fieldLabel}>Address</span>
-              <input
-                type="text"
-                value={props.event.address ?? ""}
-                aria-label="Address"
-                onInput={(e) =>
-                  props.onPatch({
-                    address: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
-                  })
-                }
-                class={fieldInput}
-              />
-            </label>
+            <Field label="Address">
+              {(field) => (
+                <Input
+                  {...field}
+                  value={props.event.address ?? ""}
+                  onInput={(e) =>
+                    props.onPatch({
+                      address: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                    })
+                  }
+                />
+              )}
+            </Field>
 
-            <label class="flex flex-col gap-1.5">
-              <span class={fieldLabel}>Dress code description</span>
-              <textarea
-                value={props.event.dressCodeDescription ?? ""}
-                aria-label="Dress code description"
-                rows={2}
-                onInput={(e) =>
-                  props.onPatch({
-                    dressCodeDescription:
-                      e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
-                  })
-                }
-                class={fieldInput}
-              />
-            </label>
+            <Field label="Dress code description">
+              {(field) => (
+                <Textarea
+                  {...field}
+                  value={props.event.dressCodeDescription ?? ""}
+                  rows={2}
+                  onInput={(e) =>
+                    props.onPatch({
+                      dressCodeDescription:
+                        e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                    })
+                  }
+                />
+              )}
+            </Field>
 
             {/* Dress-code palette — each swatch a name + a ColorPicker. */}
             <div class="flex flex-col gap-2">
@@ -880,17 +886,16 @@ function EventDrawer(props: {
               <For each={props.event.dressCodePalette}>
                 {(swatch, i) => (
                   <div class="flex flex-wrap items-end gap-2">
-                    <label class="flex flex-1 flex-col gap-1.5">
-                      <span class="sr-only">Swatch name</span>
-                      <input
-                        type="text"
-                        value={swatch.name}
-                        aria-label={`Swatch ${i() + 1} name`}
-                        placeholder="Blush"
-                        onInput={(e) => updateSwatch(i(), { name: e.currentTarget.value })}
-                        class={fieldInput}
-                      />
-                    </label>
+                    <Field labelHidden label={`Swatch ${i() + 1} name`} class="flex-1">
+                      {(field) => (
+                        <Input
+                          {...field}
+                          value={swatch.name}
+                          placeholder="Blush"
+                          onInput={(e) => updateSwatch(i(), { name: e.currentTarget.value })}
+                        />
+                      )}
+                    </Field>
                     <ColorPicker
                       label={`Swatch ${i() + 1} colour`}
                       value={swatch.color}
@@ -907,54 +912,46 @@ function EventDrawer(props: {
                   </div>
                 )}
               </For>
-              <button
-                type="button"
-                onClick={addSwatch}
-                class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 self-start rounded-sm border px-3 py-1.5 text-[0.7rem] tracking-[0.1em] uppercase transition"
-              >
+              <Button variant="outline" size="sm" onClick={addSwatch} class="self-start">
                 Add swatch
-              </button>
+              </Button>
             </div>
 
-            <label class="flex flex-col gap-1.5">
-              <span class={fieldLabel}>Pinterest URL</span>
-              <input
-                type="url"
-                value={props.event.pinterestUrl ?? ""}
-                aria-label="Pinterest URL"
-                placeholder="https://www.pinterest.com/…"
-                onInput={(e) =>
-                  props.onPatch({
-                    pinterestUrl: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
-                  })
-                }
-                class={fieldInput}
-              />
-            </label>
+            <Field label="Pinterest URL">
+              {(field) => (
+                <Input
+                  {...field}
+                  type="url"
+                  value={props.event.pinterestUrl ?? ""}
+                  placeholder="https://www.pinterest.com/…"
+                  onInput={(e) =>
+                    props.onPatch({
+                      pinterestUrl: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                    })
+                  }
+                />
+              )}
+            </Field>
 
-            <label class="flex flex-col gap-1.5">
-              <span class={fieldLabel}>Maps URL</span>
-              <input
-                type="url"
-                value={props.event.mapsUrl ?? ""}
-                aria-label="Maps URL"
-                placeholder="https://maps.google.com/…"
-                onInput={(e) =>
-                  props.onPatch({
-                    mapsUrl: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
-                  })
-                }
-                class={fieldInput}
-              />
-            </label>
+            <Field label="Maps URL">
+              {(field) => (
+                <Input
+                  {...field}
+                  type="url"
+                  value={props.event.mapsUrl ?? ""}
+                  placeholder="https://maps.google.com/…"
+                  onInput={(e) =>
+                    props.onPatch({
+                      mapsUrl: e.currentTarget.value.length > 0 ? e.currentTarget.value : null,
+                    })
+                  }
+                />
+              )}
+            </Field>
 
-            <button
-              type="button"
-              onClick={props.onClose}
-              class="border-gold bg-gold font-body text-bg hover:bg-gold-dim mt-2 self-start rounded-sm border px-4 py-2 text-[0.78rem] tracking-[0.1em] uppercase transition"
-            >
+            <Button variant="primary" onClick={props.onClose} class="mt-2 self-start">
               Done
-            </button>
+            </Button>
           </div>
         </div>
       </div>

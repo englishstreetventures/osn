@@ -14,9 +14,9 @@
 
 import { createUniqueId, For, type JSX, Show } from "solid-js";
 
+import { Input, Select, Textarea } from "../ui/Field";
+
 const LABEL_CLASS = "font-body text-text-muted text-[0.8rem]";
-const INPUT_CLASS =
-  "border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-3 py-2 text-[0.88rem] outline-none";
 
 /**
  * Live length counter against a field's server cap (`COPY_CAPS`). Textareas
@@ -62,14 +62,12 @@ export function TextField(props: {
           <CapCounter length={props.value.length} max={props.maxLength!} />
         </Show>
       </span>
-      <input
+      <Input
         id={id}
-        type="text"
         placeholder={props.placeholder}
         value={props.value}
         maxlength={props.maxLength}
         onInput={(e) => props.onInput(e.currentTarget.value)}
-        class={INPUT_CLASS}
       />
     </div>
   );
@@ -95,14 +93,13 @@ export function TextAreaField(props: {
           <CapCounter length={props.value.length} max={props.maxLength!} always />
         </Show>
       </span>
-      <textarea
+      <Textarea
         id={id}
         rows={props.rows ?? 4}
         placeholder={props.placeholder}
         value={props.value}
         maxlength={props.maxLength}
         onInput={(e) => props.onInput(e.currentTarget.value)}
-        class={INPUT_CLASS}
       />
       <Show when={props.hint}>
         <span class="font-body text-text-muted text-[0.72rem] italic">{props.hint}</span>
@@ -121,13 +118,9 @@ export function ChoiceField(props: {
   return (
     <label class="flex flex-col gap-1.5">
       <span class={LABEL_CLASS}>{props.label}</span>
-      <select
-        value={props.value}
-        onChange={(e) => props.onChange(e.currentTarget.value)}
-        class={INPUT_CLASS}
-      >
+      <Select value={props.value} onChange={(e) => props.onChange(e.currentTarget.value)}>
         <For each={props.options}>{(opt) => <option value={opt.value}>{opt.label}</option>}</For>
-      </select>
+      </Select>
     </label>
   );
 }

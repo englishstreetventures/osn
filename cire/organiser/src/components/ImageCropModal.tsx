@@ -3,6 +3,7 @@ import type { CropperImage, CropperSelection } from "cropperjs";
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
+import { haptic } from "../lib/haptics";
 import {
   ASPECT_PRESETS,
   type AspectPresetId,
@@ -14,6 +15,8 @@ import {
   presetAspectRatio,
   presetForCrop,
 } from "../lib/image-crop";
+import Button from "./ui/Button";
+import Notice from "./ui/Notice";
 
 /**
  * Drag/resize/zoom crop editor over an uploaded invite image, wrapping the
@@ -256,6 +259,8 @@ export default function ImageCropModal(props: ImageCropModalProps) {
   /** Switch the locked aspect ratio of the crop box (Free ⇒ NaN ⇒ unlocked). */
   function choosePreset(id: AspectPresetId) {
     setPreset(id);
+    // A shape change re-locks the crop box under the finger — a step, not a commit.
+    haptic("step");
     applyAspectRatio(presetAspectRatio(id, props.slot));
   }
 
@@ -295,8 +300,10 @@ export default function ImageCropModal(props: ImageCropModalProps) {
     setBusy(true);
     try {
       await props.onSave(crop);
+      haptic("commit");
       props.onClose();
     } catch {
+      haptic("reject");
       setError("Could not save the crop. Please try again.");
     } finally {
       setBusy(false);
@@ -308,8 +315,10 @@ export default function ImageCropModal(props: ImageCropModalProps) {
     setBusy(true);
     try {
       await props.onReset();
+      haptic("commit");
       props.onClose();
     } catch {
+      haptic("reject");
       setError("Could not reset the crop. Please try again.");
     } finally {
       setBusy(false);
@@ -342,9 +351,9 @@ export default function ImageCropModal(props: ImageCropModalProps) {
           </header>
 
           <Show when={error()}>
-            <p class="border-error/20 bg-error/5 text-error rounded-sm border p-3 text-[0.82rem]">
+            <Notice tone="error" alert>
               {error()}
-            </p>
+            </Notice>
           </Show>
 
           {/* Aspect-ratio presets — a segmented control. The active shape is filled
@@ -406,22 +415,19 @@ export default function ImageCropModal(props: ImageCropModalProps) {
               Reset to full image
             </button>
             <div class="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => props.onClose()}
+              <Button
+                variant="quiet"
+                onClick={() => {
+                  haptic("dismiss");
+                  props.onClose();
+                }}
                 disabled={busy()}
-                class="border-border font-body text-text-muted rounded-sm border bg-transparent px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
               >
                 Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleSave()}
-                disabled={busy()}
-                class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-              >
+              </Button>
+              <Button variant="primary" onClick={() => void handleSave()} disabled={busy()}>
                 {busy() ? "Saving…" : "Save crop"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

@@ -3,8 +3,12 @@ import { createSignal, onMount, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { haptic } from "../lib/haptics";
 import DatePicker from "./DatePicker";
 import SectionIntro from "./SectionIntro";
+import Button from "./ui/Button";
+import Field, { Input } from "./ui/Field";
+import Notice from "./ui/Notice";
 
 /** The wedding profile as the settings API reads/writes it. Location is
  *  deliberately absent — an event's place is its free-text `address` (the sole
@@ -63,9 +67,10 @@ function describeTimeZone(zone: string, on: string | null): string {
   return short && short !== zone ? `${zone} (${short})` : zone;
 }
 
+/** Kept for the two blocks that are NOT a control: the read-only invite link,
+ *  and the standing notes beside a DatePicker (which draws its own label). Every
+ *  real input on this panel goes through `Field`. */
 const labelClass = "font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase";
-const inputClass =
-  "border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-3 py-2 text-[0.95rem] transition-colors outline-none placeholder:opacity-40 disabled:opacity-40";
 const hintClass = "font-body text-text-muted text-[0.75rem] leading-snug";
 
 interface SettingsPanelProps {
@@ -241,6 +246,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
     if (saving() || !canSave()) return;
     const built = buildBody();
     if ("error" in built) {
+      haptic("reject");
       toast.error(built.error);
       return;
     }
@@ -258,6 +264,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
         // whose form reached past the RSVP-by date. Telling them to "check the
         // fields" would send them hunting for a validation error that isn't
         // there, so permission failures say so.
+        haptic("reject");
         toast.error(
           res.status === 403
             ? "You don't have permission to change these settings. Reload the page to see your current access."
@@ -271,9 +278,11 @@ export default function SettingsPanel(props: SettingsPanelProps) {
         displayName: body.wedding.displayName,
         slug: body.wedding.slug,
       });
+      haptic("commit");
       toast.success("Settings saved");
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       toast.error("Could not save the settings. Is the API running?");
     } finally {
       setSaving(false);
@@ -292,9 +301,9 @@ export default function SettingsPanel(props: SettingsPanelProps) {
 
       <Show when={loadError()}>
         {(message) => (
-          <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
+          <Notice tone="error" alert>
             {message()}
-          </p>
+          </Notice>
         )}
       </Show>
 
@@ -315,18 +324,18 @@ export default function SettingsPanel(props: SettingsPanelProps) {
               broken, and stepping at `@lg/panel` capped the form at two columns
               no matter how much room it had. */}
           <div class="auto-grid items-start [--auto-grid-min:17rem]">
-            <label class="flex flex-col gap-1.5">
-              <span class={labelClass}>Wedding name</span>
-              <input
-                type="text"
-                value={displayName()}
-                maxLength={120}
-                autocomplete="off"
-                onInput={(e) => setDisplayName(e.currentTarget.value)}
-                disabled={disabled()}
-                class={inputClass}
-              />
-            </label>
+            <Field label="Wedding name">
+              {(field) => (
+                <Input
+                  {...field}
+                  value={displayName()}
+                  maxLength={120}
+                  autocomplete="off"
+                  onInput={(e) => setDisplayName(e.currentTarget.value)}
+                  disabled={disabled()}
+                />
+              )}
+            </Field>
 
             <div class="flex flex-col gap-1.5">
               <span class={labelClass}>Invite link</span>
@@ -384,50 +393,50 @@ export default function SettingsPanel(props: SettingsPanelProps) {
               </Show>
             </div>
 
-            <label class="flex flex-col gap-1.5">
-              <span class={labelClass}>Expected guests</span>
-              <input
-                type="number"
-                min="1"
-                max="10000"
-                step="1"
-                value={guestCount()}
-                onInput={(e) => setGuestCount(e.currentTarget.value)}
-                disabled={disabled()}
-                class={inputClass}
-              />
-            </label>
+            <Field label="Expected guests">
+              {(field) => (
+                <Input
+                  {...field}
+                  type="number"
+                  min="1"
+                  max="10000"
+                  step="1"
+                  value={guestCount()}
+                  onInput={(e) => setGuestCount(e.currentTarget.value)}
+                  disabled={disabled()}
+                />
+              )}
+            </Field>
 
-            <label class="flex flex-col gap-1.5">
-              <span class={labelClass}>Currency</span>
-              <input
-                type="text"
-                value={currency()}
-                maxLength={3}
-                autocomplete="off"
-                placeholder="AUD"
-                onInput={(e) => setCurrency(e.currentTarget.value.toUpperCase())}
-                disabled={disabled()}
-                class={inputClass}
-              />
-              <span class={hintClass}>
-                Your main currency — the one your budget and payments are counted in, even if some
-                events happen in another country.
-              </span>
-            </label>
+            {/* The hint is a `hint`, not a sibling span: inside the old
+                `<label>` it was folded into the input's accessible NAME, so the
+                box announced as "Currency your main currency the one your
+                budget and payments are counted in…". */}
+            <Field
+              label="Currency"
+              hint="Your main currency — the one your budget and payments are counted in, even if some events happen in another country."
+            >
+              {(field) => (
+                <Input
+                  {...field}
+                  value={currency()}
+                  maxLength={3}
+                  autocomplete="off"
+                  placeholder="AUD"
+                  onInput={(e) => setCurrency(e.currentTarget.value.toUpperCase())}
+                  disabled={disabled()}
+                />
+              )}
+            </Field>
           </div>
 
           <Show when={canSave()}>
-            <button
-              type="submit"
-              disabled={saving()}
-              class="border-gold bg-gold font-body text-bg hover:bg-gold-dim self-start rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-            >
+            <Button type="submit" variant="primary" class="self-start" disabled={saving()}>
               {/* A co-host's save writes the deadline and nothing else, so the
                   label says which — "Save settings" beside five disabled fields
                   reads as a button that will overwrite them. */}
               {saving() ? "Saving…" : readOnly() ? "Save RSVP-by date" : "Save settings"}
-            </button>
+            </Button>
           </Show>
         </form>
       </Show>

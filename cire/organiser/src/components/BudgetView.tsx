@@ -13,7 +13,10 @@ import {
   peekCachedBudget,
   setCachedBudget,
 } from "../lib/budget-store";
+import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
+import Button from "./ui/Button";
+import Field, { Input, Select } from "./ui/Field";
 import Notice from "./ui/Notice";
 
 interface BudgetViewProps {
@@ -104,6 +107,7 @@ export default function BudgetView(props: BudgetViewProps) {
     setError(null);
     const estMinor = newEstimate().trim() === "" ? null : Math.round(Number(newEstimate()) * 100);
     if (estMinor !== null && (!Number.isFinite(estMinor) || estMinor < 0)) {
+      haptic("reject");
       setError("Estimate must be a positive amount.");
       return;
     }
@@ -123,7 +127,9 @@ export default function BudgetView(props: BudgetViewProps) {
       if (!res.ok) throw new Error(`create ${res.status}`);
       const { item } = (await res.json()) as { item: BudgetItemRow };
       patchSnap((s) => ({ ...s, items: [...s.items, item] }));
+      haptic("commit");
     } catch {
+      haptic("reject");
       setError("Couldn't add that item.");
       void reload();
     }
@@ -136,6 +142,7 @@ export default function BudgetView(props: BudgetViewProps) {
   ) => {
     const minor = raw.trim() === "" ? null : Math.round(Number(raw) * 100);
     if (minor !== null && (!Number.isFinite(minor) || minor < 0)) {
+      haptic("reject");
       setError("Amounts must be positive.");
       return;
     }
@@ -144,6 +151,7 @@ export default function BudgetView(props: BudgetViewProps) {
       ...s,
       items: s.items.map((it) => (it.id === item.id ? { ...it, [field]: minor } : it)),
     }));
+    haptic("commit");
     try {
       const res = await authFetch(
         apiUrl(`/api/organiser/weddings/${props.weddingId}/budget/items/${item.id}`),
@@ -161,6 +169,7 @@ export default function BudgetView(props: BudgetViewProps) {
         items: s.items.map((it) => (it.id === updated.id ? updated : it)),
       }));
     } catch {
+      haptic("reject");
       setError("Couldn't save that amount.");
       void reload();
     }
@@ -172,6 +181,7 @@ export default function BudgetView(props: BudgetViewProps) {
       items: s.items.filter((it) => it.id !== item.id),
       payments: s.payments.filter((p) => p.budgetItemId !== item.id),
     }));
+    haptic("commit");
     try {
       const res = await authFetch(
         apiUrl(`/api/organiser/weddings/${props.weddingId}/budget/items/${item.id}`),
@@ -180,6 +190,7 @@ export default function BudgetView(props: BudgetViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`delete ${res.status}`);
     } catch {
+      haptic("reject");
       setError("Couldn't delete that item.");
       void reload();
     }
@@ -214,6 +225,7 @@ export default function BudgetView(props: BudgetViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`reorder ${res.status}`);
     } catch {
+      haptic("reject");
       setError("Couldn't save the new order.");
       void reload();
     }
@@ -228,6 +240,7 @@ export default function BudgetView(props: BudgetViewProps) {
   ) => {
     const amount = Math.round(Number(amountText) * 100);
     if (!label.trim() || !Number.isFinite(amount) || amount < 0) {
+      haptic("reject");
       setError("A payment needs a label and a positive amount.");
       return;
     }
@@ -244,7 +257,9 @@ export default function BudgetView(props: BudgetViewProps) {
       if (!res.ok) throw new Error(`payment ${res.status}`);
       const { payment } = (await res.json()) as { payment: PaymentRow };
       patchSnap((s) => ({ ...s, payments: [...s.payments, payment] }));
+      haptic("commit");
     } catch {
+      haptic("reject");
       setError("Couldn't add that payment.");
       void reload();
     }
@@ -258,6 +273,7 @@ export default function BudgetView(props: BudgetViewProps) {
         p.id === payment.id ? { ...p, paidAt: paid ? Date.now() : null } : p,
       ),
     }));
+    haptic("commit");
     try {
       const res = await authFetch(
         apiUrl(
@@ -277,6 +293,7 @@ export default function BudgetView(props: BudgetViewProps) {
         payments: s.payments.map((p) => (p.id === updated.id ? updated : p)),
       }));
     } catch {
+      haptic("reject");
       setError("Couldn't update that payment.");
       void reload();
     }
@@ -284,6 +301,7 @@ export default function BudgetView(props: BudgetViewProps) {
 
   const deletePayment = async (item: BudgetItemRow, payment: PaymentRow) => {
     patchSnap((s) => ({ ...s, payments: s.payments.filter((p) => p.id !== payment.id) }));
+    haptic("commit");
     try {
       const res = await authFetch(
         apiUrl(
@@ -294,6 +312,7 @@ export default function BudgetView(props: BudgetViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`delete payment ${res.status}`);
     } catch {
+      haptic("reject");
       setError("Couldn't delete that payment.");
       void reload();
     }
@@ -306,6 +325,7 @@ export default function BudgetView(props: BudgetViewProps) {
     if (draft == null) return;
     const minor = draft.trim() === "" ? null : Math.round(Number(draft) * 100);
     if (minor !== null && (!Number.isFinite(minor) || minor < 0)) {
+      haptic("reject");
       setError("Budget must be a positive amount.");
       return;
     }
@@ -322,7 +342,9 @@ export default function BudgetView(props: BudgetViewProps) {
       );
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`cap ${res.status}`);
+      haptic("commit");
     } catch {
+      haptic("reject");
       setError("Couldn't save the budget total.");
       void reload();
     }
@@ -379,33 +401,24 @@ export default function BudgetView(props: BudgetViewProps) {
             }
           >
             <div class="flex items-end gap-2">
-              <label class="flex flex-col gap-1">
-                <span class="text-gold-dim font-body text-[0.66rem] tracking-[0.16em] uppercase">
-                  Total budget ({currency()})
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={capDraft() ?? ""}
-                  onInput={(e) => setCapDraft(e.currentTarget.value)}
-                  class="border-border bg-bg text-text w-32 rounded-sm border px-3 py-2 text-[0.9rem]"
-                />
-              </label>
-              <button
-                type="button"
-                onClick={saveCap}
-                class="bg-gold text-bg rounded-sm px-3 py-2 text-[0.78rem] tracking-[0.08em] uppercase"
-              >
+              <Field label={`Total budget (${currency()})`} class="w-32">
+                {(field) => (
+                  <Input
+                    {...field}
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={capDraft() ?? ""}
+                    onInput={(e) => setCapDraft(e.currentTarget.value)}
+                  />
+                )}
+              </Field>
+              <Button variant="primary" onClick={saveCap}>
                 Save
-              </button>
-              <button
-                type="button"
-                onClick={() => setCapDraft(null)}
-                class="text-text-muted hover:text-text px-2 py-2 text-[0.78rem]"
-              >
+              </Button>
+              <Button variant="quiet" onClick={() => setCapDraft(null)}>
                 Cancel
-              </button>
+              </Button>
             </div>
           </Show>
         </Show>
@@ -417,49 +430,44 @@ export default function BudgetView(props: BudgetViewProps) {
           onSubmit={addItem}
           class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
         >
-          <label class="flex flex-col gap-1">
-            <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-              Category
-            </span>
-            <select
-              value={newCategory()}
-              onChange={(e) => setNewCategory(e.currentTarget.value as ServiceCategory)}
-              class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-            >
-              <For each={SERVICE_CATEGORIES}>{(c) => <option value={c.key}>{c.label}</option>}</For>
-            </select>
-          </label>
-          <label class="flex min-w-[12rem] flex-1 flex-col gap-1">
-            <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-              Item
-            </span>
-            <input
-              type="text"
-              value={newName()}
-              onInput={(e) => setNewName(e.currentTarget.value)}
-              placeholder="Caterer, venue, band…"
-              class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-            />
-          </label>
-          <label class="flex flex-col gap-1">
-            <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-              Estimate (optional)
-            </span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={newEstimate()}
-              onInput={(e) => setNewEstimate(e.currentTarget.value)}
-              class="border-border bg-bg text-text w-32 rounded-sm border px-3 py-2 text-[0.9rem]"
-            />
-          </label>
-          <button
-            type="submit"
-            class="bg-gold text-bg rounded-sm px-4 py-2 text-[0.82rem] tracking-[0.08em] uppercase"
-          >
+          <Field label="Category">
+            {(field) => (
+              <Select
+                {...field}
+                value={newCategory()}
+                onChange={(e) => setNewCategory(e.currentTarget.value as ServiceCategory)}
+              >
+                <For each={SERVICE_CATEGORIES}>
+                  {(c) => <option value={c.key}>{c.label}</option>}
+                </For>
+              </Select>
+            )}
+          </Field>
+          <Field label="Item" class="min-w-[12rem] flex-1">
+            {(field) => (
+              <Input
+                {...field}
+                value={newName()}
+                onInput={(e) => setNewName(e.currentTarget.value)}
+                placeholder="Caterer, venue, band…"
+              />
+            )}
+          </Field>
+          <Field label="Estimate (optional)" class="w-32">
+            {(field) => (
+              <Input
+                {...field}
+                type="number"
+                min="0"
+                step="0.01"
+                value={newEstimate()}
+                onInput={(e) => setNewEstimate(e.currentTarget.value)}
+              />
+            )}
+          </Field>
+          <Button type="submit" variant="primary">
             Add item
-          </button>
+          </Button>
         </form>
       </Show>
 
@@ -590,7 +598,7 @@ function MoneyCell(props: {
   onCommit: (raw: string) => void;
 }) {
   return (
-    <label class="flex flex-col gap-0.5">
+    <label class="flex w-24 flex-col gap-0.5">
       <span class="text-gold-dim font-body text-[0.58rem] tracking-[0.14em] uppercase">
         {props.label}
       </span>
@@ -602,13 +610,13 @@ function MoneyCell(props: {
           </span>
         }
       >
-        <input
+        <Input
+          size="sm"
           type="number"
           min="0"
           step="0.01"
           value={props.minor == null ? "" : (props.minor / 100).toString()}
           onChange={(e) => props.onCommit(e.currentTarget.value)}
-          class="border-border bg-bg text-text w-24 rounded-sm border px-2 py-1 text-[0.82rem]"
         />
       </Show>
     </label>
@@ -671,34 +679,45 @@ function PaymentPanel(props: {
       </For>
       <Show when={props.canEdit}>
         <form onSubmit={submit} class="flex flex-wrap items-end gap-2">
-          <input
-            type="text"
-            value={label()}
-            onInput={(e) => setLabel(e.currentTarget.value)}
-            placeholder="Deposit"
-            class="border-border bg-bg text-text w-28 rounded-sm border px-2 py-1 text-[0.8rem]"
-          />
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            value={amount()}
-            onInput={(e) => setAmount(e.currentTarget.value)}
-            placeholder="Amount"
-            class="border-border bg-bg text-text w-24 rounded-sm border px-2 py-1 text-[0.8rem]"
-          />
-          <input
-            type="date"
-            value={due()}
-            onInput={(e) => setDue(e.currentTarget.value)}
-            class="border-border bg-bg text-text rounded-sm border px-2 py-1 text-[0.8rem]"
-          />
-          <button
-            type="submit"
-            class="border-gold/40 text-gold-dim hover:bg-gold/10 rounded-sm border px-2 py-1 text-[0.75rem]"
-          >
+          <Field label="Payment label" labelHidden class="w-28">
+            {(field) => (
+              <Input
+                {...field}
+                size="sm"
+                value={label()}
+                onInput={(e) => setLabel(e.currentTarget.value)}
+                placeholder="Deposit"
+              />
+            )}
+          </Field>
+          <Field label="Amount" labelHidden class="w-24">
+            {(field) => (
+              <Input
+                {...field}
+                size="sm"
+                type="number"
+                min="0"
+                step="0.01"
+                value={amount()}
+                onInput={(e) => setAmount(e.currentTarget.value)}
+                placeholder="Amount"
+              />
+            )}
+          </Field>
+          <Field label="Due date" labelHidden>
+            {(field) => (
+              <Input
+                {...field}
+                size="sm"
+                type="date"
+                value={due()}
+                onInput={(e) => setDue(e.currentTarget.value)}
+              />
+            )}
+          </Field>
+          <Button type="submit" variant="outline" size="sm">
             Add payment
-          </button>
+          </Button>
         </form>
       </Show>
     </div>

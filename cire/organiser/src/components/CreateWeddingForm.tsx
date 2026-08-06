@@ -2,6 +2,10 @@ import { useAuth } from "@shared/rp-auth/solid";
 import { createSignal, For, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { haptic } from "../lib/haptics";
+import Button from "./ui/Button";
+import Field, { Fieldset, Input } from "./ui/Field";
+import Notice from "./ui/Notice";
 
 export interface WeddingSummary {
   id: string;
@@ -59,6 +63,7 @@ export default function CreateWeddingForm(props: {
     const displayName = name().trim();
     if (!displayName) {
       setError("Give the wedding a name.");
+      haptic("reject");
       return;
     }
     setError(null);
@@ -79,6 +84,7 @@ export default function CreateWeddingForm(props: {
       }
       const body = (await res.json()) as { wedding: WeddingSummary };
       setName("");
+      haptic("commit");
       props.onCreated(body.wedding);
     } catch (err) {
       if (isAuthExpired(err)) {
@@ -86,6 +92,7 @@ export default function CreateWeddingForm(props: {
         return;
       }
       setError(err instanceof Error ? err.message : "Could not create the wedding.");
+      haptic("reject");
     } finally {
       setBusy(false);
     }
@@ -101,26 +108,21 @@ export default function CreateWeddingForm(props: {
         <h2 class="font-display text-text text-[1.4rem] font-light">Start a new celebration</h2>
       </div>
 
-      <label class="flex flex-col gap-1.5">
-        <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
-          Wedding name
-        </span>
-        <input
-          type="text"
-          value={name()}
-          maxLength={MAX_DISPLAY_NAME}
-          placeholder="e.g. Nadia &amp; Sam"
-          autocomplete="off"
-          onInput={(e) => setName(e.currentTarget.value)}
-          disabled={busy()}
-          class="border-border bg-bg font-body text-text focus:border-gold rounded-sm border px-3 py-2 text-[0.95rem] transition-colors outline-none placeholder:opacity-40 disabled:opacity-40"
-        />
-      </label>
+      <Field label="Wedding name">
+        {(field) => (
+          <Input
+            {...field}
+            value={name()}
+            maxLength={MAX_DISPLAY_NAME}
+            placeholder="e.g. Nadia &amp; Sam"
+            autocomplete="off"
+            onInput={(e) => setName(e.currentTarget.value)}
+            disabled={busy()}
+          />
+        )}
+      </Field>
 
-      <fieldset class="m-0 flex flex-col gap-1.5 border-0 p-0">
-        <legend class="font-body text-text-muted mb-1.5 text-[0.72rem] tracking-[0.1em] uppercase">
-          Guest code style
-        </legend>
+      <Fieldset legend="Guest code style">
         <div class="flex flex-col gap-2 @lg/page:flex-row">
           <For each={CODE_STYLE_OPTIONS}>
             {(option) => (
@@ -150,17 +152,16 @@ export default function CreateWeddingForm(props: {
             )}
           </For>
         </div>
-      </fieldset>
+      </Fieldset>
 
       <div class="flex flex-wrap items-center gap-3">
-        <button
-          type="submit"
-          disabled={busy()}
-          class="border-gold bg-gold font-body text-bg hover:bg-gold-dim rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-        >
+        <Button type="submit" variant="primary" disabled={busy()}>
           {busy() ? "Creating…" : "Create wedding"}
-        </button>
+        </Button>
         <Show when={props.onCancel}>
+          {/* Not a Button: cancelling out of a form the host has not committed
+              to is a link's worth of weight, and giving it a border would put
+              it in the same tier as the thing it backs out of. */}
           <button
             type="button"
             onClick={() => props.onCancel?.()}
@@ -173,9 +174,9 @@ export default function CreateWeddingForm(props: {
       </div>
 
       <Show when={error()}>
-        <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
+        <Notice tone="error" alert>
           {error()}
-        </p>
+        </Notice>
       </Show>
     </form>
   );

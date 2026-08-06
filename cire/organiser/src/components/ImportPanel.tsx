@@ -6,6 +6,7 @@ import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { downloadBlob, downloadCsv } from "../lib/download";
 import { invalidateEvents } from "../lib/events-store";
 import { invalidateGuests } from "../lib/guests-store";
+import { haptic } from "../lib/haptics";
 import { invalidateHouseholds } from "../lib/households-store";
 import { formatImportError } from "../lib/import-errors";
 import type { ImportErrorBody } from "../lib/import-errors";
@@ -20,6 +21,9 @@ import {
 } from "../lib/import-templates";
 import ChangeHistory from "./ChangeHistory";
 import { PlanCounts } from "./ChangePreview";
+import Button from "./ui/Button";
+import Field from "./ui/Field";
+import Notice from "./ui/Notice";
 
 interface ImportPlan {
   eventCreates: unknown[];
@@ -140,7 +144,10 @@ export default function ImportPanel(props: { weddingId: string }) {
     const events = eventsFile();
     const guests = guestsFile();
     // Either sheet on its own is a valid upload — only "neither" is an error.
-    if (!events && !guests) return setError("Choose an events.csv or a guests.csv file.");
+    if (!events && !guests) {
+      haptic("reject");
+      return setError("Choose an events.csv or a guests.csv file.");
+    }
 
     setBusy(true);
     try {
@@ -167,8 +174,10 @@ export default function ImportPanel(props: { weddingId: string }) {
         throw new Error(formatImportError(res.status, body));
       }
       setPreview((await res.json()) as PreviewResponse);
+      haptic("commit");
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       setError(err instanceof Error ? err.message : "Preview failed.");
     } finally {
       setBusy(false);
@@ -191,6 +200,9 @@ export default function ImportPanel(props: { weddingId: string }) {
         throw new Error(formatImportError(res.status, body));
       }
       const data = (await res.json()) as ApplyResponse;
+      // Fires before the reload below — the tap is the confirmation the write
+      // landed, and the page is about to go away and take the toast with it.
+      haptic("commit");
       setApplied(data.summary);
       setPreview(null);
       clearFile("events");
@@ -211,6 +223,7 @@ export default function ImportPanel(props: { weddingId: string }) {
       window.location.reload();
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       setError(err instanceof Error ? err.message : "Apply failed.");
     } finally {
       setBusy(false);
@@ -218,6 +231,7 @@ export default function ImportPanel(props: { weddingId: string }) {
   }
 
   function reset() {
+    haptic("dismiss");
     setPreview(null);
     setApplied(null);
     setError(null);
@@ -225,6 +239,7 @@ export default function ImportPanel(props: { weddingId: string }) {
 
   /** Drop a chosen sheet — both our signal and the native input's selection. */
   function clearFile(kind: "events" | "guests") {
+    haptic("dismiss");
     if (kind === "events") {
       setEventsFile(null);
       if (eventsInput) eventsInput.value = "";
@@ -256,8 +271,10 @@ export default function ImportPanel(props: { weddingId: string }) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`Export failed (${res.status})`);
       downloadBlob(`cire-export-${kind}.csv`, await res.blob());
+      haptic("commit");
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
       setError(err instanceof Error ? err.message : "Export failed.");
     } finally {
       setExporting(false);
@@ -292,20 +309,18 @@ export default function ImportPanel(props: { weddingId: string }) {
 
       <div class="flex flex-col gap-6 px-6">
         <div class="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
+          <Button
+            variant="outline"
             onClick={() => downloadCsv("cire-events-template.csv", buildEventsTemplateCsv())}
-            class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition"
           >
             Download events template
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="outline"
             onClick={() => downloadCsv("cire-guests-template.csv", buildGuestsTemplateCsv())}
-            class="border-gold/40 font-body text-gold hover:border-gold hover:bg-gold/10 rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition"
           >
             Download guests template
-          </button>
+          </Button>
         </div>
 
         {/* Round-trip export: the current data in the same format the import
@@ -316,22 +331,20 @@ export default function ImportPanel(props: { weddingId: string }) {
             straight back. This is the re-importable guest list, not the RSVP report (that lives on
             the Guests tab, and is for reading replies, not re-uploading).
           </span>
-          <button
-            type="button"
+          <Button
+            variant="quiet"
             onClick={() => void downloadCurrent("events")}
             disabled={exporting()}
-            class="border-border font-body text-text-muted hover:border-gold hover:text-gold rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
           >
             Download current events
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="quiet"
             onClick={() => void downloadCurrent("guests")}
             disabled={exporting()}
-            class="border-border font-body text-text-muted hover:border-gold hover:text-gold rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
           >
             Download current guests
-          </button>
+          </Button>
         </div>
 
         <CsvFormatHelp />
@@ -348,18 +361,27 @@ export default function ImportPanel(props: { weddingId: string }) {
               label points at. */}
           <div class="auto-grid [--auto-grid-min:20rem]">
             <div class="flex flex-col gap-1.5">
-              <label class="flex flex-col gap-1.5">
-                <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
-                  events.csv <span class="text-text-muted/70 normal-case">(optional)</span>
-                </span>
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  ref={eventsInput}
-                  onChange={(e) => setEventsFile(e.currentTarget.files?.[0] ?? null)}
-                  class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
-                />
-              </label>
+              {/* `Field` for the label wiring only — the control keeps its own
+                  `file:` styling rather than taking `Input`'s box, because the
+                  part a host clicks is the pseudo-element button, not the field. */}
+              <Field
+                label={
+                  <>
+                    events.csv <span class="text-text-muted/70 normal-case">(optional)</span>
+                  </>
+                }
+              >
+                {(field) => (
+                  <input
+                    {...field}
+                    type="file"
+                    accept=".csv,text/csv"
+                    ref={eventsInput}
+                    onChange={(e) => setEventsFile(e.currentTarget.files?.[0] ?? null)}
+                    class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
+                  />
+                )}
+              </Field>
               <Show when={eventsFile()}>
                 <span class="flex items-center gap-2">
                   <span class="text-text-muted font-mono text-[0.72rem]">{eventsFile()?.name}</span>
@@ -375,18 +397,24 @@ export default function ImportPanel(props: { weddingId: string }) {
             </div>
 
             <div class="flex flex-col gap-1.5">
-              <label class="flex flex-col gap-1.5">
-                <span class="font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase">
-                  guests.csv <span class="text-text-muted/70 normal-case">(optional)</span>
-                </span>
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  ref={guestsInput}
-                  onChange={(e) => setGuestsFile(e.currentTarget.files?.[0] ?? null)}
-                  class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
-                />
-              </label>
+              <Field
+                label={
+                  <>
+                    guests.csv <span class="text-text-muted/70 normal-case">(optional)</span>
+                  </>
+                }
+              >
+                {(field) => (
+                  <input
+                    {...field}
+                    type="file"
+                    accept=".csv,text/csv"
+                    ref={guestsInput}
+                    onChange={(e) => setGuestsFile(e.currentTarget.files?.[0] ?? null)}
+                    class="font-body text-text file:border-border file:bg-bg file:font-body file:text-text hover:file:border-gold text-[0.82rem] file:mr-3 file:rounded-sm file:border file:px-3 file:py-1.5 file:text-[0.82rem]"
+                  />
+                )}
+              </Field>
               <Show when={guestsFile()}>
                 <span class="flex items-center gap-2">
                   <span class="text-text-muted font-mono text-[0.72rem]">{guestsFile()?.name}</span>
@@ -417,13 +445,9 @@ export default function ImportPanel(props: { weddingId: string }) {
           </Show>
 
           <div class="flex flex-wrap items-center gap-3">
-            <button
-              type="submit"
-              disabled={busy() || scope() === null}
-              class="border-gold bg-gold/10 font-body text-gold hover:bg-gold/20 rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-            >
+            <Button type="submit" variant="outline" disabled={busy() || scope() === null}>
               {busy() ? "Working…" : "Preview"}
-            </button>
+            </Button>
             <Show when={preview() || applied() || error()}>
               <button
                 type="button"
@@ -438,9 +462,9 @@ export default function ImportPanel(props: { weddingId: string }) {
         </form>
 
         <Show when={error()}>
-          <p class="border-error/20 bg-error/5 text-error rounded-sm border p-4 text-[0.88rem]">
+          <Notice tone="error" alert>
             {error()}
-          </p>
+          </Notice>
         </Show>
 
         <Show when={preview()}>
@@ -461,14 +485,9 @@ export default function ImportPanel(props: { weddingId: string }) {
                   </For>
                 </ul>
               </Show>
-              <button
-                type="button"
-                onClick={handleApply}
-                disabled={busy()}
-                class="border-gold bg-gold font-body text-bg hover:bg-gold-dim self-start rounded-sm border px-4 py-2 text-[0.82rem] tracking-[0.1em] uppercase transition disabled:opacity-40"
-              >
+              <Button variant="primary" class="self-start" onClick={handleApply} disabled={busy()}>
                 {busy() ? "Applying…" : "Apply import"}
-              </button>
+              </Button>
             </div>
           )}
         </Show>

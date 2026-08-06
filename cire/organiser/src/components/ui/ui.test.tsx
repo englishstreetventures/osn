@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
 import { cleanup, render } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 
 import Button from "./Button";
 import Card, { cardClass, CardEyebrow } from "./Card";
 import EmptyState from "./EmptyState";
+import Field, { Fieldset, Input, Select, Textarea } from "./Field";
 import Meter, { meterPct } from "./Meter";
 import Notice from "./Notice";
 import Stat from "./Stat";
@@ -18,7 +20,7 @@ import { Table, Td, Th } from "./Table";
  * the accessibility wiring is there, and that the one piece of arithmetic in the
  * set is right.
  *
- * They live in one file because they are seven small parts of one thing. A
+ * They live in one file because they are small parts of one thing. A
  * component that grows real behaviour should take its own file with it.
  */
 
@@ -282,6 +284,21 @@ describe("Table", () => {
     expect(container.firstElementChild?.className).toContain("overflow-x-auto");
   });
 
+  it("centres a header when the column under it is centred", () => {
+    // The tick column: a left-aligned heading over centred marks reads as a
+    // mistake, and `Th`'s own `text-left` would win over a passed class.
+    const { getByRole } = render(() => (
+      <Table label="Attendance">
+        <thead>
+          <tr>
+            <Th align="center">Ceremony</Th>
+          </tr>
+        </thead>
+      </Table>
+    ));
+    expect(getByRole("columnheader").className).toContain("text-center");
+  });
+
   it("lets a keyboard reach the columns that are off the edge, and says what it is", () => {
     // WebKit does not make an overflow container focusable on its own, so
     // without this the email column is simply unreachable without a mouse. The
@@ -310,5 +327,148 @@ describe("Stat", () => {
   it("leaves the hint out when there is none", () => {
     const { queryByText } = render(() => <Stat value="12" label="Days" />);
     expect(queryByText("of 120")).toBeNull();
+  });
+});
+
+describe("Field", () => {
+  it("names the control without swallowing the hint", () => {
+    // The bug this exists to stop: a hint inside the label becomes part of the
+    // input's accessible *name*, so the box announces as "RSVP by, the day
+    // replies are due" instead of being described by it.
+    const { getByRole } = render(() => (
+      <Field label="RSVP by" hint="The day replies are due">
+        {(field) => <Input {...field} />}
+      </Field>
+    ));
+    const input = getByRole("textbox");
+    expect(input).toHaveAccessibleName("RSVP by");
+    expect(input).toHaveAccessibleDescription("The day replies are due");
+  });
+
+  it("takes JSX for the label, for the labels that carry a lower-case qualifier", () => {
+    const { getByRole } = render(() => (
+      <Field
+        label={
+          <>
+            events.csv <span>(optional)</span>
+          </>
+        }
+      >
+        {(field) => <Input {...field} />}
+      </Field>
+    ));
+    expect(getByRole("textbox")).toHaveAccessibleName("events.csv (optional)");
+  });
+
+  it("announces what is wrong, and marks the box wrong with it", () => {
+    const { getByRole } = render(() => (
+      <Field label="Guest count" errors={["Must be a whole number."]}>
+        {(field) => <Input {...field} />}
+      </Field>
+    ));
+    expect(getByRole("alert")).toHaveTextContent("Must be a whole number.");
+    expect(getByRole("textbox")).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("puts the error before the hint, because the error is the thing to hear", () => {
+    const { getByRole } = render(() => (
+      <Field label="Guest count" hint="Adults and children" errors={["Too many."]}>
+        {(field) => <Input {...field} />}
+      </Field>
+    ));
+    expect(getByRole("textbox")).toHaveAccessibleDescription("Too many. Adults and children");
+  });
+
+  it("keeps a hidden label a label", () => {
+    const { getByRole } = render(() => (
+      <Field label="Amount" labelHidden>
+        {(field) => <Input {...field} />}
+      </Field>
+    ));
+    expect(getByRole("textbox")).toHaveAccessibleName("Amount");
+  });
+
+  it("gives two fields on the same screen two different ids", () => {
+    const { getAllByRole } = render(() => (
+      <>
+        <Field label="First">{(field) => <Input {...field} />}</Field>
+        <Field label="Second">{(field) => <Input {...field} />}</Field>
+      </>
+    ));
+    const [a, b] = getAllByRole("textbox");
+    expect(a?.id).not.toBe(b?.id);
+  });
+
+  it("keeps the same control when a save comes back rejected", () => {
+    // The one thing that must not happen: a rejected save replaces the box the
+    // host is typing in, so the caret and the focus go with it just as they
+    // start correcting. The wiring updates; the node does not move.
+    const [errors, setErrors] = createSignal<readonly string[]>([]);
+    const { getByRole } = render(() => (
+      <Field label="Handle" errors={errors()}>
+        {(field) => <Input {...field} />}
+      </Field>
+    ));
+    const before = getByRole("textbox");
+    expect(before).not.toHaveAttribute("aria-invalid");
+
+    setErrors(["No account with that handle."]);
+
+    expect(getByRole("textbox")).toBe(before);
+    expect(before).toHaveAttribute("aria-invalid", "true");
+    expect(before).toHaveAccessibleDescription("No account with that handle.");
+  });
+});
+
+describe("controls", () => {
+  it("defaults an Input to text, and lets the caller say otherwise", () => {
+    const { getByRole, getByLabelText } = render(() => (
+      <>
+        <Input aria-label="Name" />
+        <Input aria-label="Quote" type="number" />
+      </>
+    ));
+    expect(getByRole("textbox")).toHaveProperty("type", "text");
+    expect(getByLabelText("Quote")).toHaveProperty("type", "number");
+  });
+
+  it("sizes a table cell's control differently from a form's", () => {
+    const { getByLabelText } = render(() => (
+      <>
+        <Input aria-label="Row" size="sm" />
+        <Input aria-label="Form" size="md" />
+      </>
+    ));
+    expect(getByLabelText("Row").className).not.toBe(getByLabelText("Form").className);
+  });
+
+  it("lets a long note grow downwards but not sideways", () => {
+    // Sideways resize breaks the column the textarea sits in; no resize at all
+    // takes away the one control a host has over a long note.
+    const { getByRole } = render(() => <Textarea aria-label="Notes" />);
+    expect(getByRole("textbox").className).toContain("resize-y");
+  });
+
+  it("passes a Select its options and its value", () => {
+    const { getByRole } = render(() => (
+      <Select aria-label="Status" value="booked">
+        <option value="quoted">Quoted</option>
+        <option value="booked">Booked</option>
+      </Select>
+    ));
+    expect(getByRole("combobox")).toHaveValue("booked");
+  });
+});
+
+describe("Fieldset", () => {
+  it("groups the controls that answer one question, and names the group", () => {
+    const { getByRole } = render(() => (
+      <Fieldset legend="Guest code style">
+        <label>
+          <input type="radio" name="style" value="words" /> Words
+        </label>
+      </Fieldset>
+    ));
+    expect(getByRole("group", { name: "Guest code style" })).toBeInTheDocument();
   });
 });

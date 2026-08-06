@@ -52,19 +52,27 @@ export function Table(props: {
   // oxlint-enable no-noninteractive-tabindex
 }
 
-export type ThProps = SafeProps<"th">;
+export type ThProps = SafeProps<"th"> & {
+  /** Centre the heading over a column of checkboxes or icons. A prop rather
+   *  than a passed `text-center`, because that would fight the `text-left`
+   *  below on the same property — and two Tailwind utilities on one property
+   *  resolve by stylesheet order, not by the order they appear in `class`. */
+  align?: "start" | "center";
+};
 
 /**
  * A column head. `scope="col"` by default — without it a screen reader has to
  * guess which cells a header governs, and in a wide table it guesses wrong.
  */
 export function Th(props: ThProps) {
-  const [own, rest] = splitProps(props, ["class"]);
+  const [own, rest] = splitProps(props, ["align", "class"]);
   return (
     <th
       scope="col"
       {...rest}
-      class={`font-body border-border text-gold border-b px-4 py-3 text-left text-[0.72rem] font-normal tracking-[0.1em] whitespace-nowrap uppercase${
+      class={`font-body border-border text-gold border-b px-4 py-3 ${
+        own.align === "center" ? "text-center" : "text-left"
+      } text-[0.72rem] font-normal tracking-[0.1em] whitespace-nowrap uppercase${
         own.class ? ` ${own.class}` : ""
       }`}
     />

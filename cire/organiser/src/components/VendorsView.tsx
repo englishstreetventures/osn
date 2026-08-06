@@ -2,6 +2,7 @@ import { useAuth } from "@shared/rp-auth/solid";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { haptic } from "../lib/haptics";
 // The portal's single clipboard choke point — it carries the fallback path for
 // non-secure contexts and the copy haptic, neither of which a bare
 // `navigator.clipboard.writeText` gets.
@@ -16,6 +17,8 @@ import {
   vendorsAccessor,
 } from "../lib/vendors-store";
 import EnquireDialog from "./EnquireDialog";
+import Button from "./ui/Button";
+import Field, { Input, Select } from "./ui/Field";
 import Notice from "./ui/Notice";
 
 /** Vendor pipeline stages in workflow order. */
@@ -127,6 +130,7 @@ export default function VendorsView(props: VendorsViewProps) {
     const quotedRaw = newQuoted().trim();
     const quotedMinor = quotedRaw === "" ? null : Math.round(Number(quotedRaw) * 100);
     if (quotedMinor !== null && (!Number.isFinite(quotedMinor) || quotedMinor < 0)) {
+      haptic("reject");
       setError("Quote must be a positive amount.");
       return;
     }
@@ -155,7 +159,9 @@ export default function VendorsView(props: VendorsViewProps) {
       if (!res.ok) throw new Error(`create ${res.status}`);
       const { vendor } = (await res.json()) as { vendor: VendorRow };
       patchVendors((vs) => [...vs, vendor]);
+      haptic("commit");
     } catch {
+      haptic("reject");
       setError("Couldn't add that vendor.");
       void reload();
     }
@@ -164,6 +170,7 @@ export default function VendorsView(props: VendorsViewProps) {
   // ── Patch status ──────────────────────────────────────────────────────────
   const patchStatus = async (v: VendorRow, status: VendorStatus) => {
     patchVendors((vs) => vs.map((x) => (x.id === v.id ? { ...x, status } : x)));
+    haptic("commit");
     try {
       const res = await authFetch(
         apiUrl(`/api/organiser/weddings/${props.weddingId}/vendors/${v.id}`),
@@ -178,6 +185,7 @@ export default function VendorsView(props: VendorsViewProps) {
       const { vendor: updated } = (await res.json()) as { vendor: VendorRow };
       patchVendors((vs) => vs.map((x) => (x.id === updated.id ? updated : x)));
     } catch {
+      haptic("reject");
       setError("Couldn't update that vendor.");
       void reload();
     }
@@ -186,6 +194,7 @@ export default function VendorsView(props: VendorsViewProps) {
   // ── Delete vendor ─────────────────────────────────────────────────────────
   const deleteVendor = async (v: VendorRow) => {
     patchVendors((vs) => vs.filter((x) => x.id !== v.id));
+    haptic("commit");
     try {
       const res = await authFetch(
         apiUrl(`/api/organiser/weddings/${props.weddingId}/vendors/${v.id}`),
@@ -194,6 +203,7 @@ export default function VendorsView(props: VendorsViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`delete ${res.status}`);
     } catch {
+      haptic("reject");
       setError("Couldn't delete that vendor.");
       void reload();
     }
@@ -236,7 +246,9 @@ export default function VendorsView(props: VendorsViewProps) {
       if (!res.ok) throw new Error(`list ${res.status}`);
       const data = (await res.json()) as { claimUrl: string };
       setClaimUrl(data.claimUrl);
+      haptic("commit");
     } catch {
+      haptic("reject");
       setError("Couldn't list that vendor in the directory.");
     } finally {
       setListingLoading(false);
@@ -257,86 +269,77 @@ export default function VendorsView(props: VendorsViewProps) {
           onSubmit={addVendor}
           class="border-border bg-surface/20 flex flex-wrap items-end gap-3 rounded-sm border p-4"
         >
-          <label class="flex min-w-[12rem] flex-1 flex-col gap-1">
-            <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-              Vendor name
-            </span>
-            <input
-              type="text"
-              value={newName()}
-              onInput={(e) => setNewName(e.currentTarget.value)}
-              placeholder="Florist, photographer…"
-              class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-            />
-          </label>
-          <label class="flex flex-col gap-1">
-            <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-              Category
-            </span>
-            <select
-              value={newCategory()}
-              onChange={(e) => setNewCategory(e.currentTarget.value as ServiceCategory)}
-              class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-            >
-              <For each={SERVICE_CATEGORIES}>{(c) => <option value={c.key}>{c.label}</option>}</For>
-            </select>
-          </label>
-          <label class="flex flex-col gap-1">
-            <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-              Status
-            </span>
-            <select
-              value={newStatus()}
-              onChange={(e) => setNewStatus(e.currentTarget.value as VendorStatus)}
-              class="border-border bg-bg text-text rounded-sm border px-3 py-2 text-[0.9rem]"
-            >
-              <For each={VENDOR_STATUSES}>{(s) => <option value={s.key}>{s.label}</option>}</For>
-            </select>
-          </label>
-          <label class="flex flex-col gap-1">
-            <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-              Contact
-            </span>
-            <input
-              type="text"
-              value={newContact()}
-              onInput={(e) => setNewContact(e.currentTarget.value)}
-              placeholder="Jane Smith"
-              class="border-border bg-bg text-text w-36 rounded-sm border px-3 py-2 text-[0.9rem]"
-            />
-          </label>
-          <label class="flex flex-col gap-1">
-            <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-              Email
-            </span>
-            <input
-              type="email"
-              value={newEmail()}
-              onInput={(e) => setNewEmail(e.currentTarget.value)}
-              placeholder="vendor@example.com"
-              class="border-border bg-bg text-text w-44 rounded-sm border px-3 py-2 text-[0.9rem]"
-            />
-          </label>
-          <label class="flex flex-col gap-1">
-            <span class="text-gold-dim font-body text-[0.68rem] tracking-[0.16em] uppercase">
-              Quote (optional)
-            </span>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={newQuoted()}
-              onInput={(e) => setNewQuoted(e.currentTarget.value)}
-              placeholder="0.00"
-              class="border-border bg-bg text-text w-28 rounded-sm border px-3 py-2 text-[0.9rem]"
-            />
-          </label>
-          <button
-            type="submit"
-            class="bg-gold text-bg rounded-sm px-4 py-2 text-[0.82rem] tracking-[0.08em] uppercase"
-          >
+          <Field label="Vendor name" class="min-w-[12rem] flex-1">
+            {(field) => (
+              <Input
+                {...field}
+                value={newName()}
+                onInput={(e) => setNewName(e.currentTarget.value)}
+                placeholder="Florist, photographer…"
+              />
+            )}
+          </Field>
+          <Field label="Category">
+            {(field) => (
+              <Select
+                {...field}
+                value={newCategory()}
+                onChange={(e) => setNewCategory(e.currentTarget.value as ServiceCategory)}
+              >
+                <For each={SERVICE_CATEGORIES}>
+                  {(c) => <option value={c.key}>{c.label}</option>}
+                </For>
+              </Select>
+            )}
+          </Field>
+          <Field label="Status">
+            {(field) => (
+              <Select
+                {...field}
+                value={newStatus()}
+                onChange={(e) => setNewStatus(e.currentTarget.value as VendorStatus)}
+              >
+                <For each={VENDOR_STATUSES}>{(s) => <option value={s.key}>{s.label}</option>}</For>
+              </Select>
+            )}
+          </Field>
+          <Field label="Contact" class="w-36">
+            {(field) => (
+              <Input
+                {...field}
+                value={newContact()}
+                onInput={(e) => setNewContact(e.currentTarget.value)}
+                placeholder="Jane Smith"
+              />
+            )}
+          </Field>
+          <Field label="Email" class="w-44">
+            {(field) => (
+              <Input
+                {...field}
+                type="email"
+                value={newEmail()}
+                onInput={(e) => setNewEmail(e.currentTarget.value)}
+                placeholder="vendor@example.com"
+              />
+            )}
+          </Field>
+          <Field label="Quote (optional)" class="w-28">
+            {(field) => (
+              <Input
+                {...field}
+                type="number"
+                min="0"
+                step="0.01"
+                value={newQuoted()}
+                onInput={(e) => setNewQuoted(e.currentTarget.value)}
+                placeholder="0.00"
+              />
+            )}
+          </Field>
+          <Button type="submit" variant="primary">
             Add vendor
-          </button>
+          </Button>
         </form>
       </Show>
 
@@ -380,18 +383,18 @@ export default function VendorsView(props: VendorsViewProps) {
                         <Show when={props.canEdit}>
                           <div class="flex items-center gap-2">
                             {/* Status picker */}
-                            <select
+                            <Select
+                              size="sm"
                               aria-label={`Status for ${v.name}`}
                               value={v.status}
                               onChange={(e) =>
                                 patchStatus(v, e.currentTarget.value as VendorStatus)
                               }
-                              class="border-border bg-bg text-text-muted rounded-sm border px-2 py-1 text-[0.78rem]"
                             >
                               <For each={VENDOR_STATUSES}>
                                 {(s) => <option value={s.key}>{s.label}</option>}
                               </For>
-                            </select>
+                            </Select>
                             {/* List in directory */}
                             <button
                               type="button"
@@ -435,33 +438,30 @@ export default function VendorsView(props: VendorsViewProps) {
                                 onSubmit={(e) => submitListing(e, v)}
                                 class="flex flex-wrap items-end gap-3"
                               >
-                                <label class="flex flex-col gap-1">
-                                  <span class="text-gold-dim font-body text-[0.64rem] tracking-[0.14em] uppercase">
-                                    Vendor email (for claim invite)
-                                  </span>
-                                  <input
-                                    type="email"
-                                    value={listEmail()}
-                                    onInput={(e) => setListEmail(e.currentTarget.value)}
-                                    placeholder="vendor@example.com"
-                                    class="border-border bg-bg text-text w-56 rounded-sm border px-2 py-1 text-[0.85rem]"
-                                  />
-                                </label>
+                                <Field label="Vendor email (for claim invite)" class="w-56">
+                                  {(field) => (
+                                    <Input
+                                      {...field}
+                                      size="sm"
+                                      type="email"
+                                      value={listEmail()}
+                                      onInput={(e) => setListEmail(e.currentTarget.value)}
+                                      placeholder="vendor@example.com"
+                                    />
+                                  )}
+                                </Field>
                                 <div class="flex items-end gap-2">
-                                  <button
+                                  <Button
                                     type="submit"
+                                    variant="primary"
+                                    size="sm"
                                     disabled={listingLoading()}
-                                    class="bg-gold text-bg rounded-sm px-3 py-1.5 text-[0.76rem] tracking-[0.08em] uppercase disabled:opacity-60"
                                   >
                                     {listingLoading() ? "Listing…" : "List + invite"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={closeListing}
-                                    class="text-text-muted hover:text-text px-2 py-1.5 text-[0.76rem]"
-                                  >
+                                  </Button>
+                                  <Button variant="quiet" size="sm" onClick={closeListing}>
                                     Cancel
-                                  </button>
+                                  </Button>
                                 </div>
                               </form>
                             }
@@ -482,13 +482,14 @@ export default function VendorsView(props: VendorsViewProps) {
                                   Copy
                                 </button>
                               </div>
-                              <button
-                                type="button"
+                              <Button
+                                variant="quiet"
+                                size="sm"
+                                class="self-start"
                                 onClick={closeListing}
-                                class="text-text-muted hover:text-text self-start text-[0.76rem]"
                               >
                                 Done
-                              </button>
+                              </Button>
                             </div>
                           </Show>
                         </div>
