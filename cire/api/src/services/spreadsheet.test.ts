@@ -148,7 +148,7 @@ describe("parseEventsCsv", () => {
   });
 
   // Start/End shape is load-bearing: retention compares the stored strings
-  // LEXICALLY against a YYYY-MM-DD cutoff (see isIsoTimestamp in spreadsheet.ts).
+  // LEXICALLY against a YYYY-MM-DD cutoff (see parseWallTime in lib/event-time.ts).
   for (const bad of ["1st Nov 2026", "TBD", "18/09/2026 4pm"]) {
     it(`rejects a non-ISO Start cell (${JSON.stringify(bad)})`, async () => {
       const csv = [EVENTS_HEADER, `Mehndi,${bad},,Australia/Sydney,Home,,,,,`].join("\n");
@@ -169,15 +169,61 @@ describe("parseEventsCsv", () => {
     expect((error as MalformedSpreadsheet).reason).toBe("End must be an ISO-8601 timestamp");
   });
 
-  it("accepts ISO timestamps without seconds (the explainer's documented shape)", async () => {
+  it("accepts a bare wall clock (the template's shape) and stamps the zone's offset", async () => {
     const csv = [
       EVENTS_HEADER,
-      "Mehndi,2026-11-14T15:00+11:00,2026-11-14T22:00+11:00,Australia/Sydney,Home,,,,,",
+      "Mehndi,2026-11-14T15:00,2026-11-14T22:00,Australia/Sydney,Home,,,,,",
     ].join("\n");
     const events = await Effect.runPromise(parseEventsCsv(csv));
-    expect(events[0]!.startAt).toBe("2026-11-14T15:00+11:00");
-    expect(events[0]!.endAt).toBe("2026-11-14T22:00+11:00");
+    // November in Sydney is AEDT (+11:00), derived from the Timezone column.
+    expect(events[0]!.startAt).toBe("2026-11-14T15:00:00+11:00");
+    expect(events[0]!.endAt).toBe("2026-11-14T22:00:00+11:00");
   });
+
+  it("derives the offset per DATE, so one zone's summer and winter events differ", async () => {
+    const csv = [
+      EVENTS_HEADER,
+      "Mehndi,2026-11-14T15:00,,Australia/Sydney,Home,,,,,",
+      "Anniversary,2027-07-14T15:00,,Australia/Sydney,Home,,,,,",
+    ].join("\n");
+    const events = await Effect.runPromise(parseEventsCsv(csv));
+    expect(events[0]!.startAt).toBe("2026-11-14T15:00:00+11:00"); // AEDT
+    expect(events[1]!.startAt).toBe("2027-07-14T15:00:00+10:00"); // AEST
+  });
+
+  it("ignores an offset left in the cell — the Timezone column is authoritative", async () => {
+    // A stale template row: +10:00 is Sydney's WINTER offset, wrong for November.
+    // The wall clock is what the organiser meant, so 3pm stays 3pm and the
+    // offset is corrected rather than believed.
+    const csv = [
+      EVENTS_HEADER,
+      "Mehndi,2026-11-14T15:00:00+10:00,,Australia/Sydney,Home,,,,,",
+    ].join("\n");
+    const events = await Effect.runPromise(parseEventsCsv(csv));
+    expect(events[0]!.startAt).toBe("2026-11-14T15:00:00+11:00");
+  });
+
+  it("keeps seconds when a cell gives them (a full-fidelity round trip is stable)", async () => {
+    const csv = [EVENTS_HEADER, "Mehndi,2026-11-14T15:00:30,,Australia/Sydney,Home,,,,,"].join(
+      "\n",
+    );
+    const events = await Effect.runPromise(parseEventsCsv(csv));
+    expect(events[0]!.startAt).toBe("2026-11-14T15:00:30+11:00");
+  });
+
+  // A raw offset is missing from this list on purpose: "+11:00" starts with a
+  // formula marker, so the injection guard rejects that row before the zone is
+  // ever looked at. It is still not a zone — see `isKnownTimeZone`, which drops
+  // the fixed-offset spellings `Intl` resolves.
+  for (const bad of ["AEST", "Sydney", "Australia/Nowhere", "UTC+11"]) {
+    it(`rejects a Timezone that isn't a real IANA zone (${JSON.stringify(bad)})`, async () => {
+      const csv = [EVENTS_HEADER, `Mehndi,2026-11-14T15:00,,${bad},Home,,,,,`].join("\n");
+      const error = await Effect.runPromise(Effect.flip(parseEventsCsv(csv)));
+      expect(error).toBeInstanceOf(MalformedSpreadsheet);
+      expect((error as MalformedSpreadsheet).reason).toBe("Timezone must be an IANA timezone name");
+      expect((error as MalformedSpreadsheet).atRow).toBe(2);
+    });
+  }
 
   it("rejects an event row with an empty Start cell (start is required)", async () => {
     const csv = [

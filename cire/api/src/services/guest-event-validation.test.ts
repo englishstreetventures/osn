@@ -2,10 +2,10 @@ import { describe, it, expect } from "bun:test";
 
 import { Effect } from "effect";
 
+import { parseWallTime } from "../lib/event-time";
 import {
   isBlank,
   isFormulaCell,
-  isIsoTimestamp,
   isTruthy,
   normaliseName,
   nullableString,
@@ -13,6 +13,11 @@ import {
   parseHttpUrl,
 } from "./guest-event-validation";
 import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
+
+/** The Start/End cell rule as a predicate — the shape both front doors share,
+ *  now that reading the wall clock out of the cell and validating it are one
+ *  operation (see `lib/event-time.ts`). */
+const isIsoTimestamp = (s: string) => parseWallTime(s) !== null;
 
 // ── Unit: each rule in isolation ──────────────────────────────────────────────
 
@@ -32,12 +37,39 @@ describe("guest-event-validation rules", () => {
     expect(normaliseName("MEHNDI")).toBe("mehndi");
   });
 
-  it("isIsoTimestamp requires the zero-padded YYYY-MM-DDTHH:MM prefix + a real date", () => {
+  it("parseWallTime requires the zero-padded YYYY-MM-DDTHH:MM shape + a real date", () => {
+    expect(isIsoTimestamp("2026-11-14T15:00")).toBe(true);
     expect(isIsoTimestamp("2026-11-14T15:00+11:00")).toBe(true);
     expect(isIsoTimestamp("2026-11-14T15:00:00+11:00")).toBe(true);
-    for (const bad of ["1st Nov 2026", "TBD", "18/09/2026 4pm", "2026-13-40T99:99"]) {
+    for (const bad of [
+      "1st Nov 2026",
+      "TBD",
+      "18/09/2026 4pm",
+      "2026-13-40T99:99",
+      "2026-11-14T15:00 GMT", // a tail `Date` would swallow but we can't re-emit
+    ]) {
       expect(isIsoTimestamp(bad)).toBe(false);
     }
+  });
+
+  it("parseWallTime reads the LOCAL clock and discards any offset in the cell", () => {
+    // The Timezone column decides what these numbers mean; an offset typed
+    // alongside it is a second opinion nobody asked for.
+    expect(parseWallTime("2026-11-14T15:00")).toEqual({
+      date: "2026-11-14",
+      time: "15:00",
+      seconds: "00",
+    });
+    expect(parseWallTime("2026-11-14T15:00:30+10:00")).toEqual({
+      date: "2026-11-14",
+      time: "15:00",
+      seconds: "30",
+    });
+    expect(parseWallTime("2026-11-14T15:00:00Z")).toEqual({
+      date: "2026-11-14",
+      time: "15:00",
+      seconds: "00",
+    });
   });
 
   it("isTruthy accepts the sheet's truthy tokens, case-insensitively", () => {

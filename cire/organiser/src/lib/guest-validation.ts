@@ -9,8 +9,9 @@
 //
 // SOURCE OF TRUTH for every constant/rule below:
 //   cire/api/src/services/guest-event-validation.ts  (isBlank, normaliseName,
-//                                                       isIsoTimestamp,
 //                                                       parseHttpUrl)
+//   cire/api/src/lib/event-time.ts                    (parseWallTime — the
+//                                                       Start/End cell shape)
 //   cire/api/src/services/spreadsheet.ts              (MAX_CELL_LENGTH; the
 //                                                       required-name + event
 //                                                       field checks)
@@ -42,14 +43,25 @@ export function normaliseName(value: string): string {
 
 // ── Event field rules (mirror spreadsheet.ts / guest-event-validation.ts) ─────
 
-/** Mirror of guest-event-validation.ts `isIsoTimestamp`: a Start/End cell is a
- *  zero-padded `YYYY-MM-DDTHH:MM` prefix AND parseable by `Date`. The prefix
- *  shape is load-bearing (the retention sweep sorts lexically on it), so the
- *  editor must reject a free-text date exactly as the sheet path does. The
- *  editor's date+time+offset composer always produces this shape, but a
- *  hand-editable timezone/offset means we still validate. */
+/** Mirror of `cire/api/src/lib/event-time.ts` `parseWallTime` reduced to a
+ *  predicate: a Start/End value is a zero-padded `YYYY-MM-DDTHH:MM`, optionally
+ *  with seconds, optionally with the derived offset the storage format carries.
+ *  The shape is load-bearing (the retention sweep sorts lexically on it), so the
+ *  editor must reject a free-text date exactly as the sheet path does.
+ *
+ *  Anchored at BOTH ends, matching the server: the sheet path reads the local
+ *  date + time straight back out of this shape to stamp the zone's offset onto
+ *  it, so a trailing tail `Date` happens to swallow ("2026-11-14T15:00 GMT")
+ *  isn't something either front door can round-trip, and neither accepts it.
+ *  The second check rejects the impossible readings the pattern alone admits
+ *  ("2026-13-40T99:99"), exactly as `parseWallTime` does. */
+const WALL_TIME_RE =
+  /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::(\d{2}))?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/;
+
 export function isIsoTimestamp(value: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value) && !Number.isNaN(new Date(value).getTime());
+  const m = WALL_TIME_RE.exec(value.trim());
+  if (!m) return false;
+  return !Number.isNaN(Date.parse(`${m[1]}T${m[2]}:${m[3] ?? "00"}Z`));
 }
 
 /** Mirror of guest-event-validation.ts `parseHttpUrl` reduced to a predicate:

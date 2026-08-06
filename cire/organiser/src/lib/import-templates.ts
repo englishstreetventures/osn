@@ -22,7 +22,8 @@ export const EVENT_REQUIRED_HEADERS = ["Event Name", "Start", "Timezone"] as con
 
 /**
  * Optional event columns, exact labels the parser looks up. `End` may be blank
- * (or omitted) for an open-ended event; `Location` is a venue name that fills
+ * (or omitted) for an open-ended event, and like `Start` is a local wall-clock
+ * time read against the row's `Timezone`; `Location` is a venue name that fills
  * in for a blank `Address` (the invite's "Where" + Open-in-Maps derive from
  * Address).
  */
@@ -78,19 +79,28 @@ function toCsv(rows: readonly (readonly string[])[]): string {
 }
 
 /**
- * Events starter CSV: header row + two illustrative rows showing the ISO-8601
- * offset Start (and optional End — the second row leaves it blank for an
- * open-ended event), an IANA Timezone, a quoted multi-part Address, and the
+ * Events starter CSV: header row + two illustrative rows showing the LOCAL
+ * Start (and optional End — the second row leaves it blank for an open-ended
+ * event), an IANA Timezone, a quoted multi-part Address, and the
  * `Name:#hex|Name:#hex` dress-code palette format the parser splits on.
+ *
+ * Start/End are wall-clock times — `YYYY-MM-DDTHH:MM`, NO UTC offset. The
+ * Timezone column says which clock they are on, and the offset the stored
+ * timestamp ends up carrying is derived from that zone (DST and all) by
+ * `cire/api/src/lib/event-time.ts`. This is the same thing the events editor's
+ * drawer asks for — a date, a time, a zone — so a sheet and the editor describe
+ * an event identically. Asking for the offset as well only ever created a way
+ * for the two to disagree: "+10:00" is right for Sydney in July and wrong for
+ * Sydney in November, and nothing could catch it.
  */
 export function buildEventsTemplateCsv(): string {
   const rows: string[][] = [
     [...EVENT_TEMPLATE_HEADERS],
     [
       "Ceremony",
-      "2026-11-14T15:00:00+11:00",
+      "2026-11-14T15:00",
       "Australia/Sydney",
-      "2026-11-14T16:00:00+11:00",
+      "2026-11-14T16:00",
       "St Mary's Cathedral",
       "St Marys Rd, Sydney NSW 2000, Australia",
       "Formal — suits and cocktail dresses",
@@ -101,7 +111,7 @@ export function buildEventsTemplateCsv(): string {
     // Second row shows the optional End left blank — an open-ended event.
     [
       "Reception",
-      "2026-11-14T18:00:00+11:00",
+      "2026-11-14T18:00",
       "Australia/Sydney",
       "",
       "The Grounds of Alexandria",

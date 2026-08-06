@@ -74,6 +74,33 @@ describe("stateExportService.eventsCsv", () => {
       }),
     ),
   );
+
+  it(
+    "writes Start/End as local wall clocks, never with the derived UTC offset",
+    withDb(
+      Effect.gen(function* () {
+        const csv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID);
+        // This sheet is meant to be edited and uploaded back, so it must speak
+        // the same language the template and the events editor do: a date, a
+        // time, and a Timezone column that says which clock they're on. The
+        // offset the stored timestamp carries is derived from that zone
+        // (`lib/event-time.ts`) and is put back on re-import — the round-trip
+        // fixpoint below is what proves nothing is lost by dropping it here.
+        expect(csv).toMatch(/,\d{4}-\d{2}-\d{2}T\d{2}:\d{2},/);
+        expect(csv).not.toMatch(/T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:\d{2})/);
+
+        const db = yield* DbService;
+        const stored = db
+          .select({ startAt: events.startAt })
+          .from(events)
+          .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
+          .all();
+        // …and the stored values really do carry one, so this is a strip rather
+        // than a vacuous assertion about data that never had an offset.
+        expect(stored.some((e) => /[+-]\d{2}:\d{2}$/.test(e.startAt))).toBe(true);
+      }),
+    ),
+  );
 });
 
 describe("stateExportService.guestsCsv", () => {

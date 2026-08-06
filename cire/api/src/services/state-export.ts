@@ -4,6 +4,7 @@ import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import { serialiseCsv } from "../lib/csv";
+import { formatWallTime } from "../lib/event-time";
 import {
   EVENT_ID_HEADER,
   EVENT_SHEET_HEADERS,
@@ -78,9 +79,15 @@ export const stateExportService = {
       const data = rows.map((e) => {
         const cells = [
           e.name,
-          e.startAt,
+          // Wall clock only. This sheet is meant to be edited and re-uploaded,
+          // and the import schema asks for local time + a Timezone column — the
+          // stored offset is derived from that zone (`lib/event-time.ts`), so
+          // exporting it would put a number in front of the organiser that they
+          // can neither meaningfully change nor be trusted to keep in step with
+          // the zone. Re-importing stamps it back.
+          formatWallTime(e.startAt),
           e.timezone,
-          e.endAt, // "" sentinel exports as a blank optional End
+          formatWallTime(e.endAt), // "" sentinel exports as a blank optional End
           "", // Location — venue text lives in Address
           e.address ?? "",
           e.dressCodeDescription ?? "",

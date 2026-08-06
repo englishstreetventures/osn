@@ -15,6 +15,7 @@ import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { type DateTimeParts, joinIso, splitIso } from "../lib/event-datetime";
+import { formatEventWhen } from "../lib/event-display";
 import {
   ensureEventsLoaded,
   type EventRow,
@@ -655,9 +656,12 @@ function EventRowCard(props: {
         <p class="font-display text-text truncate text-[1.15rem]">
           {props.event.name || <span class="text-text-muted not-italic">{UNNAMED_EVENT}</span>}
         </p>
+        {/* The stored value is never printed raw: it carries a derived UTC
+            offset, and showing that next to the zone named right after it says
+            the same fact twice — once in a form the organiser can't edit. */}
         <p class="font-body text-text-muted truncate text-[0.8rem]">
           <Show when={props.event.startAt} fallback="No start time set">
-            {props.event.startAt}
+            {formatEventWhen(props.event.startAt, props.event.endAt, props.event.timezone)}
           </Show>
           {props.event.timezone ? ` · ${props.event.timezone}` : ""}
         </p>
@@ -735,22 +739,21 @@ function EventDrawer(props: {
     });
   };
 
-  /** The zone spelled out with its abbreviation and the offset it is actually
-   *  on for this event's own start date — the number the drawer no longer asks
-   *  for, shown where it's a fact rather than a question. A zone this runtime
-   *  can't resolve (an imported free-text value) gets the bare name and no
-   *  offset claim, rather than a number that would be wrong.
+  /** The zone spelled out with the abbreviation it is on for this event's own
+   *  start date — "Australia/Sydney (AEDT)", the thing an organiser recognises.
+   *  Deliberately NO UTC offset: the times either side of this field are already
+   *  the local ones, so the offset adds no information an organiser can act on,
+   *  and printing it invites the "is that the number I'm meant to set?" question
+   *  that removing the offset picker was supposed to answer. A zone this runtime
+   *  can't resolve (an imported free-text value) gets the bare name.
    *
    *  Memoised because `Field` reads `props.hint` from four places — the
    *  `aria-describedby` id, the spread getter, the `<Show>` gate and the text
-   *  insert — and each read would otherwise redo two `Intl` lookups (P-I1). */
+   *  insert — and each read would otherwise redo an `Intl` lookup (P-I1). */
   const zoneHint = createMemo(() => {
     const zone = props.event.timezone.trim();
     if (zone.length === 0) return "Pick the zone the event's times are in.";
-    const s = start();
-    const described = describeTimeZone(zone, s.date || null);
-    const offset = zoneOffset(zone, s.date, s.time || "12:00");
-    return offset ? `${described} — UTC${offset} on this date.` : described;
+    return `Times below are local to ${describeTimeZone(zone, start().date || null)}.`;
   });
 
   /** The dropdown's option groups. Memoised so the ~900-node option list is not

@@ -111,7 +111,15 @@ function malformedDetail(body: ImportErrorBody): string {
     case "End must be an ISO-8601 timestamp":
       return at(
         body,
-        `${body.reason.startsWith("Start") ? "Start" : "End"} must look like 2026-11-14T15:00+11:00 — the date, then a T, then the time, then the UTC offset. Watch out for spreadsheet apps: opening the file in Excel, Numbers or Sheets can silently rewrite that cell as something like 14/11/2026 15:00. Format the column as plain text before typing the value, or retype it after.`,
+        `${body.reason.startsWith("Start") ? "Start" : "End"} must look like 2026-11-14T15:00 — the date, then a T, then the local time. There's no UTC offset to work out: the Timezone column next to it says which clock that time is on. Watch out for spreadsheet apps: opening the file in Excel, Numbers or Sheets can silently rewrite that cell as something like 14/11/2026 15:00. Format the column as plain text before typing the value, or retype it after.`,
+      );
+
+    // The zone is what turns a local time into a real moment, so it has to be an
+    // identifier the runtime knows — not an abbreviation, and not an offset.
+    case "Timezone must be an IANA timezone name":
+      return at(
+        body,
+        `Timezone must be an IANA zone name like Australia/Sydney, Asia/Kolkata or Europe/London — Region/City, matching the list the events editor offers. Abbreviations ("AEST"), country names and raw offsets ("+11:00") aren't zones: an offset can't know about daylight saving, so it would be an hour out for half the year.`,
       );
 
     case "Pinterest URL must be an http(s) URL":

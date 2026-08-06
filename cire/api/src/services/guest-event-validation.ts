@@ -53,19 +53,18 @@ export function normaliseName(s: string): string {
 
 // ── Cell-value rules ──────────────────────────────────────────────────────────
 
-/**
- * Validate a Start/End cell as an ISO-8601 timestamp: a zero-padded
- * `YYYY-MM-DDTHH:MM` prefix AND parseable by `Date`. The prefix check is
- * load-bearing beyond display: `events.start_at`/`end_at` are compared LEXICALLY
- * against a `YYYY-MM-DD` cutoff by the guest-data retention sweep
- * (`services/retention.ts`), so a free-text date like "1st Nov 2026" (sorts
- * below any `2…` cutoff) would make an upcoming wedding aggregate as expired and
- * have its guest PII deleted, while "TBD" (sorts above) would never expire.
- * Enforcing the shape at every ingest point makes the sweep's invariant true.
- */
-export function isIsoTimestamp(s: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s) && !Number.isNaN(new Date(s).getTime());
-}
+// The Start/End cell rule USED to live here as `isIsoTimestamp`. It is now
+// `parseWallTime` in `lib/event-time.ts`, because validating the cell's shape
+// and reading the local date + time out of it are the same operation: an event's
+// time is a WALL CLOCK plus an IANA zone, and the UTC offset the stored
+// timestamp carries is DERIVED from that zone rather than typed. It is still a
+// rule both front doors share (the sheet path calls it directly;
+// `organiser/src/lib/guest-validation.ts` mirrors it), and it still carries the
+// invariant it always did: `events.start_at`/`end_at` are compared LEXICALLY
+// against a `YYYY-MM-DD` cutoff by the guest-data retention sweep
+// (`services/retention.ts`), so a free-text date like "1st Nov 2026" (sorts
+// below any `2…` cutoff) would make an upcoming wedding aggregate as expired and
+// have its guest PII deleted, while "TBD" (sorts above) would never expire.
 
 /** Truthy tokens for an attendance cell. */
 const TRUTHY = new Set(["true", "yes", "1", "x"]);

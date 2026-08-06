@@ -312,8 +312,12 @@ describe("EventTable open-ended events (endAt '')", () => {
 
     await waitFor(() => screen.getByText("Reception"));
     const body = document.body.textContent ?? "";
-    // The catch path returns the raw startAt without a range dash.
-    expect(body).toContain(EVENT.startAt);
-    expect(body).not.toContain(`${EVENT.startAt} –`);
+    // The catch path can't format a time in a zone it can't resolve, so it shows
+    // the WALL CLOCK — not the raw stored string, whose derived UTC offset is
+    // exactly what the portal stopped putting in front of organisers. No range
+    // dash either, since there is no end.
+    expect(body).toContain("2026-09-19 18:00");
+    expect(body).not.toContain(EVENT.startAt);
+    expect(body).not.toContain("2026-09-19 18:00 –");
   });
 });

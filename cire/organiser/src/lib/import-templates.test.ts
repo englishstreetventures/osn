@@ -35,12 +35,18 @@ describe("events template", () => {
     expect(rows[2]).toContain("Australia/Sydney,,");
   });
 
-  it("includes at least one illustrative example row with an ISO-8601 offset start", () => {
+  it("shows Start as a bare LOCAL wall clock — no UTC offset, ever", () => {
     const rows = lines(buildEventsTemplateCsv());
     expect(rows.length).toBeGreaterThanOrEqual(2);
-    // The example Start cell is a real ISO-8601 string with a UTC offset.
-    expect(rows[1]).toMatch(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}/);
-    // An IANA timezone appears somewhere in the example row.
+    // `YYYY-MM-DDTHH:MM` and nothing after it. The offset the stored timestamp
+    // ends up carrying is derived from the Timezone column server-side
+    // (`cire/api/src/lib/event-time.ts`), so an example that showed one would be
+    // asking the organiser for a number the zone already answers — the exact
+    // pair of fields the events editor stopped presenting.
+    expect(rows[1]).toMatch(/,\d{4}-\d{2}-\d{2}T\d{2}:\d{2},/);
+    expect(rows[1]).not.toMatch(/T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:\d{2})/);
+    // An IANA timezone appears somewhere in the example row — that IS the
+    // offset's source of truth.
     expect(rows[1]).toContain("Australia/Sydney");
   });
 

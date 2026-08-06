@@ -20,8 +20,27 @@ describe("formatImportError — malformed spreadsheet", () => {
     expect(msg).toContain("events sheet");
     expect(msg).toContain("row 4");
     expect(msg).toContain("column 2");
-    // And an example of the shape actually wanted, not just the format's name.
-    expect(msg).toContain("2026-11-14T15:00+11:00");
+    // And an example of the shape actually wanted, not just the format's name —
+    // a LOCAL time, with no offset to work out.
+    expect(msg).toContain("2026-11-14T15:00");
+    expect(msg).not.toContain("2026-11-14T15:00+");
+  });
+
+  it("explains a non-IANA Timezone with a Region/City example, not an offset", () => {
+    const msg = formatImportError(422, {
+      error: "Malformed spreadsheet",
+      reason: "Timezone must be an IANA timezone name",
+      row: 4,
+      column: 4,
+      sheet: "events",
+    });
+    expect(msg).toContain("events sheet");
+    expect(msg).toContain("row 4");
+    expect(msg).toContain("column 4");
+    expect(msg).toContain("Australia/Sydney");
+    // A raw offset is exactly what this reason exists to steer an organiser
+    // away from — the message names it explicitly as one of the wrong answers.
+    expect(msg).toMatch(/offset/i);
   });
 
   it("warns that spreadsheet apps rewrite date cells (the most likely cause)", () => {

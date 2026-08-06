@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import { DbService, dbQuery } from "../db";
 import { serialiseCsv } from "../lib/csv";
 import { compareEventsByStart } from "../lib/event-order";
+import { formatWallTime } from "../lib/event-time";
 import { decodePalette, safeHttpUrl } from "./claim";
 
 /**
@@ -229,8 +230,10 @@ export const tableExportService = {
         return [
           e.name,
           e.slug,
-          e.startAt,
-          e.endAt,
+          // Local time, with the derived offset stripped — the Timezone column
+          // next to it is what says which clock this is (`lib/event-time.ts`).
+          formatWallTime(e.startAt),
+          formatWallTime(e.endAt),
           e.timezone,
           e.address ?? "",
           e.description,

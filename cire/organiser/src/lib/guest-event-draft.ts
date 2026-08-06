@@ -334,20 +334,19 @@ export function validateDraft(draft: DraftState): FieldError[] {
     // A date-only value is the drawer's half-filled state (a day picked, no
     // time yet — see `event-datetime.ts`). Still an error, so Save stays shut
     // and nothing invents a midnight, but named precisely: the organiser is one
-    // field away, and "not a valid date, time & timezone offset" doesn't say
-    // which one.
+    // field away, and "not a valid date and time" doesn't say which one.
     if (isBlankName(evt.startAt)) {
       errors.push({ key: evt.key, message: "Start date & time is required." });
     } else if (isDateOnly(evt.startAt)) {
       errors.push({ key: evt.key, message: "Start time is required." });
     } else if (!isIsoTimestamp(evt.startAt)) {
-      errors.push({ key: evt.key, message: "Start must be a valid date, time & timezone offset." });
+      errors.push({ key: evt.key, message: "Start must be a valid date and time." });
     }
     // End is optional ("" ⇒ open-ended); only shape-check a present value.
     if (isDateOnly(evt.endAt)) {
       errors.push({ key: evt.key, message: "End time is required." });
     } else if (evt.endAt.trim().length > 0 && !isIsoTimestamp(evt.endAt)) {
-      errors.push({ key: evt.key, message: "End must be a valid date, time & timezone offset." });
+      errors.push({ key: evt.key, message: "End must be a valid date and time." });
     }
 
     if (isBlankName(evt.timezone)) {

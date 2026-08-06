@@ -636,8 +636,9 @@ function StepCard(props: { n: number; title: string; children: JSX.Element }) {
 /**
  * The Events-sheet guidance: the required/optional column chips followed by the
  * "Good to know!" key + format rules. Every rule mirrors the cire-api parser
- * (`cire/api/src/services/spreadsheet.ts`): the ISO-8601-with-offset Start/End
- * format, the IANA Timezone, the http(s) Pinterest/Maps URLs, and the
+ * (`cire/api/src/services/spreadsheet.ts`): the local wall-clock Start/End
+ * format, the IANA Timezone that says which clock they're on, the http(s)
+ * Pinterest/Maps URLs, and the
  * `Name:#hex|Name:#hex` dress-code palette the parser splits on `|`.
  */
 function EventsGuidance() {
@@ -667,10 +668,11 @@ function EventsGuidance() {
             <dt class="text-text">Timestamps</dt>
             <dd class="text-text-muted">
               <Col required>Start</Col> and <Col>End</Col> as{" "}
-              <span class="text-text font-mono">YYYY-MM-DDTHH:MM+GMT</span> — e.g.{" "}
-              <span class="text-text font-mono">2026-11-14T15:00+11:00</span> is 3 pm on 14 Nov 2026
-              in AEST (GMT+11). Leave <Col>End</Col> blank for an open-ended event — the invite
-              shows just the start time.
+              <span class="text-text font-mono">YYYY-MM-DDTHH:MM</span> — e.g.{" "}
+              <span class="text-text font-mono">2026-11-14T15:00</span> is 3 pm on 14 Nov 2026. Give
+              the LOCAL time; the <Col required>Timezone</Col> column says which clock it's on, so
+              there's no UTC offset to work out. Leave <Col>End</Col> blank for an open-ended event
+              — the invite shows just the start time.
             </dd>
           </div>
           <div class="flex flex-col gap-0.5">

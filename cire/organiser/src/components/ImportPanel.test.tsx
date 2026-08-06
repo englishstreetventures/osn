@@ -186,7 +186,10 @@ describe("ImportPanel — CSV format help", () => {
   it("documents the events timestamp + dress-code palette formats", () => {
     render(() => <ImportPanel weddingId="wed_a" />);
     const body = document.body.textContent ?? "";
-    expect(body).toContain("2026-11-14T15:00+11:00");
+    // A LOCAL wall clock — the guidance must show the same shape the template
+    // emits and the parser wants, with no offset for an organiser to get wrong.
+    expect(body).toContain("2026-11-14T15:00");
+    expect(body).not.toContain("2026-11-14T15:00+");
     expect(body).toContain("DisplayName:#RGB");
   });
 });
@@ -360,7 +363,8 @@ describe("ImportPanel — surfacing import failures", () => {
     const body = document.body.textContent ?? "";
     expect(body).toContain("column 2");
     expect(body).toContain("events sheet");
-    expect(body).toContain("2026-11-14T15:00+11:00");
+    expect(body).toContain("2026-11-14T15:00");
+    expect(body).not.toContain("2026-11-14T15:00+");
     // The old behaviour: the top-level error string and nothing else.
     expect(body).not.toMatch(/^Malformed spreadsheet$/m);
   });

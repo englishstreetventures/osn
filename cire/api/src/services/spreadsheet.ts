@@ -1,5 +1,6 @@
 import { Effect, Data } from "effect";
 
+import { isKnownTimeZone, parseWallTime, stampEventOffset } from "../lib/event-time";
 import {
   EVENT_ID_HEADER,
   EVENT_SHEET_REQUIRED_HEADERS,
@@ -12,7 +13,6 @@ import { bucketParseReason, metricImportParseRejected } from "../metrics";
 import type { ParsedEvent, ParsedFamily, ParsedGuest } from "../schemas/import";
 import {
   FORMULA_MARKERS,
-  isIsoTimestamp,
   isTruthy,
   normaliseName,
   nullableString,
@@ -46,9 +46,12 @@ export type MalformedSpreadsheetReason =
   | "Event Name is required"
   | "Start is required"
   | "Timezone is required"
-  // Timestamp-shape rejections (see isIsoTimestamp).
+  // Timestamp-shape rejections (see parseWallTime).
   | "Start must be an ISO-8601 timestamp"
   | "End must be an ISO-8601 timestamp"
+  // Zone rejection — the Timezone column is what turns a wall clock into an
+  // instant, so it has to name a zone this runtime can actually resolve.
+  | "Timezone must be an IANA timezone name"
   // URL-cell scheme rejections.
   | "Pinterest URL must be an http(s) URL"
   | "Maps URL must be an http(s) URL"
@@ -475,7 +478,27 @@ export function parseEventsCsv(
           }),
         );
       }
-      if (!isIsoTimestamp(startAt)) {
+      // The zone has to resolve BEFORE the timestamps are stamped with the
+      // offset derived from it — and a zone that doesn't resolve is a broken
+      // event regardless: the guest site formats every event time with
+      // `timeZone: event.timezone`, which throws on an unknown identifier.
+      // `isKnownTimeZone` also rejects the fixed-offset spellings `Intl`
+      // accepts ("+10:00", "UTC+10"), which never apply DST — the exact bug the
+      // wall-clock model exists to end. It's the memoized twin of
+      // `rsvp-deadline.ts`'s `isValidTimeZone` (P-C1): this loop re-resolves
+      // the SAME zone up to 3x per row (here, then twice more inside
+      // `stampEventOffset` below), and an uncached `Intl.DateTimeFormat`
+      // construction per lookup is real CPU across a large sheet.
+      if (!isKnownTimeZone(timezone)) {
+        return yield* Effect.fail(
+          new MalformedSpreadsheet({
+            reason: "Timezone must be an IANA timezone name",
+            atRow: r + 1,
+            atColumn: idxTz + 1,
+          }),
+        );
+      }
+      if (parseWallTime(startAt) === null) {
         return yield* Effect.fail(
           new MalformedSpreadsheet({
             reason: "Start must be an ISO-8601 timestamp",
@@ -484,7 +507,7 @@ export function parseEventsCsv(
           }),
         );
       }
-      if (endAt.length > 0 && !isIsoTimestamp(endAt)) {
+      if (endAt.length > 0 && parseWallTime(endAt) === null) {
         return yield* Effect.fail(
           new MalformedSpreadsheet({
             reason: "End must be an ISO-8601 timestamp",
@@ -524,8 +547,14 @@ export function parseEventsCsv(
       out.push({
         ...(id === undefined ? {} : { id }),
         name,
-        startAt,
-        endAt,
+        // The sheet states LOCAL time; the offset the stored timestamp carries
+        // is derived from the Timezone column, never read out of the cell (see
+        // `lib/event-time.ts`). So a `Start` of `2026-11-14T15:00` and a
+        // `Timezone` of `Australia/Sydney` store `2026-11-14T15:00:00+11:00`,
+        // DST resolved for that event's own date — and a stale `+10:00` left in
+        // the cell by an older template is corrected rather than believed.
+        startAt: stampEventOffset(startAt, timezone),
+        endAt: stampEventOffset(endAt, timezone),
         timezone,
         location: idxLocation === -1 ? null : nullableString(row[idxLocation] ?? ""),
         address: idxAddress === -1 ? null : nullableString(row[idxAddress] ?? ""),

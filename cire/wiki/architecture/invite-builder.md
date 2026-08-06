@@ -249,6 +249,13 @@ set (`REQUIRED_EVENT_COLUMNS` in `cire/api/src/services/spreadsheet.ts`,
   (non-whitespace) value for them ⇒ otherwise `MalformedSpreadsheet` with a
   specific reason + 1-indexed row/column (e.g. _"Start is required"_), shown in
   `ImportPanel.tsx` rather than a generic failure.
+- **Start/End are LOCAL wall clocks** (`2026-11-14T15:00`) and **Timezone must be
+  a real IANA zone** — the two together are the whole of an event's time. Any
+  offset left in a Start/End cell is discarded, and the offset the stored
+  timestamp carries is derived from the zone for that event's own date
+  (`cire/api/src/lib/event-time.ts`). That is the same thing the events editor's
+  drawer asks for, so a sheet and the editor describe an event identically; see
+  `[[guest-event-editor]]` E9 for why asking for both was a bug factory.
 
 **End and Location are optional** (2026-07-08; previously both were required —
 Location since `feat/invite-conditional-segments`):

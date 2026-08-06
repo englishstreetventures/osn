@@ -12,6 +12,12 @@ last-reviewed: 2026-08-06
 
 See [[review-findings]] for severity prefix conventions.
 
+### The UTC offset leaves event editing (`claude/event-editing-timezone-utc-n016j4`, 2026-08-06)
+
+Pre-PR performance review of E9 (see `[[guest-event-editor]]`), which moved the events CSV parser from a typed offset to a zone-derived one.
+
+- [x] **P-C1** (fixed on branch) — **the events-import loop resolved the same Timezone cell up to three times per row with no cache.** `parseEventsCsv` now calls `isValidTimeZone(timezone)` once to validate the cell and `stampEventOffset(startAt/endAt, timezone)` twice more to derive the stored offset — all three funnel into `canonicalTimeZone`, which is deliberately UNCACHED at its other (and only prior) call site, the RSVP-deadline settings write: a rare, one-shot lookup where a cache buys nothing. An events sheet has no such luxury — `MAX_ROWS` rows at 3 fresh `Intl.DateTimeFormat` constructions apiece (~75 µs each, per the codebase's own established measurement for this exact operation, see `rsvp-deadline.ts`) is real CPU against a 10ms Workers budget, stacked on the CSV parse and formula-injection scan already in the loop — and a real wedding's ~30-50 events alone costs ~7-11ms, already at or past the Free-tier budget on zone resolution before the rest of the row work runs. **Fixed:** a module-scoped `resolveTimeZone`/`isKnownTimeZone` cache added to `cire/api/src/lib/event-time.ts`, memoizing only SUCCESSFUL resolutions keyed by raw input string — matching the file's own `offsetFormatters` convention, so a hostile sheet of near-misses can't grow the map. `zoneOffsetAt` and the parser's Timezone-cell check both go through it; `spreadsheet.ts` no longer imports `rsvp-deadline.ts`'s uncached `isValidTimeZone` (whose only other consumer, `settings.ts`, calls `canonicalTimeZone` directly and is untouched). Collapses the cost from linear-in-rows to effectively one uncached construction per DISTINCT zone in the sheet — for the common case of one wedding in one or two zones, near-constant. Pinned by `event-time.test.ts` (`isKnownTimeZone` correctness + stability under repeated/interleaved calls).
+
 ### Host-portal date picker + event timezones + design-aware preview (`claude/cire-host-portal-fixes-ey66ee`, 2026-08-06)
 
 Pre-PR performance review. Measurements in-process on Bun/JSC, where `Intl.supportedValuesOf("timeZone")` returns **445 zones**; V8 differs in magnitude, not ratio.

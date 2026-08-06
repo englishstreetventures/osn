@@ -4,6 +4,7 @@ import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { downloadBlob } from "../lib/download";
+import { formatEventWhen } from "../lib/event-display";
 import {
   ensureEventsLoaded,
   type EventRow,
@@ -23,49 +24,10 @@ import Notice from "./ui/Notice";
 
 const ImageCropModal = lazy(() => import("./ImageCropModal"));
 
-/** Module-scope formatter cache keyed by timezone — each timezone's two formatters
- * are constructed once and reused across all row renders and re-renders. */
-const fmtCache = new Map<string, { dateFmt: Intl.DateTimeFormat; timeFmt: Intl.DateTimeFormat }>();
-
-function getFormatters(timezone: string) {
-  const cached = fmtCache.get(timezone);
-  if (cached) return cached;
-  const entry = {
-    dateFmt: new Intl.DateTimeFormat("en-AU", {
-      weekday: "short",
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      timeZone: timezone,
-    }),
-    timeFmt: new Intl.DateTimeFormat("en-AU", {
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-      timeZone: timezone,
-    }),
-  };
-  fmtCache.set(timezone, entry);
-  return entry;
-}
-
 interface EventTableProps {
   weddingId: string;
   /** URL slug of the wedding — embedded in the events CSV download filename. */
   weddingSlug: string;
-}
-
-function formatRange(startAt: string, endAt: string, timezone: string): string {
-  try {
-    const start = new Date(startAt);
-    const { dateFmt, timeFmt } = getFormatters(timezone);
-    // endAt "" = no stated end — show just the start time.
-    const end = endAt.trim().length === 0 ? null : new Date(endAt);
-    const endLabel = end === null || Number.isNaN(end.getTime()) ? "" : ` – ${timeFmt.format(end)}`;
-    return `${dateFmt.format(start)} · ${timeFmt.format(start)}${endLabel}`;
-  } catch {
-    return endAt.trim().length === 0 ? startAt : `${startAt} – ${endAt}`;
-  }
 }
 
 export default function EventTable(props: EventTableProps) {
@@ -266,7 +228,7 @@ export default function EventTable(props: EventTableProps) {
                   </span>
                   <h3 class="font-display text-text text-[1.5rem] font-light">{event.name}</h3>
                   <p class="font-body text-text-muted text-[0.82rem]">
-                    {formatRange(event.startAt, event.endAt, event.timezone)} · {event.timezone}
+                    {formatEventWhen(event.startAt, event.endAt, event.timezone)} · {event.timezone}
                   </p>
                 </header>
 

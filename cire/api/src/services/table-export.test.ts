@@ -205,6 +205,28 @@ describe("tableExportService.eventsCsv", () => {
   );
 
   it(
+    "writes Starts At / Ends At as local wall clocks, never with the derived UTC offset",
+    withDb(
+      Effect.gen(function* () {
+        const csv = yield* tableExportService.eventsCsv(BOOTSTRAP_WEDDING_ID);
+        const row = lines(csv).find((r) => r.startsWith("Catholic Ceremony"))!;
+        const [, , startsAt, endsAt] = row.split(",");
+        // Wall clock only — a Timezone column sits right after these on the same
+        // row and is what says which clock they're on (`lib/event-time.ts`).
+        expect(startsAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+        expect(endsAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
+
+        const db = yield* DbService;
+        const catholic = db.select().from(events).where(eq(events.slug, "catholic")).all()[0]!;
+        // …and the stored value really does carry an offset, so the assertion
+        // above is a strip rather than a vacuous check against offset-less data.
+        expect(catholic.startAt).toMatch(/[+-]\d{2}:\d{2}$/);
+        expect(catholic.startAt.startsWith(startsAt!)).toBe(true);
+      }),
+    ),
+  );
+
+  it(
     "counts invited guests per event (host families excluded)",
     withDb(
       Effect.gen(function* () {
