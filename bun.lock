@@ -129,10 +129,12 @@
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
+        "@astrojs/check": "0.9.10",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@testing-library/jest-dom": "^6.10.0",
         "happy-dom": "^20.11.1",
+        "typescript": "^6.0.3",
         "vite": "^8.1.5",
         "vite-plugin-solid": "^2.11.14",
         "vitest": "^4.1.10",

@@ -32,7 +32,7 @@ afterEach(() => {
 
 const renderPicker = (onPick = vi.fn()) =>
   render(() => (
-    <AuthProvider config={{ issuerUrl: "http://localhost:4000" }}>
+    <AuthProvider config={{ apiBase: "http://localhost:8787" }}>
       <OrgPicker onPick={onPick} />
     </AuthProvider>
   ));

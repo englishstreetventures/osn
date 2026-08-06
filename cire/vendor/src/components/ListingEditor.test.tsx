@@ -45,7 +45,7 @@ afterEach(() => {
 
 const renderEditor = () =>
   render(() => (
-    <AuthProvider config={{ issuerUrl: "http://localhost:4000" }}>
+    <AuthProvider config={{ apiBase: "http://localhost:8787" }}>
       <ListingEditor orgId="o1" orgName="Acme" />
     </AuthProvider>
   ));

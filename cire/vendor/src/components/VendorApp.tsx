@@ -158,15 +158,13 @@ function Dashboard() {
       <div class="flex flex-wrap items-center justify-between gap-4">
         {/* Back to all orgs — only visible in listings view when an org is selected */}
         <Show when={view() === "listings" && selectedOrg()}>
-          {() => (
-            <button
-              type="button"
-              onClick={() => clearSelection()}
-              class={`${navBtnBase} text-text-muted hover:text-gold self-start`}
-            >
-              ← All organisations
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => clearSelection()}
+            class={`${navBtnBase} text-text-muted hover:text-gold self-start`}
+          >
+            ← All organisations
+          </button>
         </Show>
 
         {/* Right-side controls: view toggle + sign out */}

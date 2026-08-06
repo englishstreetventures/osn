@@ -14,10 +14,16 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../../src/lib/authorize", () => ({ authorizeClient: mocks }));
 // The sign-in island carries its own AuthProvider and the WebAuthn client;
-// the page only cares that it reports success.
+// the page only cares that it reports success. `initialMode` is echoed into the
+// DOM because it is a decision the PAGE makes — which half of the panel leads —
+// and the only way to assert it from out here.
 vi.mock("../../src/components/AuthorizeSignIn", () => ({
-  AuthorizeSignIn: (props: { onSuccess: () => void }) => (
-    <button type="button" onClick={() => props.onSuccess()}>
+  AuthorizeSignIn: (props: { onSuccess: () => void; initialMode?: string }) => (
+    <button
+      type="button"
+      data-initial-mode={props.initialMode ?? "signIn"}
+      onClick={() => props.onSuccess()}
+    >
       finish sign-in
     </button>
   ),
@@ -367,6 +373,60 @@ describe("<AuthorizePage />", () => {
     fireEvent.click(screen.getByText("finish sign-in"));
 
     expect(await screen.findByText("Allow")).toBeDefined();
+  });
+
+  it("leads with sign-up when reason=create", async () => {
+    mocks.getContext.mockResolvedValue(context({ signedIn: false, profiles: [] }));
+
+    renderPage(`?request=${REQUEST_ID}&reason=create`);
+
+    expect((await screen.findByText("finish sign-in")).dataset["initialMode"]).toBe("register");
+  });
+
+  /**
+   * T-S1. The rule is "`create` leads with sign-up until a ceremony happens
+   * *here*", not "until a session exists" — the two predicates differ exactly
+   * on this case, and only this case tells them apart. `prompt=create` parks
+   * with `requireAuthAfter = now` server-side, so an existing session does not
+   * satisfy the request and the visitor still has to go through the panel;
+   * simplifying the gate to `!ctx().signedIn` would keep every other test green
+   * while quietly dropping the sign-up half for anyone already signed in.
+   */
+  it("still leads with sign-up when reason=create finds an existing session", async () => {
+    mocks.getContext.mockResolvedValue(context());
+
+    renderPage(`?request=${REQUEST_ID}&reason=create`);
+
+    const panel = await screen.findByText("finish sign-in");
+    expect(panel.dataset["initialMode"]).toBe("register");
+    // The session it found is not enough on its own — no decision yet.
+    expect(screen.queryByText("Allow")).toBeNull();
+  });
+
+  /**
+   * The URL still says `create` after the account exists, so anything that
+   * sends the user back to the sign-in screen — here, a decision the server
+   * answered `login_required` — used to reopen "Create your OSN account" at
+   * someone who had just made one. That reads as the flow having discarded the
+   * new account, and it is the loop a relying party's `prompt=create` journey
+   * fell into. Once a ceremony has happened on this page, the way forward is
+   * signing in.
+   */
+  it("does not reopen sign-up after an account has already been made here", async () => {
+    mocks.getContext.mockResolvedValueOnce(context({ signedIn: false, profiles: [] }));
+    mocks.getContext.mockResolvedValue(context());
+    mocks.submitDecision.mockRejectedValue(
+      new AuthorizeError("login_required", 400, "Re-authentication required"),
+    );
+
+    renderPage(`?request=${REQUEST_ID}&reason=create`);
+
+    // Register, land on consent, then have the server demand a fresh sign-in.
+    fireEvent.click(await screen.findByText("finish sign-in"));
+    fireEvent.click(await screen.findByText("Allow"));
+
+    const panel = await screen.findByText("finish sign-in");
+    expect(panel.dataset["initialMode"]).toBe("signIn");
   });
 
   it("replays the held answer once the same account signs in again", async () => {

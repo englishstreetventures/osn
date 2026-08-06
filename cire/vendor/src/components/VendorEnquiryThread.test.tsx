@@ -19,9 +19,10 @@ vi.mock("@shared/rp-auth/solid", () => ({
 const mockGetEnquiryMessages = vi.fn();
 const mockReplyToEnquiry = vi.fn();
 const mockSubmitQuote = vi.fn();
-const mockFriendlyEnquiryError = vi.fn((err: unknown) =>
-  err instanceof Error ? err.message : String(err),
-);
+const mockFriendlyEnquiryError = vi.fn((...args: unknown[]) => {
+  const err = args[0];
+  return err instanceof Error ? err.message : String(err);
+});
 
 vi.mock("../lib/enquiries-store", () => ({
   getEnquiryMessages: (...args: any[]) => mockGetEnquiryMessages(...args),

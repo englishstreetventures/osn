@@ -60,9 +60,23 @@ async function postJson<T>(
   if (options.bearer) headers["Authorization"] = `Bearer ${options.bearer}`;
   // `sessionFetch` because `/register/complete` sets the refresh cookie; see
   // `./session-fetch.ts` for why iOS cannot take it through the webview.
+  //
+  // `credentials: "include"` is not optional here, and it is the whole reason
+  // registration produces a usable session. The issuer is a DIFFERENT ORIGIN
+  // from every app that calls it (`musubi.social` → `id.musubi.social`), and a
+  // cross-origin fetch left on the default `same-origin` credentials mode does
+  // not process the response's `Set-Cookie` at all. `/register/complete` returns
+  // the refresh token ONLY as an HttpOnly cookie (S-M1 — the body carries the
+  // access token and nothing else), so dropping that header silently ended
+  // registration with an in-memory access token and no session: a reload signed
+  // the new account straight back out, and an OIDC `prompt=create` flow bounced
+  // to the consent screen's sign-up panel again because `/authorize/context`
+  // still saw a signed-out browser. Every other cookie-setting route in this
+  // package (`login`, `recovery`, `/token`) already sends it.
   const res = await sessionFetch(url, {
     method: "POST",
     headers,
+    credentials: "include",
     body: JSON.stringify(body),
   });
   const json = (await res.json()) as T & { error?: string };

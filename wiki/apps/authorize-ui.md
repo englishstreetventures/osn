@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-07-30
+last-reviewed: 2026-08-06
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -178,6 +178,22 @@ short-circuits consent), so state 4's copy can assume a third party.
   a different first screen. The value is advisory copy; tampering with it
   widens nothing, because the server re-derives every requirement when the
   decision arrives.
+- **`reason=create` leads with sign-up once, not every time** (2026-08-06).
+  The URL still says `create` after the account exists, so anything that
+  returns the user to the sign-in screen — a `login_required` replay, a
+  refused decision — used to reopen "Create your OSN account" at someone who
+  had just made one, which reads as the flow having discarded the new
+  account. `initialMode` is therefore gated on `signedInHere()`: once a
+  ceremony has happened on this page, the way forward is signing in.
+- **A registration that leaves no session is the same loop, one layer down.**
+  `POST /register/complete` returns the refresh token *only* as a
+  `Set-Cookie`, and the issuer is a different origin from this app — so
+  `@osn/client`'s registration calls have to run `credentials: "include"` or
+  the browser drops the cookie without a word. It did, until 2026-08-06:
+  registration ended with an in-memory access token and no session, the
+  context refetch reported `signedIn: false`, and a `prompt=create` journey
+  landed back on the sign-up panel having apparently done nothing. Pinned by
+  a test in `osn/client/tests/register.test.ts`.
 - A failed context read that is not terminal — a 429, a dropped connection —
   gets its own screen with the message and a retry, not an endless spinner.
 - The page runs **outside `AuthProvider`**. Mounting it calls `POST /token`,

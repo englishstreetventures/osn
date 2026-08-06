@@ -343,9 +343,18 @@ export function AuthorizePage() {
             >
               {/* `reason` is advisory — it only picks which half of the panel
                   leads. The server re-derives every requirement at decision
-                  time, so a tampered value widens nothing. */}
+                  time, so a tampered value widens nothing.
+
+                  `signedInHere()` is what keeps `reason=create` from leading
+                  with sign-up a second time. The URL still says `create` after
+                  the account exists, so a later bounce back to this screen — a
+                  `login_required` replay, or a decision the server refused —
+                  would otherwise reopen "Create your OSN account" at someone
+                  who has just made one, which reads as the flow having thrown
+                  the new account away. Once a ceremony has happened on this
+                  page, the way forward is signing in. */}
               <AuthorizeSignIn
-                initialMode={reason() === "create" ? "register" : "signIn"}
+                initialMode={reason() === "create" && !signedInHere() ? "register" : "signIn"}
                 onSuccess={() => void afterSignIn()}
               />
             </Suspense>

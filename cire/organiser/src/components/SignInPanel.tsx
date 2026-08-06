@@ -2,7 +2,6 @@ import {
   clearAuthError,
   readAuthError,
   resumeSession,
-  startCreateAccount,
   startSignIn,
   type RpAuthConfig,
 } from "@shared/rp-auth";
@@ -45,15 +44,18 @@ function resumeTarget(): string {
  * OIDC start leg, which sends the organiser to the identity app and takes the
  * code back in exchange for a cire session cookie.
  *
- * Both buttons leave for the same issuer and end in the same place — a signed-
- * in organiser on the dashboard. The second only adds `prompt=create`, which
- * asks the identity app to open on its sign-up screen instead of its sign-in
- * one. That is worth a button of its own: someone here for the first time has
- * no passkey to offer, and a screen demanding one is a dead end rather than an
- * invitation.
+ * **One button, not two.** There used to be a second — "Create account with
+ * musubi", which added `prompt=create` so the identity app opened on its
+ * sign-up screen. It is gone because the choice was never cire's to offer: both
+ * buttons left for the same issuer and ended in the same place, and the issuer
+ * is the only side that knows whether this person already has an account. Its
+ * sign-in screen carries its own "No account yet? Create one", so someone
+ * arriving without a passkey is not stranded — they just make the account one
+ * screen later, on the surface that owns account creation. Asking here only
+ * made cire guess, and a wrong guess sent an existing organiser to a sign-up
+ * form.
  *
- * The page does not leave for the issuer on its own. It used to, back when
- * there was nothing to choose; now there is. It does still ask cire/api, in
+ * The page does not leave for the issuer on its own. It does ask cire/api, in
  * the background, whether this browser already holds a cire session — someone
  * who is signed in already wants the dashboard, not a second sign-in. That
  * question only reaches as far as cire's own cookie: a session at musubi is
@@ -67,7 +69,6 @@ export default function SignInPanel() {
   // (via `?returnTo`), or the dashboard root. Never back to /login.
   const home = () => resumeTarget();
   const signIn = () => startSignIn(authConfig, home());
-  const createAccount = () => startCreateAccount(authConfig, home());
 
   onMount(() => {
     const marker = readAuthError();
@@ -98,23 +99,17 @@ export default function SignInPanel() {
         sees it.
       </p>
 
-      <div class="flex flex-col gap-3">
-        <button
-          type="button"
-          onClick={signIn}
-          class="bg-gold text-background w-full rounded-sm px-6 py-3 text-sm font-medium tracking-wide transition-opacity hover:opacity-90"
-        >
-          Continue with musubi
-        </button>
+      <button
+        type="button"
+        onClick={signIn}
+        class="bg-gold text-background w-full rounded-sm px-6 py-3 text-sm font-medium tracking-wide transition-opacity hover:opacity-90"
+      >
+        Continue with musubi
+      </button>
 
-        <button
-          type="button"
-          onClick={createAccount}
-          class="border-border text-text hover:border-gold w-full rounded-sm border px-6 py-3 text-sm font-medium tracking-wide transition-colors"
-        >
-          Create account with musubi
-        </button>
-      </div>
+      <p class="text-muted-foreground text-sm">
+        No musubi account yet? You can create one on the next screen.
+      </p>
     </div>
   );
 }

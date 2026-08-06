@@ -11,7 +11,7 @@ related:
   - "[[arc-tokens]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-08-02
+last-reviewed: 2026-08-06
 ---
 
 # Cire auth model
@@ -88,9 +88,11 @@ The shape is **backend-for-frontend**: cire-api is a registered OIDC relying par
 
 Cire still adds no login surface of its own, and still owns no identity store — an organiser without an OSN account creates one on musubi, at the end of the same redirect.
 
-**Two doors, one journey (2026-07-28).** The login page offers *Continue with musubi* and *Create account with musubi*. Both leave for the same issuer and end in the same place, a signed-in organiser on the dashboard; the second only adds `prompt=create`, which asks the consent screen to open on its sign-up half. It earns its own button because someone here for the first time has no passkey to offer, and a screen demanding one is a dead end rather than an invitation. The page therefore does **not** redirect on mount any more — it did while there was nothing to choose. See [[oidc-provider]] for the `prompt` table and [[authorize-ui]] for the screen.
+**One door (2026-08-06).** The login page offers a single *Continue with musubi*, and a line of copy saying an account can be made on the next screen. It briefly had two — the second added `prompt=create` so the consent screen opened on its sign-up half — on the reasoning that a first-time visitor has no passkey to offer and a screen demanding one is a dead end. That reasoning was sound about the *screen* and wrong about *who should choose*. Both buttons left for the same issuer and ended in the same place, and only the issuer knows whether this person already has an account; asking on the cire side just made cire guess, and a wrong guess sent an existing organiser to a sign-up form. The issuer's own sign-in screen carries "No account yet? Create one" ([[authorize-ui]]), so nobody is stranded — they make the account one screen later, on the surface that owns account creation.
 
-**Resuming instead of redirecting (2026-07-28).** In place of the old redirect, the login page asks `GET /api/auth/session` behind the rendered page — `resumeSession()` in `@shared/rp-auth`. A visitor who still holds a cire session is sent to the dashboard with `location.replace`, so the login page leaves no history entry to bounce back through; everyone else sees the two buttons with no wait, because the check runs after the panel renders and an unreachable API reads as signed out.
+`startCreateAccount()` and the start leg's `prompt=create` allowlist both survive as a supported [[oidc-provider]] capability with no current caller; nothing in cire sends `prompt` any more.
+
+**Resuming instead of redirecting (2026-07-28).** The login page does **not** redirect on mount — it did while there was nothing to choose. In place of that redirect it asks `GET /api/auth/session` behind the rendered page — `resumeSession()` in `@shared/rp-auth`. A visitor who still holds a cire session is sent to the dashboard with `location.replace`, so the login page leaves no history entry to bounce back through; everyone else sees the button with no wait, because the check runs after the panel renders and an unreachable API reads as signed out.
 
 Two things about that check are worth keeping straight:
 
@@ -101,7 +103,8 @@ Two things about that check are worth keeping straight:
 
 ```
 @shared/rp-auth startSignIn()          top-level navigation, never fetch
-  │  (startCreateAccount() is the same call plus prompt=create)
+  │  (startCreateAccount() is the same call plus prompt=create — supported,
+  │   but nothing in cire calls it: the issuer owns that choice now)
   └─▶ GET /api/auth/oidc/start?return_to=…[&prompt=create]   cire-api (cire/api/src/routes/auth-oidc.ts)
         │  mints state + nonce + PKCE verifier (S256), stashes them with return_to
         │  in a 10-min HttpOnly tx cookie; return_to checked against the CORS allowlist

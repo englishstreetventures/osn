@@ -5,7 +5,7 @@ related:
   - "[[cire-auth]]"
   - "[[budget]]"
   - "[[checklist-tasks]]"
-last-reviewed: 2026-07-30
+last-reviewed: 2026-08-06
 ---
 
 # Vendors — directory, CRM, and email-verification claim
@@ -172,7 +172,7 @@ The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS
 
 | Screen | Path | Description |
 |---|---|---|
-| Sign-in | `/` (unauthenticated) | Two buttons. `SignInPanel` calls `startSignIn` from `@shared/rp-auth` — a top-level navigation to cire-api's `/api/auth/oidc/start` — or `startCreateAccount`, the same call plus `prompt=create`, which opens musubi's consent screen on its sign-up half. Either way the passkey ceremony happens on musubi's own origin. On mount it also calls `resumeSession`, which asks `GET /api/auth/session` behind the rendered page and sends a vendor who still holds a cire session to the dashboard — the buttons show either way |
+| Sign-in | `/` (unauthenticated) | One button. `SignInPanel` calls `startSignIn` from `@shared/rp-auth` — a top-level navigation to cire-api's `/api/auth/oidc/start` — and the passkey ceremony happens on musubi's own origin. A second "Create account with musubi" button (`startCreateAccount`, the same call plus `prompt=create`) was removed 2026-08-06: only the issuer knows whether this person already has an account, its sign-in screen carries its own "No account yet? Create one", and asking here just made cire guess. On mount the panel also calls `resumeSession`, which asks `GET /api/auth/session` behind the rendered page and sends a vendor who still holds a cire session to the dashboard — the button shows either way |
 | Org picker | `/` (authenticated, no listing) | `OrgPicker` island — lists the vendor's existing OSN orgs; on pick, transitions to the listing editor. **The portal does NOT create organisations** — an org is an OSN account-level entity created in the OSN app. A vendor with no org sees an empty-state ("No organisations are associated with your account… create one in your OSN account") and must create one in OSN first. _Follow-up: once the OSN org-management surface is deployed to a reachable URL, the empty-state becomes a link to it — tracked in [[todo/platform]]._ |
 | Listing editor | `/` (authenticated, listing found) | `ListingEditor` island — loads the vendor's directory listing via `GET /api/vendor/listing` and lets them update name, description, category, website URL; saves via `PUT /api/vendor/listing` |
 | Claim landing | `/claim` | `ClaimApp` island — renders a claim preview (listing name + organiser) from `GET /api/vendor/claim/preview?token=<raw>`; on "Accept" calls `POST /api/vendor/claim` with the raw token + selected org id; strips the token from the URL via `history.replaceState` immediately on mount (**token-strip**) |
@@ -195,7 +195,7 @@ The `/claim?token=<raw>` URL carries a 256-bit claim secret. Two defences preven
 
 **Rewritten 2026-07-27.** The portal no longer runs a passkey ceremony of its own — it cannot, the RP ID is `musubi.social` and `vendor.cireweddings.com` is a different registrable domain. Sign-in is now a redirect:
 
-1. `startSignIn` (`@shared/rp-auth`) navigates the tab to cire-api `/api/auth/oidc/start`, carrying where to come back to. `startCreateAccount` is the same navigation with `prompt=create` attached, for a vendor who has no musubi account yet; cire-api allowlists that parameter to `create` and drops anything else, so a crafted link cannot ask for a silent grant.
+1. `startSignIn` (`@shared/rp-auth`) navigates the tab to cire-api `/api/auth/oidc/start`, carrying where to come back to. A vendor with no musubi account takes the same navigation and creates one on the issuer's screen. (`startCreateAccount` — the same navigation with `prompt=create` attached — still exists and cire-api still allowlists that parameter to `create`, dropping anything else so a crafted link cannot ask for a silent grant; nothing in the portal calls it since 2026-08-06.)
 2. cire-api redirects to `id.musubi.social/authorize` with PKCE S256; the ceremony and consent run on musubi's own origin.
 3. The issuer redirects back to cire-api's `/api/auth/oidc/callback`. cire-api exchanges the code **server-side**, reads `osn_profile_id` off the ID token, and sets its own opaque session cookie before bouncing the browser back to the portal.
 

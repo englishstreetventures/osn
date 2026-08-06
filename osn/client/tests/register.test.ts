@@ -163,6 +163,34 @@ describe("createRegistrationClient", () => {
         client.completeRegistration({ email: "alice@example.com", code: "000000" }),
       ).rejects.toThrow("invalid_request");
     });
+
+    /**
+     * The refresh token exists ONLY as the `Set-Cookie` on this response — the
+     * assertion just above pins that the body has no `refreshToken`. The issuer
+     * is a different origin from every app that calls it, and a cross-origin
+     * fetch on the default `same-origin` credentials mode discards `Set-Cookie`
+     * outright. So without this header registration finished with an in-memory
+     * access token and no session at all: a reload signed the brand-new account
+     * back out, and an OIDC `prompt=create` journey bounced back to the consent
+     * screen's sign-up panel, because `/authorize/context` still saw a
+     * signed-out browser.
+     */
+    it("sends credentials so the refresh cookie survives the cross-origin hop", async () => {
+      const { calls } = stubFetch(() =>
+        jsonResponse(
+          {
+            profileId: "usr_abc",
+            handle: "alice",
+            email: "alice@example.com",
+            session: { access_token: "acc_999", token_type: "Bearer", expires_in: 3600 },
+          },
+          { status: 201 },
+        ),
+      );
+      await client.completeRegistration({ email: "alice@example.com", code: "123456" });
+
+      expect(calls[0].init?.credentials).toBe("include");
+    });
   });
 
   describe("passkeyRegisterBegin / passkeyRegisterComplete (access-token-gated)", () => {
@@ -203,6 +231,31 @@ describe("createRegistrationClient", () => {
       await expect(
         client.passkeyRegisterBegin({ profileId: "usr_abc", accessToken: "bad" }),
       ).rejects.toThrow("unauthorized");
+    });
+
+    /**
+     * T-U1. Enrollment shares `postJson` with registration, so it inherits
+     * `credentials: "include"` — and it needs it for its own reason. The bearer
+     * token names the *account*; the cookie names *which session is the
+     * caller's own*, which is how `/passkey/register/complete` knows to spare
+     * that one when it revokes the rest (S-H1). Without the cookie the server
+     * falls back to the access token's `osn_sid` binding rather than failing,
+     * so a regression here is silent — no test elsewhere would go red. Pinning
+     * it at both cookie-dependent routes makes the header a property of the
+     * transport instead of one test's happy path.
+     */
+    it("sends credentials on both enrollment legs, not just registration", async () => {
+      const begin = stubFetch(() => jsonResponse({ challenge: "ch_123" }));
+      await client.passkeyRegisterBegin({ profileId: "usr_abc", accessToken: "acc_999" });
+      expect(begin.calls[0].init?.credentials).toBe("include");
+
+      const complete = stubFetch(() => jsonResponse({ passkeyId: "pk_xyz" }));
+      await client.passkeyRegisterComplete({
+        profileId: "usr_abc",
+        accessToken: "acc_999",
+        attestation: { id: "cred_id" },
+      });
+      expect(complete.calls[0].init?.credentials).toBe("include");
     });
   });
 
