@@ -1,5 +1,16 @@
 # @osn/ui
 
+## 1.8.0
+
+### Minor Changes
+
+- 6f743e7: Add a shared `UsernameInput` component (`@osn/ui/ui/username-input`) — a text
+  field with a fixed "@" ahead of the box, wired to an optional debounced
+  availability `status` (`checking | available | taken | invalid | error`). This
+  replaces the near-identical hand-rolled "@" + status-message block that had
+  been duplicated between `Register.tsx` and `CreateProfileForm.tsx`; both now
+  consume the shared component.
+
 ## 1.7.8
 
 ### Patch Changes
