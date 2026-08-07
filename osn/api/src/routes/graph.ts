@@ -276,6 +276,29 @@ export function createGraphRoutes(
         { query: PaginationQuery },
       )
       .get(
+        "/connections/sent",
+        async ({ query, headers, set }) => {
+          const caller = await requireAuth(headers.authorization, set);
+          if (!caller) return { error: "Unauthorized" };
+          try {
+            const list = await run(
+              graph.listOutgoingRequests(caller.profileId, parsePagination(query)),
+            );
+            return {
+              sent: list.map((r) =>
+                Object.assign({}, profileProjection(r.profile), {
+                  requestedAt: r.requestedAt.toISOString(),
+                }),
+              ),
+            };
+          } catch (e) {
+            set.status = 500;
+            return { error: safeError(e) };
+          }
+        },
+        { query: PaginationQuery },
+      )
+      .get(
         "/connections/:handle",
         async ({ params, headers, set }) => {
           const caller = await requireAuth(headers.authorization, set);

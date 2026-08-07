@@ -4,7 +4,6 @@ import { useNavigate } from "@solidjs/router";
 import { createSignal, For, Show } from "solid-js";
 
 import { createSearchController, type SearchRow } from "../lib/search";
-import { IconSearch } from "./nav";
 import { OrganisationRow, PersonRow, useSearchActions } from "./SearchResultRows";
 
 const LISTBOX_ID = "global-search-results";
@@ -122,12 +121,18 @@ export function GlobalSearch(props: { token: string }) {
         Search people and organisations
       </label>
       <div class="relative">
+        <span
+          class="text-muted-foreground pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm"
+          aria-hidden="true"
+        >
+          @
+        </span>
         <Input
           id="global-search-input"
           type="search"
           autocomplete="off"
           placeholder="Search"
-          class="rounded-pill h-9 pl-8"
+          class="rounded-pill h-9 pl-7"
           role="combobox"
           aria-expanded={showPanel()}
           aria-controls={LISTBOX_ID}
@@ -141,7 +146,6 @@ export function GlobalSearch(props: { token: string }) {
           }}
           onKeyDown={onKeyDown}
         />
-        <IconSearch class="text-subtle pointer-events-none absolute top-2.5 left-2.5 h-4 w-4" />
       </div>
 
       <Show when={showPanel()}>

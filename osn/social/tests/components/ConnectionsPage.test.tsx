@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   listConnections: vi.fn(),
   listPendingRequests: vi.fn(),
+  listSentRequests: vi.fn(),
   listBlocks: vi.fn(),
   removeConnection: vi.fn(),
   acceptConnection: vi.fn(),
@@ -65,6 +66,7 @@ async function renderConnectionsPage() {
     connections: [{ handle: "bob", displayName: "Bob Jones" }],
   });
   mocks.listPendingRequests.mockResolvedValue({ pending: [] });
+  mocks.listSentRequests.mockResolvedValue({ sent: [] });
   mocks.listBlocks.mockResolvedValue({ blocks: [] });
   mocks.removeConnection.mockResolvedValue(undefined);
 
@@ -129,5 +131,32 @@ describe("<ConnectionsPage /> — remove friend confirmation", () => {
 
     expect(mocks.removeConnection).toHaveBeenCalledTimes(1);
     expect(mocks.removeConnection).toHaveBeenCalledWith("tkn", "bob");
+  });
+});
+
+describe("<ConnectionsPage /> — sent requests", () => {
+  it("shows outgoing requests under the Sent tab and cancels via removeConnection", async () => {
+    await renderConnectionsPage();
+    mocks.listSentRequests.mockResolvedValue({
+      sent: [
+        { handle: "carol", displayName: "Carol Smith", requestedAt: new Date().toISOString() },
+      ],
+    });
+
+    fireEvent.click(screen.getByText("Sent"));
+    await screen.findByText("Carol Smith");
+
+    fireEvent.click(screen.getByText("Cancel"));
+
+    expect(mocks.removeConnection).toHaveBeenCalledTimes(1);
+    expect(mocks.removeConnection).toHaveBeenCalledWith("tkn", "carol");
+  });
+
+  it("shows an empty state when there are no outgoing requests", async () => {
+    await renderConnectionsPage();
+
+    fireEvent.click(screen.getByText("Sent"));
+    const emptyState = await screen.findByText("No outgoing connection requests.");
+    expect(emptyState).toBeDefined();
   });
 });

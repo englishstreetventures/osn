@@ -378,6 +378,46 @@ export function createGraphService() {
       }));
     });
 
+  const listOutgoingRequests = (
+    profileId: string,
+    options: ListOptions = {},
+  ): Effect.Effect<
+    { profile: typeof users.$inferSelect; requestedAt: Date }[],
+    DatabaseError,
+    Db
+  > =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const limit = clampLimit(options.limit);
+      const offset = options.offset ?? 0;
+
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select()
+            .from(connections)
+            .where(and(eq(connections.requesterId, profileId), eq(connections.status, "pending")))
+            .limit(limit)
+            .offset(offset),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+
+      if (rows.length === 0) return [];
+
+      const addresseeIds = rows.map((r) => r.addresseeId);
+      const requestedAtMap = new Map(rows.map((r) => [r.addresseeId, r.createdAt]));
+
+      const addressees = yield* Effect.tryPromise({
+        try: () => db.select().from(users).where(inArray(users.id, addresseeIds)),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+
+      return addressees.map((u) => ({
+        profile: u,
+        requestedAt: requestedAtMap.get(u.id) ?? new Date(),
+      }));
+    });
+
   // -------------------------------------------------------------------------
   // Blocks
   // -------------------------------------------------------------------------
@@ -489,6 +529,7 @@ export function createGraphService() {
     removeConnection,
     listConnections,
     listPendingRequests,
+    listOutgoingRequests,
     blockProfile,
     unblockProfile,
     listBlocks,

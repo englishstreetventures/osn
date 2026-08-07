@@ -206,6 +206,37 @@ describe("listPendingRequests", () => {
   );
 });
 
+describe("listOutgoingRequests", () => {
+  it.effect("returns requests the caller sent", () =>
+    Effect.gen(function* () {
+      const { alice, bob } = yield* setupTwoUsers;
+      yield* graph.sendConnectionRequest(alice.id, bob.id);
+      const list = yield* graph.listOutgoingRequests(alice.id);
+      expect(list).toHaveLength(1);
+      expect(list[0].profile.handle).toBe("bob");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("does not include incoming requests", () =>
+    Effect.gen(function* () {
+      const { alice, bob } = yield* setupTwoUsers;
+      yield* graph.sendConnectionRequest(alice.id, bob.id);
+      const list = yield* graph.listOutgoingRequests(bob.id);
+      expect(list).toHaveLength(0);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("does not include accepted connections", () =>
+    Effect.gen(function* () {
+      const { alice, bob } = yield* setupTwoUsers;
+      yield* graph.sendConnectionRequest(alice.id, bob.id);
+      yield* graph.acceptConnection(bob.id, alice.id);
+      const list = yield* graph.listOutgoingRequests(alice.id);
+      expect(list).toHaveLength(0);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Blocks
 // ---------------------------------------------------------------------------

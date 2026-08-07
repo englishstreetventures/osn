@@ -126,6 +126,7 @@ The review found these sound: the token-verification core (audience enforced ins
 
 ## OSN Core (`osn/api`)
 
+- [x] **Sent connection requests were invisible to the sender (2026-08-07).** `listPendingRequests` is addressee-only by design and `listConnections` only returns accepted rows, so a sender had no page anywhere in `@osn/social` that showed their own outstanding requests — the send toast was the only trace, and it was gone on navigation. Added `graph.listOutgoingRequests` + `GET /graph/connections/sent` (`osn/api`), `listSentRequests` (`osn/client`), and a "Sent" tab with Cancel on `ConnectionsPage` (`osn/social`, reuses `removeConnection`, which already cancels a pending request in either direction). See [[social-graph]].
 - [x] Multi-account profile CRUD (P3) — create/delete/set-default profiles, maxProfiles enforcement, cascade delete, observability
 - [x] Multi-account client SDK (P4) — multi-session storage, profile switching, schema validation, security hardening
 - [x] Multi-account UI (P5) — profile switcher component, create form, onboarding

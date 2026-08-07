@@ -76,6 +76,13 @@ afterEach(() => {
 });
 
 describe("<GlobalSearch />", () => {
+  it("renders a decorative @ prefix ahead of the input", () => {
+    renderSearch();
+    const prefix = screen.getByText("@", { selector: "span" });
+    expect(prefix).toBeDefined();
+    expect(prefix.getAttribute("aria-hidden")).toBe("true");
+  });
+
   it("does not query the API for a query that normalises to nothing", async () => {
     renderSearch();
     // A bare sigil leaves no query at all. One real character does search —

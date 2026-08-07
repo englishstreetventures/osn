@@ -361,6 +361,37 @@ describe("graph routes", () => {
     expect(json.pending[0].handle).toBe("alice");
   });
 
+  it("GET /graph/connections/sent returns requests the caller sent", async () => {
+    const alice = await registerAndGetToken("alice2@example.com", "alice2");
+    const bob = await registerAndGetToken("bob2@example.com", "bob2");
+
+    await graphApp.handle(
+      new Request("http://localhost/graph/connections/bob2", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+
+    const res = await graphApp.handle(
+      new Request("http://localhost/graph/connections/sent", {
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { sent: { handle: string }[] };
+    expect(json.sent).toHaveLength(1);
+    expect(json.sent[0].handle).toBe("bob2");
+
+    // The recipient's own "sent" list should not include it.
+    const recipientRes = await graphApp.handle(
+      new Request("http://localhost/graph/connections/sent", {
+        headers: { Authorization: `Bearer ${bob.token}` },
+      }),
+    );
+    const recipientJson = (await recipientRes.json()) as { sent: { handle: string }[] };
+    expect(recipientJson.sent).toHaveLength(0);
+  });
+
   // -------------------------------------------------------------------------
   // isBlocked
   // -------------------------------------------------------------------------

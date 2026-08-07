@@ -23,6 +23,13 @@ export interface PendingRequestEntry {
   requestedAt: string;
 }
 
+export interface SentRequestEntry {
+  id: string;
+  handle: string;
+  displayName: string | null;
+  requestedAt: string;
+}
+
 export interface ProfileEntry {
   id: string;
   handle: string;
@@ -155,6 +162,10 @@ export interface GraphClient {
     token: string,
     options?: { limit?: number; offset?: number },
   ): Promise<{ pending: PendingRequestEntry[] }>;
+  listSentRequests(
+    token: string,
+    options?: { limit?: number; offset?: number },
+  ): Promise<{ sent: SentRequestEntry[] }>;
   listBlocks(
     token: string,
     options?: { limit?: number; offset?: number },
@@ -180,6 +191,9 @@ export function createGraphClient(config: GraphClientConfig): GraphClient {
         `${base}/connections/pending${qs(options)}`,
         token,
       ),
+
+    listSentRequests: (token, options) =>
+      authGet<{ sent: SentRequestEntry[] }>(`${base}/connections/sent${qs(options)}`, token),
 
     listBlocks: (token, options) =>
       authGet<{ blocks: ProfileEntry[] }>(`${base}/blocks${qs(options)}`, token),

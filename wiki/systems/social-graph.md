@@ -17,7 +17,7 @@ related:
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-08-02
+last-reviewed: 2026-08-07
 ---
 
 # Social Graph
@@ -38,6 +38,21 @@ A connection is a mutual relationship between two users. It requires both partie
 - The recipient can accept or decline
 - The sender can cancel a pending request
 - Either party can remove an accepted connection
+
+**List asymmetry (by design, not a bug):** `listPendingRequests` /
+`GET /graph/connections/pending` returns only requests *received* by the
+caller (`addresseeId = caller`); it never includes ones the caller sent.
+`listConnections` / `GET /graph/connections` returns only `status: "accepted"`
+rows. Until 2026-08-07 this meant a sender had no page anywhere in
+`@osn/social` that showed their own outstanding requests — reported as "I
+connected with someone and it didn't work, don't see it in pending or
+accepted," even though the request was persisted and visible on the
+recipient's side the whole time. Fixed by adding the symmetric
+`listOutgoingRequests` / `GET /graph/connections/sent` (filters
+`requesterId = caller AND status = "pending"`) and a "Sent" tab on
+`ConnectionsPage` in `@osn/social`, whose Cancel action reuses
+`removeConnection` (it already cancels a pending request in either
+direction — no new endpoint needed for cancel).
 
 ### Blocks (unidirectional)
 

@@ -2,7 +2,6 @@ import { useAuth } from "@osn/client/solid";
 import { Input } from "@osn/ui/ui/input";
 import { For, onMount, Show } from "solid-js";
 
-import { IconSearch } from "../components/nav";
 import { OrganisationLink, PersonRow, useSearchActions } from "../components/SearchResultRows";
 import { createSearchController } from "../lib/search";
 
@@ -45,17 +44,22 @@ export function SearchPage() {
           <label class="sr-only" for="search-page-input">
             Search people and organisations
           </label>
+          <span
+            class="text-muted-foreground pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-sm"
+            aria-hidden="true"
+          >
+            @
+          </span>
           <Input
             ref={inputRef}
             id="search-page-input"
             type="search"
             autocomplete="off"
             placeholder="Search by name or @handle"
-            class="rounded-pill h-11 pl-9"
+            class="rounded-pill h-11 pl-8"
             value={controller.query()}
             onInput={(event) => controller.setQuery(event.currentTarget.value)}
           />
-          <IconSearch class="text-subtle pointer-events-none absolute top-3.5 left-3 h-4 w-4" />
         </div>
 
         <Show

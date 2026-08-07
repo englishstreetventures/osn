@@ -1,4 +1,9 @@
-import type { ConnectionEntry, PendingRequestEntry, ProfileEntry } from "@osn/client";
+import type {
+  ConnectionEntry,
+  PendingRequestEntry,
+  ProfileEntry,
+  SentRequestEntry,
+} from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { clsx } from "@osn/ui/lib/utils";
 import { Avatar, AvatarFallback } from "@osn/ui/ui/avatar";
@@ -16,11 +21,12 @@ import { toast } from "solid-toast";
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { graphClient } from "../lib/api";
 
-type Tab = "all" | "pending" | "blocked";
+type Tab = "all" | "pending" | "sent" | "blocked";
 
 const TABS: { value: Tab; label: string }[] = [
   { value: "all", label: "All" },
   { value: "pending", label: "Pending" },
+  { value: "sent", label: "Sent" },
   { value: "blocked", label: "Blocked" },
 ];
 
@@ -36,6 +42,7 @@ export function ConnectionsPage() {
   type TabPayload =
     | { kind: "all"; data: Awaited<ReturnType<typeof graphClient.listConnections>> }
     | { kind: "pending"; data: Awaited<ReturnType<typeof graphClient.listPendingRequests>> }
+    | { kind: "sent"; data: Awaited<ReturnType<typeof graphClient.listSentRequests>> }
     | { kind: "blocked"; data: Awaited<ReturnType<typeof graphClient.listBlocks>> };
 
   const [payload, { refetch: refetchPayload }] = createResource<
@@ -49,6 +56,8 @@ export function ConnectionsPage() {
           return { kind: "all", data: await graphClient.listConnections(tk) };
         case "pending":
           return { kind: "pending", data: await graphClient.listPendingRequests(tk) };
+        case "sent":
+          return { kind: "sent", data: await graphClient.listSentRequests(tk) };
         case "blocked":
           return { kind: "blocked", data: await graphClient.listBlocks(tk) };
       }
@@ -64,6 +73,10 @@ export function ConnectionsPage() {
     payload()?.kind === "pending"
       ? (payload() as Extract<TabPayload, { kind: "pending" }>).data
       : undefined;
+  const sent = () =>
+    payload()?.kind === "sent"
+      ? (payload() as Extract<TabPayload, { kind: "sent" }>).data
+      : undefined;
   const blocked = () =>
     payload()?.kind === "blocked"
       ? (payload() as Extract<TabPayload, { kind: "blocked" }>).data
@@ -71,6 +84,7 @@ export function ConnectionsPage() {
 
   const refetchConnections = refetchPayload;
   const refetchPending = refetchPayload;
+  const refetchSent = refetchPayload;
 
   // Two-step friend removal: clicking "Remove" on a row opens a confirmation
   // dialog rather than mutating immediately, guarding against accidental
@@ -112,6 +126,16 @@ export function ConnectionsPage() {
       refetchPending();
     } catch {
       toast.error("Failed to reject request");
+    }
+  }
+
+  async function cancelSentRequest(handle: string) {
+    try {
+      await graphClient.removeConnection(token(), handle);
+      toast.success(`Cancelled request to @${handle}`);
+      refetchSent();
+    } catch {
+      toast.error("Failed to cancel request");
     }
   }
 
@@ -242,6 +266,48 @@ export function ConnectionsPage() {
                           onClick={() => rejectRequest(req.handle)}
                         >
                           Decline
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </For>
+              </div>
+            </Show>
+          </Show>
+        </Show>
+
+        {/* Sent requests */}
+        <Show when={tab() === "sent"}>
+          <Show when={!payload.loading} fallback={<LoadingSkeleton count={2} />}>
+            <Show
+              when={(sent()?.sent.length ?? 0) > 0}
+              fallback={<EmptyState message="No outgoing connection requests." />}
+            >
+              <div class="flex flex-col gap-1">
+                <For each={sent()?.sent}>
+                  {(req: SentRequestEntry) => (
+                    <div class="hover:bg-muted/50 active:bg-muted/50 flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors">
+                      <Avatar class="h-9 w-9">
+                        <AvatarFallback class="text-meta">
+                          {req.handle.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div class="min-w-0 flex-1">
+                        <p class="text-foreground text-title font-medium">
+                          {req.displayName || `@${req.handle}`}
+                        </p>
+                        <p class="text-subtle text-meta">
+                          Requested {new Date(req.requestedAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div class="flex items-center gap-1.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          class="text-destructive text-body h-7 max-md:h-10"
+                          onClick={() => cancelSentRequest(req.handle)}
+                        >
+                          Cancel
                         </Button>
                       </div>
                     </div>

@@ -57,6 +57,27 @@ describe("createGraphClient — listPendingRequests / listBlocks", () => {
   });
 });
 
+describe("createGraphClient — listSentRequests", () => {
+  it("GETs /graph/connections/sent with Bearer auth", async () => {
+    mockFetch({ ok: true, json: () => Promise.resolve({ sent: [] }) });
+    await client.listSentRequests(TOKEN);
+    const call = vi.mocked(fetch).mock.calls[0]!;
+    expect(call[0]).toBe(`${base}/connections/sent`);
+    expectAuthHeader(call);
+  });
+
+  it("serialises limit/offset as query params", async () => {
+    mockFetch({ ok: true, json: () => Promise.resolve({ sent: [] }) });
+    await client.listSentRequests(TOKEN, { limit: 10, offset: 5 });
+    expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/connections/sent?limit=10&offset=5`);
+  });
+
+  it("throws GraphClientError on non-2xx", async () => {
+    mockFetch({ ok: false, json: () => Promise.resolve({ error: "boom" }) });
+    await expect(client.listSentRequests(TOKEN)).rejects.toBeInstanceOf(GraphClientError);
+  });
+});
+
 describe("createGraphClient — connection mutations", () => {
   it("getConnectionStatus GETs /graph/connections/:handle", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ status: "connected" }) });

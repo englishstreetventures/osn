@@ -93,6 +93,13 @@ afterEach(() => {
 });
 
 describe("<SearchPage />", () => {
+  it("renders a decorative @ prefix ahead of the input", () => {
+    renderPage();
+    const prefix = screen.getByText("@", { selector: "span" });
+    expect(prefix).toBeDefined();
+    expect(prefix.getAttribute("aria-hidden")).toBe("true");
+  });
+
   it("prompts before searching, and searches from the first character", async () => {
     renderPage();
     expect(screen.getByText(/Start typing to find people/)).toBeDefined();
