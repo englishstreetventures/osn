@@ -1,9 +1,9 @@
 ---
 "@cire/api": patch
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
-Add a first-party CSP violation-report collector so the cire/web Report-Only CSP
+Add a first-party CSP violation-report collector so the cire/invites Report-Only CSP
 (shipped in #205) surfaces what would break in real guests' browsers — logged to
 observability, no third-party service.
 
@@ -30,7 +30,7 @@ No Turnstile and no Origin/auth gate (browsers POST reports automatically, with 
 creds and a cross-origin/null Origin) — the route is mounted BEFORE the CSRF origin
 guard so it isn't 403'd.
 
-**cire/web** (`lib/security-headers.ts`, `public/_headers`): the guest CSP now
+**cire/invites** (`lib/security-headers.ts`, `public/_headers`): the guest CSP now
 carries `report-uri https://api.cireweddings.com/api/csp-report` (legacy) and
 `report-to csp-endpoint` (modern), and `securityHeaders()` (hence the SSR
 middleware) + `_headers` emit the companion `Reporting-Endpoints:

@@ -1,6 +1,6 @@
 ---
 "@cire/api": minor
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Let organisers host **multiple** weddings. The organiser portal now lands on a

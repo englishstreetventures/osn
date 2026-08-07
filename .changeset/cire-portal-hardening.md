@@ -1,11 +1,11 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 "@cire/vendor": patch
 "@cire/theme": patch
 ---
 
 Housekeeping behind the host-portal redesign: dependency overrides, a type-check
-gate for `@cire/organiser`, and a Content-Security-Policy for both portals.
+gate for `@cire/host`, and a Content-Security-Policy for both portals.
 
 **Dependency overrides.** `bun audit` reported 7 vulnerabilities (2 high, 5
 moderate) against transitive `undici`, `fast-uri` and `postcss`. All three are
@@ -13,7 +13,7 @@ pinned by root `overrides`; bumping them within their current majors
 (`undici ^7.28.0 → ^7.29.0`, `fast-uri ^3.1.4 → ^3.1.5`,
 `postcss ^8.5.18 → ^8.5.25`) clears the report to `No vulnerabilities found`.
 
-**`astro check` for `@cire/organiser`.** The portal had no type-check script, so
+**`astro check` for `@cire/host`.** The portal had no type-check script, so
 its 167 files sat outside CI's `bun run check` — and had accumulated 163 errors.
 All fixed, none by loosening a type:
 
@@ -35,7 +35,7 @@ All fixed, none by loosening a type:
 only the directives that cannot break a working page (`frame-ancestors`,
 `object-src 'none'`, `base-uri 'self'`) plus the real lock-down in
 `Content-Security-Policy-Report-Only`, reporting to cire-api's existing
-first-party collector — the same staging `cire/web` used. Source lists were
+first-party collector — the same staging `cire/invites` used. Source lists were
 audited from the code rather than guessed: cire-api is the only `connect-src`
 origin (sign-in is a top-level redirect, which no `connect-src` governs), the
 organiser needs `data:`/`blob:` images for the crop editor and CSV export, and

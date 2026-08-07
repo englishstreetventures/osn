@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Rebuild the host portal's colour, type and theme foundation.
@@ -10,4 +10,4 @@ Fonts are now self-hosted through Astro's Fonts API — Schibsted Grotesk for th
 
 Theme preference gains a third state. `system`, `dark` and `light` are stored separately, so opening the menu no longer silently pins a host who was following their OS. A zero-import boot script runs before first paint on both pages, and resolves to a theme even where `localStorage` throws or `matchMedia` is missing.
 
-`cire/organiser/DESIGN.md` records the token contracts, the typeface decision and the motion scale.
+`cire/host/DESIGN.md` records the token contracts, the typeface decision and the motion scale.

@@ -1,8 +1,8 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
-Three cire/organiser findings, plus a bug found while closing them.
+Three cire/host findings, plus a bug found while closing them.
 
 **A third hand-inlined `isAuthExpired`, and a narrower one.** `EnquiriesView`
 open-coded the predicate on its initial-load failure path while every other

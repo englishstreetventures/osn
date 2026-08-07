@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 "@cire/api": patch
 "@cire/db": patch
 ---

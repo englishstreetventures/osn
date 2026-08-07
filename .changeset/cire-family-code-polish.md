@@ -1,12 +1,12 @@
 ---
 "@cire/api": patch
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Polish family claim codes — long codes are enterable, surnames are cleaner, and
 the middle word is wholesome.
 
-- `@cire/web`: the guest claim input had `maxLength={30}`, which truncated longer
+- `@cire/invites`: the guest claim input had `maxLength={30}`, which truncated longer
   secure codes (e.g. `THENGUYENFAMILY-BANISTER-DM65HQ`, 31 chars). Raised to 48,
   comfortably above the worst-case code length (SURNAME 16 + word 10 + grouped
   secure hash 11 + two dashes = 39). Trim + upper-case normalisation unchanged;

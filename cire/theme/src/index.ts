@@ -7,7 +7,7 @@
  *
  *   - `@cire/api` (`schemas/invite.ts`) rejects un-listed values at write
  *     time with a 400, and
- *   - `@cire/web` (`dress-code-render.ts`, `invite-theme.ts`) re-checks at
+ *   - `@cire/invites` (`dress-code-render.ts`, `invite-theme.ts`) re-checks at
  *     render time as defence in depth.
  *
  * Keeping one copy is the point — a drifted validator on either side would

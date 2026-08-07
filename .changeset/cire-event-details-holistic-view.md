@@ -1,5 +1,5 @@
 ---
-"@cire/web": minor
+"@cire/invites": minor
 ---
 
 Turn the per-event "More Details" modal into a holistic event view.

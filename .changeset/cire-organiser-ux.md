@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Organiser dashboard UX + structure pass — make it intuitive, well-explained, and

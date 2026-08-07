@@ -1,6 +1,6 @@
 ---
 "@cire/api": minor
-"@cire/web": minor
+"@cire/invites": minor
 ---
 
 Serve responsive, optimised invite images via the Cloudflare Workers Images
@@ -51,7 +51,7 @@ counter (`result: cache_hit | transformed | original`, plus the `variant` +
 `format` literal unions — no slug or per-wedding value). The transform is traced
 with `Effect.withSpan("cire.invite_assets.transform")`.
 
-The guest site (`cire/web`) emits a responsive `srcset`/`sizes` against the
+The guest site (`cire/invites`) emits a responsive `srcset`/`sizes` against the
 variant widths for the hero + story images (with the hero `<link rel=preload>`
 upgraded to `imagesrcset`/`imagesizes`), keeping a plain `src` as a progressive
 fallback.

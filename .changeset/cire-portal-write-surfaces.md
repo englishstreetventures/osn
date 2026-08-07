@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Rebuild the host portal's write surfaces on a shared set of form controls.

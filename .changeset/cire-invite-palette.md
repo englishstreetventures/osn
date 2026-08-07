@@ -2,8 +2,8 @@
 "@cire/theme": minor
 "@cire/api": minor
 "@cire/db": minor
-"@cire/web": minor
-"@cire/organiser": minor
+"@cire/invites": minor
+"@cire/host": minor
 ---
 
 Replace the invite's eight per-section theme colours with a five-colour scheme.

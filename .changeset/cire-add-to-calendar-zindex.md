@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Fix the "Add to Calendar" button doing nothing.

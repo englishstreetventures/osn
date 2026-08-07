@@ -1,8 +1,8 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/organiser": minor
-"@cire/web": minor
+"@cire/host": minor
+"@cire/invites": minor
 ---
 
 Add a basic invite builder to the cire organiser dashboard. Organisers can
@@ -28,9 +28,9 @@ the CSV import and is untouched.
   (`hero`, `story`) is a closed union driving the route param, R2 key
   namespace, and bounded observability attributes. Service ops are wrapped in
   `cire.invite.*` spans with `Effect.log*` on every path.
-- `@cire/organiser`: new "Invite" dashboard tab + `InviteBuilder` panel for
+- `@cire/host`: new "Invite" dashboard tab + `InviteBuilder` panel for
   editing copy and uploading/removing slot images via `authFetch`.
-- `@cire/web`: the static `Hero.astro` / `OurStory.astro` are replaced by a
+- `@cire/invites`: the static `Hero.astro` / `OurStory.astro` are replaced by a
   client-hydrated `InviteHeader` island that fetches the public invite endpoint
   and applies overrides on top of the original copy (uncustomised weddings
   render exactly as before). New `PUBLIC_WEDDING_SLUG` env var selects which

@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Rebuild the host portal's read surfaces on the shared primitives, and take the three big write panels out of the first load.

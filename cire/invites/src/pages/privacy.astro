@@ -1,0 +1,240 @@
+---
+// Static page — prerendered at build time even though the site is `output:
+// "server"`. Only the invite + bare-domain routes need per-request SSR.
+export const prerender = true
+import LegalLayout from '../layouts/LegalLayout.astro'
+import { ConsentPreferencesLink } from '../components/consent/ConsentBanner'
+import { CATEGORY_META } from '../lib/consent/categories'
+import { thirdPartyVendors } from '../lib/consent/vendors'
+
+// The third-party list below is GENERATED from the consent vendor registry
+// rather than written out by hand. Prose drifts: the previous version of this
+// page described the Pinterest embed and said nothing at all about the Google
+// Maps embed or Google Fonts, because those were added to the site without
+// anyone remembering this file existed. Deriving it means the notice cannot
+// disagree with the code — a vendor added to the registry appears here on the
+// next build, and one that is removed disappears.
+const vendors = thirdPartyVendors()
+---
+<LegalLayout title="Privacy Notice">
+  <div class="draft-banner">
+    <strong>Draft</strong> — This is a working draft for review, not legal advice.
+    Please have it checked before publishing and replace every highlighted
+    <span class="placeholder">{'{{PLACEHOLDER}}'}</span> value.
+  </div>
+
+  <h1>Privacy Notice</h1>
+  <p class="meta">Last updated: 2026-06-17</p>
+
+  <p>
+    This is a private wedding invitation website. We only collect the small amount
+    of information we need to plan the day and cater for our guests. This notice
+    explains what we collect, why, how long we keep it, and the rights you have
+    over your information.
+  </p>
+
+  <p>
+    We run this site as individuals planning a personal celebration, not as a
+    business. A private wedding organised by individuals for a personal,
+    family or household event is likely to sit outside the strict reach of the
+    <em>Privacy Act 1988</em> (Cth) and the Australian Privacy Principles (APPs)
+    — which generally apply to “APP entities” such as businesses and agencies.
+    We are nonetheless providing this notice as a matter of good-practice
+    transparency, and we aim to follow the spirit of the APPs. It should not be
+    read as a claim that any particular legal regime strictly applies to us.
+  </p>
+
+  <h2>Who is responsible for your information</h2>
+  <p>
+    The people responsible for the information collected through this website are
+    <span class="placeholder">{'Aniket Chavan'}</span> (the couple). You
+    can reach us about anything in this notice at
+    <a href="mailto:owner@example.com">owner@example.com</a>.
+  </p>
+
+  <h2>What we collect</h2>
+  <ul>
+    <li><strong>Guest names</strong> — the names on your household invitation.</li>
+    <li><strong>RSVP status</strong> — whether each named guest is attending each event.</li>
+    <li>
+      <strong>Dietary requirements and access needs</strong> — anything you choose
+      to type into the free-text field (for example allergies, intolerances, or
+      requirements that may reveal health information, or religious or
+      belief-based dietary needs).
+    </li>
+  </ul>
+  <p>
+    We do <strong>not</strong> ask for or knowingly collect any other personal
+    information through this site. You only ever fill in details for the members
+    of your own household.
+  </p>
+
+  <h3>A note on dietary information</h3>
+  <p>
+    Some dietary or access details count as “sensitive information” under the
+    <em>Privacy Act 1988</em> (Cth) — for example information about your health,
+    or your religious beliefs. Under the Australian Privacy Principles (APP 3.3),
+    sensitive information should only be collected with your consent. This field
+    is therefore optional: we only collect what you choose to enter, and we ask
+    for your explicit consent before you submit it. Please don’t include any
+    health or other sensitive detail you’d rather not share — a simple note such
+    as “vegetarian” or “no nuts” is all we need.
+  </p>
+
+  <h2>Why we use it</h2>
+  <ul>
+    <li>
+      <strong>Guest names &amp; RSVP status</strong> — to manage invitations,
+      confirm numbers, and organise seating and logistics for our wedding.
+    </li>
+    <li>
+      <strong>Dietary requirements / access needs</strong> — to cater safely and
+      accommodate your needs on the day. Because this can include sensitive
+      information, we rely on your <strong>consent</strong>, which you give when
+      you choose to fill in that field and submit your RSVP.
+    </li>
+  </ul>
+
+  <h2>Who can see it</h2>
+  <p>
+    Your information is seen by us (the couple) and the small number of people
+    helping us organise the day, such as our caterer and venue, strictly so they
+    can do their job. We do not sell your information or use it for marketing.
+  </p>
+  <p>
+    The site and its data are hosted on <strong>Cloudflare</strong>, which
+    provides our website hosting, database, and security on our behalf. Cloudflare
+    may process and store data in the course of providing that service. We don’t
+    transfer your information to anyone else except where we’re required to by law.
+  </p>
+
+  <h2>Cookies and content from other companies</h2>
+  <p>
+    We don’t use advertising or tracking cookies, and we don’t use analytics. The
+    storage we do use falls into a few groups, and you control all but the first.
+    <strong>Third-party content and preferences are on by default</strong> — you
+    can switch them off at any time, and analytics stays off unless you turn it on.
+  </p>
+  <ul>
+    {Object.values(CATEGORY_META).map((category) => (
+      <li>
+        <strong>{category.title}</strong>
+        {category.required ? ' (always on)' : ''} — {category.summary}
+      </li>
+    ))}
+  </ul>
+
+  <h3>The other companies involved</h3>
+  <p>
+    Some parts of the invite are served by other companies. When one of them
+    loads, that company receives your IP address and browser details, because
+    that is inherent in your browser fetching something from their servers.
+  </p>
+  <ul>
+    {vendors.map((vendor) => (
+      <li>
+        <strong>{vendor.name}</strong> — {vendor.purpose}
+        {vendor.transfer ? <> Data goes to {vendor.transfer}.</> : null}
+        {vendor.enforcement === 'gated' ? (
+          <> <em>On by default; stops loading if you switch off third-party content.</em></>
+        ) : (
+          <> <em>Loads on every visit — see the note below.</em></>
+        )}
+        {vendor.privacyUrl ? (
+          <> <a href={vendor.privacyUrl} rel="noreferrer">Their privacy policy</a>.</>
+        ) : null}
+      </li>
+    ))}
+  </ul>
+  <p class="owner-note">
+    <strong>Note for the site owner:</strong> the entries marked “loads on every
+    visit” are not covered by the consent choice. Today that is Google Fonts,
+    which is requested from the page <code>&lt;head&gt;</code> before any choice
+    can be applied. The fix is to self-host the two font files so Google drops
+    out of this list entirely, rather than to put the site’s typography behind a
+    switch — tracked in <code>wiki/todo/web.md</code>. Until then this page says
+    so plainly instead of implying the toggle covers it.
+  </p>
+
+  <h3>Changing your mind</h3>
+  <p>
+    You can review or change these choices at any time — there is a
+    <strong>Privacy Choices</strong> link in the footer of every page, and here:
+  </p>
+  <p>
+    <ConsentPreferencesLink client:idle label="Open my privacy choices" />
+  </p>
+  <p>
+    Turning something off stops it loading from then on. Anything already sent
+    while it was switched on has already left your browser and we can’t recall it.
+    Because third-party content is on by default, that means the venue map and the
+    moodboard will have loaded at least once before you switch them off — we’d
+    rather say so than imply otherwise.
+  </p>
+  <p class="owner-note">
+    <strong>Note for the site owner:</strong> defaulting third-party content
+    <em>on</em> is a deliberate choice suited to a private, personal event, and it
+    fits the Australian framing set out at the top of this notice. It is
+    <strong>not</strong> what the EU/UK ePrivacy rules expect — they require
+    consent <em>before</em> a non-essential third party loads. If a meaningful
+    number of guests are in the EU or UK, flip <code>defaultGranted</code> to
+    <code>false</code> for the third-party-content category in
+    <code>cire/invites/src/lib/consent/categories.ts</code> and update the two
+    paragraphs above; nothing else needs to change.
+  </p>
+
+  <h2>How long we keep it</h2>
+  <p>
+    We keep your RSVP information only as long as we need it to plan the wedding.
+    By default we delete it <strong>1 year after the final wedding event</strong>,
+    after which guest data is removed. After that it is permanently deleted from
+    our systems.
+  </p>
+  <p class="owner-note">
+    <strong>Note for the site owner:</strong> this 1-year default retention window
+    is a sensible starting point — you can change it to whatever suits your plans
+    (e.g. a shorter or longer period). Update both this wording and the actual
+    deletion schedule together so they stay consistent.
+  </p>
+
+  <h2>Your rights</h2>
+  <p>You can ask us to:</p>
+  <ul>
+    <li><strong>Access</strong> the information we hold about you;</li>
+    <li><strong>Correct</strong> anything that is wrong or out of date;</li>
+    <li><strong>Delete</strong> your information;</li>
+    <li>
+      <strong>Withdraw your consent</strong> to the dietary/access information at
+      any time — this won’t affect anything we did before you withdrew it.
+    </li>
+  </ul>
+  <p>
+    To exercise any of these, just email us at
+    <a href="mailto:owner@example.com">owner@example.com</a>.
+    We’ll respond as soon as we reasonably can.
+  </p>
+
+  <h3>If you’re in the EU or UK</h3>
+  <p>
+    If any of our guests are in the EU or UK, we’ll also honour the rights you
+    have under the GDPR / UK GDPR — including the right to erasure and to withdraw
+    consent. Please use the same contact,
+    <a href="mailto:owner@example.com">owner@example.com</a>, and we’ll take
+    care of it.
+  </p>
+
+  <h2>Complaints</h2>
+  <p>
+    We hope to resolve any concern directly. If you’re in Australia and you’re not
+    satisfied, you can contact the Office of the Australian Information Commissioner
+    (OAIC) at <a href="https://www.oaic.gov.au/" rel="noreferrer">oaic.gov.au</a>.
+    Guests in the EU or UK may instead contact their local data protection
+    authority.
+  </p>
+
+  <h2>Changes to this notice</h2>
+  <p>
+    If we change how we handle your information, we’ll update this page and revise
+    the “last updated” date above.
+  </p>
+</LegalLayout>

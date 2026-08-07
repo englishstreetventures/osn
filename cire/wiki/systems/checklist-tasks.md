@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[platform-plan]]"
   - "[[platform]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-08-07
 ---
 
 # Checklist / Tasks
@@ -43,7 +43,7 @@ whenever you add a bucket or reword a label:
 | File | Package |
 |---|---|
 | `cire/api/src/lib/checklist-buckets.ts` | `@cire/api` (server SST) |
-| `cire/organiser/src/lib/checklist-buckets.ts` | `@cire/organiser` (client mirror) |
+| `cire/host/src/lib/checklist-buckets.ts` | `@cire/host` (client mirror) |
 
 The organiser cannot import `@cire/api`, so the label array is duplicated.
 Both export the same `TIMEFRAME_BUCKETS` const, `TimeframeBucket` type, and
@@ -91,7 +91,7 @@ delete them.
 
 ## Tasks store (organiser client)
 
-`cire/organiser/src/lib/tasks-store.ts` is a `weddingId`-keyed SolidJS signal
+`cire/host/src/lib/tasks-store.ts` is a `weddingId`-keyed SolidJS signal
 cache — the sibling of `guests-store.ts` and `events-store.ts`. The fetch-lift
 pattern means a module switch does not refetch: both the **Overview widget**
 (`openTaskCount`) and the **ChecklistView** read from the same signal. This file

@@ -1,8 +1,8 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/organiser": minor
-"@cire/web": minor
+"@cire/host": minor
+"@cire/invites": minor
 ---
 
 RSVP deadline for cire invites: an organiser sets a "kindly respond by" date and
@@ -32,7 +32,7 @@ exactly as before, which is what every existing wedding reads as.
   body accepts `rsvpDeadline` + `rsvpDeadlineTimezone` (zone validated against
   the runtime's own ICU data; clearing the date clears the zone in the same write,
   so a zone can never outlive its date).
-- `@cire/web`: one verdict drives three surfaces in both design packs — a line
+- `@cire/invites`: one verdict drives three surfaces in both design packs — a line
   under the events heading ("Kindly respond by …" / "RSVPs closed on …"), each
   card's Respond button (disabled and relabelled "RSVPs closed"; Event Details
   stays reachable), and the RSVP sheet (read-only, no submit button, dismiss says
@@ -40,6 +40,6 @@ exactly as before, which is what every existing wedding reads as.
   scheduled at `closesAt` — nothing polls — locks an invite left open across the
   deadline instead of letting it lead to a server 403, and an `rsvp_closed` 403
   gets its own copy, distinct from the authorisation 403.
-- `@cire/organiser`: an "RSVP by" date picker in wedding Settings (owner-only,
+- `@cire/host`: an "RSVP by" date picker in wedding Settings (owner-only,
   like the rest of that panel), which stamps the organiser's own time zone when
   the date is picked or changed and names that zone in its hint.

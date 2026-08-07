@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Restyle the guest invite's "Our Story" section into a two-column editorial layout

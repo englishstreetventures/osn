@@ -1,6 +1,6 @@
 import { animate } from "motion";
 
-// Modal enter/exit choreography — ported from cire/web so the demo modal moves
+// Modal enter/exit choreography — ported from cire/invites so the demo modal moves
 // exactly like the real RSVP modal it stands in for.
 
 export function modalEnter(backdrop: HTMLElement, panel: HTMLElement) {

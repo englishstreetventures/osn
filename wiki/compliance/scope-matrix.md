@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-08-02
+last-reviewed: 2026-08-07
 ---
 
 # Compliance Scope Matrix
@@ -49,7 +49,7 @@ compliance obligations.
 | `@cire/api` guest RSVP | family + guest names, RSVP status, **dietary free-text (Art. 9 special-category)**, guest claim code | GDPR Art. 6(1)(f) (organiser-controlled) + **Art. 9(2)(a) explicit consent for dietary (cire C-H2)**; DPIA filed ([[dpia/cire-guest-data]]); controller = organiser, processor = cire; cross-DB DSAR/deletion orphan (cire C-M1) |
 | `@cire/api` organiser import | raw organiser spreadsheets (R2 `cire-sheets`), bulk guest PII | GDPR storage-limitation — **indefinite retention, no purge (cire C-H1)**; SOC 2 CC6 (separate D1/R2 access grant, [[access-control]]) |
 | `@cire/api` vendor enquiries (S4) | `vendor_enquiries` linkage (`wedding_id`, `listing_id`, `status`, `quoted_minor`); `pending_body` (transient first-message text, stored only until the vendor claims the listing and the buffer is flushed); `lead_forward_email` (vendor-supplied sole-trader contact email); Zap c2b message bodies (server-visible personal data, routed via `@zap/api` — see [[data-map]] S4 rows) | GDPR Art. 6(1)(b) — contract (couple–vendor pre-contractual communications); Art. 6(1)(f) — legit interest in business lead routing (`lead_forward_email`). DSA Art. 30 **out of scope** (pre-contractual only; no on-platform contract concluded — see DSA section). |
-| `@cire/web` Pinterest embed | guest IP / UA / behaviour (opt-in only) | ePrivacy + GDPR — consent-gated, opt-in, fallback link always present; Pinterest subprocessor row + transfer basis TODO ([[subprocessors]]) |
+| `@cire/invites` Pinterest embed | guest IP / UA / behaviour (opt-in only) | ePrivacy + GDPR — consent-gated, opt-in, fallback link always present; Pinterest subprocessor row + transfer basis TODO ([[subprocessors]]) |
 | Pulse ticketing (deferred) | payment data | PCI-DSS SAQ-A via Stripe-hosted; never touches our DB |
 | AI surfaces (Zap M5, Pulse discovery v2, locality query M4) | prompt + response + (potentially) chat history | EU AI Act transparency obligations; GDPR Art. 22 (no solely-automated decisions with legal effect); model-provider DPA |
 | Landing | analytics cookie / pixel (if added) | ePrivacy consent banner. Today there are no analytics → compliant. Stay this way OR add a Klaro/Cookiebot-style banner. |

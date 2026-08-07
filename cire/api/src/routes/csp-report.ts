@@ -9,7 +9,7 @@ import { runCire } from "../observability";
 /**
  * Public, unauthenticated CSP violation-report collector.
  *
- * The guest site (`cire/web`) ships its Content-Security-Policy in Report-Only
+ * The guest site (`cire/invites`) ships its Content-Security-Policy in Report-Only
  * mode and points `report-uri` / `report-to` here, so real guests' browsers
  * POST a JSON document describing anything the policy WOULD block. This route
  * normalises the two wire formats, logs a small bounded slice of each violation

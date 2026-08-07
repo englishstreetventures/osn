@@ -24,7 +24,7 @@ wax-seal hero.
   grid became a vertical numbered sequence; a minimal sticky masthead and a
   sign-off footer added; the demo's imitation browser chrome replaced with an
   honest wax-mark frame.
-- Preserved: the forest-green + gold brand tokens (byte-identical to `cire/web`),
+- Preserved: the forest-green + gold brand tokens (byte-identical to `cire/invites`),
   Cormorant + Lato, and the generative vine backdrop.
 
 Adds `three` + `@types/three` to `@cire/landing`. Retires `WaxSealHero.tsx` and

@@ -6,14 +6,14 @@ related:
   - "[[invite-builder]]"
   - "[[web]]"
   - "[[security]]"
-last-reviewed: 2026-07-29
+last-reviewed: 2026-08-07
 ---
 
 # Site-wide consent framework
 
 Where the guest site's cookie/third-party consent lives, what it governs, and
-the rules for adding a vendor to it. Code: `cire/web/src/lib/consent/` (logic)
-and `cire/web/src/components/consent/` (UI).
+the rules for adding a vendor to it. Code: `cire/invites/src/lib/consent/` (logic)
+and `cire/invites/src/components/consent/` (UI).
 
 ## Why it exists
 
@@ -239,7 +239,7 @@ once more — the honest cost of consolidating the gates.
 
 ## Not covered
 
-- **The organiser portal** (`cire/organiser`) has no consent surface. It loads
+- **The organiser portal** (`cire/host`) has no consent surface. It loads
   no third-party embeds, and its users are authenticated hosts rather than
   guests. If it ever gains one, promote `lib/consent/` to a `@cire/consent`
   package rather than copying it.

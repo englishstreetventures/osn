@@ -34,7 +34,7 @@ const FIBER_FAILURE_PRINTOUT = /^(?:\(FiberFailure\)\s*)?AuthExpiredError\b/;
  * rejection that crosses an Effect boundary arrives as a `FiberFailure`, whose
  * own prototype is not the error class and whose cause chain is not part of
  * the public surface — so consumers were left string-matching the printout by
- * hand (`cire/organiser/src/lib/api.ts`). This is that predicate, kept next to
+ * hand (`cire/host/src/lib/api.ts`). This is that predicate, kept next to
  * the class so the two can't drift.
  *
  * Three probes, cheapest first:

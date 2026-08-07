@@ -4,7 +4,7 @@ AI coding assistant reference. For full spec see README.md. For progress/decisio
 
 ## Quick Context
 
-Cire is a bespoke digital wedding invite — Astro + SolidJS frontends with a Cloudflare Workers backend (Elysia + D1 + Drizzle), designed to feel tactile and animated. It lives inside the **OSN monorepo** as the `cire/` workspace (merged from cire.git, 2026-06). Packages: `cire/web` (guest site, :4321), `cire/organiser` (organiser portal, :4322), `cire/api` (backend, :8787), `cire/db` (Drizzle schema + D1 migrations). All paths in this file are relative to the OSN repo root.
+Cire is a bespoke digital wedding invite — Astro + SolidJS frontends with a Cloudflare Workers backend (Elysia + D1 + Drizzle), designed to feel tactile and animated. It lives inside the **OSN monorepo** as the `cire/` workspace (merged from cire.git, 2026-06). Packages: `cire/invites` (guest site, :4321), `cire/host` (organiser portal, :4322), `cire/api` (backend, :8787), `cire/db` (Drizzle schema + D1 migrations). All paths in this file are relative to the OSN repo root.
 
 Auth is a **two-system model** (see `[[wiki/systems/cire-auth]]` in the OSN wiki): guests claim a family code (`POST /api/claim` → hashed-at-rest `cire_session` cookie, `sessionAuth()` on `/api/rsvp` — no OSN account); organisers sign in with their **OSN passkey** on the portal, and `cire/api` verifies the OSN access JWT via `osnAuth()` (`@shared/osn-auth-client`) plus a per-`:weddingId` **three-tier role gate** on `/api/organiser/weddings/:weddingId/*`: `weddingOwner()` (owner-only — codes, settings, REMOVING/demoting a co-host, delete), `weddingEditor()` (owner or `editor` co-host — module writes, the RSVP-by date, and ADDING a co-host; viewers get 403 `read_only_role`), `weddingMember()` (any role incl. read-only `viewer` — reads + invite preview). Roles live in `wedding_hosts.role` (list + create are `osnAuth()`-only; owner = caller). The interim `X-Organiser-Token` shared secret is gone. Organisers can host **multiple** weddings — the portal lands on a wedding list/selector and a create form.
 
@@ -23,7 +23,7 @@ Each shard tracks one area. Edit only the shard your diff touches — keeps PRs 
 | Shard                             | What goes here                                           |
 | --------------------------------- | -------------------------------------------------------- |
 | `wiki/todo/status.md`             | Current Status paragraph + Up Next priority list         |
-| `wiki/todo/web.md`                | `cire/web` frontend feature work                         |
+| `wiki/todo/web.md`                | `cire/invites` frontend feature work                         |
 | `wiki/todo/api.md`                | `cire/api` backend feature work                          |
 | `wiki/todo/db.md`                 | `cire/db` schema + migrations                            |
 | `wiki/todo/spreadsheet-import.md` | Organiser spreadsheet upload (parser + diff + endpoints) |
@@ -84,8 +84,8 @@ Flat sibling-package layout under the OSN repo root (no `apps/` / `packages/` ne
 
 ```
 cire/                 # workspace dir inside the OSN monorepo
-├── web/              # @cire/web — Astro + SolidJS guest site (port 4321)
-├── organiser/        # @cire/organiser — Astro + SolidJS organiser portal (port 4322)
+├── invites/          # @cire/invites — Astro + SolidJS guest site (port 4321)
+├── host/             # @cire/host — Astro + SolidJS organiser portal (port 4322)
 ├── api/              # @cire/api — Elysia on CF Workers (port 8787, wrangler dev)
 ├── db/               # @cire/db — Drizzle schema + D1 migrations
 ├── theme/            # @cire/theme — zero-dep shared theming validators (CSS-colour allow-list)
@@ -109,7 +109,7 @@ OSN monorepo conventions apply since the merge (root `CLAUDE.md` is authoritativ
 - Commits: SSH-signed; descriptive messages
 - Hooks: root lefthook runs oxlint + oxfmt on staged files pre-commit, type check pre-push
 - Package manager: `bun` — always use `bun run`, `bunx --bun`, `bun add`
-- Monorepo: bun workspaces; scope commands with `--cwd cire/web` or `--cwd cire/api` (from the OSN repo root)
+- Monorepo: bun workspaces; scope commands with `--cwd cire/invites` or `--cwd cire/api` (from the OSN repo root)
 - Cloudflare bindings (D1, R2, KV) are typed via `wrangler types` — regenerate after schema or binding changes
 - **Observability** (see `[[wiki/observability/overview]]` for full guide):
   - No `console.*` in backend — use Effect structured logger (`Effect.logInfo`, `Effect.logWarning`, `Effect.logError`)
@@ -158,7 +158,7 @@ describe("POST /api/claim", () => {
 ```
 
 - Test files live alongside source: `*.test.ts` co-located with the module
-- **`*.browser.test.tsx` runs in a real Chromium**, not jsdom — for anything needing computed CSS, layout, paint/stacking order, sticky behaviour or media emulation. Opt-in (`bun run --cwd {cire/web,cire/organiser} test:browser`), its own CI step. **`@cire/organiser` has one too** (added 2026-08-06) — its ink tokens are translucent and it ships two ramps, so what a token measures as authored and what it measures as painted are different numbers. jsdom parses no stylesheet and reports zeroed rects, so a class-contract assertion in the fast tier and a measurement in the browser tier are complements, not duplicates. See `[[wiki/conventions/browser-tests]]`
+- **`*.browser.test.tsx` runs in a real Chromium**, not jsdom — for anything needing computed CSS, layout, paint/stacking order, sticky behaviour or media emulation. Opt-in (`bun run --cwd {cire/invites,cire/host} test:browser`), its own CI step. **`@cire/host` has one too** (added 2026-08-06) — its ink tokens are translucent and it ships two ramps, so what a token measures as authored and what it measures as painted are different numbers. jsdom parses no stylesheet and reports zeroed rects, so a class-contract assertion in the fast tier and a measurement in the browser tier are complements, not duplicates. See `[[wiki/conventions/browser-tests]]`
 - Run tests: `bun run test` (all workspaces, turbo) or `bun run --cwd cire/api test`
 - Integration tests use a local D1 instance via `wrangler dev` — do not mock the database
 - Note: platform convention elsewhere in the monorepo is `it.effect` + `createTestLayer()` — cire alignment is tracked in root `wiki/TODO.md` (Deferred Decisions)
@@ -176,11 +176,11 @@ describe("POST /api/claim", () => {
 - Error types are tagged classes extending `Data.TaggedError` — no thrown exceptions in service layer
 - D1 access via Drizzle only — no raw SQL string construction
 - Cloudflare env bindings typed from `wrangler types` output (`worker-configuration.d.ts`)
-- Effect is backend + DB only — never import it in `cire/web` or `cire/organiser`
+- Effect is backend + DB only — never import it in `cire/invites` or `cire/host`
 
 ### Frontend (Astro + SolidJS)
 
-- Astro pages in `cire/web/src/pages/` (and `cire/organiser/src/pages/`) — `.astro` files for static shells
+- Astro pages in `cire/invites/src/pages/` (and `cire/host/src/pages/`) — `.astro` files for static shells
 - SolidJS islands for interactive components — `client:load` or `client:visible` as appropriate
 - Page-level transitions: Astro View Transitions API
 - Component-level animations: `@motionone/solid`
@@ -196,22 +196,22 @@ All commands run from the **OSN repo root**.
 ```bash
 # Dev
 bun run dev:cire                     # cire API + web + organiser, plus @osn/api (organiser sign-in needs the OSN issuer)
-bun run --cwd cire/web dev           # Guest site only (:4321)
-bun run --cwd cire/organiser dev     # Organiser portal only (:4322)
+bun run --cwd cire/invites dev           # Guest site only (:4321)
+bun run --cwd cire/host dev     # Organiser portal only (:4322)
 bun run --cwd cire/api dev           # API only (Bun.serve local entry, :8787; wrangler via dev:wrangler)
 
 # Build
 bun run build                        # Build all packages (turbo)
-bun run --cwd cire/web build
+bun run --cwd cire/invites build
 bun run --cwd cire/api build
 
 # Test
 bun run test                         # All packages (turbo)
 bun run --cwd cire/api test
-bun run --cwd cire/web test
-bun run --cwd cire/organiser test    # SolidJS islands (vitest + happy-dom)
-bun run --cwd cire/web test:browser       # real-Chromium tier (CSS/layout/paint) — see [[wiki/conventions/browser-tests]]
-bun run --cwd cire/organiser test:browser # same tier for the portal (painted contrast, the first-run glow)
+bun run --cwd cire/invites test
+bun run --cwd cire/host test    # SolidJS islands (vitest + happy-dom)
+bun run --cwd cire/invites test:browser       # real-Chromium tier (CSS/layout/paint) — see [[wiki/conventions/browser-tests]]
+bun run --cwd cire/host test:browser # same tier for the portal (painted contrast, the first-run glow)
 bun run test:browser                      # every package with a browser tier (turbo)
 
 # Lint + Format (root config)
@@ -227,9 +227,9 @@ cd cire/api && bunx wrangler types                                  # Regenerate
 # Deploy
 cd cire/api && bunx wrangler deploy --env production                # Deploy API worker (prod env — never bare `wrangler deploy`, which the config now blocks)
 # Guest site is a Worker (NOT Pages): the adapter emits dist/server + dist/client
-# and a generated dist/server/wrangler.json extending cire/web/wrangler.jsonc.
+# and a generated dist/server/wrangler.json extending cire/invites/wrangler.jsonc.
 # CI strips the unsupported `legacy_env` field first — see deploy.yml.
-bun run --cwd cire/web build && (cd cire/web && bunx wrangler deploy --config dist/server/wrangler.json)
+bun run --cwd cire/invites build && (cd cire/invites && bunx wrangler deploy --config dist/server/wrangler.json)
 
 # Versioning
 bun run changeset                    # Create changeset (required for every PR)

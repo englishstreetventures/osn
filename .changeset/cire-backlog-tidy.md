@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Docs-only: tidy the cire backlog shards — tick already-shipped items (D1

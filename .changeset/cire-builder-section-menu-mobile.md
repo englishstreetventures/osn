@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Collapse the invite builder's section tabs into a menu on phones.

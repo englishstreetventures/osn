@@ -1,5 +1,5 @@
 ---
-"@cire/web": minor
+"@cire/invites": minor
 ---
 
 Add draft Privacy Notice (`/privacy`) and Terms of Use (`/terms`) pages to the

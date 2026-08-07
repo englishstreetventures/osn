@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Restructure the invite builder so the customisation options map onto the guest

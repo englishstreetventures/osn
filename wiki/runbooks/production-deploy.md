@@ -11,7 +11,7 @@ related:
   - "[[email]]"
   - "[[vendors]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-07
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -19,8 +19,8 @@ last-reviewed: 2026-08-06
 > Scope: the first production cut-over of **osn-api** (identity/auth, **now a
 > Cloudflare Worker** — `export default { fetch, scheduled }` in
 > `osn/api/src/index.ts`, migration Phase 6) and the **cire** wedding-invite
-> stack (**cire-api** Worker + **cire/web** guest **SSR Worker** + **cire/organiser**
-> Pages portal). _(cire/web was a static Pages site; it is now an SSR Worker — see §3.3.)_
+> stack (**cire-api** Worker + **cire/invites** guest **SSR Worker** + **cire/host**
+> Pages portal). _(cire/invites was a static Pages site; it is now an SSR Worker — see §3.3.)_
 >
 > **osn-api is a Worker now (was a long-running Bun process).** All its secrets
 > are set with `wrangler secret put … --env <env>` and surfaced **only on the
@@ -44,7 +44,7 @@ below out-of-band with `wrangler secret put` (osn-api **and** cire-api are both 
 
 > **🔀 Domain reshuffle (2026-07-16) — end-state supersedes older `app.`/apex
 > framing below.** Apex `cireweddings.com` → marketing **landing** site;
-> `invite.cireweddings.com` → **guest** site (`cire/web`); `host.cireweddings.com`
+> `invite.cireweddings.com` → **guest** site (`cire/invites`); `host.cireweddings.com`
 > → **organiser** portal (moved off `app.cireweddings.com`); `api.` / `id.`
 > unchanged. Passkeys survived *that* move (`OSN_RP_ID` stayed the registrable apex
 > `cireweddings.com`) — see the next note, which is where they stopped surviving. The full
@@ -92,8 +92,8 @@ marked **TBD** blocks the deploy.
 | cire `WEB_ORIGIN` allowlist (guest, organiser **and** vendor origins) | cire-api | **DONE — `https://invite.cireweddings.com,https://host.cireweddings.com,https://vendor.cireweddings.com`** (reshuffle 2026-07-16: guest→`invite.`, organiser→`host.`; transitional apex + `app.` pruned post-cutover 2026-07-16) |
 | cire `OSN_JWKS_URL` / `OSN_ISSUER_URL` | cire-api | **DONE — `https://id.musubi.social/.well-known/jwks.json` / `https://id.musubi.social`** (must equal osn-api's own `OSN_ISSUER_URL`, so these flip in the **same** deploy as osn-api's) |
 | `CIRE_API_ARC_PRIVATE_KEY` + `CIRE_API_ARC_KEY_ID` + `OSN_API_URL` | cire-api | needed only if guest account-linking is enabled (section 6.2) |
-| cire/web `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/web **SSR Worker** | **DONE — `https://api.cireweddings.com` / `https://invite.cireweddings.com`** (set in `deploy.yml`). No `PUBLIC_WEDDING_SLUG` — wedding resolved from the path. `invite.` is served by the `cire-invites` Worker (custom-domain route), not a Pages project — see §3.3. The apex serves the marketing landing site. |
-| cire/organiser `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ACCOUNT_URL`, `PUBLIC_CIRE_WEB_URL` (build-time) | cire/organiser Pages | **DONE — `https://api.cireweddings.com` / `https://musubi.social` / `https://invite.cireweddings.com`** (set in `deploy.yml`). `PUBLIC_OSN_ISSUER_URL` is **gone** as of the 2026-07-27 OIDC swap — the frontends never call the issuer |
+| cire/invites `PUBLIC_API_URL`, `PUBLIC_SITE_URL` (build-time) | cire/invites **SSR Worker** | **DONE — `https://api.cireweddings.com` / `https://invite.cireweddings.com`** (set in `deploy.yml`). No `PUBLIC_WEDDING_SLUG` — wedding resolved from the path. `invite.` is served by the `cire-invites` Worker (custom-domain route), not a Pages project — see §3.3. The apex serves the marketing landing site. |
+| cire/host `PUBLIC_CIRE_API_URL`, `PUBLIC_OSN_ACCOUNT_URL`, `PUBLIC_CIRE_WEB_URL` (build-time) | cire/host Pages | **DONE — `https://api.cireweddings.com` / `https://musubi.social` / `https://invite.cireweddings.com`** (set in `deploy.yml`). `PUBLIC_OSN_ISSUER_URL` is **gone** as of the 2026-07-27 OIDC swap — the frontends never call the issuer |
 | `CIRE_OIDC_CLIENT_SECRET` + the `oauth_clients` row for cire | cire-api (secret) + osn D1 | **DONE 2026-07-27** — client `cid_cire` seeded in prod D1, secret set on the production cire-api Worker (§3.2, §6.3). The row's `redirect_uris` still lists the dead `api-preview` callback; pruning it is an open prod-D1 write |
 | osn/social `VITE_OSN_ISSUER_URL` (build-time) | osn/social Pages (`osn-social`) | **DONE — `https://id.musubi.social`** (set in `deploy.yml`, job `deploy-osn-social`) |
 | osn/social `VITE_TURNSTILE_SITEKEY` (build-time) | osn/social Pages (`osn-social`) | **DONE — `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}`** in `deploy-osn-social`. **Not optional**: osn-api holds `TURNSTILE_SECRET_KEY`, and musubi.social is now the only origin running the OSN ceremonies, so a blank sitekey means `400 turnstile_failed` on every sign-in and registration (this is exactly what broke on 2026-07-27). [[turnstile]] |
@@ -386,13 +386,13 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 > `wrangler deploy` uses the top-level bindings and the default vars unless you pass
 > `--env production`.
 
-### 3.3 cire/web (Worker SSR) + cire/organiser, cire/vendor (Pages — build-time `PUBLIC_*`)
+### 3.3 cire/invites (Worker SSR) + cire/host, cire/vendor (Pages — build-time `PUBLIC_*`)
 
-> [!important] cire/web is now an **SSR Cloudflare Worker**, not Pages
-> `cire/web` switched to `output: "server"` (the `@astrojs/cloudflare` adapter)
+> [!important] cire/invites is now an **SSR Cloudflare Worker**, not Pages
+> `cire/invites` switched to `output: "server"` (the `@astrojs/cloudflare` adapter)
 > and is deployed as a **Cloudflare Worker with Static Assets** via
 > `wrangler deploy --config dist/server/wrangler.json` (the `deploy-cire-web` job
-> in `deploy.yml`). The committed `cire/web/wrangler.jsonc` carries the worker
+> in `deploy.yml`). The committed `cire/invites/wrangler.jsonc` carries the worker
 > name (`cire-invites`) + the **`invite.cireweddings.com` custom-domain route**, and the
 > adapter merges in `main`/the ASSETS binding. The old
 > `wrangler pages deploy dist --project-name cire` is gone — **the Cloudflare
@@ -416,7 +416,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 >
 > **`legacy_env` strip (deploy foot-gun, fixed 2026-07-16):** the adapter writes a
 > top-level `"legacy_env": true` into the generated `dist/server/wrangler.json`.
-> Wrangler **4.111.0 removed** that field and hard-errors on it; since `cire/web`
+> Wrangler **4.111.0 removed** that field and hard-errors on it; since `cire/invites`
 > pins no wrangler, `bunx wrangler` pulls the latest, so the `deploy-cire-web` job
 > failed on every merge from the moment 4.111 shipped (the guest site stayed up on the
 > last-good build — deploys stopped landing). The job now deletes `legacy_env`
@@ -424,7 +424,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 > already the default). If a guest-site deploy fails on a config field again, check
 > the generated `dist/server/wrangler.json` against the installed wrangler's schema.
 
-`cire/organiser` and `cire/vendor` are **static** Pages builds (`output: "static"`); cire/web's
+`cire/host` and `cire/vendor` are **static** Pages builds (`output: "static"`); cire/invites's
 `PUBLIC_*` are read both **server-side per request** and by the client islands but
 still bake in **at build time**. The prod values are wired in
 `.github/workflows/deploy.yml` (the `deploy-cire-web` / `deploy-cire-organiser` jobs set
@@ -433,14 +433,14 @@ build outside CI, export these before `bun run --cwd <site> build`.
 
 | Name | Site | Required? | Prod value | Notes |
 |---|---|---|---|---|
-| `PUBLIC_API_URL` | cire/web | **Yes** | `https://api.cireweddings.com` | cire-api prod origin, read server-side (`[slug].astro` / `index.astro` via `src/lib/invite.ts`) **and** by the islands (dev default `http://localhost:8787`). |
-| `PUBLIC_SITE_URL` | cire/web | Recommended | `https://invite.cireweddings.com` | Guest site canonical URL. The apex serves the marketing landing site since the 2026-07-16 reshuffle. |
-| `PUBLIC_GOOGLE_MAPS_EMBED_KEY` | cire/web | Optional | _(unset)_ | Google Maps Platform key with the **Maps Embed API** enabled. When set, the event "Where" section renders a real Maps Embed iframe (queried by the free-text venue address — no coordinates, no geocoding); when unset/blank it falls back to the CSS-drawn map card, so it is a pure enhancement (`cire/web/src/components/MapPreview.tsx`). **Human step:** create the key, **enable only the Maps Embed API**, and **restrict it by HTTP referrer** to the guest-site origin(s) — the key bakes into static HTML, and a referrer-restricted Embed-only key is safe to ship. |
-| `PUBLIC_CIRE_API_URL` | cire/organiser | **Yes** | `https://api.cireweddings.com` | cire-api prod origin (`cire/organiser/src/lib/osn.ts`; `PUBLIC_API_URL` honoured as legacy fallback). |
-| `PUBLIC_OSN_ACCOUNT_URL` | cire/organiser **and** cire/vendor | Recommended | `https://musubi.social` | Where "Manage your account" links point — passkeys, recovery codes and connected apps all live on musubi's own origin now. **Replaced `PUBLIC_OSN_ISSUER_URL` on 2026-07-27**: the frontends no longer talk to the issuer at all. Sign-in is a top-level redirect to cire-api (`/api/auth/oidc/start`), which runs the code exchange server-side. [[cire-auth]], [[oidc-provider]] |
-| `PUBLIC_CIRE_WEB_URL` | cire/organiser | Recommended | `https://invite.cireweddings.com` | Guest site URL used in organiser preview links (`osn.ts`). |
+| `PUBLIC_API_URL` | cire/invites | **Yes** | `https://api.cireweddings.com` | cire-api prod origin, read server-side (`[slug].astro` / `index.astro` via `src/lib/invite.ts`) **and** by the islands (dev default `http://localhost:8787`). |
+| `PUBLIC_SITE_URL` | cire/invites | Recommended | `https://invite.cireweddings.com` | Guest site canonical URL. The apex serves the marketing landing site since the 2026-07-16 reshuffle. |
+| `PUBLIC_GOOGLE_MAPS_EMBED_KEY` | cire/invites | Optional | _(unset)_ | Google Maps Platform key with the **Maps Embed API** enabled. When set, the event "Where" section renders a real Maps Embed iframe (queried by the free-text venue address — no coordinates, no geocoding); when unset/blank it falls back to the CSS-drawn map card, so it is a pure enhancement (`cire/invites/src/components/MapPreview.tsx`). **Human step:** create the key, **enable only the Maps Embed API**, and **restrict it by HTTP referrer** to the guest-site origin(s) — the key bakes into static HTML, and a referrer-restricted Embed-only key is safe to ship. |
+| `PUBLIC_CIRE_API_URL` | cire/host | **Yes** | `https://api.cireweddings.com` | cire-api prod origin (`cire/host/src/lib/osn.ts`; `PUBLIC_API_URL` honoured as legacy fallback). |
+| `PUBLIC_OSN_ACCOUNT_URL` | cire/host **and** cire/vendor | Recommended | `https://musubi.social` | Where "Manage your account" links point — passkeys, recovery codes and connected apps all live on musubi's own origin now. **Replaced `PUBLIC_OSN_ISSUER_URL` on 2026-07-27**: the frontends no longer talk to the issuer at all. Sign-in is a top-level redirect to cire-api (`/api/auth/oidc/start`), which runs the code exchange server-side. [[cire-auth]], [[oidc-provider]] |
+| `PUBLIC_CIRE_WEB_URL` | cire/host | Recommended | `https://invite.cireweddings.com` | Guest site URL used in organiser preview links (`osn.ts`). |
 | `VITE_OSN_ISSUER_URL` | osn/social | **Yes** | `https://id.musubi.social` | osn-api prod origin for the identity app **and** the `/authorize` consent screen (`osn/social/src/lib/auth.ts`, dev default `http://localhost:4000`). A Vite SPA, so this bakes into the bundle: unset, the deployed app dials the visitor's own localhost. Set in `deploy.yml` (`deploy-osn-social`) — the only job that builds this app since the preview workflow was removed on 2026-07-27. |
-| `PUBLIC_TURNSTILE_SITEKEY` | cire/web **and** cire/organiser **and** cire/vendor | Optional (key-optional) | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Cloudflare Turnstile **sitekey** (public — safe to embed in client HTML). When set, the guest claim form (cire/web) renders the Turnstile challenge and gates submit on it; when unset/blank no widget renders and no token is sent. Wired in the `deploy-cire-web` / `deploy-cire-organiser` / `deploy-cire-vendor` build steps, and the repo **Variable** is set (#160). Genuinely optional **here**, because the matching `TURNSTILE_SECRET_KEY` is **unset on cire-api** today (§3.2). Since the 2026-07-27 OIDC swap the organiser/vendor builds no longer render an OSN ceremony form, so their copy of this var is now inert. |
+| `PUBLIC_TURNSTILE_SITEKEY` | cire/invites **and** cire/host **and** cire/vendor | Optional (key-optional) | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Cloudflare Turnstile **sitekey** (public — safe to embed in client HTML). When set, the guest claim form (cire/invites) renders the Turnstile challenge and gates submit on it; when unset/blank no widget renders and no token is sent. Wired in the `deploy-cire-web` / `deploy-cire-organiser` / `deploy-cire-vendor` build steps, and the repo **Variable** is set (#160). Genuinely optional **here**, because the matching `TURNSTILE_SECRET_KEY` is **unset on cire-api** today (§3.2). Since the 2026-07-27 OIDC swap the organiser/vendor builds no longer render an OSN ceremony form, so their copy of this var is now inert. |
 | `VITE_TURNSTILE_SITEKEY` | osn/social | **Yes — see note** | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Same widget, same repo Variable; the name differs only because Vite exposes `VITE_*` where Astro exposes `PUBLIC_*`. Feeds `turnstileSiteKey` into `SignIn` + `Register` (`@osn/ui`) at all three call sites — the sidebar dialogs and the `/authorize` sign-in island — via `osn/social/src/lib/auth.ts`, which normalises blank to `undefined`. **Key-optional in code but required in production:** osn-api's `TURNSTILE_SECRET_KEY` is set, so a blank sitekey fails every gated call closed with `400 turnstile_failed`. Set in `deploy.yml` (`deploy-osn-social`) — the only job building this app since the preview workflow was removed on 2026-07-27, so `musubi.social` is the only hostname needing a widget **Domains** entry. [[turnstile]] |
 
 ### 3.4 Create the Cloudflare Turnstile widget (one-time, gates Turnstile on) 🔑
@@ -618,7 +618,7 @@ build` and **none of them path-filtered** — every surface redeploys on every p
 acting on it:
 
 1. **Find the last SUCCESSFUL run of the specific job**, not the last green run.
-   `Deploy cire/web (Worker SSR)` failing on the merge that changed `cire/web` is a
+   `Deploy cire/invites (Worker SSR)` failing on the merge that changed `cire/invites` is a
    real problem; the same job succeeding on the *next* merge 15 minutes later ships
    that code anyway, because the later commit contains it.
 2. **A failed job for a package the run didn't change is a no-op miss**, not a stale
@@ -639,8 +639,8 @@ Which job owns which surface:
 
 | Job | Surface | Live at |
 |---|---|---|
-| `Deploy cire/web (Worker SSR)` | guest invite site | `invite.cireweddings.com` |
-| `Deploy cire/organiser (Pages)` | host portal | `host.cireweddings.com` |
+| `Deploy cire/invites (Worker SSR)` | guest invite site | `invite.cireweddings.com` |
+| `Deploy cire/host (Pages)` | host portal | `host.cireweddings.com` |
 | `Deploy cire/landing (Pages, apex)` | marketing site | `cireweddings.com` |
 | `Deploy cire/api (+ D1 migrate)` | cire backend | `api.cireweddings.com` |
 | `Deploy osn/api (+ D1 migrate)` | identity API | `id.musubi.social` |
@@ -706,7 +706,7 @@ bunx wrangler deploy --env production
 Confirm the deploy picked up the prod vars from `[env.production.vars]` and the
 top-level D1/R2 bindings (§3.2 nuance).
 
-### 5.3 cire/web (guest SSR Worker) + cire/organiser, cire/vendor, cire/landing (Pages)
+### 5.3 cire/invites (guest SSR Worker) + cire/host, cire/vendor, cire/landing (Pages)
 
 CI builds each site with the prod `PUBLIC_*` vars (§3.3) baked in, then publishes. The
 guest site is a **Worker**, not Pages — `deploy-cire-web` deploys `cire-invites` from the
@@ -718,16 +718,16 @@ equivalents:
 # guest site (Worker: cire-invites, custom domain invite.cireweddings.com)
 PUBLIC_API_URL=https://api.cireweddings.com \
 PUBLIC_SITE_URL=https://invite.cireweddings.com \
-  bun run --cwd cire/web build
+  bun run --cwd cire/invites build
 # delete the adapter's `legacy_env` key first — see the §3.3 foot-gun note
-bunx wrangler deploy --config cire/web/dist/server/wrangler.json
+bunx wrangler deploy --config cire/invites/dist/server/wrangler.json
 
 # organiser portal (Pages project: cire-organiser, host.cireweddings.com)
 PUBLIC_CIRE_API_URL=https://api.cireweddings.com \
 PUBLIC_OSN_ACCOUNT_URL=https://musubi.social \
 PUBLIC_CIRE_WEB_URL=https://invite.cireweddings.com \
-  bun run --cwd cire/organiser build
-bunx wrangler pages deploy cire/organiser/dist --project-name cire-organiser
+  bun run --cwd cire/host build
+bunx wrangler pages deploy cire/host/dist --project-name cire-organiser
 ```
 
 `cire/vendor` (→ `cire-vendor`, `vendor.cireweddings.com`) and `cire/landing`
@@ -748,7 +748,7 @@ automatically once you attach them.
 1. **Worker custom domains (auto, verify only).** After `wrangler deploy --env production`:
    - osn-api → **`id.musubi.social`** (route in `osn/api/wrangler.toml`).
    - cire-api → **`api.cireweddings.com`** (route in `cire/api/wrangler.toml`).
-   - cire/web → **`invite.cireweddings.com`** (route in `cire/web/wrangler.jsonc`).
+   - cire/invites → **`invite.cireweddings.com`** (route in `cire/invites/wrangler.jsonc`).
    Confirm each shows as an active custom domain for its Worker (dashboard → Workers →
    *worker* → Settings → Domains & Routes, or `https://id.musubi.social/health` /
    `https://api.cireweddings.com/` return 200). `custom_domain = true` provisions the DNS

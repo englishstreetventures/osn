@@ -4,7 +4,7 @@ tags: [systems, cire, feature-flags, growthbook]
 related:
   - "[[overview]]"
   - "[[observability]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-08-07
 ---
 
 # Feature flags — GrowthBook
@@ -62,7 +62,7 @@ with explicit values and no network.
 `cire.account-linking` (default **off**) gates the whole guest "Link your Pulse
 account" surface. Both `GET` and `POST /api/account/link` (`routes/account-link.ts`)
 call `flags.forRequest({ id: familyId })` and answer **503** ("disabled") when
-the flag is off. The guest UI (`cire/web` `PulseAccountLink`) already treats a
+the flag is off. The guest UI (`cire/invites` `PulseAccountLink`) already treats a
 503 status probe as disabled and renders nothing, so the flag hides the section
 with **no frontend change** — independent of whether the ARC linking keys exist.
 The POST guard is defense in depth (a crafted request can't link while off).

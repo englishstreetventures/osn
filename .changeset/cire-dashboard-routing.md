@@ -1,11 +1,11 @@
 ---
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Deep-linkable organiser dashboard routes + refresh persistence, and a
 dismissable Getting-started checklist.
 
-- **Hash-route scheme** (new `cire/organiser/src/lib/dashboard-route.ts`) — the
+- **Hash-route scheme** (new `cire/host/src/lib/dashboard-route.ts`) — the
   full navigable state is encoded in the URL hash so a hard refresh restores it
   and a shared link reopens it:
   - `#/weddings` → the wedding list

@@ -294,7 +294,7 @@ describe("parseEventsCsv", () => {
 
   it("round-trips the organiser starter template (header parity + blank-End example)", async () => {
     // Byte-for-byte copy of `buildEventsTemplateCsv()` output from
-    // cire/organiser/src/lib/import-templates.ts (pinned exactly there by
+    // cire/host/src/lib/import-templates.ts (pinned exactly there by
     // import-templates.test.ts — if the template changes, that test fails and
     // this copy must be updated in the same PR). Feeding it through the parser
     // guarantees the shipped starter CSV can never fail its own import.

@@ -1,8 +1,8 @@
 import { onCleanup, onMount, type JSX } from "solid-js";
 
-// A slimmed port of cire/web's AnimatedModal: focus trap, Escape-to-close,
+// A slimmed port of cire/invites's AnimatedModal: focus trap, Escape-to-close,
 // background scroll lock, reduced-motion fallback, and the same enter/exit
-// motion. Self-contained so the landing site carries no dependency on cire/web.
+// motion. Self-contained so the landing site carries no dependency on cire/invites.
 
 interface DemoModalProps {
   onClose: () => void;

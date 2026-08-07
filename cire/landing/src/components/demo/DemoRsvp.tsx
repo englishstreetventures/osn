@@ -7,7 +7,7 @@ import { DemoModal } from "./DemoModal";
 // "send" — but the RSVP is a deliberate NO-OP: nothing leaves the browser. This
 // mirrors the real guest flow closely enough to feel live while making clear it
 // is a demonstration. The same no-op treatment is used for the organiser host
-// preview in cire/web (the RSVP there used to be greyed out).
+// preview in cire/invites (the RSVP there used to be greyed out).
 
 interface DemoMember {
   guestId: string;

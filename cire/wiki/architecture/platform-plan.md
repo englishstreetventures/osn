@@ -7,7 +7,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[platform]]"
   - "[[guest-event-editor]]"
-last-reviewed: 2026-08-01
+last-reviewed: 2026-08-07
 pr4-shipped: 2026-07-15
 pr4-reversed: 2026-07-15
 ---
@@ -261,8 +261,8 @@ the phase's checklist in [[platform]] + the phase's section above; skim the rest
 | Validation | `cire/api/src/schemas/` | Effect Schema per domain. |
 | Metrics | `cire/api/src/metrics.ts` | Typed `cire.*` counters/histograms; bounded attribute cardinality only (closed enums). |
 | DB schema | `cire/db/src/schema.ts` | **Three-way DDL mirror**: schema.ts + `cire/db/migrations/*.sql` + the test DDL in `cire/api/src/db/setup.ts` — mechanically enforced by `cire/api/src/db/ddl-lockstep.test.ts` (T-S1): it replays the migration chain and diffs a normalised snapshot against both mirrors, so a change to any surface fails until all three agree. Parent-table rebuilds need the `__keep_*` snapshot/restore idiom (`0006_multi_tenant.sql`) — D1 enforces FKs and DROP TABLE cascades. |
-| Organiser portal | `cire/organiser/src/` | SolidJS islands in an Astro static shell; single root island `components/OrganiserApp.tsx`; hash routing in `lib/dashboard-route.ts`; per-wedding module tabs in `components/DashboardTabs.tsx` (Phase 0 replaces with sidebar); API calls via `authFetch` + `lib/api.ts`. |
-| Guest site | `cire/web/src/` | Only touched when a module changes what guests see (RSVP, invite render). |
+| Organiser portal | `cire/host/src/` | SolidJS islands in an Astro static shell; single root island `components/OrganiserApp.tsx`; hash routing in `lib/dashboard-route.ts`; per-wedding module tabs in `components/DashboardTabs.tsx` (Phase 0 replaces with sidebar); API calls via `authFetch` + `lib/api.ts`. |
+| Guest site | `cire/invites/src/` | Only touched when a module changes what guests see (RSVP, invite render). |
 | Tests | co-located `*.test.ts` | `bun:test` (api) / vitest (organiser, web). Route tests build `createApp(createDb(":memory:"))`; osnAuth accepts an injected `osnTestKey`. |
 
 ### Invariants (do not break)
@@ -272,7 +272,7 @@ the phase's checklist in [[platform]] + the phase's section above; skim the rest
 - **`events.end_at` `""` sentinel** = no stated end; anything aggregating or comparing event dates must use the effective end (`max(end_at, start_at)` — see `services/retention.ts`).
 - **Host preview families** (`families.kind = 'host'`) are synthetic and must stay invisible to imports, exports, RSVP counts, and (future) seating/comms.
 - **Guest PII rules**: dietary text is special-category (Art. 9 consent columns on `rsvps`); no PII in logs (redaction deny-list in `cire/CLAUDE.md`); new PII classes need [[../../wiki/compliance/data-map|root data-map]] + retention rows (§10 lists the per-phase deltas).
-- Effect is **backend-only** — never import it in `cire/organiser` or `cire/web`.
+- Effect is **backend-only** — never import it in `cire/host` or `cire/invites`.
 
 ### Definition of done (every platform PR)
 

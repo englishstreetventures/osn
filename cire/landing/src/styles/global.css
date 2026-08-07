@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
-/* Brand tokens — kept byte-identical to cire/web's theme block so the marketing
+/* Brand tokens — kept byte-identical to cire/invites's theme block so the marketing
    site, the invites it advertises, and the organiser portal all read as one
-   brand. If you change a token here, change it in cire/web/src/styles/global.css
+   brand. If you change a token here, change it in cire/invites/src/styles/global.css
    too (and vice versa). See [[wiki/apps/cire-landing]] → "Brand parity". */
 @theme {
   --color-bg: oklch(19.96% 0.0331 147.34);
@@ -19,7 +19,7 @@
   --font-body: "Lato", system-ui, sans-serif;
   --default-font-family: var(--font-body);
 
-  /* Landing-only additions (not part of the shared cire/web brand block above —
+  /* Landing-only additions (not part of the shared cire/invites brand block above —
      colour + font tokens stay byte-identical; these are motion + rhythm helpers
      the marketing site needs and the app does not). Named easings so no rule
      falls back to the browser default `ease`. */
@@ -55,7 +55,7 @@
 
   /* Honour reduced-motion globally: the smooth-scroll above and any CSS-driven
      entrance animation snap off. Motion-One islands check the same media query
-     in JS before animating (mirrors cire/web's AnimatedModal). */
+     in JS before animating (mirrors cire/invites's AnimatedModal). */
   @media (prefers-reduced-motion: reduce) {
     html {
       scroll-behavior: auto;

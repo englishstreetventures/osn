@@ -1,8 +1,8 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/web": minor
-"@cire/organiser": minor
+"@cire/invites": minor
+"@cire/host": minor
 ---
 
 Three follow-ups to the invite-customisation work:

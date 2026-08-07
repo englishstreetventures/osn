@@ -1,6 +1,6 @@
 ---
 "@cire/theme": patch
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Close the gaps a mutation-tested review found in the contrast work.

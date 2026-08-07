@@ -13,7 +13,7 @@ related:
   - "[[social]]"
   - "[[recovery-codes]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-07-27
+last-reviewed: 2026-08-07
 ---
 
 # Migrating OSN identity to musubi.social
@@ -170,7 +170,7 @@ ladder did not move.
 | `.github/workflows/deploy-cire-preview.yml` | `PUBLIC_OSN_ISSUER_URL` | two occurrences — same story, same day: one became `PUBLIC_OSN_ACCOUNT_URL`, one went away. **File deleted 2026-07-27**, the preview tier is gone |
 | `.github/workflows/deploy.yml` | `VITE_OSN_ISSUER_URL` (`deploy-osn-social`) | one occurrence |
 | `.github/workflows/deploy-osn-social-preview.yml` | `VITE_OSN_ISSUER_URL` | one occurrence — **file deleted 2026-07-27**, the preview is gone |
-| `cire/web/src/lib/security-headers.ts` | `osnIssuer` + CSP `connect-src` | hardcoded — must track the issuer |
+| `cire/invites/src/lib/security-headers.ts` | `osnIssuer` + CSP `connect-src` | hardcoded — must track the issuer |
 
 > **A secret named the issuer too, and grepping the repo could not see it.**
 > `cire-api` reads the osn-api origin from `OSN_API_URL`, which is a **Worker
@@ -208,7 +208,7 @@ Out-of-band, not in the repo:
   **The domain list was only half the job, and the other half was missed.**
   osn-api's `TURNSTILE_SECRET_KEY` has been set since #160, so the gate is live,
   not inert. Before this migration the sitekey reached the ceremony forms through
-  the **cire/organiser** Astro build; moving the ceremonies to `@osn/social`
+  the **cire/host** Astro build; moving the ceremonies to `@osn/social`
   (and stripping them from organiser in the OIDC swap) left the osn-social build
   with no sitekey and its `SignIn`/`Register` with no `turnstileSiteKey` prop —
   so every sign-in on the new apex returned `400 turnstile_failed` until

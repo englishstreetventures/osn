@@ -1,6 +1,6 @@
 ---
 "@cire/api": minor
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Cire host dashboard: upload the events CSV or the guests CSV on its own — both
@@ -38,7 +38,7 @@ household.
   is preview-only — `captureBeforeImage` correctly re-reads the guest tables at
   apply, because an events-only change that removes an event cascades
   `guest_events` and `rsvps`, so that snapshot is load-bearing for revert.
-- `@cire/organiser`: both file inputs are optional — Preview stays disabled
+- `@cire/host`: both file inputs are optional — Preview stays disabled
   until at least one sheet is chosen, and the panel posts only the keys it has
   (an omitted key, never `""`). A live hint names what each selection will and
   won't touch ("Guests only — your schedule won't be touched"), echoed back

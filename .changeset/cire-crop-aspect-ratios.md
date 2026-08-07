@@ -1,7 +1,7 @@
 ---
 "@cire/api": minor
-"@cire/organiser": minor
-"@cire/web": minor
+"@cire/host": minor
+"@cire/invites": minor
 ---
 
 Fix the cropped-invite-image **distortion** bug and add **aspect-ratio presets**
@@ -38,9 +38,9 @@ Story, event cards) honour whatever aspect the organiser picked via
   present-but-bad dim) and tolerate their absence (legacy-tolerant). New
   `cropAspect` helper. The dims round-trip through save + the public invite /
   claim payloads. No migration.
-- `@cire/web`: `image-crop.ts` switches to the uniform single-value render +
+- `@cire/invites`: `image-crop.ts` switches to the uniform single-value render +
   `cropAspectRatio`; hero/Our Story/`EventCard` give the crop box the crop's true
   pixel aspect (falling back to the slot default on a legacy crop).
-- `@cire/organiser`: the crop modal gains the aspect-preset segmented control and
+- `@cire/host`: the crop modal gains the aspect-preset segmented control and
   captures `natW`/`natH` on save; the editor + thumbnails mirror the uniform
   guest render and per-slot default shapes.

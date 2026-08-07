@@ -12,7 +12,7 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/ui"
-last-reviewed: 2026-07-30
+last-reviewed: 2026-08-07
 updated: 2026-06-16
 ---
 
@@ -137,7 +137,7 @@ Props: `client`, `stepUpClient`, `accessToken`, plus optional `runPasskeyCeremon
 Mounted in:
 
 - `osn/social/src/components/SecuritySection.tsx` — Settings → Security, under the passkey list.
-- `cire/organiser/src/components/SecurityPanel.tsx` — same position, `passkeyOnly` forced (that deployment's OTP factor can't be relied on).
+- `cire/host/src/components/SecurityPanel.tsx` — same position, `passkeyOnly` forced (that deployment's OTP factor can't be relied on).
 
 `RecoveryLoginForm` is the redemption side, mounted in `@osn/ui/auth/SignIn`.
 

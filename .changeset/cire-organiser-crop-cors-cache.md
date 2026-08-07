@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Fix the crop editor opening dead in production: drop `crossOrigin="anonymous"`

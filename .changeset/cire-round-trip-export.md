@@ -1,6 +1,6 @@
 ---
 "@cire/api": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Round-trip CSV export (guest-event-editor E1): `GET

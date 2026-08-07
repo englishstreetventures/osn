@@ -1,6 +1,6 @@
 ---
 "@cire/theme": patch
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Render a chosen colour scheme rather than the built-in one when the organiser

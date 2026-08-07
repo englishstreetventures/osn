@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Migrate the image crop editor from **Cropper.js v1 → v2**.

@@ -1,7 +1,7 @@
 ---
 "@cire/api": patch
 "@cire/db": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Cire platform Phase 0 PR 4: households ≠ claim codes. A household (a `families`
@@ -29,6 +29,6 @@ holds guests and can be edited, but has no claimable invite until an organiser
   refuses code-less households (nothing to cut off). The guest claim path
   naturally excludes NULLs, so a code-less household is never claimable until an
   invite is issued.
-- `@cire/organiser`: the Guests table groups households by id (not code, so NULL
+- `@cire/host`: the Guests table groups households by id (not code, so NULL
   codes don't collapse), shows "No code yet" for a code-less household plus a
   per-row "Issue invite" (owner) and a bulk "Issue N codes" header action.

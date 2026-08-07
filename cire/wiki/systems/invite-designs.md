@@ -4,7 +4,7 @@ tags: [systems, web, api]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-07
 ---
 
 # Invite design selector
@@ -24,7 +24,7 @@ round-trips.
   validates against the catalog (unknown → 422) and gates `premium` tiers on
   the `premium_templates` entitlement (403). `inviteService.setDesign` bumps
   `updatedAt` only — never `imagesUpdatedAt` (WT-P-I1).
-- **Web** — `cire/web/src/designs/`: `registry.ts` maps `DesignId` →
+- **Web** — `cire/invites/src/designs/`: `registry.ts` maps `DesignId` →
   per-design component tree (`classic/` holds the original layout);
   `resolve.ts` (`resolveDesignId`) falls back to classic on unknown ids so a
   guest invite never 500s. Registry imports `.astro`, so vitest tests target
@@ -41,10 +41,10 @@ round-trips.
 
 1. Catalog entry in `@cire/invite-designs` (type error in the web registry
    until step 2 lands).
-2. New pack folder `cire/web/src/designs/<id>/` + registry entry. Each pack's
+2. New pack folder `cire/invites/src/designs/<id>/` + registry entry. Each pack's
    `Document.astro` owns its font preloads and islands, so guests never
    download another design's assets.
-3. Row in `cire/organiser/src/components/invite/design-layout.ts` describing how
+3. Row in `cire/host/src/components/invite/design-layout.ts` describing how
    the pack is SHAPED, so the builder's preview stops previewing it as Classic.
    Not optional — `design-layout.test.ts` asserts every catalog id has its own
    entry, so step 1 without this fails the organiser suite.

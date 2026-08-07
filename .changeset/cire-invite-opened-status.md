@@ -1,7 +1,7 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Add a reliable **"Opened"** status for each guest household, driven by an ACTUAL
@@ -33,7 +33,7 @@ cleanly).
   now returns `firstOpenedAt` as epoch-ms or null, mapped like `codeSharedAt`.
   Remint coherence: the bulk re-mint clears `first_opened_at` back to NULL
   alongside `code_shared_at` (the rotated code has never been opened).
-- `@cire/organiser`: the Guests table renders an **"Opened"** badge (gold/success
+- `@cire/host`: the Guests table renders an **"Opened"** badge (gold/success
   accent) that takes **precedence** over "Sent" — `firstOpenedAt != null` ⇒
   "Opened" (with an honest tooltip naming the open date); else if shared ⇒ the
   soft secondary "Sent" badge (kept, with a clarified "you copied the message"

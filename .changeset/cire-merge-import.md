@@ -1,7 +1,7 @@
 ---
 "@cire/api": minor
-"@cire/web": minor
-"@cire/organiser": minor
+"@cire/invites": minor
+"@cire/host": minor
 "@cire/db": minor
 ---
 

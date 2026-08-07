@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Tighten the invite's typography and click affordances.

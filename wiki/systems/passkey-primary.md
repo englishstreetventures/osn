@@ -10,8 +10,8 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/ui"
-  - "@cire/organiser"
-last-reviewed: 2026-07-23
+  - "@cire/host"
+last-reviewed: 2026-08-07
 ---
 
 # Passkey-Primary Login
@@ -89,7 +89,7 @@ UI surface (`@osn/ui/auth`):
 | App | Mount point | Notes |
 |---|---|---|
 | `@osn/social` | lazy `SecuritySection` (Settings → Security) | OTP factor available. |
-| `@cire/organiser` | `SecurityPanel.tsx`, reached via the top-level **Security** nav item (`#security`) in `OrganiserApp` | `passkeyOnly` still forced on, from the pre-Resend degraded-email era — open decision, see `wiki/TODO.md`. Wires the WebAuthn ceremonies with `@simplewebauthn/browser`; reads `accessToken` + `activeProfileId` from `useAuth()`. |
+| `@cire/host` | `SecurityPanel.tsx`, reached via the top-level **Security** nav item (`#security`) in `OrganiserApp` | `passkeyOnly` still forced on, from the pre-Resend degraded-email era — open decision, see `wiki/TODO.md`. Wires the WebAuthn ceremonies with `@simplewebauthn/browser`; reads `accessToken` + `activeProfileId` from `useAuth()`. |
 
 ## New-device onboarding
 

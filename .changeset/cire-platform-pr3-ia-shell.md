@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Portal IA shell (platform Phase 0, PR 3): replace the flat dashboard tab bar

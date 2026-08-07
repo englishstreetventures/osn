@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Organisers can now create a new OSN account directly from the cire login

@@ -1,6 +1,6 @@
 ---
-"@cire/web": patch
-"@cire/organiser": patch
+"@cire/invites": patch
+"@cire/host": patch
 "@cire/api": patch
 ---
 

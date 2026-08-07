@@ -10,7 +10,7 @@ export interface DesignMeta {
 /**
  * The invite design catalog — single source of truth for design ids, names and
  * entitlement tiers. `@cire/api` validates writes against it, the organiser
- * renders the selector from it, and `@cire/web` keys its design registry off
+ * renders the selector from it, and `@cire/invites` keys its design registry off
  * the derived `DesignId` union (a catalog entry without a matching component
  * pack is a type error there). Catalog: `classic` and `gala`, both free; the
  * gate for `premium` tiers is built and tested but dormant.

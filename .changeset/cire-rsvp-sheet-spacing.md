@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 RSVP sheet spacing — action bar seated on the sheet's edge, balanced guest cards.

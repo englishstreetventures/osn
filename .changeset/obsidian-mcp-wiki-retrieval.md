@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Docs-only: root `CLAUDE.md` now reaches for the Obsidian MCP first when looking

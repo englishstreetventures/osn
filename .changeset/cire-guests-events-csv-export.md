@@ -1,6 +1,6 @@
 ---
 "@cire/api": minor
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Guest-roster and event-list CSV exports for the cire organiser dashboard —
@@ -20,7 +20,7 @@ download each dashboard table.
   CSV serialiser + formula-injection guard moved from `rsvp-export.ts` into a
   shared `lib/csv.ts`, and the event start-time comparator into
   `lib/event-order.ts` (both reused by the RSVP export).
-- `@cire/organiser`: a "Download guests (CSV)" button beside the existing RSVPs
+- `@cire/host`: a "Download guests (CSV)" button beside the existing RSVPs
   export on the Guests tab, and a "Download events (CSV)" button on the Events
   tab (EventTable now receives the wedding slug for the filename). Both stream
   the server-built CSV through the shared blob-download helper with the usual

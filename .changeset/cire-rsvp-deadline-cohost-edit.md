@@ -1,7 +1,7 @@
 ---
 "@cire/api": patch
 "@cire/db": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Let an `editor` co-host set the wedding's RSVP-by date.

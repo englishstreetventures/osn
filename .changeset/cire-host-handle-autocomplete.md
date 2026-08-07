@@ -1,6 +1,6 @@
 ---
 "@cire/api": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Co-host add: autocomplete OSN handles as the organiser types.
@@ -13,7 +13,7 @@ Co-host add: autocomplete OSN handles as the organiser types.
   (any signed-in organiser; NOT wedding-scoped), with a light per-IP rate limit
   (60/min). Returns `{ profiles: [...] }`; empty on a missing/short query or an
   unavailable ARC bridge — the manual type-and-submit add path is unaffected.
-- `@cire/organiser`: the add-co-host input in `HostsPanel` is now an accessible
+- `@cire/host`: the add-co-host input in `HostsPanel` is now an accessible
   combobox — debounced (~280ms) handle search, a keyboard-navigable suggestion
   dropdown (`@handle — displayName`, arrow keys + Enter + Escape,
   `aria-activedescendant`), and pick-to-fill. Fails soft (no dropdown) when the

@@ -6,7 +6,7 @@ related:
   - "[[backend-patterns]]"
   - "[[schema-layers]]"
   - "[[commands]]"
-last-reviewed: 2026-08-02
+last-reviewed: 2026-08-07
 ---
 
 # Testing Patterns
@@ -139,7 +139,7 @@ Reach for these before hand-rolling setup:
 | `@shared/crypto/testing` → `makeAccessTokenSigner()` | ES256 OSN access tokens (`aud: "osn-access"`, 5-minute `exp` matching production). Returns `{ privateKey, publicKey, sign(profileId, claims?) }`; `claims` covers `email`, `audience`, `expiresIn`, `issuer`, `kid` for negative tests. Used by the pulse, zap and cire route suites. |
 | `cire/api/src/test-helpers/osn-token.ts` → `makeOsnTestAuth()` | The cire-shaped `{ key, sign }` adapter over the above. |
 | `cire/api/src/test-helpers.ts` → `appRequest()` | Elysia requests with `cf-connecting-ip` + `Origin` pre-injected. |
-| `cire/organiser/src/test-support/mocks.ts` | The `@shared/rp-auth/solid` + `solid-toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`. |
+| `cire/host/src/test-support/mocks.ts` | The `@shared/rp-auth/solid` + `solid-toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`. |
 | `pulse/app/tests/helpers/toast.ts` → `solidToastMock()` | Same idea for the Pulse app. |
 
 Call `makeAccessTokenSigner()` once per suite in `beforeAll` — there is no reason to re-key per test.

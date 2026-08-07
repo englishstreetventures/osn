@@ -33,10 +33,10 @@ packages:
   - "@cire/api"
   - "@cire/db"
   - "@cire/landing"
-  - "@cire/organiser"
+  - "@cire/host"
   - "@cire/theme"
   - "@cire/vendor"
-  - "@cire/web"
+  - "@cire/invites"
   - "@shared/crypto"
   - "@shared/db-utils"
   - "@shared/email"
@@ -47,7 +47,7 @@ packages:
   - "@shared/redis"
   - "@shared/turnstile"
   - "@shared/typescript-config"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-07
 ---
 
 # Monorepo Structure
@@ -85,8 +85,8 @@ zap/
   db/                  # @zap/db — Drizzle schema (chats, messages, group state)
                        # @zap/app — planned (SolidJS messaging client)
 cire/
-  web/                 # @cire/web — Astro + SolidJS guest invite site (port 4321; prod invite.cireweddings.com)
-  organiser/           # @cire/organiser — Astro + SolidJS organiser portal (port 4322; prod host.cireweddings.com)
+  web/                 # @cire/invites — Astro + SolidJS guest invite site (port 4321; prod invite.cireweddings.com)
+  organiser/           # @cire/host — Astro + SolidJS organiser portal (port 4322; prod host.cireweddings.com)
   vendor/              # @cire/vendor — Astro + SolidJS vendor portal (port 4326; prod vendor.cireweddings.com)
   api/                 # @cire/api — Elysia on Cloudflare Workers (port 8787; prod api.cireweddings.com)
   db/                  # @cire/db — Drizzle schema + D1 migrations
@@ -123,7 +123,7 @@ The dependency flow is strictly directional:
 - `osn/*` packages depend on `shared/*` but never on `pulse/*` or `zap/*`
 - `pulse/*` packages may depend on `osn/*` (through `graphBridge`) and `shared/*`
 - `zap/*` packages may depend on `osn/*` (for identity verification) and `shared/*`
-- `cire/*` packages depend on `shared/*` (and `@cire/api`/`@cire/web` on the intra-stack `@cire/db` / `@cire/theme`) but never on `pulse/*` or `zap/*`
+- `cire/*` packages depend on `shared/*` (and `@cire/api`/`@cire/invites` on the intra-stack `@cire/db` / `@cire/theme`) but never on `pulse/*` or `zap/*`
 - `pulse/*` and `zap/*` never depend on each other directly
 
 Cross-domain access (e.g. Pulse reading OSN's social graph) goes through a bridge module — see [[s2s-patterns]].

@@ -64,7 +64,7 @@ osn/ui/src/
     └── SignIn.tsx           ← uses Button, Input, Label, OtpInput, clsx()
 ```
 
-`CreateProfileForm.tsx` also uses `UsernameInput` for its handle field. `cire/organiser` doesn't depend on `@osn/ui` (its own component kit, different design system) — it has a local port at `cire/organiser/src/components/ui/UsernameInput.tsx` wrapping that kit's own `Input`, same "@"-prefix idea, used in `HostsPanel`'s add-host combobox.
+`CreateProfileForm.tsx` also uses `UsernameInput` for its handle field. `cire/host` doesn't depend on `@osn/ui` (its own component kit, different design system) — it has a local port at `cire/host/src/components/ui/UsernameInput.tsx` wrapping that kit's own `Input`, same "@"-prefix idea, used in `HostsPanel`'s add-host combobox.
 
 Consuming apps import via subpath exports:
 

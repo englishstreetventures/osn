@@ -5,12 +5,12 @@ related:
   - "[[index]]"
   - "[[invite-builder]]"
   - "[[systems/overview]]"
-last-reviewed: 2026-07-30
+last-reviewed: 2026-08-07
 ---
 
 # Host Portal Layout System
 
-How `cire/organiser` decides how wide things are. One page because the answer
+How `cire/host` decides how wide things are. One page because the answer
 used to be spread across a dozen components with three different mental models,
 and because getting it wrong is visible on every screen the portal is used on.
 
@@ -28,7 +28,7 @@ wide-layout code unreachable.
 
 ## The frame: `page-frame`
 
-`cire/organiser/src/styles/global.css` defines it. Every top-level surface wears
+`cire/host/src/styles/global.css` defines it. Every top-level surface wears
 it: the masthead, `<main>`, the login card, and the two portalled save bars in
 the guests/events editors (so a `fixed` bar's contents line up with the page
 behind it).
@@ -102,7 +102,7 @@ Three constraints:
   also asserted in `styles/layout-utilities.test.ts`.
 
 Both utility names, and every `--page-max` / `--auto-grid-*` override, are
-guarded by `cire/organiser/src/styles/layout-utilities.test.ts`. Tailwind ignores
+guarded by `cire/host/src/styles/layout-utilities.test.ts`. Tailwind ignores
 a class it doesn't recognise and CSS ignores a custom property nobody reads, so a
 rename or a typo (`[--autogrid-min:20rem]`) produces no build error, no lint
 error and no component-test failure — just every grid collapsing to one column.

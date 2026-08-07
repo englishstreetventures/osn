@@ -15,7 +15,7 @@ dark on bare `:root`, light via both `prefers-color-scheme` and an explicit
 zero-import boot script inlined before first paint so a chosen light theme never
 shows a frame of dark. `tokens.test.ts` asserts the contrast contract (alpha
 composited over the real ground) *and* that both ramps stay identical to
-`@cire/organiser`'s, since they are duplicated rather than imported. Motion
+`@cire/host`'s, since they are duplicated rather than imported. Motion
 tokens, the radius scale, one focus ring, `tabular-nums`, and a global
 reduced-motion kill switch come with them.
 

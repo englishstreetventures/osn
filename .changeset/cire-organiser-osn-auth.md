@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Organiser portal sign-in switched from the X-Organiser-Token shared

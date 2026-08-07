@@ -2,7 +2,7 @@
 
 The visual system for `@cire/vendor` (`vendor.cireweddings.com`).
 
-**It is the host portal's system.** `cire/organiser/DESIGN.md` is the document —
+**It is the host portal's system.** `cire/host/DESIGN.md` is the document —
 the colour law, the type ration, the shape/depth/motion scale, the layout rules,
 the component contracts. Read that first; this file records only where this
 portal differs, and why.
@@ -16,7 +16,7 @@ reads as a bug in whichever one they opened second.
 ## What is shared, and how it stays shared
 
 The ramps in `src/styles/global.css` are **copied**, value-for-value, from
-`cire/organiser/src/styles/global.css` — not imported. A cross-package CSS
+`cire/host/src/styles/global.css` — not imported. A cross-package CSS
 import would make Tailwind scan the other package's source for classes, which
 costs a build and couples the two scanners.
 
@@ -53,7 +53,7 @@ rationed to the wordmark, an organisation's name, and the name on a claim
 invite.
 
 Lato is gone. It was the guest site's body face and this is not the guest site —
-the same split `cire/organiser` made.
+the same split `cire/host` made.
 
 ### Haptics: three names, not five
 

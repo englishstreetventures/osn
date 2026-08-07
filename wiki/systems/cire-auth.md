@@ -11,7 +11,7 @@ related:
   - "[[arc-tokens]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-07
 ---
 
 # Cire auth model
@@ -224,9 +224,9 @@ The same rule is why `GET /api/auth/session` answers **200 `{signedIn: false}`**
 
 `@shared/rp-auth` exports `isAuthExpired(err)` — Effect's FiberFailure wrapping defeats `instanceof`, so it checks the `_tag` discriminant instead.
 
-**Corrected 2026-07-30.** This paragraph used to claim nothing string-matches `"AuthExpiredError"` any more, and that the `@osn/client` debt was closed. Neither was true. `cire/organiser/src/lib/api.ts` keeps its own `isAuthExpired` with a printout-matching third arm on top of the `_tag` check, and `@osn/client` had no predicate at all until one shipped on 2026-07-30 (`isAuthExpiredError`, next to the error class). The two are **not** interchangeable and the organiser was deliberately left on its own: since the OIDC swap its errors come from `@shared/rp-auth`'s `AuthExpiredError`, a plain `Error` subclass, not `@osn/client`'s `Data.TaggedError` — same name, different class.
+**Corrected 2026-07-30.** This paragraph used to claim nothing string-matches `"AuthExpiredError"` any more, and that the `@osn/client` debt was closed. Neither was true. `cire/host/src/lib/api.ts` keeps its own `isAuthExpired` with a printout-matching third arm on top of the `_tag` check, and `@osn/client` had no predicate at all until one shipped on 2026-07-30 (`isAuthExpiredError`, next to the error class). The two are **not** interchangeable and the organiser was deliberately left on its own: since the OIDC swap its errors come from `@shared/rp-auth`'s `AuthExpiredError`, a plain `Error` subclass, not `@osn/client`'s `Data.TaggedError` — same name, different class.
 
-Both predicates guard the `String(err)` call. It throws on a null-prototype object, and they run inside `catch` blocks, so an unguarded throw there swaps a recoverable expiry for an unhandled rejection. Pinned by `cire/organiser/src/lib/api.test.ts` and `osn/client/tests/errors.test.ts`; the latter builds a **real** FiberFailure rather than a hand-written string, so an Effect upgrade that changes the printout fails a test instead of a redirect.
+Both predicates guard the `String(err)` call. It throws on a null-prototype object, and they run inside `catch` blocks, so an unguarded throw there swaps a recoverable expiry for an unhandled rejection. Pinned by `cire/host/src/lib/api.test.ts` and `osn/client/tests/errors.test.ts`; the latter builds a **real** FiberFailure rather than a hand-written string, so an Effect upgrade that changes the printout fails a test instead of a redirect.
 
 ## No overlap
 
@@ -255,7 +255,7 @@ An invitee may **optionally** attach their seat to a real OSN/Pulse account so t
 
 **Session rotation on link (C6).** A successful `POST /api/account/link` **rotates the guest session**: it mints a fresh token and revokes the presented one in a single atomic batch, then returns a new `Set-Cookie`. Linking is a privilege change (the household becomes bound to an OSN account), so any token an attacker may have planted before the legitimate user linked is invalidated in the same commit — a session-fixation defence (`sessionService.rotate`). Rotation is best-effort: if the write fails the link still stands and the existing session is kept (logged), rather than 500-ing a completed link. Clients must use the rotated cookie for subsequent requests; the old one no longer validates.
 
-**The browser-side affordance shipped with the OIDC swap** — `cire/web/src/components/PulseAccountLink.tsx`, rendered under the claimed invite. It is strictly additive: every failure path degrades to a hidden or quiet control, never a broken invite.
+**The browser-side affordance shipped with the OIDC swap** — `cire/invites/src/components/PulseAccountLink.tsx`, rendered under the claimed invite. It is strictly additive: every failure path degrades to a hidden or quiet control, never a broken invite.
 
 1. Probe `GET /api/account/link` with the guest cookie alone. **503 ⇒ the whole panel renders nothing** (that deployment has no ARC key, so linking is off). Any other non-OK ⇒ also hidden.
 2. Signed out, it offers "Sign in with musubi" — `signIn(window.location.href)`, the same top-level redirect the organiser portal uses. The guest cookie survives the round trip, so the guest comes back to the claimed invite with the panel signed in.

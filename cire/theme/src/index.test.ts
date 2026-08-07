@@ -4,7 +4,7 @@ import { isSafeCssColor } from "./index";
 
 /**
  * Direct behavioural pin for the single source of truth (IB-S-L1). The
- * consumer suites (`cire/web` dress-code-render, `cire/api` invite 400s)
+ * consumer suites (`cire/invites` dress-code-render, `cire/api` invite 400s)
  * verify only the re-export plumbing; this file keeps the validator
  * self-verifying even if a consumer's wiring changes.
  */

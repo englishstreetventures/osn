@@ -1,6 +1,6 @@
 ---
 "@cire/api": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Let an `editor` co-host add more co-hosts.

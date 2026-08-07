@@ -195,7 +195,7 @@ describe("contrast is enforced, not advised", () => {
     // lightness on a dark card (0.64 vs error's 0.72) — a deliberately less
     // neon green for the RSVP confirmation. Evergreen's card is dark
     // (l < 0.5), so this exercises that branch directly, independent of
-    // `cire/web`'s global.css lockstep test (which only pins the exact string,
+    // `cire/invites`'s global.css lockstep test (which only pins the exact string,
     // not the lightness relationship this test is really about).
     const v = derivePalette(PALETTE_PRESETS.evergreen);
     const success = parseColor(v["--color-success"] as string)!;
@@ -495,7 +495,7 @@ describe("residual contrast warnings", () => {
   });
 
   test("says nothing about bloom, which the guest site paints nowhere", () => {
-    // `--color-bloom` is a defined token with no render site in `cire/web`, so
+    // `--color-bloom` is a defined token with no render site in `cire/invites`, so
     // a warning about it would be about a colour no guest can see. Deliberate
     // omission, not an oversight — this fails if a bloom pair is added without
     // the guest site gaining one.

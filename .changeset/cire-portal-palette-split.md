@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Load the command palette on demand, and move its ⌘K binding out of it

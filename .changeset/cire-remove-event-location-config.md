@@ -1,7 +1,7 @@
 ---
 "@cire/api": patch
 "@cire/db": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Remove the separate event "location config" subsystem — the free-text event `address` is the sole location source.

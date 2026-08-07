@@ -392,7 +392,7 @@ function detectFormulaInjection(
 // an open-ended event stores `endAt: ""` (the DB column is NOT NULL with the ""
 // sentinel meaning "no stated end"; display + calendar + retention all handle
 // it). `Location` is optional too — the invite's "Where" + Open-in-Maps derive
-// from `Address` (see `cire/web/src/components/event-details.ts`), and a
+// from `Address` (see `cire/invites/src/components/event-details.ts`), and a
 // provided Location is only used as the address fallback at import-write time
 // when Address is blank (see `services/import.ts`).
 const REQUIRED_EVENT_COLUMNS = EVENT_SHEET_REQUIRED_HEADERS;

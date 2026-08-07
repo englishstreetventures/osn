@@ -1,6 +1,6 @@
 ---
 "@cire/api": minor
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Remove the interim X-Organiser-Token shared secret and the flat

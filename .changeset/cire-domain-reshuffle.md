@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 "@cire/api": patch
 "@cire/landing": patch
 ---
@@ -7,7 +7,7 @@
 Domain reshuffle: guest invites → `invite.cireweddings.com`, organiser →
 `host.cireweddings.com`, marketing landing → apex `cireweddings.com`.
 
-Code side: `cire/web/wrangler.jsonc` Worker route `cireweddings.com` →
+Code side: `cire/invites/wrangler.jsonc` Worker route `cireweddings.com` →
 `invite.cireweddings.com` (custom_domain auto-provisions on deploy); deploy.yml
 `PUBLIC_SITE_URL`→`invite.`, `PUBLIC_CIRE_WEB_URL`→`invite.`,
 `PUBLIC_ORGANISER_URL`→`host.`, landing `SITE`→apex; cire-api `WEB_ORIGIN` gains

@@ -1,6 +1,6 @@
 ---
 "@cire/api": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Co-host add: autocomplete from the organiser's OSN connections.
@@ -20,7 +20,7 @@ Co-host add: autocomplete from the organiser's OSN connections.
 - `@cire/api`: `directory.ts` drops its private `escapeLike` for the shared
   `likeContains` from `@shared/db-utils/search` — same behaviour, one fewer copy
   of the LIKE-escaping rule to keep in sync.
-- `@cire/organiser`: `HostsPanel` opens its suggestion dropdown on focus with a
+- `@cire/host`: `HostsPanel` opens its suggestion dropdown on focus with a
   "From your OSN connections" caption (fetched once per cycle), badges
   connections in a mixed result list, and drops its client-side 2-character
   floor — connections match from the first character. Manual type-and-submit is

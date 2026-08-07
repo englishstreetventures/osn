@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Stop the organiser dashboard re-fetching events on every tab switch.
@@ -8,7 +8,7 @@ The dashboard tabs render each panel behind a `<Show>`, so flipping Guests ↔
 Events unmounted and remounted `EventTable` — and its `onMount` fetch re-fired
 `GET /api/organiser/weddings/:weddingId/events` on every flip back to Events.
 
-- New `cire/organiser/src/lib/events-store.ts` — a small module-scoped,
+- New `cire/host/src/lib/events-store.ts` — a small module-scoped,
   `weddingId`-keyed cache (plain Solid signals, no Effect, no state library).
   Each wedding's events are fetched at most once and reused across `EventTable`
   remounts; reads are reactive so an in-place image/crop patch updates every live

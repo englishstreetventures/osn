@@ -1,6 +1,6 @@
 ---
 "@cire/api": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Fix: a wedding's owner never appeared in the organiser portal's co-hosts list —
@@ -13,6 +13,6 @@ the owner themselves.
   fail-soft way as co-host handles. `weddingMember()` derives
   `weddingOwnerOsnProfileId` for every admitted caller (owner or co-host), not
   just the write gates.
-- `@cire/organiser`: `HostsPanel` renders the owner in its own row above the
+- `@cire/host`: `HostsPanel` renders the owner in its own row above the
   co-host list — an "Owner" badge, no role-change or remove control (those
   actions don't apply to an owner).

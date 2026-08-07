@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Collapse the host portal's chrome into one row, and give it a command palette and haptics.

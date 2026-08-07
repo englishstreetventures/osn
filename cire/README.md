@@ -16,8 +16,8 @@ Cire lives inside the **OSN monorepo** as the `cire/` workspace (merged from the
 
 ```
 cire/
-├── web/          # @cire/web — Astro + SolidJS guest invite (Cloudflare Pages, :4321)
-├── organiser/    # @cire/organiser — Astro + SolidJS organiser portal (:4322)
+├── invites/      # @cire/invites — Astro + SolidJS guest invite (Cloudflare Pages, :4321)
+├── host/         # @cire/host — Astro + SolidJS organiser portal (:4322)
 ├── api/          # @cire/api — Elysia backend (Cloudflare Workers, :8787)
 ├── db/           # @cire/db — Drizzle schema + D1 migrations
 └── wiki/         # Cire-internal Obsidian knowledge graph
@@ -29,8 +29,8 @@ OSN-facing integration docs live in the root wiki: `wiki/apps/cire.md` and `wiki
 
 | Name             | Description                                                                      | Status |
 | ---------------- | -------------------------------------------------------------------------------- | ------ |
-| `cire/web`       | Astro + SolidJS invite frontend with View Transitions and Motion One animations  | Active |
-| `cire/organiser` | Organiser portal — guest/event dashboards + spreadsheet import, OSN passkey auth | Active |
+| `cire/invites`   | Astro + SolidJS invite frontend with View Transitions and Motion One animations  | Active |
+| `cire/host`      | Organiser portal — guest/event dashboards + spreadsheet import, OSN passkey auth | Active |
 | `cire/api`       | Elysia API on Cloudflare Workers — claim codes, RSVP, organiser API              | Active |
 | `cire/db`        | Drizzle ORM schema and D1 migration files (multi-tenant `weddings` root)         | Active |
 

@@ -1,8 +1,8 @@
 ---
 "@cire/api": patch
 "@cire/db": patch
-"@cire/web": patch
-"@cire/organiser": patch
+"@cire/invites": patch
+"@cire/host": patch
 ---
 
 Fixes and coverage from the pre-merge review gate.

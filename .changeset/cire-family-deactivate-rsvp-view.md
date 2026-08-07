@@ -1,7 +1,7 @@
 ---
 "@cire/api": patch
 "@cire/db": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Two organiser-admin features for cire weddings: deactivate / reactivate a family
@@ -24,7 +24,7 @@ RSVP view.
   RSVP view grouped by event (each event with its responded guests + a status
   tally), reusing the CSV export's wedding-scoped, host-excluded reads. The
   existing `rsvps.csv` export is unchanged.
-- `@cire/organiser`: the Guests table mutes a deactivated household + labels it
+- `@cire/host`: the Guests table mutes a deactivated household + labels it
   "Deactivated — code disabled" with a confirm-gated Deactivate / direct
   Reactivate toggle. A new read-only "RSVPs" dashboard tab shows, per event, the
   guests and their status (attending / declined / maybe) with counts + dietary

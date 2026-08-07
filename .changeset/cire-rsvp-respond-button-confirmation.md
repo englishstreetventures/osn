@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Move the recorded-RSVP confirmation from the RSVP sheet's Save button onto the

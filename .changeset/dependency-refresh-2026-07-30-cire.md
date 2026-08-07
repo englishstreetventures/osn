@@ -3,9 +3,9 @@
 "@cire/db": patch
 "@cire/invite-designs": patch
 "@cire/landing": patch
-"@cire/organiser": patch
+"@cire/host": patch
 "@cire/vendor": patch
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Refresh dependencies across the cire stack as part of the monorepo-wide

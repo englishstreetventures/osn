@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Dep-audit cleanup: drop two now-dead `--ignore` suppressions from the

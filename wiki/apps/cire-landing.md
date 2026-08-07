@@ -10,15 +10,15 @@ related:
   - "[[cire-auth]]"
   - "[[production-deploy]]"
   - "[[free-tier-limits]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-07
 ---
 
 # Cire Landing
 
 `@cire/landing` (`cire/landing`, dev port **4323**) is the **marketing site** for
 Cire — the page a prospective couple lands on at the apex `cireweddings.com`. It
-is a separate concern from the per-wedding guest invites (`cire/web`) and the
-organiser portal (`cire/organiser`), and is built and deployed as its own
+is a separate concern from the per-wedding guest invites (`cire/invites`) and the
+organiser portal (`cire/host`), and is built and deployed as its own
 package.
 
 ## Why a separate package
@@ -28,8 +28,8 @@ Three clean concerns, three packages, mapping onto the end-state domains:
 | Surface | Package | End-state host |
 |---|---|---|
 | Marketing | `@cire/landing` | apex `cireweddings.com` |
-| Invites (guest) | `@cire/web` | `invite.cireweddings.com` |
-| Organiser portal | `@cire/organiser` | `host.cireweddings.com` |
+| Invites (guest) | `@cire/invites` | `invite.cireweddings.com` |
+| Organiser portal | `@cire/host` | `host.cireweddings.com` |
 
 A marketing page should be **fully static** (best SEO + speed, no per-request
 work). The guest site is per-request SSR (it resolves which wedding to render
@@ -39,7 +39,7 @@ packages deploy and scale on their own.
 
 ## Stack + brand parity
 
-Mirrors `cire/organiser`: **static Astro + SolidJS islands + Tailwind v4**
+Mirrors `cire/host`: **static Astro + SolidJS islands + Tailwind v4**
 (`output: "static"`, no Cloudflare adapter), deployed to Cloudflare Pages with
 `wrangler pages deploy dist`. Motion via Motion One (`motion`), animation logic
 isolated in `*.motion.ts` files (the cire convention).
@@ -64,7 +64,7 @@ AI-written design). The whole page uses two eyebrows (hero + "See it live"). All
 visible copy avoids the em-dash.
 
 **Brand parity is deliberate**: `src/styles/global.css` keeps
-the `@theme` token block **byte-identical** to `cire/web/src/styles/global.css`
+the `@theme` token block **byte-identical** to `cire/invites/src/styles/global.css`
 (deep-green oklch palette, gold accent, Cormorant Garamond display + Lato body)
 and loads the same Google Fonts. A visitor sees on the marketing page exactly
 what their guests will see when they open the invite, so the site sells the
@@ -125,7 +125,7 @@ shows a confirmation panel making the no-op explicit, and never calls any API
 the product instead of describing it.
 
 The **same no-op treatment** was applied to the organiser **host preview** in
-`cire/web`: the RSVP there used to be greyed out (`disabled` in preview mode).
+`cire/invites`: the RSVP there used to be greyed out (`disabled` in preview mode).
 It is now fully interactive, with submit short-circuited to a no-op and a "Nothing
 you send here is saved" banner (`RsvpModal`'s `preview` prop). A host can now walk
 the exact guest RSVP flow without adding rows to their own RSVP data.
@@ -182,7 +182,7 @@ allow-lists `images.unsplash.com` for `img-src`.
 
 **Apex cutover — done in code 2026-07-16 (domain reshuffle).** End state: apex
 `cireweddings.com` → this landing site; `invite.cireweddings.com` → guest site
-(`cire/web`); `host.cireweddings.com` → organiser portal (`cire/organiser`, moved
+(`cire/invites`); `host.cireweddings.com` → organiser portal (`cire/host`, moved
 off `app.cireweddings.com`). CI job `deploy-cire-landing` in
 `.github/workflows/deploy.yml` mirrors `deploy-cire-organiser` (the `cire-landing`
 Pages project must exist in the account before first run).
@@ -193,7 +193,7 @@ WebAuthn credentials are scoped to the whole domain — moving the organiser por
 re-registration). Only the origin allowlists gain `host.`; `app.` + the old apex
 stay in the allowlists for the switchover window, then get pruned.
 
-The code side (this PR): `cire/web/wrangler.jsonc` route → `invite.`; deploy.yml
+The code side (this PR): `cire/invites/wrangler.jsonc` route → `invite.`; deploy.yml
 `PUBLIC_SITE_URL` → `invite.`, `PUBLIC_CIRE_WEB_URL` → `invite.`,
 `PUBLIC_ORGANISER_URL` → `host.`, landing `SITE` → apex; cire-api `WEB_ORIGIN` +
 osn-api `OSN_ORIGIN`/`OSN_CORS_ORIGIN` gain `invite.`/`host.` (keep `app.`/apex for
@@ -211,7 +211,7 @@ Remaining **manual** steps (Cloudflare dashboard + one deploy), sequenced in
    in `deploy.yml`, added 2026-07-16); `OSN_ORIGIN` picks up on the next merge.
 5. Cleanup PR — **DONE 2026-07-16**: pruned the transitional apex + `app.` from
    cire-api `WEB_ORIGIN` and `app.` from osn-api `OSN_ORIGIN`/`OSN_CORS_ORIGIN`
-   (`cire/web`'s Worker route was already `invite.`-only, no apex route to drop).
+   (`cire/invites`'s Worker route was already `invite.`-only, no apex route to drop).
    **Remaining manual dashboard step:** remove the `app.cireweddings.com` custom
    domain from the `cire-organiser` Pages project so `app.` stops resolving.
 

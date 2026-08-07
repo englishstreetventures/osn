@@ -4,7 +4,7 @@ import { defineConfig } from "astro/config";
 
 // Pure static marketing site — serves the apex `cireweddings.com` (domain
 // reshuffle 2026-07-16; guest invites moved to `invite.`, organiser to `host.` —
-// see [[wiki/apps/cire-landing]]). Unlike the guest site (`cire/web`, SSR Worker
+// see [[wiki/apps/cire-landing]]). Unlike the guest site (`cire/invites`, SSR Worker
 // — it resolves a wedding per request) the
 // landing page is the same for everyone, so it prerenders to plain HTML and
 // deploys to Cloudflare Pages (`wrangler pages deploy dist`) exactly like the

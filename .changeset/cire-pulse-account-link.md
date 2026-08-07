@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Add the guest "Link my Pulse account" affordance to the invite site.
@@ -10,7 +10,7 @@ link their OSN/Pulse account to their household seat. It probes
 `GET /api/account/link` first — a 503 (linking disabled on the deployment) hides
 the feature entirely. Signed-out guests get an OSN passkey sign-in (reusing
 `@osn/ui`'s `SignIn`/`Register`, the same ceremony as the organiser portal — so
-`@osn/client` + `@osn/ui` are now `cire/web` deps); signed-in guests pick which
+`@osn/client` + `@osn/ui` are now `cire/invites` deps); signed-in guests pick which
 household member they are and `POST /api/account/link` with `{ guestId }` via
 `useAuth().authFetch` (attaches the OSN bearer and silent-refreshes on 401),
 with the `cire_session` cookie riding along. A 409 already-linked is shown as

@@ -1,7 +1,7 @@
 ---
 "@cire/api": patch
 "@cire/db": patch
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Retire the deprecated `events.date` and `events.location` columns.

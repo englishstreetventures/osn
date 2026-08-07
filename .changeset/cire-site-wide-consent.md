@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Replace the Pinterest-specific consent gate with a site-wide consent framework,

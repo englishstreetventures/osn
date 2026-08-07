@@ -20,7 +20,7 @@ Phase 1. Three surfaces run in production on Cloudflare; the rest run locally.
 | Surface | Packages | Where it runs |
 |---|---|---|
 | Identity / auth API | `@osn/api` | Live — Worker on `id.musubi.social` |
-| Wedding invites (Cire) | `@cire/api`, `@cire/web`, `@cire/organiser`, `@cire/vendor`, `@cire/db`, `@cire/theme` | Live — `cireweddings.com` zone |
+| Wedding invites (Cire) | `@cire/api`, `@cire/invites`, `@cire/host`, `@cire/vendor`, `@cire/db`, `@cire/theme` | Live — `cireweddings.com` zone |
 | Wedding marketing site | `@cire/landing` | Live — apex `cireweddings.com` |
 | Identity & graph UI | `@osn/social` | Live — Pages on the apex `musubi.social` (also serves the OIDC consent screen) |
 | Events (Pulse) | `@pulse/app`, `@pulse/api`, `@pulse/db` | Local only |

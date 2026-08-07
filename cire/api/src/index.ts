@@ -409,7 +409,7 @@ const handler: ExportedHandler<Env> = {
   //     sweep deletes rows whose 30-day window has lapsed; `expiresAt` already
   //     encodes when a row becomes dead.
   //  2. Guest-data retention sweep — enforces the published privacy promise
-  //     (cire/web privacy.astro): guest PII (guests/families/rsvps incl. dietary
+  //     (cire/invites privacy.astro): guest PII (guests/families/rsvps incl. dietary
   //     + consent, plus imports bookkeeping) is deleted 1 year after a wedding's
   //     final event. Reaps the `cire-sheets` CSVs it orphans (env.SHEETS).
   //  3. `cire-assets` orphan reconciliation (IB-S-L2) — best-effort deletes

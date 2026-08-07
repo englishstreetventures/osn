@@ -1,8 +1,8 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/organiser": minor
-"@cire/web": minor
+"@cire/host": minor
+"@cire/invites": minor
 ---
 
 Add **one optional image per event**, render it in an alternating two-column
@@ -31,7 +31,7 @@ mutually consistent (a fresh local D1 applies 0001..0019 cleanly).
   event∈wedding ownership check). `POST /api/claim`'s `EventSummary` and the
   organiser `GET .../events` response now carry `imageUrl` (the first-party path
   with the key-derived `?v=`, or null).
-- `@cire/web`: `EventCard` takes an `orientation` (`norm`/`alt`) and the event's
+- `@cire/invites`: `EventCard` takes an `orientation` (`norm`/`alt`) and the event's
   image. On desktop (md+) with an image it's two columns — `norm` = text-left /
   image-right, `alt` = image-left / text-right (CSS `order`, DOM order stays
   text-first for accessibility), vertically centred. On mobile it's a single
@@ -39,7 +39,7 @@ mutually consistent (a fresh local D1 applies 0001..0019 cleanly).
   no image it collapses to a single text-only column at every breakpoint (no
   empty half). `InvitePage` alternates the orientation by event index. The two
   buttons keep their order (Respond, then View Event).
-- `@cire/organiser`: `EventTable` gains a per-event image field (file input +
+- `@cire/host`: `EventTable` gains a per-event image field (file input +
   preview thumbnail + Remove), reusing the InviteBuilder image-upload look +
   toast pattern. One image per event — uploading replaces the current one; event
   details stay read-only (sourced from the spreadsheet import).

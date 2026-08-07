@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Fix two invite-builder bugs: the eager hex colour commit and the broken crop

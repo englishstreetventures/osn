@@ -1,6 +1,6 @@
 ---
 "@cire/theme": patch
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Fix the RSVP-by line failing WCAG AA contrast on a pale palette.

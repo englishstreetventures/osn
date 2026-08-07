@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-templates]]"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-07
 ---
 
 # Invite Builder
@@ -110,7 +110,7 @@ the note's own block (the band has to reach past it), and `CROP_ASPECT.footer`
 went 1∶1 → 16∶9 so the editor opens on the shape most couples want here — the
 same value `LEGACY_CROP_ASPECT` falls back to in both packages when a saved crop
 carries no captured source dims (three hand-kept copies; the two inside
-`@cire/organiser` are pinned to each other by a drift guard, the cross-package
+`@cire/host` are pinned to each other by a drift guard, the cross-package
 pair by convention). `cropAspectRatio` also gained a `[0.05, 20]` clamp in both
 mirrors: `natW`/`natH` are validated only as positive and finite, and a ratio
 that stringifies to exponential notation is a value CSS drops outright, which
@@ -194,7 +194,7 @@ change — and a wider one than it looks:
   This one is not a no-op if missed — that query is what marks an object LIVE,
   so an unlisted slot's images read as orphans and get swept after the grace
   window. Pinned by a reconcile test that seeds every slot.
-- `CROP_ASPECT` in `cire/organiser/src/lib/image-crop.ts` needs the slot's
+- `CROP_ASPECT` in `cire/host/src/lib/image-crop.ts` needs the slot's
   default editor shape (`footer` is 16∶9 — it renders as a full-bleed closing
   hero band, so it opens on the same wide frame the hero does).
 
@@ -208,7 +208,7 @@ A section that has **no content at all** is not shown on the guest invite — we
 never paint an empty full-screen hero or an empty "Our Story" surface. "Absent"
 means null, empty-string, **or whitespace-only** (typing only spaces does not
 fill a field). The single source of truth for these predicates is
-`cire/web/src/components/invite-emptiness.ts` (`hasText`, `isHeroEmpty`,
+`cire/invites/src/components/invite-emptiness.ts` (`hasText`, `isHeroEmpty`,
 `isStoryEmpty`, `hasFooterMessage`, `isFooterEmpty`, `hasPinterest`,
 `hasDressCode`).
 
@@ -233,7 +233,7 @@ label, not content — it does not keep the section alive on its own.
 badge — **"Shown"** vs **"Hidden — empty"** — on the Hero, Our Story and Closing
 Section fieldsets,
 driven by the **same** emptiness logic (mirrored in
-`cire/organiser/src/lib/invite-emptiness.ts`, since the two packages share no
+`cire/host/src/lib/invite-emptiness.ts`, since the two packages share no
 code). The badge updates **live** as the organiser types, so they know exactly
 what a guest will see before saving. Keep the two predicate files in lockstep.
 
@@ -269,11 +269,11 @@ Location since `feat/invite-conditional-segments`):
   is aged by its start dates, never by `max("")`.
 - **Location** was parsed-then-discarded (there is no `events.location` column —
   the "Where" + Open-in-Maps derive from **Address**, see
-  `cire/web/src/components/event-details.ts`). It is now optional and, when
+  `cire/invites/src/components/event-details.ts`). It is now optional and, when
   provided with a blank Address, is written into `events.address` at
   import-apply time so the venue name actually reaches the invite.
 
-The organiser-facing template mirror (`cire/organiser/src/lib/import-templates.ts`,
+The organiser-facing template mirror (`cire/host/src/lib/import-templates.ts`,
 `EVENT_REQUIRED_HEADERS` / `EVENT_OPTIONAL_HEADERS`) lists End + Location under
 the **optional** chips, kept in lockstep with the parser by
 `import-templates.test.ts`.
@@ -397,7 +397,7 @@ that made it a text pair wearing a UI bar, and the reason `chapel` (3.58:1) and
 `--color-gold-ink`, closing **C-M2**. What is left on that pair is genuinely UI:
 the card's outlined buttons, the hairlines and the lit card edge.
 **`--color-bloom` has no pair at all** — it is a defined token with no render
-site anywhere in `cire/web`, so a warning about it would concern a colour no
+site anywhere in `cire/invites`, so a warning about it would concern a colour no
 guest can see.
 
 The warning panel is a **permanently-mounted** `role="status"` with its contents
@@ -602,12 +602,12 @@ is rejected (415). Allowlist: JPEG, PNG, WebP.
 
 ## Guest rendering (SSR, path-routed)
 
-`cire/web` is an `output: "server"` Astro site (the `@astrojs/cloudflare`
+`cire/invites` is an `output: "server"` Astro site (the `@astrojs/cloudflare`
 adapter), deployed as a **Cloudflare Worker with Static Assets** — _not_ Pages.
 **Which wedding renders is resolved FROM THE PATH per request**, so there is no
 build-time `PUBLIC_WEDDING_SLUG` and any wedding renders from its own link:
 
-- **`/<slug>`** (`cire/web/src/pages/[slug].astro`) — the per-wedding invite. The
+- **`/<slug>`** (`cire/invites/src/pages/[slug].astro`) — the per-wedding invite. The
   route reads `slug` from the path, fetches `GET ${PUBLIC_API_URL}/api/invite/<slug>`
   **server-side per request** (`cache: "no-store"`), and renders the existing
   hero/`InviteHeader`/`InvitePage` via the shared `InviteDocument.astro`. An
@@ -615,7 +615,7 @@ build-time `PUBLIC_WEDDING_SLUG` and any wedding renders from its own link:
   a transient API error renders the invite shell with built-in defaults (no false
   404). The `?code=<host code>` auto-claim deep-link rides on `/<slug>?code=...`
   (LoginSection reads it client-side, unchanged).
-- **`/`** (`cire/web/src/pages/index.astro`) — the bare domain. **302-redirects
+- **`/`** (`cire/invites/src/pages/index.astro`) — the bare domain. **302-redirects
   off-origin to the marketing site** (`PUBLIC_MARKETING_URL`, defaulting to the
   apex `https://cireweddings.com`). It makes no API call, so it has no failure
   mode and renders nothing. Any query string is dropped deliberately — the only
@@ -640,7 +640,7 @@ The server fetch still paints the hero with the real image/copy in the SSR'd
 HTML (fast LCP, no-JS fallback). Both guest islands then **revalidate at runtime**
 and let the fresh `/api/invite/:slug` response override the per-request snapshot:
 
-- `cire/web/src/components/InviteHeader.tsx` (`client:load`) — the hero + "Our
+- `cire/invites/src/components/InviteHeader.tsx` (`client:load`) — the hero + "Our
   Story" sections. Fetches on mount via a SolidJS `createResource` seeded with
   the build-time `initial` prop, and drives the hero **image**, copy, story, and
   the hero/story **theme** from the live response.
@@ -683,7 +683,7 @@ and let the fresh `/api/invite/:slug` response override the per-request snapshot
        re-fired `load`, leaving a shown image stuck invisible. On a genuine change a
        `queueMicrotask` re-runs the ref check to also catch an already-cached new
        src.
-- `cire/web/src/components/InvitePage.tsx` (`client:visible`) — the
+- `cire/invites/src/components/InvitePage.tsx` (`client:visible`) — the
   "details"/events section. Also revalidates on mount (`createResource` seeded
   with the per-request `theme` prop, keyed on the `slug` prop threaded from
   `InviteDocument.astro`) so the events-section theme reflects the latest saved
@@ -702,11 +702,11 @@ Both organiser-side links that point at the guest site now carry the wedding slu
 in the **path** (so they open the correct wedding, not whatever the bare domain
 resolves to):
 
-- **Preview invite** (`cire/organiser/.../PreviewInviteButton.tsx`): opens
+- **Preview invite** (`cire/host/.../PreviewInviteButton.tsx`): opens
   `${CIRE_WEB_URL}/<slug>?code=<host preview code>`. The slug comes back from the
   `POST /api/organiser/weddings/:weddingId/preview-code` response, which now
   returns `{ publicId, slug }`.
-- **Copy invite message** (`cire/organiser/.../invite-message.ts`, used by
+- **Copy invite message** (`cire/host/.../invite-message.ts`, used by
   `GuestTable`): links to `${CIRE_WEB_URL}/<slug>`. The slug is threaded
   `OrganiserApp → DashboardTabs → GuestTable → buildInviteMessage`.
 
@@ -724,7 +724,7 @@ The **theme** drives CSS custom properties (`--invite-accent`, `--invite-surface
 `--invite-heading`, `--invite-body`) set on each section wrapper's inline `style`,
 consumed by the section's elements via `var(--invite-*, <built-in-token>)`
 fallbacks — so an unset (or validation-rejected) field resolves to the original
-gold / surface / display token. `cire/web/src/components/invite-theme.ts`
+gold / surface / display token. `cire/invites/src/components/invite-theme.ts`
 (`sectionThemeVars`, `fontStack`) builds the validated variable map (re-checking
 colours + resolving the font key). The hero + story sections read the live theme
 from `InviteHeader`'s resource; the "details"/events **and** "welcome" (code
@@ -767,7 +767,7 @@ wedding from its own link.
 
 ## Organiser UI
 
-`cire/organiser/src/components/invite/` (2026-07-30 split — the former
+`cire/host/src/components/invite/` (2026-07-30 split — the former
 1,650-line `InviteBuilder.tsx` is now a directory; the old
 `components/InviteBuilder.tsx` path survives as a re-export so import sites
 and tests are unchanged). `useAuth().authFetch` drives the organiser
@@ -968,7 +968,7 @@ justify-end` against classic's centred block, its columns are `text-left`
 against classic's `text-center`, its claim panel is a `max-w-[400px]` bordered
 card rather than a section band, its events header closes with a full-width
 `<hr>`. It is deliberately a **sketch, not a second implementation**: the packs
-in `cire/web/src/designs/<id>/` own the real markup, and re-rendering it here at
+in `cire/invites/src/designs/<id>/` own the real markup, and re-rendering it here at
 miniature scale would be a copy to drift. What is described is the handful of
 moves that read at 20rem wide and that an organiser is actually choosing
 between. `design-layout.test.ts` asserts every catalog id has an entry of its
@@ -1164,7 +1164,7 @@ unset** so every pre-0046 invite renders unchanged. Saves go through the same
 "mobile"` body field (default `desktop`; `mobile` on any other slot or the
 event crop route is a 400). Guest-side the packs render one focal cover layer
 per breakpoint (`heroCropLayers` + `heroImgRevealClass` in
-`cire/web/src/components/image-crop.ts`); builder-side the hero `ImageField`
+`cire/invites/src/components/image-crop.ts`); builder-side the hero `ImageField`
 gains a "Phone crop" button opening the same modal on a tall `hero-mobile`
 9∶16 default aspect, plus a phone-shaped WYSIWYG thumbnail. Upload/remove of
 the hero image resets **both** rectangles.
@@ -1203,7 +1203,7 @@ effect before saving (originally a change only showed on the guest URL after a
 save). There is no organiser-side theme mirror any more: `previewTokens` in
 `InviteBuilder.tsx` calls the SAME `derivePalette` + `fontStack` +
 `typographyVars` from `@cire/theme` that the guest root vars are built from
-(`paletteRootVars` in `cire/web/src/components/invite-theme.ts`), so the preview
+(`paletteRootVars` in `cire/invites/src/components/invite-theme.ts`), so the preview
 cannot disagree with what a guest sees. The one map is derived once per frame
 and threaded to all three layers — the inline `SectionPreview`/`HeroPreview`
 cards, the composed `PreviewPane`, and `PaletteField`'s scheme sample (via its

@@ -17,8 +17,8 @@ replacing the `example.com` / `pages.dev` placeholders.
     `api.cireweddings.com`.
 - Build-time `PUBLIC_*` for the static Astro Pages sites are set in the production
   build env (`.github/workflows/deploy.yml`), with localhost dev fallbacks kept in
-  source: cire/web → `PUBLIC_API_URL=https://api.cireweddings.com`,
-  `PUBLIC_SITE_URL=https://cireweddings.com`; cire/organiser →
+  source: cire/invites → `PUBLIC_API_URL=https://api.cireweddings.com`,
+  `PUBLIC_SITE_URL=https://cireweddings.com`; cire/host →
   `PUBLIC_CIRE_API_URL=https://api.cireweddings.com`,
   `PUBLIC_OSN_ISSUER_URL=https://id.cireweddings.com`,
   `PUBLIC_CIRE_WEB_URL=https://cireweddings.com`. Adds a `deploy-cire-organiser`

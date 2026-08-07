@@ -6,22 +6,22 @@ related:
   - "[[review-findings]]"
   - "[[index]]"
 packages:
-  - "@cire/web"
-  - "@cire/organiser"
-last-reviewed: 2026-08-06
+  - "@cire/invites"
+  - "@cire/host"
+last-reviewed: 2026-08-07
 ---
 
 # Browser Tests
 
-A second Vitest project — in `@cire/web` and, since 2026-08-06, in
-`@cire/organiser` — that runs a handful of tests in a **real Chromium** instead
+A second Vitest project — in `@cire/invites` and, since 2026-08-06, in
+`@cire/host` — that runs a handful of tests in a **real Chromium** instead
 of jsdom/happy-dom. Files are named `*.browser.test.ts(x)`.
 
 ```bash
-bun run --cwd cire/web test                 # fast tier (jsdom) — the default
-bun run --cwd cire/web test:browser         # browser tier
-bun run --cwd cire/organiser test:run       # fast tier (happy-dom)
-bun run --cwd cire/organiser test:browser   # browser tier
+bun run --cwd cire/invites test                 # fast tier (jsdom) — the default
+bun run --cwd cire/invites test:browser         # browser tier
+bun run --cwd cire/host test:run       # fast tier (happy-dom)
+bun run --cwd cire/host test:browser   # browser tier
 bun run test:browser                        # every package that has one (turbo)
 ```
 
@@ -85,7 +85,7 @@ browser test proves the outcome. `RsvpModal.test.tsx` and
 
 ## How it is wired
 
-`cire/web/vitest.config.ts` and `cire/organiser/vitest.config.ts` each define two
+`cire/invites/vitest.config.ts` and `cire/host/vitest.config.ts` each define two
 projects:
 
 - **`unit`** — jsdom, `exclude`s `**/*.browser.test.{ts,tsx}`
@@ -137,13 +137,13 @@ care.
 The organiser's copy of the command also takes `colorScheme` (its two ramps are
 `prefers-color-scheme` plus a `data-theme` override, and the ink contract has to
 hold in both), and augments Vitest's `BrowserCommands` interface so `commands`
-is typed at the call site rather than cast — `@cire/web`'s copy predates that
+is typed at the call site rather than cast — `@cire/invites`'s copy predates that
 and still casts.
 
 ## Running it locally
 
 Nothing extra on a normal machine — `playwright` is a devDependency of
-`@cire/web` and `bunx playwright install chromium` fetches the browser once.
+`@cire/invites` and `bunx playwright install chromium` fetches the browser once.
 
 Dev containers and this repo's cloud sessions ship a **prebuilt Chromium** whose
 build number won't match the pinned Playwright, which otherwise makes the tier
@@ -180,11 +180,11 @@ nothing.
 
 | Package | File | Pins |
 |---|---|---|
-| `@cire/web` | `src/lib/z-index.browser.test.tsx` | Every `Z_CLASS` entry emits real CSS; a modal-launched popover hit-tests **above** the modal (#203); no ancestor traps it in a stacking context; the modal blocks page content beneath it |
-| `@cire/web` | `src/components/RsvpModal.browser.test.tsx` | The sticky action bar sits on the scrollport's bottom edge, stays put while content scrolls under it, runs full-bleed to the panel's content box, and both buttons are the topmost element at their own centre |
-| `@cire/web` | `src/styles/reduced-motion.browser.test.tsx` | The clamp applies to transitions *and* animations, `animate-spin` keeps its documented exemption, and a clamped transition still lands on its end state and fires `transitionend` |
-| `@cire/organiser` | `src/components/ImportPanel.browser.test.tsx` | The mandatory-column chip's ink clears WCAG against the composited stack it actually sits on; the first-run `attention-glow` exists, animates `opacity` only, and honours the reduced-motion clamp |
-| `@cire/organiser` | `src/components/PreviewInviteButton.browser.test.tsx` | "Preview invite" is genuinely painted at phone width with its label clipped to the 1×1 `sr-only` box rather than `display: none`, and swaps to the written label — glyph gone — once the `frame` container passes 42rem |
+| `@cire/invites` | `src/lib/z-index.browser.test.tsx` | Every `Z_CLASS` entry emits real CSS; a modal-launched popover hit-tests **above** the modal (#203); no ancestor traps it in a stacking context; the modal blocks page content beneath it |
+| `@cire/invites` | `src/components/RsvpModal.browser.test.tsx` | The sticky action bar sits on the scrollport's bottom edge, stays put while content scrolls under it, runs full-bleed to the panel's content box, and both buttons are the topmost element at their own centre |
+| `@cire/invites` | `src/styles/reduced-motion.browser.test.tsx` | The clamp applies to transitions *and* animations, `animate-spin` keeps its documented exemption, and a clamped transition still lands on its end state and fires `transitionend` |
+| `@cire/host` | `src/components/ImportPanel.browser.test.tsx` | The mandatory-column chip's ink clears WCAG against the composited stack it actually sits on; the first-run `attention-glow` exists, animates `opacity` only, and honours the reduced-motion clamp |
+| `@cire/host` | `src/components/PreviewInviteButton.browser.test.tsx` | "Preview invite" is genuinely painted at phone width with its label clipped to the 1×1 `sr-only` box rather than `display: none`, and swaps to the written label — glyph gone — once the `frame` container passes 42rem |
 
 Two of these were verified against the bug rather than merely written green. The
 #203 test fails when the popover is put back at `z-90`. The

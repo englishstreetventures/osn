@@ -1,6 +1,6 @@
 ---
 "@cire/api": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Drop the UTC offset from event editing — an event's time is a wall clock plus a timezone.
@@ -30,7 +30,7 @@ IANA zone**:
 - Both re-importable CSV exports write the wall clock, so export → edit →
   re-import speaks the same language as the template and the editor. The
   existing export → parse → diff fixpoint test proves nothing is lost.
-- New `cire/organiser/src/lib/event-display.ts` gives the events table and the
+- New `cire/host/src/lib/event-display.ts` gives the events table and the
   editor's rows one formatter, whose degraded paths print the wall clock rather
   than the raw value — including for a half-filled draft, which `Date` reads as
   UTC midnight and which used to render as an invented "11:00 am" on a row whose

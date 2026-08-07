@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Condense the CSV import explainer's step 2 with progressive disclosure.

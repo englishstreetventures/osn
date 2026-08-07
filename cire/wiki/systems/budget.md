@@ -5,7 +5,7 @@ related:
   - "[[platform-plan]]"
   - "[[checklist-tasks]]"
   - "[[deferred]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-08-07
 ---
 
 # Budget
@@ -46,7 +46,7 @@ Payment schedule rows (deposit/balance) linked to budget items.
 
 **Single source of truth:** `cire/api/src/lib/service-categories.ts` (server definition, closed enum).
 
-**Organiser mirror:** `cire/organiser/src/lib/service-categories.ts` — read-only enum re-export for UI rendering.
+**Organiser mirror:** `cire/host/src/lib/service-categories.ts` — read-only enum re-export for UI rendering.
 
 The enum serves four domains:
 - Budget (item category grouping + rollup subtotals)

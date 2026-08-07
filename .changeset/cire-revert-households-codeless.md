@@ -1,7 +1,7 @@
 ---
 "@cire/api": patch
 "@cire/db": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Revert "households ≠ claim codes" (#254) — every household carries a claim code
@@ -30,7 +30,7 @@ decoupling of a household's existence from its invite credential.
   service no longer special-cases code-less households (any guest family can be
   deactivated). Import STILL auto-mints a code per family (unchanged) and the
   guest claim path is unchanged.
-- `@cire/organiser`: the Guests table is back to grouping households by
+- `@cire/host`: the Guests table is back to grouping households by
   `publicId` with no "No code yet" row, per-row "Issue invite" button, or bulk
   "Issue N codes" action; `OrganiserGuestRow.publicId` + the guests-store type are
   non-nullable again.

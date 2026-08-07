@@ -1,7 +1,7 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 "@cire/theme": patch
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Centre the RSVP-by line, lift desktop type, warn about the contrast the palette

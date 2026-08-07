@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Add a search bar to the host portal's guest list. Filters the already-loaded

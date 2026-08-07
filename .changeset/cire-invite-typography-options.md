@@ -2,8 +2,8 @@
 "@cire/theme": patch
 "@cire/db": patch
 "@cire/api": patch
-"@cire/web": patch
-"@cire/organiser": patch
+"@cire/invites": patch
+"@cire/host": patch
 ---
 
 Global invite typography options: heading size / weight / style + body

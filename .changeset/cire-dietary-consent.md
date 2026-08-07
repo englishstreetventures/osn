@@ -1,7 +1,7 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/web": minor
+"@cire/invites": minor
 ---
 
 Dietary RSVP field now captures explicit Art. 9(2)(a) consent (DPIA C-H2).

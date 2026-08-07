@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Guest invite: confirm a recorded RSVP instead of just closing the sheet.
@@ -114,4 +114,4 @@ half is observable to jsdom: the fill reaches 202px of the button's 204px with
 `transform, translate, scale, rotate` (Tailwind v4's `scale-*` sets the
 standalone `scale` property, so a `transition-transform` that didn't list it
 would animate nothing), the label flipping to `--color-bg` on gold, and the tick
-path fully drawn. cire/web 728 → 748 tests.
+path fully drawn. cire/invites 728 → 748 tests.

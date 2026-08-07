@@ -1,6 +1,6 @@
 ---
 "@cire/api": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Fix guest deletion in the organiser's guest editor: deleted guests could come
@@ -46,21 +46,21 @@ that applies successfully and silently does nothing.
   guest-shaped, so a household holding no guests produces no rows there. It counts
   guests in SQL rather than returning one row per guest, and both roster reads are
   now `Cache-Control: no-store` (they carry claim codes) and log their failures.
-- `@cire/organiser`: the guest + schedule editors load that read, so a household
+- `@cire/host`: the guest + schedule editors load that read, so a household
   with no guests (added but not yet filled, or emptied by an earlier save) is
   carried in the draft as an empty card instead of being absent from it — absence
   meant the next save deleted the household and its live claim code, having never
   shown it.
-- `@cire/organiser`: "Discard changes" restores the state the editor loaded
+- `@cire/host`: "Discard changes" restores the state the editor loaded
   rather than the oldest surviving undo snapshot; past the 100-entry undo cap
   (every keystroke checkpoints) that snapshot is a mid-edit state, so discarding
   kept edits while reporting the draft clean.
-- `@cire/organiser`: both editors register the unsaved-changes guard while
+- `@cire/host`: both editors register the unsaved-changes guard while
   mounted and a `beforeunload` listener while dirty, so switching module/tab no
   longer throws an unsaved draft away without asking. An apply error now also
   renders inside the preview modal (the sticky bar it used to render in sits
   behind the modal overlay), and a 409 dismisses the stale preview.
-- `@cire/organiser`: every roster cache carries a per-wedding generation that an
+- `@cire/host`: every roster cache carries a per-wedding generation that an
   invalidation bumps, so a fetch already in flight discards its rows instead of
   caching them — dropping the cache entry alone left the fetch's own callback free
   to write pre-mutation rows into a fresh entry, which is the deleted row coming

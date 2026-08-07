@@ -1,7 +1,7 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Co-host roles for cire weddings (platform Phase 0 PR 2): a co-host seat is now
@@ -27,7 +27,7 @@ an `editor` (full module writes — a partner or hired planner) or a `viewer`
   between editor and viewer (404 `host_not_found` for non-seats, incl. the
   owner) with a new `cire.host.role_changed` counter. `GET /api/organiser/weddings`
   tags each row `role: owner | editor | viewer`.
-- `@cire/organiser`: the wedding header badge shows Owner/Editor/Viewer;
+- `@cire/host`: the wedding header badge shows Owner/Editor/Viewer;
   viewers get a read-only dashboard (import panel hidden, invite tab shows a
   view-only notice pointing at Preview invite, event-location editor hidden,
   household deactivate/reactivate now owner-only in the guest table). The

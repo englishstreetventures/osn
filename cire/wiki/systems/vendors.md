@@ -5,7 +5,7 @@ related:
   - "[[cire-auth]]"
   - "[[budget]]"
   - "[[checklist-tasks]]"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-07
 ---
 
 # Vendors — directory, CRM, and email-verification claim
@@ -147,7 +147,7 @@ Routes: `/api/organiser/weddings/:weddingId/vendors` — gated by `osnAuth()` + 
 | `DELETE` | `/vendors/:vendorId` | `weddingEditor()` | Delete entry |
 | `POST` | `/vendors/:vendorId/seed-directory` | `weddingEditor()` | Seed global directory + mint claim token |
 
-Service: `cire/api/src/services/vendors.ts` — `vendorsService` (Effect). Module: `cire/organiser/src/modules/Vendors/` — `VendorsView`.
+Service: `cire/api/src/services/vendors.ts` — `vendorsService` (Effect). Module: `cire/host/src/modules/Vendors/` — `VendorsView`.
 
 ---
 
@@ -187,7 +187,7 @@ The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS
 ### Look and feel
 
 **Redesigned 2026-08-06**, bringing across the host-portal work of #372–#378.
-The portal now shares `cire/organiser`'s design system: the two OKLCH ramps
+The portal now shares `cire/host`'s design system: the two OKLCH ramps
 (dark default, light via both `prefers-color-scheme` and an explicit
 `data-theme`), self-hosted Schibsted Grotesk + Cormorant Garamond, the shared
 `ui/` primitives, and one sticky top bar in place of the old masthead-plus-nav-row.
@@ -196,7 +196,7 @@ The deltas — narrower measure, no italic, a three-name haptics vocabulary,
 `cire.vendor.*` storage keys, a two-tab strip instead of a command palette, and
 account management as a link out rather than an in-portal panel — are recorded
 in **`cire/vendor/DESIGN.md`**, which is deliberately a delta document: the
-system itself lives in `cire/organiser/DESIGN.md`.
+system itself lives in `cire/host/DESIGN.md`.
 
 The ramps are **copied, not imported** (a cross-package CSS import would make
 Tailwind scan the other package's source). `cire/vendor/src/styles/tokens.test.ts`

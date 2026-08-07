@@ -1,6 +1,6 @@
 ---
 "@cire/api": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Fix: a household rename in the guests editor never saved. The reconcile plan
@@ -16,7 +16,7 @@ meant a before-image revert could not restore a renamed household's old name.
   and applied as its own step in `applyImport`'s write set. `ImportSummary`
   gains `familiesUpdated`; the change row's persisted summary and the preview
   response carry `familyUpdates`.
-- `@cire/organiser`: `ChangePreview`'s households "update" cell was hard-coded
+- `@cire/host`: `ChangePreview`'s households "update" cell was hard-coded
   0, so a rename-only save previewed as an all-zero plan — it now counts
   `plan.familyUpdates`. `ImportPanel`'s applied summary line shows the new
   families-updated count.

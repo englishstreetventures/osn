@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Make the host portal fluid: a `page-frame` measure that scales with the screen,

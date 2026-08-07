@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Host portal: the CSV import moves into each module's Edit mode, and `Schedule`
@@ -38,8 +38,8 @@ Two fixes ride along:
   `gold-dim` ink (diff heading, tips summary, matrix header, IANA link) moved to
   `gold-ink` with them.
 
-`@cire/organiser` also gains a **real-Chromium test tier**, the same second
-Vitest project `@cire/web` has run since 2026-08-06, because those numbers were
+`@cire/host` also gains a **real-Chromium test tier**, the same second
+Vitest project `@cire/invites` has run since 2026-08-06, because those numbers were
 unmeasurable without one: happy-dom parses no stylesheet, so nothing in the fast
 tier could see that a chip's ink was 1.3:1 against what was actually painted
 under it. `ImportPanel.browser.test.tsx` measures the composited result in both
@@ -47,7 +47,7 @@ ramps (compositing on a 1×1 canvas, which parses whatever syntax
 `getComputedStyle` returns), and pins the first-run glow: that the hand-written
 `attention-glow` utility emits a real, finite animation, that it is a shadow
 rather than a border, and that the global reduced-motion clamp silences it. Run
-with `bun run --cwd cire/organiser test:browser`; CI already runs the tier for
+with `bun run --cwd cire/host test:browser`; CI already runs the tier for
 every package that has one.
 
 Pre-PR review fixed five things in the above, and the first is a real bug:

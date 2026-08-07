@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Invite builder UX + structure pass — reactive unsaved-changes protection, a

@@ -1,7 +1,7 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Wedding profile + per-event locations (platform Phase 0, PR 1): organisers
@@ -38,7 +38,7 @@ the wedding keeps one MAIN currency the couple thinks in.
   the Phase 3 pricing dataset), derived server-side from the geocoded
   state/country. New metrics `cire.wedding.settings.saved`,
   `cire.event.location.saved`, `cire.geocode.requests`.
-- `@cire/organiser`: a "Settings" tab on each wedding's dashboard — name,
+- `@cire/host`: a "Settings" tab on each wedding's dashboard — name,
   invite link (shown read-only), date, guest count, main currency, and
   budget; co-hosts see it read-only, and a saved rename updates the header +
   wedding list without a refetch. A per-event location

@@ -1,6 +1,6 @@
 ---
-"@cire/organiser": minor
-"@cire/web": minor
+"@cire/host": minor
+"@cire/invites": minor
 ---
 
 The cire invite's closing image is now a **full-bleed band**, spanning the guest
@@ -11,7 +11,7 @@ reach for, and at 200px the sign-off read like a stray avatar rather than the
 invite's closing image. It now spans the viewport, with the note (when there is
 one) reading below it on the section surface.
 
-- `@cire/web`: `InviteClosing.tsx` renders the image at `w-full` with square
+- `@cire/invites`: `InviteClosing.tsx` renders the image at `w-full` with square
   corners, and **the crop decides the height** — the box takes the crop's true
   pixel aspect and renders the framed region exactly (`cropBackgroundStyle`, the
   technique it already used), so an organiser who crops a 3∶1 panorama publishes
@@ -49,7 +49,7 @@ one) reading below it on the section surface.
 
   One layout knock-on: the section's horizontal padding moved off the
   `<section>` onto the note's own block, since the band has to reach past it.
-- `@cire/organiser`: the builder's section preview (`SectionSample`, the markup
+- `@cire/host`: the builder's section preview (`SectionSample`, the markup
   behind both the inline per-section card and the composed `PreviewPane`) now
   renders the band **edge to edge and crop-aware** — same exact-region render,
   same crop-driven aspect as the invite — so "what will my closing image look

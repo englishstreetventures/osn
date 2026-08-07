@@ -5,7 +5,7 @@
  * (`services/state-export.ts`), so the sheets the exporter writes are by
  * construction the sheets the parser reads.
  *
- * LOCKSTEP: `cire/organiser/src/lib/import-templates.ts` mirrors these labels
+ * LOCKSTEP: `cire/host/src/lib/import-templates.ts` mirrors these labels
  * for the browser-generated starter templates (it cannot import this module —
  * the organiser app must not depend on `@cire/api`). Both sides pin the exact
  * strings in tests (`state-export.test.ts` here, `import-templates.test.ts`

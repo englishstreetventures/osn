@@ -1,7 +1,7 @@
 ---
 "@cire/api": patch
 "@cire/db": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Host-customisable invite copy message (per wedding): a host can OPTIONALLY
@@ -30,7 +30,7 @@ the family's claim code.
   `PUT …/invite/text` save. Validated in `schemas/invite.ts` as an optional,
   nullable free-text string capped at 600 chars; trimmed and empty/whitespace
   collapsed to NULL by the service. Copied as plain text, never rendered as HTML.
-- `@cire/organiser`: an optional multi-line "Invite message" field in the Invite
+- `@cire/host`: an optional multi-line "Invite message" field in the Invite
   builder (saved via the existing text PUT), and `buildInviteMessage` now emits
   the 3-line shape, with `GuestTable` reading the wedding's override to seed
   line 1.

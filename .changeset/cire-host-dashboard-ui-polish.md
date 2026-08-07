@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Host-dashboard UI polish: de-duplicate the masthead, consolidate on "host"

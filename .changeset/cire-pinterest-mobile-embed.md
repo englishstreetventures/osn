@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Re-enable the Pinterest moodboard embed on mobile. The desktop-only capability

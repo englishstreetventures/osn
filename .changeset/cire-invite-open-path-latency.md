@@ -1,6 +1,6 @@
 ---
 "@cire/api": minor
-"@cire/web": minor
+"@cire/invites": minor
 ---
 
 Open a returning guest's invite without asking for their code again, and take the
@@ -26,7 +26,7 @@ network latency out of the moment a code is entered.
   ratelimit binding is declared at top level and under `[env.production]` and
   wired in the Worker entry, so that cap is a real global edge limiter rather
   than a per-isolate in-memory fallback.
-- `@cire/web`: both design packs restore an existing household session on mount,
+- `@cire/invites`: both design packs restore an existing household session on mount,
   so a guest who has already opened their invite lands straight on their events.
   The restored events section skips the unlock choreography (there is no unlock
   to perform on a return visit) and never starts at `opacity-0`. Adds a

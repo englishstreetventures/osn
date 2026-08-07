@@ -183,7 +183,7 @@ describe("ramp shape", () => {
     // holds the copy to the original. A deliberate divergence goes here as an
     // exception with a reason, not as a silently different green.
     const HOST = readFileSync(
-      fileURLToPath(new URL("../../../organiser/src/styles/global.css", import.meta.url)),
+      fileURLToPath(new URL("../../../host/src/styles/global.css", import.meta.url)),
       "utf8",
     );
     for (const [selector, mine] of [

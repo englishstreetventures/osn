@@ -1,7 +1,7 @@
 -- Remove the separate event "location config" subsystem (product-owner
 -- decision, 2026-07-16). The free-text `events.address` already advises the
 -- venue and is the SOLE location source the guest site renders (the Google
--- Maps embed in cire/web is built from `address` alone — no lat/lng, no
+-- Maps embed in cire/invites is built from `address` alone — no lat/lng, no
 -- geocoding, no map API key). The three columns dropped here — `location_lat`,
 -- `location_lng`, `pricing_region` (added by 0030) — only ever fed UNBUILT
 -- Phase 3 planning features (per-event vendor-radius search, per-region pricing

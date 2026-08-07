@@ -1,8 +1,8 @@
 ---
 "@cire/api": patch
 "@cire/db": patch
-"@cire/web": patch
-"@cire/organiser": patch
+"@cire/invites": patch
+"@cire/host": patch
 ---
 
 Personalise the invite greeting by claim-code size. A code covering exactly one

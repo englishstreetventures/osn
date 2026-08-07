@@ -1,6 +1,6 @@
 ---
-"@cire/web": minor
-"@cire/organiser": patch
+"@cire/invites": minor
+"@cire/host": patch
 ---
 
 Consent-gate the Pinterest board embed (no third-party script until the

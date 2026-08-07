@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Organiser portal: a **Security** section for managing devices / passkeys.

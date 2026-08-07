@@ -1,11 +1,11 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 "@cire/api": patch
 ---
 
 Cire editor E5: interactive guests editor UI (guest+event editor §8).
 
-- `@cire/organiser`: a new **Guests → Edit** tab — a household-grouped, inline-
+- `@cire/host`: a new **Guests → Edit** tab — a household-grouped, inline-
   editable list on top of a shared **draft store** (`lib/guest-event-draft.ts`):
   loads current server state into an id-stable SolidJS store, tracks dirtiness
   against the loaded baseline, and gives in-session **undo + discard** for free

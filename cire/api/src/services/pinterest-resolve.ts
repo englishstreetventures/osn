@@ -1,7 +1,7 @@
 /**
  * Pinterest `pin.it` short-link resolution, run server-side at CSV import time.
  *
- * Why this exists: the guest embed (`cire/web`) can only render Pinterest's
+ * Why this exists: the guest embed (`cire/invites`) can only render Pinterest's
  * board widget from a full `https://www.pinterest.com/<user>/<board>/` URL —
  * `pinit_main.js` cannot embed a `pin.it` short link. Real organiser data is
  * almost always pasted as a `pin.it/...` short link, so without resolution the

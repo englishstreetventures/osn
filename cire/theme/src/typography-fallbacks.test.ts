@@ -32,9 +32,9 @@ const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
 
 /** Source trees that consume the typography variables. */
 const SCANNED = [
-  "cire/web/src/designs",
-  "cire/web/src/styles/global.css",
-  "cire/organiser/src/components",
+  "cire/invites/src/designs",
+  "cire/invites/src/styles/global.css",
+  "cire/host/src/components",
 ] as const;
 
 const SOURCE_EXTENSIONS = [".ts", ".tsx", ".css", ".astro"];
@@ -97,10 +97,10 @@ describe("typography fallbacks stay in lockstep across packages", () => {
     // packs alone carry three references on each of ~11 heading elements.
     expect(refs.length).toBeGreaterThanOrEqual(30);
     const files = new Set(refs.map((r) => r.file));
-    expect([...files].some((f) => f.startsWith("cire/web/src/designs/classic/"))).toBe(true);
-    expect([...files].some((f) => f.startsWith("cire/web/src/designs/gala/"))).toBe(true);
-    expect([...files].some((f) => f.startsWith("cire/organiser/"))).toBe(true);
-    expect(files).toContain("cire/web/src/styles/global.css");
+    expect([...files].some((f) => f.startsWith("cire/invites/src/designs/classic/"))).toBe(true);
+    expect([...files].some((f) => f.startsWith("cire/invites/src/designs/gala/"))).toBe(true);
+    expect([...files].some((f) => f.startsWith("cire/host/"))).toBe(true);
+    expect(files).toContain("cire/invites/src/styles/global.css");
   });
 
   test("every key is exercised somewhere", () => {

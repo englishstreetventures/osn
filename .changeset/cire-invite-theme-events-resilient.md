@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Fix the guest invite's **events section vanishing** when a malformed/partial theme

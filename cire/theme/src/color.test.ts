@@ -1,6 +1,6 @@
 /**
  * Parser coverage for the shared colour maths. Moved here from
- * `cire/organiser/src/lib/contrast.ts` when derivation became shared: the
+ * `cire/host/src/lib/contrast.ts` when derivation became shared: the
  * organiser, the guest site and the API all read colours through this module
  * now, so its parser is the one that must be right.
  */

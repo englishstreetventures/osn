@@ -1,11 +1,11 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Add a Content-Security-Policy (and re-assert the other security headers) to the
 guest site via Astro SSR middleware.
 
-`cire/web` is an SSR Worker (`@astrojs/cloudflare`, `output: "server"`), not a
+`cire/invites` is an SSR Worker (`@astrojs/cloudflare`, `output: "server"`), not a
 Pages site. Cloudflare Workers Static Assets honours `public/_headers`, but only
 for the **static-asset layer** (the prerendered `/privacy` + `/terms` pages and
 `/_astro/*`) — NOT the Worker-rendered invite routes (`/<slug>`, the bare-domain

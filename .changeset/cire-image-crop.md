@@ -1,8 +1,8 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/organiser": minor
-"@cire/web": minor
+"@cire/host": minor
+"@cire/invites": minor
 ---
 
 Give the organiser **crop + zoom control** over the three customisable invite
@@ -44,11 +44,11 @@ image-bytes cache to bust.
   upload (or a remove) RESETS the slot's crop to full-frame. The crop is surfaced
   on `getForSlug`/`getForWeddingId` (hero/story), the claim `EventSummary`, and
   the organiser events list so the builder can re-open the saved crop.
-- `@cire/web`: hero, "Our Story", and `EventCard` render the cropped region via
+- `@cire/invites`: hero, "Our Story", and `EventCard` render the cropped region via
   the shared `image-crop.ts` helper (a background div), falling back to the
   existing responsive `<img srcset>` + `object-cover` when no crop is set — so the
   alternating/two-column/emptiness behaviour is unchanged.
-- `@cire/organiser`: a "Crop" affordance on each image opens an `ImageCropModal`
+- `@cire/host`: a "Crop" affordance on each image opens an `ImageCropModal`
   built on the battle-tested **Cropper.js** (`cropperjs`) with drag/resize/zoom,
   Save, and Reset-to-full; the saved crop re-opens as the initial box and the
   field thumbnail previews the cropped region WYSIWYG.

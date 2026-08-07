@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 "@cire/api": patch
 "@cire/db": patch
 ---

@@ -1,8 +1,8 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
-Add a real-browser Vitest project to `@cire/web`, for the bugs jsdom cannot see.
+Add a real-browser Vitest project to `@cire/invites`, for the bugs jsdom cannot see.
 
 **The gap this closes was measured, not assumed.** jsdom computes no CSS and no
 layout: it never parses the stylesheet, `getComputedStyle` returns roughly what
@@ -31,7 +31,7 @@ The existing answer to all of these is text-matching drift guards
 it. They stay — they are fast and they catch a source change. But they pin only
 that the source *says* the right thing, never that the render *does*.
 
-**What was added.** `cire/web/vitest.config.ts` becomes two projects: `unit`
+**What was added.** `cire/invites/vitest.config.ts` becomes two projects: `unit`
 (jsdom, unchanged behaviour, excludes `*.browser.test.*`) and `browser`
 (Playwright + headless Chromium, includes only `src/**/*.browser.test.{ts,tsx}`).
 Naming decides the project, so every file lands in exactly one and neither glob

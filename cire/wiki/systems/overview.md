@@ -2,12 +2,12 @@
 title: Organiser Overview
 tags: [systems, cire, organiser]
 related: [checklist-tasks, budget]
-last-reviewed: 2026-07-23
+last-reviewed: 2026-08-07
 ---
 
 # Organiser Overview
 
-The Overview (`cire/organiser/src/components/Overview.tsx`) is the module shell's
+The Overview (`cire/host/src/components/Overview.tsx`) is the module shell's
 landing view: "how's the wedding tracking?" at a glance. For a brand-new wedding
 (no events, no households) it shows `GettingStarted` instead.
 

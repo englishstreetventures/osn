@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Give the host portal a set of shared primitives, and two motion utilities to move with.

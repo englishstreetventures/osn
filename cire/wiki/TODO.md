@@ -6,7 +6,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[overview]]"
   - "[[contributing]]"
-last-reviewed: 2026-07-08
+last-reviewed: 2026-08-07
 ---
 
 # Cire TODO
@@ -18,7 +18,7 @@ This file is a thin index. **All tracked items live in per-area shards under `wi
 | Shard                            | What it tracks                                           |
 | -------------------------------- | -------------------------------------------------------- |
 | [[wiki/todo/status]]             | Current Status paragraph + Up Next priority list         |
-| [[wiki/todo/web]]                | `cire/web` frontend feature work                         |
+| [[wiki/todo/web]]                | `cire/invites` frontend feature work                         |
 | [[wiki/todo/api]]                | `cire/api` backend feature work                          |
 | [[wiki/todo/db]]                 | `cire/db` schema + migrations                            |
 | [[wiki/todo/spreadsheet-import]] | Organiser spreadsheet upload (parser + diff + endpoints) |

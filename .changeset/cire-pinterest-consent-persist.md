@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Make the Pinterest board consent gate a one-time, page-wide opt-in. Consent now

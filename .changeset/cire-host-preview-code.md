@@ -1,8 +1,8 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/organiser": minor
-"@cire/web": minor
+"@cire/host": minor
+"@cire/invites": minor
 ---
 
 Add a "Preview invite" button to the cire organiser dashboard that opens the
@@ -25,10 +25,10 @@ event and detail exactly as a guest would.
   them) and are barred from submitting RSVPs (`POST /api/rsvp` → 403,
   preview-only). The claim response carries a new `preview` boolean. New
   `cire.host_code.ensured` counter + `cire.host_code.ensure` span.
-- `@cire/organiser`: new `PreviewInviteButton` in the dashboard header — POSTs
+- `@cire/host`: new `PreviewInviteButton` in the dashboard header — POSTs
   the preview-code endpoint, then opens the guest site at
   `?code=<host code>` in a new tab. New `PUBLIC_CIRE_WEB_URL` env var points at
   the guest invite origin.
-- `@cire/web`: the guest invite auto-claims from a `?code=` deep-link (no
+- `@cire/invites`: the guest invite auto-claims from a `?code=` deep-link (no
   retyping), shows a "Preview mode" banner, and disables the RSVP button when
   the claim is a host preview session.

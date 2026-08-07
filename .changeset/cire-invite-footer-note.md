@@ -1,8 +1,8 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/organiser": minor
-"@cire/web": minor
+"@cire/host": minor
+"@cire/invites": minor
 ---
 
 Closing section on the cire guest invite: the couple can now end the invite in
@@ -53,7 +53,7 @@ guests match and the builder gains no extra knob.
   private`, 404ing rather than 401/403 so an unclaimed visitor cannot learn
   whether a closing image exists. `hero` and `story` are untouched — still
   public, still publicly cacheable.
-- `@cire/web`: new `InviteClosing.tsx` rendered by both design packs'
+- `@cire/invites`: new `InviteClosing.tsx` rendered by both design packs'
   `InvitePage` from `claimResult().closing`, below the events — so the render
   gate and the data gate are the same gate. Hidden entirely via the shared
   `isFooterEmpty` predicate; the image uses the same crop-fraction CSS technique
@@ -61,7 +61,7 @@ guests match and the builder gains no extra knob.
   `content-visibility: auto` since it is guaranteed off-screen at mount.
   Deliberately not `opacity-0` — a section that needs the unlock motion chunk to
   become visible is one that can stay invisible when that chunk fails to load.
-- `@cire/organiser`: a "Closing Section" card in the invite builder with the
+- `@cire/host`: a "Closing Section" card in the invite builder with the
   image field, the note field and a live preview on the welcome surface, plus
   the **"Shown" / "Hidden — empty"** badge driven by `isFooterEmpty` (note OR
   image). Storage and the wire stay `footer_*` while the organiser-facing label

@@ -6,7 +6,7 @@ Put `@cire/vendor` behind `astro check` and fix the six type errors that had
 accumulated while it was outside the gate.
 
 The package had no `check` script, so `bun run check` silently skipped it — the
-portal was the only Astro app in the repo not type-checked, and `cire/organiser`
+portal was the only Astro app in the repo not type-checked, and `cire/host`
 is maintained as its twin, so the pair had been drifting. Adds the script (and
 the `@astrojs/check` + `typescript` devDependencies the organiser already has),
 which takes the turbo `check` task from 24 packages to 25.

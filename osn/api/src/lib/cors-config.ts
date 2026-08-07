@@ -16,8 +16,8 @@
 export const LOCAL_DEV_CORS_ORIGINS = [
   "http://localhost:1420", // @pulse/app
   "http://localhost:1422", // @osn/social
-  "http://localhost:4321", // @cire/web (guest "Link my Pulse account" island)
-  "http://localhost:4322", // @cire/organiser (OSN passkey sign-in)
+  "http://localhost:4321", // @cire/invites (guest "Link my Pulse account" island)
+  "http://localhost:4322", // @cire/host (OSN passkey sign-in)
 ] as const;
 
 export type CorsEnv = Readonly<Record<string, string | undefined>>;

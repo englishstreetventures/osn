@@ -1,15 +1,15 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/web": minor
-"@cire/organiser": minor
+"@cire/invites": minor
+"@cire/host": minor
 ---
 
 Close the invite-customisation gaps organisers reported: every guest-facing
 part of the invite now follows the saved theme, and the remaining hardcoded
 copy is editable.
 
-- `@cire/web`: new `sectionTokenBridge` (invite-theme.ts) re-points the global
+- `@cire/invites`: new `sectionTokenBridge` (invite-theme.ts) re-points the global
   design tokens (`--color-gold`, `--color-gold-dim`, `--color-surface`,
   `--font-display`, `--font-body`) at the validated `--invite-*` variables on a
   section wrapper. Fixes the bug where the "Event Details" accent/surface/font
@@ -25,6 +25,6 @@ copy is editable.
 - `@cire/api`: `InviteTextBody` accepts the three new fields (caps 80/160/300,
   trimmed, whitespace ⇒ null) and the invite payload carries
   `details: {eyebrow, heading}` + `welcome: {message}`.
-- `@cire/organiser`: the invite builder gains "Code Entry & Welcome" (welcome
+- `@cire/host`: the invite builder gains "Code Entry & Welcome" (welcome
   greeting) and "Events Section" (eyebrow + heading) fields, saved with the
   existing Save copy action.

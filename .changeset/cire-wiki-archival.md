@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Docs-only: archive completed cire wiki TODO items out of the open-work shards.

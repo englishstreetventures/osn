@@ -1,6 +1,6 @@
 ---
-"@cire/organiser": patch
-"@cire/web": patch
+"@cire/host": patch
+"@cire/invites": patch
 "@cire/api": patch
 ---
 
@@ -15,10 +15,10 @@ Lint fixes (behaviour-preserving):
   (`claim`, `rsvp`, `spreadsheet` service + route tests).
 - `unicorn/prefer-add-event-listener` — `FileReader`/`script` `on*`
   assignments converted to `addEventListener(...)` in
-  `cire/organiser` `ImportPanel`, `cire/web` `PinterestBoard`, and the
-  `cire/web` calendar test.
+  `cire/host` `ImportPanel`, `cire/invites` `PinterestBoard`, and the
+  `cire/invites` calendar test.
 - `unicorn/consistent-function-scoping` — hoisted scope-independent
-  helpers (`pad` in `cire/web/calendar`, `tooManyRows` / `cellTooLarge`
+  helpers (`pad` in `cire/invites/calendar`, `tooManyRows` / `cellTooLarge`
   in `cire/api/spreadsheet`) to module scope.
 - `no-console` — annotated the `cire/api` local-dev server banner
   (`local.ts`, a Bun shim, not the deployed Worker) with the repo's

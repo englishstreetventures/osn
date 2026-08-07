@@ -1,8 +1,8 @@
 ---
 "@cire/api": patch
-"@cire/organiser": patch
+"@cire/host": patch
 "@cire/vendor": patch
-"@cire/web": patch
+"@cire/invites": patch
 "@cire/db": patch
 ---
 
@@ -23,6 +23,6 @@ redirects to the issuer and never touches WebAuthn itself.
   `CIRE_OIDC_CLIENT_ID` and `CIRE_OIDC_CLIENT_SECRET` must be set, else the
   routes answer 503 `sign_in_unavailable` and the rest of cire works as normal.
 - `@cire/db`: migration `0047_organiser_sessions`.
-- `@cire/organiser`, `@cire/vendor`, `@cire/web`: sign-in and sign-out go
+- `@cire/host`, `@cire/vendor`, `@cire/invites`: sign-in and sign-out go
   through `@shared/rp-auth`; the passkey forms and `@osn/client` calls are gone.
   Passkey and recovery-code management deep-links to `musubi.social/settings`.

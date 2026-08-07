@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Round the mobile event-details bottom-sheet's top corners more so it reads as a

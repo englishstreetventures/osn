@@ -32,7 +32,7 @@
 # hashed file. Astro's island bootstrap is external `/_astro/*` and covered
 # by 'self'.
 #
-# Other differences from `cire/organiser/public/_headers`, audited from source:
+# Other differences from `cire/host/public/_headers`, audited from source:
 #   - No `blob:` in `img-src`: no cropper, no object URLs (`data:` is kept for
 #     inline SVG data URIs).
 #   - `connect-src` is cire-api only. Sign-in is a top-level redirect through

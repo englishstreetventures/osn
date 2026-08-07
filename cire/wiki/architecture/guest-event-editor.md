@@ -5,7 +5,7 @@ related:
   - "[[platform-plan]]"
   - "[[spreadsheet-import]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-07
 updated: 2026-08-06 (E9 — the UTC offset leaves the organiser-facing surface: editor rows, drawer hint, CSV schema, exports)
 ---
 
@@ -135,7 +135,7 @@ Gated `weddingMember()` today; flip to `weddingEditor()` when platform PR 2 (rol
 
 The existing `/import/{preview,apply,revert,list}` routes stay mounted as a **one-release alias** over the same factories (the repo's decided route-move convention), then get deleted.
 
-## 8. Frontend (cire/organiser)
+## 8. Frontend (cire/host)
 
 - **Draft store** (`lib/guest-event-draft.ts`): load server state → SolidJS store draft; dirty tracking; id-stable rows; client-side edit stack giving in-session undo and "discard draft" for free (no server round-trips while editing). It loads THREE reads — events, guests, and households (`lib/households-store.ts`) — because a guest-less household exists only in the third (§3.2). "Discard" restores the snapshot taken at load, **not** the oldest surviving undo entry: the undo stack is bounded and every keystroke checkpoints, so in any session long enough to overflow it the oldest entry is a mid-edit state, and discarding to it silently kept edits while reporting the draft clean.
 - **Unsaved-changes guard**: both editors register `lib/unsaved-guard.ts` while mounted and a `beforeunload` listener while dirty (the invite-builder pattern). Without it a stray module/tab click threw the whole draft away with no prompt — indistinguishable, from the organiser's side, from a delete that didn't take.

@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Mobile-responsiveness pass over the guest invite (no redesign — visual design and

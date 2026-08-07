@@ -1,5 +1,5 @@
 ---
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Guest invite: make the claim code field legible and properly labelled, and give

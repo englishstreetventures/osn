@@ -5,7 +5,7 @@ related:
   - "[[systems/overview]]"
   - "[[invite-builder]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-08-01
+last-reviewed: 2026-08-07
 ---
 
 # RSVP deadline
@@ -93,7 +93,7 @@ The deadline rides the **claim payload** (`ClaimResponse.rsvpDeadline`), not the
 }
 ```
 
-Both `closesAt` and `closed` are sent because a guest can sit on a claimed invite for hours. `createRsvpClosed` (`cire/web/src/components/createRsvpClosed.ts`) schedules **one** timer at `closesAt` and re-derives the verdict — nothing polls, nothing wakes a sleeping phone — so an invite left open across the deadline locks itself instead of leading to a server 403. Delays beyond `setTimeout`'s 32-bit range are deliberately not scheduled (they would fire immediately and close a far-off invite on sight).
+Both `closesAt` and `closed` are sent because a guest can sit on a claimed invite for hours. `createRsvpClosed` (`cire/invites/src/components/createRsvpClosed.ts`) schedules **one** timer at `closesAt` and re-derives the verdict — nothing polls, nothing wakes a sleeping phone — so an invite left open across the deadline locks itself instead of leading to a server 403. Delays beyond `setTimeout`'s 32-bit range are deliberately not scheduled (they would fire immediately and close a far-off invite on sight).
 
 One verdict drives three surfaces, in both the `classic` and `gala` designs:
 
@@ -152,5 +152,5 @@ It is the only field on that panel guests feel, which is why its hint says so ex
 | Guest payload | `cire/api/src/services/claim.ts`, `cire/api/src/schemas/claim.ts` |
 | Organiser write | `cire/api/src/schemas/settings.ts`, `cire/api/src/services/wedding-settings.ts` |
 | Who may write it | `cire/api/src/routes/organiser-settings.ts` (gate + field check), `cire/api/src/middleware/wedding-editor.ts` |
-| Organiser UI | `cire/organiser/src/components/SettingsPanel.tsx` |
-| Guest UI | `cire/web/src/components/rsvp-deadline.ts`, `createRsvpClosed.ts`, `EventCard.tsx`, `RsvpModal.tsx`, `designs/{classic,gala}/InvitePage.tsx` |
+| Organiser UI | `cire/host/src/components/SettingsPanel.tsx` |
+| Guest UI | `cire/invites/src/components/rsvp-deadline.ts`, `createRsvpClosed.ts`, `EventCard.tsx`, `RsvpModal.tsx`, `designs/{classic,gala}/InvitePage.tsx` |

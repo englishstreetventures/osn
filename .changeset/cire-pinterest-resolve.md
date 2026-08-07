@@ -1,6 +1,6 @@
 ---
 "@cire/api": patch
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 Make Pinterest moodboards actually embed, and move the fallback link below the
@@ -21,7 +21,7 @@ never rendered and guests only ever got the link-out.
   pinterest.com final host is accepted, redirect depth is capped (≤5) with a short
   AbortController timeout, and ANY failure/timeout/non-board result falls back to
   the original URL unchanged — resolution never blocks or throws out of the import.
-- `@cire/web`: the desktop "View moodboard on Pinterest ↗" fallback link now
+- `@cire/invites`: the desktop "View moodboard on Pinterest ↗" fallback link now
   renders BELOW the embed/consent block instead of above it. Consent gate,
   success-detection MutationObserver, and failure-timeout logic are unchanged;
   the mobile link-out card is unchanged.

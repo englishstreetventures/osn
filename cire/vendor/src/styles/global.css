@@ -5,7 +5,7 @@
 @import "tailwindcss";
 
 /* ── The two ramps ──────────────────────────────────────────────────────────
- * Lifted wholesale from `cire/organiser`, deliberately value-for-value. The
+ * Lifted wholesale from `cire/host`, deliberately value-for-value. The
  * vendor portal and the host portal are two doors into the same product, and a
  * vendor who also hosts a wedding moves between them in one session; a green
  * that is a shade off between the two reads as a bug in whichever one they

@@ -1,8 +1,8 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
-T-M2 (cire) — `cire/organiser/src/lib/api.ts` shipped untested. `isAuthExpired`
+T-M2 (cire) — `cire/host/src/lib/api.ts` shipped untested. `isAuthExpired`
 decides between "bounce the organiser to sign-in" and "show an error", so both
 misclassifications are user-visible: a false negative leaves a dead dashboard
 behind an expired cookie, a false positive throws someone out of a task

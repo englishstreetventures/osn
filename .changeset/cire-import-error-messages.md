@@ -1,6 +1,6 @@
 ---
 "@cire/api": patch
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Cire spreadsheet import: say what's actually wrong with the CSV.
@@ -10,7 +10,7 @@ message for fourteen genuinely different problems, with no hint of which of two
 files to open, which row, or what to change. The API had already worked all of
 that out; the portal was discarding it.
 
-- `@cire/organiser`: new `lib/import-errors.ts` turns the structured 422 into a
+- `@cire/host`: new `lib/import-errors.ts` turns the structured 422 into a
   sentence that locates the problem and says how to fix it — e.g. "In your
   events sheet, row 4, column 2 — Start must look like 2026-11-14T15:00+11:00 …
   opening the file in Excel, Numbers or Sheets can silently rewrite that cell as

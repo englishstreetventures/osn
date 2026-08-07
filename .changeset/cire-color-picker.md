@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Replace the bare native `<input type="color">` in the invite builder's theme
@@ -7,7 +7,7 @@ section with an accessible popover colour picker that makes hex entry obvious.
 
 A product-owner note ("nice, but I didn't realise at first how to input hex
 codes") flagged that the native swatch hid hex entry. The new `ColorPicker`
-(`cire/organiser/src/components/ColorPicker.tsx`, built on Kobalte 0.13.x colour
+(`cire/host/src/components/ColorPicker.tsx`, built on Kobalte 0.13.x colour
 primitives) is a swatch trigger button — showing the current colour + its
 `#RRGGBB` value, or "Default" — that opens a popover containing:
 
@@ -23,6 +23,6 @@ emits a `#rrggbb` string (or `null`), so the live `ThemePreview` and the
 `cire/api` colour allow-list keep working untouched. Styled with the existing
 organiser theme tokens; keyboard-navigable via Kobalte's popover focus handling.
 
-Adds `@kobalte/core` as a direct `@cire/organiser` dependency (already a
+Adds `@kobalte/core` as a direct `@cire/host` dependency (already a
 transitive dep via `@osn/ui`); `@internationalized/color` is not needed —
 Kobalte bundles `parseColor`/`Color` under `@kobalte/core/colors`.

@@ -1,7 +1,7 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Co-hosts for cire weddings: an organiser (the owner) can add another person as a
@@ -21,6 +21,6 @@ host. A co-host gets access to that wedding's organiser dashboard.
   `resolveHandle` bridge; when the ARC key is absent the add-host POST fails closed
   with 503. `GET /api/organiser/weddings` now lists owned AND co-hosted weddings,
   each tagged `role: owner | host`.
-- `@cire/organiser`: a "Hosts" tab on each wedding's dashboard — add by handle,
+- `@cire/host`: a "Hosts" tab on each wedding's dashboard — add by handle,
   list, remove (owner only); co-hosts see the dashboard read-only with a Co-host
   badge, and owner-only surfaces (spreadsheet import) are hidden for them.

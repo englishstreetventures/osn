@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Cire editor E6: interactive events editor UI + change history (guest+event

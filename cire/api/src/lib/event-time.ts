@@ -18,7 +18,7 @@
  * the CSV template, the CSV parser, the exports and the editor all speak wall
  * clock + zone.
  *
- * The client twin of {@link zoneOffsetAt} is `cire/organiser/src/lib/timezones.ts`
+ * The client twin of {@link zoneOffsetAt} is `cire/host/src/lib/timezones.ts`
  * (the drawer stamps the same offset onto an edited event). Same two-pass DST
  * resolution, same answers — duplicated only because this module is server-side
  * and the organiser bundle cannot import from `@cire/api`.

@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Overhaul the CSV import explainer in `ImportPanel.tsx` so a non-technical couple

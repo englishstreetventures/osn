@@ -1,6 +1,6 @@
 ---
 "@cire/theme": patch
-"@cire/web": patch
+"@cire/invites": patch
 ---
 
 RSVP confirmation: darken the success green and move the tick after the
@@ -11,7 +11,7 @@ RSVP confirmation: darken the success green and move the tick after the
 less neon green for the RSVP button's fill sweep and the permanent tick.
 `semantic()` in `@cire/theme` gained an optional `darkStart` override (default
 unchanged at 0.72, still walked through `ensureContrast` so every scheme stays
-legible) so only success shifted, not error. `cire/web/src/styles/global.css`'s
+legible) so only success shifted, not error. `cire/invites/src/styles/global.css`'s
 static fallback was updated to match, keeping the lockstep test (T-S1) green.
 
 On the event card, the tick in the "Respond" button now renders after the

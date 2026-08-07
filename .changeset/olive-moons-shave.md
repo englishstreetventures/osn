@@ -1,11 +1,11 @@
 ---
 "@cire/api": patch
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Share the organiser component-test mocks and the OSN test-token signer
 
-`cire/organiser/src/test-support/mocks.ts` (new) holds the
+`cire/host/src/test-support/mocks.ts` (new) holds the
 `@shared/rp-auth/solid` + `solid-toast` + `lib/api` mock factories and their
 spies, which 17 component suites were each re-declaring. `vi.mock` is hoisted
 per module so registration stays in the test file; only the factory bodies move,

@@ -1,7 +1,7 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/organiser": minor
+"@cire/host": minor
 ---
 
 Organiser-recorded RSVPs (phone/paper, Art. 9 consent-attested).
@@ -43,7 +43,7 @@ plus an `unresponded` list of invited-but-unreplied guests. The
 `cire.rsvp.upserted` metric gained a bounded `source` (`guest`/`organiser`)
 attribute.
 
-**Organiser portal (`@cire/organiser`)** — the RSVP view (`RsvpView`) lets an
+**Organiser portal (`@cire/host`)** — the RSVP view (`RsvpView`) lets an
 editor record/update a guest's RSVP per event: status + optional dietary gated
 by an explicit "I confirm the guest consented…" attestation checkbox (mirroring
 the guest consent UX). Organiser-entered replies are badged distinctly from

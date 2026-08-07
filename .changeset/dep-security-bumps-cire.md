@@ -1,6 +1,6 @@
 ---
-"@cire/web": patch
-"@cire/organiser": patch
+"@cire/invites": patch
+"@cire/host": patch
 ---
 
 Bump `astro` `^6.4.2` → `^6.4.6` to clear the high-severity Host-header

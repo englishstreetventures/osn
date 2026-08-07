@@ -1,5 +1,5 @@
 ---
-"@cire/organiser": patch
+"@cire/host": patch
 ---
 
 Two organiser-portal UI-polish tweaks from the product-owner IA review.

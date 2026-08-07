@@ -1,8 +1,8 @@
 ---
 "@cire/api": minor
 "@cire/db": minor
-"@cire/organiser": minor
-"@cire/web": minor
+"@cire/host": minor
+"@cire/invites": minor
 ---
 
 Replace the coarse hero display toggles (Blurred/Regular image + None/Solid
@@ -37,12 +37,12 @@ Three controls, each a bounded integer:
   is folded into the Cache API key too (defensively, on top of the `updatedAt`
   bump). The blur is always server-derived — NEVER a client query param — so the
   no-arbitrary-cache-minting invariant (S-M1) is preserved.
-- `@cire/web`: the guest hero always requests the `hero-bg` variant (the server
+- `@cire/invites`: the guest hero always requests the `hero-bg` variant (the server
   applies the stored blur, 0 ⇒ sharp), and renders a title legibility panel
   behind the title text driven by the two backdrop sliders — background opacity
   (via `color-mix`) + `backdrop-filter: blur()` (+ `-webkit-` twin). Opacity 0 ⇒
   no panel. The on-mount image-complete / re-arm logic is unchanged.
-- `@cire/organiser`: the Blurred/Regular + None/Solid toggles are replaced by a
+- `@cire/host`: the Blurred/Regular + None/Solid toggles are replaced by a
   reusable `SliderField` (label + range input + live value readout) for the three
   sliders, plus a **WYSIWYG `HeroPreview`** that composites the uploaded hero
   image (client-side CSS `filter: blur()` on a non-blurred `card` variant — no
