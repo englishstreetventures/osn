@@ -1,5 +1,6 @@
+import { tokeniseQuery, tokensPrefixName } from "@shared/db-utils/search";
 import { useAuth } from "@shared/rp-auth/solid";
-import { createSignal, onMount, Show, For, createMemo } from "solid-js";
+import { createSignal, onCleanup, onMount, Show, For, createMemo } from "solid-js";
 import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
@@ -18,6 +19,7 @@ import {
 import { buildInviteMessage, copyToClipboard } from "../lib/invite-message";
 import SectionIntro from "./SectionIntro";
 import EmptyState from "./ui/EmptyState";
+import Field, { Input } from "./ui/Field";
 import Notice from "./ui/Notice";
 import { Table, Td, Th } from "./ui/Table";
 
@@ -49,6 +51,23 @@ const isOpened = (family: FamilyGroup) => family.firstOpenedAt !== null;
 // A family whose code the organiser cut off (withdrawn invite). Pure function of
 // the server row plus the local optimistic override (see `deactivatedNow` /
 // `reactivatedNow` below), so the row mutes + relabels immediately on toggle.
+
+/** Debounce window (ms) before a typed search prefix re-filters the roster —
+ *  a plan can hold up to 1000 guests (see `deriveCap` in cire-api), and
+ *  without this every keystroke re-tokenises + re-scans the whole roster
+ *  synchronously on the main thread. */
+const SEARCH_DEBOUNCE_MS = 200;
+
+/** True when `family` itself (name or code) matches the query — as opposed to
+ *  one of its members. Shared by the roster-level filter and each row's own
+ *  member-visibility check so the two agree on what counts as a household
+ *  match. */
+function householdMatches(family: FamilyGroup, tokens: string[], lowerQuery: string): boolean {
+  return (
+    tokensPrefixName(family.familyName, tokens) ||
+    family.publicId.toLowerCase().includes(lowerQuery)
+  );
+}
 
 interface GuestTableProps {
   weddingId: string;
@@ -123,6 +142,46 @@ export default function GuestTable(props: GuestTableProps) {
       });
     }
     return Array.from(map.values());
+  });
+
+  // Free-text search over the already-loaded roster — the whole list is
+  // fetched up front for this wedding (bounded by guest-list size, not
+  // paginated), so this filters client-side rather than round-tripping a
+  // `/guests?q=` search. Matches a household name (any member visible once it
+  // does), a member's full name (word-prefix, via the same tokeniser the rest
+  // of the monorepo's name search uses), or the family code verbatim.
+  //
+  // `searchInput` is the raw, un-debounced box value (so typing feels
+  // instant); `search` is what actually drives filtering, debounced so a
+  // 1000-guest roster (the top of cire-api's plan tiers) isn't re-tokenised
+  // and re-scanned on every keystroke.
+  const [searchInput, setSearchInput] = createSignal("");
+  const [search, setSearch] = createSignal("");
+  let searchDebounceTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => clearTimeout(searchDebounceTimer));
+
+  function handleSearchInput(value: string) {
+    setSearchInput(value);
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(() => setSearch(value), SEARCH_DEBOUNCE_MS);
+  }
+
+  // Membership only — which households have a match. Returns the ORIGINAL
+  // `family` references from `families()` unchanged (never a copy), so a
+  // household whose visibility doesn't change between two searches keeps its
+  // identity and `<For>` reuses its row instead of tearing it down and
+  // remounting it. Which of a matched household's members are actually shown
+  // is a separate, per-row computation below (`visibleMembers`).
+  const visibleFamilies = createMemo(() => {
+    const query = search().trim();
+    if (!query) return families();
+    const tokens = tokeniseQuery(query);
+    const lowerQuery = query.toLowerCase();
+    return families().filter(
+      (family) =>
+        householdMatches(family, tokens, lowerQuery) ||
+        family.members.some((m) => tokensPrefixName(`${m.firstName} ${m.lastName}`, tokens)),
+    );
   });
 
   const isShared = (family: FamilyGroup) =>
@@ -339,170 +398,213 @@ export default function GuestTable(props: GuestTableProps) {
       </Show>
 
       <Show when={!loading() && !error() && hasGuests()}>
-        <p class="font-body text-text-muted text-[0.82rem]">
-          {guests().length} {guests().length === 1 ? "guest" : "guests"} across {families().length}{" "}
-          {families().length === 1 ? "household" : "households"}
-        </p>
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <p class="font-body text-text-muted text-[0.82rem]">
+            {guests().length} {guests().length === 1 ? "guest" : "guests"} across{" "}
+            {families().length} {families().length === 1 ? "household" : "households"}
+          </p>
+          <Field label="Search guests" labelHidden class="w-full max-w-[16rem]">
+            {(field) => (
+              <Input
+                {...field}
+                type="search"
+                size="sm"
+                value={searchInput()}
+                onInput={(e) => handleSearchInput(e.currentTarget.value)}
+                placeholder="Search by name, household or code…"
+              />
+            )}
+          </Field>
+        </div>
 
-        <Table label="Guests" class="font-body">
-          <thead>
-            <tr>
-              <Th>Guest Name</Th>
-              <Th>Events</Th>
-              <Th>Family Code</Th>
-            </tr>
-          </thead>
-          <tbody>
-            <For each={families()}>
-              {(family) => (
-                <>
-                  <tr>
-                    <td
-                      colspan="3"
-                      class={`border-border bg-surface/50 border-b px-4 py-2 ${
-                        isDeactivated(family) ? "opacity-50" : ""
-                      }`}
-                    >
-                      <div class="flex flex-wrap items-center justify-between gap-3">
-                        <span class="font-display text-gold-dim flex items-center gap-2 text-[1rem]">
-                          {family.familyName}
-                          <Show when={isDeactivated(family)}>
-                            <span
-                              class="font-body border-error/40 text-error rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
-                              title="Deactivated — this household's code no longer opens the invite. Reactivate to restore it."
-                            >
-                              Deactivated — code disabled
-                            </span>
-                          </Show>
-                          {/* Status badges are suppressed while deactivated —
+        <Show when={visibleFamilies().length === 0}>
+          <p class="font-body text-text-muted text-[0.82rem] italic">
+            No guests match “{search().trim()}”.
+          </p>
+        </Show>
+
+        <Show when={visibleFamilies().length > 0}>
+          <Table label="Guests" class="font-body">
+            <thead>
+              <tr>
+                <Th>Guest Name</Th>
+                <Th>Events</Th>
+                <Th>Family Code</Th>
+              </tr>
+            </thead>
+            <tbody>
+              <For each={visibleFamilies()}>
+                {(family) => {
+                  // Which of this household's members to show — reactive on
+                  // `search()` alone, so a keystroke that leaves this
+                  // household's own visibility unchanged (see
+                  // `visibleFamilies` above) still updates its member rows
+                  // without the outer `<For>` remounting the whole row.
+                  const visibleMembers = createMemo(() => {
+                    const query = search().trim();
+                    if (!query) return family.members;
+                    const tokens = tokeniseQuery(query);
+                    if (householdMatches(family, tokens, query.toLowerCase()))
+                      return family.members;
+                    return family.members.filter((m) =>
+                      tokensPrefixName(`${m.firstName} ${m.lastName}`, tokens),
+                    );
+                  });
+                  return (
+                    <>
+                      <tr>
+                        <td
+                          colspan="3"
+                          class={`border-border bg-surface/50 border-b px-4 py-2 ${
+                            isDeactivated(family) ? "opacity-50" : ""
+                          }`}
+                        >
+                          <div class="flex flex-wrap items-center justify-between gap-3">
+                            <span class="font-display text-gold-dim flex items-center gap-2 text-[1rem]">
+                              {family.familyName}
+                              <Show when={isDeactivated(family)}>
+                                <span
+                                  class="font-body border-error/40 text-error rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                  title="Deactivated — this household's code no longer opens the invite. Reactivate to restore it."
+                                >
+                                  Deactivated — code disabled
+                                </span>
+                              </Show>
+                              {/* Status badges are suppressed while deactivated —
                                 the "Deactivated" label is the only relevant state
                                 then. "Opened" (a real guest claim) otherwise takes
                                 precedence over the copy-only "Sent". */}
-                          <Show when={!isDeactivated(family)}>
-                            <Show
-                              when={isOpened(family)}
-                              fallback={
-                                <Show when={isShared(family)}>
-                                  <span
-                                    class="font-body text-gold/80 border-gold/30 rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
-                                    title="Sent — you copied this family's invite message"
-                                  >
-                                    Sent
-                                  </span>
-                                </Show>
-                              }
-                            >
-                              <span
-                                class="font-body bg-gold text-bg rounded-sm px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
-                                title={`Opened — a guest opened this invite (code used) on ${formatOpenedDate(
-                                  family.firstOpenedAt!,
-                                )}`}
-                              >
-                                Opened
-                              </span>
-                            </Show>
-                          </Show>
-                        </span>
-                        <div class="flex flex-wrap items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => void copyMessage(family)}
-                            class="font-body text-text-muted hover:text-gold hover:border-gold border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors"
-                          >
-                            Copy message
-                          </button>
-                          {/* Deactivate is confirm-gated (cuts off a live code);
-                                Reactivate is a direct restore. Owner-only —
-                                code management sits above editor writes. */}
-                          <Show when={props.canManage}>
-                            <Show
-                              when={isDeactivated(family)}
-                              fallback={
+                              <Show when={!isDeactivated(family)}>
                                 <Show
-                                  when={confirmingId() === family.familyId}
+                                  when={isOpened(family)}
                                   fallback={
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmingId(family.familyId)}
-                                      disabled={togglingId() === family.familyId}
-                                      class="font-body text-text-muted hover:text-error hover:border-error/60 border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
-                                      title="Disable this household's code (e.g. a withdrawn invite). Reversible — their guests and RSVPs are kept."
-                                    >
-                                      Deactivate
-                                    </button>
+                                    <Show when={isShared(family)}>
+                                      <span
+                                        class="font-body text-gold/80 border-gold/30 rounded-sm border px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                        title="Sent — you copied this family's invite message"
+                                      >
+                                        Sent
+                                      </span>
+                                    </Show>
                                   }
                                 >
-                                  <span class="font-body text-text-muted text-[0.7rem] tracking-[0.05em]">
-                                    Disable this code?
+                                  <span
+                                    class="font-body bg-gold text-bg rounded-sm px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase not-italic"
+                                    title={`Opened — a guest opened this invite (code used) on ${formatOpenedDate(
+                                      family.firstOpenedAt!,
+                                    )}`}
+                                  >
+                                    Opened
                                   </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => void toggleDeactivated(family, true)}
-                                    disabled={togglingId() === family.familyId}
-                                    class="border-error bg-error font-body text-bg rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition hover:opacity-90 disabled:opacity-40"
-                                  >
-                                    {togglingId() === family.familyId ? "Deactivating…" : "Confirm"}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmingId(null)}
-                                    disabled={togglingId() === family.familyId}
-                                    class="font-body text-text-muted text-[0.7rem] underline-offset-4 hover:underline disabled:opacity-40"
-                                  >
-                                    Cancel
-                                  </button>
                                 </Show>
-                              }
-                            >
+                              </Show>
+                            </span>
+                            <div class="flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => void toggleDeactivated(family, false)}
-                                disabled={togglingId() === family.familyId}
-                                class="font-body text-gold hover:border-gold border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
-                                title="Re-enable this household's code — their guests and RSVPs were kept."
+                                onClick={() => void copyMessage(family)}
+                                class="font-body text-text-muted hover:text-gold hover:border-gold border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors"
                               >
-                                {togglingId() === family.familyId ? "Reactivating…" : "Reactivate"}
+                                Copy message
                               </button>
-                            </Show>
-                          </Show>
-                        </div>
-                      </div>
-                    </td>
-                  </tr>
-                  <For each={family.members}>
-                    {(member, index) => (
-                      <tr class="hover:[&>td]:bg-surface">
-                        <Td class="pl-8 align-middle font-normal">
-                          {member.firstName} {member.lastName}
-                        </Td>
-                        <Td class="align-middle">
-                          <div class="flex flex-wrap gap-1.5">
-                            <For each={member.events}>
-                              {(eventId) => (
-                                <span
-                                  class="bg-gold/10 text-gold inline-block rounded-sm px-2 py-0.5 text-[0.72rem] tracking-[0.06em] uppercase"
-                                  title={eventId}
+                              {/* Deactivate is confirm-gated (cuts off a live code);
+                                Reactivate is a direct restore. Owner-only —
+                                code management sits above editor writes. */}
+                              <Show when={props.canManage}>
+                                <Show
+                                  when={isDeactivated(family)}
+                                  fallback={
+                                    <Show
+                                      when={confirmingId() === family.familyId}
+                                      fallback={
+                                        <button
+                                          type="button"
+                                          onClick={() => setConfirmingId(family.familyId)}
+                                          disabled={togglingId() === family.familyId}
+                                          class="font-body text-text-muted hover:text-error hover:border-error/60 border-border rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
+                                          title="Disable this household's code (e.g. a withdrawn invite). Reversible — their guests and RSVPs are kept."
+                                        >
+                                          Deactivate
+                                        </button>
+                                      }
+                                    >
+                                      <span class="font-body text-text-muted text-[0.7rem] tracking-[0.05em]">
+                                        Disable this code?
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => void toggleDeactivated(family, true)}
+                                        disabled={togglingId() === family.familyId}
+                                        class="border-error bg-error font-body text-bg rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition hover:opacity-90 disabled:opacity-40"
+                                      >
+                                        {togglingId() === family.familyId
+                                          ? "Deactivating…"
+                                          : "Confirm"}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setConfirmingId(null)}
+                                        disabled={togglingId() === family.familyId}
+                                        class="font-body text-text-muted text-[0.7rem] underline-offset-4 hover:underline disabled:opacity-40"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </Show>
+                                  }
                                 >
-                                  {eventNameById().get(eventId) ?? eventId}
-                                </span>
-                              )}
-                            </For>
-                            <Show when={member.events.length === 0}>
-                              <span class="text-text-muted text-[0.8rem]">--</span>
-                            </Show>
+                                  <button
+                                    type="button"
+                                    onClick={() => void toggleDeactivated(family, false)}
+                                    disabled={togglingId() === family.familyId}
+                                    class="font-body text-gold hover:border-gold border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.1em] uppercase transition-colors disabled:opacity-40"
+                                    title="Re-enable this household's code — their guests and RSVPs were kept."
+                                  >
+                                    {togglingId() === family.familyId
+                                      ? "Reactivating…"
+                                      : "Reactivate"}
+                                  </button>
+                                </Show>
+                              </Show>
+                            </div>
                           </div>
-                        </Td>
-                        <Td class="text-text-muted align-middle font-mono tracking-[0.06em]">
-                          <Show when={index() === 0}>{family.publicId}</Show>
-                        </Td>
+                        </td>
                       </tr>
-                    )}
-                  </For>
-                </>
-              )}
-            </For>
-          </tbody>
-        </Table>
+                      <For each={visibleMembers()}>
+                        {(member, index) => (
+                          <tr class="hover:[&>td]:bg-surface">
+                            <Td class="pl-8 align-middle font-normal">
+                              {member.firstName} {member.lastName}
+                            </Td>
+                            <Td class="align-middle">
+                              <div class="flex flex-wrap gap-1.5">
+                                <For each={member.events}>
+                                  {(eventId) => (
+                                    <span
+                                      class="bg-gold/10 text-gold inline-block rounded-sm px-2 py-0.5 text-[0.72rem] tracking-[0.06em] uppercase"
+                                      title={eventId}
+                                    >
+                                      {eventNameById().get(eventId) ?? eventId}
+                                    </span>
+                                  )}
+                                </For>
+                                <Show when={member.events.length === 0}>
+                                  <span class="text-text-muted text-[0.8rem]">--</span>
+                                </Show>
+                              </div>
+                            </Td>
+                            <Td class="text-text-muted align-middle font-mono tracking-[0.06em]">
+                              <Show when={index() === 0}>{family.publicId}</Show>
+                            </Td>
+                          </tr>
+                        )}
+                      </For>
+                    </>
+                  );
+                }}
+              </For>
+            </tbody>
+          </Table>
+        </Show>
       </Show>
     </div>
   );

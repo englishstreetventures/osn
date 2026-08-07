@@ -439,4 +439,136 @@ describe("GuestTable", () => {
     // The row is NOT muted (no optimistic flip on failure).
     expect(screen.queryByText(/Deactivated — code disabled/i)).toBeNull();
   });
+
+  it("filters the list to a household matching the search text", async () => {
+    primeLoad();
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+    expect(screen.getByText("Jones")).toBeTruthy();
+
+    fireEvent.input(screen.getByLabelText("Search guests"), { target: { value: "Jones" } });
+
+    // The filter is debounced (P-W1) — it only applies once typing pauses.
+    await waitFor(() => expect(screen.queryByText("Sharma")).toBeNull());
+    expect(screen.getByText("Jones")).toBeTruthy();
+  });
+
+  it("filters by a member's name even when the household name doesn't match", async () => {
+    primeLoad();
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+
+    fireEvent.input(screen.getByLabelText("Search guests"), { target: { value: "ada" } });
+
+    await waitFor(() => expect(screen.queryByText("Jones")).toBeNull());
+    expect(screen.getByText("Sharma")).toBeTruthy();
+    expect(screen.getByText("Ada Sharma")).toBeTruthy();
+  });
+
+  it("shows only the matching member of a household, not the whole roster", async () => {
+    // A household with two members lets us tell "show the whole household
+    // because a member matched" apart from "show only the matching member" —
+    // the single-member fixtures above can't distinguish the two.
+    const multiMember = [
+      GUESTS[0],
+      { ...GUESTS[0], firstName: "Zoe", lastName: "Sharma" },
+      GUESTS[1],
+    ];
+    authFetchMock
+      .mockResolvedValueOnce(json(multiMember))
+      .mockResolvedValueOnce(json(EVENTS))
+      .mockResolvedValueOnce(json({ inviteMessage: null }));
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("Zoe Sharma")).toBeTruthy());
+
+    fireEvent.input(screen.getByLabelText("Search guests"), { target: { value: "ada" } });
+
+    // …but only Ada's row does, not her non-matching housemate Zoe's.
+    await waitFor(() => expect(screen.queryByText("Zoe Sharma")).toBeNull());
+    // The household header still shows (a member matched)…
+    expect(screen.getByText("Sharma")).toBeTruthy();
+    expect(screen.getByText("Ada Sharma")).toBeTruthy();
+  });
+
+  it("restores the full roster when the search box is cleared", async () => {
+    primeLoad();
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+
+    const searchBox = screen.getByLabelText("Search guests");
+    fireEvent.input(searchBox, { target: { value: "Jones" } });
+    await waitFor(() => expect(screen.queryByText("Sharma")).toBeNull());
+
+    // Clearing back to a whitespace-only query is the same as clearing it
+    // entirely — both must fall through the `query.trim()` guard.
+    fireEvent.input(searchBox, { target: { value: "   " } });
+
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+    expect(screen.getByText("Jones")).toBeTruthy();
+  });
+
+  it("filters by a family code substring", async () => {
+    primeLoad();
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+
+    fireEvent.input(screen.getByLabelText("Search guests"), { target: { value: "77q2" } });
+
+    await waitFor(() => expect(screen.queryByText("Sharma")).toBeNull());
+    expect(screen.getByText("Jones")).toBeTruthy();
+  });
+
+  it("shows a no-matches message when nothing in the roster matches", async () => {
+    primeLoad();
+    render(() => (
+      <GuestTable
+        weddingId="wed_a"
+        canManage
+        weddingName="Nadia & Sam"
+        weddingSlug="nadia-sam-abc123"
+      />
+    ));
+    await waitFor(() => expect(screen.getByText("Sharma")).toBeTruthy());
+
+    fireEvent.input(screen.getByLabelText("Search guests"), { target: { value: "zzzznotfound" } });
+
+    await waitFor(() => expect(screen.getByText(/No guests match/i)).toBeTruthy());
+    expect(screen.queryByText("Sharma")).toBeNull();
+    expect(screen.queryByText("Jones")).toBeNull();
+  });
 });

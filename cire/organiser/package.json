@@ -16,6 +16,7 @@
     "@cire/invite-designs": "workspace:*",
     "@cire/theme": "workspace:*",
     "@kobalte/core": "^0.13.12",
+    "@shared/db-utils": "workspace:*",
     "@shared/rp-auth": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
     "@thisbeyond/solid-dnd": "^0.7.5",

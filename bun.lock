@@ -87,6 +87,7 @@
         "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
         "@kobalte/core": "^0.13.12",
+        "@shared/db-utils": "workspace:*",
         "@shared/rp-auth": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
         "@thisbeyond/solid-dnd": "^0.7.5",
@@ -173,7 +174,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.17.2",
+      "version": "3.18.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@osn/db": "workspace:*",
@@ -201,7 +202,7 @@
     },
     "osn/client": {
       "name": "@osn/client",
-      "version": "2.12.2",
+      "version": "2.13.0",
       "dependencies": {
         "effect": "^3.22.0",
       },
@@ -260,7 +261,7 @@
     },
     "osn/social": {
       "name": "@osn/social",
-      "version": "0.11.3",
+      "version": "0.12.0",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -285,7 +286,7 @@
     },
     "osn/ui": {
       "name": "@osn/ui",
-      "version": "1.7.8",
+      "version": "1.8.1",
       "dependencies": {
         "@kobalte/core": "^0.13.12",
         "@osn/client": "workspace:*",
@@ -340,7 +341,7 @@
     },
     "pulse/app": {
       "name": "@pulse/app",
-      "version": "0.21.0",
+      "version": "0.21.2",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
