@@ -46,7 +46,7 @@
     "devalue": "^5.8.1",
     "esbuild": "^0.28.1",
     "fast-uri": "^3.1.5",
-    "js-yaml": "^4.3.0",
+    "js-yaml": "^4.3.1",
     "picomatch": "^4.0.4",
     "postcss": "^8.5.25",
     "protobufjs": "^7.5.5",

@@ -335,9 +335,14 @@ function scrim(ground: Oklch, alpha: number): Oklch {
  * FIXED — red means wrong everywhere, and re-hueing it to match a scheme would
  * be a lie — but its lightness is retargeted so it stays legible on both a
  * near-black ground and a cream one.
+ *
+ * `darkStart` overrides the starting lightness used on a dark card (still run
+ * through `ensureContrast`, so it can only ever end up MORE legible, never
+ * less) — success uses a lower one than error's default so the RSVP tick and
+ * button fill read as a deeper, less neon green on the built-in dark scheme.
  */
-function semantic(hue: number, chroma: number, card: Oklch): string {
-  const start: Oklch = { l: card.l < 0.5 ? 0.72 : 0.48, c: chroma, h: hue, a: 1 };
+function semantic(hue: number, chroma: number, card: Oklch, darkStart = 0.72): string {
+  const start: Oklch = { l: card.l < 0.5 ? darkStart : 0.48, c: chroma, h: hue, a: 1 };
   return formatOklch(ensureContrast(start, card, WCAG_TEXT_MIN));
 }
 
@@ -444,7 +449,7 @@ export function derivePalette(
     "--color-bloom": formatOklch(bloom),
     "--color-bloom-dim": formatOklch(withAlpha(bloom, 0.3)),
     "--color-error": semantic(21.48, 0.1401, card),
-    "--color-success": semantic(146.94, 0.1421, card),
+    "--color-success": semantic(146.94, 0.1421, card, 0.64),
 
     // Hero base gradient — three stops walked across the palette's own
     // surfaces, replacing a hardcoded evergreen `linear-gradient` that ignored

@@ -38,7 +38,7 @@
   --color-bloom: oklch(70.5% 0.1123 24.5);
   --color-bloom-dim: oklch(70.5% 0.1123 24.5 / 0.3);
   --color-error: oklch(72% 0.1401 21.48);
-  --color-success: oklch(72% 0.1421 146.94);
+  --color-success: oklch(64% 0.1421 146.94);
   --font-display: "Cormorant Garamond", Georgia, serif;
   --font-body: "Lato", system-ui, sans-serif;
   --default-font-family: var(--font-body);

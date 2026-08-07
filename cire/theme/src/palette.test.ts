@@ -190,6 +190,25 @@ describe("contrast is enforced, not advised", () => {
     );
   });
 
+  test("success starts darker than error on a dark card, and still clears WCAG", () => {
+    // `semantic()`'s `darkStart` override lowers ONLY success's starting OKLCH
+    // lightness on a dark card (0.64 vs error's 0.72) — a deliberately less
+    // neon green for the RSVP confirmation. Evergreen's card is dark
+    // (l < 0.5), so this exercises that branch directly, independent of
+    // `cire/web`'s global.css lockstep test (which only pins the exact string,
+    // not the lightness relationship this test is really about).
+    const v = derivePalette(PALETTE_PRESETS.evergreen);
+    const success = parseColor(v["--color-success"] as string)!;
+    const error = parseColor(v["--color-error"] as string)!;
+    expect(success.l).toBeLessThan(error.l);
+    // The override only ever narrows the starting point fed into
+    // `ensureContrast` — the guarantee that matters is still WCAG, not the
+    // exact literal, so assert that rather than pinning 0.64 a second time.
+    expect(
+      contrastRatio(v["--color-success"] as string, v["--color-surface"] as string),
+    ).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
+  });
+
   test("gold-as-prose leaves the metal alone when the metal is already legible", () => {
     // Evergreen's gilt clears 4.5:1 on all three surfaces, so the two tokens
     // must be the same colour — the split exists to rescue pale schemes, not

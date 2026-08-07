@@ -209,6 +209,7 @@ export function EventCard(props: EventCardProps) {
                 classList={{ "scale-x-100": filled() }}
               />
               <span class="relative flex items-center justify-center gap-2">
+                {props.rsvpClosed ? "RSVPs closed" : "Respond"}
                 {/* Conditional, not merely invisible: a tick mounted for an
                     event nobody has answered would claim a reply that was
                     never sent. Shown for a genuinely recorded reply
@@ -243,7 +244,6 @@ export function EventCard(props: EventCardProps) {
                     </Show>
                   </svg>
                 </Show>
-                {props.rsvpClosed ? "RSVPs closed" : "Respond"}
               </span>
             </button>
             <button

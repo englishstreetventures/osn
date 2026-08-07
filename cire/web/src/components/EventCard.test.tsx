@@ -321,6 +321,26 @@ describe("EventCard", () => {
       expect(svg.getAttribute("class")).not.toContain("text-bg");
     });
 
+    it("renders the tick after the Respond label, not before it", () => {
+      // `textContent` and `querySelector` checks elsewhere in this file can't
+      // distinguish tick-before-label from tick-after-label — the <svg>
+      // contributes no text, so a DOM-order check is the one assertion shape
+      // that actually catches a silent revert of the two swapping back.
+      const { container } = render(() => (
+        <EventCard event={baseEvent} responded onRespond={noop} onDetails={noop} />
+      ));
+      const button = respondButton(container);
+      const label = button.querySelector("span.relative") as HTMLElement;
+      const svg = label.querySelector("svg") as SVGElement;
+      const textNode = [...label.childNodes].find(
+        (n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim() === "Respond",
+      );
+      expect(textNode).toBeTruthy();
+      expect(
+        Boolean(textNode!.compareDocumentPosition(svg) & Node.DOCUMENT_POSITION_FOLLOWING),
+      ).toBe(true);
+    });
+
     it("mounts the fill collapsed from the start, so the sweep has a frame to travel from", () => {
       const { container } = render(() => (
         <EventCard event={baseEvent} onRespond={noop} onDetails={noop} />
