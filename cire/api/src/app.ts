@@ -87,9 +87,11 @@ const defaultAccountLinkLimiter = createRateLimiter({ maxRequests: 20, windowMs:
  */
 const defaultInviteLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 /**
- * Default per-IP limiter for the host preview-code endpoint (S-M2). Owner-gated
- * already, so this just caps the find-or-create + event-relink write amplifier;
- * 30/min is generous for clicking "Preview invite".
+ * Default per-IP limiter for the host preview-code endpoint (S-M2). Member-gated
+ * — `weddingMember`, so ANY wedding role including a read-only `viewer`, not
+ * owner-only; previewing the invite is part of the read experience (see
+ * `createOrganiserPreviewRoutes`). This caps the find-or-create + event-relink
+ * write amplifier; 30/min is generous for clicking "Preview invite".
  */
 const defaultPreviewLimiter = createRateLimiter({ maxRequests: 30, windowMs: 60_000 });
 /**

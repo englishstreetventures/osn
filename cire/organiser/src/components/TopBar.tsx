@@ -143,12 +143,14 @@ export default function TopBar(props: {
             </span>
           </button>
 
+          {/* Rendered at every width. The button collapses to its glyph on a
+              narrow bar (see `PreviewInviteButton`) rather than being hidden
+              here: seeing the invite as a guest sees it is one of the three
+              from-anywhere actions this row exists to carry, and there is no
+              other route to it — the palette lists modules, weddings and
+              account, not preview. */}
           <Show when={props.wedding}>
-            {(wedding) => (
-              <span class="hidden @2xl/frame:inline">
-                <PreviewInviteButton weddingId={wedding().id} />
-              </span>
-            )}
+            {(wedding) => <PreviewInviteButton weddingId={wedding().id} />}
           </Show>
 
           <ProfileMenu

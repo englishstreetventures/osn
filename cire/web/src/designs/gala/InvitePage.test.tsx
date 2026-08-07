@@ -1071,19 +1071,32 @@ describe("gala InvitePage", () => {
         expect(capturedProps.value).not.toBeNull();
         expect((capturedProps.value!.event as { id: string }).id).toBe("event-2");
 
-        // The instant RsvpModal would call `onConfirmed` (inside its own
-        // `enterSavedState`, for both a real submit and the host preview).
-        (capturedProps.value!.onConfirmed as () => void)();
-        let fill = respond.querySelector("span[aria-hidden='true']") as HTMLElement;
-        expect(fill.className).toContain("scale-x-100");
-        let path = respond.querySelector("svg path") as SVGPathElement;
-        expect(path.getAttribute("class")).toContain("animate-tick-draw");
-
-        // The data landing too, as the real batched write does.
+        // Production order, which this stub has to imitate deliberately since it
+        // is not a real sheet. The write lands at SUBMIT time…
         (capturedProps.value!.onSubmitted as (r: RsvpSummary[]) => void)([
           ...claimBothEvents.rsvps,
           { guestId: "guest-1", eventId: "event-2", status: "attending", dietary: "" },
         ]);
+
+        // …and then, a full `SAVED_DWELL_MS` later, RsvpModal fires the cue and
+        // closes itself, in that order (`RsvpModal.enterSavedState`). Driven as
+        // a pair because production never separates them, and because the order
+        // is load-bearing: `onConfirmed` reads `event()` from the very `<Show>`
+        // that `onClose` disposes. Keeping them together is also what puts this
+        // page in the state production reaches — card celebrating, no sheet over
+        // it. The joint timing itself is `RsvpModal`'s to prove; this pack owns
+        // the wiring, and `rsvp-confirmation.integration.test.tsx` owns the seam.
+        const confirmAndClose = () => {
+          (capturedProps.value!.onConfirmed as () => void)();
+          (capturedProps.value!.onClose as () => void)();
+        };
+        confirmAndClose();
+        expect(container.querySelector("[data-testid='rsvp-modal-stub']")).toBeNull();
+
+        let fill = respond.querySelector("span[aria-hidden='true']") as HTMLElement;
+        expect(fill.className).toContain("scale-x-100");
+        let path = respond.querySelector("svg path") as SVGPathElement;
+        expect(path.getAttribute("class")).toContain("animate-tick-draw");
 
         // The celebration settles: fill gone, tick stays, now undrawn.
         await vi.advanceTimersByTimeAsync(TOTAL_DURATION_MS);
@@ -1097,8 +1110,11 @@ describe("gala InvitePage", () => {
         // `justRespondedEventId` to null, THIS second confirmation (an edited,
         // re-submitted reply) would be a silent no-op instead of celebrating
         // again — `justResponded` would already be stuck `true` with nothing
-        // left to transition from `false`.
-        (capturedProps.value!.onConfirmed as () => void)();
+        // left to transition from `false`. Editing a reply means REOPENING the
+        // sheet, since the first one closed itself above.
+        fireEvent.click(respond);
+        await vi.advanceTimersByTimeAsync(0);
+        confirmAndClose();
         fill = respond.querySelector("span[aria-hidden='true']") as HTMLElement;
         expect(fill.className).toContain("scale-x-100");
       } finally {

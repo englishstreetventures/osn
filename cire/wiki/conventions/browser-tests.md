@@ -178,11 +178,17 @@ nothing.
 
 ## Current coverage
 
-| File | Pins |
-|---|---|
-| `src/lib/z-index.browser.test.tsx` | Every `Z_CLASS` entry emits real CSS; a modal-launched popover hit-tests **above** the modal (#203); no ancestor traps it in a stacking context; the modal blocks page content beneath it |
-| `src/components/RsvpModal.browser.test.tsx` | The sticky action bar sits on the scrollport's bottom edge, stays put while content scrolls under it, runs full-bleed to the panel's content box, and both buttons are the topmost element at their own centre |
-| `src/styles/reduced-motion.browser.test.tsx` | The clamp applies to transitions *and* animations, `animate-spin` keeps its documented exemption, and a clamped transition still lands on its end state and fires `transitionend` |
+| Package | File | Pins |
+|---|---|---|
+| `@cire/web` | `src/lib/z-index.browser.test.tsx` | Every `Z_CLASS` entry emits real CSS; a modal-launched popover hit-tests **above** the modal (#203); no ancestor traps it in a stacking context; the modal blocks page content beneath it |
+| `@cire/web` | `src/components/RsvpModal.browser.test.tsx` | The sticky action bar sits on the scrollport's bottom edge, stays put while content scrolls under it, runs full-bleed to the panel's content box, and both buttons are the topmost element at their own centre |
+| `@cire/web` | `src/styles/reduced-motion.browser.test.tsx` | The clamp applies to transitions *and* animations, `animate-spin` keeps its documented exemption, and a clamped transition still lands on its end state and fires `transitionend` |
+| `@cire/organiser` | `src/components/ImportPanel.browser.test.tsx` | The mandatory-column chip's ink clears WCAG against the composited stack it actually sits on; the first-run `attention-glow` exists, animates `opacity` only, and honours the reduced-motion clamp |
+| `@cire/organiser` | `src/components/PreviewInviteButton.browser.test.tsx` | "Preview invite" is genuinely painted at phone width with its label clipped to the 1×1 `sr-only` box rather than `display: none`, and swaps to the written label — glyph gone — once the `frame` container passes 42rem |
 
-The #203 test was verified to fail when the popover is put back at `z-90` — it
-reproduces the original bug, rather than restating the constants.
+Two of these were verified against the bug rather than merely written green. The
+#203 test fails when the popover is put back at `z-90`. The
+`PreviewInviteButton` test fails when its label is put back to
+`hidden @2xl/frame:inline`, the exact class pair that left the invite preview
+with no entry point on a phone — the failure is the narrow-width case, which is
+the one a class-string assertion in the fast tier cannot distinguish.

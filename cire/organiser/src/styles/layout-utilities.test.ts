@@ -110,3 +110,40 @@ describe("layout utilities", () => {
     expect(utilityBody("auto-grid")).toMatch(track);
   });
 });
+
+describe("the `frame` container", () => {
+  const INDEX_ASTRO = readFileSync(join(SRC, "pages/index.astro"), "utf8");
+
+  it("is declared on the document wrapper, since every `@2xl/frame:*` class is inert without it", () => {
+    // `@container/frame` is declared in exactly ONE place, and `page-frame`
+    // (asserted above) is NOT it — that utility sets width/max-width/margin/
+    // padding and establishes no container. Nothing else in the package renders
+    // `index.astro`, so without this line the declaration is unguarded.
+    //
+    // What breaks if it is dropped or renamed: every container-scoped class in
+    // the top bar goes inert while every test stays green, because they are all
+    // class-string assertions. Concretely, `PreviewInviteButton`'s label stays
+    // `sr-only` at EVERY width — which is the "no visible route to the invite
+    // preview" regression this guard exists downstream of — and the bar loses
+    // its `@2xl/frame:h-16`, the role badge and the ⌘K hint.
+    expect(INDEX_ASTRO).toContain("@container/frame");
+  });
+
+  it("declares every container that a `@<size>/<name>:` variant queries", () => {
+    // A variant naming a container nobody declares compiles to CSS that can
+    // never match — silently, exactly like a misspelled utility, and with the
+    // same green suite. `frame` is only the one this file is named for; the
+    // portal runs six others (`shell`, `panel`, `page`, `card`, `enquiries`,
+    // `builder`), each declared next to the component that owns it, and every
+    // one of them is a rename away from the same failure.
+    const queried = new Set(
+      [...ALL_SOURCE.matchAll(/@[\w.[\]()-]+\/([\w-]+):/g)].map((m) => m[1]!),
+    );
+    expect(queried.size).toBeGreaterThan(0);
+
+    const undeclared = [...queried].filter(
+      (name) => !new RegExp(String.raw`@container/${name}\b`).test(ALL_SOURCE),
+    );
+    expect(undeclared).toEqual([]);
+  });
+});

@@ -65,6 +65,36 @@ describe("PreviewInviteButton", () => {
     vi.unstubAllGlobals();
   });
 
+  it("collapses to its glyph on a narrow bar without dropping its accessible name", () => {
+    // The regression: the top bar used to wrap this button in
+    // `hidden @2xl/frame:inline`, which left a phone with NO route to the guest
+    // preview at all — the command palette carries modules, weddings and
+    // account, but no preview command. The button is mounted at every width
+    // now, so what has to hold here is that shrinking it never costs it its
+    // name. Container queries do not resolve under happy-dom, so this pins the
+    // class contract; the painted widths belong to the browser tier.
+    render(() => <PreviewInviteButton weddingId="wed_bootstrap" />);
+    // The STRING form, not a regex: testing-library matches a string exactly
+    // (after normalisation) and a regex as a substring, so `/Preview invite/i`
+    // would be satisfied by "◎ Preview invite" — precisely the name you get if
+    // `aria-hidden` came off the glyph, which is the failure this asserts against.
+    const button = screen.getByRole("button", { name: "Preview invite" });
+
+    // The label collapses with `sr-only`, never `hidden`: on the narrow width
+    // it is the only thing naming the control, so it must stay in the tree.
+    const label = button.querySelector("span:not([aria-hidden])") as HTMLElement;
+    expect(label.className).toContain("sr-only");
+    expect(label.className).toContain("@2xl/frame:not-sr-only");
+    expect(label.className).not.toContain("hidden");
+
+    // The glyph is decoration standing in for the label, so it must never
+    // reach the accessible name — which the exact-string `getByRole` above
+    // proves, since an unhidden glyph would prepend to that name.
+    const glyph = button.querySelector("span[aria-hidden='true']") as HTMLElement;
+    expect(glyph.textContent?.trim()).toBe("◎");
+    expect(glyph.className).toContain("@2xl/frame:hidden");
+  });
+
   it("opens the tab synchronously, before the auth fetch settles", async () => {
     // Resolve the fetch on a microtask so we can observe ordering: window.open
     // must already have fired by the time the click handler returns.

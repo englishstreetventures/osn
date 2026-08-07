@@ -45,13 +45,21 @@ interface RsvpModalProps {
   onClose: () => void;
   onSubmitted?: (updated: RsvpSummary[]) => void;
   /**
-   * Fired the instant the sheet enters its confirmed state — for BOTH the
+   * Fired as this sheet closes itself after a confirmed reply — for BOTH the
    * real submit path and the host preview no-op, since preview exists to show
    * a host exactly what a guest sees. This is what tells the events section
    * behind the sheet to play the Respond-button confirmation (see
-   * `rsvp-responded.ts`); it is deliberately separate from `onSubmitted`,
-   * which fires only on the real path and is what actually persists the
-   * reply. Preview's celebration is real; preview's data write is not.
+   * `rsvp-responded.ts`), and it fires paired with `onClose` precisely because
+   * that confirmation is only watchable once this sheet is out of the way.
+   *
+   * Deliberately separate from `onSubmitted`, which fires only on the real
+   * path, at submit time, and is what actually persists the reply. Preview's
+   * celebration is real; preview's data write is not.
+   *
+   * A guest who dismisses the sheet early (Escape, the close chip, a backdrop
+   * tap) cancels the dwell timer and so never gets the celebration — correctly:
+   * they have already moved on. The permanent tick still appears, because it
+   * is driven by the recorded data (`responded`), not by this cue.
    */
   onConfirmed?: () => void;
 }
@@ -128,9 +136,17 @@ export function RsvpModal(props: RsvpModalProps) {
    */
   function enterSavedState() {
     setSaved(true);
-    props.onConfirmed?.();
     dwellTimer = setTimeout(() => {
       dwellTimer = undefined;
+      // Fired WITH the close, not at the top of the dwell. The celebration this
+      // cues plays on the Respond button *behind* this sheet, so starting it
+      // here — on the frame the sheet stops covering that button — is what
+      // makes it visible. Cueing it at `setSaved` instead spends the sweep-in,
+      // the tick draw and the whole hold under a sheet that is still up
+      // (`SAVED_DWELL_MS` 900ms vs `TOTAL_DURATION_MS` 1400ms), leaving the
+      // guest only the 500ms fade-out — green draining off a button they never
+      // saw fill, which reads as nothing having happened at all.
+      props.onConfirmed?.();
       props.onClose();
     }, SAVED_DWELL_MS);
   }

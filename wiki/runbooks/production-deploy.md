@@ -11,7 +11,7 @@ related:
   - "[[email]]"
   - "[[vendors]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-07-27
+last-reviewed: 2026-08-06
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -608,6 +608,43 @@ The local equivalent (`bun run --cwd osn/db db:migrate:local`, miniflare) applie
 
 > The cire Worker + Pages sites deploy via `.github/workflows/deploy.yml` (PR #128).
 > The commands below are the manual equivalents — they document what the pipeline runs.
+
+### 5.0 Reading a red deploy run (triage before you conclude anything is stale)
+
+A red **Deploy** run does not mean the merge did not ship, and a green one is not
+per-surface proof either. `deploy.yml` fans out to one job per surface, all `needs:
+build` and **none of them path-filtered** — every surface redeploys on every push to
+`main`, whether or not its files changed. So work out what is actually stale before
+acting on it:
+
+1. **Find the last SUCCESSFUL run of the specific job**, not the last green run.
+   `Deploy cire/web (Worker SSR)` failing on the merge that changed `cire/web` is a
+   real problem; the same job succeeding on the *next* merge 15 minutes later ships
+   that code anyway, because the later commit contains it.
+2. **A failed job for a package the run didn't change is a no-op miss**, not a stale
+   surface — it would have redeployed byte-identical output. Check with
+   `git diff --name-only <last-good-sha> <failed-sha> -- <package>`; empty means
+   nothing was lost.
+3. **`Set up job` failing with `Failed to resolve action download info` is GitHub
+   infrastructure**, not this repo — the runner could not download the actions at all,
+   so nothing in the job ever ran. Re-run the failed jobs; there is nothing to fix
+   here. (Seen 2026-08-06, taking out four jobs across two consecutive runs.)
+
+The gap worth knowing about: **nothing retries automatically, and nothing alerts.** If a
+surface's own job fails on the merge that changed it and the next merge touches a
+different package, that surface stays stale behind a red X on an old run. Re-run the
+job — do not wait for the next merge to carry it.
+
+Which job owns which surface:
+
+| Job | Surface | Live at |
+|---|---|---|
+| `Deploy cire/web (Worker SSR)` | guest invite site | `invite.cireweddings.com` |
+| `Deploy cire/organiser (Pages)` | host portal | `host.cireweddings.com` |
+| `Deploy cire/landing (Pages, apex)` | marketing site | `cireweddings.com` |
+| `Deploy cire/api (+ D1 migrate)` | cire backend | `api.cireweddings.com` |
+| `Deploy osn/api (+ D1 migrate)` | identity API | `id.musubi.social` |
+| `Deploy osn/social (Pages)` | identity app | `musubi.social` |
 
 ### 5.1 osn-api (Worker)
 

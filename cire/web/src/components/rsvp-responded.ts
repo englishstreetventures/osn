@@ -29,6 +29,13 @@ export function hasHouseholdResponded(
  * closes itself over it. Moving it here puts the confirmation on the control
  * that is still on screen afterwards).
  *
+ * The cue that starts it (`RsvpModal`'s `onConfirmed`) fires as the sheet
+ * closes, not when the reply is recorded — the two are `SAVED_DWELL_MS` apart,
+ * and this whole choreography outlasts that dwell. Started at record-time it
+ * would play its first ~900ms under a sheet that is still covering the button,
+ * so keep `TOTAL_DURATION_MS` and the dwell independent: the celebration is
+ * measured from the moment the button becomes visible, not from the submit.
+ *
  * Three phases, driven entirely inside `EventCard` from a single
  * `justResponded` transition (see the component for the state machine):
  *

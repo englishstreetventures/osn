@@ -7,7 +7,9 @@ import { CIRE_WEB_URL } from "../lib/osn";
 
 /**
  * "Preview invite" button. Provisions (or fetches) the wedding's host preview
- * code via the owner-gated `/preview-code` endpoint, then opens the guest
+ * code via the member-gated `/preview-code` endpoint — any wedding role,
+ * including a read-only `viewer`, may mint one, because seeing the invite as a
+ * guest sees it is part of the read experience — then opens the guest
  * invite in a new tab with `?code=<publicId>` so the organiser sees every
  * event exactly as a guest would. The host code is preview-only — the API
  * blocks it from submitting RSVPs.
@@ -77,15 +79,30 @@ export default function PreviewInviteButton(props: { weddingId: string }) {
   // Sized to the top bar's action row (h-9, matching the palette trigger)
   // rather than to a page button — it lives in the chrome now, and a 44px
   // control there would set the bar's height instead of fitting inside it.
+  //
+  // Narrow bars get the glyph alone. This used to be hidden outright below
+  // `@2xl/frame`, which left the invite preview with NO entry point on a phone
+  // — the palette carries no preview command, so the control simply did not
+  // exist there. Collapsing to an icon keeps it reachable at every width, and
+  // costs the switcher beside it a few characters of truncation rather than a
+  // wrapped bar. The label follows the palette trigger's `⌘K` idiom: it is the
+  // same element throughout (`sr-only` → `not-sr-only`, never `hidden`), so the
+  // accessible name is always the visible wording and never goes missing on the
+  // width where nothing is drawn.
   return (
     <button
       type="button"
       onClick={() => void preview()}
       disabled={loading()}
       aria-busy={loading()}
-      class="border-gold-dim font-body text-gold hover:bg-gold hover:text-bg hover:border-gold flex h-9 items-center rounded-sm border bg-transparent px-3.5 text-[0.72rem] tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent"
+      class="border-gold-dim font-body text-gold hover:bg-gold hover:text-bg hover:border-gold flex h-9 items-center justify-center gap-2 rounded-sm border bg-transparent px-2.5 text-[0.72rem] tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent @2xl/frame:px-3.5"
     >
-      {loading() ? "Preparing…" : "Preview invite"}
+      <span aria-hidden="true" class="text-[0.85rem] leading-none @2xl/frame:hidden">
+        ◎
+      </span>
+      <span class="sr-only @2xl/frame:not-sr-only">
+        {loading() ? "Preparing…" : "Preview invite"}
+      </span>
     </button>
   );
 }

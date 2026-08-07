@@ -12,6 +12,14 @@ last-reviewed: 2026-08-06
 
 See [[review-findings]] for severity prefix conventions.
 
+### RSVP confirmation timing + mobile invite preview (`claude/pr388-deploy-mobile-invite-jlz8in`, 2026-08-06)
+
+Pre-PR performance review. **No Critical or Warning findings.** One note, deliberately not acted on.
+
+- [ ] **P-I1** (accepted, no change) — **the celebration's first frame now shares a task with the modal teardown.** Pairing `onConfirmed` with `onClose` means the sweep and the `animate-tick-draw` keyframe start on the same frame `AnimatedModal` disposes: `document.body.style.overflow` is restored (a full-document relayout wherever a classic scrollbar reappears) and `previouslyFocused?.focus()` fires at the very Respond button being animated, which can force a scroll-into-view. Before the fix the celebration began ~900ms earlier, on a quiet frame — it just began underneath a sheet nobody could see through, which is the bug. The fill is a `transform` and so compositor-promoted, but the tick is `stroke-dashoffset` and is not, so the worst case is a dropped frame or two on the tick draw, on desktop only (mobile overlay scrollbars make the overflow restore free). **Not fixed on purpose:** the choreography is 1400ms with a 500ms sweep, one dropped frame is below the perception threshold, and the only sensible fix — a `requestAnimationFrame` around the cue — would spend a frame of latency against exactly the visibility this branch exists to buy. Recorded so the trade is on the record rather than rediscovered. Note the fix is **not** `batch()`: `onConfirmed` and `onClose` write two disjoint signals (`justRespondedEventId`, `rsvpEvent`) with nothing subscribing to both, so batching would merge two graph traversals and eliminate zero writes — unlike `RsvpModal`'s existing batch, where `setLoading`/`setSaved` genuinely contend for the same `locked()` subscribers.
+
+**Measured, no action:** mounting `PreviewInviteButton` at every width costs nothing — `hidden` is `display:none`, so the component was already being created, already calling `useAuth()` (a bare `useContext`) and already inserting its DOM below 42rem; the net change is +1 element node participating in layout. No new network calls (there is no `createResource`/`onMount` fetch — only the click handler), no new reactive work, and no CLS delta (the bar is fixed-height in both the boot-chrome and island versions, and the island already swapped the whole action row in at every width). The collapse cannot thrash: `sr-only` is `position: absolute`, so exactly one child is ever in flow and the button has a single stable width per breakpoint.
+
 ### CSV import into each module's Edit mode (`claude/cire-csv-import-reorganize-y1vbnk`, 2026-08-06)
 
 Pre-PR performance review. **No Critical findings.** Frontend-only diff (no backend, DB or query surface).
