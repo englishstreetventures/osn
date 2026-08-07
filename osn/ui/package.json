@@ -31,7 +31,8 @@
     "./ui/popover": "./src/components/ui/popover.tsx",
     "./ui/radio-group": "./src/components/ui/radio-group.tsx",
     "./ui/tabs": "./src/components/ui/tabs.tsx",
-    "./ui/textarea": "./src/components/ui/textarea.tsx"
+    "./ui/textarea": "./src/components/ui/textarea.tsx",
+    "./ui/username-input": "./src/components/ui/username-input.tsx"
   },
   "scripts": {
     "check": "tsc --noEmit",
@@ -46,10 +47,6 @@
     "clsx": "^2.1.1",
     "tailwind-merge": "^3.6.0"
   },
-  "peerDependencies": {
-    "solid-js": ">=1.9",
-    "solid-toast": ">=0.5"
-  },
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
@@ -60,5 +57,9 @@
     "vite": "^8.1.5",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "^4.1.10"
+  },
+  "peerDependencies": {
+    "solid-js": ">=1.9",
+    "solid-toast": ">=0.5"
   }
 }

@@ -11,6 +11,7 @@ import Meter, { meterPct } from "./Meter";
 import Notice from "./Notice";
 import Stat from "./Stat";
 import { Table, Td, Th } from "./Table";
+import { UsernameInput } from "./UsernameInput";
 
 /**
  * These are class-mapping components, and a test that asserts the classes is a
@@ -457,6 +458,41 @@ describe("controls", () => {
       </Select>
     ));
     expect(getByRole("combobox")).toHaveValue("booked");
+  });
+});
+
+describe("UsernameInput", () => {
+  it("shows a fixed @ ahead of the box", () => {
+    const { getByText } = render(() => <UsernameInput aria-label="OSN handle" />);
+    expect(getByText("@")).toBeInTheDocument();
+  });
+
+  it("names the control by the label alone — the @ isn't part of it", () => {
+    const { getByRole } = render(() => <UsernameInput aria-label="OSN handle" />);
+    expect(getByRole("textbox")).toHaveAccessibleName("OSN handle");
+  });
+
+  it("wires up Field the same as a plain Input", () => {
+    // The combobox use in HostsPanel spreads Field's {...field} (id,
+    // aria-describedby, aria-invalid) onto this component — same contract
+    // Field already proves for Input above.
+    const { getByRole } = render(() => (
+      <Field label="OSN handle" errors={["No account with that handle."]}>
+        {(field) => <UsernameInput {...field} />}
+      </Field>
+    ));
+    const input = getByRole("textbox");
+    expect(input).toHaveAccessibleName("OSN handle");
+    expect(input).toHaveAttribute("aria-invalid", "true");
+  });
+
+  it("passes everything else through to the input", () => {
+    const { getByRole } = render(() => (
+      <UsernameInput aria-label="OSN handle" placeholder="alice" disabled />
+    ));
+    const input = getByRole("textbox");
+    expect(input).toHaveAttribute("placeholder", "alice");
+    expect(input).toBeDisabled();
   });
 });
 

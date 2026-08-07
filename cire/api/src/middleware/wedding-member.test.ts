@@ -105,4 +105,21 @@ describe("weddingMember", () => {
     const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);
     expect(res.status).toBe(401);
   });
+
+  it("derives the wedding's owner id for a CO-HOST caller too, not just the owner", async () => {
+    // The co-host read routes (e.g. the /hosts list) need to name the owner
+    // even when the caller is a co-host — the owner is never rowed into
+    // `wedding_hosts`, so this is the only place that id comes from.
+    const db = buildDb();
+    const app = new Elysia({ aot: false })
+      .derive(() => ({ osnProfileId: COHOST }))
+      .group("/weddings/:weddingId", (group) =>
+        group
+          .use(weddingMember(db))
+          .get("/probe", ({ weddingOwnerOsnProfileId }) => ({ weddingOwnerOsnProfileId })),
+      );
+    const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ weddingOwnerOsnProfileId: OWNER });
+  });
 });

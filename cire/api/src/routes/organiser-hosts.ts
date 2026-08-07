@@ -42,8 +42,8 @@ export const createOrganiserHostsReadRoutes = (
   new Elysia({ prefix: PREFIX })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
-      group.use(weddingMember(db)).get("/hosts", ({ weddingId, set }) => {
-        if (!weddingId) {
+      group.use(weddingMember(db)).get("/hosts", ({ weddingId, weddingOwnerOsnProfileId, set }) => {
+        if (!weddingId || !weddingOwnerOsnProfileId) {
           set.status = 500;
           return { error: "Internal error" };
         }
@@ -59,16 +59,28 @@ export const createOrganiserHostsReadRoutes = (
               Effect.gen(function* () {
                 const displays = resolveOsnProfileDisplays
                   ? yield* Effect.tryPromise({
-                      // Resolve the ADDERS' handles too, so the panel can name
-                      // who created each seat rather than printing a profile id.
+                      // Resolve the ADDERS' and the OWNER's handles too, so the
+                      // panel can name who created each seat — and who owns the
+                      // wedding — rather than printing a profile id.
                       try: () =>
                         resolveOsnProfileDisplays([
+                          weddingOwnerOsnProfileId,
                           ...new Set(hosts.flatMap((h) => [h.osnProfileId, h.addedByOsnProfileId])),
                         ]),
                       catch: () => null,
                     }).pipe(Effect.orElseSucceed(() => null))
                   : null;
+                const ownerDisplay = displays?.get(weddingOwnerOsnProfileId);
                 return {
+                  // The owner is never rowed into `wedding_hosts` (see
+                  // services/hosts.ts), so without this the co-host panel had
+                  // no way to show who owns the wedding at all — surfaced
+                  // separately from `hosts`, which stays co-hosts only.
+                  owner: {
+                    osnProfileId: weddingOwnerOsnProfileId,
+                    ...(ownerDisplay ? { handle: ownerDisplay.handle } : {}),
+                    ...(ownerDisplay?.displayName ? { displayName: ownerDisplay.displayName } : {}),
+                  },
                   hosts: hosts.map((h) => {
                     const display = displays?.get(h.osnProfileId);
                     const addedBy = displays?.get(h.addedByOsnProfileId);

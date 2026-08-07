@@ -20,7 +20,7 @@ related:
 packages:
   - "@osn/ui"
   - "@pulse/app"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-08-07
 ---
 
 # Component Library (Zaidan)
@@ -57,11 +57,14 @@ osn/ui/src/
 │       ├── popover.tsx        ← Popover, PopoverTrigger, etc. (Kobalte)
 │       ├── radio-group.tsx    ← RadioGroup, RadioGroupItem (Kobalte)
 │       ├── tabs.tsx           ← Tabs, TabsList, TabsTrigger (Kobalte)
-│       └── textarea.tsx       ← Textarea
+│       ├── textarea.tsx       ← Textarea
+│       └── username-input.tsx ← UsernameInput ("@" prefix + availability status)
 └── auth/
-    ├── Register.tsx           ← uses Button, Input, Label, OtpInput
-    └── SignIn.tsx             ← uses Button, Input, Label, OtpInput, clsx()
+    ├── Register.tsx           ← uses Button, Input, Label, OtpInput, UsernameInput
+    └── SignIn.tsx           ← uses Button, Input, Label, OtpInput, clsx()
 ```
+
+`CreateProfileForm.tsx` also uses `UsernameInput` for its handle field. `cire/organiser` doesn't depend on `@osn/ui` (its own component kit, different design system) — it has a local port at `cire/organiser/src/components/ui/UsernameInput.tsx` wrapping that kit's own `Input`, same "@"-prefix idea, used in `HostsPanel`'s add-host combobox.
 
 Consuming apps import via subpath exports:
 

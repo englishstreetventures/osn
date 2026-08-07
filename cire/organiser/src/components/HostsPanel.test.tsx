@@ -62,6 +62,42 @@ describe("HostsPanel", () => {
     );
   });
 
+  it("shows a fixed @ ahead of the add-host box and strips one a paste drops into the value", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ hosts: [] }));
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    await waitFor(() => expect(screen.getByText(/No co-hosts yet/i)).toBeTruthy());
+
+    // The "@" is decoration next to the box, not part of its value — and
+    // typing (or pasting) a leading "@" into the box doesn't double it up.
+    expect(screen.getByText("@")).toBeTruthy();
+    typeHandle("@bob");
+    expect((screen.getByRole("combobox") as HTMLInputElement).value).toBe("bob");
+  });
+
+  it("shows the wedding's owner above the co-hosts, with no role badge or remove control", async () => {
+    authFetchMock.mockResolvedValueOnce(
+      json({
+        owner: { osnProfileId: "usr_alice", handle: "alice", displayName: "Alice" },
+        hosts: [{ osnProfileId: "usr_bob", handle: "bob", role: "editor", createdAt: 1 }],
+      }),
+    );
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    await waitFor(() => expect(screen.getByText("@alice")).toBeTruthy());
+    expect(screen.getByText("Owner")).toBeTruthy();
+    expect(screen.getByText("@bob")).toBeTruthy();
+    // The owner's row carries no role-change or remove control — those actions
+    // don't apply to an owner, unlike the co-host row right below it.
+    expect(screen.queryByRole("button", { name: /Make @alice/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Remove @alice/i })).toBeNull();
+  });
+
+  it("falls back to the owner's profile id when the handle can't be resolved", async () => {
+    authFetchMock.mockResolvedValueOnce(json({ owner: { osnProfileId: "usr_alice" }, hosts: [] }));
+    render(() => <HostsPanel weddingId="wed_a" canManage canAdd />);
+    await waitFor(() => expect(screen.getByText("usr_alice")).toBeTruthy());
+    expect(screen.getByText("Owner")).toBeTruthy();
+  });
+
   it("adds a host by handle and appends it to the list", async () => {
     authFetchMock.mockResolvedValueOnce(json({ hosts: [] })); // initial load
     authFetchMock.mockResolvedValueOnce(
@@ -528,9 +564,11 @@ describe("HostsPanel", () => {
     await waitFor(() => expect(screen.getByRole("option")).toBeTruthy());
 
     fireEvent.mouseDown(screen.getByRole("option", { name: /@alice/i }));
-    // The input now holds the chosen handle and the list is gone.
+    // The input now holds the chosen handle and the list is gone. The box's
+    // own value never carries the "@" — that's the fixed prefix rendered
+    // beside it.
     await waitFor(() => expect(screen.queryByRole("listbox")).toBeNull());
-    expect((screen.getByRole("combobox") as HTMLInputElement).value).toBe("@alice");
+    expect((screen.getByRole("combobox") as HTMLInputElement).value).toBe("alice");
   });
 
   it("fails soft (no listbox) when the search endpoint errors", async () => {

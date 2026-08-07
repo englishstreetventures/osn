@@ -1,10 +1,11 @@
 import { useAuth } from "@osn/client/solid";
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
 import { toast } from "solid-toast";
 
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
+import { UsernameInput } from "../components/ui/username-input";
 
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
 
@@ -95,36 +96,15 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
     <form onSubmit={submit} class="flex flex-col gap-4">
       <div class="flex flex-col gap-1">
         <Label for="cpf-handle">Handle</Label>
-        <div class="flex items-center gap-2">
-          <span class="text-muted-foreground">@</span>
-          <Input
-            id="cpf-handle"
-            type="text"
-            required
-            autocomplete="username"
-            value={handle()}
-            onInput={(e) => onHandleInput(e.currentTarget.value)}
-            placeholder="lowercase, numbers, _"
-            class="flex-1"
-          />
-        </div>
-        <Show when={handleStatus() === "checking"}>
-          <span class="text-muted-foreground text-xs">Checking...</span>
-        </Show>
-        <Show when={handleStatus() === "available"}>
-          <span class="text-xs text-green-600">@{handle()} is available</span>
-        </Show>
-        <Show when={handleStatus() === "taken"}>
-          <span class="text-destructive text-xs">@{handle()} is taken</span>
-        </Show>
-        <Show when={handleStatus() === "invalid"}>
-          <span class="text-destructive text-xs">
-            1-30 chars: lowercase letters, numbers, underscores
-          </span>
-        </Show>
-        <Show when={handleStatus() === "error"}>
-          <span class="text-destructive text-xs">Couldn&apos;t check availability — try again</span>
-        </Show>
+        <UsernameInput
+          id="cpf-handle"
+          required
+          value={handle()}
+          onInput={onHandleInput}
+          status={handleStatus()}
+          placeholder="lowercase, numbers, _"
+          invalidMessage="1-30 chars: lowercase letters, numbers, underscores"
+        />
       </div>
 
       <div class="flex flex-col gap-1">

@@ -8,7 +8,7 @@ related:
   - "[[compliance/retention]]"
   - "[[compliance/dpia/cire-guest-data]]"
   - "[[compliance/dsar]]"
-last-reviewed: 2026-07-30
+last-reviewed: 2026-08-07
 ---
 
 # Compliance Fixes — Completed
@@ -33,6 +33,7 @@ label disambiguates the cire dietary-consent finding from the root **C-H2**
 | **C-M1 (cire invite builder)** | Hand-rolled ARIA tabs pattern declared `role="tablist"`/`role="tab"`/`aria-selected` on the invite builder's new section nav but never wired the panel side of the relationship — no `aria-controls`, no `role="tabpanel"`, no `aria-labelledby`, and every tab sat in the normal Tab sequence instead of a roving tabindex | WCAG 2.1 4.1.2 (Name, Role, Value) / EAA | Completed the [WAI-ARIA APG tabs pattern](https://www.w3.org/WAI/ARIA/apg/patterns/tabs/): each tab gets `id`, `aria-controls` (the panel's DOM id), `tabIndex={0 \| -1}`; each `SectionCard` fieldset gets `role="tabpanel"` + `aria-labelledby`; `ArrowLeft`/`ArrowRight`/`Home`/`End` roving-tabindex keyboard handling (same imperative-focus-ref pattern `DesignPicker`'s radiogroup already used in the same directory). Pinned by two tests: one asserting the `aria-controls`/`aria-labelledby` pairing, one exercising the full keyboard flow (focus, activation, wrap-around). | 2026-07-30 | `cire/wiki/architecture/invite-builder.md` |
 | **C-M2 (oidc)** | Expired-authorization-code retention enforced in code but absent from the schedule | GDPR Art. 5(1)(e) | Retention rows written: `oauth_authorization_codes` (60 s TTL, deleted on redemption, `runExpiredAuthCodeSweep` scheduled reap, also purged on consent revoke + account erasure); `oauth_consents` (until account deletion or explicit withdrawal; revoked rows kept as the withdrawal record). | 2026-07-24 | [[compliance/retention]], [[oidc-provider]] |
 | **C-M3 (oidc)** | Art. 7(3) — withdrawing an app's authorization must be as easy as granting it | GDPR Art. 7(3) | `DELETE /oidc/connections/:clientId` (access-token authed, rate-limited) revokes the consent AND deletes any authorization code in flight for the pair, so withdrawal is effective immediately — not after the 60 s code window drains. `GET /oidc/connections` lists live grants (client name/logo, profile, scope, granted-at). The settings-screen surface remains open as **C-M3-ui (oidc)**. | 2026-07-24 | [[compliance/gdpr]], [[oidc-provider]] |
+| **C-M22** | `GET /api/organiser/weddings/:weddingId/hosts` disclosed the wedding owner's identity (id + resolved handle/displayName) with no `[[compliance/data-map]]` row | GDPR Art. 5(1)(a) transparency | Added a data-map row for `weddings.owner_osn_profile_id` + `wedding_hosts.osn_profile_id` disclosed via that endpoint to the wedding owner and every co-host role incl. `viewer` — Art. 6(1)(f), same recipient class the endpoint already disclosed co-hosts' own identities to. Not a new authz boundary; `weddingMember()` was already reading the owner id for the gate itself. | 2026-08-07 | [[compliance/data-map]], [[cire-auth]] |
 
 ## Partial closes still tracked open
 

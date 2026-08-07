@@ -43,6 +43,7 @@ const throwingResolver: OsnHandleResolver = async () => {
 const PROFILE_TO_DISPLAY: Record<string, { handle: string; displayName: string | null }> = {
   [COHOST]: { handle: "bob", displayName: "Bob Jones" },
   usr_carol: { handle: "carol", displayName: null },
+  [OWNER]: { handle: "alice_owner", displayName: "Alice Owner" },
 };
 const stubDisplayResolver: OsnProfileDisplayResolver = async (profileIds) => {
   const map = new Map<string, { handle: string; displayName: string | null }>();
@@ -326,6 +327,33 @@ describe("GET /api/organiser/weddings/:weddingId/hosts (list)", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { hosts: { osnProfileId: string }[] };
     expect(body.hosts.map((h) => h.osnProfileId)).toEqual([COHOST]);
+  });
+
+  it("always names the owner separately from the co-host list, with their resolved handle", async () => {
+    // The owner is never a `wedding_hosts` row, so this is the only place a
+    // caller learns who owns the wedding. Asserted for a CO-HOST caller too —
+    // the whole point is that someone who isn't the owner can still see them.
+    const { db, app } = buildApp({ resolveOsnProfileDisplays: stubDisplayResolver });
+    seedCohost(db);
+    const res = await req(app, "GET", hostsPath, COHOST);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      owner: { osnProfileId: string; handle?: string; displayName?: string };
+    };
+    expect(body.owner).toEqual({
+      osnProfileId: OWNER,
+      handle: "alice_owner",
+      displayName: "Alice Owner",
+    });
+  });
+
+  it("falls back to the owner's profileId when the display resolver can't name them", async () => {
+    const { db, app } = buildApp({ resolveOsnProfileDisplays: emptyDisplayResolver });
+    seedCohost(db);
+    const res = await req(app, "GET", hostsPath, OWNER);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { owner: { osnProfileId: string; handle?: string } };
+    expect(body.owner).toEqual({ osnProfileId: OWNER });
   });
 
   it("returns 403 for a stranger", async () => {

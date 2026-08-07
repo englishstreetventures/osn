@@ -19,13 +19,18 @@ const fail = (status: number, error: string) => ({
   weddingId: undefined as string | undefined,
   weddingIsOwner: false,
   weddingRole: undefined as WeddingRole | undefined,
+  weddingOwnerOsnProfileId: undefined as string | undefined,
   weddingGateError: { status, body: { error } } as GateError | undefined,
 });
 
-const pass = (weddingId: string, role: WeddingRole) => ({
+const pass = (weddingId: string, role: WeddingRole, ownerOsnProfileId: string) => ({
   weddingId: weddingId as string | undefined,
   weddingIsOwner: role === "owner",
   weddingRole: role as WeddingRole | undefined,
+  // The wedding's OWNER — needed even on the read gate, since a read (unlike
+  // the write gates) is the one place the co-host list has to name the owner
+  // to show them alongside the hosts they don't stand among.
+  weddingOwnerOsnProfileId: ownerOsnProfileId as string | undefined,
   weddingGateError: undefined as GateError | undefined,
 });
 
@@ -61,7 +66,7 @@ export function weddingMember(db: Db) {
 
       if (!result) return fail(404, "wedding_not_found");
       if (!result.role) return fail(403, "forbidden");
-      return pass(weddingId, result.role);
+      return pass(weddingId, result.role, result.ownerOsnProfileId);
     })
     .onBeforeHandle({ as: "scoped" }, ({ weddingGateError, set }) => {
       if (weddingGateError) {

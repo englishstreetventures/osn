@@ -7,12 +7,21 @@ import { haptic } from "../lib/haptics";
 import SectionIntro from "./SectionIntro";
 import Button from "./ui/Button";
 import EmptyState from "./ui/EmptyState";
-import Field, { Fieldset, Input } from "./ui/Field";
+import Field, { Fieldset } from "./ui/Field";
 import Notice from "./ui/Notice";
+import { UsernameInput } from "./ui/UsernameInput";
 
 /** A co-host's role — mirrors the API's closed enum (`editor` writes modules,
  *  `viewer` is read-only). Legacy `host` rows are normalised server-side. */
 type HostRole = "editor" | "viewer";
+
+/** The wedding's owner — never a row in `wedding_hosts` (the API always rows
+ *  them in separately), so it needs its own shape: no role, no add/remove. */
+interface WeddingOwnerRow {
+  osnProfileId: string;
+  handle?: string;
+  displayName?: string;
+}
 
 interface HostRow {
   osnProfileId: string;
@@ -88,6 +97,7 @@ interface HostsPanelProps {
  */
 export default function HostsPanel(props: HostsPanelProps) {
   const { authFetch } = useAuth();
+  const [owner, setOwner] = createSignal<WeddingOwnerRow | null>(null);
   const [hosts, setHosts] = createSignal<HostRow[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
@@ -207,7 +217,11 @@ export default function HostsPanel(props: HostsPanelProps) {
     }
   }
 
-  function onHandleInput(value: string) {
+  function onHandleInput(raw: string) {
+    // `UsernameInput` shows a fixed "@" ahead of the box, so the box's own
+    // value never carries one — strip a leading "@" a paste might still drop
+    // in (the input isn't restricted to what a keystroke can produce).
+    const value = raw.replace(/^@+/, "");
     setHandle(value);
     setAddError(null);
     clearTimeout(debounceTimer);
@@ -233,7 +247,7 @@ export default function HostsPanel(props: HostsPanelProps) {
 
   /** Pick a suggestion: fill the input with its handle and close the list. */
   function pick(s: HandleSuggestion) {
-    setHandle(`@${s.handle}`);
+    setHandle(s.handle);
     setSuggestions([]);
     closeSuggestions();
   }
@@ -279,7 +293,12 @@ export default function HostsPanel(props: HostsPanelProps) {
       const res = await authFetch(endpoint());
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error("Failed to load");
-      const body = (await res.json()) as { hosts: HostRow[]; total?: number };
+      const body = (await res.json()) as {
+        hosts: HostRow[];
+        total?: number;
+        owner?: WeddingOwnerRow;
+      };
+      setOwner(body.owner ?? null);
       setHosts(body.hosts);
       // `total` > the rows we got means the API truncated. Surfaced rather than
       // ignored: an owner shown a partial list has no way to know that someone
@@ -307,12 +326,12 @@ export default function HostsPanel(props: HostsPanelProps) {
       const res = await authFetch(endpoint(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ handle: value, role: role() }),
+        body: JSON.stringify({ handle: `@${value}`, role: role() }),
       });
       if (res.status === 401) return redirectToLogin();
       if (res.status === 404) {
         haptic("reject");
-        setAddError(`No OSN account found for ${value.startsWith("@") ? value : `@${value}`}.`);
+        setAddError(`No OSN account found for @${value}.`);
         return;
       }
       if (res.status === 409) {
@@ -439,12 +458,12 @@ export default function HostsPanel(props: HostsPanelProps) {
                     the organiser types. The manual type-and-submit path is
                     preserved — the dropdown is additive and never required. */}
                 <div class="relative min-w-[12rem] flex-1">
-                  <Input
+                  <UsernameInput
                     {...field}
                     name="osnHandle"
                     value={handle()}
                     maxLength={64}
-                    placeholder="@alice"
+                    placeholder="alice"
                     autocomplete="off"
                     autocapitalize="none"
                     spellcheck={false}
@@ -580,6 +599,38 @@ export default function HostsPanel(props: HostsPanelProps) {
       </Show>
 
       <Show when={!loading() && !error()}>
+        {/* The owner is never a `wedding_hosts` row (see the API's hosts
+            service), so without this the panel below listed every co-host and
+            silently left off the one person who can never be removed. Its own
+            list, styled apart from the co-hosts below: no role badge to flip,
+            no remove control — those actions don't apply to an owner. */}
+        <Show when={owner()}>
+          {(o) => (
+            <ul class="flex flex-col gap-2">
+              <li class="border-gold/40 bg-gold/5 flex items-center justify-between gap-4 rounded-sm border px-4 py-3">
+                <span class="font-body text-text flex flex-wrap items-center gap-3 text-[0.92rem]">
+                  {o().handle ? (
+                    <span class="text-gold-dim">@{o().handle}</span>
+                  ) : (
+                    <span
+                      class="text-text-muted font-mono text-[0.82rem] tracking-[0.04em]"
+                      title="OSN profile id"
+                    >
+                      {o().osnProfileId}
+                    </span>
+                  )}
+                  <span
+                    class="border-gold text-gold font-body rounded-sm border px-2 py-0.5 text-[0.62rem] tracking-[0.16em] uppercase"
+                    title="Owns this wedding — can't be removed or demoted"
+                  >
+                    Owner
+                  </span>
+                </span>
+              </li>
+            </ul>
+          )}
+        </Show>
+
         {/* Never let a truncated list look complete: a seat that isn't shown is
             a seat the owner can't remove, and every seat can read the household
             claim codes and the dietary export. */}
