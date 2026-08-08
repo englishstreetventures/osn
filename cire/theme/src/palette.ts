@@ -103,7 +103,10 @@ export const PALETTE_PRESETS = {
     card: "oklch(99.2% 0.002 250)",
     ink: "oklch(29% 0.016 255)",
     gilt: "oklch(52% 0.042 250)",
-    bloom: "oklch(63% 0.072 215)",
+    // Darkened from 63% — `fog`'s near-white `card`/`raised` (99.2% L) needs
+    // more headroom than `ground` (96.5% L) to clear the UI floor now that
+    // bloom paints the RSVP confirmation fill/tick on `EventCard`.
+    bloom: "oklch(60% 0.072 215)",
   },
   /** Warm and traditional: candle-cream ground, brass, sage. */
   chapel: {
@@ -411,6 +414,9 @@ export function derivePalette(
   // minimum rather than the text minimum so a genuinely gold gold survives
   // instead of being bleached into a cream.
   const gilt = ensureContrast(giltSeed, ground, WCAG_UI_MIN);
+  // Bloom carries the RSVP confirmation button's sweep fill and its
+  // permanent tick — a filled background and an icon glyph, not prose — so
+  // it gets the same UI floor as gilt rather than the text minimum.
   const bloom = ensureContrast(bloomSeed, ground, WCAG_UI_MIN);
 
   // Gold that is READ rather than seen. The 3:1 floor above is the right bar
@@ -562,9 +568,10 @@ export function paletteAdjustments(
  *     land on any of the three surfaces — which is why both prose tokens are
  *     walked against all three rather than against this one.
  *
- * `--color-bloom` has no entry because it is currently painted NOWHERE on the
- * guest site — it is a defined token with no render site, so a warning about it
- * would be about a colour no guest can see. Add a pair here when it gains one.
+ *   - `--color-bloom` on `--color-surface-raised` — the RSVP confirmation
+ *     button's sweep fill and its permanent tick, both on `EventCard`. Held
+ *     to the UI floor like `gilt-on-raised` below it: the fill is a filled
+ *     background and the tick is an icon glyph, neither is prose.
  */
 const RESIDUAL_PAIRS: {
   id: string;
@@ -613,6 +620,18 @@ const RESIDUAL_PAIRS: {
     bg: "--color-surface-raised",
     min: WCAG_UI_MIN,
     message: "Buttons and rules are hard to see on event cards.",
+  },
+  {
+    // `bloom` is derived the same way `gilt` is — walked against `ground`
+    // only, at the UI floor — so it can miss the same way on the same
+    // straddling schemes. Its one render site, the RSVP confirmation
+    // button's sweep fill and permanent tick, lives on `EventCard`, i.e.
+    // `--color-surface-raised`.
+    id: "bloom-on-raised",
+    fg: "--color-bloom",
+    bg: "--color-surface-raised",
+    min: WCAG_UI_MIN,
+    message: "The RSVP confirmation fill and tick are hard to see on event cards.",
   },
   {
     // The pair the first cut of this table missed. The walk is sequential and

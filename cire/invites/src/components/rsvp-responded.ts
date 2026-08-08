@@ -40,14 +40,14 @@ export function hasHouseholdResponded(
  * `justResponded` transition (see the component for the state machine):
  *
  * 1. **Sweep-in** (0 → `SWEEP_DURATION_MS`): the button's fill sweeps from
- *    gold to `bg-success` left-to-right, and a tick draws into it — the same
+ *    gold to `bg-bloom` left-to-right, and a tick draws into it — the same
  *    `--animate-tick-draw` keyframe `rsvp-saved.ts` used to document,
  *    unmoved in `global.css`.
  * 2. **Hold** (→ `HOLD_MS`): the filled, ticked button sits still long enough
  *    to actually read.
  * 3. **Fade** (→ `TOTAL_DURATION_MS`): the fill sweeps back out over another
  *    `SWEEP_DURATION_MS`, and the tick — which stays mounted throughout —
- *    switches from the on-fill ink to a permanent `text-success` green. That
+ *    switches from the on-fill ink to a permanent `text-bloom` accent. That
  *    switch is what survives: the fill is gone at the end of this phase, the
  *    tick is not, and nothing further ever un-shows it for this event.
  */

@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-templates]]"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-08
 ---
 
 # Invite Builder
@@ -307,7 +307,7 @@ gradient.
 | `card`   | Raised paper       | event cards, modals, panels, the code-entry box               |
 | `ink`    | Everything written | headings, body, muted text, hairlines                         |
 | `gilt`   | The metal          | rules, eyebrows, buttons, links, focus ring                   |
-| `bloom`  | Festive counter    | dots, ornament, motifs, ambient accents                       |
+| `bloom`  | Festive counter    | dots, ornament, motifs, ambient accents, the RSVP confirmation fill + tick |
 
 The builder labels each picker with the **seed name** from that first column —
 Ground, Card, Ink, Gilt, Bloom — and prints the "Drives" line beneath it. The
@@ -396,9 +396,14 @@ that made it a text pair wearing a UI bar, and the reason `chapel` (3.58:1) and
 `garden` (3.91:1) would have warned out of the box at 4.5 — moved to
 `--color-gold-ink`, closing **C-M2**. What is left on that pair is genuinely UI:
 the card's outlined buttons, the hairlines and the lit card edge.
-**`--color-bloom` has no pair at all** — it is a defined token with no render
-site anywhere in `cire/invites`, so a warning about it would concern a colour no
-guest can see.
+**`--color-bloom` gets `bloom-on-raised`, held to 3:1 like `gilt-on-raised`
+above it** — it now has a render site: the RSVP confirmation button's sweep
+fill and permanent tick on `EventCard`, both painted on `raised`. `bloom` is
+derived the same way `gilt` is (walked against `ground` only, at the UI
+floor), so the same straddling-scheme failure mode applies, and this pair
+is what catches it. Adding it moved the built-in `fog` preset's bloom seed
+from 63% to 60% lightness — its near-white `card`/`raised` needed a touch
+more headroom than `ground` gave it.
 
 The warning panel is a **permanently-mounted** `role="status"` with its contents
 conditional, not a `<Show>` wrapping the region: a live region inserted together

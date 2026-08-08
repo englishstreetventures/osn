@@ -202,10 +202,13 @@ export function EventCard(props: EventCardProps) {
                   needs a starting frame to travel from — an element created
                   already in its end state simply appears there. Invisible
                   outside a celebration since `filled` only ever turns true
-                  from `playCelebration`. */}
+                  from `playCelebration`. `bloom` is the accent for this —
+                  the guest site's other chromatic accent, `gold`, is already
+                  the button's base colour, so it can't also mark the "after"
+                  state. */}
               <span
                 aria-hidden="true"
-                class="bg-success absolute inset-0 origin-left scale-x-0 transition-transform duration-500 ease-out"
+                class="bg-bloom absolute inset-0 origin-left scale-x-0 transition-transform duration-500 ease-out"
                 classList={{ "scale-x-100": filled() }}
               />
               <span class="relative flex items-center justify-center gap-2">
@@ -226,12 +229,12 @@ export function EventCard(props: EventCardProps) {
                     stroke-linecap="round"
                     stroke-linejoin="round"
                     classList={{
-                      // On-fill ink while the green sweep is up, matching the
-                      // label; the permanent green signifier only once it's
+                      // On-fill ink while the bloom sweep is up, matching the
+                      // label; the permanent bloom signifier only once it's
                       // gone (settled, or was already gone — a page load with
                       // an existing reply never plays the fill at all).
                       "text-bg": filled(),
-                      "text-success": !filled(),
+                      "text-bloom": !filled(),
                     }}
                   >
                     <Show when={celebrating()} fallback={<path d="M5 13l4 4L19 7" />}>
