@@ -1174,13 +1174,13 @@ describe("InvitePage", () => {
         let path = respond.querySelector("svg path") as SVGPathElement;
         expect(path.getAttribute("class")).toContain("animate-tick-draw");
 
-        // The celebration settles: fill gone, tick stays, now undrawn.
+        // The celebration settles: fill stays, tick stays, now undrawn.
         await vi.advanceTimersByTimeAsync(TOTAL_DURATION_MS);
         path = respond.querySelector("svg path") as SVGPathElement;
         expect(path).toBeTruthy();
         expect(path.hasAttribute("stroke-dasharray")).toBe(false);
         fill = respond.querySelector("span[aria-hidden='true']") as HTMLElement;
-        expect(fill.className).not.toContain("scale-x-100");
+        expect(fill.className).toContain("scale-x-100");
 
         // The regression this guards: if `onCelebrated` ever stopped resetting
         // `justRespondedEventId` to null, THIS second confirmation (an edited,

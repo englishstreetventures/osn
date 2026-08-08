@@ -2,11 +2,19 @@ import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
 
 /**
  * True once every member of the household invited to this event has an RSVP
- * row on file for it. RSVP submission is atomic per event — `RsvpModal`
- * requires every visible member to be answered before it will submit, and
- * sends them in one request — so "all invited members have a row" and "any
- * invited member has a row" are the same fact in practice; checking all of
- * them is the one that stays correct if that ever stops being true.
+ * row on file for it. RSVP submission is no longer atomic per event —
+ * `RsvpModal` lets a household save with only SOME visible members answered,
+ * sending just that subset — so this is the check that has to run the full
+ * `.every(...)` walk rather than trusting any one row to stand in for the
+ * whole party.
+ *
+ * `RsvpModal` computes the equivalent fact for itself (`handleSubmit`'s
+ * `nowComplete` — every visible member's LOCAL form state is non-null,
+ * counting a prior reply prefilled by `initialResponses` as answered) rather
+ * than calling this function, since it needs the answer synchronously from
+ * form state before a submit round-trips; a save only earns the
+ * Respond-button celebration, on top of the toast every save gets, once that
+ * check comes back true.
  *
  * An event nobody in the household is invited to reports `false` — there is
  * nothing to have responded to, so a permanent tick would be a lie.
@@ -36,20 +44,18 @@ export function hasHouseholdResponded(
  * so keep `TOTAL_DURATION_MS` and the dwell independent: the celebration is
  * measured from the moment the button becomes visible, not from the submit.
  *
- * Three phases, driven entirely inside `EventCard` from a single
+ * Two phases, driven entirely inside `EventCard` from a single
  * `justResponded` transition (see the component for the state machine):
  *
  * 1. **Sweep-in** (0 → `SWEEP_DURATION_MS`): the button's fill sweeps from
  *    gold to `bg-bloom` left-to-right, and a tick draws into it — the same
  *    `--animate-tick-draw` keyframe `rsvp-saved.ts` used to document,
  *    unmoved in `global.css`.
- * 2. **Hold** (→ `HOLD_MS`): the filled, ticked button sits still long enough
- *    to actually read.
- * 3. **Fade** (→ `TOTAL_DURATION_MS`): the fill sweeps back out over another
- *    `SWEEP_DURATION_MS`, and the tick — which stays mounted throughout —
- *    switches from the on-fill ink to a permanent `text-bloom` accent. That
- *    switch is what survives: the fill is gone at the end of this phase, the
- *    tick is not, and nothing further ever un-shows it for this event.
+ * 2. **Hold** (→ `HOLD_MS` = `TOTAL_DURATION_MS`): the filled, ticked button
+ *    sits still long enough to actually read, then stays exactly as it is —
+ *    there is no fade-out. The fill and the tick are both permanent once the
+ *    sweep-in has played: a guest who reopens the invite tomorrow sees the
+ *    same filled, ticked button a guest who just submitted settles into.
  */
 
 /** The fill's sweep, in either direction — must equal the `duration-500` utility on the fill layer. */
@@ -65,11 +71,16 @@ export const TICK_DURATION_MS = 340;
 export const TICK_DRAW_END_MS = TICK_DELAY_MS + TICK_DURATION_MS;
 
 /**
- * How long the filled, ticked state holds before fading back out. Comfortably
- * past `TICK_DRAW_END_MS` so the hold is a readable beat, not the animation's
- * last frame wearing a different name.
+ * How long the filled, ticked state holds before settling. Comfortably past
+ * `TICK_DRAW_END_MS` so the hold is a readable beat, not the animation's last
+ * frame wearing a different name.
  */
 export const HOLD_MS = 900;
 
-/** When the whole celebration is over and `EventCard` reports it via `onCelebrated`. */
-export const TOTAL_DURATION_MS = HOLD_MS + SWEEP_DURATION_MS;
+/**
+ * When the whole celebration is over and `EventCard` reports it via
+ * `onCelebrated` — equal to `HOLD_MS`, since there is no fade-out sweep to
+ * wait through: the fill and tick are already in their permanent state once
+ * the hold ends.
+ */
+export const TOTAL_DURATION_MS = HOLD_MS;

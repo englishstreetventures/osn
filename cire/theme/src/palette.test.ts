@@ -316,11 +316,26 @@ describe("residual contrast warnings", () => {
     // near-white `card`/`raised` (99.2% L) needs more headroom than `ground`
     // (96.5% L), so the original 63%-lightness bloom seed cleared `ground`
     // (bloom is only walked against `ground` at derivation time) but landed
-    // at 2.88:1 on `raised` — under the 3:1 floor. Assert the property, not
-    // the literal, so a future re-tune only has to keep clearing this bar.
+    // at 2.88:1 on `raised` — under the 3:1 floor. The first fix (60%) only
+    // just cleared it at 3.24:1; the seed now sits at 50% for real headroom
+    // (~4.92:1). Assert the property, not the literal, so a future re-tune
+    // only has to keep clearing this bar.
     const fog = derivePalette(PALETTE_PRESETS.fog);
     expect(
       contrastRatio(fog["--color-bloom"] as string, fog["--color-surface-raised"] as string),
+    ).toBeGreaterThanOrEqual(WCAG_UI_MIN);
+  });
+
+  test("chapel's bloom clears the raised surface with the same headroom fog needed", () => {
+    // `chapel` had the identical thin-margin problem as `fog` above — its
+    // original 60%-lightness bloom seed cleared `bloom-on-raised` at only
+    // 3.18:1, barely past the 3:1 floor. Moved to 50% alongside `fog`'s
+    // re-tune (~4.83:1). Only the blanket "every curated preset is clean"
+    // sweep covered this before, which only proves the floor clears by SOME
+    // margin — a partial revert landing just over 3:1 would pass it silently.
+    const chapel = derivePalette(PALETTE_PRESETS.chapel);
+    expect(
+      contrastRatio(chapel["--color-bloom"] as string, chapel["--color-surface-raised"] as string),
     ).toBeGreaterThanOrEqual(WCAG_UI_MIN);
   });
 

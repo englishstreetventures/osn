@@ -7,7 +7,7 @@ import { buildSrcSet, variantSrc } from "./invite-images";
 // no source dimensions (a legacy crop), so the box keeps today's fixed shape.
 const EVENT_DEFAULT_ASPECT = 4 / 3;
 import { formatEventDay, venueLine } from "./event-details";
-import { HOLD_MS, TOTAL_DURATION_MS } from "./rsvp-responded";
+import { TOTAL_DURATION_MS } from "./rsvp-responded";
 import type { EventSummary } from "./types";
 
 interface EventCardProps {
@@ -49,26 +49,27 @@ interface EventCardProps {
   /**
    * True once this household's RSVP for this event is on file — driven by
    * data (`hasHouseholdResponded` in `rsvp-responded.ts`), not by anything
-   * that happened this session. Renders a permanent green tick on Respond, no
-   * animation: a guest who reopens the invite tomorrow should see the same
-   * mark a guest who just submitted settles into, without watching it draw.
+   * that happened this session. Renders Respond permanently filled with
+   * `bloom` and ticked, no animation: a guest who reopens the invite
+   * tomorrow should see the same mark a guest who just submitted settles
+   * into, without watching either draw.
    */
   responded?: boolean;
   /**
    * Pulses true for exactly one render the instant THIS event's reply is
    * confirmed (see `RsvpModal`'s `onConfirmed`) — the transition from false
-   * to true is what plays the sweep-in/hold/fade-out choreography documented
-   * in `rsvp-responded.ts`. An event that starts `true` on mount (it cannot,
-   * in practice — the parent only ever flips this from a live confirmation —
+   * to true is what plays the sweep-in/hold choreography documented in
+   * `rsvp-responded.ts`. An event that starts `true` on mount (it cannot, in
+   * practice — the parent only ever flips this from a live confirmation —
    * but the guard exists regardless) plays no animation, matching `responded`
    * above: only a fresh transition celebrates.
    */
   justResponded?: boolean;
   /**
-   * Fired once the celebration has fully played out (fill faded back, tick
-   * settled), so the parent can reset `justResponded` back to false and be
-   * ready to celebrate the NEXT confirmation for this event (an edited,
-   * re-submitted reply) rather than only ever the first one.
+   * Fired once the celebration has fully played out (fill and tick settled
+   * into their permanent state), so the parent can reset `justResponded` back
+   * to false and be ready to celebrate the NEXT confirmation for this event
+   * (an edited, re-submitted reply) rather than only ever the first one.
    */
   onCelebrated?: () => void;
   onRespond: (event: EventSummary) => void;
@@ -86,38 +87,38 @@ export function EventCard(props: EventCardProps) {
   const isAlt = () => props.orientation === "alt";
 
   // The Respond-button confirmation (see `rsvp-responded.ts`). `celebrating`
-  // spans the whole choreography (sweep-in through fade-out) and gates
+  // spans the whole choreography (sweep-in through the hold) and gates
   // whether the tick renders at all when `responded` is false, such as during
   // the host preview's ephemeral flourish (see `RsvpModal`'s `onConfirmed`) —
   // preview never sets `responded`, since nothing was actually written.
-  // `filled` is the sub-state that actually drives the green fill: true
-  // through the sweep-in and the hold, false once the fade-out starts, so it
-  // can double as the tick's ink switch (on-fill while filled, permanent
-  // `text-success` once it isn't).
+  // `filled` drives the bloom fill and is a ONE-WAY LATCH, not a live mirror
+  // of `responded`: it starts at whatever `responded` was the moment this
+  // card mounted (so a reload of an already-answered event renders already
+  // filled, no animation — same as the tick), and is otherwise only ever
+  // set `true` by `playCelebration`, never back to `false`. It is
+  // deliberately NOT kept in sync with `responded` after mount — the real
+  // submit path writes the reply (flipping `responded`) well before the
+  // sheet closes and cues the celebration, so a live sync would fill the
+  // button while it's still hidden behind the sheet and the guest would
+  // never see the sweep-in, only the tick draw over an already-solid
+  // button.
   const [celebrating, setCelebrating] = createSignal(false);
-  const [filled, setFilled] = createSignal(false);
+  const [filled, setFilled] = createSignal(props.responded ?? false);
 
-  let fadeTimer: ReturnType<typeof setTimeout> | undefined;
   let endTimer: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => {
-    if (fadeTimer !== undefined) clearTimeout(fadeTimer);
     if (endTimer !== undefined) clearTimeout(endTimer);
   });
 
   function playCelebration() {
     // A re-submit (edited reply) while a previous celebration is still
-    // fading out restarts the choreography from the top rather than layering
-    // a second pair of timers over the first.
-    if (fadeTimer !== undefined) clearTimeout(fadeTimer);
+    // holding restarts the choreography from the top rather than layering a
+    // second timer over the first.
     if (endTimer !== undefined) clearTimeout(endTimer);
     batch(() => {
       setCelebrating(true);
       setFilled(true);
     });
-    fadeTimer = setTimeout(() => {
-      fadeTimer = undefined;
-      setFilled(false);
-    }, HOLD_MS);
     endTimer = setTimeout(() => {
       endTimer = undefined;
       setCelebrating(false);
@@ -200,12 +201,13 @@ export function EventCard(props: EventCardProps) {
               {/* The confirmation fill. Mounted at `scale-x-0` from the start
                   and never conditionally rendered, because a CSS transition
                   needs a starting frame to travel from — an element created
-                  already in its end state simply appears there. Invisible
-                  outside a celebration since `filled` only ever turns true
-                  from `playCelebration`. `bloom` is the accent for this —
-                  the guest site's other chromatic accent, `gold`, is already
-                  the button's base colour, so it can't also mark the "after"
-                  state. */}
+                  already in its end state simply appears there (unless
+                  `filled`'s initial value was already `true` from mount —
+                  see its declaration — in which case it simply starts
+                  filled, matching the settled tick). `bloom` is the accent
+                  for this — the guest site's other chromatic accent,
+                  `gold`, is already the button's base colour, so it can't
+                  also mark the "after" state. */}
               <span
                 aria-hidden="true"
                 class="bg-bloom absolute inset-0 origin-left scale-x-0 transition-transform duration-500 ease-out"
@@ -229,10 +231,18 @@ export function EventCard(props: EventCardProps) {
                     stroke-linecap="round"
                     stroke-linejoin="round"
                     classList={{
-                      // On-fill ink while the bloom sweep is up, matching the
-                      // label; the permanent bloom signifier only once it's
-                      // gone (settled, or was already gone — a page load with
-                      // an existing reply never plays the fill at all).
+                      // On-fill ink whenever the bloom fill is up (the
+                      // common case now — sweeping in, holding, settled, or
+                      // already filled at mount for a prior reply). The
+                      // `text-bloom` fallback covers the one gap `filled`
+                      // doesn't latch onto: a reply recorded via
+                      // `onSubmitted` while the sheet is dismissed before
+                      // its celebration ever cues (`RsvpModal`'s early-close
+                      // paths) — the tick must still show (`responded` is
+                      // true), but the fill was deliberately never turned on
+                      // for it, so the tick needs ink that reads on the
+                      // plain gold button until a reload re-mounts already
+                      // filled.
                       "text-bg": filled(),
                       "text-bloom": !filled(),
                     }}

@@ -103,10 +103,13 @@ export const PALETTE_PRESETS = {
     card: "oklch(99.2% 0.002 250)",
     ink: "oklch(29% 0.016 255)",
     gilt: "oklch(52% 0.042 250)",
-    // Darkened from 63% — `fog`'s near-white `card`/`raised` (99.2% L) needs
-    // more headroom than `ground` (96.5% L) to clear the UI floor now that
-    // bloom paints the RSVP confirmation fill/tick on `EventCard`.
-    bloom: "oklch(60% 0.072 215)",
+    // Darkened from 63% (then 60%) — `fog`'s near-white `card`/`raised`
+    // (99.2% L) needs more headroom than `ground` (96.5% L) to clear the UI
+    // floor now that bloom paints the RSVP confirmation fill/tick on
+    // `EventCard`. 60% only cleared `bloom-on-raised` at 3.24:1 — barely
+    // past the 3:1 floor, not comfortably readable — so this went further,
+    // to 50%, landing at ~4.92:1.
+    bloom: "oklch(50% 0.072 215)",
   },
   /** Warm and traditional: candle-cream ground, brass, sage. */
   chapel: {
@@ -114,7 +117,9 @@ export const PALETTE_PRESETS = {
     card: "oklch(98.5% 0.008 85)",
     ink: "oklch(28% 0.018 70)",
     gilt: "oklch(58% 0.079 76)",
-    bloom: "oklch(60% 0.058 145)",
+    // Same headroom problem as `fog`'s bloom: 60% only cleared
+    // `bloom-on-raised` at 3.18:1. Darkened to 50% for ~4.83:1.
+    bloom: "oklch(50% 0.058 145)",
   },
   /** Garden party: blush ground, white paper, plum ink, olive bloom. */
   garden: {

@@ -1,5 +1,6 @@
 import { render, cleanup, fireEvent, waitFor, within } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
+import { toast } from "solid-toast";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
 import { SAVED_DWELL_MS } from "./rsvp-saved";
@@ -9,6 +10,8 @@ import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
 vi.mock("motion", () => ({
   animate: vi.fn(() => ({ finished: Promise.resolve() })),
 }));
+
+vi.mock("solid-toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const event: EventSummary = {
   id: "event-1",
@@ -66,6 +69,10 @@ describe("RsvpModal", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    // The `solid-toast` mock is a module-level singleton (the factory runs
+    // once for the whole file), so its call history survives across tests
+    // unless cleared here.
+    vi.mocked(toast.success).mockClear();
   });
 
   beforeEach(() => {
@@ -117,7 +124,7 @@ describe("RsvpModal", () => {
     expect(input.className).toContain("sm:text-[0.9rem]");
   });
 
-  it("shows error and blocks submit if any member's response is null", async () => {
+  it("blocks submit and shows an error when nobody in the party has answered", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     const onSubmitted = vi.fn();
@@ -133,17 +140,66 @@ describe("RsvpModal", () => {
       />
     ));
 
-    // Only set Priya, leave Raj null
-    fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
-
+    // Nobody answered — there is nothing worth sending.
     fireEvent.click(getByText("Save"));
 
     await waitFor(() => {
-      expect(getByText("Please respond for everyone in your party.")).toBeTruthy();
+      expect(getByText("Please respond for at least one person in your party.")).toBeTruthy();
     });
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(onSubmitted).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("allows submit with only some members answered, sending just the answered ones", async () => {
+    const updatedRsvps: RsvpSummary[] = [
+      { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+    ];
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ rsvps: updatedRsvps }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    const onSubmitted = vi.fn();
+    const onConfirmed = vi.fn();
+    vi.useFakeTimers();
+
+    const { getByText } = render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya, raj]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+        onSubmitted={onSubmitted}
+        onConfirmed={onConfirmed}
+      />
+    ));
+
+    // Only Priya answered — Raj is left null. The household no longer has to
+    // finish the whole party in one sitting.
+    fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+    fireEvent.click(getByText("Save"));
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    expect(fetchSpy).toHaveBeenCalled();
+
+    const parsed = JSON.parse(fetchSpy.mock.calls[0]![1].body);
+    expect(parsed.rsvps).toHaveLength(1);
+    expect(parsed.rsvps[0]).toMatchObject({ guestId: "guest-priya", eventId: "event-1" });
+    expect(onSubmitted).toHaveBeenCalledWith(updatedRsvps);
+
+    // A partial reply gets the toast, same as a complete one, but not the
+    // Respond-button celebration — only every invited member answering earns
+    // that.
+    expect(vi.mocked(toast.success)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(toast.success)).toHaveBeenCalledWith(
+      `Your RSVP for ${event.name} has been recorded.`,
+    );
+    await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+    expect(onConfirmed).not.toHaveBeenCalled();
   });
 
   it("submit POSTs the expected JSON shape with credentials include and content-type", async () => {
@@ -222,6 +278,7 @@ describe("RsvpModal", () => {
     // events section behind the sheet is already correct while the confirmation
     // is still on screen. The close comes later, on its own timer.
     expect(onSubmitted).toHaveBeenCalledWith(updatedRsvps);
+    expect(vi.mocked(toast.success)).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
     expect(onClose).toHaveBeenCalled();
@@ -584,9 +641,44 @@ describe("RsvpModal", () => {
 
     expect(await findByText("Saved")).toBeTruthy();
     expect(onSubmitted).not.toHaveBeenCalled();
+    expect(vi.mocked(toast.success)).toHaveBeenCalledTimes(1);
   });
 
-  it("still enforces party-complete validation before the preview no-op", async () => {
+  it("allows a partial submit in preview mode too, without the celebration cue", async () => {
+    // Preview follows the same partial-save rule as the real path — it must,
+    // since the whole point of preview is showing a host exactly what a guest
+    // would experience.
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const onClose = vi.fn();
+    const onConfirmed = vi.fn();
+    vi.useFakeTimers();
+
+    const { getByText } = render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya, raj]}
+        apiUrl="https://api.test"
+        preview={true}
+        onClose={onClose}
+        onConfirmed={onConfirmed}
+      />
+    ));
+
+    // Only Priya answered.
+    fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+    fireEvent.click(getByText("Save"));
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(document.querySelector('[role="alert"]')).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+    expect(onClose).toHaveBeenCalled();
+    expect(onConfirmed).not.toHaveBeenCalled();
+  });
+
+  it("still blocks an empty submit in preview mode", async () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     const onClose = vi.fn();
@@ -601,12 +693,11 @@ describe("RsvpModal", () => {
       />
     ));
 
-    // Only Priya answered → submit is blocked even in preview, and does not close.
-    fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+    // Nobody answered — blocked even in preview.
     fireEvent.click(getByText("Save"));
 
     await waitFor(() =>
-      expect(getByText("Please respond for everyone in your party.")).toBeTruthy(),
+      expect(getByText("Please respond for at least one person in your party.")).toBeTruthy(),
     );
     expect(onClose).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -950,6 +1041,118 @@ describe("RsvpModal", () => {
       expect(onConfirmed).toHaveBeenCalledTimes(1);
       expect(fetchSpy).not.toHaveBeenCalled();
       expect(onSubmitted).not.toHaveBeenCalled();
+    });
+
+    it("does not fire onConfirmed when the save leaves the party incomplete", async () => {
+      // A partial save still closes the sheet and still gets the toast, but
+      // the Respond-button celebration is reserved for the save that finishes
+      // the whole party.
+      const onConfirmed = vi.fn();
+      const onClose = vi.fn();
+      const rsvps: RsvpSummary[] = [
+        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+      ];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ rsvps }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+      vi.useFakeTimers();
+      render(() => (
+        <RsvpModal
+          event={event}
+          members={[priya, raj]}
+          apiUrl="https://api.test"
+          onClose={onClose}
+          onConfirmed={onConfirmed}
+        />
+      ));
+      // Only Priya answered — Raj is left null.
+      fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+      fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
+
+      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onConfirmed).not.toHaveBeenCalled();
+    });
+
+    it("fires onConfirmed when the save leaves every invited member answered", async () => {
+      const onConfirmed = vi.fn();
+      const onClose = vi.fn();
+      const rsvps: RsvpSummary[] = [
+        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+        { guestId: "guest-raj", eventId: "event-1", status: "declined", dietary: "" },
+      ];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ rsvps }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+      vi.useFakeTimers();
+      render(() => (
+        <RsvpModal
+          event={event}
+          members={[priya, raj]}
+          apiUrl="https://api.test"
+          onClose={onClose}
+          onConfirmed={onConfirmed}
+        />
+      ));
+      fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+      fireEvent.click(within(fieldsetFor("Raj")).getByText("Not attending"));
+      fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
+
+      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+      expect(onConfirmed).toHaveBeenCalledTimes(1);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("counts a member's PRIOR reply as answered, so completing just the last member fires onConfirmed", async () => {
+      // `initialResponses` prefills an existing reply into `responses()`, so
+      // "every visible member answered" already accounts for a household that
+      // is finishing a party it started on an earlier visit — not just one
+      // answered entirely in this session.
+      const onConfirmed = vi.fn();
+      const rsvps: RsvpSummary[] = [
+        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+        { guestId: "guest-raj", eventId: "event-1", status: "declined", dietary: "" },
+      ];
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify({ rsvps }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+      vi.useFakeTimers();
+      render(() => (
+        <RsvpModal
+          event={event}
+          members={[priya, raj]}
+          // Raj already answered on a previous visit; only Priya is missing.
+          existingRsvps={[
+            { guestId: "guest-raj", eventId: "event-1", status: "declined", dietary: "" },
+          ]}
+          apiUrl="https://api.test"
+          onClose={() => {}}
+          onConfirmed={onConfirmed}
+        />
+      ));
+      fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+      fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
+
+      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+      expect(onConfirmed).toHaveBeenCalledTimes(1);
     });
 
     it("announces the recorded reply in a live region", async () => {

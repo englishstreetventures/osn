@@ -8,6 +8,7 @@ import {
   Show,
   For,
 } from "solid-js";
+import { toast } from "solid-toast";
 
 import { AnimatedModal } from "./AnimatedModal";
 import { SAVED_DWELL_MS } from "./rsvp-saved";
@@ -45,12 +46,19 @@ interface RsvpModalProps {
   onClose: () => void;
   onSubmitted?: (updated: RsvpSummary[]) => void;
   /**
-   * Fired as this sheet closes itself after a confirmed reply — for BOTH the
-   * real submit path and the host preview no-op, since preview exists to show
-   * a host exactly what a guest sees. This is what tells the events section
-   * behind the sheet to play the Respond-button confirmation (see
-   * `rsvp-responded.ts`), and it fires paired with `onClose` precisely because
-   * that confirmation is only watchable once this sheet is out of the way.
+   * Fired as this sheet closes itself after a save that leaves EVERY invited
+   * member of this event with a reply on file — for BOTH the real submit path
+   * and the host preview no-op, since preview exists to show a host exactly
+   * what a guest sees. This is what tells the events section behind the sheet
+   * to play the Respond-button sweep/tick (see `rsvp-responded.ts`), and it
+   * fires paired with `onClose` precisely because that confirmation is only
+   * watchable once this sheet is out of the way.
+   *
+   * A save that leaves the party still incomplete (the household can submit
+   * with only some members answered — see `handleSubmit`) does NOT fire this:
+   * it still gets the toast (`enterSavedState`) and still closes the sheet,
+   * just without the Respond-button celebration, since the household hasn't
+   * actually finished responding to this event yet.
    *
    * Deliberately separate from `onSubmitted`, which fires only on the real
    * path, at submit time, and is what actually persists the reply. Preview's
@@ -130,12 +138,19 @@ export function RsvpModal(props: RsvpModalProps) {
   /**
    * Enter the confirmed state and hand the sheet a deadline to close itself.
    *
+   * The toast fires immediately, for every successful save — partial or
+   * complete — since it is the one confirmation a guest gets regardless of
+   * how much of the party they just answered for. `onConfirmed` (the
+   * Respond-button celebration) is gated on `complete`: only a save that
+   * leaves every invited member with a reply on file earns it.
+   *
    * Deliberately does NOT call `onSubmitted` — the host preview reaches this
    * too, and a preview must show the guest's confirmation without ever claiming
    * data was written. The real success path calls `onSubmitted` itself.
    */
-  function enterSavedState() {
+  function enterSavedState(complete: boolean) {
     setSaved(true);
+    toast.success(`Your RSVP for ${props.event.name} has been recorded.`);
     dwellTimer = setTimeout(() => {
       dwellTimer = undefined;
       // Fired WITH the close, not at the top of the dwell. The celebration this
@@ -146,7 +161,7 @@ export function RsvpModal(props: RsvpModalProps) {
       // (`SAVED_DWELL_MS` 900ms vs `TOTAL_DURATION_MS` 1400ms), leaving the
       // guest only the 500ms fade-out — green draining off a button they never
       // saw fill, which reads as nothing having happened at all.
-      props.onConfirmed?.();
+      if (complete) props.onConfirmed?.();
       props.onClose();
     }, SAVED_DWELL_MS);
   }
@@ -224,13 +239,24 @@ export function RsvpModal(props: RsvpModalProps) {
     // could still fire this, and the server would refuse it anyway.
     if (props.closed) return;
 
+    // The household no longer has to finish the whole party in one sitting —
+    // whichever members have an answer get sent, and anyone left at `null` is
+    // simply left out of the batch (their existing reply, if any, is untouched
+    // server-side). `current[m.guestId]?.attending` already reflects a PRIOR
+    // reply too, since `initialResponses` prefills it — so `answered` counts
+    // both a fresh answer this session and one already on file. At least one
+    // member must be answered, or there is nothing worth sending.
     const current = responses();
     const visible = eventMembers();
-    const allAnswered = visible.every((m) => current[m.guestId]?.attending !== null);
-    if (!allAnswered) {
-      setError("Please respond for everyone in your party.");
+    const answered = visible.filter((m) => current[m.guestId]?.attending !== null);
+    if (answered.length === 0) {
+      setError("Please respond for at least one person in your party.");
       return;
     }
+    // Whether THIS save leaves every invited member answered — the signal
+    // `enterSavedState` uses to decide whether the Respond-button celebration
+    // plays alongside the toast, or just the toast.
+    const nowComplete = answered.length === visible.length;
 
     // Art. 9(2)(a) gate: dietary free-text is special-category data and may only
     // be sent with the guest's explicit opt-in. Block submit if anyone entered
@@ -253,14 +279,14 @@ export function RsvpModal(props: RsvpModalProps) {
     // feels; a preview that skipped straight to a closed sheet would hide the
     // one piece of feedback this change exists to add.
     if (props.preview) {
-      enterSavedState();
+      enterSavedState(nowComplete);
       return;
     }
 
     setLoading(true);
 
     const body = {
-      rsvps: visible.map((m) => {
+      rsvps: answered.map((m) => {
         const state = current[m.guestId]!;
         const attending = state.attending === "attending";
         const dietary = attending ? state.dietary : "";
@@ -311,7 +337,7 @@ export function RsvpModal(props: RsvpModalProps) {
         // already showing the new answer when the sheet lifts off it.
         batch(() => {
           setLoading(false);
-          enterSavedState();
+          enterSavedState(nowComplete);
           props.onSubmitted?.(data.rsvps);
         });
         return;

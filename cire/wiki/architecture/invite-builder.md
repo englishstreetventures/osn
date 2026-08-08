@@ -403,7 +403,20 @@ derived the same way `gilt` is (walked against `ground` only, at the UI
 floor), so the same straddling-scheme failure mode applies, and this pair
 is what catches it. Adding it moved the built-in `fog` preset's bloom seed
 from 63% to 60% lightness — its near-white `card`/`raised` needed a touch
-more headroom than `ground` gave it.
+more headroom than `ground` gave it. 60% only just cleared the floor
+(3.24:1 measured), read as thin rather than legible, so it moved again to
+50% (~4.92:1); `chapel` had the identical thin-margin problem (3.18:1 at its
+original 60%) and moved the same way, to 50% (~4.83:1).
+
+The confirmation fill and tick are also no longer transient: the original
+choreography swept the fill back OUT after the hold, leaving only a bare
+tick — now the fill and tick both stay once the sweep-in has played, for
+every event the household has answered (including on a fresh page load, not
+just the one just confirmed). `bloom`'s only render site is therefore the
+fill itself and the tick sitting on top of it, never a tick alone on the
+plain gold button — which is why comfortable headroom on `bloom-on-raised`
+matters more than it did when the accent was only ever seen for a few
+hundred milliseconds.
 
 The warning panel is a **permanently-mounted** `role="status"` with its contents
 conditional, not a `<Show>` wrapping the region: a live region inserted together

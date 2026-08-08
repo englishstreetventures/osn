@@ -5,12 +5,18 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-08
 ---
 
 # Security Backlog
 
 See [[overview]] for observability rules that apply to all security-sensitive code paths. See [[review-findings]] for severity prefix conventions.
+
+### RSVP partial saves + persistent confirmation fill (`claude/fog-bloom-sweep-fill-issues-lwdamh`, 2026-08-08)
+
+Pre-PR security review. **No Critical/High/Medium findings.** The client change (`RsvpModal.tsx` now sends only the `answered` subset of a household's invited members, rather than requiring every visible member to be answered before submit) was independently verified against `cire/api`: `BulkRsvpBody` (`schemas/rsvp.ts`) has `Schema.maxItems(200)` and no minimum; `routes/rsvp.ts` authorizes per-row (ownership + invitation) with no batch-completeness check; `services/rsvp.ts`'s `submitRsvps` only upserts the rows it's given. The server already accepted arbitrary subsets before this branch — the client change grants no new capability. The Art. 9(2)(a) dietary-consent gate still walks every *visible* member (not just `answered`), so it can't be starved by excluding someone from the batch. The new toast interpolates only the organiser-controlled `event.name` into a Solid JSX text child (auto-escaped, no `innerHTML` sink in `solid-toast`'s dist) — no injection vector, and it's not a new dependency (already mounted via `<Toaster/>` in both `InvitePage.tsx` designs).
+
+- [ ] **S-L1** (pre-existing; **not fixed here**) — `BulkRsvpBody.rsvps` has no `Schema.minItems(1)`, so `POST /api/rsvp` with `rsvps: []` is schema-valid and reaches the service as a documented no-op (200, nothing written). Not itself exploitable — `sessionAuth()` still gates the route, and an empty batch performs no write, no read amplification, no state change — but this branch is the reason a legitimate client now routinely sends small/partial batches, which is a natural moment to close the remaining gap for defense-in-depth (a scripted caller with a valid claim-code session could otherwise loop cheap no-op 200s). **Not fixed here**: it's a `cire/api` schema change, and this branch touches only `cire/invites` + `cire/theme` — bundling a backend edit into an otherwise frontend-only PR wasn't worth the scope creep for a Low, pre-existing gap. Fix: add `Schema.minItems(1)` to `BulkRsvpBody.rsvps` in `cire/api/src/schemas/rsvp.ts`, mirroring the client's own new "at least one" guard (`RsvpModal.tsx`'s `answered.length === 0` check) so the invariant is enforced at the boundary too.
 
 ### CSV import into each module's Edit mode (`claude/cire-csv-import-reorganize-y1vbnk`, 2026-08-06)
 

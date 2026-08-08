@@ -16,10 +16,10 @@ import {
 /**
  * The Respond-button confirmation is choreographed across three places that
  * cannot see each other: Tailwind utilities on the button (the fill sweep), a
- * keyframe in `global.css` (the tick), and `setTimeout`s in `EventCard` (the
- * hold and the fade-out). Nothing in the toolchain relates them — happy-dom
- * computes no CSS, so no component test can observe the real timing, and
- * every combination type-checks and builds.
+ * keyframe in `global.css` (the tick), and a `setTimeout` in `EventCard` (the
+ * hold). Nothing in the toolchain relates them — happy-dom computes no CSS,
+ * so no component test can observe the real timing, and every combination
+ * type-checks and builds.
  *
  * These are the guards that relate them. The class-level half (the fill
  * really does carry `duration-500`, `origin-left`, `scale-x-0`) lives in
@@ -50,8 +50,8 @@ describe("Respond confirmation timing", () => {
     expect(TICK_DELAY_MS).toBeLessThan(SWEEP_DURATION_MS);
   });
 
-  it("derives the total from the hold plus one more sweep for the fade-out", () => {
-    expect(TOTAL_DURATION_MS).toBe(HOLD_MS + SWEEP_DURATION_MS);
+  it("ends the celebration exactly when the hold ends — no fade-out sweep", () => {
+    expect(TOTAL_DURATION_MS).toBe(HOLD_MS);
   });
 
   it("keeps the whole celebration short enough that the card never feels stuck", () => {

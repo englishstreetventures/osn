@@ -1,5 +1,6 @@
 import { render, cleanup, fireEvent, within } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
+import { toast } from "solid-toast";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { EventCard } from "./EventCard";
@@ -37,6 +38,8 @@ vi.mock("motion", () => ({
   animate: vi.fn(() => ({ finished: Promise.resolve() })),
 }));
 
+vi.mock("solid-toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+
 const event: EventSummary = {
   id: "event-1",
   name: "Mehndi",
@@ -55,6 +58,13 @@ const event: EventSummary = {
 const priya: FamilyMember = {
   guestId: "guest-priya",
   firstName: "Priya",
+  lastName: "Sharma",
+  eventIds: ["event-1"],
+};
+
+const raj: FamilyMember = {
+  guestId: "guest-raj",
+  firstName: "Raj",
   lastName: "Sharma",
   eventIds: ["event-1"],
 };
@@ -95,8 +105,15 @@ function fieldsetFor(name: string): HTMLElement {
  * Reproduces `InvitePage`'s wiring around the two real components without
  * `InvitePage` itself — whose test files carry a module-level `vi.mock` of
  * `RsvpModal` that would defeat the entire point of this file.
+ *
+ * `members` defaults to just Priya (every existing test's fixture); pass both
+ * Sharmas to exercise a partial save. `existingRsvps={rsvps()}` threads the
+ * accumulated state back in so reopening the sheet after a partial save
+ * prefills what was already answered — the same wiring `InvitePage` itself
+ * does with `claimResult().rsvps`.
  */
-function Harness() {
+function Harness(props: { members?: FamilyMember[] } = {}) {
+  const members = props.members ?? [priya];
   const [open, setOpen] = createSignal(false);
   const [justResponded, setJustResponded] = createSignal(false);
   const [rsvps, setRsvps] = createSignal<RsvpSummary[]>([]);
@@ -105,7 +122,7 @@ function Harness() {
     <>
       <EventCard
         event={event}
-        responded={hasHouseholdResponded(event, [priya], rsvps())}
+        responded={hasHouseholdResponded(event, members, rsvps())}
         justResponded={justResponded()}
         onCelebrated={() => setJustResponded(false)}
         onRespond={() => setOpen(true)}
@@ -114,7 +131,8 @@ function Harness() {
       <Show when={open()}>
         <RsvpModal
           event={event}
-          members={[priya]}
+          members={members}
+          existingRsvps={rsvps()}
           apiUrl="https://api.test"
           onClose={() => setOpen(false)}
           onSubmitted={(updated: RsvpSummary[]) => setRsvps(updated)}
@@ -140,6 +158,10 @@ describe("RSVP confirmation — RsvpModal ↔ EventCard", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    // The `solid-toast` mock is a module-level singleton (the factory runs
+    // once for the whole file), so its call history survives across tests
+    // unless cleared here.
+    vi.mocked(toast.success).mockClear();
   });
 
   function stubOkFetch() {
@@ -187,7 +209,7 @@ describe("RSVP confirmation — RsvpModal ↔ EventCard", () => {
     expect(path.getAttribute("class")).toContain("animate-tick-draw");
   });
 
-  it("settles to a permanent tick with the fill gone once the celebration ends", async () => {
+  it("settles to a permanent fill and tick once the celebration ends", async () => {
     stubOkFetch();
     vi.useFakeTimers();
     render(() => <Harness />);
@@ -195,7 +217,7 @@ describe("RSVP confirmation — RsvpModal ↔ EventCard", () => {
     await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
     await vi.advanceTimersByTimeAsync(TOTAL_DURATION_MS);
 
-    expect(fillIsUp()).toBe(false);
+    expect(fillIsUp()).toBe(true);
     const path = respondButton().querySelector("svg path") as SVGPathElement;
     expect(path).toBeTruthy();
     // Drawn, not animating: the settled mark a returning guest also sees.
@@ -217,6 +239,62 @@ describe("RSVP confirmation — RsvpModal ↔ EventCard", () => {
 
     expect(sheet()).toBeNull();
     expect(fillIsUp()).toBe(false);
-    expect(respondButton().querySelector("svg")).toBeTruthy();
+    const svg = respondButton().querySelector("svg");
+    expect(svg).toBeTruthy();
+    // The tick's ink is the `text-bloom` fallback here, not the on-fill
+    // `text-bg` — `filled` never latched true (no celebration played), so the
+    // tick is sitting on the plain gold button, not the bloom fill.
+    expect(svg!.getAttribute("class")).toContain("text-bloom");
+    expect(svg!.getAttribute("class")).not.toContain("text-bg");
+  });
+
+  it("only sweeps the fill once every invited member has answered — a partial save gets the toast, not the celebration", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ rsvps: [savedRow] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              rsvps: [
+                savedRow,
+                { guestId: "guest-raj", eventId: "event-1", status: "declined", dietary: "" },
+              ],
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          ),
+        ),
+    );
+    render(() => <Harness members={[priya, raj]} />);
+
+    // First save: only Priya answers. The household isn't fully responded yet,
+    // so the toast fires but the fill never sweeps in.
+    fireEvent.click(respondButton());
+    await vi.advanceTimersByTimeAsync(0);
+    fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+    fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
+    await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+
+    expect(sheet()).toBeNull();
+    expect(fillIsUp()).toBe(false);
+    expect(vi.mocked(toast.success)).toHaveBeenCalledTimes(1);
+
+    // Reopen and answer Raj too — now every invited member has replied, so
+    // this save gets both the toast and the celebration.
+    fireEvent.click(respondButton());
+    await vi.advanceTimersByTimeAsync(0);
+    fireEvent.click(within(fieldsetFor("Raj")).getByText("Not attending"));
+    fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
+    await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+
+    expect(fillIsUp()).toBe(true);
+    expect(vi.mocked(toast.success)).toHaveBeenCalledTimes(2);
   });
 });
