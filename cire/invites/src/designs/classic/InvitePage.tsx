@@ -30,6 +30,7 @@ import { deadlineNotice, formatDeadlineDay, RSVP_NOTICE_ID } from "../../compone
 import { hasHouseholdResponded } from "../../components/rsvp-responded";
 import { RsvpModal } from "../../components/RsvpModal";
 import type { ClaimResult, EventSummary, RsvpSummary } from "../../components/types";
+import { Z_LAYER } from "../../lib/z-index";
 
 /** Events ("details") section header copy. `null` ⇒ the built-in defaults. */
 export interface DetailsCopy {
@@ -365,6 +366,11 @@ export default function InvitePage(props: InvitePageProps) {
                         rsvpClosedNoticeId={RSVP_NOTICE_ID}
                         responded={respondedEventIds().has(event.id)}
                         justResponded={justRespondedEventId() === event.id}
+                        // While this event's sheet is up it covers this button, so the
+                        // card holds its mark back until the sheet is gone — otherwise
+                        // the fill would sweep in behind the sheet, where nobody can
+                        // see it. See `EventCard`'s `covered`.
+                        covered={rsvpEvent()?.id === event.id}
                         onCelebrated={() => setJustRespondedEventId(null)}
                         onRespond={setRsvpEvent}
                         onDetails={setDetailsEvent}
@@ -385,7 +391,6 @@ export default function InvitePage(props: InvitePageProps) {
             <Show when={!data().preview}>
               <AuthProvider config={{ apiBase: props.apiUrl }}>
                 <PulseAccountLink apiUrl={props.apiUrl} members={data().members} />
-                <Toaster position="bottom-right" />
               </AuthProvider>
             </Show>
           </section>
@@ -457,6 +462,38 @@ export default function InvitePage(props: InvitePageProps) {
           />
         )}
       </Show>
+      {/* Confirmation toasts — mounted at the PAGE ROOT, deliberately.
+          It used to sit next to `PulseAccountLink` inside the events section,
+          which broke it two ways at once: the section is `<Show when={!preview}>`
+          so host preview had no toaster at all and every `toast.success` there
+          was silently dropped, and Motion One's reveal leaves an inline
+          `transform` on that section, which makes it the containing block AND a
+          stacking context for the `position: fixed` toaster inside it — so the
+          toast was positioned against the section rather than the viewport and
+          painted BELOW the `z-100` RSVP sheet it fires underneath. Out here it
+          is a sibling of the modals and its own layer (`Z_LAYER.TOAST`) wins.
+
+          `top-center`, not bottom: the toast is raised while the RSVP sheet is
+          still open, and that sheet's sticky action bar owns the bottom edge. */}
+      <Toaster
+        position="top-center"
+        // The layer goes on as an inline STYLE, not via `containerClassName`:
+        // solid-toast spreads its own `defaultContainerStyle` — which carries a
+        // hardcoded `z-index: 9999` — onto this same div's `style`, and inline
+        // style beats a Tailwind class, so `containerClassName={Z_CLASS.TOAST}`
+        // was silently inert and the toast actually sat above the consent
+        // layers. `containerStyle` is merged AFTER the defaults in that spread,
+        // so it is the only override that wins. The library also injects
+        // `.sldt-active{z-index:9999}` for the per-toast wrapper, but that is
+        // scoped inside this container's own stacking context and cannot escape
+        // it. Two-sided bound asserted in `InvitePage.browser.test.tsx`.
+        containerStyle={{ "z-index": String(Z_LAYER.TOAST) }}
+        toastOptions={{
+          className:
+            "!bg-surface-raised !text-text !border-border !font-body !border !text-[0.85rem]",
+          duration: 4000,
+        }}
+      />
     </>
   );
 }

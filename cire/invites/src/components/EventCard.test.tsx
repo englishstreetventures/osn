@@ -311,17 +311,17 @@ describe("EventCard", () => {
       const button = respondButton(container);
       const fill = button.querySelector("span[aria-hidden='true']") as HTMLElement;
       // A reload of an already-answered event renders already filled — the
-      // `filled` signal latches to `responded`'s value at mount.
+      // `confirmed` signal is seeded from `responded` at mount.
       expect(fill.className).toContain("scale-x-100");
       const path = button.querySelector("svg path") as SVGPathElement;
       expect(path).toBeTruthy();
       // Loaded already-answered, not just-drawn: no dash trick, no keyframe.
       expect(path.hasAttribute("stroke-dasharray")).toBe(false);
       expect(path.getAttribute("class") ?? "").not.toContain("animate-tick-draw");
-      const svg = path.closest("svg") as SVGElement;
-      // Sitting on the permanent fill, the tick uses the on-fill ink.
-      expect(svg.getAttribute("class")).toContain("text-bg");
-      expect(svg.getAttribute("class")).not.toContain("text-bloom");
+      // No ink assertion here: the tick's `text-bg` is unconditional now that
+      // it is gated on the same signal as the fill, so asserting it could not
+      // fail. "The tick only ever appears on the fill" is stated properly by
+      // "shows the tick only together with the fill" below.
     });
 
     it("renders the tick after the Respond label, not before it", () => {
@@ -359,6 +359,186 @@ describe("EventCard", () => {
       // still be on the button itself, not renamed alongside the accent swap.
       expect(button.className).toContain("bg-gold");
       expect(button.className).not.toContain("bg-bloom");
+    });
+
+    it("never carries both scale utilities, so the fill never depends on stylesheet order", () => {
+      // Two conflicting utilities on one element resolve by STYLESHEET order,
+      // not class-attribute order — a property of Tailwind's generated output
+      // that can invert under a version bump. This shipped for a while with
+      // `scale-x-0` as a static class and `scale-x-100` layered on top, which
+      // worked only because the emitted order happened to favour it. The
+      // painted consequence is measured in `EventCard.browser.test.tsx`; this
+      // is the cheap structural half.
+      for (const responded of [false, true]) {
+        const { container, unmount } = render(() => (
+          <EventCard event={baseEvent} responded={responded} onRespond={noop} onDetails={noop} />
+        ));
+        const fill = respondButton(container).querySelector(
+          "span[aria-hidden='true']",
+        ) as HTMLElement;
+        expect(fill.classList.contains("scale-x-0")).toBe(!responded);
+        expect(fill.classList.contains("scale-x-100")).toBe(responded);
+        unmount();
+      }
+    });
+
+    it("reports the confirmation on the button as data-rsvp-confirmed", () => {
+      const { container: plain } = render(() => (
+        <EventCard event={baseEvent} onRespond={noop} onDetails={noop} />
+      ));
+      expect(respondButton(plain).hasAttribute("data-rsvp-confirmed")).toBe(false);
+      cleanup();
+
+      const { container: marked } = render(() => (
+        <EventCard event={baseEvent} responded onRespond={noop} onDetails={noop} />
+      ));
+      expect(respondButton(marked).getAttribute("data-rsvp-confirmed")).toBe("true");
+    });
+
+    it("holds the mark back while the sheet covers the button, then puts it up when the sheet leaves", () => {
+      // The ordering the whole confirmation hangs off: the real submit path
+      // records the reply — flipping `responded` — a full `SAVED_DWELL_MS`
+      // before the sheet closes. A fill that tracked `responded` alone would
+      // sweep in behind the sheet and be over before the guest saw the button.
+      const [covered, setCovered] = createSignal(true);
+      const { container } = render(() => (
+        <EventCard
+          event={baseEvent}
+          responded
+          covered={covered()}
+          onRespond={noop}
+          onDetails={noop}
+        />
+      ));
+      const button = respondButton(container);
+      const fill = button.querySelector("span[aria-hidden='true']") as HTMLElement;
+
+      expect(fill.className).toContain("scale-x-0");
+      expect(button.querySelector("svg")).toBeNull();
+
+      // Sheet gone: the mark goes up, and the sweep has a painted `scale-x-0`
+      // frame behind it to travel from.
+      setCovered(false);
+      expect(fill.className).toContain("scale-x-100");
+      expect(button.querySelector("svg")).toBeTruthy();
+    });
+
+    it("keeps a card that mounts already answered marked, even while its sheet is open", () => {
+      // `covered` defers a mark that ARRIVES while the sheet is up; it must not
+      // retract one that was already there, or reopening the sheet on an
+      // answered event would blank the button behind it.
+      const [covered, setCovered] = createSignal(false);
+      const { container } = render(() => (
+        <EventCard
+          event={baseEvent}
+          responded
+          covered={covered()}
+          onRespond={noop}
+          onDetails={noop}
+        />
+      ));
+      const fill = respondButton(container).querySelector(
+        "span[aria-hidden='true']",
+      ) as HTMLElement;
+      expect(fill.className).toContain("scale-x-100");
+      setCovered(true);
+      expect(fill.className).toContain("scale-x-100");
+    });
+
+    it("celebrates when cued even though the sheet still reports covering the button", () => {
+      // This is what production actually does, and nothing asserted it directly.
+      // `enterSavedState`'s dwell timer runs `onConfirmed()` and then
+      // `onClose()` as two separate writes, so the card's `justResponded` effect
+      // fires while the parent's `rsvpEvent` — and therefore `covered` — is
+      // still set. `playCelebration` deliberately ignores `covered` for that
+      // reason: the parent only ever cues it as the sheet leaves. Tightening it
+      // to "respect covered for consistency" would swallow every real
+      // celebration, and would currently fail only in page/seam tests three
+      // files away, complaining about a missing CSS class.
+      const [justResponded, setJustResponded] = createSignal(false);
+      const { container } = render(() => (
+        <EventCard
+          event={baseEvent}
+          covered
+          justResponded={justResponded()}
+          onRespond={noop}
+          onDetails={noop}
+        />
+      ));
+      const button = respondButton(container);
+      const fill = button.querySelector("span[aria-hidden='true']") as HTMLElement;
+      expect(fill.className).toContain("scale-x-0");
+
+      setJustResponded(true);
+
+      expect(button.getAttribute("data-rsvp-confirmed")).toBe("true");
+      expect(fill.className).toContain("scale-x-100");
+      const path = button.querySelector("svg path") as SVGPathElement;
+      expect(path.getAttribute("class")).toContain("animate-tick-draw");
+    });
+
+    it("settles the host-preview flourish permanently, with nothing recorded", async () => {
+      // Preview never writes a row, so `responded` stays false forever. #396
+      // gated the tick on `responded || celebrating`, so the tick vanished the
+      // moment the timer expired and the host watched the confirmation
+      // half-undo itself. The mark is one monotone state now: whatever a
+      // celebration puts up, stays up.
+      vi.useFakeTimers();
+      try {
+        const [justResponded, setJustResponded] = createSignal(false);
+        const { container } = render(() => (
+          <EventCard
+            event={baseEvent}
+            justResponded={justResponded()}
+            onRespond={noop}
+            onDetails={noop}
+          />
+        ));
+        const button = respondButton(container);
+        const fill = button.querySelector("span[aria-hidden='true']") as HTMLElement;
+
+        setJustResponded(true);
+        expect(fill.className).toContain("scale-x-100");
+
+        // Long past every timer in `rsvp-responded.ts`.
+        await vi.advanceTimersByTimeAsync(TOTAL_DURATION_MS * 5);
+        expect(fill.className).toContain("scale-x-100");
+        expect(fill.className).not.toContain("scale-x-0");
+        expect(button.querySelector("svg")).toBeTruthy();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("shows the tick only together with the fill, never one without the other", async () => {
+      // They are gated on the same signal, which is what makes an intermediate
+      // "tick on plain gold" state (#396's early-dismiss path) unreachable.
+      vi.useFakeTimers();
+      try {
+        const [justResponded, setJustResponded] = createSignal(false);
+        const { container } = render(() => (
+          <EventCard
+            event={baseEvent}
+            justResponded={justResponded()}
+            onRespond={noop}
+            onDetails={noop}
+          />
+        ));
+        const button = respondButton(container);
+        const fill = button.querySelector("span[aria-hidden='true']") as HTMLElement;
+        const agree = () =>
+          fill.classList.contains("scale-x-100") === (button.querySelector("svg") !== null);
+
+        expect(agree()).toBe(true);
+        setJustResponded(true);
+        expect(agree()).toBe(true);
+        for (const step of [TICK_DELAY_MS, HOLD_MS, TOTAL_DURATION_MS * 3]) {
+          await vi.advanceTimersByTimeAsync(step);
+          expect(agree()).toBe(true);
+        }
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("does not celebrate on mount even if justResponded starts true", () => {
@@ -404,20 +584,14 @@ describe("EventCard", () => {
         let path = button.querySelector("svg path") as SVGPathElement;
         expect(path.getAttribute("stroke-dasharray")).toBe("20");
         expect(path.getAttribute("class")).toContain("animate-tick-draw");
-        let svg = path.closest("svg") as SVGElement;
-        expect(svg.getAttribute("class")).toContain("text-bg");
 
         // Still holding, filled, part-way through the tick's own delay.
         await vi.advanceTimersByTimeAsync(TICK_DELAY_MS);
         expect(fill.className).toContain("scale-x-100");
 
-        // Past the hold: no fade-out — the fill and the on-fill ink both
-        // stay exactly as they were.
+        // Past the hold: no fade-out — the fill stays exactly as it was.
         await vi.advanceTimersByTimeAsync(HOLD_MS - TICK_DELAY_MS);
         expect(fill.className).toContain("scale-x-100");
-        path = button.querySelector("svg path") as SVGPathElement;
-        svg = path.closest("svg") as SVGElement;
-        expect(svg.getAttribute("class")).toContain("text-bg");
         expect(onCelebrated).toHaveBeenCalledTimes(1);
 
         // Celebration over: the fill and tick stay, the tick now undrawn (no
@@ -499,9 +673,7 @@ describe("EventCard", () => {
       expect(button.textContent).toBe("RSVPs closed");
       const fill = button.querySelector("span[aria-hidden='true']") as HTMLElement;
       expect(fill.className).toContain("scale-x-100");
-      const path = button.querySelector("svg path") as SVGPathElement;
-      expect(path).toBeTruthy();
-      expect(path.closest("svg")!.getAttribute("class")).toContain("text-bg");
+      expect(button.querySelector("svg path")).toBeTruthy();
     });
 
     it("clears its timers on unmount mid-celebration", async () => {

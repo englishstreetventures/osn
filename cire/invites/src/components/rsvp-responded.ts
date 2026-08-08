@@ -8,8 +8,10 @@ import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
  * `.every(...)` walk rather than trusting any one row to stand in for the
  * whole party.
  *
- * `RsvpModal` computes the equivalent fact for itself (`handleSubmit`'s
- * `nowComplete` — every visible member's LOCAL form state is non-null,
+ * This is the source of the PERMANENT mark on Respond: `EventCard` seeds its
+ * `confirmed` state from this at mount and re-syncs whenever it becomes true
+ * (once the sheet is no longer covering the button). `RsvpModal` computes the
+ * equivalent fact for itself (`handleSubmit`'s `nowComplete` — every visible member's LOCAL form state is non-null,
  * counting a prior reply prefilled by `initialResponses` as answered) rather
  * than calling this function, since it needs the answer synchronously from
  * form state before a submit round-trips; a save only earns the
@@ -44,6 +46,17 @@ export function hasHouseholdResponded(
  * so keep `TOTAL_DURATION_MS` and the dwell independent: the celebration is
  * measured from the moment the button becomes visible, not from the submit.
  *
+ * The end state is PERMANENT, and these numbers only describe how it is
+ * reached. `EventCard` holds the mark in one monotone signal that nothing sets
+ * back to false, so there is no phase after which the fill comes off — a guest
+ * who reopens the invite tomorrow sees exactly what a guest who just submitted
+ * settles into. Two earlier versions of this got that wrong in ways no test
+ * caught: #395 spent a phase sweeping the fill back OUT, and #396 kept the
+ * fill but unmounted the tick when the timer below expired on any path where
+ * `responded` was false. Both are guarded now by
+ * `EventCard.browser.test.tsx`, which measures the painted fill seconds after
+ * every timer here has run out.
+ *
  * Two phases, driven entirely inside `EventCard` from a single
  * `justResponded` transition (see the component for the state machine):
  *
@@ -51,11 +64,9 @@ export function hasHouseholdResponded(
  *    gold to `bg-bloom` left-to-right, and a tick draws into it — the same
  *    `--animate-tick-draw` keyframe `rsvp-saved.ts` used to document,
  *    unmoved in `global.css`.
- * 2. **Hold** (→ `HOLD_MS` = `TOTAL_DURATION_MS`): the filled, ticked button
- *    sits still long enough to actually read, then stays exactly as it is —
- *    there is no fade-out. The fill and the tick are both permanent once the
- *    sweep-in has played: a guest who reopens the invite tomorrow sees the
- *    same filled, ticked button a guest who just submitted settles into.
+ * 2. **Settle** (→ `TOTAL_DURATION_MS`): the filled, ticked button sits still
+ *    long enough to read, and then simply stays. All that expires at the end
+ *    is the tick's draw animation and the parent's `justResponded` cue.
  */
 
 /** The fill's sweep, in either direction — must equal the `duration-500` utility on the fill layer. */
@@ -78,9 +89,14 @@ export const TICK_DRAW_END_MS = TICK_DELAY_MS + TICK_DURATION_MS;
 export const HOLD_MS = 900;
 
 /**
- * When the whole celebration is over and `EventCard` reports it via
- * `onCelebrated` — equal to `HOLD_MS`, since there is no fade-out sweep to
- * wait through: the fill and tick are already in their permanent state once
- * the hold ends.
+ * When the animation is over and `EventCard` reports it via `onCelebrated` —
+ * equal to `HOLD_MS`, since there is no fade-out sweep to wait through.
+ *
+ * Note what this instant does NOT do: it does not end the confirmation. The
+ * fill and the tick are already permanent by the time it arrives, and all it
+ * retires is the tick's `stroke-dashoffset` keyframe and the parent's
+ * `justResponded` cue (so an edited re-submit is a fresh false→true
+ * transition). Anything that switches a visible piece of the mark off here is
+ * the bug this constant has now been at the centre of twice.
  */
 export const TOTAL_DURATION_MS = HOLD_MS;

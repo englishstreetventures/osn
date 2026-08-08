@@ -3,12 +3,26 @@ import { describe, expect, it } from "vitest";
 import { Z_CLASS, Z_LAYER } from "./z-index";
 
 describe("z-index layer scale", () => {
-  it("orders the layers low → high (BASE < EVENT_CARD < MODAL < MODAL_POPOVER < CONSENT < CONSENT_DIALOG)", () => {
+  it("orders the layers low → high (BASE < EVENT_CARD < MODAL < MODAL_POPOVER < TOAST < CONSENT < CONSENT_DIALOG)", () => {
     expect(Z_LAYER.BASE).toBeLessThan(Z_LAYER.EVENT_CARD);
     expect(Z_LAYER.EVENT_CARD).toBeLessThan(Z_LAYER.MODAL);
     expect(Z_LAYER.MODAL).toBeLessThan(Z_LAYER.MODAL_POPOVER);
-    expect(Z_LAYER.MODAL_POPOVER).toBeLessThan(Z_LAYER.CONSENT);
+    expect(Z_LAYER.MODAL_POPOVER).toBeLessThan(Z_LAYER.TOAST);
+    expect(Z_LAYER.TOAST).toBeLessThan(Z_LAYER.CONSENT);
     expect(Z_LAYER.CONSENT).toBeLessThan(Z_LAYER.CONSENT_DIALOG);
+  });
+
+  it("keeps a confirmation toast ABOVE the modal it fires underneath", () => {
+    // The RSVP save toast is raised the instant the reply lands, while the sheet
+    // is still open for its dwell (`SAVED_DWELL_MS`). Below the modal it paints
+    // behind the sheet's backdrop — and for a PARTIAL save the toast is the only
+    // confirmation the guest gets, so losing it loses the whole signal.
+    expect(Z_LAYER.TOAST).toBeGreaterThan(Z_LAYER.MODAL);
+    expect(Z_LAYER.TOAST).toBeGreaterThan(Z_LAYER.MODAL_POPOVER);
+  });
+
+  it("keeps consent above the toast layer too", () => {
+    expect(Z_LAYER.CONSENT).toBeGreaterThan(Z_LAYER.TOAST);
   });
 
   it("keeps the consent layers above every page overlay, modals included", () => {
@@ -27,9 +41,10 @@ describe("z-index layer scale", () => {
     expect(Z_LAYER.MODAL_POPOVER).toBeGreaterThan(Z_LAYER.MODAL);
   });
 
-  it("pins the current visual values (modal=100, popover=110, consent=200/210) — refactor, not re-layer", () => {
+  it("pins the current visual values (modal=100, popover=110, toast=150, consent=200/210) — refactor, not re-layer", () => {
     expect(Z_LAYER.MODAL).toBe(100);
     expect(Z_LAYER.MODAL_POPOVER).toBe(110);
+    expect(Z_LAYER.TOAST).toBe(150);
     expect(Z_LAYER.CONSENT).toBe(200);
     expect(Z_LAYER.CONSENT_DIALOG).toBe(210);
   });
@@ -39,6 +54,7 @@ describe("z-index layer scale", () => {
     expect(Z_CLASS.EVENT_CARD).toBe("z-10");
     expect(Z_CLASS.MODAL).toBe("z-100");
     expect(Z_CLASS.MODAL_POPOVER).toBe("z-110");
+    expect(Z_CLASS.TOAST).toBe("z-150");
     expect(Z_CLASS.CONSENT).toBe("z-200");
     expect(Z_CLASS.CONSENT_DIALOG).toBe("z-210");
   });

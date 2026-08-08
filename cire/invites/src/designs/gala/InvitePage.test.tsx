@@ -44,7 +44,13 @@ vi.mock("@shared/rp-auth/solid", () => ({
   AuthProvider: (props: { children: unknown }) => props.children,
 }));
 
-vi.mock("solid-toast", () => ({ Toaster: () => null }));
+// Rendered as a marker, not `() => null`: WHERE the Toaster is mounted is the
+// contract under test (see "save-confirmation plumbing" below), and a null
+// render makes that unassertable.
+vi.mock("solid-toast", () => ({
+  Toaster: () => <div data-testid="toaster-stub" />,
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 const claim: ClaimResult = {
   publicId: "SHARMA-JOY-RK97",
@@ -1115,11 +1121,95 @@ describe("gala InvitePage", () => {
         fireEvent.click(respond);
         await vi.advanceTimersByTimeAsync(0);
         confirmAndClose();
-        fill = respond.querySelector("span[aria-hidden='true']") as HTMLElement;
-        expect(fill.className).toContain("scale-x-100");
+
+        // Asserted on the tick's DRAW, not on the fill. `confirmed` is monotone
+        // — already true from the first celebration — so `scale-x-100` holds
+        // here whatever happens, including if the reset regressed. `drawing` is
+        // the only observable that separates "celebrated again" from "still
+        // marked from last time". Re-query the path: the `<Show when={drawing()}>`
+        // swaps the node rather than mutating it.
+        const redrawn = respond.querySelector("svg path") as SVGPathElement;
+        expect(redrawn.getAttribute("stroke-dasharray")).toBe("20");
+        expect(redrawn.getAttribute("class")).toContain("animate-tick-draw");
       } finally {
         vi.useRealTimers();
       }
+    });
+  });
+
+  describe("save-confirmation plumbing", () => {
+    it("mounts the Toaster at the page root, outside the events section, and in preview too", async () => {
+      // Two bugs in one placement, both fixed by moving it out here:
+      //
+      //  - it used to sit inside `<Show when={!preview}>`, so a host previewing
+      //    the invite had NO toaster mounted and every `toast.success` was
+      //    dropped on the floor;
+      //  - it sat inside the events <section>, which Motion One's reveal leaves
+      //    with an inline `transform`. That makes the section the containing
+      //    block AND a stacking context for the `position: fixed` toaster inside
+      //    it, so the toast was positioned against the section instead of the
+      //    viewport and painted below the z-100 RSVP sheet it fires underneath.
+      //    Measured in `InvitePage.browser.test.tsx`; this pins the structure.
+      vi.stubGlobal(
+        "fetch",
+        noSession(
+          vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ ...claim, preview: true }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          ),
+        ),
+      );
+      window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+      const { container, getByTestId } = render(() => <InvitePage apiUrl="https://api.test" />);
+      await waitFor(() => expect(getByTestId("toaster-stub")).toBeTruthy());
+
+      // Present in preview mode at all — the thing that used to be missing.
+      const toaster = getByTestId("toaster-stub");
+      // And not nested inside the section Motion One transforms.
+      expect(toaster.closest("section")).toBeNull();
+      expect(container.querySelector("section [data-testid='toaster-stub']")).toBeNull();
+    });
+
+    it("holds the Respond mark back until the sheet closes, then puts it up", async () => {
+      // The `covered` wiring, exercised through the real EventCard. The reply is
+      // recorded (`onSubmitted`) a full dwell before the sheet closes, so a mark
+      // driven by the recorded rows alone would appear behind the sheet where no
+      // guest can see it.
+      const fetchMock = vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ...claim, rsvps: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      vi.stubGlobal("fetch", noSession(fetchMock));
+      window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
+
+      const { container } = render(() => <InvitePage apiUrl="https://api.test" />);
+      await waitFor(() => expect(container.querySelector("[data-event-card]")).toBeTruthy());
+
+      const respond = respondButtonFor(container, "Mehndi");
+      expect(respond.hasAttribute("data-rsvp-confirmed")).toBe(false);
+
+      fireEvent.click(respond);
+      await waitFor(() => expect(capturedProps.value).toBeTruthy());
+
+      // Reply recorded, sheet still open: nothing may show yet.
+      const recorded: RsvpSummary[] = [
+        { guestId: "guest-1", eventId: "event-1", status: "attending", dietary: "" },
+      ];
+      (capturedProps.value!.onSubmitted as (r: RsvpSummary[]) => void)(recorded);
+      expect(respondButtonFor(container, "Mehndi").hasAttribute("data-rsvp-confirmed")).toBe(false);
+
+      // Sheet closes: the mark goes up.
+      (capturedProps.value!.onClose as () => void)();
+      await waitFor(() =>
+        expect(respondButtonFor(container, "Mehndi").getAttribute("data-rsvp-confirmed")).toBe(
+          "true",
+        ),
+      );
     });
   });
 });

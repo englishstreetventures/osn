@@ -11,6 +11,7 @@ import {
 import { toast } from "solid-toast";
 
 import { AnimatedModal } from "./AnimatedModal";
+import { hasHouseholdResponded } from "./rsvp-responded";
 import { SAVED_DWELL_MS } from "./rsvp-saved";
 import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
 
@@ -46,19 +47,26 @@ interface RsvpModalProps {
   onClose: () => void;
   onSubmitted?: (updated: RsvpSummary[]) => void;
   /**
-   * Fired as this sheet closes itself after a save that leaves EVERY invited
-   * member of this event with a reply on file — for BOTH the real submit path
-   * and the host preview no-op, since preview exists to show a host exactly
-   * what a guest sees. This is what tells the events section behind the sheet
-   * to play the Respond-button sweep/tick (see `rsvp-responded.ts`), and it
-   * fires paired with `onClose` precisely because that confirmation is only
-   * watchable once this sheet is out of the way.
+   * Fired as this sheet closes itself after the save that CROSSES INTO a
+   * complete response for this event — every invited member now has a reply on
+   * file, and at least one of them did not before. That crossing is the thing
+   * the Respond-button sweep exists to mark (see `rsvp-responded.ts`), so this
+   * fires at most once per household per event, and it fires paired with
+   * `onClose` precisely because the sweep is only watchable once this sheet is
+   * out of the way.
    *
-   * A save that leaves the party still incomplete (the household can submit
-   * with only some members answered — see `handleSubmit`) does NOT fire this:
-   * it still gets the toast (`enterSavedState`) and still closes the sheet,
-   * just without the Respond-button celebration, since the household hasn't
-   * actually finished responding to this event yet.
+   * Two kinds of save deliberately do NOT fire it, and both still get the toast
+   * and still close the sheet:
+   *
+   *  - a save that leaves the party still incomplete (the household may submit
+   *    with only some members answered — see `handleSubmit`), since they have
+   *    not finished responding to this event yet;
+   *  - an EDIT to a reply that was already complete when the sheet opened,
+   *    since nothing about completeness changed. Re-running the sweep there
+   *    would animate a transition into a state the button is already in.
+   *
+   * The host preview is the one place this fires repeatedly, and correctly so:
+   * preview writes no rows, so from its point of view every save is the first.
    *
    * Deliberately separate from `onSubmitted`, which fires only on the real
    * path, at submit time, and is what actually persists the reply. Preview's
@@ -89,9 +97,23 @@ export function RsvpModal(props: RsvpModalProps) {
     props.members.filter((m) => m.eventIds.includes(props.event.id)),
   );
 
+  /**
+   * The household's rows as they stood when this sheet opened, captured ONCE.
+   *
+   * Both the per-member prefill (`initialResponses`) and the celebration gate
+   * (`handleSubmit`'s `wasComplete`) read from this rather than from the live
+   * prop, so the two are provably the same data. Reading the live prop at submit
+   * time was safe only by way of three unrelated invariants — the confirmed
+   * state being terminal, `AnimatedModal`'s focus trap keeping the cards behind
+   * the backdrop unreachable, and the parent's `<Show when={rsvpEvent()}>` being
+   * unkeyed so an event swap remounts rather than reuses this instance. A
+   * snapshot is cheaper than that reasoning and cannot drift from the prefill.
+   */
+  const priorRsvps = props.existingRsvps ?? [];
+
   function initialResponses(): Record<string, MemberState> {
     const map: Record<string, MemberState> = {};
-    const prior = props.existingRsvps ?? [];
+    const prior = priorRsvps;
     for (const m of eventMembers()) {
       const existing = prior.find((r) => r.guestId === m.guestId && r.eventId === props.event.id);
       let attending: Attending = null;
@@ -138,17 +160,21 @@ export function RsvpModal(props: RsvpModalProps) {
   /**
    * Enter the confirmed state and hand the sheet a deadline to close itself.
    *
-   * The toast fires immediately, for every successful save — partial or
-   * complete — since it is the one confirmation a guest gets regardless of
-   * how much of the party they just answered for. `onConfirmed` (the
-   * Respond-button celebration) is gated on `complete`: only a save that
-   * leaves every invited member with a reply on file earns it.
+   * The toast fires immediately, for EVERY successful save — partial, complete
+   * or an edit to something already complete. It is the one confirmation a
+   * guest gets regardless of how much of the party they just answered for, and
+   * it says only that a response was captured.
+   *
+   * `celebrate` (the Respond-button sweep) is much narrower: see
+   * `handleSubmit`, which grants it only for the save that CROSSES INTO a
+   * complete response. The sweep marks that transition, so it plays once and
+   * not again on later edits.
    *
    * Deliberately does NOT call `onSubmitted` — the host preview reaches this
    * too, and a preview must show the guest's confirmation without ever claiming
    * data was written. The real success path calls `onSubmitted` itself.
    */
-  function enterSavedState(complete: boolean) {
+  function enterSavedState(celebrate: boolean) {
     setSaved(true);
     toast.success(`Your RSVP for ${props.event.name} has been recorded.`);
     dwellTimer = setTimeout(() => {
@@ -161,7 +187,7 @@ export function RsvpModal(props: RsvpModalProps) {
       // (`SAVED_DWELL_MS` 900ms vs `TOTAL_DURATION_MS` 1400ms), leaving the
       // guest only the 500ms fade-out — green draining off a button they never
       // saw fill, which reads as nothing having happened at all.
-      if (complete) props.onConfirmed?.();
+      if (celebrate) props.onConfirmed?.();
       props.onClose();
     }, SAVED_DWELL_MS);
   }
@@ -253,10 +279,23 @@ export function RsvpModal(props: RsvpModalProps) {
       setError("Please respond for at least one person in your party.");
       return;
     }
-    // Whether THIS save leaves every invited member answered — the signal
-    // `enterSavedState` uses to decide whether the Respond-button celebration
-    // plays alongside the toast, or just the toast.
+    // Whether THIS save leaves every invited member answered.
     const nowComplete = answered.length === visible.length;
+    // …and whether the party was ALREADY complete when this sheet opened.
+    // Reuses `hasHouseholdResponded`, the same all-or-nothing rule that drives
+    // the permanent mark on Respond, against `priorRsvps` — the snapshot the
+    // prefill above was built from, so the gate and the form can never disagree
+    // about what was already on file.
+    const wasComplete = hasHouseholdResponded(props.event, props.members, priorRsvps);
+    // The sweep marks the moment a whole response is captured, so it belongs to
+    // the save that CROSSES that line — not to every save that happens to leave
+    // the party complete. An edit to an already-complete reply captures nothing
+    // new about completeness, so it gets the toast and nothing else.
+    //
+    // Host preview is unaffected: its family is the synthetic `kind: "host"`
+    // one, which is barred from RSVP and so has no rows for `wasComplete` to be
+    // true from — a host trying the flow still sees the full confirmation.
+    const celebrate = nowComplete && !wasComplete;
 
     // Art. 9(2)(a) gate: dietary free-text is special-category data and may only
     // be sent with the guest's explicit opt-in. Block submit if anyone entered
@@ -279,7 +318,7 @@ export function RsvpModal(props: RsvpModalProps) {
     // feels; a preview that skipped straight to a closed sheet would hide the
     // one piece of feedback this change exists to add.
     if (props.preview) {
-      enterSavedState(nowComplete);
+      enterSavedState(celebrate);
       return;
     }
 
@@ -337,7 +376,7 @@ export function RsvpModal(props: RsvpModalProps) {
         // already showing the new answer when the sheet lifts off it.
         batch(() => {
           setLoading(false);
-          enterSavedState(nowComplete);
+          enterSavedState(celebrate);
           props.onSubmitted?.(data.rsvps);
         });
         return;

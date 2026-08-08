@@ -408,15 +408,75 @@ more headroom than `ground` gave it. 60% only just cleared the floor
 50% (~4.92:1); `chapel` had the identical thin-margin problem (3.18:1 at its
 original 60%) and moved the same way, to 50% (~4.83:1).
 
-The confirmation fill and tick are also no longer transient: the original
-choreography swept the fill back OUT after the hold, leaving only a bare
-tick — now the fill and tick both stay once the sweep-in has played, for
-every event the household has answered (including on a fresh page load, not
-just the one just confirmed). `bloom`'s only render site is therefore the
-fill itself and the tick sitting on top of it, never a tick alone on the
-plain gold button — which is why comfortable headroom on `bloom-on-raised`
-matters more than it did when the accent was only ever seen for a few
-hundred milliseconds.
+The confirmation fill and tick are also no longer transient — and getting
+that right took three passes, all of them shipping green, which is the part
+worth remembering. The original choreography swept the fill back OUT after
+the hold, leaving only a bare tick. The next pass removed that sweep-out but
+kept the tick gated on `responded || celebrating`, so on any path where no
+row is ever written — host preview, most visibly — the tick still vanished
+the instant the timer expired.
+
+`EventCard` now holds the mark in ONE monotone signal (`confirmed`) that
+covers both the fill and the tick and that no code path sets back to false.
+It is seeded from `hasHouseholdResponded` at mount, so a reload paints the
+settled state on its first frame, and re-synced whenever a reply lands — but
+never while `covered` is true, i.e. never while that event's RSVP sheet is
+still over the button, because the reply is recorded a full `SAVED_DWELL_MS`
+before the sheet closes and a fill that went up then would be over before
+the guest could see it. A second signal (`drawing`) owns the tick's stroke
+keyframe and nothing else; the rule the two earlier attempts broke is that a
+self-cancelling animation must never decide whether a permanent mark exists.
+
+So `bloom`'s only render site is the fill itself and the tick sitting on top
+of it, never a tick alone on the plain gold button — which is why comfortable
+headroom on `bloom-on-raised` matters more than it did when the accent was
+only ever seen for a few hundred milliseconds.
+
+Neither earlier regression was catchable by the tests that existed: every
+assertion about this button was class-presence in happy-dom, which parses no
+stylesheet. `EventCard.browser.test.tsx` and
+`rsvp-confirmation.browser.test.tsx` measure the painted `scale` and
+background of the fill seconds after every timer has expired, which is the
+property a guest actually reports. See `[[conventions/browser-tests]]`.
+
+The fill layer also takes **both** its `scale-x-0` and `scale-x-100` from
+`classList`, so exactly one is ever present. Carrying `scale-x-0` as a static
+class and layering `scale-x-100` on top worked only because Tailwind happened
+to emit them in that order; two conflicting utilities on one element resolve
+by stylesheet order, not class-attribute order, so that arrangement was one
+version bump from a fill that never appeared at all.
+
+**Partial saves.** A household no longer has to answer for everybody in one
+sitting: `RsvpModal` sends whichever members have an answer and leaves the
+rest untouched (the API accepts any subset and returns the whole family's
+rows). Every successful save raises a toast, and the toast says only that a
+response was captured — it is the same message for a partial save, a completing
+save and a later edit.
+
+The sweep is much narrower: it marks the **crossing** into a complete response,
+so it plays at most once per household per event. `RsvpModal.handleSubmit`
+compares `nowComplete` (every invited member answered in the form) against
+`wasComplete` (`hasHouseholdResponded` over the rows as they stood when the
+sheet opened) and cues `onConfirmed` only when the two differ. An edit to an
+already-complete reply therefore gets the toast alone — animating a transition
+into a state the button is already in reads as the reply being re-earned. Host
+preview is unaffected because its synthetic `kind: "host"` family is barred from
+RSVP and so has no rows for `wasComplete` to be true from.
+
+A partial save shows no mark on the button at all, which is deliberate:
+`hasHouseholdResponded` is all-or-nothing, and a half-filled button would claim
+more than the household has actually said.
+
+**The `<Toaster>` lives at the page root**, not in the events section. Inside
+that section it was broken two ways at once: the section is
+`<Show when={!preview}>`, so host preview had no toaster mounted and every
+`toast.success` was silently dropped; and Motion One's reveal leaves an
+inline `transform` on the section, which makes it the containing block AND a
+stacking context for the `position: fixed` toaster inside it — so the toast
+was positioned against the section rather than the viewport and painted below
+the `z-100` RSVP sheet it fires underneath. It now sits beside the modals on
+its own `Z_LAYER.TOAST` (150), above `MODAL`/`MODAL_POPOVER` and below
+`CONSENT`.
 
 The warning panel is a **permanently-mounted** `role="status"` with its contents
 conditional, not a `<Show>` wrapping the region: a live region inserted together

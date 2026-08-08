@@ -284,6 +284,112 @@ describe("RsvpModal", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("does not fire onConfirmed when EDITING a reply that was already complete — toast only", async () => {
+    // The sweep marks the moment a whole response is captured, so it belongs to
+    // the save that crosses that line. Here the party was already complete when
+    // the sheet opened (both members have rows), so flipping one answer and
+    // re-saving captures nothing new about completeness: toast, no celebration.
+    vi.useFakeTimers();
+    const alreadyComplete: RsvpSummary[] = [
+      { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+      { guestId: "guest-raj", eventId: "event-1", status: "attending", dietary: "" },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ rsvps: alreadyComplete }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    const onConfirmed = vi.fn();
+    const onClose = vi.fn();
+    render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya, raj]}
+        existingRsvps={alreadyComplete}
+        apiUrl="https://api.test"
+        onClose={onClose}
+        onConfirmed={onConfirmed}
+      />
+    ));
+
+    // Change Raj's answer — a real edit, still a complete party afterwards.
+    fireEvent.click(within(fieldsetFor("Raj")).getByText("Not attending"));
+    fireEvent.click(document.querySelector("button[type='submit']")!);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(vi.mocked(toast.success)).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+    expect(onClose).toHaveBeenCalled();
+    expect(onConfirmed).not.toHaveBeenCalled();
+  });
+
+  it("fires onConfirmed on the save that COMPLETES a partly-answered party", async () => {
+    // The mirror of the case above: Priya already had a row, Raj did not, so
+    // this save is the crossing and earns the sweep.
+    vi.useFakeTimers();
+    const both: RsvpSummary[] = [
+      { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+      { guestId: "guest-raj", eventId: "event-1", status: "attending", dietary: "" },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ rsvps: both }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    const onConfirmed = vi.fn();
+    render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya, raj]}
+        existingRsvps={[both[0]!]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+        onConfirmed={onConfirmed}
+      />
+    ));
+
+    fireEvent.click(within(fieldsetFor("Raj")).getByText("Attending"));
+    fireEvent.click(document.querySelector("button[type='submit']")!);
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+
+    expect(vi.mocked(toast.success)).toHaveBeenCalledTimes(1);
+    expect(onConfirmed).toHaveBeenCalledTimes(1);
+  });
+
+  it("still celebrates a host-preview save — preview carries no recorded rows to be 'already complete' from", async () => {
+    // A preview claim's family is the synthetic `kind: "host"` one, which is
+    // barred from RSVP and therefore has no rows, so `wasComplete` is false and
+    // the new crossing gate never suppresses preview's confirmation. Asserted
+    // because preview exists to show a host exactly what a guest sees, and it
+    // would be easy to gate it away by accident.
+    vi.useFakeTimers();
+    const onConfirmed = vi.fn();
+    render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya]}
+        preview
+        apiUrl="https://api.test"
+        onClose={() => {}}
+        onConfirmed={onConfirmed}
+      />
+    ));
+
+    fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+    fireEvent.click(document.querySelector("button[type='submit']")!);
+    await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+    expect(onConfirmed).toHaveBeenCalledTimes(1);
+  });
+
   async function submitOnce(): Promise<void> {
     const fs = fieldsetFor("Priya");
     fireEvent.click(within(fs).getByText("Attending"));

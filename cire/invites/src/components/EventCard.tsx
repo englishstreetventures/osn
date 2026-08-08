@@ -56,20 +56,41 @@ interface EventCardProps {
    */
   responded?: boolean;
   /**
+   * True while THIS event's RSVP sheet is open over this card.
+   *
+   * The one thing standing between `responded` and the fill. The real submit
+   * path records the reply — flipping `responded` — a full `SAVED_DWELL_MS`
+   * before the sheet closes, so a fill that tracked `responded` alone would
+   * sweep in behind the sheet and be over by the time the guest could see the
+   * button. Holding the sync until the sheet is gone is what keeps the sweep
+   * watchable, and it covers the guest who dismisses the sheet early (Escape,
+   * backdrop) just as well as the one who watches the confirmation play.
+   *
+   * Optional: a caller that never opens a sheet (unit tests, the closed-RSVP
+   * card) simply never covers the button.
+   */
+  covered?: boolean;
+  /**
    * Pulses true for exactly one render the instant THIS event's reply is
    * confirmed (see `RsvpModal`'s `onConfirmed`) — the transition from false
-   * to true is what plays the sweep-in/hold choreography documented in
+   * to true is what plays the sweep-in and the tick draw documented in
    * `rsvp-responded.ts`. An event that starts `true` on mount (it cannot, in
    * practice — the parent only ever flips this from a live confirmation —
    * but the guard exists regardless) plays no animation, matching `responded`
    * above: only a fresh transition celebrates.
+   *
+   * This is a cue to ANIMATE, never the source of the mark itself. A save that
+   * lands without one (an early-dismissed sheet) still ends up marked, via
+   * `responded`; a preview that will never have a `responded` still ends up
+   * marked, via this. Neither can end up unmarked.
    */
   justResponded?: boolean;
   /**
-   * Fired once the celebration has fully played out (fill and tick settled
-   * into their permanent state), so the parent can reset `justResponded` back
-   * to false and be ready to celebrate the NEXT confirmation for this event
-   * (an edited, re-submitted reply) rather than only ever the first one.
+   * Fired once the tick has finished drawing, so the parent can reset
+   * `justResponded` back to false and be ready to animate the NEXT
+   * confirmation for this event (an edited, re-submitted reply) rather than
+   * only ever the first one. The fill and tick are already in their permanent
+   * state by then and this does not disturb them.
    */
   onCelebrated?: () => void;
   onRespond: (event: EventSummary) => void;
@@ -86,24 +107,36 @@ export function EventCard(props: EventCardProps) {
   };
   const isAlt = () => props.orientation === "alt";
 
-  // The Respond-button confirmation (see `rsvp-responded.ts`). `celebrating`
-  // spans the whole choreography (sweep-in through the hold) and gates
-  // whether the tick renders at all when `responded` is false, such as during
-  // the host preview's ephemeral flourish (see `RsvpModal`'s `onConfirmed`) —
-  // preview never sets `responded`, since nothing was actually written.
-  // `filled` drives the bloom fill and is a ONE-WAY LATCH, not a live mirror
-  // of `responded`: it starts at whatever `responded` was the moment this
-  // card mounted (so a reload of an already-answered event renders already
-  // filled, no animation — same as the tick), and is otherwise only ever
-  // set `true` by `playCelebration`, never back to `false`. It is
-  // deliberately NOT kept in sync with `responded` after mount — the real
-  // submit path writes the reply (flipping `responded`) well before the
-  // sheet closes and cues the celebration, so a live sync would fill the
-  // button while it's still hidden behind the sheet and the guest would
-  // never see the sweep-in, only the tick draw over an already-solid
-  // button.
-  const [celebrating, setCelebrating] = createSignal(false);
-  const [filled, setFilled] = createSignal(props.responded ?? false);
+  // The Respond-button confirmation (see `rsvp-responded.ts`), as exactly two
+  // pieces of state.
+  //
+  // `confirmed` is the mark itself — the bloom fill AND the tick, which are
+  // always shown together. It is MONOTONE: once true it never returns to false
+  // for the life of the card. That is the whole fix for the bug this shipped
+  // with twice. Nothing — not a timer ending, not `responded` arriving late,
+  // not a preview that never wrote a row — can take the fill back off, because
+  // there is no code path that sets it false.
+  //
+  // `drawing` is the tick's stroke animation and nothing else. Earlier versions
+  // used the equivalent signal to gate whether the tick RENDERED, which is why
+  // the tick vanished 900ms in on every path where `responded` stayed false
+  // (host preview, most visibly). A cosmetic, self-cancelling animation must
+  // never decide whether a permanent mark exists.
+  //
+  // Seeded from `responded` at mount so a reload of an answered event paints the
+  // settled state on its first frame rather than animating into it — but gated on
+  // `covered` by the same rule the effect below follows, so "the mark never goes
+  // up while the sheet is over the button" holds without a mount-time exception.
+  const [confirmed, setConfirmed] = createSignal((props.responded ?? false) && !props.covered);
+  const [drawing, setDrawing] = createSignal(false);
+
+  // A reply on file always ends up marked — but never while the sheet is still
+  // over the button (see `covered`). Seeding `confirmed` from `responded` at
+  // mount handles the reload; this handles every later arrival, including the
+  // guest who dismissed the sheet early and so never got a celebration cue.
+  createEffect(() => {
+    if (props.responded && !props.covered) setConfirmed(true);
+  });
 
   let endTimer: ReturnType<typeof setTimeout> | undefined;
   onCleanup(() => {
@@ -112,16 +145,21 @@ export function EventCard(props: EventCardProps) {
 
   function playCelebration() {
     // A re-submit (edited reply) while a previous celebration is still
-    // holding restarts the choreography from the top rather than layering a
-    // second timer over the first.
+    // holding restarts the tick draw from the top rather than layering a
+    // second timer over the first. The fill does not replay — it is already
+    // up, and flickering it back to zero to re-sweep would read as the reply
+    // being withdrawn.
     if (endTimer !== undefined) clearTimeout(endTimer);
     batch(() => {
-      setCelebrating(true);
-      setFilled(true);
+      // Not redundant with the effect above: host preview reaches here with
+      // `responded` false forever, and its flourish must settle rather than
+      // blink out.
+      setConfirmed(true);
+      setDrawing(true);
     });
     endTimer = setTimeout(() => {
       endTimer = undefined;
-      setCelebrating(false);
+      setDrawing(false);
       props.onCelebrated?.();
     }, TOTAL_DURATION_MS);
   }
@@ -197,62 +235,59 @@ export function EventCard(props: EventCardProps) {
               }}
               aria-disabled={props.rsvpClosed ? "true" : undefined}
               aria-describedby={props.rsvpClosed ? props.rsvpClosedNoticeId : undefined}
+              // The confirmation state, readable from the DOM. Tailwind classes
+              // are an implementation detail of the fill; this is the fact.
+              data-rsvp-confirmed={confirmed() ? "true" : undefined}
             >
-              {/* The confirmation fill. Mounted at `scale-x-0` from the start
-                  and never conditionally rendered, because a CSS transition
-                  needs a starting frame to travel from — an element created
-                  already in its end state simply appears there (unless
-                  `filled`'s initial value was already `true` from mount —
-                  see its declaration — in which case it simply starts
-                  filled, matching the settled tick). `bloom` is the accent
-                  for this — the guest site's other chromatic accent,
-                  `gold`, is already the button's base colour, so it can't
-                  also mark the "after" state. */}
+              {/* The confirmation fill. Always mounted, never conditionally
+                  rendered, because a CSS transition needs a painted starting
+                  frame to travel from — an element created already in its end
+                  state simply appears there. (A card that mounts already
+                  `confirmed`, i.e. a reload of an answered event, therefore
+                  starts filled with no animation, which is what a returning
+                  guest should see.) `bloom` is the accent for this: the guest
+                  site's other chromatic accent, `gold`, is already the
+                  button's base colour, so it can't also mark the "after"
+                  state.
+
+                  BOTH scale utilities come from `classList`, so exactly one is
+                  ever present. Carrying `scale-x-0` as a static class and
+                  layering `scale-x-100` on top used to work only because
+                  Tailwind happened to emit them in that order — two
+                  conflicting utilities on one element resolve by STYLESHEET
+                  order, not class-attribute order, so that arrangement was one
+                  Tailwind version bump away from a fill that never appeared,
+                  with every class-presence test still green.
+                  `EventCard.browser.test.tsx` measures the real thing. */}
               <span
                 aria-hidden="true"
-                class="bg-bloom absolute inset-0 origin-left scale-x-0 transition-transform duration-500 ease-out"
-                classList={{ "scale-x-100": filled() }}
+                class="bg-bloom absolute inset-0 origin-left transition-transform duration-500 ease-out"
+                classList={{ "scale-x-100": confirmed(), "scale-x-0": !confirmed() }}
               />
               <span class="relative flex items-center justify-center gap-2">
                 {props.rsvpClosed ? "RSVPs closed" : "Respond"}
                 {/* Conditional, not merely invisible: a tick mounted for an
                     event nobody has answered would claim a reply that was
-                    never sent. Shown for a genuinely recorded reply
-                    (`responded`) OR the mid-celebration flourish (which also
-                    covers host preview — see `RsvpModal`'s `onConfirmed`). */}
-                <Show when={props.responded || celebrating()}>
+                    never sent. Gated on the SAME state as the fill, so the two
+                    can never disagree — the tick always sits on bloom, which
+                    is why `text-bg` is the only ink it needs. */}
+                <Show when={confirmed()}>
                   <svg
                     aria-hidden="true"
                     viewBox="0 0 24 24"
-                    class="h-4 w-4 shrink-0"
+                    class="text-bg h-4 w-4 shrink-0"
                     fill="none"
                     stroke="currentColor"
                     stroke-width="2.5"
                     stroke-linecap="round"
                     stroke-linejoin="round"
-                    classList={{
-                      // On-fill ink whenever the bloom fill is up (the
-                      // common case now — sweeping in, holding, settled, or
-                      // already filled at mount for a prior reply). The
-                      // `text-bloom` fallback covers the one gap `filled`
-                      // doesn't latch onto: a reply recorded via
-                      // `onSubmitted` while the sheet is dismissed before
-                      // its celebration ever cues (`RsvpModal`'s early-close
-                      // paths) — the tick must still show (`responded` is
-                      // true), but the fill was deliberately never turned on
-                      // for it, so the tick needs ink that reads on the
-                      // plain gold button until a reload re-mounts already
-                      // filled.
-                      "text-bg": filled(),
-                      "text-bloom": !filled(),
-                    }}
                   >
-                    <Show when={celebrating()} fallback={<path d="M5 13l4 4L19 7" />}>
+                    <Show when={drawing()} fallback={<path d="M5 13l4 4L19 7" />}>
                       {/* `stroke-dasharray` of 20 slightly over-covers the
                           ~19.8 path so it starts fully hidden; the keyframe
                           walks the offset back to 0 to draw it. Only during a
-                          live celebration — the settled/preloaded tick above
-                          is simply drawn, not animated into being. */}
+                          live celebration — a settled or preloaded tick is
+                          simply drawn, not animated into being. */}
                       <path d="M5 13l4 4L19 7" stroke-dasharray="20" class="animate-tick-draw" />
                     </Show>
                   </svg>

@@ -112,11 +112,14 @@ function fieldsetFor(name: string): HTMLElement {
  * prefills what was already answered — the same wiring `InvitePage` itself
  * does with `claimResult().rsvps`.
  */
-function Harness(props: { members?: FamilyMember[] } = {}) {
+function Harness(props: { members?: FamilyMember[]; startingRsvps?: RsvpSummary[] } = {}) {
   const members = props.members ?? [priya];
   const [open, setOpen] = createSignal(false);
   const [justResponded, setJustResponded] = createSignal(false);
-  const [rsvps, setRsvps] = createSignal<RsvpSummary[]>([]);
+  // `startingRsvps` stands in for a household that already has rows on file
+  // when the page loads — the precondition for the "edit an already-complete
+  // reply" case, which must NOT re-run the celebration.
+  const [rsvps, setRsvps] = createSignal<RsvpSummary[]>(props.startingRsvps ?? []);
 
   return (
     <>
@@ -124,6 +127,11 @@ function Harness(props: { members?: FamilyMember[] } = {}) {
         event={event}
         responded={hasHouseholdResponded(event, members, rsvps())}
         justResponded={justResponded()}
+        // Mirrors `InvitePage`: while the sheet is open it covers this button,
+        // so the card must not put its mark up yet. Without this the reply is
+        // recorded (`responded` true) `SAVED_DWELL_MS` before the sheet closes
+        // and the fill sweeps in behind it, unseen.
+        covered={open()}
         onCelebrated={() => setJustResponded(false)}
         onRespond={() => setOpen(true)}
         onDetails={() => {}}
@@ -224,53 +232,91 @@ describe("RSVP confirmation — RsvpModal ↔ EventCard", () => {
     expect(path.hasAttribute("stroke-dasharray")).toBe(false);
   });
 
-  it("keeps the recorded tick but plays nothing when the guest dismisses mid-dwell", async () => {
+  it("still marks the button when the guest dismisses mid-dwell, just without the draw", async () => {
     stubOkFetch();
     vi.useFakeTimers();
     render(() => <Harness />);
     await submit();
 
     // Escape during the dwell unmounts the sheet, which clears the dwell timer
-    // before it can cue anything. The reply is already written, so the card
-    // must still carry its permanent mark — the tick comes from the recorded
-    // rows (`responded`), never from the celebration.
+    // before it can cue the celebration. The reply is already written, so the
+    // card must still end up fully marked: `covered` goes false as the sheet
+    // leaves, and the card syncs its mark from the recorded rows (`responded`).
+    //
+    // This is the case #396 got half-right — it showed the tick but left the
+    // fill off, so the button carried a bloom tick on plain gold until a reload
+    // happened to re-seed it. The mark is one state now, so there is no such
+    // in-between: a guest who dismisses early and one who watches the animation
+    // land on the identical button.
     fireEvent.keyDown(document, { key: "Escape" });
     await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS + TOTAL_DURATION_MS);
 
     expect(sheet()).toBeNull();
-    expect(fillIsUp()).toBe(false);
+    expect(fillIsUp()).toBe(true);
     const svg = respondButton().querySelector("svg");
     expect(svg).toBeTruthy();
-    // The tick's ink is the `text-bloom` fallback here, not the on-fill
-    // `text-bg` — `filled` never latched true (no celebration played), so the
-    // tick is sitting on the plain gold button, not the bloom fill.
-    expect(svg!.getAttribute("class")).toContain("text-bloom");
-    expect(svg!.getAttribute("class")).not.toContain("text-bg");
+    // Sitting on the fill, so the on-fill ink — and never animated, since no
+    // celebration was ever cued.
+    expect(svg!.getAttribute("class")).toContain("text-bg");
+    const path = svg!.querySelector("path") as SVGPathElement;
+    expect(path.hasAttribute("stroke-dasharray")).toBe(false);
+  });
+
+  it("plays nothing on an edit to an already-complete reply, and keeps the mark", async () => {
+    // The sweep marks the CROSSING into a complete response, so a household
+    // that comes back to change an answer gets the toast and no animation — and
+    // critically, the mark it already earned does not blink off to be re-earned.
+    stubOkFetch();
+    vi.useFakeTimers();
+    // Mount with Priya's reply already on file: the party (just Priya) is
+    // complete before this sheet ever opens.
+    render(() => <Harness startingRsvps={[savedRow]} />);
+
+    // Already marked from the recorded rows.
+    expect(fillIsUp()).toBe(true);
+
+    await submit();
+
+    // Advance ONLY the dwell. This is the frame a celebration would begin on,
+    // and the only window in which its absence is observable — assert after
+    // `TOTAL_DURATION_MS` as well and a celebration that ran and finished looks
+    // identical to one that never started.
+    await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+
+    expect(sheet()).toBeNull();
+    // Toast yes, celebration no: the tick is the settled one, not being drawn.
+    expect(vi.mocked(toast.success)).toHaveBeenCalledTimes(1);
+    expect(fillIsUp()).toBe(true);
+    const path = respondButton().querySelector("svg path") as SVGPathElement;
+    expect(path.hasAttribute("stroke-dasharray")).toBe(false);
+    expect(path.getAttribute("class") ?? "").not.toContain("animate-tick-draw");
+
+    // And the mark is still there once every timer has run out.
+    await vi.advanceTimersByTimeAsync(TOTAL_DURATION_MS);
+    expect(fillIsUp()).toBe(true);
+    expect(respondButton().querySelector("svg")).toBeTruthy();
   });
 
   it("only sweeps the fill once every invited member has answered — a partial save gets the toast, not the celebration", async () => {
     vi.useFakeTimers();
+    // A fresh `Response` per call, not `mockResolvedValue(oneResponse)`: a body
+    // can only be read once, so a reused instance makes the third submit throw
+    // inside `res.json()` and surface as a connection error.
+    const rajRow = { guestId: "guest-raj", eventId: "event-1", status: "declined", dietary: "" };
+    let call = 0;
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ rsvps: [savedRow] }), {
+      vi.fn(() => {
+        call += 1;
+        // First save answers Priya alone; every later save has the whole party.
+        const rows = call === 1 ? [savedRow] : [savedRow, rajRow];
+        return Promise.resolve(
+          new Response(JSON.stringify({ rsvps: rows }), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           }),
-        )
-        .mockResolvedValueOnce(
-          new Response(
-            JSON.stringify({
-              rsvps: [
-                savedRow,
-                { guestId: "guest-raj", eventId: "event-1", status: "declined", dietary: "" },
-              ],
-            }),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          ),
-        ),
+        );
+      }),
     );
     render(() => <Harness members={[priya, raj]} />);
 
@@ -296,5 +342,31 @@ describe("RSVP confirmation — RsvpModal ↔ EventCard", () => {
 
     expect(fillIsUp()).toBe(true);
     expect(vi.mocked(toast.success)).toHaveBeenCalledTimes(2);
+    // Drawing, i.e. this save really did celebrate.
+    expect(
+      (respondButton().querySelector("svg path") as SVGPathElement).getAttribute("class"),
+    ).toContain("animate-tick-draw");
+
+    // Let the celebration finish so `onCelebrated` clears `justResponded`.
+    // Mandatory, not tidiness: leave the cue stuck true and the third save
+    // below would be a no-op transition, and the test would pass for the wrong
+    // reason — it would prove nothing about the `celebrate` gate.
+    await vi.advanceTimersByTimeAsync(TOTAL_DURATION_MS);
+
+    // THIRD save, same session: reopen and edit Raj's answer. The party was
+    // already complete — and complete from rows THIS session wrote back through
+    // `onSubmitted`, which is the only path that exercises `wasComplete` against
+    // anything other than mount-time props. Toast, no celebration, mark intact.
+    fireEvent.click(respondButton());
+    await vi.advanceTimersByTimeAsync(0);
+    fireEvent.click(within(fieldsetFor("Raj")).getByText("Attending"));
+    fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
+    await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+
+    expect(vi.mocked(toast.success)).toHaveBeenCalledTimes(3);
+    expect(fillIsUp()).toBe(true);
+    const path = respondButton().querySelector("svg path") as SVGPathElement;
+    expect(path.hasAttribute("stroke-dasharray")).toBe(false);
+    expect(path.getAttribute("class") ?? "").not.toContain("animate-tick-draw");
   });
 });
