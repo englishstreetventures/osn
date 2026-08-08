@@ -59,7 +59,7 @@ interface EventCardProps {
    * True while THIS event's RSVP sheet is open over this card.
    *
    * The one thing standing between `responded` and the fill. The real submit
-   * path records the reply — flipping `responded` — a full `SAVED_DWELL_MS`
+   * path records the reply — flipping `responded` — one dwell (`savedDwellMs`)
    * before the sheet closes, so a fill that tracked `responded` alone would
    * sweep in behind the sheet and be over by the time the guest could see the
    * button. Holding the sync until the sheet is gone is what keeps the sweep

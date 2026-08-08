@@ -22,7 +22,7 @@ import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
  * The difference matters here specifically because the real flow is nothing
  * like driving `justResponded` by hand (which is all `EventCard.browser.test.tsx`
  * does). On the real path the reply is recorded, the sheet dwells over the
- * button for `SAVED_DWELL_MS` with `responded` already true, and only THEN does
+ * button (`savedDwellMs`) with `responded` already true, and only THEN does
  * the celebration cue fire as the sheet unmounts — three state changes across
  * two components and two timers, with a CSS transition hanging off the last one.
  *
@@ -144,12 +144,14 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * `vi.waitFor` options for the settled confirmation, in place of a fixed sleep.
- * The sweep cannot START until the sheet's `SAVED_DWELL_MS` has elapsed and then
- * runs for `SWEEP_DURATION_MS`, so a sleep sized to their sum has only its slack
+ * The sweep cannot START until the sheet's dwell has elapsed and then runs for
+ * `SWEEP_DURATION_MS` — `SAVED_DWELL_MS` is the dwell's ceiling (`savedDwellMs`
+ * spends it as a budget from the click), so their sum is an upper bound on the
+ * settle. A sleep sized to that sum has only its slack
  * to absorb one long task and otherwise samples the sweep mid-travel (~0.97).
  * The state being waited for is permanent, so waiting longer can never
  * overshoot, and `waitFor` returns the moment it holds. The default 1000ms
- * timeout is too short for a ~1400ms choreography, hence the explicit one.
+ * timeout is too short for the dwell plus the choreography, hence the explicit one.
  */
 const SETTLED = { timeout: SAVED_DWELL_MS + SWEEP_DURATION_MS + 3000, interval: 50 };
 
@@ -193,11 +195,18 @@ describe("RSVP confirmation, end to end and painted", () => {
     // may be animating underneath it yet. Anchored to the label flip rather than
     // to a 100ms sleep: this is a CEILING, and a long stall would let the dwell
     // fire first, making the sheet gone and the assertion meaningless.
-    await vi.waitFor(() =>
-      expect(document.querySelector("button[type='submit']")!.textContent).toContain("Saved"),
-    );
-    expect(sheet()).toBeTruthy();
-    expect(scaleX(fill())).toBe(0);
+    //
+    // All three sampled inside ONE `waitFor` predicate, so they are read in a
+    // single task. Asserted after the wait instead, they can straddle the
+    // dwell's expiry — the poll sees "Saved", the runner stalls, and the sheet
+    // is gone by the time the next line runs. That margin shrank with the dwell
+    // (T-E1), and the assertion is about ORDERING, not duration, so it should
+    // not have been leaning on the dwell being long in the first place.
+    await vi.waitFor(() => {
+      expect(document.querySelector("button[type='submit']")!.textContent).toContain("Saved");
+      expect(sheet()).toBeTruthy();
+      expect(scaleX(fill())).toBe(0);
+    });
 
     // Sheet gone, sweep played.
     await vi.waitFor(() => {

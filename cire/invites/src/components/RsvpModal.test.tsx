@@ -3,7 +3,7 @@ import { createSignal, Show } from "solid-js";
 import { toast } from "solid-toast";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
-import { SAVED_DWELL_MS } from "./rsvp-saved";
+import { SAVED_DWELL_MIN_MS, SAVED_DWELL_MS } from "./rsvp-saved";
 import { RsvpModal } from "./RsvpModal";
 import type { EventSummary, FamilyMember, RsvpSummary } from "./types";
 
@@ -218,7 +218,7 @@ describe("RsvpModal", () => {
     const onClose = vi.fn();
     // Fake clock from the outset (P-I2): the dwell is a real `setTimeout`, so it
     // has to be mocked BEFORE the submit registers it. Waiting it out for real
-    // cost ~900ms of pure sleep in every suite run.
+    // cost a real dwell of pure sleep in every suite run.
     vi.useFakeTimers();
 
     const { getByText } = render(() => (
@@ -1009,10 +1009,9 @@ describe("RsvpModal", () => {
     });
 
     it("holds onConfirmed until the sheet actually closes, so the celebration is not spent behind it", async () => {
-      // The regression this guards. `onConfirmed` cues a ~1400ms celebration
-      // (`TOTAL_DURATION_MS`) on the Respond button BEHIND this sheet, and the
-      // sheet sits over that button for `SAVED_DWELL_MS` (~900ms) after a
-      // reply is recorded. Firing the cue at `setSaved` — as this did when the
+      // The regression this guards. `onConfirmed` cues the `TOTAL_DURATION_MS`
+      // celebration on the Respond button BEHIND this sheet, and the sheet sits
+      // over that button for the whole dwell after a reply is recorded. Firing the cue at `setSaved` — as this did when the
       // confirmation first moved off the Save button — burns the sweep-in, the
       // tick draw and the entire hold while the button is still covered, so the
       // guest is uncovered onto the 500ms fade-out alone: green draining off a
@@ -1065,6 +1064,86 @@ describe("RsvpModal", () => {
       expect(onConfirmed.mock.invocationCallOrder[0]!).toBeLessThan(
         onClose.mock.invocationCallOrder[0]!,
       );
+    });
+
+    /**
+     * Open the sheet with a fetch the test controls, answer for Priya and
+     * submit. Returns the resolver, so the test decides how long the reply
+     * takes — the whole point of the dwell budget.
+     */
+    function submitWithPendingReply(onClose: () => void) {
+      let land!: (r: Response) => void;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              land = resolve;
+            }),
+        ),
+      );
+      vi.useFakeTimers();
+      render(() => (
+        <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={onClose} />
+      ));
+      fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
+      fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
+      const rsvps: RsvpSummary[] = [
+        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+      ];
+      return () =>
+        land(
+          new Response(JSON.stringify({ rsvps }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        );
+    }
+
+    it("charges a slow reply against the dwell instead of stacking on top of it", async () => {
+      // The reported bug: the sheet used to hold a flat 900ms measured from the
+      // moment the server answered, so a guest waited `round-trip + 900ms` and
+      // the slower the network the longer the sheet sat there having already
+      // finished its job. The wait is now a budget measured from the CLICK.
+      const onClose = vi.fn();
+      const land = submitWithPendingReply(onClose);
+
+      // A reply that outruns the entire budget on its own.
+      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS + 400);
+      expect(onClose).not.toHaveBeenCalled();
+      land();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(document.querySelector("button[type='submit']")!.textContent).toContain("Saved");
+
+      // It still gets the floor — "Saving…" is not a confirmation, so the
+      // confirmed state must be seen even when the budget is long gone…
+      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MIN_MS - 1);
+      expect(onClose).not.toHaveBeenCalled();
+      // …and nothing beyond it. Landing on exactly the floor rather than
+      // somewhere under the budget is what proves the request time was
+      // deducted, not ignored.
+      await vi.advanceTimersByTimeAsync(1);
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("closes a fast reply out at the budget, not the budget plus the round-trip", async () => {
+      const onClose = vi.fn();
+      const land = submitWithPendingReply(onClose);
+
+      // Below the knee, the one region where the budget is spent exactly.
+      // Derived from the constants — a literal would sit the wrong side of it
+      // the moment either is retuned.
+      const requestMs = Math.floor((SAVED_DWELL_MS - SAVED_DWELL_MIN_MS) / 2);
+      await vi.advanceTimersByTimeAsync(requestMs);
+      land();
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Total click-to-close is the budget, whatever share of it the network
+      // took: the remaining dwell is exactly what is left over.
+      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS - requestMs - 1);
+      expect(onClose).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(onClose).toHaveBeenCalledTimes(1);
     });
 
     it("skips the celebration when the guest dismisses the sheet mid-dwell", async () => {
@@ -1125,6 +1204,7 @@ describe("RsvpModal", () => {
       // write) never does.
       const onConfirmed = vi.fn();
       const onSubmitted = vi.fn();
+      const onClose = vi.fn();
       const fetchSpy = vi.fn();
       vi.stubGlobal("fetch", fetchSpy);
       // Fake clock: since the cue moved to the close, waiting it out for real
@@ -1136,14 +1216,27 @@ describe("RsvpModal", () => {
           members={[priya]}
           apiUrl="https://api.test"
           preview
-          onClose={() => {}}
+          onClose={onClose}
           onConfirmed={onConfirmed}
           onSubmitted={onSubmitted}
         />
       ));
       fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
       fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
-      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS);
+
+      // Preview spends the WHOLE budget, two-sided (T-M1). Preview exists so a
+      // host feels exactly what a guest feels, and it is the one call site the
+      // two controllable-reply tests above cannot reach — it passes a literal
+      // `requestMs` of 0 because it never leaves the browser. Only the lower
+      // edge distinguishes that 0 from any other argument: "closes by the
+      // budget" is satisfied by every dwell ≤ budget, so without this the
+      // preview hold could silently collapse to the floor — half the real
+      // path's — and every test in this file would still pass.
+      await vi.advanceTimersByTimeAsync(SAVED_DWELL_MS - 1);
+      expect(onClose).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      expect(onClose).toHaveBeenCalledTimes(1);
+
       expect(onConfirmed).toHaveBeenCalledTimes(1);
       expect(fetchSpy).not.toHaveBeenCalled();
       expect(onSubmitted).not.toHaveBeenCalled();
@@ -1424,7 +1517,7 @@ describe("RsvpModal", () => {
     });
 
     it("is undisturbed when the parent feeds the fresh rows back mid-confirmation", async () => {
-      // `onSubmitted` now fires ~900ms before the sheet closes, so the parent's
+      // `onSubmitted` now fires one dwell before the sheet closes, so the parent's
       // `setClaimResult` lands while this component is still mounted and
       // confirming — the real wiring in both InvitePage packs, which stub the
       // modal out and so never exercise it. The sheet's safety rests on

@@ -40,11 +40,13 @@ export function hasHouseholdResponded(
  * that is still on screen afterwards).
  *
  * The cue that starts it (`RsvpModal`'s `onConfirmed`) fires as the sheet
- * closes, not when the reply is recorded — the two are `SAVED_DWELL_MS` apart,
- * and this whole choreography outlasts that dwell. Started at record-time it
- * would play its first ~900ms under a sheet that is still covering the button,
- * so keep `TOTAL_DURATION_MS` and the dwell independent: the celebration is
- * measured from the moment the button becomes visible, not from the submit.
+ * closes, not when the reply is recorded — the two are one dwell apart
+ * (`savedDwellMs`), and this whole choreography outlasts that dwell. Started at
+ * record-time it would play its first few hundred ms under a sheet that is
+ * still covering the button, so keep `TOTAL_DURATION_MS` and the dwell
+ * independent: the celebration is measured from the moment the button becomes
+ * visible, not from the submit. That independence is exactly what let the dwell
+ * be shortened without retuning anything here.
  *
  * The end state is PERMANENT, and these numbers only describe how it is
  * reached. `EventCard` holds the mark in one monotone signal that nothing sets
