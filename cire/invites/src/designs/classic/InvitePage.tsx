@@ -12,7 +12,7 @@ import {
 } from "solid-js";
 import { Toaster } from "solid-toast";
 
-import { createSessionRestore, noteClaimed } from "../../components/claim-session";
+import { createSessionRestore, noteClaimed, signOut } from "../../components/claim-session";
 import { createRsvpClosed } from "../../components/createRsvpClosed";
 import { DetailsModal } from "../../components/DetailsModal";
 import { EventCard } from "../../components/EventCard";
@@ -280,8 +280,56 @@ export default function InvitePage(props: InvitePageProps) {
       // a missing ref or a throw mid-sequence must never leave the code form
       // sitting on top of an invite this guest has already claimed. Idempotent —
       // the happy path has normally set it already, from `onFormHidden`.
-      setRevealed(true);
+      //
+      // Conditional on the claim still being current (P-W2). `onFormHidden`
+      // fires at the end of step 1 and the sequence then runs on for ~200ms
+      // more, so "Use a different claim code" is already on screen and
+      // clickable while this await is still pending. An unconditional write
+      // here would land AFTER that reset and re-hide the form with
+      // `claimResult` back at null — the welcome banner rendering from
+      // nothing, and no in-page way back, since nothing else writes
+      // `revealed`. Guarding on the claim keeps the failed-choreography
+      // guarantee while letting the later reset win.
+      if (claimResult()) setRevealed(true);
     }
+  }
+
+  // Ends the household session — a shared device, or a code that opened the
+  // wrong family's invite. A REAL sign-out: `signOut` revokes `cire_session`
+  // server-side (the cookie is HttpOnly and host-scoped to the API origin, so
+  // only the server can clear it) and drops the local restore hint, so a
+  // reload lands on the code form rather than re-opening the household.
+  //
+  // Fire-and-forget on purpose. The local reset must not wait on the network:
+  // a guest on a borrowed phone tapping "Sign out" has to see the invite
+  // disappear now, not after a timeout, and the request carries its own
+  // credentials so nothing here depends on its result.
+  function handleSignOut() {
+    // Revoke `cire_session` server-side and drop the local restore hint.
+    // Fire-and-forget on purpose: the local reset must not wait on the
+    // network, or a guest on a borrowed phone tapping this watches the
+    // household's invite sit there through a timeout. The request carries its
+    // own cookie, so nothing below depends on its result.
+    void signOut(props.apiUrl);
+    // T-U1: the unlock sequence fades the form out with Motion, which leaves
+    // its END STATE as inline styles on this wrapper (`opacity: 0; transform:
+    // translateY(-12px)`). Solid's binding on the element owns only `display`, so
+    // nothing ever clears them — the restored form would return to the layout
+    // fully transparent, i.e. a blank panel with no way back but a reload.
+    // jsdom cannot see this (no CSS, no layout) and the unit tier mocks the
+    // animation away, so it is pinned in the browser tier instead.
+    //
+    // Writing these two is safe for the same reason `display` would not be:
+    // Solid does not manage them, so there is no binding to desynchronise.
+    if (loginFormRef) {
+      loginFormRef.style.opacity = "";
+      loginFormRef.style.transform = "";
+    }
+    batch(() => {
+      setRevealed(false);
+      setRestoredSession(false);
+      setClaimResult(null);
+    });
   }
 
   return (
@@ -295,6 +343,7 @@ export default function InvitePage(props: InvitePageProps) {
         welcomeRef={(el) => (welcomeRef = el)}
         themeVars={welcomeVars()}
         welcomeMessage={liveInvite().welcomeMessage}
+        onSignOut={handleSignOut}
       />
 
       <Show when={claimResult()}>

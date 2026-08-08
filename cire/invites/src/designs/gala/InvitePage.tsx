@@ -13,7 +13,7 @@ import {
 import { Toaster } from "solid-toast";
 
 import { createClaimCode } from "../../components/claim-code";
-import { createSessionRestore, noteClaimed } from "../../components/claim-session";
+import { createSessionRestore, noteClaimed, signOut } from "../../components/claim-session";
 import { createRsvpClosed } from "../../components/createRsvpClosed";
 import { DetailsModal } from "../../components/DetailsModal";
 import { EventCard } from "../../components/EventCard";
@@ -29,7 +29,11 @@ import { PulseAccountLink } from "../../components/PulseAccountLink";
 import { deadlineNotice, formatDeadlineDay, RSVP_NOTICE_ID } from "../../components/rsvp-deadline";
 import { hasHouseholdResponded } from "../../components/rsvp-responded";
 import { RsvpModal } from "../../components/RsvpModal";
-import { TurnstileWidget, turnstileEnabled } from "../../components/TurnstileWidget";
+import {
+  TurnstileWidget,
+  turnstileEnabled,
+  type TurnstileControls,
+} from "../../components/TurnstileWidget";
 import type { ClaimResult, EventSummary, RsvpSummary } from "../../components/types";
 import { Z_LAYER } from "../../lib/z-index";
 
@@ -249,6 +253,8 @@ export default function InvitePage(props: InvitePageProps) {
     );
   });
 
+  let codeInputRef: HTMLInputElement | undefined;
+  let turnstile: TurnstileControls | undefined;
   let loginFormRef: HTMLDivElement;
   let welcomeRef: HTMLDivElement;
   let eventsSectionRef: HTMLElement;
@@ -280,7 +286,14 @@ export default function InvitePage(props: InvitePageProps) {
       // The swap completes even when the choreography did not — a failed chunk,
       // a missing ref or a throw mid-sequence must never leave the claim form
       // sitting on top of an invite this guest has already claimed. Idempotent.
-      setRevealed(true);
+      //
+      // Conditional on the claim still being current (P-W2). `onFormHidden`
+      // fires at the end of step 1 and the sequence runs on for ~150ms more,
+      // so "Use a different claim code" is already on screen and clickable
+      // while this await is pending. An unconditional write would land AFTER
+      // that reset and re-hide the form with `claimResult` back at null — the
+      // welcome banner rendering from nothing, with no in-page way back.
+      if (claimResult()) setRevealed(true);
     }
   }
 
@@ -304,6 +317,55 @@ export default function InvitePage(props: InvitePageProps) {
     if (!m) return "";
     return m.nickname?.trim() ? m.nickname.trim() : m.firstName;
   };
+
+  // "Not the Okafor family? Sign out" — names the household the control ends.
+  const signOutLabel = () => {
+    const name = isIndividual() ? individualName() : claimResult()?.familyName;
+    return name?.trim() ? `Not ${name.trim()}? Sign out` : "Sign out";
+  };
+
+  // Ends the household session — see the note in classic's InvitePage. A REAL
+  // sign-out: revokes `cire_session` server-side and drops the local restore
+  // hint. Fire-and-forget so the local reset never waits on the network.
+  function handleSignOut() {
+    // Revoke `cire_session` server-side and drop the local restore hint.
+    // Fire-and-forget on purpose: the local reset must not wait on the
+    // network, or a guest on a borrowed phone tapping this watches the
+    // household's invite sit there through a timeout. The request carries its
+    // own cookie, so nothing below depends on its result.
+    void signOut(props.apiUrl);
+    // T-U1: the unlock sequence fades the form out with Motion, which leaves
+    // its END STATE as inline styles on this wrapper (`opacity: 0; transform:
+    // translateY(-8px)`). Solid's binding on the element owns only `display`, so
+    // nothing ever clears them — the restored form would return to the layout
+    // fully transparent, i.e. a blank panel with no way back but a reload.
+    // jsdom cannot see this (no CSS, no layout) and the unit tier mocks the
+    // animation away, so it is pinned in the browser tier instead.
+    //
+    // Writing these two is safe for the same reason `display` would not be:
+    // Solid does not manage them, so there is no binding to desynchronise.
+    if (loginFormRef) {
+      loginFormRef.style.opacity = "";
+      loginFormRef.style.transform = "";
+    }
+    // Return the form to a submittable state: blank field, no stale error, no
+    // stuck `loading`, no spent single-use Turnstile token. See the notes in
+    // `createClaimCode.reset` for what each one would otherwise strand.
+    claim.reset();
+    // Re-challenge so a fresh token can replace the redeemed one. No-op when
+    // Turnstile is unconfigured.
+    turnstile?.reset();
+    batch(() => {
+      setRevealed(false);
+      setRestoredSession(false);
+      setClaimResult(null);
+    });
+    // C-L1: the click removes the focused button from the accessibility tree,
+    // so without this focus falls to `<body>` and a keyboard or screen-reader
+    // user is stranded at the top of the document. The code input is both the
+    // announcement (it carries an accessible name) and the next action.
+    codeInputRef?.focus();
+  }
 
   return (
     <>
@@ -337,6 +399,7 @@ export default function InvitePage(props: InvitePageProps) {
                     never truncated. The server still validates the code. */}
                 <input
                   type="text"
+                  ref={codeInputRef}
                   // Ink-at-alpha fill + border rather than a surface token, so
                   // the field stays one legible step from its background on
                   // every palette and every section tone the organiser can pick,
@@ -367,7 +430,11 @@ export default function InvitePage(props: InvitePageProps) {
                 </Show>
                 {/* Turnstile challenge — renders only when a sitekey is configured;
                     otherwise this is nothing and the form is unchanged. */}
-                <TurnstileWidget onToken={claim.setTurnstileToken} class="flex justify-center" />
+                <TurnstileWidget
+                  onToken={claim.setTurnstileToken}
+                  controls={(handle) => (turnstile = handle)}
+                  class="flex justify-center"
+                />
                 <button
                   type="submit"
                   class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg disabled:hover:text-gold-ink w-full rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
@@ -423,6 +490,13 @@ export default function InvitePage(props: InvitePageProps) {
                   {welcomeMessage()}
                 </p>
               </Show>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                class="font-body text-text-muted hover:text-gold-ink focus-visible:ring-gold/60 rounded-sm text-[0.78rem] underline underline-offset-2 transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+              >
+                {signOutLabel()}
+              </button>
             </div>
           </div>
         </div>

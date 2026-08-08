@@ -103,6 +103,21 @@ interface TurnstileWidgetProps {
   theme?: "light" | "dark" | "auto";
   /** Optional extra classes on the wrapper. */
   class?: string;
+  /**
+   * Receives an imperative handle once the widget is live (never called when
+   * Turnstile is unconfigured, since there is no widget to drive).
+   *
+   * `reset()` discards the current token and issues a fresh challenge. A form
+   * that can be RETURNED TO — as the claim form now can, via "Use a different
+   * claim code" — needs this: tokens are single-use, so the second submission
+   * must carry a new one or the server answers `timeout-or-duplicate`.
+   */
+  controls?: (handle: TurnstileControls) => void;
+}
+
+export interface TurnstileControls {
+  /** Discard the spent token and re-run the challenge for a fresh one. */
+  reset: () => void;
 }
 
 /**
@@ -138,6 +153,23 @@ export function TurnstileWidget(props: TurnstileWidgetProps) {
         "timeout-callback": () => props.onToken(null),
         "error-callback": () => {
           setFailed(true);
+          props.onToken(null);
+        },
+      });
+      // Hand the parent its reset lever now that `widgetId` exists. Reported
+      // only on the success path — a widget that never rendered has nothing to
+      // reset, and the parent's `?.()` call sites degrade to a no-op.
+      props.controls?.({
+        reset: () => {
+          const api = getTurnstile();
+          if (!api || !widgetId) return;
+          try {
+            api.reset(widgetId);
+          } catch {
+            // Widget already torn down — nothing to re-challenge.
+          }
+          // Drop the spent token immediately rather than waiting for the fresh
+          // `callback`, so submit is gated for the gap in between.
           props.onToken(null);
         },
       });

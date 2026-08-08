@@ -5,7 +5,7 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
-import { buildSessionCookie, clearSessionCookie } from "../lib/cookie";
+import { buildSessionCookie, clearSessionCookie, parseSessionToken } from "../lib/cookie";
 import { sessionAuth } from "../middleware/auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { turnstileGate } from "../middleware/turnstile";
@@ -86,6 +86,72 @@ export const createClaimRoutes = (
     // instead of Elysia's parser error.
     { parse: () => ({}) },
   );
+
+export interface ClaimSignoutRouteOptions {
+  /** Primary origin (used for the cleared cookie's `secure` flag). */
+  webOrigin: string;
+  /** Per-IP limiter. Shares the restore route's page-load-sized budget. */
+  limiter: RateLimiterBackend;
+}
+
+/**
+ * `POST /api/claim/signout` — end the household session this browser holds.
+ *
+ * The guest counterpart to the organiser's `POST /api/auth/signout`, and the
+ * server half of the guest site's "Not the <name> family? Sign out" control.
+ * Until this existed there was NO way for a guest to end a `cire_session`:
+ * `sessionService.revoke` had no guest-facing caller, so a 30-day credential
+ * that auto-exercises on every page load could only be ended by expiry or an
+ * organiser action (deactivate / remint). Shared and borrowed devices are the
+ * normal case for a wedding invite — a family tablet, a phone handed to a
+ * relative, a venue kiosk — and on those the surviving cookie is a live *write*
+ * capability: it reads guest names and per-event dietary free text (Art. 9) and
+ * it can submit or overwrite the household's RSVPs.
+ *
+ * A THIRD sibling instance rather than another route on `createClaimSessionRoutes`,
+ * because it deliberately does NOT mount `sessionAuth`. Signing out is
+ * idempotent and inherently safe: the only thing a caller can revoke is a token
+ * they already present, so there is nothing to authorise. Requiring auth would
+ * make the one case that most needs to succeed — an expired or already-revoked
+ * cookie still sitting in the browser — answer 401 and leave the cookie in
+ * place. This always clears it and always answers 204.
+ *
+ * The revoke is best-effort: a D1 blip must not leave the guest believing they
+ * are still signed in, and the cleared cookie already makes the token
+ * unreachable from this browser. `POST`, so `originGuard` covers it.
+ */
+export const createClaimSignoutRoutes = (
+  db: Db,
+  { webOrigin, limiter }: ClaimSignoutRouteOptions,
+) =>
+  new Elysia({ prefix: "/api/claim" })
+    .use(rateLimitMiddleware(limiter))
+    .post("/signout", async ({ request, set }) => {
+      const token = parseSessionToken(request.headers.get("cookie"));
+
+      // Clear unconditionally, and BEFORE the revoke can fail. This is the half
+      // that always works and the half the guest can see.
+      set.headers["set-cookie"] = clearSessionCookie({
+        secure: webOrigin.startsWith("https://"),
+      });
+      set.headers["cache-control"] = "no-store";
+
+      if (token) {
+        await runCire(
+          sessionService.revoke(token).pipe(
+            Effect.provideService(DbService, db),
+            // Already logged inside the service. Swallowed on purpose: the
+            // cookie is gone either way, and reporting a failure here would
+            // tell the guest they are still signed in when this browser can no
+            // longer present the token.
+            Effect.catchTag("SessionWriteError", () => Effect.void),
+          ),
+        );
+      }
+
+      set.status = 204;
+      return null;
+    });
 
 /** The session is valid, but belongs to a different wedding than the one asked for. */
 class SessionNotForWedding extends Data.TaggedError("SessionNotForWedding") {}

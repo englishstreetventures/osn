@@ -1,6 +1,6 @@
-import { cleanup, render } from "@solidjs/testing-library";
+import { cleanup, fireEvent, render } from "@solidjs/testing-library";
 import { createSignal } from "solid-js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { LoginSection } from "./LoginSection";
 import type { ClaimResult, FamilyMember } from "./types";
@@ -156,6 +156,35 @@ describe("LoginSection form/welcome swap", () => {
     ));
     expect(panels(unclaimed.container).form.style.display).toBe("");
     expect(panels(unclaimed.container).welcome.style.display).toBe("none");
+  });
+});
+
+describe("LoginSection sign-out control", () => {
+  it("is absent without a handler", () => {
+    const { queryByText } = render(() => (
+      <LoginSection apiUrl="http://x" result={result([member("Chidi")])} onClaimed={noop} />
+    ));
+    expect(queryByText(/Sign out/)).toBeNull();
+  });
+
+  it("clears the code field and calls the sign-out handler on click", () => {
+    const onSignOut = vi.fn();
+    const { getByText, getByLabelText } = render(() => (
+      <LoginSection
+        apiUrl="http://x"
+        result={result([member("Chidi")])}
+        onClaimed={noop}
+        onSignOut={onSignOut}
+      />
+    ));
+
+    const input = getByLabelText("Invitation code") as HTMLInputElement;
+    fireEvent.input(input, { target: { value: "OKAFOR-LILY-AB12CD" } });
+
+    fireEvent.click(getByText(/Sign out/));
+
+    expect(onSignOut).toHaveBeenCalledTimes(1);
+    expect(input.value).toBe("");
   });
 });
 

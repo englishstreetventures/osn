@@ -626,3 +626,109 @@ describe("GET /api/claim/session", () => {
     expect((await req()).status).toBe(429);
   });
 });
+
+describe("POST /api/claim/signout", () => {
+  const signoutApp = createApp(db, {
+    claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+    claimSessionLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
+  });
+
+  const SLUG = "cire-wedding";
+
+  const claimFor = async (publicId: string) => {
+    const res = await signoutApp.fetch(
+      new Request("http://localhost/api/claim", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "cf-connecting-ip": "203.0.113.11",
+          Origin: "http://localhost:4321",
+        },
+        body: JSON.stringify({ publicId }),
+      }),
+    );
+    return res.headers.get("Set-Cookie")!.split(";")[0]!;
+  };
+
+  const signout = (cookie?: string) =>
+    signoutApp.fetch(
+      new Request("http://localhost/api/claim/signout", {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": "203.0.113.11",
+          Origin: "http://localhost:4321",
+          ...(cookie ? { Cookie: cookie } : {}),
+        },
+      }),
+    );
+
+  const getSession = (cookie: string) =>
+    signoutApp.fetch(
+      new Request(`http://localhost/api/claim/session?slug=${SLUG}`, {
+        headers: { "cf-connecting-ip": "203.0.113.11", Cookie: cookie },
+      }),
+    );
+
+  it("revokes the session so the restore no longer resolves", async () => {
+    const cookie = await claimFor("TESTONE-IVY-AA11");
+    // Precondition: the cookie really does open the invite.
+    expect((await getSession(cookie)).status).toBe(200);
+
+    const res = await signout(cookie);
+    expect(res.status).toBe(204);
+    // The cookie is cleared in the browser…
+    expect(res.headers.get("Set-Cookie")).toContain("cire_session=");
+    expect(res.headers.get("Set-Cookie")).toContain("Max-Age=0");
+
+    // …and the token is dead SERVER-side, which is the half that matters. A
+    // cleared cookie alone would leave a live credential for anyone who
+    // captured the token; this is what makes the control a real sign-out
+    // rather than the local-state reset it started as.
+    expect((await getSession(cookie)).status).toBe(401);
+  });
+
+  it("is idempotent — a second sign-out with the dead cookie still answers 204", async () => {
+    const cookie = await claimFor("TESTTWO-OAK-BB22");
+    expect((await signout(cookie)).status).toBe(204);
+
+    // Deliberately NOT 401. The route mounts no `sessionAuth`: the case that
+    // most needs to succeed is a stale cookie still sitting in a browser, and
+    // answering 401 there would leave it in place.
+    const second = await signout(cookie);
+    expect(second.status).toBe(204);
+    expect(second.headers.get("Set-Cookie")).toContain("Max-Age=0");
+  });
+
+  it("answers 204 and still clears the cookie with no session at all", async () => {
+    const res = await signout();
+    expect(res.status).toBe(204);
+    expect(res.headers.get("Set-Cookie")).toContain("Max-Age=0");
+  });
+
+  it("does not revoke a DIFFERENT household's session", async () => {
+    const mine = await claimFor("TESTONE-IVY-AA11");
+    const theirs = await claimFor("TESTTWO-OAK-BB22");
+
+    expect((await signout(mine)).status).toBe(204);
+
+    // Signing out is scoped to the token presented — nothing else.
+    expect((await getSession(theirs)).status).toBe(200);
+  });
+
+  it("is covered by the origin guard like every other state-changing POST", async () => {
+    const cookie = await claimFor("TESTONE-IVY-AA11");
+    const res = await signoutApp.fetch(
+      new Request("http://localhost/api/claim/signout", {
+        method: "POST",
+        headers: {
+          "cf-connecting-ip": "203.0.113.11",
+          Origin: "https://evil.example",
+          Cookie: cookie,
+        },
+      }),
+    );
+    expect(res.status).toBe(403);
+    // And the session survives a blocked cross-origin attempt.
+    expect((await getSession(cookie)).status).toBe(200);
+  });
+});

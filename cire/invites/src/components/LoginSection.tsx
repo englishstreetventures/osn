@@ -2,7 +2,7 @@ import { Show, For } from "solid-js";
 
 import { createClaimCode } from "./claim-code";
 import { filterThemeVars } from "./invite-theme";
-import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
+import { TurnstileWidget, turnstileEnabled, type TurnstileControls } from "./TurnstileWidget";
 import type { ClaimResult } from "./types";
 
 interface LoginSectionProps {
@@ -37,6 +37,17 @@ interface LoginSectionProps {
    * or guest name. Absent/null ⇒ the built-in default greeting.
    */
   welcomeMessage?: string | null;
+  /**
+   * Ends the household session — a shared device, or a code that opened the
+   * wrong family's invite. The PARENT owns the actual sign-out: revoking
+   * `cire_session` server-side and resetting `result`/`revealed`. This
+   * component only resets its own form state (code, error, loading, Turnstile
+   * token) and moves focus, so the returned form is immediately usable.
+   *
+   * Absent ⇒ no control is rendered, since without a handler it would have
+   * nothing to swap the view back with.
+   */
+  onSignOut?: () => void;
 }
 
 // The built-in post-claim greeting, used when the organiser hasn't overridden it.
@@ -65,6 +76,37 @@ export function LoginSection(props: LoginSectionProps) {
     if (!m) return "";
     return m.nickname?.trim() ? m.nickname.trim() : m.firstName;
   };
+
+  // "Not the Okafor family? Sign out" when we know who they are, so the control
+  // names the household it ends rather than describing a mechanism. Falls back
+  // to the plain label when the payload has no usable name.
+  const signOutLabel = () => {
+    const name = isIndividual() ? individualName() : props.result?.familyName;
+    return name?.trim() ? `Not ${name.trim()}? Sign out` : "Sign out";
+  };
+
+  let codeInputRef: HTMLInputElement | undefined;
+  let turnstile: TurnstileControls | undefined;
+
+  function handleSignOut() {
+    // Return the form to a submittable state: blank field (it would otherwise
+    // reappear pre-filled with the code that just succeeded), no stale error,
+    // no stuck `loading`, no spent Turnstile token.
+    claim.reset();
+    // Re-challenge so a fresh single-use token can replace the one the
+    // previous claim redeemed. No-op when Turnstile is unconfigured.
+    turnstile?.reset();
+    // Let the parent revoke the session and swap the view back BEFORE
+    // focusing — the form is `display: none` until it does, and `focus()` on a
+    // hidden element is silently dropped.
+    props.onSignOut?.();
+    // C-L1: the click removes the focused button from the accessibility tree,
+    // which would drop focus to `<body>` and leave a keyboard or screen-reader
+    // user at the top of the document with no signal that the form is back.
+    // The code input is both the announcement (it has an accessible name) and
+    // the obvious next action.
+    codeInputRef?.focus();
+  }
 
   return (
     <section
@@ -98,6 +140,7 @@ export function LoginSection(props: LoginSectionProps) {
                 never truncated. The server still validates the code. */}
             <input
               type="text"
+              ref={codeInputRef}
               // A border tint alone is too quiet to mark focus on the page's
               // one input; the ring keeps keyboard users oriented. Text cursor
               // on a text field — the pointer belongs on buttons only.
@@ -148,7 +191,11 @@ export function LoginSection(props: LoginSectionProps) {
             </Show>
             {/* Turnstile challenge — renders only when a sitekey is configured;
                 otherwise this is nothing and the form is unchanged. */}
-            <TurnstileWidget onToken={claim.setTurnstileToken} class="flex justify-center" />
+            <TurnstileWidget
+              onToken={claim.setTurnstileToken}
+              controls={(handle) => (turnstile = handle)}
+              class="flex justify-center"
+            />
             <button
               type="submit"
               class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg disabled:hover:text-gold-ink rounded-sm border bg-transparent px-6 py-3.5 text-[0.88rem] tracking-[0.12em] uppercase transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
@@ -208,6 +255,15 @@ export function LoginSection(props: LoginSectionProps) {
             <p class="text-text-muted mb-8 text-[0.92rem] leading-[1.6] font-light">
               {props.welcomeMessage ?? DEFAULT_WELCOME_MESSAGE}
             </p>
+          </Show>
+          <Show when={props.onSignOut}>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              class="font-body text-text-muted hover:text-gold-ink focus-visible:ring-gold/60 rounded-sm text-[0.78rem] underline underline-offset-2 transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+            >
+              {signOutLabel()}
+            </button>
           </Show>
         </div>
       </div>

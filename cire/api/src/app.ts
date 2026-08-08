@@ -16,7 +16,11 @@ import { runCireSync } from "./observability";
 import { createAccountLinkPostRoute, createAccountLinkRoutes } from "./routes/account-link";
 import { createAuthOidcRoutes } from "./routes/auth-oidc";
 import { createBudgetReadRoutes, createBudgetWriteRoutes } from "./routes/budget";
-import { createClaimRoutes, createClaimSessionRoutes } from "./routes/claim";
+import {
+  createClaimRoutes,
+  createClaimSessionRoutes,
+  createClaimSignoutRoutes,
+} from "./routes/claim";
 import { createCspReportRoutes } from "./routes/csp-report";
 import { createInternalRevokeRoutes } from "./routes/internal-revoke";
 import { createInviteOrganiserRoutes, createInvitePublicRoutes } from "./routes/invite";
@@ -588,6 +592,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // so it gets its own (page-load-sized) limiter instead of the claim
       // endpoint's brute-force budget — same split as the hosts read/write pair.
       .use(createClaimSessionRoutes(db, { webOrigin, limiter: claimSessionLimiter }))
+      .use(createClaimSignoutRoutes(db, { webOrigin, limiter: claimSessionLimiter }))
       // No Turnstile on RSVP: guests reach it only with a valid `cire_session`
       // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check
       // here is pure friction. Claim + organiser login keep the gate.

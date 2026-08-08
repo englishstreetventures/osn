@@ -415,4 +415,45 @@ describe.each([
     expect(rect.bottom, "toast is below the fold").toBeLessThanOrEqual(window.innerHeight);
     expect(rect.top, "toast is not anchored to the viewport top").toBeLessThan(200);
   });
+  it("T-U1: the code form comes back PAINTED after sign-out", async () => {
+    // The unit tier mocks `UnlockReveal.motion` and `motion` away, so it asserts
+    // the form is back in the layout and never that it is visible. The real
+    // sequence fades the form out with Motion, which leaves its end state as
+    // inline styles on the wrapper (`opacity: 0`, plus a `translateY`). Solid's
+    // binding there owns only `display`, so without an explicit clear the form
+    // returns fully transparent — a blank panel, and the guest's only way out is
+    // a reload, which (the session cookie being untouched) re-opens the invite
+    // they were trying to leave.
+    await openByCode(Pack, []);
+
+    const button = [...document.querySelectorAll("button")].find((b) =>
+      (b.textContent ?? "").includes("Sign out"),
+    ) as HTMLButtonElement;
+    expect(button, "the sign-out control is not rendered").toBeTruthy();
+    // The copy names the household it ends, so it cannot read as a generic
+    // "start over" — this fixture has two members, so it is the family name.
+    expect(button.textContent).toBe("Not Sharma? Sign out");
+    button.click();
+
+    const input = document.querySelector("input[aria-label='Invitation code']") as HTMLInputElement;
+    await waitFor(() => expect(input.checkVisibility()).toBe(true), { timeout: 3000 });
+
+    // `checkVisibility` with both flags is the honest question: `display` alone
+    // was never the failure — opacity was.
+    expect(
+      input.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }),
+      "the restored code form is in the layout but not painted",
+    ).toBe(true);
+
+    // And the residue is actually gone from the wrapper, not merely overridden
+    // somewhere down the tree.
+    const wrapper = input.closest("form")?.parentElement as HTMLElement;
+    expect(Number.parseFloat(getComputedStyle(wrapper).opacity)).toBe(1);
+
+    // Usable, not just visible — the S-M1 pair to this, measured in a real
+    // browser rather than jsdom.
+    expect(input.disabled).toBe(false);
+    const rect = input.getBoundingClientRect();
+    expect(rect.width, "the code field has no box").toBeGreaterThan(0);
+  });
 });

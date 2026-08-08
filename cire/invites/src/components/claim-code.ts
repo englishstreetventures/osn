@@ -19,6 +19,14 @@ export interface ClaimCode {
   turnstileToken: Accessor<string | null>;
   setTurnstileToken: (token: string | null) => void;
   handleSubmit: (e: Event) => void;
+  /**
+   * Return the form to a pristine, SUBMITTABLE state — for the case where a
+   * guest steps back to the code entry after a claim has already succeeded
+   * ("Use a different claim code"). Clears the code, any error, the stuck
+   * loading flag and the spent Turnstile token; see the notes in the
+   * implementation for why each one would otherwise strand the form.
+   */
+  reset: () => void;
 }
 
 /**
@@ -91,6 +99,29 @@ export function createClaimCode(options: ClaimCodeOptions): ClaimCode {
     void submitCode(code());
   }
 
+  function reset() {
+    setCode("");
+    setError(null);
+    // `submitCode` clears `loading` on every FAILURE branch but deliberately
+    // not on success: the form is mid-fade-out by then, and flipping the button
+    // label from "Checking…" back to "Open Invitation" underneath that fade
+    // would flash. The flag therefore stays true once a claim succeeds — which
+    // was unobservable while the form could never come back, and is exactly
+    // what strands it now that it can. Without this line the restored form
+    // returns with a `disabled` input and a permanently disabled "Checking…"
+    // button, i.e. the escape hatch leads nowhere.
+    setLoading(false);
+    // Turnstile tokens are SINGLE USE — the claim that just succeeded redeemed
+    // this one. Carrying it into the next submit means the server's verifier
+    // answers `timeout-or-duplicate` → 403, which `submitCode` reports as the
+    // generic "Something went wrong" while leaving the button enabled and the
+    // token in place: a retry loop that burns a Worker invocation and an
+    // outbound siteverify per click until the per-IP limiter 429s the guest.
+    // Nulling it re-disables submit; the caller resets the widget so a fresh
+    // token can actually arrive.
+    setTurnstileToken(null);
+  }
+
   // Organiser "Preview invite" deep-link: ?code=<host code> auto-claims so the
   // host lands straight on the events view without retyping the code.
   onMount(() => {
@@ -116,5 +147,6 @@ export function createClaimCode(options: ClaimCodeOptions): ClaimCode {
     turnstileToken,
     setTurnstileToken,
     handleSubmit,
+    reset,
   };
 }

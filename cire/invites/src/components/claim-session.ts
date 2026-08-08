@@ -31,12 +31,13 @@ function hasClaimedHint(): boolean {
  * Record that this browser now holds a household session, so the next visit
  * restores instead of asking for the code. Call from the claim success path.
  *
- * There is deliberately no clear() counterpart. The hint and the session it
- * stands for are both minted by the same successful claim and both last 30
- * days, so they lapse together — and the one place it would be tempting to
- * clear early (a 401) is ambiguous between "session is dead" and "right guest,
- * wrong wedding", where clearing would make a guest who once opened someone
- * else's invite link retype their code on their own invite.
+ * The hint and the session it stands for are both minted by the same successful
+ * claim and both last 30 days, so they lapse together — and the one place it
+ * would be tempting to clear early (a 401) is ambiguous between "session is
+ * dead" and "right guest, wrong wedding", where clearing would make a guest who
+ * once opened someone else's invite link retype their code on their own invite.
+ * The ONLY thing that clears it early is an explicit sign-out ({@link signOut}),
+ * which is the unambiguous case that rationale excludes.
  */
 export function noteClaimed(): void {
   if (typeof document === "undefined") return;
@@ -44,6 +45,49 @@ export function noteClaimed(): void {
   // the browser drop the cookie, silently disabling the restore in local dev.
   const secure = window.location.protocol === "https:" ? "; Secure" : "";
   document.cookie = `${CLAIMED_HINT}=1; Path=/; Max-Age=${CLAIMED_HINT_MAX_AGE}; SameSite=Lax${secure}`;
+}
+
+/**
+ * End the household session: revoke it server-side and drop the local hint so
+ * the next visit shows the code form instead of restoring.
+ *
+ * This is the counterpart the module header's "deliberately no clear()" note
+ * carves out. That rationale is about the AMBIGUOUS 401 — where clearing would
+ * punish a guest who merely opened someone else's link — and an explicit,
+ * user-initiated sign-out is the unambiguous case it excludes.
+ *
+ * Resolves `true` when the server confirmed the revoke, `false` otherwise. The
+ * local hint is cleared either way and the caller must reset its UI either way:
+ * a guest on a borrowed phone who taps "Sign out" and hits a flaky network must
+ * not be left looking at the household's invite. The real cookie is HttpOnly
+ * and host-scoped to the API origin, so only the server can clear it — which is
+ * exactly why the boolean is worth surfacing rather than swallowing.
+ */
+export async function signOut(apiUrl: string): Promise<boolean> {
+  clearClaimedHint();
+  try {
+    const res = await fetch(`${apiUrl}/api/claim/signout`, {
+      method: "POST",
+      // The whole point: send the household cookie cross-origin so the server
+      // can revoke THIS session. Same-site, so `SameSite=Lax` permits it.
+      credentials: "include",
+      cache: "no-store",
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Drop the local "this browser has claimed" marker. Only ever called from an
+ * explicit sign-out — see {@link signOut} and the module header for why a 401
+ * deliberately does not.
+ */
+function clearClaimedHint(): void {
+  if (typeof document === "undefined") return;
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${CLAIMED_HINT}=; Path=/; Max-Age=0; SameSite=Lax${secure}`;
 }
 
 export interface SessionRestoreOptions {

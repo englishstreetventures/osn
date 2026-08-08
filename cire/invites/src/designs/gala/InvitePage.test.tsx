@@ -324,6 +324,52 @@ describe("gala InvitePage", () => {
     });
   });
 
+  it("'Sign out' returns to the code form and clears the claimed invite", async () => {
+    vi.stubGlobal(
+      "fetch",
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(claim), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const { getByText, getByPlaceholderText, queryByText } = render(() => (
+      <InvitePage apiUrl="https://api.test" />
+    ));
+
+    fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
+    fireEvent.click(getByText("Open Invitation"));
+
+    await waitFor(() => expect(getByText(/Dear Priya/)).toBeTruthy(), { timeout: 2000 });
+
+    fireEvent.click(getByText(/Sign out/));
+
+    // The claim panel is back, the previously claimed household's events are
+    // gone, and the field the household typed into is blank again.
+    await waitFor(() => expect(getByText("Enter Your Code")).toBeTruthy());
+    expect(queryByText(/Dear Priya/)).toBeNull();
+    expect(queryByText("Mehndi")).toBeNull();
+
+    // S-M1 — the same contract classic pins: the returned form must be
+    // USABLE. `submitCode` never clears `loading` on success, so before the
+    // fix this came back with a disabled input and a stuck "Checking…" submit.
+    // Both packs share `createClaimCode`, so both need the guard or they drift.
+    const input = getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement;
+    expect(input.value).toBe("");
+    expect(input.disabled).toBe(false);
+    const submit = getByText("Open Invitation") as HTMLButtonElement;
+    expect(submit.textContent).toBe("Open Invitation");
+    fireEvent.input(input, { target: { value: "OKAFOR-LILY-AB12CD" } });
+    expect(submit.disabled).toBe(false);
+
+    // C-L1: focus follows the swap instead of falling to <body>.
+    expect(document.activeElement).toBe(input);
+  });
+
   it("hides the Pulse account-link affordance in preview mode", async () => {
     vi.stubGlobal(
       "fetch",
