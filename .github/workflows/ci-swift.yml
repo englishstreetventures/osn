@@ -56,7 +56,13 @@ jobs:
           if changed=$(git diff --name-only "$base" HEAD 2>&1); then
             echo "$changed"
 
-            if echo "$changed" | grep -qE '^(shared/swift/|pulse/ios/|\.github/workflows/ci-swift\.yml$)'; then
+            # `shared/openapi/` counts as Swift source. `PulseAPI`'s
+            # `openapi.json` is a relative symlink to `shared/openapi/pulse.json`,
+            # and the OpenAPIGenerator plugin regenerates the whole client from
+            # it at build time — so a spec-only change can break the iOS build
+            # while touching no file under `shared/swift/`. This very PR is that
+            # case: it rewrites every nullable field's spelling and nothing else.
+            if echo "$changed" | grep -qE '^(shared/swift/|shared/openapi/|pulse/ios/|\.github/workflows/ci-swift\.yml$)'; then
               echo "ios=true" >> "$GITHUB_OUTPUT"
             else
               echo "ios=false" >> "$GITHUB_OUTPUT"
