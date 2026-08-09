@@ -31,6 +31,7 @@ let package = Package(
         .target(name: "OSNUI"),
         .target(name: "OSNTesting", dependencies: ["OSNKit"]),
         .testTarget(name: "OSNKitTests", dependencies: ["OSNKit", "OSNTesting"]),
+        .testTarget(name: "OSNAuthTests", dependencies: ["OSNAuth", "OSNTesting"]),
         .target(
             name: "PulseAPI",
             dependencies: [

@@ -25,3 +25,16 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         GENERATE_INFOPLIST_FILE: "YES"
         SWIFT_VERSION: "6.2"
+    # BLOCKED: neither capability is registered in the Apple developer portal
+    # yet (no App ID configured for webcredentials:musubi.social or for the
+    # group.social.musubi.session App Group). Xcode codesigning will fail
+    # until both are added there. RP ID/App Group string sourced from
+    # brief-a3.md and OSNKit/SharedCookieJar.swift:10 (osnSessionAppGroupIdentifier)
+    # — not invented here.
+    entitlements:
+      path: Pulse.entitlements
+      properties:
+        com.apple.developer.associated-domains:
+          - webcredentials:musubi.social
+        com.apple.security.application-groups:
+          - group.social.musubi.session

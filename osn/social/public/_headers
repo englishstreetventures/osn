@@ -15,3 +15,12 @@
 # differs per environment, and a wrong connect-src breaks sign-in outright. Those
 # two need a build-time policy generated from VITE_OSN_ISSUER_URL against the
 # emitted bundle — tracked as S-L3 in wiki/TODO.md.
+
+# Apple requires the App Site Association file to be served as JSON, and the
+# file has no extension, so Pages would otherwise guess and send it as
+# application/octet-stream. The global `X-Content-Type-Options: nosniff` above
+# turns that guess into a hard failure rather than a lucky sniff, and the only
+# symptom is that native passkeys quietly never work — the association just
+# never forms. Pin the type here.
+/.well-known/apple-app-site-association
+  Content-Type: application/json
