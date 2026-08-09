@@ -71,7 +71,22 @@ export const createCloseFriendsRoutes = (
           }),
         };
       },
-      {},
+      {
+        response: {
+          200: t.Object({
+            closeFriends: t.Array(
+              t.Object({
+                profileId: t.String(),
+                handle: t.Nullable(t.String()),
+                displayName: t.Nullable(t.String()),
+                avatarUrl: t.Nullable(t.String()),
+              }),
+            ),
+          }),
+          401: t.Object({ message: t.String() }),
+        },
+        detail: { operationId: "listCloseFriends", security: [{ bearerAuth: [] }] },
+      },
     )
     .post(
       "/:friendId",
@@ -115,7 +130,17 @@ export const createCloseFriendsRoutes = (
         set.status = 201;
         return result;
       },
-      { params: t.Object({ friendId: t.String({ minLength: 1 }) }) },
+      {
+        params: t.Object({ friendId: t.String({ minLength: 1 }) }),
+        response: {
+          201: t.Object({ ok: t.Literal(true) }),
+          401: t.Object({ message: t.String() }),
+          422: t.Object({ error: t.String() }),
+          429: t.Object({ error: t.String() }),
+          500: t.Object({ error: t.String() }),
+        },
+        detail: { operationId: "addCloseFriend", security: [{ bearerAuth: [] }] },
+      },
     )
     .delete(
       "/:friendId",
@@ -155,7 +180,17 @@ export const createCloseFriendsRoutes = (
         }
         return result;
       },
-      { params: t.Object({ friendId: t.String({ minLength: 1 }) }) },
+      {
+        params: t.Object({ friendId: t.String({ minLength: 1 }) }),
+        response: {
+          200: t.Object({ ok: t.Literal(true) }),
+          401: t.Object({ message: t.String() }),
+          404: t.Object({ message: t.String() }),
+          429: t.Object({ error: t.String() }),
+          500: t.Object({ error: t.String() }),
+        },
+        detail: { operationId: "removeCloseFriend", security: [{ bearerAuth: [] }] },
+      },
     )
     .get(
       "/:friendId/check",
@@ -173,6 +208,13 @@ export const createCloseFriendsRoutes = (
         );
         return { isCloseFriend };
       },
-      { params: t.Object({ friendId: t.String({ minLength: 1 }) }) },
+      {
+        params: t.Object({ friendId: t.String({ minLength: 1 }) }),
+        response: {
+          200: t.Object({ isCloseFriend: t.Boolean() }),
+          401: t.Object({ message: t.String() }),
+        },
+        detail: { operationId: "checkIsCloseFriend", security: [{ bearerAuth: [] }] },
+      },
     );
 };

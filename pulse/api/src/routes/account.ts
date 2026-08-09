@@ -127,58 +127,99 @@ export const createAccountRoutes = (
         }
       },
       {
+        parse: "application/json",
         // accountId is derived server-to-server from the step-up verify
         // response's verified `sub` claim (S-H2); it is intentionally
         // absent from access tokens (P6) and from this request body.
         body: t.Object({
           step_up_token: t.Optional(t.String()),
         }),
+        response: {
+          202: t.Object({
+            scheduled_for: t.Number(),
+            already_pending: t.Boolean(),
+          }),
+          401: t.Object({ error: t.String() }),
+          403: t.Object({ error: t.String() }),
+          500: t.Object({ error: t.String() }),
+        },
+        detail: { operationId: "deleteAccount", security: [{ bearerAuth: [] }] },
       },
     )
-    .post("/restore", async ({ headers, set }) => {
-      const claims = await extractClaims(headers["authorization"], jwksUrl, {
-        testKey: _testKey as CryptoKey,
-        audience: "osn-access",
-      });
-      if (!claims) {
-        set.status = 401;
-        return { error: "unauthorized" } as const;
-      }
-      try {
-        const result = await runtime.runPromise(
-          accountErasure.cancelErasure(claims.profileId) as Effect.Effect<
-            { cancelled: boolean },
-            accountErasure.PulseErasureDbError,
-            Db
-          >,
-        );
-        return { cancelled: result.cancelled };
-      } catch {
-        set.status = 500;
-        return { error: "internal_error" } as const;
-      }
-    })
-    .get("/deletion-status", async ({ headers, set }) => {
-      const claims = await extractClaims(headers["authorization"], jwksUrl, {
-        testKey: _testKey as CryptoKey,
-        audience: "osn-access",
-      });
-      if (!claims) {
-        set.status = 401;
-        return { error: "unauthorized" } as const;
-      }
-      try {
-        const status = await runtime.runPromise(
-          accountErasure.getDeletionStatus(claims.profileId) as Effect.Effect<
-            { scheduled: boolean } & Record<string, unknown>,
-            accountErasure.PulseErasureDbError,
-            Db
-          >,
-        );
-        return status;
-      } catch {
-        set.status = 500;
-        return { error: "internal_error" } as const;
-      }
-    });
+    .post(
+      "/restore",
+      async ({ headers, set }) => {
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
+        if (!claims) {
+          set.status = 401;
+          return { error: "unauthorized" } as const;
+        }
+        try {
+          const result = await runtime.runPromise(
+            accountErasure.cancelErasure(claims.profileId) as Effect.Effect<
+              { cancelled: boolean },
+              accountErasure.PulseErasureDbError,
+              Db
+            >,
+          );
+          return { cancelled: result.cancelled };
+        } catch {
+          set.status = 500;
+          return { error: "internal_error" } as const;
+        }
+      },
+      {
+        response: {
+          200: t.Object({ cancelled: t.Boolean() }),
+          401: t.Object({ error: t.String() }),
+          500: t.Object({ error: t.String() }),
+        },
+        detail: { operationId: "restoreAccount", security: [{ bearerAuth: [] }] },
+      },
+    )
+    .get(
+      "/deletion-status",
+      async ({ headers, set }) => {
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
+        if (!claims) {
+          set.status = 401;
+          return { error: "unauthorized" } as const;
+        }
+        try {
+          const status = await runtime.runPromise(
+            accountErasure.getDeletionStatus(claims.profileId) as Effect.Effect<
+              | { scheduled: false }
+              | { scheduled: true; scheduledFor: number; softDeletedAt: number },
+              accountErasure.PulseErasureDbError,
+              Db
+            >,
+          );
+          return status;
+        } catch {
+          set.status = 500;
+          return { error: "internal_error" } as const;
+        }
+      },
+      {
+        response: {
+          200: t.Union([
+            t.Object({ scheduled: t.Literal(false) }),
+            t.Object({
+              scheduled: t.Literal(true),
+              scheduledFor: t.Number(),
+              softDeletedAt: t.Number(),
+            }),
+          ]),
+          401: t.Object({ error: t.String() }),
+          500: t.Object({ error: t.String() }),
+        },
+        detail: { operationId: "getAccountDeletionStatus", security: [{ bearerAuth: [] }] },
+      },
+    );
 };

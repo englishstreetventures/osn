@@ -1,4 +1,5 @@
 import { cors } from "@elysiajs/cors";
+import { openapi } from "@elysiajs/openapi";
 import { DbLive, type Db } from "@pulse/db/service";
 import { healthRoutes, observabilityPlugin } from "@shared/observability";
 import type { ClientIpOptions } from "@shared/rate-limit";
@@ -74,6 +75,34 @@ export function createApp(options: AppOptions = {}) {
       .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
       .use(healthRoutes({ serviceName: SERVICE_NAME }))
       .get("/", () => ({ status: "ok", service: SERVICE_NAME }))
+      .use(
+        openapi({
+          documentation: {
+            openapi: "3.1.0",
+            info: { title: "Pulse API", version: "1.0.0" },
+            components: {
+              securitySchemes: {
+                bearerAuth: {
+                  type: "http",
+                  scheme: "bearer",
+                  bearerFormat: "JWT",
+                },
+              },
+            },
+          },
+          exclude: {
+            paths: [
+              "/",
+              "/health",
+              "/ready",
+              "/internal/register-service",
+              "/internal/service-keys/:keyId",
+              "/internal/account-deleted",
+              "/internal/account-export",
+            ],
+          },
+        }),
+      )
       .use(
         createEventsRoutes(
           dbLayer,

@@ -1,4 +1,4 @@
-import type { Event } from "@pulse/db/schema";
+import type { Event, EventLineupSlot, Venue } from "@pulse/db/schema";
 import { DbLive, type Db } from "@pulse/db/service";
 import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer, ManagedRuntime } from "effect";
@@ -33,8 +33,8 @@ const toPublicVenueEvent = (e: Event) => ({
   id: e.id,
   title: e.title,
   description: e.description,
-  startTime: e.startTime,
-  endTime: e.endTime,
+  startTime: e.startTime.toISOString(),
+  endTime: e.endTime ? e.endTime.toISOString() : null,
   status: e.status,
   imageUrl: e.imageUrl,
   category: e.category,
@@ -43,6 +43,82 @@ const toPublicVenueEvent = (e: Event) => ({
   venueId: e.venueId,
   createdByName: e.createdByName,
 });
+
+const publicVenueEventSchema = t.Object({
+  id: t.String(),
+  title: t.String(),
+  description: t.Nullable(t.String()),
+  startTime: t.String({ format: "date-time" }),
+  endTime: t.Nullable(t.String({ format: "date-time" })),
+  status: t.Union([
+    t.Literal("upcoming"),
+    t.Literal("ongoing"),
+    t.Literal("maybe_finished"),
+    t.Literal("finished"),
+    t.Literal("cancelled"),
+  ]),
+  imageUrl: t.Nullable(t.String()),
+  category: t.Nullable(t.String()),
+  priceAmount: t.Nullable(t.Number()),
+  priceCurrency: t.Nullable(t.String()),
+  venueId: t.Nullable(t.String()),
+  createdByName: t.Nullable(t.String()),
+});
+
+const serializeVenue = (v: Venue) => ({
+  ...v,
+  createdAt: v.createdAt.toISOString(),
+  updatedAt: v.updatedAt.toISOString(),
+});
+
+const venueSchema = t.Object({
+  id: t.String(),
+  orgHandle: t.String(),
+  handle: t.String(),
+  name: t.String(),
+  kind: t.String(),
+  description: t.Nullable(t.String()),
+  address: t.Nullable(t.String()),
+  city: t.Nullable(t.String()),
+  country: t.Nullable(t.String()),
+  latitude: t.Nullable(t.Number()),
+  longitude: t.Nullable(t.Number()),
+  capacity: t.Nullable(t.Number()),
+  hours: t.Nullable(t.String()),
+  heroImageUrl: t.Nullable(t.String()),
+  websiteUrl: t.Nullable(t.String()),
+  instagramHandle: t.Nullable(t.String()),
+  timezone: t.String(),
+  createdAt: t.String({ format: "date-time" }),
+  updatedAt: t.String({ format: "date-time" }),
+});
+
+const serializeLineupSlot = (s: EventLineupSlot) => ({
+  ...s,
+  slotStart: s.slotStart.toISOString(),
+  slotEnd: s.slotEnd.toISOString(),
+  createdAt: s.createdAt.toISOString(),
+});
+
+const lineupSlotSchema = t.Object({
+  id: t.String(),
+  eventId: t.String(),
+  artistName: t.String(),
+  role: t.Union([
+    t.Literal("headliner"),
+    t.Literal("support"),
+    t.Literal("resident"),
+    t.Literal("opener"),
+    t.Literal("guest"),
+  ]),
+  slotStart: t.String({ format: "date-time" }),
+  slotEnd: t.String({ format: "date-time" }),
+  orderIndex: t.Number(),
+  createdAt: t.String({ format: "date-time" }),
+});
+
+const errorResponse = t.Object({ error: t.String() });
+const messageResponse = t.Object({ message: t.String() });
 
 /**
  * Venue surface routes.
@@ -87,12 +163,22 @@ export const createVenuesRoutes = (
         return { error: "Too many requests" } as const;
       }
     })
-    .get("/", async () => {
-      // TODO(venue-bbox-search): swap for bbox-filtered query — see
-      // wiki/TODO.md → Performance Backlog P-W28 (explore).
-      const venues = await runtime.runPromise(listAllVenues());
-      return { venues };
-    })
+    .get(
+      "/",
+      async () => {
+        // TODO(venue-bbox-search): swap for bbox-filtered query — see
+        // wiki/TODO.md → Performance Backlog P-W28 (explore).
+        const venues = await runtime.runPromise(listAllVenues());
+        return { venues: venues.map(serializeVenue) };
+      },
+      {
+        response: {
+          200: t.Object({ venues: t.Array(venueSchema) }),
+          429: errorResponse,
+        },
+        detail: { operationId: "listVenues" },
+      },
+    )
     .get(
       "/:orgHandle/:venueHandle",
       async ({ params, set }) => {
@@ -105,9 +191,17 @@ export const createVenuesRoutes = (
           set.status = 404;
           return { message: "Venue not found" } as const;
         }
-        return { venue };
+        return { venue: serializeVenue(venue) };
       },
-      { params: t.Object({ orgHandle: t.String(), venueHandle: t.String() }) },
+      {
+        params: t.Object({ orgHandle: t.String(), venueHandle: t.String() }),
+        response: {
+          200: t.Object({ venue: venueSchema }),
+          404: messageResponse,
+          429: errorResponse,
+        },
+        detail: { operationId: "getVenue" },
+      },
     )
     .get(
       "/:orgHandle/:venueHandle/events",
@@ -132,6 +226,12 @@ export const createVenuesRoutes = (
           // 422s instead of flowing into `.limit(NaN)`.
           limit: t.Optional(t.Numeric({ minimum: 1, maximum: 200 })),
         }),
+        response: {
+          200: t.Object({ events: t.Array(publicVenueEventSchema) }),
+          404: messageResponse,
+          429: errorResponse,
+        },
+        detail: { operationId: "listVenueEvents" },
       },
     )
     .get(
@@ -160,7 +260,7 @@ export const createVenuesRoutes = (
           return { message: "Event not found" } as const;
         }
         const slots = await runtime.runPromise(listEventLineup(params.eventId));
-        return { slots };
+        return { slots: slots.map(serializeLineupSlot) };
       },
       {
         params: t.Object({
@@ -168,6 +268,12 @@ export const createVenuesRoutes = (
           venueHandle: t.String(),
           eventId: t.String(),
         }),
+        response: {
+          200: t.Object({ slots: t.Array(lineupSlotSchema) }),
+          404: messageResponse,
+          429: errorResponse,
+        },
+        detail: { operationId: "getVenueEventLineup" },
       },
     );
 };

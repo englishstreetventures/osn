@@ -1,3 +1,4 @@
+import type { Event, EventRsvp } from "@pulse/db/schema";
 import { DbLive, type Db } from "@pulse/db/service";
 import { extractClaims } from "@shared/osn-auth-client/verify";
 import {
@@ -113,6 +114,141 @@ const statusEnum = t.Optional(
     t.Literal("cancelled"),
   ]),
 );
+
+/**
+ * Converts a raw `events` row (drizzle hydrates `timestamp` columns to
+ * `Date`) into its wire shape. Wire-identical to the prior behaviour —
+ * `JSON.stringify` already rendered `Date` as an ISO string — but Elysia's
+ * `response:` schema validates the pre-serialisation value, so `t.String({
+ * format: "date-time" })` needs an actual string here, not a `Date`.
+ * `cancelledAt`/`hardDeleteAt` are plain unix-second integers, not
+ * timestamp columns, so they pass through unchanged.
+ */
+export const serializeEvent = (e: Event) => ({
+  ...e,
+  startTime: e.startTime.toISOString(),
+  endTime: e.endTime ? e.endTime.toISOString() : null,
+  createdAt: e.createdAt.toISOString(),
+  updatedAt: e.updatedAt.toISOString(),
+});
+
+const messageResponse = t.Object({ message: t.String() });
+const errorResponse = t.Object({ error: t.String() });
+
+export const eventResponseSchema = t.Object({
+  id: t.String(),
+  title: t.String(),
+  description: t.Nullable(t.String()),
+  location: t.Nullable(t.String()),
+  venue: t.Nullable(t.String()),
+  venueId: t.Nullable(t.String()),
+  latitude: t.Nullable(t.Number()),
+  longitude: t.Nullable(t.Number()),
+  category: t.Nullable(t.String()),
+  startTime: t.String({ format: "date-time" }),
+  endTime: t.Nullable(t.String({ format: "date-time" })),
+  status: t.Union([
+    t.Literal("upcoming"),
+    t.Literal("ongoing"),
+    t.Literal("maybe_finished"),
+    t.Literal("finished"),
+    t.Literal("cancelled"),
+  ]),
+  imageUrl: t.Nullable(t.String()),
+  priceAmount: t.Nullable(t.Number()),
+  priceCurrency: t.Nullable(t.String()),
+  visibility: t.Union([t.Literal("public"), t.Literal("private")]),
+  guestListVisibility: t.Union([
+    t.Literal("public"),
+    t.Literal("connections"),
+    t.Literal("private"),
+  ]),
+  joinPolicy: t.Union([t.Literal("open"), t.Literal("guest_list")]),
+  allowInterested: t.Boolean(),
+  // Raw JSON-encoded text column — only `GET /:id/comms` decodes this into
+  // an actual array (via `parseCommsChannels`); everywhere else the event
+  // row carries the undecoded string.
+  commsChannels: t.String(),
+  chatId: t.Nullable(t.String()),
+  seriesId: t.Nullable(t.String()),
+  instanceOverride: t.Boolean(),
+  createdByProfileId: t.String(),
+  createdByName: t.Nullable(t.String()),
+  createdByAvatar: t.Nullable(t.String()),
+  // Unix seconds, not timestamp columns — no `.toISOString()`.
+  cancelledAt: t.Nullable(t.Number()),
+  hardDeleteAt: t.Nullable(t.Number()),
+  cancellationReason: t.Nullable(
+    t.Union([t.Literal("host_left"), t.Literal("organiser"), t.Literal("admin")]),
+  ),
+  createdAt: t.String({ format: "date-time" }),
+  updatedAt: t.String({ format: "date-time" }),
+});
+
+const calendarEntryResponseSchema = t.Object({
+  event: eventResponseSchema,
+  myStatus: t.Union([t.Literal("going"), t.Literal("maybe"), t.Null()]),
+  isHost: t.Boolean(),
+});
+
+const rsvpResponseSchema = t.Object({
+  id: t.String(),
+  eventId: t.String(),
+  profileId: t.String(),
+  status: t.Union([
+    t.Literal("going"),
+    t.Literal("maybe"),
+    t.Literal("not_going"),
+    t.Literal("invited"),
+  ]),
+  invitedByProfileId: t.Nullable(t.String()),
+  isCloseFriend: t.Boolean(),
+  createdAt: t.String({ format: "date-time" }),
+  profile: t.Nullable(
+    t.Object({
+      id: t.String(),
+      handle: t.String(),
+      displayName: t.Nullable(t.String()),
+      avatarUrl: t.Nullable(t.String()),
+    }),
+  ),
+});
+
+const rsvpCountsResponseSchema = t.Object({
+  going: t.Number(),
+  maybe: t.Number(),
+  not_going: t.Number(),
+  invited: t.Number(),
+});
+
+// `upsertRsvp` returns the raw `event_rsvps` row — no `profile` join, no
+// `isCloseFriend` stamp. Distinct shape from `serializeRsvp`/`rsvpResponseSchema`.
+const serializeRawRsvp = (row: EventRsvp) => ({
+  ...row,
+  createdAt: row.createdAt.toISOString(),
+  shareSourceFirstSeenAt: row.shareSourceFirstSeenAt
+    ? row.shareSourceFirstSeenAt.toISOString()
+    : null,
+  shareSourceLastSeenAt: row.shareSourceLastSeenAt ? row.shareSourceLastSeenAt.toISOString() : null,
+});
+
+const rawRsvpResponseSchema = t.Object({
+  id: t.String(),
+  eventId: t.String(),
+  profileId: t.String(),
+  status: t.Union([
+    t.Literal("going"),
+    t.Literal("maybe"),
+    t.Literal("not_going"),
+    t.Literal("invited"),
+  ]),
+  invitedByProfileId: t.Nullable(t.String()),
+  shareSourceFirst: t.Nullable(t.String()),
+  shareSourceFirstSeenAt: t.Nullable(t.String({ format: "date-time" })),
+  shareSourceLast: t.Nullable(t.String()),
+  shareSourceLastSeenAt: t.Nullable(t.String({ format: "date-time" })),
+  createdAt: t.String({ format: "date-time" }),
+});
 
 // Currency union for the discover route's query string. Separate from the
 // body schema above because query params don't need the `Nullable` wrapper
@@ -273,7 +409,7 @@ export const createEventsRoutes = (
           const result = await runtime.runPromise(
             listEvents({ ...query, viewerId: claims?.profileId ?? null }),
           );
-          return { events: result };
+          return { events: result.map(serializeEvent) };
         },
         {
           query: t.Object({
@@ -281,12 +417,21 @@ export const createEventsRoutes = (
             category: t.Optional(t.String()),
             limit: t.Optional(t.String()),
           }),
+          response: { 200: t.Object({ events: t.Array(eventResponseSchema) }) },
+          detail: { operationId: "listEvents" },
         },
       )
-      .get("/today", async () => {
-        const result = await runtime.runPromise(listTodayEvents);
-        return { events: result };
-      })
+      .get(
+        "/today",
+        async () => {
+          const result = await runtime.runPromise(listTodayEvents);
+          return { events: result.map(serializeEvent) };
+        },
+        {
+          response: { 200: t.Object({ events: t.Array(eventResponseSchema) }) },
+          detail: { operationId: "listTodayEvents" },
+        },
+      )
       .get(
         "/calendar",
         async ({ query, headers, set }) => {
@@ -313,9 +458,19 @@ export const createEventsRoutes = (
             set.status = 500;
             return { error: "Failed to load calendar" } as const;
           }
-          return { entries: result };
+          return {
+            entries: result.map((entry) => ({ ...entry, event: serializeEvent(entry.event) })),
+          };
         },
-        { query: t.Object({ limit: t.Optional(t.String()) }) },
+        {
+          query: t.Object({ limit: t.Optional(t.String()) }),
+          response: {
+            200: t.Object({ entries: t.Array(calendarEntryResponseSchema) }),
+            401: messageResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "listMyCalendarEvents", security: [{ bearerAuth: [] }] },
+        },
       )
       .get(
         "/discover",
@@ -370,9 +525,8 @@ export const createEventsRoutes = (
             ),
           );
           if ("error" in result) return result;
-          if ("message" in result) return result;
           return {
-            events: result.events,
+            events: result.events.map(serializeEvent),
             nextCursor: result.nextCursor,
             series: result.series,
           };
@@ -393,6 +547,21 @@ export const createEventsRoutes = (
             cursorId: t.Optional(t.String()),
             limit: t.Optional(t.Numeric({ minimum: 1, maximum: 50 })),
           }),
+          response: {
+            200: t.Object({
+              events: t.Array(eventResponseSchema),
+              nextCursor: t.Nullable(
+                t.Object({ startTime: t.String({ format: "date-time" }), id: t.String() }),
+              ),
+              series: t.Record(t.String(), t.Object({ id: t.String(), title: t.String() })),
+            }),
+            401: messageResponse,
+            422: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+            502: errorResponse,
+          },
+          detail: { operationId: "discoverEvents" },
         },
       )
       .get(
@@ -417,12 +586,17 @@ export const createEventsRoutes = (
             set.status = 404;
             return { message: "Event not found" };
           }
-          return { event: result };
+          return { event: serializeEvent(result) };
         },
         {
           params: t.Object({
             id: t.String(),
           }),
+          response: {
+            200: t.Object({ event: eventResponseSchema }),
+            404: messageResponse,
+          },
+          detail: { operationId: "getEventById" },
         },
       )
       .post(
@@ -460,9 +634,10 @@ export const createEventsRoutes = (
           );
           if ("error" in result) return result;
           set.status = 201;
-          return { event: result };
+          return { event: serializeEvent(result) };
         },
         {
+          parse: "application/json",
           body: t.Object({
             title: t.String(),
             description: t.Optional(t.String()),
@@ -483,6 +658,13 @@ export const createEventsRoutes = (
             priceAmount: priceAmountSchema,
             priceCurrency: priceCurrencySchema,
           }),
+          response: {
+            201: t.Object({ event: eventResponseSchema }),
+            401: messageResponse,
+            422: errorResponse,
+            429: errorResponse,
+          },
+          detail: { operationId: "createEvent", security: [{ bearerAuth: [] }] },
         },
       )
       .patch(
@@ -524,9 +706,10 @@ export const createEventsRoutes = (
           }
           if ("error" in result) return result;
           if ("message" in result) return result;
-          return { event: result };
+          return { event: serializeEvent(result) };
         },
         {
+          parse: "application/json",
           params: t.Object({ id: t.String() }),
           body: t.Object({
             title: t.Optional(t.String()),
@@ -548,6 +731,15 @@ export const createEventsRoutes = (
             priceAmount: priceAmountSchema,
             priceCurrency: priceCurrencySchema,
           }),
+          response: {
+            200: t.Object({ event: eventResponseSchema }),
+            401: messageResponse,
+            403: messageResponse,
+            404: messageResponse,
+            422: errorResponse,
+            429: errorResponse,
+          },
+          detail: { operationId: "updateEvent", security: [{ bearerAuth: [] }] },
         },
       )
       .delete(
@@ -579,10 +771,17 @@ export const createEventsRoutes = (
           }
           if (result != null && "message" in result) return result;
           set.status = 204;
-          return null;
+          return;
         },
         {
           params: t.Object({ id: t.String() }),
+          response: {
+            204: t.Void(),
+            401: messageResponse,
+            403: messageResponse,
+            404: messageResponse,
+          },
+          detail: { operationId: "deleteEvent", security: [{ bearerAuth: [] }] },
         },
       )
       // ── RSVPs ────────────────────────────────────────────────────────────
@@ -650,6 +849,15 @@ export const createEventsRoutes = (
             status: t.Optional(rsvpFilterStatusEnum),
             limit: t.Optional(t.String()),
           }),
+          response: {
+            200: t.Object({
+              rsvps: t.Array(rsvpResponseSchema),
+              canViewAttendees: t.Boolean(),
+            }),
+            404: messageResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "listEventRsvps" },
         },
       )
       .get(
@@ -685,7 +893,14 @@ export const createEventsRoutes = (
           }
           return { counts: result };
         },
-        { params: t.Object({ id: t.String() }) },
+        {
+          params: t.Object({ id: t.String() }),
+          response: {
+            200: t.Object({ counts: rsvpCountsResponseSchema }),
+            404: messageResponse,
+          },
+          detail: { operationId: "getEventRsvpCounts" },
+        },
       )
       .get(
         "/:id/rsvps/latest",
@@ -736,6 +951,15 @@ export const createEventsRoutes = (
         {
           params: t.Object({ id: t.String() }),
           query: t.Object({ limit: t.Optional(t.String()) }),
+          response: {
+            200: t.Object({
+              rsvps: t.Array(rsvpResponseSchema),
+              canViewAttendees: t.Boolean(),
+            }),
+            404: messageResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "listLatestEventRsvps" },
         },
       )
       .post(
@@ -775,14 +999,24 @@ export const createEventsRoutes = (
             return { message: "Event not found" } as const;
           }
           if ("message" in result || "error" in result) return result;
-          return { rsvp: result };
+          return { rsvp: serializeRawRsvp(result) };
         },
         {
+          parse: "application/json",
           params: t.Object({ id: t.String() }),
           body: t.Object({
             status: rsvpStatusEnum,
             shareSource: t.Optional(shareSourceTypeBox),
           }),
+          response: {
+            200: t.Object({ rsvp: rawRsvpResponseSchema }),
+            401: messageResponse,
+            403: messageResponse,
+            404: messageResponse,
+            422: errorResponse,
+            429: errorResponse,
+          },
+          detail: { operationId: "rsvpToEvent", security: [{ bearerAuth: [] }] },
         },
       )
       // ── Share-attribution telemetry ─────────────────────────────────────
@@ -817,11 +1051,18 @@ export const createEventsRoutes = (
           }
           metricShareInvoked(body.source as ShareSource, "event_detail");
           set.status = 204;
-          return null;
+          return;
         },
         {
+          parse: "application/json",
           params: t.Object({ id: t.String() }),
           body: t.Object({ source: shareSourceTypeBox }),
+          response: {
+            204: t.Void(),
+            404: messageResponse,
+            429: errorResponse,
+          },
+          detail: { operationId: "recordEventShare" },
         },
       )
       .post(
@@ -850,15 +1091,22 @@ export const createEventsRoutes = (
           // analytics — same rule as the RSVP attribution short-circuit.
           if (claims?.profileId && claims.profileId === meta.createdByProfileId) {
             set.status = 204;
-            return null;
+            return;
           }
           metricShareExposure(body.source as ShareSource, "event_detail");
           set.status = 204;
-          return null;
+          return;
         },
         {
+          parse: "application/json",
           params: t.Object({ id: t.String() }),
           body: t.Object({ source: shareSourceTypeBox }),
+          response: {
+            204: t.Void(),
+            404: messageResponse,
+            429: errorResponse,
+          },
+          detail: { operationId: "recordEventExposure" },
         },
       )
       .post(
@@ -900,10 +1148,20 @@ export const createEventsRoutes = (
           return result;
         },
         {
+          parse: "application/json",
           params: t.Object({ id: t.String() }),
           body: t.Object({
             profileIds: t.Array(t.String(), { minItems: 1, maxItems: MAX_EVENT_GUESTS }),
           }),
+          response: {
+            200: t.Object({ invited: t.Number() }),
+            401: messageResponse,
+            403: messageResponse,
+            404: messageResponse,
+            422: errorResponse,
+            429: errorResponse,
+          },
+          detail: { operationId: "inviteEventGuests", security: [{ bearerAuth: [] }] },
         },
       )
       // ── Add to calendar ─────────────────────────────────────────────────
@@ -966,7 +1224,37 @@ export const createEventsRoutes = (
           set.headers["content-disposition"] = `attachment; filename="${event.id}.ics"`;
           return ics;
         },
-        { params: t.Object({ id: t.String() }) },
+        {
+          params: t.Object({ id: t.String() }),
+          detail: {
+            operationId: "getEventIcs",
+            responses: {
+              "200": {
+                description: "iCalendar event file",
+                content: {
+                  "text/calendar": {
+                    schema: { type: "string" },
+                  },
+                },
+              },
+              "304": {
+                description: "Not modified — client's cached copy is current",
+              },
+              "404": {
+                description: "Event not found",
+                content: {
+                  "application/json": {
+                    schema: {
+                      type: "object",
+                      properties: { message: { type: "string" } },
+                      required: ["message"],
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
       )
       // ── Comms (stubbed) ─────────────────────────────────────────────────
       .get(
@@ -1007,7 +1295,26 @@ export const createEventsRoutes = (
             })),
           };
         },
-        { params: t.Object({ id: t.String() }) },
+        {
+          params: t.Object({ id: t.String() }),
+          response: {
+            200: t.Object({
+              channels: t.Array(t.Union([t.Literal("sms"), t.Literal("email")])),
+              blasts: t.Array(
+                t.Object({
+                  id: t.String(),
+                  channel: t.Union([t.Literal("sms"), t.Literal("email")]),
+                  body: t.String(),
+                  sentByProfileId: t.String(),
+                  sentAt: t.Nullable(t.String({ format: "date-time" })),
+                  createdAt: t.String({ format: "date-time" }),
+                }),
+              ),
+            }),
+            404: messageResponse,
+          },
+          detail: { operationId: "getEventComms" },
+        },
       )
       .post(
         "/:id/comms/blasts",
@@ -1057,6 +1364,7 @@ export const createEventsRoutes = (
           };
         },
         {
+          parse: "application/json",
           params: t.Object({ id: t.String() }),
           body: t.Object({
             channels: t.Array(t.Union([t.Literal("sms"), t.Literal("email")]), {
@@ -1065,6 +1373,24 @@ export const createEventsRoutes = (
             }),
             body: t.String({ minLength: 1, maxLength: 1600 }),
           }),
+          response: {
+            201: t.Object({
+              blasts: t.Array(
+                t.Object({
+                  id: t.String(),
+                  channel: t.Union([t.Literal("sms"), t.Literal("email")]),
+                  body: t.String(),
+                  sentAt: t.Nullable(t.String({ format: "date-time" })),
+                }),
+              ),
+            }),
+            401: messageResponse,
+            403: messageResponse,
+            404: messageResponse,
+            422: errorResponse,
+            429: errorResponse,
+          },
+          detail: { operationId: "sendEventCommsBlast", security: [{ bearerAuth: [] }] },
         },
       )
   );

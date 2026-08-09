@@ -134,10 +134,40 @@ jobs:
       - name: Browser tests
         run: bun run test:browser
 
+  openapi-freshness:
+    name: OpenAPI Freshness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Regenerate OpenAPI document
+        run: bun run --cwd pulse/api openapi:generate
+
+      # Fails if the committed document drifts from what the route
+      # definitions currently produce — the Swift client generator consumes
+      # the committed file directly, so a stale spec would ship silently.
+      - name: Check for drift
+        run: git diff --exit-code shared/openapi/pulse.json
+
   ci:
     name: CI
     if: always()
-    needs: [lint, typecheck, build-test]
+    needs: [lint, typecheck, build-test, openapi-freshness]
     runs-on: ubuntu-latest
     steps:
       - name: Check results

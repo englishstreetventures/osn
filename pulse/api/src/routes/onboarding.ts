@@ -8,6 +8,7 @@ import { DEFAULT_JWKS_URL } from "../lib/jwks";
 import {
   completeOnboarding,
   getOnboardingStatus,
+  type InterestCategory,
   type OnboardingStatus,
 } from "../services/onboarding";
 
@@ -80,7 +81,7 @@ const permLiteral = t.Union([
 
 export interface OnboardingStatusWire {
   completedAt: string | null;
-  interests: readonly string[];
+  interests: InterestCategory[];
   notificationsOptIn: boolean;
   eventRemindersOptIn: boolean;
   notificationsPerm: "granted" | "denied" | "prompt" | "unsupported";
@@ -89,7 +90,7 @@ export interface OnboardingStatusWire {
 
 const toWire = (status: OnboardingStatus): OnboardingStatusWire => ({
   completedAt: status.completedAt ? status.completedAt.toISOString() : null,
-  interests: status.interests,
+  interests: [...status.interests],
   notificationsOptIn: status.notificationsOptIn,
   eventRemindersOptIn: status.eventRemindersOptIn,
   notificationsPerm: status.notificationsPerm,
@@ -122,52 +123,71 @@ export const createOnboardingRoutes = (
   // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
   const runtime = ManagedRuntime.make(dbLayer);
   return new Elysia({ prefix: "/me/onboarding" })
-    .get("/", async ({ headers, set }) => {
-      // S-M2: per-IP throttle. The GET path runs JWT verification and may
-      // populate the profile→account cache via ARC; without throttling a
-      // malformed-token flood pays the JWKS verify cost on every request.
-      // Fail-closed mirrors the discovery posture in `routes/events.ts`.
-      const ip = getClientIp(headers);
-      let allowed: boolean;
-      try {
-        allowed = await statusRateLimiter.check(ip);
-      } catch {
-        allowed = false;
-      }
-      if (!allowed) {
-        set.status = 429;
-        return { error: "Too many requests" } as const;
-      }
-      const claims = await extractClaims(headers["authorization"], jwksUrl, {
-        testKey: _testKey as CryptoKey,
-        audience: "osn-access",
-      });
-      if (!claims) {
-        set.status = 401;
-        return { message: "Unauthorized" } as const;
-      }
-      // Read-only and called once per session boot — short private cache
-      // absorbs duplicate calls during navigation without staleness that
-      // matters in practice (P-W3, mirrors close-friends list).
-      set.headers["cache-control"] = "private, max-age=30";
-      const result = await runtime.runPromise(
-        getOnboardingStatus(claims.profileId).pipe(
-          Effect.match({
-            onSuccess: (status) => ({ ok: true as const, status }),
-            onFailure: (e) => ({ ok: false as const, tag: e._tag }),
-          }),
-        ),
-      );
-      if (!result.ok) {
-        if (result.tag === "ProfileNotFoundError") {
+    .get(
+      "/",
+      async ({ headers, set }) => {
+        // S-M2: per-IP throttle. The GET path runs JWT verification and may
+        // populate the profile→account cache via ARC; without throttling a
+        // malformed-token flood pays the JWKS verify cost on every request.
+        // Fail-closed mirrors the discovery posture in `routes/events.ts`.
+        const ip = getClientIp(headers);
+        let allowed: boolean;
+        try {
+          allowed = await statusRateLimiter.check(ip);
+        } catch {
+          allowed = false;
+        }
+        if (!allowed) {
+          set.status = 429;
+          return { error: "Too many requests" } as const;
+        }
+        const claims = await extractClaims(headers["authorization"], jwksUrl, {
+          testKey: _testKey as CryptoKey,
+          audience: "osn-access",
+        });
+        if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
         }
-        set.status = 503;
-        return { error: "Onboarding status unavailable" } as const;
-      }
-      return toWire(result.status);
-    })
+        // Read-only and called once per session boot — short private cache
+        // absorbs duplicate calls during navigation without staleness that
+        // matters in practice (P-W3, mirrors close-friends list).
+        set.headers["cache-control"] = "private, max-age=30";
+        const result = await runtime.runPromise(
+          getOnboardingStatus(claims.profileId).pipe(
+            Effect.match({
+              onSuccess: (status) => ({ ok: true as const, status }),
+              onFailure: (e) => ({ ok: false as const, tag: e._tag }),
+            }),
+          ),
+        );
+        if (!result.ok) {
+          if (result.tag === "ProfileNotFoundError") {
+            set.status = 401;
+            return { message: "Unauthorized" } as const;
+          }
+          set.status = 503;
+          return { error: "Onboarding status unavailable" } as const;
+        }
+        return toWire(result.status);
+      },
+      {
+        response: {
+          200: t.Object({
+            completedAt: t.Nullable(t.String({ format: "date-time" })),
+            interests: t.Array(interestLiteral),
+            notificationsOptIn: t.Boolean(),
+            eventRemindersOptIn: t.Boolean(),
+            notificationsPerm: permLiteral,
+            locationPerm: permLiteral,
+          }),
+          401: t.Object({ message: t.String() }),
+          429: t.Object({ error: t.String() }),
+          503: t.Object({ error: t.String() }),
+        },
+        detail: { operationId: "getOnboardingStatus", security: [{ bearerAuth: [] }] },
+      },
+    )
     .post(
       "/complete",
       async ({ body, headers, set }) => {
@@ -217,6 +237,7 @@ export const createOnboardingRoutes = (
         return toWire(result.status);
       },
       {
+        parse: "application/json",
         body: t.Object({
           interests: t.Array(interestLiteral, { maxItems: 8 }),
           notificationsOptIn: t.Boolean(),
@@ -224,6 +245,21 @@ export const createOnboardingRoutes = (
           notificationsPerm: permLiteral,
           locationPerm: permLiteral,
         }),
+        response: {
+          200: t.Object({
+            completedAt: t.Nullable(t.String({ format: "date-time" })),
+            interests: t.Array(interestLiteral),
+            notificationsOptIn: t.Boolean(),
+            eventRemindersOptIn: t.Boolean(),
+            notificationsPerm: permLiteral,
+            locationPerm: permLiteral,
+          }),
+          401: t.Object({ message: t.String() }),
+          422: t.Object({ error: t.String() }),
+          429: t.Object({ error: t.String() }),
+          500: t.Object({ error: t.String() }),
+        },
+        detail: { operationId: "completeOnboarding", security: [{ bearerAuth: [] }] },
       },
     );
 };

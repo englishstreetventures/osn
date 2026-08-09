@@ -16,6 +16,7 @@
     "deploy:prod": "wrangler deploy --env production",
     "types": "wrangler types",
     "check": "tsc --noEmit",
+    "openapi:generate": "bun run scripts/generate-openapi.ts",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
     "test:d1": "bun test src/d1-integration.test.ts"
@@ -23,6 +24,7 @@
   "dependencies": {
     "@elysiajs/cors": "^1.4.2",
     "@elysiajs/eden": "^1.4.9",
+    "@elysiajs/openapi": "1.4.15",
     "@pulse/db": "workspace:*",
     "@shared/crypto": "workspace:*",
     "@shared/db-utils": "workspace:*",

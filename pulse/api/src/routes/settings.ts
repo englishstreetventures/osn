@@ -56,9 +56,21 @@ export const createSettingsRoutes = (
       };
     },
     {
+      parse: "application/json",
       body: t.Object({
         attendanceVisibility: t.Optional(t.Union([t.Literal("connections"), t.Literal("no_one")])),
       }),
+      response: {
+        200: t.Object({
+          settings: t.Object({
+            profileId: t.String(),
+            attendanceVisibility: t.Union([t.Literal("connections"), t.Literal("no_one")]),
+          }),
+        }),
+        401: t.Object({ message: t.String() }),
+        422: t.Object({ error: t.String() }),
+      },
+      detail: { operationId: "updateSettings", security: [{ bearerAuth: [] }] },
     },
   );
 };
