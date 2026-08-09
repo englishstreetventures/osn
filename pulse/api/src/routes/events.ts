@@ -186,7 +186,7 @@ export const eventResponseSchema = t.Object({
 });
 
 const calendarEntryResponseSchema = t.Object({
-  event: eventResponseSchema,
+  event: t.Ref("Event"),
   myStatus: t.Union([t.Literal("going"), t.Literal("maybe"), t.Null()]),
   isHost: t.Boolean(),
 });
@@ -399,6 +399,13 @@ export const createEventsRoutes = (
 
   return (
     new Elysia({ prefix: "/events" })
+      // Named models, so the OpenAPI document carries one `Event` (and one
+      // `Rsvp`) under `components/schemas` and every route `$ref`s it. Inlined,
+      // the same 31-field object was repeated at nine call sites, and a
+      // generated client got nine structurally identical but separate types —
+      // one set of hand-written mappings per site. Elysia validates a `$ref`
+      // exactly as it validates the inline schema.
+      .model({ Event: eventResponseSchema, Rsvp: rsvpResponseSchema })
       .get(
         "/",
         async ({ query, headers }) => {
@@ -417,7 +424,7 @@ export const createEventsRoutes = (
             category: t.Optional(t.String()),
             limit: t.Optional(t.String()),
           }),
-          response: { 200: t.Object({ events: t.Array(eventResponseSchema) }) },
+          response: { 200: t.Object({ events: t.Array(t.Ref("Event")) }) },
           detail: { operationId: "listEvents" },
         },
       )
@@ -428,7 +435,7 @@ export const createEventsRoutes = (
           return { events: result.map(serializeEvent) };
         },
         {
-          response: { 200: t.Object({ events: t.Array(eventResponseSchema) }) },
+          response: { 200: t.Object({ events: t.Array(t.Ref("Event")) }) },
           detail: { operationId: "listTodayEvents" },
         },
       )
@@ -549,7 +556,7 @@ export const createEventsRoutes = (
           }),
           response: {
             200: t.Object({
-              events: t.Array(eventResponseSchema),
+              events: t.Array(t.Ref("Event")),
               nextCursor: t.Nullable(
                 t.Object({ startTime: t.String({ format: "date-time" }), id: t.String() }),
               ),
@@ -593,7 +600,7 @@ export const createEventsRoutes = (
             id: t.String(),
           }),
           response: {
-            200: t.Object({ event: eventResponseSchema }),
+            200: t.Object({ event: t.Ref("Event") }),
             404: messageResponse,
           },
           detail: { operationId: "getEventById" },
@@ -659,7 +666,7 @@ export const createEventsRoutes = (
             priceCurrency: priceCurrencySchema,
           }),
           response: {
-            201: t.Object({ event: eventResponseSchema }),
+            201: t.Object({ event: t.Ref("Event") }),
             401: messageResponse,
             422: errorResponse,
             429: errorResponse,
@@ -732,7 +739,7 @@ export const createEventsRoutes = (
             priceCurrency: priceCurrencySchema,
           }),
           response: {
-            200: t.Object({ event: eventResponseSchema }),
+            200: t.Object({ event: t.Ref("Event") }),
             401: messageResponse,
             403: messageResponse,
             404: messageResponse,
@@ -851,7 +858,7 @@ export const createEventsRoutes = (
           }),
           response: {
             200: t.Object({
-              rsvps: t.Array(rsvpResponseSchema),
+              rsvps: t.Array(t.Ref("Rsvp")),
               canViewAttendees: t.Boolean(),
             }),
             404: messageResponse,
@@ -953,7 +960,7 @@ export const createEventsRoutes = (
           query: t.Object({ limit: t.Optional(t.String()) }),
           response: {
             200: t.Object({
-              rsvps: t.Array(rsvpResponseSchema),
+              rsvps: t.Array(t.Ref("Rsvp")),
               canViewAttendees: t.Boolean(),
             }),
             404: messageResponse,

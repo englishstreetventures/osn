@@ -200,12 +200,76 @@ function collapseNullUnions(node: unknown, unhandled: string[], path = "#"): voi
   unhandled.push(path);
 }
 
+// A route that names its response schema at the top level (`response: { 200:
+// "Event" }`) gets a correct `#/components/schemas/Event` pointer from the
+// plugin. A `t.Ref("Event")` *nested* inside a `t.Object` or `t.Array` does
+// not: TypeBox stores the bare name it was given, and the plugin emits it
+// verbatim as `{"$ref": "Event"}`. That is a valid JSON Schema `$ref` — it just
+// resolves to nothing here — and swift-openapi-generator fails on the document.
+//
+// Elysia resolves either spelling at runtime, so the two are equivalent to the
+// server and only the document needs correcting. Every name must match a
+// component; an unresolvable one is a typo'd `t.Ref` and should stop the build
+// rather than reach the generator.
+function resolveBareRefs(doc: Record<string, unknown>): void {
+  const components = doc["components"];
+  const schemas =
+    components !== null && typeof components === "object"
+      ? (components as Record<string, unknown>)["schemas"]
+      : undefined;
+  const known = new Set(
+    schemas !== null && typeof schemas === "object"
+      ? Object.keys(schemas as Record<string, unknown>)
+      : [],
+  );
+
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const child of node) walk(child);
+      return;
+    }
+    if (node === null || typeof node !== "object") return;
+    const schema = node as Record<string, unknown>;
+    const ref = schema["$ref"];
+    if (typeof ref === "string" && !ref.startsWith("#/")) {
+      if (!known.has(ref)) {
+        throw new Error(
+          `$ref "${ref}" matches no entry in components/schemas — ` +
+            `register it with \`.model({ ${ref}: … })\` on the route's Elysia instance.`,
+        );
+      }
+      schema["$ref"] = `#/components/schemas/${ref}`;
+    }
+    for (const child of Object.values(schema)) walk(child);
+  };
+  walk(doc);
+}
+
+// The plugin stamps `"$id": "#/components/schemas/Event"` onto each component
+// it hoists. `$id` is a JSON Schema identifier, not an OpenAPI schema keyword,
+// and the value is a document pointer rather than the URI reference `$id` is
+// defined to hold. It carries no information the component's key doesn't
+// already give, so drop it.
+function stripComponentIds(doc: Record<string, unknown>): void {
+  const components = doc["components"];
+  if (components === null || typeof components !== "object") return;
+  const schemas = (components as Record<string, unknown>)["schemas"];
+  if (schemas === null || typeof schemas !== "object") return;
+  for (const schema of Object.values(schemas as Record<string, unknown>)) {
+    if (schema === null || typeof schema !== "object") continue;
+    delete (schema as Record<string, unknown>)["$id"];
+  }
+}
+
 const app = createApp();
 const res = await app.handle(new Request("http://localhost/openapi/json"));
 if (!res.ok) {
   throw new Error(`GET /openapi/json returned ${res.status}`);
 }
 const doc = (await res.json()) as Record<string, unknown>;
+
+resolveBareRefs(doc);
+stripComponentIds(doc);
 
 // Order matters: `stripRedundantNullable` looks for the `anyOf` that
 // `collapseNullUnions` removes, so it has to run first.

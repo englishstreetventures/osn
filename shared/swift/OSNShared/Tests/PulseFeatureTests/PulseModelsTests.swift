@@ -5,10 +5,10 @@ import Testing
 
 private let referenceDate = Date(timeIntervalSince1970: 1_700_000_000)
 
-private func makeDiscoverEventsPayload(
+private func makeEventPayload(
     id: String = "event-1",
-    status: Operations.DiscoverEvents.Output.Ok.Body.JsonPayload.EventsPayloadPayload.StatusPayload = .upcoming
-) -> Operations.DiscoverEvents.Output.Ok.Body.JsonPayload.EventsPayloadPayload {
+    status: Components.Schemas.Event.StatusPayload = .upcoming
+) -> Components.Schemas.Event {
     .init(
         allowInterested: true,
         commsChannels: "email",
@@ -30,9 +30,7 @@ private func makeDiscoverEventsPayload(
 /// one shows up as a failed expectation rather than as a `nil` nobody
 /// notices. `cancelledAt`/`hardDeleteAt` are unix seconds, not `date-time`,
 /// hence the bare numbers.
-private func makeFullDiscoverEventsPayload()
-    -> Operations.DiscoverEvents.Output.Ok.Body.JsonPayload.EventsPayloadPayload
-{
+private func makeFullEventPayload() -> Components.Schemas.Event {
     .init(
         allowInterested: true,
         cancellationReason: .hostLeft,
@@ -68,8 +66,8 @@ private func makeFullDiscoverEventsPayload()
     )
 }
 
-@Test func pulseEventMapsEveryDiscoverEventsField() {
-    let event = PulseEvent(makeFullDiscoverEventsPayload())
+@Test func pulseEventMapsEveryEventField() {
+    let event = PulseEvent(makeFullEventPayload())
     #expect(event.description == "Sunset set on the roof")
     #expect(event.location == "Sydney")
     #expect(event.venue == "The Roof")
@@ -90,13 +88,13 @@ private func makeFullDiscoverEventsPayload()
 }
 
 @Test func cancelledAtAndHardDeleteAtAreReadAsUnixSeconds() {
-    let event = PulseEvent(makeFullDiscoverEventsPayload())
+    let event = PulseEvent(makeFullEventPayload())
     #expect(event.cancelledAt == Date(timeIntervalSince1970: 1_700_000_500))
     #expect(event.hardDeleteAt == Date(timeIntervalSince1970: 1_701_000_000))
 }
 
 @Test func absentOptionalFieldsMapToNil() {
-    let event = PulseEvent(makeDiscoverEventsPayload())
+    let event = PulseEvent(makeEventPayload())
     #expect(event.description == nil)
     #expect(event.location == nil)
     #expect(event.venue == nil)
@@ -116,27 +114,27 @@ private func makeFullDiscoverEventsPayload()
 }
 
 @Test func halfACoordinateIsNoCoordinate() {
-    var payload = makeFullDiscoverEventsPayload()
+    var payload = makeFullEventPayload()
     payload.longitude = nil
     #expect(PulseEvent(payload).coordinate == nil)
 }
 
 @Test func anAmountWithoutACurrencyIsNoPrice() {
-    var payload = makeFullDiscoverEventsPayload()
+    var payload = makeFullEventPayload()
     payload.priceCurrency = nil
     #expect(PulseEvent(payload).price == nil)
 }
 
 @Test func zeroAndAbsentPriceBothReadAsFree() {
-    var payload = makeFullDiscoverEventsPayload()
+    var payload = makeFullEventPayload()
     payload.priceAmount = 0
     #expect(PulseEvent(payload).isFree == true)
-    #expect(PulseEvent(makeDiscoverEventsPayload()).isFree == true)
-    #expect(PulseEvent(makeFullDiscoverEventsPayload()).isFree == false)
+    #expect(PulseEvent(makeEventPayload()).isFree == true)
+    #expect(PulseEvent(makeFullEventPayload()).isFree == false)
 }
 
-@Test func pulseEventMapsDiscoverEventsPayloadFields() {
-    let event = PulseEvent(makeDiscoverEventsPayload())
+@Test func pulseEventMapsRequiredEventFields() {
+    let event = PulseEvent(makeEventPayload())
     #expect(event.id == "event-1")
     #expect(event.title == "Rooftop Party")
     #expect(event.status == .upcoming)
@@ -151,65 +149,19 @@ private func makeFullDiscoverEventsPayload()
     #expect(event.updatedAt == referenceDate)
 }
 
-@Test func pulseEventMapsAllDiscoverEventsStatusCases() {
-    #expect(PulseEvent(makeDiscoverEventsPayload(status: .upcoming)).status == .upcoming)
-    #expect(PulseEvent(makeDiscoverEventsPayload(status: .ongoing)).status == .ongoing)
-    #expect(PulseEvent(makeDiscoverEventsPayload(status: .finished)).status == .finished)
-    #expect(PulseEvent(makeDiscoverEventsPayload(status: .cancelled)).status == .cancelled)
-    #expect(PulseEvent(makeDiscoverEventsPayload(status: .maybeFinished)).status == .maybeFinished)
-}
-
-/// The same event, spelled in the detail endpoint's own payload type.
-private func makeFullGetEventByIdPayload() -> Operations.GetEventById.Output.Ok.Body.JsonPayload.EventPayload {
-    .init(
-        allowInterested: true,
-        cancellationReason: .hostLeft,
-        cancelledAt: 1_700_000_500,
-        category: "music",
-        chatId: "chat-1",
-        commsChannels: "email",
-        createdAt: referenceDate,
-        createdByAvatar: "https://cdn.example/avatar.png",
-        createdByName: "Ada",
-        createdByProfileId: "profile-1",
-        description: "Sunset set on the roof",
-        endTime: referenceDate.addingTimeInterval(7200),
-        guestListVisibility: .connections,
-        hardDeleteAt: 1_701_000_000,
-        id: "event-1",
-        imageUrl: "https://cdn.example/event.jpg",
-        instanceOverride: true,
-        joinPolicy: .guestList,
-        latitude: -33.8688,
-        location: "Sydney",
-        longitude: 151.2093,
-        priceAmount: 1850,
-        priceCurrency: "AUD",
-        seriesId: "series-1",
-        startTime: referenceDate,
-        status: .cancelled,
-        title: "Rooftop Party",
-        updatedAt: referenceDate,
-        venue: "The Roof",
-        venueId: "venue-1",
-        visibility: ._private
-    )
-}
-
-/// The point of the two bridges is that Explore and Event detail can share
-/// one model, so the only interesting property is that they agree. Written
-/// as a single equality rather than a second field-by-field sweep: the two
-/// mappings are duplicated by necessity (the generated types nest their own
-/// enums), and this is what catches one drifting from the other.
-@Test func bothBridgesProduceTheSameEvent() {
-    #expect(PulseEvent(makeFullDiscoverEventsPayload()) == PulseEvent(makeFullGetEventByIdPayload()))
+@Test func pulseEventMapsAllStatusCases() {
+    #expect(PulseEvent(makeEventPayload(status: .upcoming)).status == .upcoming)
+    #expect(PulseEvent(makeEventPayload(status: .ongoing)).status == .ongoing)
+    #expect(PulseEvent(makeEventPayload(status: .finished)).status == .finished)
+    #expect(PulseEvent(makeEventPayload(status: .cancelled)).status == .cancelled)
+    #expect(PulseEvent(makeEventPayload(status: .maybeFinished)).status == .maybeFinished)
 }
 
 @Test func pulseEventMapsAllCancellationReasons() {
     func reason(
-        _ generated: Operations.GetEventById.Output.Ok.Body.JsonPayload.EventPayload.CancellationReasonPayload
+        _ generated: Components.Schemas.Event.CancellationReasonPayload
     ) -> PulseEvent.CancellationReason? {
-        var payload = makeFullGetEventByIdPayload()
+        var payload = makeFullEventPayload()
         payload.cancellationReason = generated
         return PulseEvent(payload).cancellationReason
     }

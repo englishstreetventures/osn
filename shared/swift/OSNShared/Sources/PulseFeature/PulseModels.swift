@@ -84,11 +84,12 @@ private func date(unixSeconds: Double?) -> Date? {
 
 /// App-level event model shared by Explore and Event detail.
 ///
-/// `discoverEvents` and `getEventById` each generate their own,
-/// structurally-identical but nominally distinct payload type
-/// (`Operations.DiscoverEvents...EventsPayloadPayload` and
-/// `Operations.GetEventById...EventPayload`) — this bridges both into one
-/// shape the views can share.
+/// It wraps one generated type, `Components.Schemas.Event`, because the spec
+/// names the schema once and every route `$ref`s it. It did not always: the
+/// schema was inlined at each route, so `discoverEvents` and `getEventById`
+/// generated separate, structurally identical payload types and this file
+/// carried a second copy of every enum mapping and of the whole 29-field
+/// initialiser — a third copy per new screen.
 ///
 /// Every field of `eventResponseSchema` is mapped, in the order the schema
 /// declares them. That was not true when this file was written: the
@@ -167,23 +168,12 @@ public struct PulseEvent: Identifiable, Equatable, Sendable {
     public var isFree: Bool { price?.isFree ?? true }
 }
 
-// The two payload types nest their own copy of each enum, so every case
-// mapping has to be written twice. They convert by exhaustive `switch` rather
-// than by `init(rawValue:)` — the raw values do match, but a `switch` is the
-// only version that fails to compile when the spec grows a case, which is
-// exactly when someone needs to be told.
+// The mappings convert by exhaustive `switch` rather than by
+// `init(rawValue:)` — the raw values do match, but a `switch` is the only
+// version that fails to compile when the spec grows a case, which is exactly
+// when someone needs to be told.
 extension PulseEvent.Status {
-    init(_ generated: Operations.DiscoverEvents.Output.Ok.Body.JsonPayload.EventsPayloadPayload.StatusPayload) {
-        switch generated {
-        case .upcoming: self = .upcoming
-        case .ongoing: self = .ongoing
-        case .maybeFinished: self = .maybeFinished
-        case .finished: self = .finished
-        case .cancelled: self = .cancelled
-        }
-    }
-
-    init(_ generated: Operations.GetEventById.Output.Ok.Body.JsonPayload.EventPayload.StatusPayload) {
+    init(_ generated: Components.Schemas.Event.StatusPayload) {
         switch generated {
         case .upcoming: self = .upcoming
         case .ongoing: self = .ongoing
@@ -195,14 +185,7 @@ extension PulseEvent.Status {
 }
 
 extension PulseEvent.Visibility {
-    init(_ generated: Operations.DiscoverEvents.Output.Ok.Body.JsonPayload.EventsPayloadPayload.VisibilityPayload) {
-        switch generated {
-        case ._public: self = .public
-        case ._private: self = .private
-        }
-    }
-
-    init(_ generated: Operations.GetEventById.Output.Ok.Body.JsonPayload.EventPayload.VisibilityPayload) {
+    init(_ generated: Components.Schemas.Event.VisibilityPayload) {
         switch generated {
         case ._public: self = .public
         case ._private: self = .private
@@ -211,18 +194,7 @@ extension PulseEvent.Visibility {
 }
 
 extension PulseEvent.GuestListVisibility {
-    init(
-        _ generated: Operations.DiscoverEvents.Output.Ok.Body.JsonPayload.EventsPayloadPayload
-            .GuestListVisibilityPayload
-    ) {
-        switch generated {
-        case ._public: self = .public
-        case .connections: self = .connections
-        case ._private: self = .private
-        }
-    }
-
-    init(_ generated: Operations.GetEventById.Output.Ok.Body.JsonPayload.EventPayload.GuestListVisibilityPayload) {
+    init(_ generated: Components.Schemas.Event.GuestListVisibilityPayload) {
         switch generated {
         case ._public: self = .public
         case .connections: self = .connections
@@ -232,14 +204,7 @@ extension PulseEvent.GuestListVisibility {
 }
 
 extension PulseEvent.JoinPolicy {
-    init(_ generated: Operations.DiscoverEvents.Output.Ok.Body.JsonPayload.EventsPayloadPayload.JoinPolicyPayload) {
-        switch generated {
-        case .open: self = .open
-        case .guestList: self = .guestList
-        }
-    }
-
-    init(_ generated: Operations.GetEventById.Output.Ok.Body.JsonPayload.EventPayload.JoinPolicyPayload) {
+    init(_ generated: Components.Schemas.Event.JoinPolicyPayload) {
         switch generated {
         case .open: self = .open
         case .guestList: self = .guestList
@@ -248,18 +213,7 @@ extension PulseEvent.JoinPolicy {
 }
 
 extension PulseEvent.CancellationReason {
-    init(
-        _ generated: Operations.DiscoverEvents.Output.Ok.Body.JsonPayload.EventsPayloadPayload
-            .CancellationReasonPayload
-    ) {
-        switch generated {
-        case .hostLeft: self = .hostLeft
-        case .organiser: self = .organiser
-        case .admin: self = .admin
-        }
-    }
-
-    init(_ generated: Operations.GetEventById.Output.Ok.Body.JsonPayload.EventPayload.CancellationReasonPayload) {
+    init(_ generated: Components.Schemas.Event.CancellationReasonPayload) {
         switch generated {
         case .hostLeft: self = .hostLeft
         case .organiser: self = .organiser
@@ -269,41 +223,7 @@ extension PulseEvent.CancellationReason {
 }
 
 extension PulseEvent {
-    public init(_ payload: Operations.DiscoverEvents.Output.Ok.Body.JsonPayload.EventsPayloadPayload) {
-        self.init(
-            id: payload.id,
-            title: payload.title,
-            description: payload.description,
-            location: payload.location,
-            venue: payload.venue,
-            venueId: payload.venueId,
-            coordinate: PulseCoordinate(latitude: payload.latitude, longitude: payload.longitude),
-            category: payload.category,
-            startTime: payload.startTime,
-            endTime: payload.endTime,
-            status: Status(payload.status),
-            imageUrl: payload.imageUrl,
-            price: PulsePrice(amount: payload.priceAmount, currency: payload.priceCurrency),
-            visibility: Visibility(payload.visibility),
-            guestListVisibility: GuestListVisibility(payload.guestListVisibility),
-            joinPolicy: JoinPolicy(payload.joinPolicy),
-            allowInterested: payload.allowInterested,
-            commsChannels: payload.commsChannels,
-            chatId: payload.chatId,
-            seriesId: payload.seriesId,
-            instanceOverride: payload.instanceOverride,
-            createdByProfileId: payload.createdByProfileId,
-            createdByName: payload.createdByName,
-            createdByAvatar: payload.createdByAvatar,
-            cancelledAt: date(unixSeconds: payload.cancelledAt),
-            hardDeleteAt: date(unixSeconds: payload.hardDeleteAt),
-            cancellationReason: payload.cancellationReason.map(CancellationReason.init),
-            createdAt: payload.createdAt,
-            updatedAt: payload.updatedAt
-        )
-    }
-
-    public init(_ payload: Operations.GetEventById.Output.Ok.Body.JsonPayload.EventPayload) {
+    public init(_ payload: Components.Schemas.Event) {
         self.init(
             id: payload.id,
             title: payload.title,

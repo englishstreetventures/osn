@@ -1,6 +1,591 @@
 {
   "components": {
-    "schemas": {},
+    "schemas": {
+      "Event": {
+        "properties": {
+          "allowInterested": {
+            "type": "boolean"
+          },
+          "cancellationReason": {
+            "enum": [
+              "host_left",
+              "organiser",
+              "admin"
+            ],
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cancelledAt": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "chatId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commsChannels": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdByAvatar": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdByProfileId": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endTime": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "guestListVisibility": {
+            "enum": [
+              "public",
+              "connections",
+              "private"
+            ],
+            "type": "string"
+          },
+          "hardDeleteAt": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "imageUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instanceOverride": {
+            "type": "boolean"
+          },
+          "joinPolicy": {
+            "enum": [
+              "open",
+              "guest_list"
+            ],
+            "type": "string"
+          },
+          "latitude": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "priceAmount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "priceCurrency": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "seriesId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "startTime": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "upcoming",
+              "ongoing",
+              "maybe_finished",
+              "finished",
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "venue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "venueId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visibility": {
+            "enum": [
+              "public",
+              "private"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "description",
+          "location",
+          "venue",
+          "venueId",
+          "latitude",
+          "longitude",
+          "category",
+          "startTime",
+          "endTime",
+          "status",
+          "imageUrl",
+          "priceAmount",
+          "priceCurrency",
+          "visibility",
+          "guestListVisibility",
+          "joinPolicy",
+          "allowInterested",
+          "commsChannels",
+          "chatId",
+          "seriesId",
+          "instanceOverride",
+          "createdByProfileId",
+          "createdByName",
+          "createdByAvatar",
+          "cancelledAt",
+          "hardDeleteAt",
+          "cancellationReason",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Rsvp": {
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "eventId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "invitedByProfileId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "isCloseFriend": {
+            "type": "boolean"
+          },
+          "profile": {
+            "properties": {
+              "avatarUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "displayName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "handle": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "handle",
+              "displayName",
+              "avatarUrl"
+            ],
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "profileId": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "going",
+              "maybe",
+              "not_going",
+              "invited"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "eventId",
+          "profileId",
+          "status",
+          "invitedByProfileId",
+          "isCloseFriend",
+          "createdAt",
+          "profile"
+        ],
+        "type": "object"
+      },
+      "Series": {
+        "properties": {
+          "allowInterested": {
+            "type": "boolean"
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "chatId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "commsChannels": {
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "createdByAvatar": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdByName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdByProfileId": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dtstart": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "durationMinutes": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "guestListVisibility": {
+            "enum": [
+              "public",
+              "connections",
+              "private"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "imageUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "joinPolicy": {
+            "enum": [
+              "open",
+              "guest_list"
+            ],
+            "type": "string"
+          },
+          "latitude": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "location": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "materializedThrough": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "rrule": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "active",
+              "ended",
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "until": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "venue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visibility": {
+            "enum": [
+              "public",
+              "private"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "description",
+          "location",
+          "venue",
+          "latitude",
+          "longitude",
+          "category",
+          "imageUrl",
+          "durationMinutes",
+          "visibility",
+          "guestListVisibility",
+          "joinPolicy",
+          "allowInterested",
+          "commsChannels",
+          "rrule",
+          "dtstart",
+          "until",
+          "materializedThrough",
+          "timezone",
+          "status",
+          "chatId",
+          "createdByProfileId",
+          "createdByName",
+          "createdByAvatar",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Venue": {
+        "properties": {
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "capacity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "country": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "handle": {
+            "type": "string"
+          },
+          "heroImageUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hours": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "instagramHandle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "orgHandle": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "websiteUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "orgHandle",
+          "handle",
+          "name",
+          "kind",
+          "description",
+          "address",
+          "city",
+          "country",
+          "latitude",
+          "longitude",
+          "capacity",
+          "hours",
+          "heroImageUrl",
+          "websiteUrl",
+          "instagramHandle",
+          "timezone",
+          "createdAt",
+          "updatedAt"
+        ],
+        "type": "object"
+      }
+    },
     "securitySchemes": {
       "bearerAuth": {
         "bearerFormat": "JWT",
@@ -685,218 +1270,7 @@
                   "properties": {
                     "events": {
                       "items": {
-                        "properties": {
-                          "allowInterested": {
-                            "type": "boolean"
-                          },
-                          "cancellationReason": {
-                            "enum": [
-                              "host_left",
-                              "organiser",
-                              "admin"
-                            ],
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "cancelledAt": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "category": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "chatId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "commsChannels": {
-                            "type": "string"
-                          },
-                          "createdAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "createdByAvatar": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "createdByName": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "createdByProfileId": {
-                            "type": "string"
-                          },
-                          "description": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "endTime": {
-                            "format": "date-time",
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "guestListVisibility": {
-                            "enum": [
-                              "public",
-                              "connections",
-                              "private"
-                            ],
-                            "type": "string"
-                          },
-                          "hardDeleteAt": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "id": {
-                            "type": "string"
-                          },
-                          "imageUrl": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "instanceOverride": {
-                            "type": "boolean"
-                          },
-                          "joinPolicy": {
-                            "enum": [
-                              "open",
-                              "guest_list"
-                            ],
-                            "type": "string"
-                          },
-                          "latitude": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "location": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "longitude": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "priceAmount": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "priceCurrency": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "seriesId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "startTime": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "status": {
-                            "enum": [
-                              "upcoming",
-                              "ongoing",
-                              "maybe_finished",
-                              "finished",
-                              "cancelled"
-                            ],
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          },
-                          "updatedAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "venue": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "venueId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "visibility": {
-                            "enum": [
-                              "public",
-                              "private"
-                            ],
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "title",
-                          "description",
-                          "location",
-                          "venue",
-                          "venueId",
-                          "latitude",
-                          "longitude",
-                          "category",
-                          "startTime",
-                          "endTime",
-                          "status",
-                          "imageUrl",
-                          "priceAmount",
-                          "priceCurrency",
-                          "visibility",
-                          "guestListVisibility",
-                          "joinPolicy",
-                          "allowInterested",
-                          "commsChannels",
-                          "chatId",
-                          "seriesId",
-                          "instanceOverride",
-                          "createdByProfileId",
-                          "createdByName",
-                          "createdByAvatar",
-                          "cancelledAt",
-                          "hardDeleteAt",
-                          "cancellationReason",
-                          "createdAt",
-                          "updatedAt"
-                        ],
-                        "type": "object"
+                        "$ref": "#/components/schemas/Event"
                       },
                       "type": "array"
                     }
@@ -1042,218 +1416,7 @@
                 "schema": {
                   "properties": {
                     "event": {
-                      "properties": {
-                        "allowInterested": {
-                          "type": "boolean"
-                        },
-                        "cancellationReason": {
-                          "enum": [
-                            "host_left",
-                            "organiser",
-                            "admin"
-                          ],
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "cancelledAt": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "category": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "chatId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "commsChannels": {
-                          "type": "string"
-                        },
-                        "createdAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "createdByAvatar": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "createdByName": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "createdByProfileId": {
-                          "type": "string"
-                        },
-                        "description": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "endTime": {
-                          "format": "date-time",
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "guestListVisibility": {
-                          "enum": [
-                            "public",
-                            "connections",
-                            "private"
-                          ],
-                          "type": "string"
-                        },
-                        "hardDeleteAt": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "id": {
-                          "type": "string"
-                        },
-                        "imageUrl": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "instanceOverride": {
-                          "type": "boolean"
-                        },
-                        "joinPolicy": {
-                          "enum": [
-                            "open",
-                            "guest_list"
-                          ],
-                          "type": "string"
-                        },
-                        "latitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "location": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "longitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "priceAmount": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "priceCurrency": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "seriesId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "startTime": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "status": {
-                          "enum": [
-                            "upcoming",
-                            "ongoing",
-                            "maybe_finished",
-                            "finished",
-                            "cancelled"
-                          ],
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "updatedAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "venue": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "venueId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "visibility": {
-                          "enum": [
-                            "public",
-                            "private"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "title",
-                        "description",
-                        "location",
-                        "venue",
-                        "venueId",
-                        "latitude",
-                        "longitude",
-                        "category",
-                        "startTime",
-                        "endTime",
-                        "status",
-                        "imageUrl",
-                        "priceAmount",
-                        "priceCurrency",
-                        "visibility",
-                        "guestListVisibility",
-                        "joinPolicy",
-                        "allowInterested",
-                        "commsChannels",
-                        "chatId",
-                        "seriesId",
-                        "instanceOverride",
-                        "createdByProfileId",
-                        "createdByName",
-                        "createdByAvatar",
-                        "cancelledAt",
-                        "hardDeleteAt",
-                        "cancellationReason",
-                        "createdAt",
-                        "updatedAt"
-                      ],
-                      "type": "object"
+                      "$ref": "#/components/schemas/Event"
                     }
                   },
                   "required": [
@@ -1350,218 +1513,7 @@
                       "items": {
                         "properties": {
                           "event": {
-                            "properties": {
-                              "allowInterested": {
-                                "type": "boolean"
-                              },
-                              "cancellationReason": {
-                                "enum": [
-                                  "host_left",
-                                  "organiser",
-                                  "admin"
-                                ],
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "cancelledAt": {
-                                "type": [
-                                  "number",
-                                  "null"
-                                ]
-                              },
-                              "category": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "chatId": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "commsChannels": {
-                                "type": "string"
-                              },
-                              "createdAt": {
-                                "format": "date-time",
-                                "type": "string"
-                              },
-                              "createdByAvatar": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "createdByName": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "createdByProfileId": {
-                                "type": "string"
-                              },
-                              "description": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "endTime": {
-                                "format": "date-time",
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "guestListVisibility": {
-                                "enum": [
-                                  "public",
-                                  "connections",
-                                  "private"
-                                ],
-                                "type": "string"
-                              },
-                              "hardDeleteAt": {
-                                "type": [
-                                  "number",
-                                  "null"
-                                ]
-                              },
-                              "id": {
-                                "type": "string"
-                              },
-                              "imageUrl": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "instanceOverride": {
-                                "type": "boolean"
-                              },
-                              "joinPolicy": {
-                                "enum": [
-                                  "open",
-                                  "guest_list"
-                                ],
-                                "type": "string"
-                              },
-                              "latitude": {
-                                "type": [
-                                  "number",
-                                  "null"
-                                ]
-                              },
-                              "location": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "longitude": {
-                                "type": [
-                                  "number",
-                                  "null"
-                                ]
-                              },
-                              "priceAmount": {
-                                "type": [
-                                  "number",
-                                  "null"
-                                ]
-                              },
-                              "priceCurrency": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "seriesId": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "startTime": {
-                                "format": "date-time",
-                                "type": "string"
-                              },
-                              "status": {
-                                "enum": [
-                                  "upcoming",
-                                  "ongoing",
-                                  "maybe_finished",
-                                  "finished",
-                                  "cancelled"
-                                ],
-                                "type": "string"
-                              },
-                              "title": {
-                                "type": "string"
-                              },
-                              "updatedAt": {
-                                "format": "date-time",
-                                "type": "string"
-                              },
-                              "venue": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "venueId": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "visibility": {
-                                "enum": [
-                                  "public",
-                                  "private"
-                                ],
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "title",
-                              "description",
-                              "location",
-                              "venue",
-                              "venueId",
-                              "latitude",
-                              "longitude",
-                              "category",
-                              "startTime",
-                              "endTime",
-                              "status",
-                              "imageUrl",
-                              "priceAmount",
-                              "priceCurrency",
-                              "visibility",
-                              "guestListVisibility",
-                              "joinPolicy",
-                              "allowInterested",
-                              "commsChannels",
-                              "chatId",
-                              "seriesId",
-                              "instanceOverride",
-                              "createdByProfileId",
-                              "createdByName",
-                              "createdByAvatar",
-                              "cancelledAt",
-                              "hardDeleteAt",
-                              "cancellationReason",
-                              "createdAt",
-                              "updatedAt"
-                            ],
-                            "type": "object"
+                            "$ref": "#/components/schemas/Event"
                           },
                           "isHost": {
                             "type": "boolean"
@@ -1856,218 +1808,7 @@
                   "properties": {
                     "events": {
                       "items": {
-                        "properties": {
-                          "allowInterested": {
-                            "type": "boolean"
-                          },
-                          "cancellationReason": {
-                            "enum": [
-                              "host_left",
-                              "organiser",
-                              "admin"
-                            ],
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "cancelledAt": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "category": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "chatId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "commsChannels": {
-                            "type": "string"
-                          },
-                          "createdAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "createdByAvatar": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "createdByName": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "createdByProfileId": {
-                            "type": "string"
-                          },
-                          "description": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "endTime": {
-                            "format": "date-time",
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "guestListVisibility": {
-                            "enum": [
-                              "public",
-                              "connections",
-                              "private"
-                            ],
-                            "type": "string"
-                          },
-                          "hardDeleteAt": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "id": {
-                            "type": "string"
-                          },
-                          "imageUrl": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "instanceOverride": {
-                            "type": "boolean"
-                          },
-                          "joinPolicy": {
-                            "enum": [
-                              "open",
-                              "guest_list"
-                            ],
-                            "type": "string"
-                          },
-                          "latitude": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "location": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "longitude": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "priceAmount": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "priceCurrency": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "seriesId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "startTime": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "status": {
-                            "enum": [
-                              "upcoming",
-                              "ongoing",
-                              "maybe_finished",
-                              "finished",
-                              "cancelled"
-                            ],
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          },
-                          "updatedAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "venue": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "venueId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "visibility": {
-                            "enum": [
-                              "public",
-                              "private"
-                            ],
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "title",
-                          "description",
-                          "location",
-                          "venue",
-                          "venueId",
-                          "latitude",
-                          "longitude",
-                          "category",
-                          "startTime",
-                          "endTime",
-                          "status",
-                          "imageUrl",
-                          "priceAmount",
-                          "priceCurrency",
-                          "visibility",
-                          "guestListVisibility",
-                          "joinPolicy",
-                          "allowInterested",
-                          "commsChannels",
-                          "chatId",
-                          "seriesId",
-                          "instanceOverride",
-                          "createdByProfileId",
-                          "createdByName",
-                          "createdByAvatar",
-                          "cancelledAt",
-                          "hardDeleteAt",
-                          "cancellationReason",
-                          "createdAt",
-                          "updatedAt"
-                        ],
-                        "type": "object"
+                        "$ref": "#/components/schemas/Event"
                       },
                       "type": "array"
                     },
@@ -2226,218 +1967,7 @@
                   "properties": {
                     "events": {
                       "items": {
-                        "properties": {
-                          "allowInterested": {
-                            "type": "boolean"
-                          },
-                          "cancellationReason": {
-                            "enum": [
-                              "host_left",
-                              "organiser",
-                              "admin"
-                            ],
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "cancelledAt": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "category": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "chatId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "commsChannels": {
-                            "type": "string"
-                          },
-                          "createdAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "createdByAvatar": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "createdByName": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "createdByProfileId": {
-                            "type": "string"
-                          },
-                          "description": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "endTime": {
-                            "format": "date-time",
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "guestListVisibility": {
-                            "enum": [
-                              "public",
-                              "connections",
-                              "private"
-                            ],
-                            "type": "string"
-                          },
-                          "hardDeleteAt": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "id": {
-                            "type": "string"
-                          },
-                          "imageUrl": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "instanceOverride": {
-                            "type": "boolean"
-                          },
-                          "joinPolicy": {
-                            "enum": [
-                              "open",
-                              "guest_list"
-                            ],
-                            "type": "string"
-                          },
-                          "latitude": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "location": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "longitude": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "priceAmount": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "priceCurrency": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "seriesId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "startTime": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "status": {
-                            "enum": [
-                              "upcoming",
-                              "ongoing",
-                              "maybe_finished",
-                              "finished",
-                              "cancelled"
-                            ],
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          },
-                          "updatedAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "venue": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "venueId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "visibility": {
-                            "enum": [
-                              "public",
-                              "private"
-                            ],
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "title",
-                          "description",
-                          "location",
-                          "venue",
-                          "venueId",
-                          "latitude",
-                          "longitude",
-                          "category",
-                          "startTime",
-                          "endTime",
-                          "status",
-                          "imageUrl",
-                          "priceAmount",
-                          "priceCurrency",
-                          "visibility",
-                          "guestListVisibility",
-                          "joinPolicy",
-                          "allowInterested",
-                          "commsChannels",
-                          "chatId",
-                          "seriesId",
-                          "instanceOverride",
-                          "createdByProfileId",
-                          "createdByName",
-                          "createdByAvatar",
-                          "cancelledAt",
-                          "hardDeleteAt",
-                          "cancellationReason",
-                          "createdAt",
-                          "updatedAt"
-                        ],
-                        "type": "object"
+                        "$ref": "#/components/schemas/Event"
                       },
                       "type": "array"
                     }
@@ -2551,218 +2081,7 @@
                 "schema": {
                   "properties": {
                     "event": {
-                      "properties": {
-                        "allowInterested": {
-                          "type": "boolean"
-                        },
-                        "cancellationReason": {
-                          "enum": [
-                            "host_left",
-                            "organiser",
-                            "admin"
-                          ],
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "cancelledAt": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "category": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "chatId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "commsChannels": {
-                          "type": "string"
-                        },
-                        "createdAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "createdByAvatar": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "createdByName": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "createdByProfileId": {
-                          "type": "string"
-                        },
-                        "description": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "endTime": {
-                          "format": "date-time",
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "guestListVisibility": {
-                          "enum": [
-                            "public",
-                            "connections",
-                            "private"
-                          ],
-                          "type": "string"
-                        },
-                        "hardDeleteAt": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "id": {
-                          "type": "string"
-                        },
-                        "imageUrl": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "instanceOverride": {
-                          "type": "boolean"
-                        },
-                        "joinPolicy": {
-                          "enum": [
-                            "open",
-                            "guest_list"
-                          ],
-                          "type": "string"
-                        },
-                        "latitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "location": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "longitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "priceAmount": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "priceCurrency": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "seriesId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "startTime": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "status": {
-                          "enum": [
-                            "upcoming",
-                            "ongoing",
-                            "maybe_finished",
-                            "finished",
-                            "cancelled"
-                          ],
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "updatedAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "venue": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "venueId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "visibility": {
-                          "enum": [
-                            "public",
-                            "private"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "title",
-                        "description",
-                        "location",
-                        "venue",
-                        "venueId",
-                        "latitude",
-                        "longitude",
-                        "category",
-                        "startTime",
-                        "endTime",
-                        "status",
-                        "imageUrl",
-                        "priceAmount",
-                        "priceCurrency",
-                        "visibility",
-                        "guestListVisibility",
-                        "joinPolicy",
-                        "allowInterested",
-                        "commsChannels",
-                        "chatId",
-                        "seriesId",
-                        "instanceOverride",
-                        "createdByProfileId",
-                        "createdByName",
-                        "createdByAvatar",
-                        "cancelledAt",
-                        "hardDeleteAt",
-                        "cancellationReason",
-                        "createdAt",
-                        "updatedAt"
-                      ],
-                      "type": "object"
+                      "$ref": "#/components/schemas/Event"
                     }
                   },
                   "required": [
@@ -2930,218 +2249,7 @@
                 "schema": {
                   "properties": {
                     "event": {
-                      "properties": {
-                        "allowInterested": {
-                          "type": "boolean"
-                        },
-                        "cancellationReason": {
-                          "enum": [
-                            "host_left",
-                            "organiser",
-                            "admin"
-                          ],
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "cancelledAt": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "category": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "chatId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "commsChannels": {
-                          "type": "string"
-                        },
-                        "createdAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "createdByAvatar": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "createdByName": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "createdByProfileId": {
-                          "type": "string"
-                        },
-                        "description": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "endTime": {
-                          "format": "date-time",
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "guestListVisibility": {
-                          "enum": [
-                            "public",
-                            "connections",
-                            "private"
-                          ],
-                          "type": "string"
-                        },
-                        "hardDeleteAt": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "id": {
-                          "type": "string"
-                        },
-                        "imageUrl": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "instanceOverride": {
-                          "type": "boolean"
-                        },
-                        "joinPolicy": {
-                          "enum": [
-                            "open",
-                            "guest_list"
-                          ],
-                          "type": "string"
-                        },
-                        "latitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "location": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "longitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "priceAmount": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "priceCurrency": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "seriesId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "startTime": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "status": {
-                          "enum": [
-                            "upcoming",
-                            "ongoing",
-                            "maybe_finished",
-                            "finished",
-                            "cancelled"
-                          ],
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "updatedAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "venue": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "venueId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "visibility": {
-                          "enum": [
-                            "public",
-                            "private"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "title",
-                        "description",
-                        "location",
-                        "venue",
-                        "venueId",
-                        "latitude",
-                        "longitude",
-                        "category",
-                        "startTime",
-                        "endTime",
-                        "status",
-                        "imageUrl",
-                        "priceAmount",
-                        "priceCurrency",
-                        "visibility",
-                        "guestListVisibility",
-                        "joinPolicy",
-                        "allowInterested",
-                        "commsChannels",
-                        "chatId",
-                        "seriesId",
-                        "instanceOverride",
-                        "createdByProfileId",
-                        "createdByName",
-                        "createdByAvatar",
-                        "cancelledAt",
-                        "hardDeleteAt",
-                        "cancellationReason",
-                        "createdAt",
-                        "updatedAt"
-                      ],
-                      "type": "object"
+                      "$ref": "#/components/schemas/Event"
                     }
                   },
                   "required": [
@@ -3879,82 +2987,7 @@
                     },
                     "rsvps": {
                       "items": {
-                        "properties": {
-                          "createdAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "eventId": {
-                            "type": "string"
-                          },
-                          "id": {
-                            "type": "string"
-                          },
-                          "invitedByProfileId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "isCloseFriend": {
-                            "type": "boolean"
-                          },
-                          "profile": {
-                            "properties": {
-                              "avatarUrl": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "displayName": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "handle": {
-                                "type": "string"
-                              },
-                              "id": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "handle",
-                              "displayName",
-                              "avatarUrl"
-                            ],
-                            "type": [
-                              "object",
-                              "null"
-                            ]
-                          },
-                          "profileId": {
-                            "type": "string"
-                          },
-                          "status": {
-                            "enum": [
-                              "going",
-                              "maybe",
-                              "not_going",
-                              "invited"
-                            ],
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "eventId",
-                          "profileId",
-                          "status",
-                          "invitedByProfileId",
-                          "isCloseFriend",
-                          "createdAt",
-                          "profile"
-                        ],
-                        "type": "object"
+                        "$ref": "#/components/schemas/Rsvp"
                       },
                       "type": "array"
                     }
@@ -4344,82 +3377,7 @@
                     },
                     "rsvps": {
                       "items": {
-                        "properties": {
-                          "createdAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "eventId": {
-                            "type": "string"
-                          },
-                          "id": {
-                            "type": "string"
-                          },
-                          "invitedByProfileId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "isCloseFriend": {
-                            "type": "boolean"
-                          },
-                          "profile": {
-                            "properties": {
-                              "avatarUrl": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "displayName": {
-                                "type": [
-                                  "string",
-                                  "null"
-                                ]
-                              },
-                              "handle": {
-                                "type": "string"
-                              },
-                              "id": {
-                                "type": "string"
-                              }
-                            },
-                            "required": [
-                              "id",
-                              "handle",
-                              "displayName",
-                              "avatarUrl"
-                            ],
-                            "type": [
-                              "object",
-                              "null"
-                            ]
-                          },
-                          "profileId": {
-                            "type": "string"
-                          },
-                          "status": {
-                            "enum": [
-                              "going",
-                              "maybe",
-                              "not_going",
-                              "invited"
-                            ],
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "eventId",
-                          "profileId",
-                          "status",
-                          "invitedByProfileId",
-                          "isCloseFriend",
-                          "createdAt",
-                          "profile"
-                        ],
-                        "type": "object"
+                        "$ref": "#/components/schemas/Rsvp"
                       },
                       "type": "array"
                     }
@@ -5127,394 +4085,12 @@
                   "properties": {
                     "instances": {
                       "items": {
-                        "properties": {
-                          "allowInterested": {
-                            "type": "boolean"
-                          },
-                          "cancellationReason": {
-                            "enum": [
-                              "host_left",
-                              "organiser",
-                              "admin"
-                            ],
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "cancelledAt": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "category": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "chatId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "commsChannels": {
-                            "type": "string"
-                          },
-                          "createdAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "createdByAvatar": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "createdByName": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "createdByProfileId": {
-                            "type": "string"
-                          },
-                          "description": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "endTime": {
-                            "format": "date-time",
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "guestListVisibility": {
-                            "enum": [
-                              "public",
-                              "connections",
-                              "private"
-                            ],
-                            "type": "string"
-                          },
-                          "hardDeleteAt": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "id": {
-                            "type": "string"
-                          },
-                          "imageUrl": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "instanceOverride": {
-                            "type": "boolean"
-                          },
-                          "joinPolicy": {
-                            "enum": [
-                              "open",
-                              "guest_list"
-                            ],
-                            "type": "string"
-                          },
-                          "latitude": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "location": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "longitude": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "priceAmount": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "priceCurrency": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "seriesId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "startTime": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "status": {
-                            "enum": [
-                              "upcoming",
-                              "ongoing",
-                              "maybe_finished",
-                              "finished",
-                              "cancelled"
-                            ],
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          },
-                          "updatedAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "venue": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "venueId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "visibility": {
-                            "enum": [
-                              "public",
-                              "private"
-                            ],
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "title",
-                          "description",
-                          "location",
-                          "venue",
-                          "venueId",
-                          "latitude",
-                          "longitude",
-                          "category",
-                          "startTime",
-                          "endTime",
-                          "status",
-                          "imageUrl",
-                          "priceAmount",
-                          "priceCurrency",
-                          "visibility",
-                          "guestListVisibility",
-                          "joinPolicy",
-                          "allowInterested",
-                          "commsChannels",
-                          "chatId",
-                          "seriesId",
-                          "instanceOverride",
-                          "createdByProfileId",
-                          "createdByName",
-                          "createdByAvatar",
-                          "cancelledAt",
-                          "hardDeleteAt",
-                          "cancellationReason",
-                          "createdAt",
-                          "updatedAt"
-                        ],
-                        "type": "object"
+                        "$ref": "#/components/schemas/Event"
                       },
                       "type": "array"
                     },
                     "series": {
-                      "properties": {
-                        "allowInterested": {
-                          "type": "boolean"
-                        },
-                        "category": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "chatId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "commsChannels": {
-                          "type": "string"
-                        },
-                        "createdAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "createdByAvatar": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "createdByName": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "createdByProfileId": {
-                          "type": "string"
-                        },
-                        "description": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "dtstart": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "durationMinutes": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "guestListVisibility": {
-                          "enum": [
-                            "public",
-                            "connections",
-                            "private"
-                          ],
-                          "type": "string"
-                        },
-                        "id": {
-                          "type": "string"
-                        },
-                        "imageUrl": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "joinPolicy": {
-                          "enum": [
-                            "open",
-                            "guest_list"
-                          ],
-                          "type": "string"
-                        },
-                        "latitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "location": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "longitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "materializedThrough": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "rrule": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "enum": [
-                            "active",
-                            "ended",
-                            "cancelled"
-                          ],
-                          "type": "string"
-                        },
-                        "timezone": {
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "until": {
-                          "format": "date-time",
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "updatedAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "venue": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "visibility": {
-                          "enum": [
-                            "public",
-                            "private"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "title",
-                        "description",
-                        "location",
-                        "venue",
-                        "latitude",
-                        "longitude",
-                        "category",
-                        "imageUrl",
-                        "durationMinutes",
-                        "visibility",
-                        "guestListVisibility",
-                        "joinPolicy",
-                        "allowInterested",
-                        "commsChannels",
-                        "rrule",
-                        "dtstart",
-                        "until",
-                        "materializedThrough",
-                        "timezone",
-                        "status",
-                        "chatId",
-                        "createdByProfileId",
-                        "createdByName",
-                        "createdByAvatar",
-                        "createdAt",
-                        "updatedAt"
-                      ],
-                      "type": "object"
+                      "$ref": "#/components/schemas/Series"
                     }
                   },
                   "required": [
@@ -5737,178 +4313,7 @@
                 "schema": {
                   "properties": {
                     "series": {
-                      "properties": {
-                        "allowInterested": {
-                          "type": "boolean"
-                        },
-                        "category": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "chatId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "commsChannels": {
-                          "type": "string"
-                        },
-                        "createdAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "createdByAvatar": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "createdByName": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "createdByProfileId": {
-                          "type": "string"
-                        },
-                        "description": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "dtstart": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "durationMinutes": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "guestListVisibility": {
-                          "enum": [
-                            "public",
-                            "connections",
-                            "private"
-                          ],
-                          "type": "string"
-                        },
-                        "id": {
-                          "type": "string"
-                        },
-                        "imageUrl": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "joinPolicy": {
-                          "enum": [
-                            "open",
-                            "guest_list"
-                          ],
-                          "type": "string"
-                        },
-                        "latitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "location": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "longitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "materializedThrough": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "rrule": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "enum": [
-                            "active",
-                            "ended",
-                            "cancelled"
-                          ],
-                          "type": "string"
-                        },
-                        "timezone": {
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "until": {
-                          "format": "date-time",
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "updatedAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "venue": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "visibility": {
-                          "enum": [
-                            "public",
-                            "private"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "title",
-                        "description",
-                        "location",
-                        "venue",
-                        "latitude",
-                        "longitude",
-                        "category",
-                        "imageUrl",
-                        "durationMinutes",
-                        "visibility",
-                        "guestListVisibility",
-                        "joinPolicy",
-                        "allowInterested",
-                        "commsChannels",
-                        "rrule",
-                        "dtstart",
-                        "until",
-                        "materializedThrough",
-                        "timezone",
-                        "status",
-                        "chatId",
-                        "createdByProfileId",
-                        "createdByName",
-                        "createdByAvatar",
-                        "createdAt",
-                        "updatedAt"
-                      ],
-                      "type": "object"
+                      "$ref": "#/components/schemas/Series"
                     }
                   },
                   "required": [
@@ -6057,178 +4462,7 @@
                 "schema": {
                   "properties": {
                     "series": {
-                      "properties": {
-                        "allowInterested": {
-                          "type": "boolean"
-                        },
-                        "category": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "chatId": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "commsChannels": {
-                          "type": "string"
-                        },
-                        "createdAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "createdByAvatar": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "createdByName": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "createdByProfileId": {
-                          "type": "string"
-                        },
-                        "description": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "dtstart": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "durationMinutes": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "guestListVisibility": {
-                          "enum": [
-                            "public",
-                            "connections",
-                            "private"
-                          ],
-                          "type": "string"
-                        },
-                        "id": {
-                          "type": "string"
-                        },
-                        "imageUrl": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "joinPolicy": {
-                          "enum": [
-                            "open",
-                            "guest_list"
-                          ],
-                          "type": "string"
-                        },
-                        "latitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "location": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "longitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "materializedThrough": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "rrule": {
-                          "type": "string"
-                        },
-                        "status": {
-                          "enum": [
-                            "active",
-                            "ended",
-                            "cancelled"
-                          ],
-                          "type": "string"
-                        },
-                        "timezone": {
-                          "type": "string"
-                        },
-                        "title": {
-                          "type": "string"
-                        },
-                        "until": {
-                          "format": "date-time",
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "updatedAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "venue": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "visibility": {
-                          "enum": [
-                            "public",
-                            "private"
-                          ],
-                          "type": "string"
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "title",
-                        "description",
-                        "location",
-                        "venue",
-                        "latitude",
-                        "longitude",
-                        "category",
-                        "imageUrl",
-                        "durationMinutes",
-                        "visibility",
-                        "guestListVisibility",
-                        "joinPolicy",
-                        "allowInterested",
-                        "commsChannels",
-                        "rrule",
-                        "dtstart",
-                        "until",
-                        "materializedThrough",
-                        "timezone",
-                        "status",
-                        "chatId",
-                        "createdByProfileId",
-                        "createdByName",
-                        "createdByAvatar",
-                        "createdAt",
-                        "updatedAt"
-                      ],
-                      "type": "object"
+                      "$ref": "#/components/schemas/Series"
                     },
                     "updated": {
                       "type": "number"
@@ -6384,218 +4618,7 @@
                   "properties": {
                     "instances": {
                       "items": {
-                        "properties": {
-                          "allowInterested": {
-                            "type": "boolean"
-                          },
-                          "cancellationReason": {
-                            "enum": [
-                              "host_left",
-                              "organiser",
-                              "admin"
-                            ],
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "cancelledAt": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "category": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "chatId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "commsChannels": {
-                            "type": "string"
-                          },
-                          "createdAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "createdByAvatar": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "createdByName": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "createdByProfileId": {
-                            "type": "string"
-                          },
-                          "description": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "endTime": {
-                            "format": "date-time",
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "guestListVisibility": {
-                            "enum": [
-                              "public",
-                              "connections",
-                              "private"
-                            ],
-                            "type": "string"
-                          },
-                          "hardDeleteAt": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "id": {
-                            "type": "string"
-                          },
-                          "imageUrl": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "instanceOverride": {
-                            "type": "boolean"
-                          },
-                          "joinPolicy": {
-                            "enum": [
-                              "open",
-                              "guest_list"
-                            ],
-                            "type": "string"
-                          },
-                          "latitude": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "location": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "longitude": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "priceAmount": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "priceCurrency": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "seriesId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "startTime": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "status": {
-                            "enum": [
-                              "upcoming",
-                              "ongoing",
-                              "maybe_finished",
-                              "finished",
-                              "cancelled"
-                            ],
-                            "type": "string"
-                          },
-                          "title": {
-                            "type": "string"
-                          },
-                          "updatedAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "venue": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "venueId": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "visibility": {
-                            "enum": [
-                              "public",
-                              "private"
-                            ],
-                            "type": "string"
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "title",
-                          "description",
-                          "location",
-                          "venue",
-                          "venueId",
-                          "latitude",
-                          "longitude",
-                          "category",
-                          "startTime",
-                          "endTime",
-                          "status",
-                          "imageUrl",
-                          "priceAmount",
-                          "priceCurrency",
-                          "visibility",
-                          "guestListVisibility",
-                          "joinPolicy",
-                          "allowInterested",
-                          "commsChannels",
-                          "chatId",
-                          "seriesId",
-                          "instanceOverride",
-                          "createdByProfileId",
-                          "createdByName",
-                          "createdByAvatar",
-                          "cancelledAt",
-                          "hardDeleteAt",
-                          "cancellationReason",
-                          "createdAt",
-                          "updatedAt"
-                        ],
-                        "type": "object"
+                        "$ref": "#/components/schemas/Event"
                       },
                       "type": "array"
                     }
@@ -6641,122 +4664,7 @@
                   "properties": {
                     "venues": {
                       "items": {
-                        "properties": {
-                          "address": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "capacity": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "city": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "country": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "createdAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "description": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "handle": {
-                            "type": "string"
-                          },
-                          "heroImageUrl": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "hours": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "id": {
-                            "type": "string"
-                          },
-                          "instagramHandle": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          },
-                          "kind": {
-                            "type": "string"
-                          },
-                          "latitude": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "longitude": {
-                            "type": [
-                              "number",
-                              "null"
-                            ]
-                          },
-                          "name": {
-                            "type": "string"
-                          },
-                          "orgHandle": {
-                            "type": "string"
-                          },
-                          "timezone": {
-                            "type": "string"
-                          },
-                          "updatedAt": {
-                            "format": "date-time",
-                            "type": "string"
-                          },
-                          "websiteUrl": {
-                            "type": [
-                              "string",
-                              "null"
-                            ]
-                          }
-                        },
-                        "required": [
-                          "id",
-                          "orgHandle",
-                          "handle",
-                          "name",
-                          "kind",
-                          "description",
-                          "address",
-                          "city",
-                          "country",
-                          "latitude",
-                          "longitude",
-                          "capacity",
-                          "hours",
-                          "heroImageUrl",
-                          "websiteUrl",
-                          "instagramHandle",
-                          "timezone",
-                          "createdAt",
-                          "updatedAt"
-                        ],
-                        "type": "object"
+                        "$ref": "#/components/schemas/Venue"
                       },
                       "type": "array"
                     }
@@ -6819,122 +4727,7 @@
                 "schema": {
                   "properties": {
                     "venue": {
-                      "properties": {
-                        "address": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "capacity": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "city": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "country": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "createdAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "description": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "handle": {
-                          "type": "string"
-                        },
-                        "heroImageUrl": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "hours": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "id": {
-                          "type": "string"
-                        },
-                        "instagramHandle": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        },
-                        "kind": {
-                          "type": "string"
-                        },
-                        "latitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "longitude": {
-                          "type": [
-                            "number",
-                            "null"
-                          ]
-                        },
-                        "name": {
-                          "type": "string"
-                        },
-                        "orgHandle": {
-                          "type": "string"
-                        },
-                        "timezone": {
-                          "type": "string"
-                        },
-                        "updatedAt": {
-                          "format": "date-time",
-                          "type": "string"
-                        },
-                        "websiteUrl": {
-                          "type": [
-                            "string",
-                            "null"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "id",
-                        "orgHandle",
-                        "handle",
-                        "name",
-                        "kind",
-                        "description",
-                        "address",
-                        "city",
-                        "country",
-                        "latitude",
-                        "longitude",
-                        "capacity",
-                        "hours",
-                        "heroImageUrl",
-                        "websiteUrl",
-                        "instagramHandle",
-                        "timezone",
-                        "createdAt",
-                        "updatedAt"
-                      ],
-                      "type": "object"
+                      "$ref": "#/components/schemas/Venue"
                     }
                   },
                   "required": [
