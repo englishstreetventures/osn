@@ -1,5 +1,24 @@
 # @osn/api
 
+## 0.25.3
+
+### Patch Changes
+
+- 8f67a05: Stop the calendar export inventing an end time, and fold its lines by octet.
+
+  `buildIcs` gave every event with no `endTime` a `DTEND` two hours after the
+  start, so a guest's calendar showed a finish time the host never set. RFC 5545
+  §3.6.1 allows a `VEVENT` with `DTSTART` and no `DTEND`, which is what the row
+  actually says.
+
+  Folding also counted UTF-16 code units rather than octets, so a title with an
+  emoji both overran the 75-octet limit and could be sliced through a surrogate
+  pair, emitting invalid UTF-8. The export now carries `STATUS` and `CATEGORIES`
+  as well, and its `UID` matches the iOS client's so the same event saved from
+  web and from iOS is one calendar entry rather than two.
+
+- 6016423: Fix a private-event leak in `GET /events/today`. The feed ran no visibility predicate and the route extracted no claims, so every private event starting today was readable by an unauthenticated caller. `listTodayEvents` now takes the viewer's profile id (required, not defaulted) and filters through `buildVisibilityFilter`, the same predicate `listEvents` and `discoverEvents` already use; the route reads an optional bearer token so an organiser or an RSVP'd guest still sees their own private events.
+
 ## 0.25.2
 
 ### Patch Changes
