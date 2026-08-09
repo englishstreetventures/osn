@@ -1,5 +1,12 @@
 # @osn/pulse
 
+## 0.21.4
+
+### Patch Changes
+
+- Updated dependencies [eb32230]
+  - @pulse/api@0.25.1
+
 ## 0.21.3
 
 ### Patch Changes
