@@ -70,7 +70,9 @@ Directly confirmed by reading the generated file, not inferred: `EventsPayloadPa
 
 ## DoD 6 — tests for testable logic
 
-**Verified**, model layer only. `Tests/PulseFeatureTests/PulseModelsTests.swift`, 8 tests, all passing: `PulseEvent.init(_:)` field mapping and full status-enum coverage, `Array.keysetCursor` (empty + non-empty), `PulseRsvpTarget.generated` mapping, `PulseRsvp.init(optimistic:...)`, `PulseRsvp.init(_:)` decoding, `PulseRsvpCounts.init(_:)` rounding.
+**Verified**, model layer only. `Tests/PulseFeatureTests/PulseModelsTests.swift`, all passing: `PulseEvent.init(_:)` field mapping and full status-enum coverage, `Array.keysetCursor` (empty + non-empty), `PulseRsvpTarget.generated` mapping, `PulseRsvp.init(optimistic:...)`, `PulseRsvp.init(_:)` decoding, `PulseRsvpCounts.init(_:)` rounding.
+
+Extended 2026-08-09 when the nullable-drop fix made the rest of `eventResponseSchema` reachable: every field mapped from both payload types, unix-second `cancelledAt`/`hardDeleteAt`, absent-optionals-are-nil, the coordinate and price pairing rules, free-vs-priced, all cancellation reasons, and one equality test asserting the two bridges agree — the duplicated mappings are the thing most likely to drift. `Array.keysetCursor` and its two tests are gone: the server's own `nextCursor` is now visible, so the cursor is decoded rather than rebuilt.
 
 **Not tested — scope decision, not an oversight:** view-model async logic (`ExploreViewModel`'s pagination-cursor progression, `EventDetailViewModel`'s optimistic-update/rollback on RSVP). Both call through `APIProtocol`, which has no in-repo fake/mock implementation, and the brief prohibits inventing infrastructure (a fake conforming to the full generated `APIProtocol` is a non-trivial surface, not a small fixture). Left for whoever picks this up next to decide whether that's worth building; the pure mapping logic those view models rely on (this file) is tested.
 
@@ -84,7 +86,7 @@ No `BLOCKED:` was needed this brief — no identifier had to be invented. Test f
 
 ## Known field-shape gaps vs. the brief's assumed shapes
 
-- `EventDetailView` renders `status == .cancelled` as a plain "Cancelled" pill; the real generated `EventsPayloadPayload`/detail payload has no `cancellationReason` field, so none is shown — the brief's mention of a cancellation reason doesn't match what the API actually returns.
+- ~~`EventDetailView` renders `status == .cancelled` as a plain "Cancelled" pill; the real generated `EventsPayloadPayload`/detail payload has no `cancellationReason` field, so none is shown — the brief's mention of a cancellation reason doesn't match what the API actually returns.~~ **Wrong diagnosis, corrected 2026-08-09.** The API returned `cancellationReason` all along, along with 14 other fields the brief described and this file recorded as absent. The generator was dropping every nullable property: `t.Nullable(...)` emits `anyOf: [X, {type: "null"}]`, which swift-openapi-generator cannot represent, so it warned `Schema "null" is not supported` and omitted the property. 254 of them. `pulse/api/scripts/generate-openapi.ts` now emits the equivalent `type: ["string", "null"]` spelling instead, and `PulseModels.swift` maps the full `eventResponseSchema` — including `cancellationReason` (now a proper enum), coordinates, price and `description`. `EventDetailView` still shows only the pill; wiring the reason into the copy is UI work, not a schema gap.
 - `RsvpPayload.StatusPayload` has 4 cases (`going`, `maybe`, `notGoing` — wire key `not_going` — `invited`); `PulseRsvpTarget` (the user-actionable subset) has 3, matching the three RSVP buttons in `EventDetailView`. `invited` is a receive-only status, never a target.
 
 ## Stale SourceKit diagnostics (recurring, not real)

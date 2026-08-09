@@ -18,10 +18,17 @@ public final class ExploreViewModel {
 
     public private(set) var events: [PulseEvent] = []
     public private(set) var state: LoadState = .idle
-    public private(set) var hasMore = true
+
+    /// Whether another page exists. The server says so directly — a null
+    /// `nextCursor` is the end of the list — so this no longer guesses from
+    /// a full-looking page, which always cost one extra empty request when
+    /// the last page happened to be exactly `pageSize` long.
+    public var hasMore: Bool { !hasLoaded || nextCursor != nil }
 
     private let api: any APIProtocol
     private let pageSize: Int
+    private var nextCursor: EventPageCursor?
+    private var hasLoaded = false
 
     public init(api: any APIProtocol, pageSize: Int = 20) {
         self.api = api
@@ -30,15 +37,16 @@ public final class ExploreViewModel {
 
     public func loadFirstPage() async {
         events = []
-        hasMore = true
+        nextCursor = nil
+        hasLoaded = false
         await load(cursor: nil)
     }
 
     /// Call when a row is about to appear — triggers the next page once the
     /// last loaded row is reached.
     public func loadNextPageIfNeeded(currentItemId: String) async {
-        guard hasMore, state != .loading, events.last?.id == currentItemId else { return }
-        await load(cursor: events.keysetCursor)
+        guard let cursor = nextCursor, state != .loading, events.last?.id == currentItemId else { return }
+        await load(cursor: cursor)
     }
 
     private func load(cursor: EventPageCursor?) async {
@@ -50,13 +58,15 @@ public final class ExploreViewModel {
                 limit: .init(value2: Double(pageSize))
             )
             let output = try await api.discoverEvents(.init(query: query))
-            let page = try output.ok.body.json.events.map(PulseEvent.init)
+            let body = try output.ok.body.json
+            let page = body.events.map(PulseEvent.init)
             if cursor == nil {
                 events = page
             } else {
                 events.append(contentsOf: page)
             }
-            hasMore = page.count == pageSize
+            nextCursor = body.nextCursor.map(EventPageCursor.init)
+            hasLoaded = true
             state = .loaded
         } catch {
             state = .failed(String(describing: error))
