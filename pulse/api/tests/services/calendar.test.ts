@@ -40,6 +40,11 @@ function makeEvent(overrides: Partial<Event> = {}): Event {
   };
 }
 
+/** Undo 75-octet folding, so a test can assert on a whole property value. */
+function unfold(ics: string): string {
+  return ics.replaceAll("\r\n ", "");
+}
+
 describe("buildIcs", () => {
   it("emits a well-formed VCALENDAR + VEVENT", () => {
     const ics = buildIcs(makeEvent({ title: "Concert" }));
@@ -47,7 +52,7 @@ describe("buildIcs", () => {
     expect(ics).toContain("VERSION:2.0");
     expect(ics).toContain("BEGIN:VEVENT");
     expect(ics).toContain("SUMMARY:Concert");
-    expect(ics).toContain("UID:evt_cal_test@pulse");
+    expect(ics).toContain("UID:pulse-event-evt_cal_test");
     expect(ics).toContain("END:VEVENT");
     expect(ics).toContain("END:VCALENDAR");
   });
@@ -63,14 +68,16 @@ describe("buildIcs", () => {
     expect(ics).toContain("DTSTART:20300601T103045Z");
   });
 
-  it("defaults DTEND to start + 2h when endTime is null", () => {
+  it("omits DTEND when the event has no end time", () => {
     const ics = buildIcs(
       makeEvent({
         startTime: new Date("2030-06-01T10:00:00.000Z"),
         endTime: null,
       }),
     );
-    expect(ics).toContain("DTEND:20300601T120000Z");
+    // RFC 5545 §3.6.1 allows a VEVENT with DTSTART and no DTEND. A default
+    // duration would show the guest a finish time the host never set.
+    expect(ics).not.toContain("DTEND");
   });
 
   it("uses explicit endTime when provided", () => {
@@ -107,12 +114,37 @@ describe("buildIcs", () => {
     expect(ics).toContain("LOCATION:The Venue\\, 123 Main St");
   });
 
-  it("folds lines longer than 75 characters per RFC 5545", () => {
+  it("folds lines longer than 75 octets per RFC 5545", () => {
     const longTitle = "A".repeat(200);
     const ics = buildIcs(makeEvent({ title: longTitle }));
-    // Line folding inserts CRLF + space for continuation; check that the
-    // SUMMARY line has been split.
-    const summaryRegion = ics.slice(ics.indexOf("SUMMARY:"));
-    expect(summaryRegion.split("\r\n ").length).toBeGreaterThan(1);
+    for (const line of ics.split("\r\n")) {
+      expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
+    }
+    // Folding is a transport detail — unfolding gives the value back whole.
+    expect(unfold(ics)).toContain(`SUMMARY:${longTitle}`);
+  });
+
+  // The limit counts octets, so a line of emoji must break four times sooner
+  // than a line of ASCII — and never through a character.
+  it("counts octets, not string length, when folding", () => {
+    const title = "🎉".repeat(40);
+    const ics = buildIcs(makeEvent({ title }));
+    for (const line of ics.split("\r\n")) {
+      expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
+    }
+    expect(unfold(ics)).toContain(`SUMMARY:${title}`);
+    // A fold through a surrogate pair would leave a replacement character
+    // behind once the file round-trips through UTF-8.
+    expect(ics).not.toContain("�");
+  });
+
+  it("marks a cancelled event CANCELLED", () => {
+    expect(buildIcs(makeEvent())).toContain("STATUS:CONFIRMED");
+    expect(buildIcs(makeEvent({ status: "cancelled" }))).toContain("STATUS:CANCELLED");
+  });
+
+  it("carries the category when the event has one", () => {
+    expect(buildIcs(makeEvent({ category: "music" }))).toContain("CATEGORIES:music");
+    expect(buildIcs(makeEvent())).not.toContain("CATEGORIES:");
   });
 });
