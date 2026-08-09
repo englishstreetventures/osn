@@ -37,9 +37,10 @@ public struct PulseRootView: View {
     }
 }
 
-/// Post-sign-in tab navigation. Calendar/Settings/Close Friends are out of
-/// scope for this brief — if a slot exists it's an honest empty
-/// placeholder, never stubbed data.
+/// Post-sign-in tab navigation. Explore is the public feed, Calendar is the
+/// viewer's own agenda. Settings/Close Friends are still out of scope — a
+/// slot appears only once it's backed by a real endpoint, never as stubbed
+/// data.
 struct PulseTabView: View {
     let session: PulseSession
 
@@ -49,6 +50,11 @@ struct PulseTabView: View {
                 ExploreView(session: session)
             }
             .tabItem { Label("Explore", systemImage: "sparkles") }
+
+            NavigationStack {
+                CalendarView(session: session)
+            }
+            .tabItem { Label("Calendar", systemImage: "calendar") }
         }
     }
 }
