@@ -3,8 +3,11 @@ name: Swift CI
 on:
   push:
     branches: [main]
+  # No `branches:` filter. These phases ship as stacked PRs, so a PR's base is
+  # often the branch below it rather than `main` — filtering to `main` would
+  # give every stacked Swift PR no Swift CI at all and only run it once the
+  # whole stack collapsed onto main, which is the last moment a break is useful.
   pull_request:
-    branches: [main]
 
 jobs:
   # macOS runner minutes bill at a multiple of Linux, so the iOS build only
@@ -33,9 +36,13 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE_SHA: ${{ github.event.before }}
+          BASE_REF: ${{ github.base_ref }}
         run: |
           if [ "$EVENT_NAME" = "pull_request" ]; then
-            base="origin/main"
+            # The PR's own base, not `main` — on a stacked PR those differ, and
+            # diffing against `main` would attribute every commit from the
+            # branches below to this PR.
+            base="origin/$BASE_REF"
           else
             base="$BEFORE_SHA"
           fi
