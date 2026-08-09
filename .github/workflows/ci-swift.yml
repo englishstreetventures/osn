@@ -99,11 +99,20 @@ jobs:
       # Silicon, so the Intel slice can never run there. Excluding the arch
       # rather than naming a concrete device keeps this from breaking whenever
       # the runner image changes which simulators it ships.
+      # `-skipPackagePluginValidation` is required, not a convenience.
+      # `PulseAPI` generates its client with swift-openapi-generator's official
+      # SPM build plugin, and Xcode makes a plugin from a *remote* package a
+      # trust decision: interactively it shows a "Trust & Enable" sheet, and
+      # headless it fails the build outright with `Validate plug-in
+      # "OpenAPIGenerator" in package "swift-openapi-generator"`. The flag is
+      # how you consent on a runner. The package and its version are pinned in
+      # `Package.resolved`, so this doesn't widen what code can run.
       - name: xcodebuild
         working-directory: pulse/ios
         run: |
           xcodebuild -scheme Pulse \
             -destination 'generic/platform=iOS Simulator' \
+            -skipPackagePluginValidation \
             -quiet \
             CODE_SIGNING_ALLOWED=NO \
             EXCLUDED_ARCHS=x86_64 \

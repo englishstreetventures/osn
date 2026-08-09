@@ -4,7 +4,14 @@ import Foundation
 /// Trap 5 — the controller needs an `ASPresentationAnchor`; this library
 /// must not reach for a key window itself. Callers supply one at the call
 /// site.
-public typealias PresentationAnchorProvider = @Sendable () -> ASPresentationAnchor
+///
+/// `@MainActor`, because the only thing that can answer it is a key-window
+/// lookup (`UIApplication.shared`), which is main-actor-isolated. Without the
+/// annotation an app-side provider has to be declared `@Sendable` on a method
+/// the compiler already infers as main-actor-isolated, which Swift 6 rejects
+/// outright. `@Sendable` stays so the value can still cross into
+/// non-isolated storage before it's called.
+public typealias PresentationAnchorProvider = @MainActor @Sendable () -> ASPresentationAnchor
 
 enum PasskeyCeremony {
     /// `ASAuthorizationControllerPresentationContextProviding` is

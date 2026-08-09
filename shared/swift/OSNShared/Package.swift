@@ -18,6 +18,7 @@ let package = Package(
         .library(name: "OSNUI", targets: ["OSNUI"]),
         .library(name: "OSNTesting", targets: ["OSNTesting"]),
         .library(name: "PulseAPI", targets: ["PulseAPI"]),
+        .library(name: "PulseFeature", targets: ["PulseFeature"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-openapi-runtime", from: "1.0.0"),
@@ -40,15 +41,10 @@ let package = Package(
                 .product(name: "OpenAPIURLSession", package: "swift-openapi-urlsession"),
                 .product(name: "HTTPTypes", package: "swift-http-types"),
             ],
-            plugins: ["PulseAPIGeneratorPlugin"]
-        ),
-        .plugin(
-            name: "PulseAPIGeneratorPlugin",
-            capability: .buildTool(),
-            dependencies: [
-                .product(name: "swift-openapi-generator", package: "swift-openapi-generator")
-            ]
+            plugins: [.plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")]
         ),
         .testTarget(name: "PulseAPITests", dependencies: ["PulseAPI", "OSNKit", "OSNTesting"]),
+        .target(name: "PulseFeature", dependencies: ["OSNKit", "OSNAuth", "OSNUI", "PulseAPI"]),
+        .testTarget(name: "PulseFeatureTests", dependencies: ["PulseFeature", "OSNTesting"]),
     ]
 )

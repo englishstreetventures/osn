@@ -16,6 +16,14 @@ targets:
     dependencies:
       - package: OSNShared
         product: OSNKit
+      - package: OSNShared
+        product: OSNAuth
+      - package: OSNShared
+        product: OSNUI
+      - package: OSNShared
+        product: PulseAPI
+      - package: OSNShared
+        product: PulseFeature
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.osn.pulse

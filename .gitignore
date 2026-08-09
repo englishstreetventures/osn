@@ -221,6 +221,10 @@ wiki/business/
 
 # Xcode / SwiftPM (generated, never committed)
 *.xcodeproj
+# XcodeGen writes the entitlements plist from the `entitlements.properties`
+# block in `project.yml`, same as it writes the `.xcodeproj` — the committed
+# source of truth is the YAML, not the generated plist.
+*/ios/*.entitlements
 .build/
 DerivedData/
 .swiftpm/
