@@ -52,6 +52,24 @@ public struct PulsePrice: Equatable, Sendable {
         guard let amount, let currency else { return nil }
         self.init(minorUnits: Int(amount.rounded()), currency: currency)
     }
+
+    /// The price as a string, in the user's locale.
+    ///
+    /// The number of minor units in one major unit is a property of the
+    /// currency, not a constant: USD has 100, JPY has 1, KWD has 1000.
+    /// Dividing by 100 would print ¥1850 as ¥18.50. `NumberFormatter` knows
+    /// the right exponent for a currency code, so the scale is read back off
+    /// its `maximumFractionDigits` instead of being hardcoded.
+    public func formatted(locale: Locale = .autoupdatingCurrent) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = locale
+        formatter.currencyCode = currency
+        let amount = Double(minorUnits) / pow(10, Double(formatter.maximumFractionDigits))
+        // The fallback prints the currency code beside the amount rather than
+        // a bare number, so an unrecognised code is still an honest price.
+        return formatter.string(from: NSNumber(value: amount)) ?? "\(currency) \(amount)"
+    }
 }
 
 /// `cancelledAt` and `hardDeleteAt` are unix *seconds* — plain integer
