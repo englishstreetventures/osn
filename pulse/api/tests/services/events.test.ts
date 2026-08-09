@@ -1,5 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import { events as eventsTable } from "@pulse/db/schema";
+import { events as eventsTable, eventRsvps } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { Effect } from "effect";
 import { vi } from "vitest";
@@ -24,6 +24,21 @@ const ALICE = { createdByProfileId: "usr_alice", createdByName: "Alice", created
 
 const provide = <A, E>(effect: Effect.Effect<A, E, any>) =>
   effect.pipe(Effect.provide(createTestLayer()));
+
+/** Attendance row, so visibility tests can make a viewer a guest of an event. */
+const seedRsvp = (eventId: string, profileId: string) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    yield* Effect.promise(() =>
+      db.insert(eventRsvps).values({
+        id: `rsvp_${eventId}_${profileId}`,
+        eventId,
+        profileId,
+        status: "going",
+        createdAt: new Date(),
+      }),
+    );
+  });
 
 it.effect("getEvent returns event", () =>
   provide(
@@ -159,9 +174,81 @@ it.effect("listTodayEvents returns only today's events", () =>
     Effect.gen(function* () {
       yield* seedEvent({ title: "Today Event", startTime: new Date() });
       yield* createEvent({ title: "Future Event", startTime: FUTURE }, ALICE);
-      const events = yield* listTodayEvents;
+      const events = yield* listTodayEvents(null);
       expect(events.length).toBe(1);
       expect(events[0]!.title).toBe("Today Event");
+    }),
+  ),
+);
+
+// The "today" feed shipped with no visibility predicate and an unauthenticated
+// route, so every private event starting today was readable by anyone. These
+// pin the same three cases `buildVisibilityFilter` covers, at the one call site
+// that was missing it.
+
+it.effect("listTodayEvents hides private events from anonymous callers", () =>
+  provide(
+    Effect.gen(function* () {
+      yield* seedEvent({ title: "Public today", startTime: new Date() });
+      yield* seedEvent({
+        title: "Alice's private today",
+        startTime: new Date(),
+        visibility: "private",
+        createdByProfileId: "usr_alice",
+      });
+      const events = yield* listTodayEvents(null);
+      expect(events.map((e) => e.title)).toEqual(["Public today"]);
+    }),
+  ),
+);
+
+it.effect("listTodayEvents hides private events from non-owner viewers", () =>
+  provide(
+    Effect.gen(function* () {
+      yield* seedEvent({ title: "Public today", startTime: new Date() });
+      yield* seedEvent({
+        title: "Alice's private today",
+        startTime: new Date(),
+        visibility: "private",
+        createdByProfileId: "usr_alice",
+      });
+      const events = yield* listTodayEvents("usr_bob");
+      expect(events.map((e) => e.title)).toEqual(["Public today"]);
+    }),
+  ),
+);
+
+it.effect("listTodayEvents shows private events to their organiser", () =>
+  provide(
+    Effect.gen(function* () {
+      yield* seedEvent({ title: "Public today", startTime: new Date() });
+      yield* seedEvent({
+        title: "Alice's private today",
+        startTime: new Date(),
+        visibility: "private",
+        createdByProfileId: "usr_alice",
+      });
+      const events = yield* listTodayEvents("usr_alice");
+      expect(events.map((e) => e.title).toSorted()).toEqual([
+        "Alice's private today",
+        "Public today",
+      ]);
+    }),
+  ),
+);
+
+it.effect("listTodayEvents shows private events to an RSVP'd attendee", () =>
+  provide(
+    Effect.gen(function* () {
+      const priv = yield* seedEvent({
+        title: "Alice's private today",
+        startTime: new Date(),
+        visibility: "private",
+        createdByProfileId: "usr_alice",
+      });
+      yield* seedRsvp(priv.id, "usr_bob");
+      const events = yield* listTodayEvents("usr_bob");
+      expect(events.map((e) => e.title)).toEqual(["Alice's private today"]);
     }),
   ),
 );
@@ -685,7 +772,7 @@ it.effect("listTodayEvents returns transitioned statuses", () =>
   provide(
     Effect.gen(function* () {
       yield* seedEvent({ title: "Today Started", startTime: STARTED });
-      const results = yield* listTodayEvents;
+      const results = yield* listTodayEvents(null);
       const started = results.find((e) => e.title === "Today Started");
       expect(started?.status).toBe("ongoing");
     }),
@@ -747,7 +834,7 @@ it.effect("listTodayEvents caps the result set at 200 rows", () =>
         (i) => seedEvent({ title: `Bulk ${i}`, startTime: now, status: "ongoing" }),
         { concurrency: 1 },
       );
-      const results = yield* listTodayEvents;
+      const results = yield* listTodayEvents(null);
       expect(results.length).toBe(200);
     }),
   ),

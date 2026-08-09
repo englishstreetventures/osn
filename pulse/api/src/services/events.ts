@@ -380,28 +380,46 @@ export const listEvents = (
  */
 const TODAY_EVENTS_LIMIT = 200;
 
-export const listTodayEvents: Effect.Effect<Event[], DatabaseError, Db> = Effect.gen(function* () {
-  const { db } = yield* Db;
-  const now = new Date();
-  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
+/**
+ * Today's events, filtered to what the viewer is allowed to see.
+ *
+ * `viewerId` is not optional with a default: this list shipped without any
+ * visibility predicate at all, so every private event starting today was
+ * readable by an unauthenticated caller (the S-H12..S-H16 class the
+ * `buildVisibilityFilter` header warns about). Requiring the argument means
+ * a new caller has to say who is asking rather than inherit a leak.
+ */
+export const listTodayEvents = (
+  viewerId: string | null,
+): Effect.Effect<Event[], DatabaseError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
 
-  const results = yield* Effect.tryPromise({
-    try: (): Promise<Event[]> =>
-      db
-        .select()
-        .from(events)
-        .where(and(gte(events.startTime, startOfDay), lte(events.startTime, endOfDay)))
-        .orderBy(events.startTime)
-        .limit(TODAY_EVENTS_LIMIT) as Promise<Event[]>,
-    catch: (cause) => new DatabaseError({ cause }),
-  });
+    const results = yield* Effect.tryPromise({
+      try: (): Promise<Event[]> =>
+        db
+          .select()
+          .from(events)
+          .where(
+            and(
+              gte(events.startTime, startOfDay),
+              lte(events.startTime, endOfDay),
+              buildVisibilityFilter(viewerId),
+            ),
+          )
+          .orderBy(events.startTime)
+          .limit(TODAY_EVENTS_LIMIT) as Promise<Event[]>,
+      catch: (cause) => new DatabaseError({ cause }),
+    });
 
-  // Batched status-transition writer (P-W5) — see applyTransitions.
-  const transitioned = yield* applyTransitions(results);
-  metricEventsListed("today", transitioned.length);
-  return transitioned;
-}).pipe(Effect.withSpan("events.list_today"));
+    // Batched status-transition writer (P-W5) — see applyTransitions.
+    const transitioned = yield* applyTransitions(results);
+    metricEventsListed("today", transitioned.length);
+    return transitioned;
+  }).pipe(Effect.withSpan("events.list_today"));
 
 /**
  * One row of the personal calendar: an event the viewer is going to /

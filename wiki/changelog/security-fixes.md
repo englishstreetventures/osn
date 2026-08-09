@@ -7,12 +7,17 @@ related:
   - "[[arc-tokens]]"
   - "[[redis]]"
   - "[[identity-model]]"
-last-reviewed: 2026-08-08
+  - "[[event-access]]"
+last-reviewed: 2026-08-09
 ---
 
 # Security Fixes — Completed
 
 Archived completed security findings from [[TODO]]. Finding IDs follow the [[review-findings]] format. For open findings see the Security Backlog in [[TODO]].
+
+## Pulse "today" feed leaked private events (2026-08-09)
+
+- [x] **S-H (today-feed-visibility)** — **`GET /events/today` returned private events to anonymous callers.** **Issue:** `listTodayEvents` selected on the start-of-day/end-of-day range alone, with no `buildVisibilityFilter` term, and the route extracted no claims — so every private event starting today was readable by anyone who could reach the endpoint, with organiser name and location attached. `listEvents` and `discoverEvents`, the other two multi-event surfaces, both filter correctly; this was the one that shipped without it, the class the `buildVisibilityFilter` header calls out (S-H12…S-H16). **Why:** the feed predates the visibility work and was never revisited when the predicate was introduced. **Solution:** `listTodayEvents` now takes `viewerId: string | null` as a **required** argument — not an optional one defaulting to `null` — so a new caller has to say who is asking rather than inherit the leak, and it ANDs `buildVisibilityFilter(viewerId)` into the same query. The route reads an optional bearer token exactly as `GET /events` does, so the feed stays public while an organiser or an RSVP'd guest still sees their own private events. Four service tests pin anonymous / non-owner / organiser / attendee. See [[event-access]].
 
 ## Graph/org error contract fix (2026-08-02) — prep-pr review
 

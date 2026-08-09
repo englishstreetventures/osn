@@ -24,7 +24,7 @@ finding-ids:
   - S-H16
 packages:
   - "@pulse/api"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-09
 ---
 
 # Event Access Control
@@ -66,7 +66,7 @@ When adding a new event-scoped route, **always** load the event via `loadVisible
 
 ## Discovery vs Direct Fetch
 
-- **List / discovery** (`listEvents`, `discoverEvents`) consume the shared `buildVisibilityFilter(viewerId)` helper exported from `services/eventAccess.ts`. This is a SQL predicate mirror of `canViewEvent`, applied in the `WHERE` clause so post-LIMIT page sizes stay stable.
+- **List / discovery** (`listEvents`, `discoverEvents`, `listTodayEvents`) consume the shared `buildVisibilityFilter(viewerId)` helper exported from `services/eventAccess.ts`. This is a SQL predicate mirror of `canViewEvent`, applied in the `WHERE` clause so post-LIMIT page sizes stay stable.
 - **Direct fetch** uses `loadVisibleEvent` which loads the event first, then checks visibility in JS.
 
 `buildVisibilityFilter` and `canViewEvent` must stay byte-for-byte equivalent. The predicate is:
@@ -74,7 +74,7 @@ When adding a new event-scoped route, **always** load the event via `loadVisible
 - Public events → visible to everyone.
 - Private events → visible to `createdByProfileId = viewerId` **or** `EXISTS (SELECT 1 FROM event_rsvps WHERE event_id = events.id AND profile_id = viewerId)`.
 
-Any code that SELECTs from `events` and returns multiple rows MUST consume `buildVisibilityFilter` — divergence re-opens the S-H12..S-H16 regression class. Do not reinvent the filter.
+Any code that SELECTs from `events` and returns multiple rows MUST consume `buildVisibilityFilter` — divergence re-opens the S-H12..S-H16 regression class. Do not reinvent the filter. `listTodayEvents` was the one surface that shipped without it (S-H today-feed-visibility, fixed 2026-08-09, see [[security-fixes]]); its viewer argument is deliberately required rather than defaulted, so a new caller cannot inherit the leak by omission.
 
 P-W12 moved the SQL predicate into the `WHERE` clause to fix unstable page sizes. Before that, the `LIMIT` ran before the JS visibility filter, so the client got fewer rows than it asked for.
 
@@ -149,7 +149,7 @@ Both endpoints are unauthenticated. Per-IP fail-closed limiters make the metric 
 - [pulse/api/src/services/eventAccess.ts](../pulse/api/src/services/eventAccess.ts) -- `canViewEvent`, `loadVisibleEvent`, `checkEventVisibility`, `canViewAttendees`, `buildVisibilityFilter`
 - [pulse/api/src/lib/shareSource.ts](../pulse/api/src/lib/shareSource.ts) -- `SHARE_SOURCES`, `ShareSourceSchema`, `shareSourceTypeBox`
 - [pulse/api/src/services/rsvps.ts](../pulse/api/src/services/rsvps.ts) -- `upsertRsvp` attribution writes + organiser self-RSVP exclusion
-- [pulse/api/src/services/events.ts](../pulse/api/src/services/events.ts) -- `listEvents` (consumes `buildVisibilityFilter`)
+- [pulse/api/src/services/events.ts](../pulse/api/src/services/events.ts) -- `listEvents`, `listTodayEvents` (consume `buildVisibilityFilter`)
 - [pulse/api/src/services/discovery.ts](../pulse/api/src/services/discovery.ts) -- `discoverEvents` (consumes `buildVisibilityFilter`)
 - [pulse/api/src/routes/events.ts](../pulse/api/src/routes/events.ts) -- route-level usage including `/:id/share` + `/:id/exposure`
 - [CLAUDE.md](../CLAUDE.md) -- "Shared visibility gate" section
