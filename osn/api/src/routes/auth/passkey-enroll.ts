@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 
 import { readSessionCookie } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
+import { errorResponse, publicKeyCredentialCreationOptions } from "./response-schemas";
 
 export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
   const {
@@ -64,6 +65,20 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
             profileId: t.String(),
             step_up_token: t.Optional(t.String()),
           }),
+          response: {
+            200: publicKeyCredentialCreationOptions,
+            // A missing / stale step-up token fails inside the service as an
+            // `AuthError`, which `publicError` maps to 400 `invalid_request` —
+            // this route has no explicit 403 branch.
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: {
+            operationId: "beginPasskeyRegistration",
+            security: [{ bearerAuth: [] }],
+          },
         },
       )
       // -------------------------------------------------------------------------
@@ -135,6 +150,19 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
             profileId: t.String(),
             attestation: t.Any(),
           }),
+          response: {
+            200: t.Object({ passkeyId: t.String() }),
+            400: errorResponse,
+            401: errorResponse,
+            // S-M2: a presented-but-stale session binding.
+            409: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: {
+            operationId: "completePasskeyRegistration",
+            security: [{ bearerAuth: [] }],
+          },
         },
       )
   );

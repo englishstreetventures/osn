@@ -3,6 +3,7 @@ import { Elysia, t } from "elysia";
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
 import { readSessionCookie } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
+import { errorResponse } from "./response-schemas";
 
 export function createEmailChangeRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, rl, cookieConfig } = ctx;
@@ -49,6 +50,17 @@ export function createEmailChangeRoutes(ctx: AuthRouteContext) {
         },
         {
           body: t.Object({ new_email: t.String() }),
+          response: {
+            // The OTP send is awaited, so `sent` is true whenever the status
+            // is 200 — a transport failure surfaces as 500, not `false`. The
+            // new address is never echoed back.
+            200: t.Object({ sent: t.Boolean() }),
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "beginEmailChange", security: [{ bearerAuth: [] }] },
         },
       )
       .post(
@@ -97,6 +109,20 @@ export function createEmailChangeRoutes(ctx: AuthRouteContext) {
             code: t.String(),
             step_up_token: t.String(),
           }),
+          response: {
+            // The account's new email, echoed so the client can update its
+            // cached profile without a refetch.
+            200: t.Object({ email: t.String() }),
+            // `step_up_token` is a required body field here, so a missing one
+            // is a 400 body-validation failure — this route has no explicit
+            // 403 `step_up_required` branch. A bad OTP or a stale token is
+            // also 400 (`AuthError` → `invalid_request`).
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "completeEmailChange", security: [{ bearerAuth: [] }] },
         },
       )
   );

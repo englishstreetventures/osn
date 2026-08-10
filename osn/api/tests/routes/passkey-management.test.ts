@@ -145,6 +145,43 @@ describe("passkey management routes", () => {
       expect(json.passkeys).toHaveLength(1);
       expect(json.passkeys[0]!.label).toBe("Laptop");
     });
+
+    // The route's `response` schema decides which keys reach the client:
+    // anything it fails to declare is deleted from the body. Assert every
+    // `PasskeySummary` field, including the nullable ones — a schema that
+    // forgot `backupEligible` would leave the Settings list unable to tell a
+    // synced credential from a device-bound one, with no error anywhere.
+    it("returns every PasskeySummary field, nullable ones included", async () => {
+      const { tokens, profile } = await seedAccount();
+      const id = await seedPasskey(profile.accountId, "Laptop");
+      const res = await app.handle(
+        new Request("http://localhost/passkeys", {
+          headers: { Authorization: `Bearer ${tokens.accessToken}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as { passkeys: Record<string, unknown>[] };
+      const pk = json.passkeys[0]!;
+      expect(Object.keys(pk).toSorted()).toEqual(
+        [
+          "aaguid",
+          "backupEligible",
+          "backupState",
+          "createdAt",
+          "id",
+          "label",
+          "lastUsedAt",
+          "transports",
+        ].toSorted(),
+      );
+      expect(pk.id).toBe(id);
+      expect(pk.aaguid).toBeNull();
+      expect(pk.transports).toBeNull();
+      expect(pk.lastUsedAt).toBeNull();
+      expect(pk.backupEligible).toBe(false);
+      expect(pk.backupState).toBe(false);
+      expect(typeof pk.createdAt).toBe("number");
+    });
   });
 
   describe("PATCH /passkeys/:id", () => {

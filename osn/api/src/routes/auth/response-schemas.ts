@@ -98,3 +98,79 @@ export const publicKeyCredentialRequestOptions = t.Object({
   allowCredentials: t.Optional(t.Array(publicKeyCredentialDescriptor)),
   userVerification: t.Optional(t.String()),
 });
+
+/**
+ * `PublicKeyCredentialCreationOptionsJSON` — the registration ceremony
+ * options handed to `navigator.credentials.create()`.
+ *
+ * Every field `@simplewebauthn/server@13` can emit is declared, because a
+ * field this schema omits is DELETED from the response and the ceremony
+ * then fails in the browser rather than in a test. Checked against
+ * `generateRegistrationOptions`' literal return: `challenge`, `rp`, `user`,
+ * `pubKeyCredParams`, `timeout`, `attestation`, `excludeCredentials`,
+ * `authenticatorSelection`, `extensions` and `hints`. `attestationFormats`
+ * is in the type but not in that return — declared anyway, so a library
+ * upgrade that starts emitting it doesn't silently drop it.
+ *
+ * The enum-ish members (`attestation`, `residentKey`, `userVerification`,
+ * `hints`, transports) stay plain strings for the same reason as
+ * `publicKeyCredentialDescriptor.transports`: WebAuthn's vocabularies grow,
+ * and a value outside a hard-coded enum would 500 the ceremony.
+ */
+export const publicKeyCredentialCreationOptions = t.Object({
+  rp: t.Object({ name: t.String(), id: t.Optional(t.String()) }),
+  user: t.Object({ id: t.String(), name: t.String(), displayName: t.String() }),
+  challenge: t.String(),
+  pubKeyCredParams: t.Array(t.Object({ alg: t.Number(), type: t.Literal("public-key") })),
+  timeout: t.Optional(t.Number()),
+  excludeCredentials: t.Optional(t.Array(publicKeyCredentialDescriptor)),
+  authenticatorSelection: t.Optional(
+    t.Object({
+      authenticatorAttachment: t.Optional(t.String()),
+      requireResidentKey: t.Optional(t.Boolean()),
+      residentKey: t.Optional(t.String()),
+      userVerification: t.Optional(t.String()),
+    }),
+  ),
+  hints: t.Optional(t.Array(t.String())),
+  attestation: t.Optional(t.String()),
+  attestationFormats: t.Optional(t.Array(t.String())),
+  // `credProps` is injected unconditionally by the library. Other extensions
+  // are client-input blobs with no fixed shape, so the object passes them
+  // through instead of enumerating a spec surface that changes per browser.
+  extensions: t.Optional(
+    t.Object({ credProps: t.Optional(t.Boolean()) }, { additionalProperties: true }),
+  ),
+});
+
+/** `PasskeySummary` from `services/auth/types.ts`. Timestamps are Unix seconds. */
+export const passkeySummary = t.Object({
+  id: t.String(),
+  label: t.Union([t.String(), t.Null()]),
+  aaguid: t.Union([t.String(), t.Null()]),
+  transports: t.Union([t.Array(t.String()), t.Null()]),
+  backupEligible: t.Union([t.Boolean(), t.Null()]),
+  backupState: t.Union([t.Boolean(), t.Null()]),
+  createdAt: t.Number(),
+  lastUsedAt: t.Union([t.Number(), t.Null()]),
+});
+
+/**
+ * `SecurityEventSummary` from `services/auth/types.ts`. `kind` is a string
+ * rather than an enum of `SecurityEventKind`: the list grows with every new
+ * notifiable action, and an unlisted kind would 500 the banner that exists
+ * to report exactly that kind of event.
+ */
+export const securityEventSummary = t.Object({
+  id: t.String(),
+  kind: t.String(),
+  createdAt: t.Number(),
+  uaLabel: t.Union([t.String(), t.Null()]),
+  ipHash: t.Union([t.String(), t.Null()]),
+});
+
+/** Both step-up ceremonies mint the same envelope. `expires_in` is seconds. */
+export const stepUpTokenResponse = t.Object({
+  step_up_token: t.String(),
+  expires_in: t.Number(),
+});
