@@ -8,6 +8,12 @@ import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { makeSafeError } from "../lib/safe-error";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createOrganisationService } from "../services/organisation";
+import {
+  errorResponse,
+  okResponse,
+  organisationMemberSummary,
+  organisationSummary,
+} from "./response-schemas";
 
 // ---------------------------------------------------------------------------
 // Rate limiter
@@ -198,6 +204,18 @@ export function createOrganisationRoutes(
             name: t.String({ minLength: 1, maxLength: 100 }),
             description: t.Optional(t.String({ maxLength: 500 })),
           }),
+          response: {
+            // 201 with the created organisation, so a client can route to it
+            // without a follow-up GET.
+            201: t.Object({ ok: t.Boolean(), organisation: organisationSummary }),
+            // A taken handle and a DB failure both land here: the catch maps
+            // every service failure to 400, and nothing in this handler sets
+            // 500. That is the existing behaviour, faithfully described.
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+          },
+          detail: { operationId: "createOrganisation", security: [{ bearerAuth: [] }] },
         },
       )
       .get(
@@ -216,7 +234,18 @@ export function createOrganisationRoutes(
             return { error: safeError(e) };
           }
         },
-        { query: PaginationQuery },
+        {
+          query: PaginationQuery,
+          response: {
+            // The caller's own organisations, not a directory — there is no
+            // handle to resolve and no rate limiter on a read, so 404 and 429
+            // can't happen.
+            200: t.Object({ organisations: t.Array(organisationSummary) }),
+            401: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "listMyOrganisations", security: [{ bearerAuth: [] }] },
+        },
       )
       .get(
         "/:handle",
@@ -229,7 +258,21 @@ export function createOrganisationRoutes(
 
           return { organisation: orgProjection(organisation) };
         },
-        { params: HandleParam },
+        {
+          params: HandleParam,
+          response: {
+            // Readable by any authenticated caller, member or not. Only the
+            // roster below is member-only.
+            200: t.Object({ organisation: organisationSummary }),
+            401: errorResponse,
+            // `resolveOrg` owns both: 404 on a miss, 500 when the lookup
+            // itself throws. It returns null either way, so the body is the
+            // same "Organisation not found" string at both statuses.
+            404: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "getOrganisation", security: [{ bearerAuth: [] }] },
+        },
       )
       .patch(
         "/:handle",
@@ -258,6 +301,19 @@ export function createOrganisationRoutes(
             name: t.Optional(t.String({ minLength: 1, maxLength: 100 })),
             description: t.Optional(t.String({ maxLength: 500 })),
           }),
+          response: {
+            // Returns the organisation after the update, so a client never has
+            // to guess what the server made of a partial body.
+            200: t.Object({ ok: t.Boolean(), organisation: organisationSummary }),
+            // Not an admin is a 400 here, not a 403: the authorisation check
+            // lives in the service and surfaces as an OrgError like any other.
+            400: errorResponse,
+            401: errorResponse,
+            404: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "updateOrganisation", security: [{ bearerAuth: [] }] },
         },
       )
       .delete(
@@ -279,7 +335,21 @@ export function createOrganisationRoutes(
             return { error: safeError(e) };
           }
         },
-        { params: HandleParam },
+        {
+          params: HandleParam,
+          response: {
+            200: okResponse,
+            // Owner-only, and "only the owner can delete the organisation"
+            // arrives as an OrgError — so an admin who is not the owner gets a
+            // 400, same as any other refusal in this group.
+            400: errorResponse,
+            401: errorResponse,
+            404: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "deleteOrganisation", security: [{ bearerAuth: [] }] },
+        },
       )
       // -----------------------------------------------------------------------
       // Member management
@@ -314,6 +384,22 @@ export function createOrganisationRoutes(
           body: t.Object({
             role: t.Union([t.Literal("admin"), t.Literal("member")]),
           }),
+          response: {
+            // 201: a membership row now exists. The body is bare — a client
+            // that wants the new roster refetches it.
+            201: okResponse,
+            // Already a member, not an admin, and granting admin without being
+            // the owner all arrive here.
+            400: errorResponse,
+            401: errorResponse,
+            // Two different misses share this status: no such organisation and
+            // no such profile. They are told apart by the message, since both
+            // handles live in the path.
+            404: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "addOrganisationMember", security: [{ bearerAuth: [] }] },
         },
       )
       .delete(
@@ -340,7 +426,20 @@ export function createOrganisationRoutes(
             return { error: safeError(e) };
           }
         },
-        { params: MemberHandleParams },
+        {
+          params: MemberHandleParams,
+          response: {
+            200: okResponse,
+            // Removing the owner is refused outright; removing an admin is
+            // owner-only. Both are OrgErrors, so both are 400.
+            400: errorResponse,
+            401: errorResponse,
+            404: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "removeOrganisationMember", security: [{ bearerAuth: [] }] },
+        },
       )
       .patch(
         "/:handle/members/:profileHandle",
@@ -373,6 +472,17 @@ export function createOrganisationRoutes(
           body: t.Object({
             role: t.Union([t.Literal("admin"), t.Literal("member")]),
           }),
+          response: {
+            200: okResponse,
+            // Owner-only, and the owner's own role can't be changed at all —
+            // there is no way to hand the organisation over through this route.
+            400: errorResponse,
+            401: errorResponse,
+            404: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "updateOrganisationMemberRole", security: [{ bearerAuth: [] }] },
         },
       )
       .get(
@@ -384,17 +494,18 @@ export function createOrganisationRoutes(
           const organisation = await resolveOrg(params.handle, set);
           if (!organisation) return { error: "Organisation not found" };
 
-          // Least-privilege: the full roster (handles, display names, roles) is
-          // visible only to members of the org, not to any authenticated user.
-          // If public org pages are ever wanted, gate this on an explicit
-          // `organisations.visibility` flag rather than dropping the check.
-          const callerRole = await run(org.getMemberRole(organisation.id, caller.profileId));
-          if (!callerRole) {
-            set.status = 403;
-            return { error: "Forbidden" };
-          }
-
           try {
+            // Least-privilege: the full roster (handles, display names, roles)
+            // is visible only to members of the org, not to any authenticated
+            // user. If public org pages are ever wanted, gate this on an
+            // explicit `organisations.visibility` flag rather than dropping the
+            // check.
+            const callerRole = await run(org.getMemberRole(organisation.id, caller.profileId));
+            if (!callerRole) {
+              set.status = 403;
+              return { error: "Forbidden" };
+            }
+
             const list = await run(org.listMembers(organisation.id, parsePagination(query)));
             return {
               members: list.map((m) =>
@@ -409,7 +520,22 @@ export function createOrganisationRoutes(
             return { error: safeError(e) };
           }
         },
-        { params: HandleParam, query: PaginationQuery },
+        {
+          params: HandleParam,
+          query: PaginationQuery,
+          response: {
+            200: t.Object({ members: t.Array(organisationMemberSummary) }),
+            401: errorResponse,
+            // The only 403 in the group. Membership, not admin, is what it
+            // asks for — and it is a real 403 rather than the 400 the write
+            // routes use, because the check runs in the route, not the service.
+            403: errorResponse,
+            404: errorResponse,
+            // A read: no rate limiter, so no 429.
+            500: errorResponse,
+          },
+          detail: { operationId: "listOrganisationMembers", security: [{ bearerAuth: [] }] },
+        },
       )
   );
 }

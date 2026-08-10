@@ -25,21 +25,21 @@
 import { t } from "elysia";
 
 /**
- * The graph error envelope. Unlike the auth surface's `{ error, message }`,
- * `error` here IS the message: the routes pass the caller either a fixed
- * string ("Unauthorized", "Profile not found", "Too many requests") or the
- * output of `makeSafeError`, which surfaces a tagged `GraphError` /
- * `NotFoundError` message and swallows everything else.
+ * The error envelope shared by every group in this file. Unlike the auth
+ * surface's `{ error, message }`, `error` here IS the message: the routes pass
+ * the caller either a fixed string ("Unauthorized", "Profile not found",
+ * "Forbidden", "Too many requests") or the output of `makeSafeError`, which
+ * surfaces a tagged domain-error message and swallows everything else.
  *
- * Every status in the group uses it, including 500 — `resolveHandle`'s catch
- * sets 500 and the handler then returns the same shape.
+ * Every status uses it, including 500 — `resolveHandle` / `resolveOrg` catch
+ * their own failures, set 500, and the handler returns the same shape.
  */
-export const graphErrorResponse = t.Object({
+export const errorResponse = t.Object({
   error: t.String(),
 });
 
-/** `{ ok: true }` — what every graph mutation returns on success. */
-export const graphOkResponse = t.Object({
+/** `{ ok: true }` — what a mutation with nothing to report returns. */
+export const okResponse = t.Object({
   ok: t.Boolean(),
 });
 
@@ -86,3 +86,33 @@ export const graphConnectionStatus = t.Union([
   t.Literal("pending_received"),
   t.Literal("connected"),
 ]);
+
+/**
+ * `orgProjection` in `routes/organisation.ts`. The organisation's own id is
+ * deliberately absent — every organisation route addresses it by handle, so
+ * publishing the internal id would invite clients to key on something the
+ * public surface never accepts back.
+ */
+export const organisationSummary = t.Object({
+  handle: t.String(),
+  name: t.String(),
+  description: t.Union([t.String(), t.Null()]),
+  avatarUrl: t.Union([t.String(), t.Null()]),
+  createdAt: t.String({ format: "date-time" }),
+  updatedAt: t.String({ format: "date-time" }),
+});
+
+/**
+ * A row of the member roster. Narrower than the graph's profile summary: no
+ * profile id, because membership is managed by handle throughout.
+ *
+ * `role` is the same closed union the `organisation_members.role` column
+ * declares, and the same one the add/update-role request bodies accept — a
+ * client can round-trip a value it read here straight back into a PATCH.
+ */
+export const organisationMemberSummary = t.Object({
+  handle: t.String(),
+  displayName: t.Union([t.String(), t.Null()]),
+  role: t.Union([t.Literal("admin"), t.Literal("member")]),
+  joinedAt: t.String({ format: "date-time" }),
+});

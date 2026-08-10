@@ -540,7 +540,10 @@ export function createOrganisationService() {
         createdAt: Date;
         updatedAt: Date;
       };
-      role: string;
+      // The column's own enum, not a bare string: the roster is what a client
+      // reads before PATCHing a role back, and both request bodies accept
+      // exactly these two values.
+      role: "admin" | "member";
       joinedAt: Date;
     }[],
     NotFoundError | DatabaseError,
