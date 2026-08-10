@@ -33,6 +33,23 @@ export const errorResponse = t.Object({
 });
 
 /**
+ * The OAuth/OIDC error envelope — `{ error, error_description }` per RFC 6749
+ * §5.2, which is NOT the `{ error, message }` shape the rest of this API uses.
+ *
+ * Both keys of both shapes are declared here because the OIDC routes emit both
+ * envelopes at the same status. A route's own refusals carry
+ * `error_description`; the rate-limit gate and `handleError` fall through the
+ * same status with `message`. Elysia deletes any key the schema omits, so a
+ * schema carrying only the RFC pair would silently blank the message on a 429
+ * or a 500. The superset costs one optional field and cannot lose either.
+ */
+export const oidcErrorResponse = t.Object({
+  error: t.String(),
+  error_description: t.Optional(t.String()),
+  message: t.Optional(t.String()),
+});
+
+/**
  * A session envelope WITHOUT the refresh token — the return shape of
  * `toTokenResponseCookieOnly`. The refresh token lives only in the
  * HttpOnly cookie (S-M2), which is why it is absent here and must stay
@@ -173,4 +190,48 @@ export const securityEventSummary = t.Object({
 export const stepUpTokenResponse = t.Object({
   step_up_token: t.String(),
   expires_in: t.Number(),
+});
+
+/**
+ * `OwnedClientSummary` from `services/auth/oidc.ts` — a relying party as shown
+ * to the account that registered it. `confidential` is derived (a secret hash
+ * exists), never the hash itself. Timestamps are Unix seconds.
+ */
+export const ownedClientSummary = t.Object({
+  clientId: t.String(),
+  name: t.String(),
+  logoUrl: t.Union([t.String(), t.Null()]),
+  redirectUris: t.Array(t.String()),
+  sectorIdentifier: t.String(),
+  confidential: t.Boolean(),
+  createdAt: t.Number(),
+  disabledAt: t.Union([t.Number(), t.Null()]),
+});
+
+/**
+ * `OidcConnectionSummary` from `services/auth/oidc.ts` — one row of "apps you
+ * have authorised". `clientName` is nullable only for a consent whose client
+ * row was deleted underneath it.
+ */
+export const oidcConnectionSummary = t.Object({
+  clientId: t.String(),
+  clientName: t.Union([t.String(), t.Null()]),
+  logoUrl: t.Union([t.String(), t.Null()]),
+  profileId: t.String(),
+  scope: t.String(),
+  grantedAt: t.Number(),
+});
+
+/**
+ * `OidcTokenResponse` from `services/auth/oidc.ts`. Deliberately unlike
+ * `tokenResponse` above: this one carries an `id_token` and never a refresh
+ * token, and its access token never holds the `osn-access` audience, so a
+ * relying party's token cannot reach a first-party route.
+ */
+export const oidcTokenResponse = t.Object({
+  access_token: t.String(),
+  id_token: t.String(),
+  token_type: t.Literal("Bearer"),
+  expires_in: t.Number(),
+  scope: t.String(),
 });

@@ -18,6 +18,7 @@ import { Elysia, t } from "elysia";
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
 import { validateClientRegistration } from "../../services/auth";
 import type { AuthRouteContext } from "./context";
+import { oidcErrorResponse, ownedClientSummary } from "./response-schemas";
 
 export function createOidcClientRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, rl } = ctx;
@@ -110,38 +111,72 @@ export function createOidcClientRoutes(ctx: AuthRouteContext) {
             logo_url: t.Optional(t.String({ maxLength: 1024 })),
             confidential: t.Optional(t.Boolean()),
           }),
+          response: {
+            // 201, not 200 — the only route in the auth surface that creates a
+            // durable record the caller then addresses by id.
+            201: t.Object({
+              client: ownedClientSummary,
+              // Shown exactly once, and null for a public client. The server
+              // keeps only the SHA-256, so a client that loses this must
+              // register again.
+              client_secret: t.Union([t.String(), t.Null()]),
+            }),
+            // Both envelopes land here: `validateClientRegistration` and the
+            // `OidcError` catch emit `error_description`, the rate-limit gate
+            // and `handleError` emit `message`.
+            400: oidcErrorResponse,
+            401: oidcErrorResponse,
+            429: oidcErrorResponse,
+            500: oidcErrorResponse,
+          },
+          detail: { operationId: "registerOidcClient", security: [{ bearerAuth: [] }] },
         },
       )
       // -----------------------------------------------------------------------
       // GET /oidc/clients — the caller's registered clients.
       // -----------------------------------------------------------------------
-      .get("/oidc/clients", async ({ headers, set, server, request }) => {
-        set.headers["cache-control"] = "no-store";
+      .get(
+        "/oidc/clients",
+        async ({ headers, set, server, request }) => {
+          set.headers["cache-control"] = "no-store";
 
-        const rlErr = await rateLimit(
-          headers,
-          socketIpOf({ server, request }),
-          "oidc_client_list",
-          rl.oidcClientList,
-        );
-        if (rlErr) {
-          set.status = 429;
-          return rlErr;
-        }
-        try {
-          const accountId = await resolveOwner(headers.authorization);
-          if (accountId === null) {
-            set.status = 401;
-            return { error: "unauthorized" };
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "oidc_client_list",
+            rl.oidcClientList,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
           }
-          const clients = await run(auth.listOwnedOidcClients(accountId));
-          return { clients };
-        } catch (e) {
-          const { status, body: errBody } = handleError(e);
-          set.status = status;
-          return errBody;
-        }
-      })
+          try {
+            const accountId = await resolveOwner(headers.authorization);
+            if (accountId === null) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const clients = await run(auth.listOwnedOidcClients(accountId));
+            return { clients };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          response: {
+            // Disabled clients stay in the list — the owner needs to see that
+            // the id is spent, not have it vanish.
+            200: t.Object({ clients: t.Array(ownedClientSummary) }),
+            400: oidcErrorResponse,
+            401: oidcErrorResponse,
+            429: oidcErrorResponse,
+            500: oidcErrorResponse,
+          },
+          detail: { operationId: "listOidcClients", security: [{ bearerAuth: [] }] },
+        },
+      )
       // -----------------------------------------------------------------------
       // DELETE /oidc/clients/:clientId — disable an owned client.
       //
@@ -182,7 +217,20 @@ export function createOidcClientRoutes(ctx: AuthRouteContext) {
             return errBody;
           }
         },
-        { params: t.Object({ clientId: t.String({ minLength: 1, maxLength: 128 }) }) },
+        {
+          params: t.Object({ clientId: t.String({ minLength: 1, maxLength: 128 }) }),
+          response: {
+            200: t.Object({ success: t.Boolean() }),
+            400: oidcErrorResponse,
+            401: oidcErrorResponse,
+            // Covers "not yours" as well as "no such client" — deliberately
+            // one status, so the route is not an existence oracle.
+            404: oidcErrorResponse,
+            429: oidcErrorResponse,
+            500: oidcErrorResponse,
+          },
+          detail: { operationId: "disableOidcClient", security: [{ bearerAuth: [] }] },
+        },
       )
   );
 }
