@@ -1,5 +1,60 @@
 # @osn/api
 
+## 0.26.0
+
+### Minor Changes
+
+- 5dd47f8: Sign a browser in to Pulse with an OSN account, over OIDC.
+
+  Pulse web could not sign anyone in. A passkey ceremony only runs on an origin
+  same-site with the WebAuthn RP ID, which is now `musubi.social`, so no Pulse
+  origin can mint an OSN credential. Pulse becomes a plain OIDC relying party
+  instead: the browser bounces to the issuer, comes back with a code, and leaves
+  with a Pulse session of its own.
+
+  - `pulse_web_sessions`: opaque tokens, SHA-256 hashed at rest, seven-day TTL,
+    keyed on the `usr_*` profile id rather than the pairwise `sub`.
+  - `GET /api/auth/oidc/start` and `/oidc/callback` for the two legs, plus
+    `GET /api/auth/session` (200 `{ signedIn: false }` for a visitor, never a 401)
+    and `POST /api/auth/signout` (idempotent; `?all=1` clears every browser).
+  - Every authenticated route now accepts either credential. A bearer token is
+    checked first and decides the request outright — present-but-invalid is a
+    rejection, never a fall back to whoever the cookie names. The iOS app is
+    untouched and never pays for the cookie lookup.
+  - `GET /api/close-friends/candidates` returns the caller's OSN connections
+    with handle, name and avatar. The picker used to read the graph straight
+    from the issuer with a bearer token; a browser has no OSN token to do that
+    with, so Pulse fans the two S2S bridge calls out server-side instead.
+  - The session cookie is host-scoped, `HttpOnly`, `SameSite=Lax`, with no
+    `Domain=`. Cookie credentials make Pulse writes CSRF-eligible for the first
+    time, so an origin guard covers state-changing requests — it fires only when
+    the session cookie is present, because the native app sends no `Origin`.
+
+  Deploy note: the API must be served from a host same-site with the web origin
+  (`api.<pulse-domain>`), or the browser will not send the session cookie back.
+
+### Patch Changes
+
+- 30b4e72: Sign Pulse web in through the OSN OIDC redirect flow, with the browser holding a Pulse session cookie instead of an access token.
+
+  The WebAuthn RP ID is `musubi.social`, so a Pulse origin can no longer run a passkey ceremony. Pulse web now sends people to the OSN authorize endpoint and the Pulse API completes the code exchange, then sets its own host-scoped HttpOnly session cookie. The browser never sees an OSN token.
+
+  - `useAuth()` comes from `@shared/rp-auth/solid` and returns `{ session, activeProfileId, authFetch, signIn, logout, refresh }`. `RpSession` carries identity fields only — no `accessToken`.
+  - Every `pulse/web/src/lib` call drops its token argument; the cookie authorises the request. Resources that keyed on the token now key on the viewer's profile id.
+  - Close friends: the browser can't read the OSN graph, so Pulse serves the candidate list. `listCloseFriendCandidates()` returns `null` when the graph is unreachable, which the page reports as a failure rather than an empty list.
+  - Settings drops the handle-setup card. Name, handle and email belong to the musubi account and are edited there.
+  - `AuthErrorToast` surfaces a failed or declined sign-in from the `?auth_error=` marker the callback leaves behind.
+  - Removes `src/lib/authClients.ts` and the `@simplewebauthn/browser` dependency from the web app.
+  - `createClient` in `@pulse/api` takes an optional Eden treaty config, so a browser caller can set `credentials: "include"`.
+
+  Deploy note: the Pulse API must be same-site with the web origin (`api.<pulse-domain>`), or the `SameSite=Lax` session cookie is never sent.
+
+- Updated dependencies [5dd47f8]
+- Updated dependencies [1c19bae]
+  - @pulse/db@0.19.0
+  - @shared/osn-auth-client@0.4.0
+  - @shared/crypto@0.10.0
+
 ## 0.25.3
 
 ### Patch Changes
