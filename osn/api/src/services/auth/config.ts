@@ -1,3 +1,5 @@
+import type { JWK } from "jose";
+
 import type { RecoveryLockoutStore } from "../../lib/recovery-lockout-store";
 import type { RotatedSessionStore } from "../../lib/rotated-session-store";
 import type { AccountCapLimiter, CeremonyStores, StepUpJtiStore } from "./stores";
@@ -21,8 +23,12 @@ export interface AuthConfig {
   jwtPublicKey: CryptoKey;
   /** Key ID (RFC 7638 thumbprint) — included in JWT headers and JWKS */
   jwtKid: string;
-  /** Public key as JWK object — served at /.well-known/jwks.json */
-  jwtPublicKeyJwk: Record<string, unknown>;
+  /**
+   * Public key as JWK object — served at /.well-known/jwks.json. Typed as
+   * jose's `JWK` rather than `Record<string, unknown>` so the JWKS route can
+   * declare a response schema: an `unknown` value satisfies no TypeBox type.
+   */
+  jwtPublicKeyJwk: JWK;
   /**
    * Access token TTL in seconds. Default: 300 (5 minutes).
    *

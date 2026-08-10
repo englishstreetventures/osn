@@ -75,14 +75,14 @@ export async function loadJwtKeyPair(env: EnvRecord) {
     }
     const publicKey = await importKeyFromJwk(JSON.parse(atob(rawPub)) as Record<string, unknown>);
     const kid = await thumbprintKid(publicKey);
-    const jwtPublicKeyJwk = (await exportJWK(publicKey)) as Record<string, unknown>;
+    const jwtPublicKeyJwk = await exportJWK(publicKey);
     return { privateKey, publicKey, kid, jwtPublicKeyJwk };
   }
 
   // Ephemeral dev pair — warn via Effect logger after observability is ready.
   const { privateKey, publicKey } = await generateArcKeyPair();
   const kid = await thumbprintKid(publicKey);
-  const jwtPublicKeyJwk = (await exportJWK(publicKey)) as Record<string, unknown>;
+  const jwtPublicKeyJwk = await exportJWK(publicKey);
   return { privateKey, publicKey, kid, jwtPublicKeyJwk, ephemeral: true };
 }
 

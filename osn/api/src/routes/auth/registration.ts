@@ -3,6 +3,7 @@ import { Elysia, t } from "elysia";
 import { buildSessionCookie } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
+import { errorResponse, tokenResponse } from "./response-schemas";
 
 export function createRegistrationRoutes(ctx: AuthRouteContext) {
   const {
@@ -44,6 +45,12 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
         },
         {
           params: t.Object({ handle: t.String() }),
+          response: {
+            200: t.Object({ available: t.Boolean() }),
+            400: errorResponse,
+            429: errorResponse,
+          },
+          detail: { operationId: "checkHandleAvailability" },
         },
       )
       // -------------------------------------------------------------------------
@@ -96,6 +103,15 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
             // when configured, `turnstileGate` rejects a missing/invalid value.
             turnstileToken: t.Optional(t.String()),
           }),
+          response: {
+            200: t.Object({ sent: t.Boolean() }),
+            400: errorResponse,
+            // C-H8 (COPPA): `age_restricted`, raised before the OTP is sent.
+            422: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "beginRegistration" },
         },
       )
       // -------------------------------------------------------------------------
@@ -146,6 +162,18 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
             email: t.String(),
             code: t.String(),
           }),
+          response: {
+            201: t.Object({
+              profileId: t.String(),
+              handle: t.String(),
+              email: t.String(),
+              session: tokenResponse,
+            }),
+            400: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "completeRegistration" },
         },
       )
   );
