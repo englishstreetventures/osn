@@ -1,0 +1,2693 @@
+{
+  "components": {
+    "schemas": {},
+    "securitySchemes": {
+      "bearerAuth": {
+        "bearerFormat": "JWT",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Development documentation",
+    "title": "OSN Identity API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/account": {
+      "delete": {
+        "operationId": "deleteAccount",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "confirm_handle": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "confirm_handle"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "confirm_handle": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "confirm_handle"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "confirm_handle": {
+                    "maxLength": 64,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "confirm_handle"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/account/deletion-status": {
+      "get": {
+        "operationId": "getAccountDeletion-status"
+      }
+    },
+    "/account/email/begin": {
+      "post": {
+        "operationId": "postAccountEmailBegin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "new_email": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "new_email"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "new_email": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "new_email"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "new_email": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "new_email"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/account/email/complete": {
+      "post": {
+        "operationId": "postAccountEmailComplete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "step_up_token"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "step_up_token"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code",
+                  "step_up_token"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/account/export": {
+      "get": {
+        "operationId": "getAccountExport"
+      }
+    },
+    "/account/restore": {
+      "post": {
+        "operationId": "postAccountRestore"
+      }
+    },
+    "/account/security-events": {
+      "get": {
+        "operationId": "getAccountSecurity-events"
+      }
+    },
+    "/account/security-events/ack-all": {
+      "post": {
+        "operationId": "postAccountSecurity-eventsAck-all",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/account/security-events/{id}/ack": {
+      "post": {
+        "operationId": "postAccountSecurity-eventsByIdAck",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "pattern": "^sev_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/authorize": {
+      "get": {
+        "operationId": "getAuthorize"
+      }
+    },
+    "/authorize/context": {
+      "get": {
+        "operationId": "getAuthorizeContext",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "request",
+            "required": true,
+            "schema": {
+              "pattern": "^oar_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/authorize/decision": {
+      "post": {
+        "operationId": "postAuthorizeDecision",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "approved": {
+                    "type": "boolean"
+                  },
+                  "profileId": {
+                    "type": "string"
+                  },
+                  "requestId": {
+                    "pattern": "^oar_[a-f0-9]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "requestId",
+                  "profileId",
+                  "approved"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "approved": {
+                    "type": "boolean"
+                  },
+                  "profileId": {
+                    "type": "string"
+                  },
+                  "requestId": {
+                    "pattern": "^oar_[a-f0-9]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "requestId",
+                  "profileId",
+                  "approved"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "approved": {
+                    "type": "boolean"
+                  },
+                  "profileId": {
+                    "type": "string"
+                  },
+                  "requestId": {
+                    "pattern": "^oar_[a-f0-9]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "requestId",
+                  "profileId",
+                  "approved"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/graph/blocks": {
+      "get": {
+        "operationId": "getGraphBlocks",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/graph/blocks/{handle}": {
+      "delete": {
+        "operationId": "deleteGraphBlocksByHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "postGraphBlocksByHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/graph/connections": {
+      "get": {
+        "operationId": "getGraphConnections",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/graph/connections/pending": {
+      "get": {
+        "operationId": "getGraphConnectionsPending",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/graph/connections/sent": {
+      "get": {
+        "operationId": "getGraphConnectionsSent",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/graph/connections/{handle}": {
+      "delete": {
+        "operationId": "deleteGraphConnectionsByHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "get": {
+        "operationId": "getGraphConnectionsByHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patchGraphConnectionsByHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "action": {
+                    "enum": [
+                      "accept",
+                      "reject"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "action": {
+                    "enum": [
+                      "accept",
+                      "reject"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "action": {
+                    "enum": [
+                      "accept",
+                      "reject"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "action"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "post": {
+        "operationId": "postGraphConnectionsByHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/graph/is-blocked/{handle}": {
+      "get": {
+        "operationId": "getGraphIs-blockedByHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/handle/{handle}": {
+      "get": {
+        "operationId": "getHandleByHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/login/cross-device/begin": {
+      "post": {
+        "operationId": "postLoginCross-deviceBegin"
+      }
+    },
+    "/login/cross-device/{requestId}/approve": {
+      "post": {
+        "operationId": "postLoginCross-deviceByRequestIdApprove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^cdl_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "secret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "secret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "secret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/login/cross-device/{requestId}/reject": {
+      "post": {
+        "operationId": "postLoginCross-deviceByRequestIdReject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^cdl_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "secret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "secret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "secret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/login/cross-device/{requestId}/status": {
+      "post": {
+        "operationId": "postLoginCross-deviceByRequestIdStatus",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "requestId",
+            "required": true,
+            "schema": {
+              "pattern": "^cdl_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "secret"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "secret"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "secret": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "secret"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/login/passkey/begin": {
+      "post": {
+        "operationId": "postLoginPasskeyBegin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "identifier": {
+                    "type": "string"
+                  },
+                  "turnstileToken": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "identifier": {
+                    "type": "string"
+                  },
+                  "turnstileToken": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "identifier": {
+                    "type": "string"
+                  },
+                  "turnstileToken": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/login/passkey/complete": {
+      "post": {
+        "operationId": "postLoginPasskeyComplete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "assertion": {},
+                  "challengeId": {
+                    "type": "string"
+                  },
+                  "identifier": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "assertion"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "assertion": {},
+                  "challengeId": {
+                    "type": "string"
+                  },
+                  "identifier": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "assertion"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "assertion": {},
+                  "challengeId": {
+                    "type": "string"
+                  },
+                  "identifier": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "assertion"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/login/recovery/complete": {
+      "post": {
+        "operationId": "postLoginRecoveryComplete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "identifier": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "identifier",
+                  "code"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "identifier": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "identifier",
+                  "code"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "identifier": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "identifier",
+                  "code"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/logout": {
+      "post": {
+        "operationId": "postLogout"
+      }
+    },
+    "/oidc/clients": {
+      "get": {
+        "operationId": "getOidcClients"
+      },
+      "post": {
+        "operationId": "postOidcClients",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "confidential": {
+                    "type": "boolean"
+                  },
+                  "logo_url": {
+                    "maxLength": 1024,
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "redirect_uris": {
+                    "items": {
+                      "maxLength": 1024,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 16,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "name",
+                  "redirect_uris"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "confidential": {
+                    "type": "boolean"
+                  },
+                  "logo_url": {
+                    "maxLength": 1024,
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "redirect_uris": {
+                    "items": {
+                      "maxLength": 1024,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 16,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "name",
+                  "redirect_uris"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "confidential": {
+                    "type": "boolean"
+                  },
+                  "logo_url": {
+                    "maxLength": 1024,
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "redirect_uris": {
+                    "items": {
+                      "maxLength": 1024,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "maxItems": 16,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "name",
+                  "redirect_uris"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/oidc/clients/{clientId}": {
+      "delete": {
+        "operationId": "deleteOidcClientsByClientId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/oidc/connections": {
+      "get": {
+        "operationId": "getOidcConnections"
+      }
+    },
+    "/oidc/connections/{clientId}": {
+      "delete": {
+        "operationId": "deleteOidcConnectionsByClientId",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "clientId",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/oidc/token": {
+      "post": {
+        "operationId": "postOidcToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "client_id": {
+                    "type": "string"
+                  },
+                  "client_secret": {
+                    "type": "string"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "code_verifier": {
+                    "type": "string"
+                  },
+                  "grant_type": {
+                    "type": "string"
+                  },
+                  "redirect_uri": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grant_type"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "client_id": {
+                    "type": "string"
+                  },
+                  "client_secret": {
+                    "type": "string"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "code_verifier": {
+                    "type": "string"
+                  },
+                  "grant_type": {
+                    "type": "string"
+                  },
+                  "redirect_uri": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grant_type"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "client_id": {
+                    "type": "string"
+                  },
+                  "client_secret": {
+                    "type": "string"
+                  },
+                  "code": {
+                    "type": "string"
+                  },
+                  "code_verifier": {
+                    "type": "string"
+                  },
+                  "grant_type": {
+                    "type": "string"
+                  },
+                  "redirect_uri": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grant_type"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/organisations/": {
+      "get": {
+        "operationId": "getOrganisations",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "postOrganisations",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "maxLength": 500,
+                    "type": "string"
+                  },
+                  "handle": {
+                    "maxLength": 30,
+                    "minLength": 1,
+                    "pattern": "^[a-z0-9_]+$",
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 100,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "handle",
+                  "name"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "maxLength": 500,
+                    "type": "string"
+                  },
+                  "handle": {
+                    "maxLength": 30,
+                    "minLength": 1,
+                    "pattern": "^[a-z0-9_]+$",
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 100,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "handle",
+                  "name"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "maxLength": 500,
+                    "type": "string"
+                  },
+                  "handle": {
+                    "maxLength": 30,
+                    "minLength": 1,
+                    "pattern": "^[a-z0-9_]+$",
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 100,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "handle",
+                  "name"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/organisations/{handle}": {
+      "delete": {
+        "operationId": "deleteOrganisationsByHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "get": {
+        "operationId": "getOrganisationsByHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patchOrganisationsByHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "maxLength": 500,
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 100,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "maxLength": 500,
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 100,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "description": {
+                    "maxLength": 500,
+                    "type": "string"
+                  },
+                  "name": {
+                    "maxLength": 100,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/organisations/{handle}/members": {
+      "get": {
+        "operationId": "getOrganisationsByHandleMembers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/organisations/{handle}/members/{profileHandle}": {
+      "delete": {
+        "operationId": "deleteOrganisationsByHandleMembersByProfileHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "profileHandle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "patchOrganisationsByHandleMembersByProfileHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "profileHandle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "role": {
+                    "enum": [
+                      "admin",
+                      "member"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "role": {
+                    "enum": [
+                      "admin",
+                      "member"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "role": {
+                    "enum": [
+                      "admin",
+                      "member"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "post": {
+        "operationId": "postOrganisationsByHandleMembersByProfileHandle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "handle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "profileHandle",
+            "required": true,
+            "schema": {
+              "maxLength": 30,
+              "minLength": 1,
+              "pattern": "^[a-z0-9_]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "role": {
+                    "enum": [
+                      "admin",
+                      "member"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "role": {
+                    "enum": [
+                      "admin",
+                      "member"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "role": {
+                    "enum": [
+                      "admin",
+                      "member"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "role"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/passkey/register/begin": {
+      "post": {
+        "operationId": "postPasskeyRegisterBegin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "profileId": {
+                    "type": "string"
+                  },
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profileId"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "profileId": {
+                    "type": "string"
+                  },
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profileId"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "profileId": {
+                    "type": "string"
+                  },
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profileId"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/passkey/register/complete": {
+      "post": {
+        "operationId": "postPasskeyRegisterComplete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "attestation": {},
+                  "profileId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profileId",
+                  "attestation"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "attestation": {},
+                  "profileId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profileId",
+                  "attestation"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "attestation": {},
+                  "profileId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profileId",
+                  "attestation"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/passkeys": {
+      "get": {
+        "operationId": "getPasskeys"
+      }
+    },
+    "/passkeys/{id}": {
+      "delete": {
+        "operationId": "deletePasskeysById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "pattern": "^pk_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      },
+      "patch": {
+        "operationId": "patchPasskeysById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "pattern": "^pk_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "label"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "label"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "label": {
+                    "type": "string"
+                  },
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "label"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/profiles/create": {
+      "post": {
+        "operationId": "postProfilesCreate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "display_name": {
+                    "type": "string"
+                  },
+                  "handle": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "handle"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "display_name": {
+                    "type": "string"
+                  },
+                  "handle": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "handle"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "display_name": {
+                    "type": "string"
+                  },
+                  "handle": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "handle"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/profiles/delete": {
+      "post": {
+        "operationId": "postProfilesDelete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "profile_id": {
+                    "pattern": "^usr_[a-f0-9]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profile_id"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "profile_id": {
+                    "pattern": "^usr_[a-f0-9]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profile_id"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "profile_id": {
+                    "pattern": "^usr_[a-f0-9]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profile_id"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/profiles/list": {
+      "get": {
+        "operationId": "getProfilesList"
+      }
+    },
+    "/profiles/switch": {
+      "post": {
+        "operationId": "postProfilesSwitch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "profile_id": {
+                    "pattern": "^usr_[a-f0-9]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profile_id"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "profile_id": {
+                    "pattern": "^usr_[a-f0-9]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profile_id"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "profile_id": {
+                    "pattern": "^usr_[a-f0-9]{12}$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "profile_id"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/profiles/{profileId}/default": {
+      "post": {
+        "operationId": "postProfilesByProfileIdDefault",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "profileId",
+            "required": true,
+            "schema": {
+              "pattern": "^usr_[a-f0-9]{12}$",
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/recommendations/connections": {
+      "get": {
+        "operationId": "getRecommendationsConnections",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "default": 0,
+                  "format": "numeric",
+                  "type": "string"
+                },
+                {
+                  "maximum": 50,
+                  "minimum": 1,
+                  "type": "number"
+                }
+              ],
+              "maximum": 50,
+              "minimum": 1
+            }
+          }
+        ]
+      }
+    },
+    "/recommendations/search": {
+      "get": {
+        "operationId": "getRecommendationsSearch",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "default": 0,
+                  "format": "numeric",
+                  "type": "string"
+                },
+                {
+                  "maximum": 20,
+                  "minimum": 1,
+                  "type": "number"
+                }
+              ],
+              "maximum": 20,
+              "minimum": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "orgLimit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "default": 0,
+                  "format": "numeric",
+                  "type": "string"
+                },
+                {
+                  "maximum": 20,
+                  "minimum": 1,
+                  "type": "number"
+                }
+              ],
+              "maximum": 20,
+              "minimum": 1
+            }
+          }
+        ]
+      }
+    },
+    "/recovery/generate": {
+      "post": {
+        "operationId": "postRecoveryGenerate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "step_up_token": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/recovery/status": {
+      "get": {
+        "operationId": "getRecoveryStatus"
+      }
+    },
+    "/register/begin": {
+      "post": {
+        "operationId": "postRegisterBegin",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "birthdate": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "handle": {
+                    "type": "string"
+                  },
+                  "turnstileToken": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email",
+                  "handle",
+                  "birthdate"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "birthdate": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "handle": {
+                    "type": "string"
+                  },
+                  "turnstileToken": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email",
+                  "handle",
+                  "birthdate"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "birthdate": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "handle": {
+                    "type": "string"
+                  },
+                  "turnstileToken": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email",
+                  "handle",
+                  "birthdate"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/register/complete": {
+      "post": {
+        "operationId": "postRegisterComplete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email",
+                  "code"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email",
+                  "code"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email",
+                  "code"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/sessions": {
+      "get": {
+        "operationId": "getSessions"
+      }
+    },
+    "/sessions/revoke-all-other": {
+      "post": {
+        "operationId": "postSessionsRevoke-all-other"
+      }
+    },
+    "/sessions/{id}": {
+      "delete": {
+        "operationId": "deleteSessionsById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "pattern": "^[0-9a-f]{16}$",
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/step-up/otp/begin": {
+      "post": {
+        "operationId": "postStep-upOtpBegin"
+      }
+    },
+    "/step-up/otp/complete": {
+      "post": {
+        "operationId": "postStep-upOtpComplete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "purpose": {
+                    "enum": [
+                      "account_delete",
+                      "account_export",
+                      "pulse_app_delete",
+                      "zap_app_delete",
+                      "recovery_generate",
+                      "passkey_register",
+                      "passkey_delete",
+                      "email_change",
+                      "security_event_ack"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "purpose": {
+                    "enum": [
+                      "account_delete",
+                      "account_export",
+                      "pulse_app_delete",
+                      "zap_app_delete",
+                      "recovery_generate",
+                      "passkey_register",
+                      "passkey_delete",
+                      "email_change",
+                      "security_event_ack"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "purpose": {
+                    "enum": [
+                      "account_delete",
+                      "account_export",
+                      "pulse_app_delete",
+                      "zap_app_delete",
+                      "recovery_generate",
+                      "passkey_register",
+                      "passkey_delete",
+                      "email_change",
+                      "security_event_ack"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/step-up/passkey/begin": {
+      "post": {
+        "operationId": "postStep-upPasskeyBegin"
+      }
+    },
+    "/step-up/passkey/complete": {
+      "post": {
+        "operationId": "postStep-upPasskeyComplete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "assertion": {},
+                  "purpose": {
+                    "enum": [
+                      "account_delete",
+                      "account_export",
+                      "pulse_app_delete",
+                      "zap_app_delete",
+                      "recovery_generate",
+                      "passkey_register",
+                      "passkey_delete",
+                      "email_change",
+                      "security_event_ack"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "assertion"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "assertion": {},
+                  "purpose": {
+                    "enum": [
+                      "account_delete",
+                      "account_export",
+                      "pulse_app_delete",
+                      "zap_app_delete",
+                      "recovery_generate",
+                      "passkey_register",
+                      "passkey_delete",
+                      "email_change",
+                      "security_event_ack"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "assertion"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "assertion": {},
+                  "purpose": {
+                    "enum": [
+                      "account_delete",
+                      "account_export",
+                      "pulse_app_delete",
+                      "zap_app_delete",
+                      "recovery_generate",
+                      "passkey_register",
+                      "passkey_delete",
+                      "email_change",
+                      "security_event_ack"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "assertion"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/token": {
+      "post": {
+        "operationId": "postToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "grant_type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grant_type"
+                ],
+                "type": "object"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "properties": {
+                  "grant_type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grant_type"
+                ],
+                "type": "object"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "grant_type": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "grant_type"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    }
+  }
+}

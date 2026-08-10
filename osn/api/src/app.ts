@@ -1,4 +1,5 @@
 import { cors } from "@elysiajs/cors";
+import { openapi } from "@elysiajs/openapi";
 import { DbLive } from "@osn/db/service";
 import { healthRoutes, observabilityPlugin } from "@shared/observability";
 import type { ClientIpOptions } from "@shared/rate-limit";
@@ -172,6 +173,24 @@ export function createApp(deps: AppDeps) {
   return withObservability
     .use(healthRoutes({ serviceName }))
     .get("/", () => ({ status: "ok", service: "osn-auth" }))
+    .use(
+      openapi({
+        documentation: {
+          openapi: "3.1.0",
+          info: { title: "OSN Identity API", version: "1.0.0" },
+          components: {
+            securitySchemes: {
+              bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
+            },
+          },
+        },
+        // Only exact strings work here. The option is typed to accept a RegExp
+        // as well, but the plugin matches with `excludePaths.includes(path)`, so
+        // a pattern silently matches nothing. The ARC-gated internal prefixes
+        // are therefore dropped in `scripts/generate-openapi.ts` instead.
+        exclude: { paths: ["/", "/health", "/ready"] },
+      }),
+    )
     .use(
       createAuthRoutes(
         // INTEGRATION: O3/O2 (W6) — ceremonyStores + recoveryLockoutStore + the
