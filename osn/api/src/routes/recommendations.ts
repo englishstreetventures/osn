@@ -6,6 +6,12 @@ import { Elysia, t } from "elysia";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createRecommendationService } from "../services/recommendations";
+import {
+  errorResponse,
+  organisationSearchResult,
+  profileSearchResult,
+  suggestionSummary,
+} from "./response-schemas";
 
 // ---------------------------------------------------------------------------
 // Rate limiters — per-user fixed window
@@ -150,6 +156,17 @@ export function createRecommendationRoutes(
             // validates bounds at the HTTP boundary (S-M1 / P-W1).
             limit: t.Optional(t.Numeric({ minimum: 1, maximum: 50 })),
           }),
+          response: {
+            // An empty list is the normal answer for a new account with no
+            // connections and no organisation — not a 404.
+            200: t.Object({ suggestions: t.Array(suggestionSummary) }),
+            401: errorResponse,
+            429: errorResponse,
+            // The fan-out is several queries deep; anything it throws is
+            // swallowed and reported as one opaque "Request failed".
+            500: errorResponse,
+          },
+          detail: { operationId: "suggestConnections", security: [{ bearerAuth: [] }] },
         },
       )
       // -----------------------------------------------------------------------
@@ -194,6 +211,19 @@ export function createRecommendationRoutes(
             limit: t.Optional(t.Numeric({ minimum: 1, maximum: 20 })),
             orgLimit: t.Optional(t.Numeric({ minimum: 1, maximum: 20 })),
           }),
+          response: {
+            // Both halves always present, both possibly empty. A query below
+            // the service's minimum length comes back as two empty lists at
+            // 200 — a half-typed word is not a client error.
+            200: t.Object({
+              people: t.Array(profileSearchResult),
+              organisations: t.Array(organisationSearchResult),
+            }),
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "searchProfilesAndOrganisations", security: [{ bearerAuth: [] }] },
         },
       )
   );

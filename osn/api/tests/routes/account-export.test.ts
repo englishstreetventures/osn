@@ -103,6 +103,14 @@ describe("GET /account/export — gating", () => {
       }),
     );
     expect(res.status).toBe(403);
+    // The rejected-token case carries `publicError`'s envelope under `detail`,
+    // so a client can tell "you need to re-auth" from "the token you sent was
+    // minted for another ceremony". Elysia CLEANS the body against the route's
+    // `response` schema — an `errorResponse` on 403 would delete this key on
+    // the wire, silently, which is why the route declares its own schema.
+    const body = (await res.json()) as { error: string; detail?: { error: string } };
+    expect(body.error).toBe("step_up_required");
+    expect(typeof body.detail?.error).toBe("string");
   });
 
   it("a failed step-up (403) does not consume the 1/24h allowance", async () => {

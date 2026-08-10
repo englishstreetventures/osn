@@ -1,5 +1,10 @@
 /**
- * Shared TypeBox response schemas for the auth route groups.
+ * Shared TypeBox response schemas for every route that funnels its failures
+ * through `publicError` — the auth groups, and also account erasure, account
+ * export and profiles, which sit outside `routes/auth/` but answer with the
+ * same envelope. The split against `routes/response-schemas.ts` is by envelope,
+ * not by folder: that file serves the groups whose `error` field IS the
+ * human-readable message.
  *
  * These exist for one reason: `@elysiajs/openapi` can only describe a
  * response it has a schema for. Without them every operation in
@@ -234,4 +239,72 @@ export const oidcTokenResponse = t.Object({
   token_type: t.Literal("Bearer"),
   expires_in: t.Number(),
   scope: t.String(),
+});
+
+/**
+ * The 403 from a failed step-up gate on `DELETE /account` and
+ * `GET /account/export`.
+ *
+ * `error` is always the literal `step_up_required`. `detail` appears only when
+ * a step-up token WAS supplied and the verifier rejected it, and carries
+ * `publicError`'s own envelope — so a client can tell "you need to re-auth"
+ * from "the token you sent was expired or minted for another purpose". Absent
+ * when no token was supplied at all.
+ *
+ * Declared as its own const rather than reusing `errorResponse`, because
+ * Elysia deletes any key the schema omits: an `errorResponse` here would
+ * silently drop `detail` on the wire.
+ */
+export const stepUpRequiredResponse = t.Object({
+  error: t.String(),
+  message: t.Optional(t.String()),
+  detail: t.Optional(
+    t.Object({
+      error: t.String(),
+      message: t.Optional(t.String()),
+    }),
+  ),
+});
+
+/**
+ * `DELETE /account` at 202. `scheduled_for` is Unix seconds — the moment the
+ * grace window closes and the hard delete becomes eligible, not the moment of
+ * the request.
+ *
+ * `already_pending` is what makes the endpoint idempotent: a second call inside
+ * the window returns the FIRST call's schedule with the flag set, rather than
+ * moving the date or erroring.
+ */
+export const accountDeletionScheduledResponse = t.Object({
+  scheduled_for: t.Number(),
+  already_pending: t.Boolean(),
+});
+
+/**
+ * `GET /account/deletion-status`. A closed union, not one object with optional
+ * fields: `scheduledFor` and `softDeletedAt` exist together or not at all, and
+ * a client that switches on `scheduled` can never read a half-populated row.
+ *
+ * Both timestamps are Unix seconds. Note the camelCase — this body comes
+ * straight off the service's return type, unlike the snake_case `scheduled_for`
+ * of the deletion request above. Inconsistent, and worth settling before an
+ * external client depends on either; the schema records what ships today.
+ */
+export const accountDeletionStatusResponse = t.Union([
+  t.Object({ scheduled: t.Literal(false) }),
+  t.Object({
+    scheduled: t.Literal(true),
+    scheduledFor: t.Number(),
+    softDeletedAt: t.Number(),
+  }),
+]);
+
+/**
+ * `POST /account/restore`. A 200 with `cancelled: false` is a real outcome, not
+ * an error: there was no pending deletion, or — the case that matters — the
+ * grace window had already closed, so the downstream purge may be under way and
+ * the account is past resurrecting. A client must read the flag, not the status.
+ */
+export const accountRestoreResponse = t.Object({
+  cancelled: t.Boolean(),
 });

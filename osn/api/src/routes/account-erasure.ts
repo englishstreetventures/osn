@@ -17,6 +17,13 @@ import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { metricAccountDeletionRequested, metricAuthRateLimited } from "../metrics";
 import * as accountErasure from "../services/account-erasure";
 import { createAuthService, type AuthConfig } from "../services/auth";
+import {
+  accountDeletionScheduledResponse,
+  accountDeletionStatusResponse,
+  accountRestoreResponse,
+  errorResponse,
+  stepUpRequiredResponse,
+} from "./auth/response-schemas";
 
 /**
  * Per-account rate limits for the deletion endpoints. Tighter than the
@@ -196,6 +203,22 @@ export function createAccountErasureRoutes(
             confirm_handle: t.String({ minLength: 1, maxLength: 64 }),
             step_up_token: t.Optional(t.String()),
           }),
+          response: {
+            // 202, not 200: nothing is erased yet. The account is tombstoned
+            // and the hard delete becomes eligible when the grace window
+            // closes at `scheduled_for`.
+            202: accountDeletionScheduledResponse,
+            // `handle_mismatch` — the typed confirmation did not match — plus
+            // whatever `publicError` maps a service failure to.
+            400: errorResponse,
+            401: errorResponse,
+            // Missing or rejected step-up. The only status in this group that
+            // carries a `detail`; see `stepUpRequiredResponse`.
+            403: stepUpRequiredResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "requestAccountDeletion", security: [{ bearerAuth: [] }] },
         },
       )
       // ---------------------------------------------------------------------
@@ -206,68 +229,100 @@ export function createAccountErasureRoutes(
       // this account). We don't require step-up here — the session itself
       // is a fresh-enough authenticator within the 7-day window.
       // ---------------------------------------------------------------------
-      .post("/restore", async ({ headers, set, server, request }) => {
-        const rlErr = await rateLimit(
-          headers,
-          socketIpOf({ server, request }),
-          "account_restore",
-          rl.accountRestore,
-        );
-        if (rlErr) {
-          set.status = 429;
-          return rlErr;
-        }
-        try {
-          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-          if (!claims) {
-            set.status = 401;
-            return { error: "unauthorized" };
+      .post(
+        "/restore",
+        async ({ headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "account_restore",
+            rl.accountRestore,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
           }
-          const profile = await run(auth.findProfileByIdIncludingTombstoned(claims.profileId));
-          if (!profile) {
-            set.status = 401;
-            return { error: "unauthorized" };
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileByIdIncludingTombstoned(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const result = await run(accountErasure.cancelErasure(profile.accountId));
+            return { cancelled: result.cancelled };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
           }
-          const result = await run(accountErasure.cancelErasure(profile.accountId));
-          return { cancelled: result.cancelled };
-        } catch (e) {
-          const { status, body: errBody } = handleError(e);
-          set.status = status;
-          return errBody;
-        }
-      })
+        },
+        {
+          response: {
+            // `cancelled: false` is a 200, not an error — read the flag. No
+            // step-up here: the surviving cancellation session is itself a
+            // fresh-enough authenticator inside the grace window.
+            200: accountRestoreResponse,
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "restoreAccount", security: [{ bearerAuth: [] }] },
+        },
+      )
       // ---------------------------------------------------------------------
       // GET /account/deletion-status — UI banner support.
       // ---------------------------------------------------------------------
-      .get("/deletion-status", async ({ headers, set, server, request }) => {
-        const rlErr = await rateLimit(
-          headers,
-          socketIpOf({ server, request }),
-          "account_deletion_status",
-          rl.accountDeletionStatus,
-        );
-        if (rlErr) {
-          set.status = 429;
-          return rlErr;
-        }
-        try {
-          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-          if (!claims) {
-            set.status = 401;
-            return { error: "unauthorized" };
+      .get(
+        "/deletion-status",
+        async ({ headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "account_deletion_status",
+            rl.accountDeletionStatus,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
           }
-          const profile = await run(auth.findProfileByIdIncludingTombstoned(claims.profileId));
-          if (!profile) {
-            set.status = 401;
-            return { error: "unauthorized" };
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileByIdIncludingTombstoned(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const status = await run(accountErasure.getDeletionStatus(profile.accountId));
+            return status;
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
           }
-          const status = await run(accountErasure.getDeletionStatus(profile.accountId));
-          return status;
-        } catch (e) {
-          const { status, body: errBody } = handleError(e);
-          set.status = status;
-          return errBody;
-        }
-      })
+        },
+        {
+          response: {
+            // Answers for a live account too — `{ scheduled: false }`, not a 404.
+            // This backs a banner that is polled, so "nothing pending" has to be
+            // an ordinary success.
+            200: accountDeletionStatusResponse,
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "getAccountDeletionStatus", security: [{ bearerAuth: [] }] },
+        },
+      )
   );
 }
