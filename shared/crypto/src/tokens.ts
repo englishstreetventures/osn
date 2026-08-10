@@ -1,12 +1,17 @@
 import { Effect } from "effect";
 
 /**
- * Opaque bearer-token primitives, shared by every cookie-backed session cire
- * issues (guest households, organisers, and the OIDC transaction state).
+ * Opaque bearer-token primitives, shared by every cookie-backed session an OSN
+ * relying party issues (cire's guest households and organisers, pulse's web
+ * sessions, and the OIDC transaction state in between).
  *
- * The scheme is the same in all three places: a random token goes to the
- * browser, only its SHA-256 hash is stored, and lookups hash the presented
- * value and match on that.
+ * The scheme is the same everywhere: a random token goes to the browser, only
+ * its SHA-256 hash is stored, and lookups hash the presented value and match on
+ * that.
+ *
+ * Deliberately its own module with only an `effect` import: `@shared/crypto`'s
+ * index pulls in `@osn/db` and the observability stack, which a relying party
+ * minting a cookie has no business loading.
  */
 
 /**

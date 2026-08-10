@@ -1,3 +1,5 @@
+import { beginLogin, completeLogin, readReturnTo } from "@shared/osn-auth-client/oidc-rp";
+import type { OidcConfig } from "@shared/osn-auth-client/oidc-rp";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect } from "effect";
 import { Elysia } from "elysia";
@@ -15,8 +17,6 @@ import {
 import { metricOidcLogin } from "../metrics";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { runCire } from "../observability";
-import { beginLogin, completeLogin, readReturnTo } from "../services/oidc-login";
-import type { OidcConfig } from "../services/oidc-login";
 import { organiserSessionService } from "../services/organiser-session";
 
 const PREFIX = "/api/auth";
@@ -27,8 +27,8 @@ const PREFIX = "/api/auth";
  * The browser never holds an OSN token here. It bounces to the issuer, comes
  * back with a code, and leaves with a cire session cookie — host-scoped to
  * `api.cireweddings.com`, opaque, SHA-256 hashed at rest, exactly like the
- * guest session. See `services/oidc-login.ts` for why the redirect URI is a
- * constant and why a token without `osn_profile_id` is refused.
+ * guest session. See `@shared/osn-auth-client/oidc-rp` for why the redirect URI
+ * is a constant and why a token without `osn_profile_id` is refused.
  *
  * **CSRF.** Moving organiser auth from a bearer header to a cookie makes
  * organiser writes CSRF-eligible for the first time. Two things cover that, and

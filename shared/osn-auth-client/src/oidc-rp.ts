@@ -1,38 +1,47 @@
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
-import { verifyIdToken } from "@shared/osn-auth-client/verify-id-token";
+import { generateToken, sha256Base64Url } from "@shared/crypto/tokens";
 
-import { generateToken, sha256Base64Url } from "../lib/opaque-token";
-import type { OrganiserIdentity } from "./organiser-session";
+import { verifyIdToken } from "./verify-id-token";
 
 /**
- * OIDC relying-party half of organiser sign-in.
+ * OIDC **relying-party** half of signing in with an OSN account — the server
+ * side of the flow whose browser side is `@shared/rp-auth`.
  *
- * cire used to run the passkey ceremony itself against `@osn/client`. It can't
- * any more: identity moved to its own zone (`musubi.social`) and a WebAuthn
- * ceremony may only run on an origin same-site with the RP ID, so
- * `host.cireweddings.com` cannot mint an OSN credential. Instead cire is a
- * plain OIDC relying party — redirect to the issuer's `/authorize`, take an
- * authorization code back, exchange it back-channel, and mint cire's OWN
- * session from the ID token.
+ * Every product here used to run the passkey ceremony itself against
+ * `@osn/client`. None of them can any more: identity moved to its own zone
+ * (`musubi.social`) and a WebAuthn ceremony may only run on an origin same-site
+ * with the RP ID, so no other product's origin can mint an OSN credential.
+ * Instead each product is a plain OIDC relying party — redirect to the issuer's
+ * `/authorize`, take an authorization code back, exchange it back-channel, and
+ * mint its OWN session from the ID token.
  *
- * Two things about this flow are load-bearing:
+ * It is shared rather than copied because the subtle parts — session-fixation
+ * defence on the transaction cookie, the open-redirect guard, PKCE, and the
+ * `osn_profile_id` requirement — must be fixed in one place, not in each
+ * product that happened to copy them.
  *
- * 1. **One registered redirect URI.** Three organiser-facing origins exist
- *    (`host.`, `vendor.`, `invite.`) but only `.../api/auth/oidc/callback` on
- *    the API host is registered with the issuer. The final destination rides in
- *    our own transaction state and is re-validated against the CORS allowlist
- *    on the way out, so the redirect URI stays a constant and there is no open
- *    redirect to hand the issuer.
+ * Three things about this flow are load-bearing:
+ *
+ * 1. **One registered redirect URI.** A product may serve several organiser- or
+ *    guest-facing origins, but only `.../api/auth/oidc/callback` on its API host
+ *    is registered with the issuer. The final destination rides in our own
+ *    transaction state and is re-validated against the CORS allowlist on the way
+ *    out, so the redirect URI stays a constant and there is no open redirect to
+ *    hand the issuer.
  *
  * 2. **`osn_profile_id`, not `sub`.** The ID token's `sub` is the PAIRWISE
  *    subject — deliberately per-client and meaningless to the OSN graph. Every
- *    row cire owns (`weddings.owner_osn_profile_id`, `wedding_hosts`, all three
- *    ARC bridges) is keyed on the real `usr_*` profile id, which arrives only in
- *    the first-party `osn_profile_id` claim. A token without it is refused
- *    outright — falling back to `sub` would silently orphan every existing row.
+ *    row a relying party owns is keyed on the real `usr_*` profile id, which
+ *    arrives only in the first-party `osn_profile_id` claim. A token without it
+ *    is refused outright — falling back to `sub` would silently orphan every
+ *    existing row.
+ *
+ * 3. **client_secret_post, never Basic.** The issuer's token endpoint refuses a
+ *    request that carries both (RFC 6749 §2.3), so sending one and only one is
+ *    not a style choice.
  */
 
-/** Scopes we ask for. `email` is separate consent; the organiser UI shows it. */
+/** Scopes we ask for. `email` is separate consent; the product's UI shows it. */
 const SCOPE = "openid profile email";
 
 /**
@@ -41,6 +50,21 @@ const SCOPE = "openid profile email";
  * transaction cookie left in a browser is worthless.
  */
 const TX_TTL_SECONDS = 10 * 60;
+
+/**
+ * Who the ID token says signed in. A relying party hangs its own session on
+ * this — `osnProfileId` is the only field its rows may be keyed on.
+ */
+export interface OsnIdentity {
+  /** The real `usr_*` profile id, from the first-party `osn_profile_id` claim. */
+  osnProfileId: string;
+  /** The pairwise `sub`. Kept for audit; never a foreign key. */
+  osnSub: string;
+  email: string | null;
+  handle: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
 
 export interface OidcConfig {
   /** Issuer origin, e.g. `https://id.musubi.social`. No trailing slash. */
@@ -53,6 +77,15 @@ export interface OidcConfig {
   redirectUri: string;
   /** Origins a `return_to` may point at — the same allowlist CORS echoes. */
   allowedReturnOrigins: readonly string[];
+  /**
+   * HKDF `info` string for the transaction-cookie MAC key — **distinct per
+   * product** (`cire-oidc-tx-hmac-v1`, `pulse-oidc-tx-hmac-v1`, …). Required
+   * rather than defaulted: two products that shared a client secret would
+   * otherwise silently share a MAC key, and one's transaction cookie would
+   * verify at the other. Changing it invalidates only in-flight transactions,
+   * which live ten minutes.
+   */
+  txHmacInfo: string;
   /** Test seam: skip the JWKS fetch and verify with this key. */
   _testKey?: CryptoKey;
   /** Test seam: injectable `fetch` for the back-channel token exchange. */
@@ -62,7 +95,7 @@ export interface OidcConfig {
 /** What `/start` hands the route: where to send the browser, and what to remember. */
 export interface OidcStart {
   authorizeUrl: string;
-  /** Opaque cookie value — base64url JSON, safe for a Set-Cookie header. */
+  /** Opaque cookie value — `<b64url payload>.<b64url HMAC>`, Set-Cookie safe. */
   tx: string;
   txMaxAgeSeconds: number;
 }
@@ -74,7 +107,7 @@ export type OidcFailureReason =
   | "token_invalid";
 
 export type OidcComplete =
-  | { ok: true; identity: OrganiserIdentity; returnTo: string }
+  | { ok: true; identity: OsnIdentity; returnTo: string }
   | { ok: false; reason: OidcFailureReason; returnTo: string | null };
 
 interface TxState {
@@ -95,15 +128,15 @@ interface TxState {
 // ---------------------------------------------------------------------------
 // Transaction cookie integrity (HMAC-SHA256).
 //
-// The `cire_oidc_tx` cookie carries the whole login transaction — `state`,
-// `nonce`, PKCE verifier and return destination. It is host-scoped to cire-api,
-// but a sibling `*.cireweddings.com` origin (or any code able to write a cookie
-// the browser will send here) could otherwise PLANT a transaction of its own:
-// a base64url JSON blob with no integrity protection is forgeable by anyone.
-// A planted transaction fixates the victim's sign-in on the ATTACKER's `state`
-// / `nonce` / verifier, so the code the victim's issuer mints exchanges into
-// the attacker's identity and the victim ends up signed into the attacker's
-// account (a classic OAuth session-fixation / login-CSRF).
+// The transaction cookie carries the whole login transaction — `state`,
+// `nonce`, PKCE verifier and return destination. It is host-scoped to the app's
+// API, but a sibling origin (or any code able to write a cookie the browser
+// will send here) could otherwise PLANT a transaction of its own: a base64url
+// JSON blob with no integrity protection is forgeable by anyone. A planted
+// transaction fixates the victim's sign-in on the ATTACKER's `state` / `nonce`
+// / verifier, so the code the victim's issuer mints exchanges into the
+// attacker's identity and the victim ends up signed into the attacker's account
+// (a classic OAuth session-fixation / login-CSRF).
 //
 // So the payload is authenticated: `<b64url(json)>.<b64url(hmac)>`, where the
 // MAC is HMAC-SHA256 over the base64url PAYLOAD string under a key derived from
@@ -111,12 +144,11 @@ interface TxState {
 // with a constant-time compare — a forged or tampered cookie decodes to `null`
 // and the flow fails closed with `state_mismatch`.
 //
-// KEY: derived (HKDF-SHA256, fixed info string) from the OIDC client secret
-// (`CIRE_OIDC_CLIENT_SECRET`) rather than reusing it raw — the client secret is
-// already threaded into every place that touches this cookie (`OidcConfig`),
-// present exactly when the OIDC routes are, and never leaves the server. No new
-// secret to provision.
-const TX_HMAC_INFO = new TextEncoder().encode("cire-oidc-tx-hmac-v1");
+// KEY: derived (HKDF-SHA256, per-product `info` string) from the OIDC client
+// secret rather than reusing it raw — the client secret is already threaded
+// into every place that touches this cookie (`OidcConfig`), present exactly
+// when the OIDC routes are, and never leaves the server. No new secret to
+// provision.
 
 const bytesToB64url = (bytes: Uint8Array): string =>
   btoa(String.fromCharCode(...bytes))
@@ -128,7 +160,7 @@ const b64urlToBytes = (raw: string): Uint8Array =>
   Uint8Array.from(atob(raw.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 
 /** HKDF-SHA256 derive a dedicated HMAC key from the OIDC client secret. */
-async function deriveTxHmacKey(secret: string): Promise<CryptoKey> {
+async function deriveTxHmacKey(secret: string, info: string): Promise<CryptoKey> {
   const ikm = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -137,7 +169,12 @@ async function deriveTxHmacKey(secret: string): Promise<CryptoKey> {
     ["deriveKey"],
   );
   return crypto.subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: TX_HMAC_INFO },
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: new Uint8Array(0),
+      info: new TextEncoder().encode(info),
+    },
     ikm,
     { name: "HMAC", hash: "SHA-256", length: 256 },
     false,
@@ -146,19 +183,23 @@ async function deriveTxHmacKey(secret: string): Promise<CryptoKey> {
 }
 
 /** MAC over the base64url payload, as a base64url string. */
-async function txMac(payload: string, secret: string): Promise<string> {
-  const key = await deriveTxHmacKey(secret);
+async function txMac(payload: string, secret: string, info: string): Promise<string> {
+  const key = await deriveTxHmacKey(secret, info);
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
   return bytesToB64url(new Uint8Array(sig));
 }
 
-export const encodeTx = async (state: TxState, secret: string): Promise<string> => {
+export const encodeTx = async (state: TxState, secret: string, info: string): Promise<string> => {
   const payload = bytesToB64url(new TextEncoder().encode(JSON.stringify(state)));
-  const mac = await txMac(payload, secret);
+  const mac = await txMac(payload, secret, info);
   return `${payload}.${mac}`;
 };
 
-export const decodeTx = async (raw: string, secret: string): Promise<TxState | null> => {
+export const decodeTx = async (
+  raw: string,
+  secret: string,
+  info: string,
+): Promise<TxState | null> => {
   const dot = raw.indexOf(".");
   if (dot <= 0 || dot === raw.length - 1) return null;
   const payload = raw.slice(0, dot);
@@ -166,7 +207,7 @@ export const decodeTx = async (raw: string, secret: string): Promise<TxState | n
 
   let expectedMac: string;
   try {
-    expectedMac = await txMac(payload, secret);
+    expectedMac = await txMac(payload, secret, info);
   } catch {
     return null;
   }
@@ -197,8 +238,9 @@ export const decodeTx = async (raw: string, secret: string): Promise<TxState | n
 /**
  * Open-redirect guard. A `return_to` is only honoured when its ORIGIN is one we
  * already trust enough to echo in `Access-Control-Allow-Origin`. Checked on the
- * way in (so a bad link fails fast) AND on the way out (the transaction cookie
- * is unauthenticated — anything read back from it is untrusted input).
+ * way in (so a bad link fails fast) AND on the way out — the MAC proves the
+ * cookie is ours, not that the allowlist still holds, and an origin dropped
+ * from the allowlist mid-transaction must stop being a destination.
  */
 export function isAllowedReturnTo(returnTo: string, allowed: readonly string[]): boolean {
   let url: URL;
@@ -268,6 +310,7 @@ export async function beginLogin(
         x: Date.now() + TX_TTL_SECONDS * 1000,
       },
       config.clientSecret,
+      config.txHmacInfo,
     ),
     txMaxAgeSeconds: TX_TTL_SECONDS,
   };
@@ -280,7 +323,7 @@ export async function beginLogin(
  * still has to land somewhere.
  */
 export async function readReturnTo(config: OidcConfig, tx: string | null): Promise<string | null> {
-  const state = tx ? await decodeTx(tx, config.clientSecret) : null;
+  const state = tx ? await decodeTx(tx, config.clientSecret, config.txHmacInfo) : null;
   if (!state) return null;
   return isAllowedReturnTo(state.r, config.allowedReturnOrigins) ? state.r : null;
 }
@@ -288,25 +331,21 @@ export async function readReturnTo(config: OidcConfig, tx: string | null): Promi
 export interface CallbackInput {
   code: string | null;
   state: string | null;
-  /** Raw `cire_oidc_tx` cookie value. */
+  /** Raw transaction cookie value. */
   tx: string | null;
 }
 
 /**
  * Leg 2: match `state`, exchange the code, verify the ID token, and hand back
- * the identity to hang a cire session on.
- *
- * Client authentication is **client_secret_post**, never Basic. The issuer's
- * token endpoint refuses a request that carries both (RFC 6749 §2.3), so
- * sending one and only one is not a style choice.
+ * the identity to hang the product's own session on.
  */
 export async function completeLogin(
   config: OidcConfig,
   input: CallbackInput,
 ): Promise<OidcComplete> {
-  const tx = input.tx ? await decodeTx(input.tx, config.clientSecret) : null;
-  // Re-validate the destination out of the untrusted cookie before it is used
-  // for anything, including an error redirect.
+  const tx = input.tx ? await decodeTx(input.tx, config.clientSecret, config.txHmacInfo) : null;
+  // Re-validate the destination out of the cookie before it is used for
+  // anything, including an error redirect.
   const returnTo = tx && isAllowedReturnTo(tx.r, config.allowedReturnOrigins) ? tx.r : null;
 
   if (!tx || !input.state) return { ok: false, reason: "state_mismatch", returnTo };
@@ -358,9 +397,9 @@ export async function completeLogin(
   });
   if (!claims) return { ok: false, reason: "token_invalid", returnTo };
 
-  // No profile id ⇒ the issuer does not treat us as first-party. Every cire row
-  // is keyed on `usr_*`; there is nothing safe to do with a pairwise subject
-  // alone, so refuse rather than invent an identity.
+  // No profile id ⇒ the issuer does not treat us as first-party. Every row a
+  // relying party owns is keyed on `usr_*`; there is nothing safe to do with a
+  // pairwise subject alone, so refuse rather than invent an identity.
   if (!claims.osnProfileId) return { ok: false, reason: "token_invalid", returnTo };
 
   return {

@@ -1,10 +1,11 @@
 import { organiserSessions } from "@cire/db";
+import { generateToken, hashToken } from "@shared/crypto/tokens";
 import { rowsChanged } from "@shared/db-utils";
+import type { OsnIdentity } from "@shared/osn-auth-client/oidc-rp";
 import { eq, lte } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { DbService, dbQuery } from "../db";
-import { generateToken, hashToken } from "../lib/opaque-token";
 import { metricOrganiserSessionCreated, metricOrganiserSessionSwept } from "../metrics";
 
 export class OrganiserSessionInvalid extends Data.TaggedError("OrganiserSessionInvalid")<{
@@ -27,15 +28,11 @@ export class OrganiserSessionWriteError extends Data.TaggedError("OrganiserSessi
  */
 const DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60;
 
-/** Login-time snapshot of the ID token's profile claims. */
-export interface OrganiserIdentity {
-  osnProfileId: string;
-  osnSub: string;
-  email: string | null;
-  handle: string | null;
-  displayName: string | null;
-  avatarUrl: string | null;
-}
+/**
+ * Login-time snapshot of the ID token's profile claims — the same shape the
+ * shared relying party hands back, named for this file's own vocabulary.
+ */
+export type OrganiserIdentity = OsnIdentity;
 
 export interface CreatedOrganiserSession {
   token: string;

@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
+import { beginLogin } from "@shared/osn-auth-client/oidc-rp";
+import type { OidcConfig } from "@shared/osn-auth-client/oidc-rp";
 import { createRateLimiter } from "@shared/rate-limit";
 
 import { createApp } from "../app";
 import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
-import { beginLogin } from "../services/oidc-login";
-import type { OidcConfig } from "../services/oidc-login";
 import { appRequest } from "../test-helpers";
 import {
   TEST_ISSUER,
@@ -316,9 +316,9 @@ describe("GET /api/auth/session", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body["signedIn"]).toBe(true);
     expect(body["osnProfileId"]).toBe(TEST_PROFILE_ID);
-    expect(body["email"]).toBe("organiser@example.test");
-    expect(body["handle"]).toBe("organiser");
-    expect(body["displayName"]).toBe("Test Organiser");
+    expect(body["email"]).toBe("person@example.test");
+    expect(body["handle"]).toBe("person");
+    expect(body["displayName"]).toBe("Test Person");
     expect(typeof body["expiresAt"]).toBe("string");
     // The pairwise subject is an internal join key, not something to hand out.
     expect(body["osnSub"]).toBeUndefined();

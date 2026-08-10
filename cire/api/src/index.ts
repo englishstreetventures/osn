@@ -9,6 +9,7 @@ import { Effect, Layer } from "effect";
 import { createApp } from "./app";
 import { createD1Db, DbService } from "./db";
 import { setExecutionCtx } from "./lib/execution-ctx";
+import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
 import { runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
 import { maintenanceSweeps } from "./services/maintenance-sweeps";
@@ -331,6 +332,7 @@ const handler: ExportedHandler<Env> = {
               clientSecret: env.CIRE_OIDC_CLIENT_SECRET,
               redirectUri: `${apiOrigin}/api/auth/oidc/callback`,
               allowedReturnOrigins: origins,
+              txHmacInfo: CIRE_OIDC_TX_HMAC_INFO,
             }
           : null;
       if (!oidc && isDeployedTier()) {

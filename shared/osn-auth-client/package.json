@@ -8,7 +8,10 @@
     "./verify": "./src/verify.ts",
     "./verify-id-token": "./src/verify-id-token.ts",
     "./jwks-cache": "./src/jwks-cache.ts",
-    "./middleware/elysia": "./src/middleware/elysia.ts"
+    "./middleware/elysia": "./src/middleware/elysia.ts",
+    "./cookie": "./src/cookie.ts",
+    "./oidc-rp": "./src/oidc-rp.ts",
+    "./testing/oidc-issuer": "./src/testing/oidc-issuer.ts"
   },
   "scripts": {
     "check": "tsc --noEmit",

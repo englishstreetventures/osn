@@ -4,6 +4,7 @@ import { EmailService, makeLogEmailLive } from "@shared/email";
 import type { SendEmailInput } from "@shared/email";
 import { createFeatureFlags } from "@shared/feature-flags";
 import type { FeatureFlags } from "@shared/feature-flags";
+import type { OidcConfig } from "@shared/osn-auth-client/oidc-rp";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
@@ -54,7 +55,6 @@ import { createDirectoryService } from "./services/directory";
 import { createEnquiryService } from "./services/enquiries";
 import type { AssetsBucket } from "./services/invite-assets";
 import type { ImagesBindingLike } from "./services/invite-image-transform";
-import type { OidcConfig } from "./services/oidc-login";
 import type {
   OsnAccountResolver,
   OsnConnectionSearchResolver,

@@ -1,6 +1,15 @@
-import { describe, it, expect, beforeAll } from "bun:test";
+import { sha256Base64Url } from "@shared/crypto/tokens";
+import { beforeAll, describe, expect, it } from "vitest";
 
-import { sha256Base64Url } from "../lib/opaque-token";
+import {
+  beginLogin,
+  completeLogin,
+  decodeTx,
+  encodeTx,
+  isAllowedReturnTo,
+  readReturnTo,
+} from "../src/oidc-rp";
+import type { OidcConfig } from "../src/oidc-rp";
 import {
   TEST_CLIENT_ID,
   TEST_CLIENT_SECRET,
@@ -10,20 +19,12 @@ import {
   TEST_REDIRECT_URI,
   TEST_RETURN_ORIGIN,
   TEST_RETURN_TO,
+  TEST_TX_HMAC_INFO,
   makeOidcTestIssuer,
   stubTokenEndpoint,
   tokenResponse,
-} from "../test-helpers/oidc-issuer";
-import type { OidcTestIssuer } from "../test-helpers/oidc-issuer";
-import {
-  beginLogin,
-  completeLogin,
-  decodeTx,
-  encodeTx,
-  isAllowedReturnTo,
-  readReturnTo,
-} from "./oidc-login";
-import type { OidcConfig } from "./oidc-login";
+} from "../src/testing/oidc-issuer";
+import type { OidcTestIssuer } from "../src/testing/oidc-issuer";
 
 let issuer: OidcTestIssuer;
 beforeAll(async () => {
@@ -37,13 +38,13 @@ beforeAll(async () => {
  * with a cast so a v:9-style shape can be built.
  */
 const forgeTx = (shape: Record<string, unknown>, secret: string): Promise<string> =>
-  encodeTx(shape as unknown as Parameters<typeof encodeTx>[0], secret);
+  encodeTx(shape as unknown as Parameters<typeof encodeTx>[0], secret, TEST_TX_HMAC_INFO);
 
 /** A started login: the decoded tx plus the `state` the issuer would echo back. */
 async function startLogin(config: OidcConfig, returnTo = TEST_RETURN_TO) {
   const started = await beginLogin(config, returnTo);
   if (!started) throw new Error("beginLogin refused an allowed return_to");
-  const tx = await decodeTx(started.tx, config.clientSecret);
+  const tx = await decodeTx(started.tx, config.clientSecret, config.txHmacInfo);
   if (!tx) throw new Error("decodeTx rejected a freshly minted transaction");
   return { started, tx, cookie: started.tx };
 }
@@ -53,7 +54,7 @@ describe("isAllowedReturnTo", () => {
 
   it("accepts any path or query on an allowlisted origin", () => {
     expect(isAllowedReturnTo(TEST_RETURN_ORIGIN, allowed)).toBe(true);
-    expect(isAllowedReturnTo(`${TEST_RETURN_ORIGIN}/weddings?tab=guests`, allowed)).toBe(true);
+    expect(isAllowedReturnTo(`${TEST_RETURN_ORIGIN}/home?tab=guests`, allowed)).toBe(true);
     expect(isAllowedReturnTo("https://host.example.test/deep/path#frag", allowed)).toBe(true);
   });
 
@@ -69,7 +70,7 @@ describe("isAllowedReturnTo", () => {
   it("rejects non-http(s) schemes and unparseable input", () => {
     expect(isAllowedReturnTo("javascript:alert(1)", allowed)).toBe(false);
     expect(isAllowedReturnTo("data:text/html,x", allowed)).toBe(false);
-    expect(isAllowedReturnTo("/weddings", allowed)).toBe(false);
+    expect(isAllowedReturnTo("/home", allowed)).toBe(false);
     expect(isAllowedReturnTo("", allowed)).toBe(false);
   });
 
@@ -113,6 +114,17 @@ describe("beginLogin", () => {
     expect(tx.s).not.toBe(tx.n);
   });
 
+  it("sends no prompt unless the caller asks for one", async () => {
+    const { started } = await startLogin(issuer.config());
+    expect(new URL(started.authorizeUrl).searchParams.get("prompt")).toBeNull();
+  });
+
+  it("asks the issuer to lead with sign-up when told to", async () => {
+    const started = await beginLogin(issuer.config(), TEST_RETURN_TO, { prompt: "create" });
+    if (!started) throw new Error("beginLogin refused an allowed return_to");
+    expect(new URL(started.authorizeUrl).searchParams.get("prompt")).toBe("create");
+  });
+
   it("mints fresh state, nonce and verifier on every call", async () => {
     const a = await startLogin(issuer.config());
     const b = await startLogin(issuer.config());
@@ -123,9 +135,9 @@ describe("beginLogin", () => {
 
   it("remembers the destination and expires the transaction in ten minutes", async () => {
     const before = Date.now();
-    const { started, tx } = await startLogin(issuer.config(), `${TEST_RETURN_ORIGIN}/weddings/x`);
+    const { started, tx } = await startLogin(issuer.config(), `${TEST_RETURN_ORIGIN}/home/x`);
     expect(tx.v).toBe(1);
-    expect(tx.r).toBe(`${TEST_RETURN_ORIGIN}/weddings/x`);
+    expect(tx.r).toBe(`${TEST_RETURN_ORIGIN}/home/x`);
     expect(started.txMaxAgeSeconds).toBe(600);
     expect(tx.x).toBeGreaterThanOrEqual(before + 600_000);
     expect(tx.x).toBeLessThanOrEqual(Date.now() + 600_000);
@@ -168,22 +180,23 @@ describe("readReturnTo", () => {
 
 describe("tx cookie integrity (HMAC)", () => {
   const state = { v: 1 as const, s: "st", n: "no", cv: "cv", r: TEST_RETURN_TO, x: Date.now() };
+  const info = TEST_TX_HMAC_INFO;
 
   it("round-trips a freshly signed transaction", async () => {
     const secret = TEST_CLIENT_SECRET;
-    const decoded = await decodeTx(await encodeTx(state, secret), secret);
+    const decoded = await decodeTx(await encodeTx(state, secret, info), secret, info);
     expect(decoded).toEqual(state);
   });
 
   it("carries a MAC — the value is `<payload>.<mac>`", async () => {
-    const cookie = await encodeTx(state, TEST_CLIENT_SECRET);
+    const cookie = await encodeTx(state, TEST_CLIENT_SECRET, info);
     expect(cookie.split(".")).toHaveLength(2);
     expect(cookie).toMatch(/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
   });
 
   it("rejects a tampered payload (session-fixation guard)", async () => {
     const secret = TEST_CLIENT_SECRET;
-    const cookie = await encodeTx(state, secret);
+    const cookie = await encodeTx(state, secret, info);
     const [payload, mac] = cookie.split(".");
     // Re-point the return destination while keeping the original MAC.
     const forgedPayload = btoa(
@@ -192,15 +205,25 @@ describe("tx cookie integrity (HMAC)", () => {
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
       .replace(/=+$/, "");
-    expect(await decodeTx(`${forgedPayload}.${mac}`, secret)).toBeNull();
+    expect(await decodeTx(`${forgedPayload}.${mac}`, secret, info)).toBeNull();
     // A flipped MAC is rejected too.
     const flipped = mac!.slice(0, -1) + (mac!.endsWith("A") ? "B" : "A");
-    expect(await decodeTx(`${payload}.${flipped}`, secret)).toBeNull();
+    expect(await decodeTx(`${payload}.${flipped}`, secret, info)).toBeNull();
   });
 
   it("rejects a cookie signed under a different secret", async () => {
-    const cookie = await encodeTx(state, "secret-one");
-    expect(await decodeTx(cookie, "secret-two")).toBeNull();
+    const cookie = await encodeTx(state, "secret-one", info);
+    expect(await decodeTx(cookie, "secret-two", info)).toBeNull();
+  });
+
+  /**
+   * The whole point of the per-product `info`: two relying parties that end up
+   * sharing a client secret must NOT be able to verify each other's transaction
+   * cookies, or one product's planted transaction fixates a sign-in at the other.
+   */
+  it("rejects a cookie minted by another product under the same secret", async () => {
+    const cookie = await encodeTx(state, TEST_CLIENT_SECRET, "cire-oidc-tx-hmac-v1");
+    expect(await decodeTx(cookie, TEST_CLIENT_SECRET, "pulse-oidc-tx-hmac-v1")).toBeNull();
   });
 
   it("rejects an unsigned legacy cookie (no MAC segment)", async () => {
@@ -209,7 +232,7 @@ describe("tx cookie integrity (HMAC)", () => {
       .replace(/\+/g, "-")
       .replace(/\//g, "_")
       .replace(/=+$/, "");
-    expect(await decodeTx(bare, TEST_CLIENT_SECRET)).toBeNull();
+    expect(await decodeTx(bare, TEST_CLIENT_SECRET, info)).toBeNull();
   });
 });
 
@@ -246,7 +269,11 @@ describe("completeLogin — transaction checks", () => {
   it("fails with state_mismatch once the transaction has expired", async () => {
     const config = issuer.config();
     const { tx } = await startLogin(config);
-    const stale = await encodeTx({ ...tx, x: Date.now() - 1_000 }, config.clientSecret);
+    const stale = await encodeTx(
+      { ...tx, x: Date.now() - 1_000 },
+      config.clientSecret,
+      config.txHmacInfo,
+    );
     const result = await completeLogin(config, { code: "c", state: tx.s, tx: stale });
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error("unreachable");
@@ -378,9 +405,9 @@ describe("completeLogin — ID token verification", () => {
     expect(result.identity).toEqual({
       osnProfileId: TEST_PROFILE_ID,
       osnSub: TEST_PAIRWISE_SUB,
-      email: "organiser@example.test",
-      handle: "organiser",
-      displayName: "Test Organiser",
+      email: "person@example.test",
+      handle: "person",
+      displayName: "Test Person",
       avatarUrl: "https://cdn.test.invalid/a.png",
     });
   });
@@ -389,8 +416,8 @@ describe("completeLogin — ID token verification", () => {
     const result = await completeWith({ sub: "pw_someone_else" });
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
-    // `sub` is per-client and meaningless to the graph; every cire row is keyed
-    // on the `usr_*` id, which must come from `osn_profile_id` alone.
+    // `sub` is per-client and meaningless to the graph; every relying party's
+    // rows are keyed on the `usr_*` id, which must come from `osn_profile_id`.
     expect(result.identity.osnSub).toBe("pw_someone_else");
     expect(result.identity.osnProfileId).toBe(TEST_PROFILE_ID);
   });

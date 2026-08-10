@@ -1,11 +1,11 @@
 import { sessions } from "@cire/db";
+import { generateToken, hashToken } from "@shared/crypto/tokens";
 import { rowsChanged } from "@shared/db-utils";
 import { eq, lte } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
-import { generateToken, hashToken } from "../lib/opaque-token";
 import { metricSessionCreated, metricSessionSwept } from "../metrics";
 
 export class SessionInvalid extends Data.TaggedError("SessionInvalid")<{
