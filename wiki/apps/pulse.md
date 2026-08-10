@@ -4,7 +4,7 @@ description: Pulse events app overview
 tags: [app, events]
 status: active
 packages:
-  - "@pulse/app"
+  - "@pulse/web"
   - "@pulse/api"
   - "@pulse/db"
 port: 3001
@@ -18,7 +18,7 @@ Pulse is OSN's event management app. Users create, discover, and RSVP to events 
 ## Architecture
 
 ```
-@pulse/app (SolidJS browser SPA)
+@pulse/web (SolidStart, client-rendered)
   ├── SolidJS frontend (src/)
   └── Consumes @osn/client, @osn/ui, @pulse/api
 
@@ -112,7 +112,7 @@ Events can optionally carry a price. Two columns on `events`:
 
 Invariant: both columns set, or both null. Enforced in the Effect Schema `priceInvariant` filter in `pulse/api/src/services/events.ts` — the HTTP boundary also validates via TypeBox, but the service-layer filter is the authoritative check.
 
-Display rule: `price_amount` null **or** `0` → render `"Free"`. Otherwise format via `Intl.NumberFormat` using the stored currency. The `formatPrice` helper in `pulse/app/src/lib/formatPrice.ts` caches formatters so long feeds don't pay per-render allocation.
+Display rule: `price_amount` null **or** `0` → render `"Free"`. Otherwise format via `Intl.NumberFormat` using the stored currency. The `formatPrice` helper in `pulse/web/src/lib/formatPrice.ts` caches formatters so long feeds don't pay per-render allocation.
 
 Max price: `99999.99` in major units (= `9_999_999` minor for 2dp currencies; = `99999` for JPY after the cap-before-conversion check). Over that → HTTP 422.
 
@@ -156,7 +156,7 @@ See [[s2s-patterns]] for the full cross-service architecture.
 
 ### Close Friends UI
 
-Close-friend indicators use shared UI tokens from `pulse/app/src/lib/ui.ts`:
+Close-friend indicators use shared UI tokens from `pulse/web/src/lib/ui.ts`:
 
 ```typescript
 CLOSE_FRIEND_RING_CLASS  // green outline on avatars

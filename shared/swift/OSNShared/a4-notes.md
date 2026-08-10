@@ -56,7 +56,7 @@ Neutral ramp: not ported, per brief — call sites use system semantic colors (`
 
 **Guessed / not empirically tested:** that `Font.custom` silently substitutes the system font at the same point size when the named family isn't installed, rather than rendering nothing or asserting. This is standard platform behavior from general iOS/macOS knowledge, not something I ran and observed in this environment (no visual rendering harness here), and not grepped from any doc comment in the swiftinterface (the interface only gives the signature, not the fallback behavior).
 
-**BLOCKED: font files not vendored.** Instrument Serif, Geist, Geist Mono are OFL 1.1, pulled from Google Fonts in the web app (`pulse/app/index.html:9`). To close: obtain the `.ttf`/`.otf` files, vendor them into this package or the app target, and register them (`UIAppFonts` in Info.plist for iOS / `CTFontManagerRegisterFontsForURL` or an Xcode font-registration mechanism for macOS). Not decided here per brief — deferred to whoever owns the app target.
+**BLOCKED: font files not vendored.** Instrument Serif, Geist, Geist Mono are OFL 1.1, pulled from Google Fonts in the web app (`pulse/web/src/entry-server.tsx`). To close: obtain the `.ttf`/`.otf` files, vendor them into this package or the app target, and register them (`UIAppFonts` in Info.plist for iOS / `CTFontManagerRegisterFontsForURL` or an Xcode font-registration mechanism for macOS). Not decided here per brief — deferred to whoever owns the app target.
 
 ## Components
 

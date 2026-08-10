@@ -11,7 +11,7 @@ last-reviewed: 2026-08-06
 # EAA — Accessibility
 
 Effective 28 June 2025. The EAA brings consumer-facing apps and services
-in the EU under WCAG 2.1 AA. OSN's frontend surfaces — `@pulse/app`,
+in the EU under WCAG 2.1 AA. OSN's frontend surfaces — `@pulse/web`,
 `@osn/social`, `@zap/app` (when shipped), and `@osn/landing` — all qualify
 as "consumer-oriented services" once we have EU users.
 
@@ -30,14 +30,14 @@ as "consumer-oriented services" once we have EU users.
 |---|---|---|
 | `@osn/landing` | Astro static site, simple markup | Run `axe-core` audit; document. |
 | `@osn/social` | Solid + Kobalte; Kobalte primitives are accessible by default | Custom components (ProfileSwitcher, SecurityEventsBanner) need an audit. |
-| `@pulse/app` | Solid + Kobalte; map + calendar are custom | The map's keyboard support is unproven; audit. |
+| `@pulse/web` | Solid + Kobalte; map + calendar are custom | The map's keyboard support is unproven; audit. |
 | `@zap/app` | Not shipped | Build accessibility in from the start. |
 
 ## Project changes required
 
 Tracked with `C-` IDs:
 
-1. **Axe-core in CI** — `@axe-core/playwright` running against `@osn/landing`, `@osn/social`, `@pulse/app` on every PR. Fail on serious / critical violations. ID: **C-M14**. Locked design constraints:
+1. **Axe-core in CI** — `@axe-core/playwright` running against `@osn/landing`, `@osn/social`, `@pulse/web` on every PR. Fail on serious / critical violations. ID: **C-M14**. Locked design constraints:
    - **Per-app route allowlist** kept in each app's repo as `tests/a11y/routes.ts`. Initial set: landing `/`, `/legal/*`; social `/`, `/login`, `/account`, `/sessions`; pulse `/`, `/event/[id]`, `/explore`. Add every new top-level route to the allowlist. A lint rule enforces this by comparing the top-level pages to the allowlist file.
    - **Browser pinned** via `playwright install chromium --with-deps` cached by the Playwright version hash so CI cold-start stays under a minute.
    - **Run-time budget** ≤90 s for the full PR suite, parallelised across the three apps via `playwright --workers`.

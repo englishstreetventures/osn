@@ -17,7 +17,7 @@ related:
 packages:
   - "@pulse/db"
   - "@pulse/api"
-  - "@pulse/app"
+  - "@pulse/web"
 last-reviewed: 2026-07-22
 ---
 
@@ -111,5 +111,5 @@ The graph bridge no longer exposes `getCloseFriendIds` or `getCloseFriendsOf`; b
 - `pulse/api/src/routes/closeFriends.ts` — Elysia routes
 - `pulse/api/src/services/rsvps.ts` — uses `getCloseFriendsOfBatch` to stamp `isCloseFriend`
 - `pulse/api/src/services/events.ts` — uses `getCloseFriendIdsForViewer` for the feed boost in `listEvents`
-- `pulse/app/src/pages/CloseFriendsPage.tsx` — UI
-- `pulse/app/src/lib/closeFriends.ts` — client-side wrapper
+- `pulse/web/src/routes/close-friends.tsx` — UI
+- `pulse/web/src/lib/closeFriends.ts` — client-side wrapper

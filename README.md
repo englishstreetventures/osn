@@ -23,7 +23,7 @@ Phase 1. Three surfaces run in production on Cloudflare; the rest run locally.
 | Wedding invites (Cire) | `@cire/api`, `@cire/invites`, `@cire/host`, `@cire/vendor`, `@cire/db`, `@cire/theme` | Live — `cireweddings.com` zone |
 | Wedding marketing site | `@cire/landing` | Live — apex `cireweddings.com` |
 | Identity & graph UI | `@osn/social` | Live — Pages on the apex `musubi.social` (also serves the OIDC consent screen) |
-| Events (Pulse) | `@pulse/app`, `@pulse/api`, `@pulse/db` | Local only |
+| Events (Pulse) | `@pulse/web`, `@pulse/api`, `@pulse/db` | Local only |
 | Messaging (Zap) | `@zap/api`, `@zap/db` | Worker on `zap.cireweddings.com` — M1 in flight, client app not started |
 | OSN / Pulse marketing sites | `@osn/landing`, `@pulse/landing` | Built, not yet deployed |
 
@@ -323,7 +323,7 @@ Work on a feature branch, and include a changeset describing the change and the 
 bun run changeset
 ```
 
-Pick the packages, pick the bump type, write a summary. The CI "Changeset Check" job fails without one. It enforces two rules. Package names must match the workspace `name` exactly — `"@pulse/app"`, not `"pulse"`. One changeset must not mix version-less packages (`@cire/*`) with versioned ones.
+Pick the packages, pick the bump type, write a summary. The CI "Changeset Check" job fails without one. It enforces two rules. Package names must match the workspace `name` exactly — `"@pulse/web"`, not `"pulse"`. One changeset must not mix version-less packages (`@cire/*`) with versioned ones.
 
 On merge, CI runs `changeset version` to bump versions and update changelogs, commits that to `main`, and deploys the live surfaces.
 

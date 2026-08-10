@@ -7,7 +7,7 @@
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
-    "dev:pulse": "turbo dev --filter=@pulse/api --filter=@pulse/app --filter=@osn/api --filter=@zap/api",
+    "dev:pulse": "turbo dev --filter=@pulse/api --filter=@pulse/web --filter=@osn/api --filter=@zap/api",
     "dev:zap": "turbo dev --filter=@zap/api --filter=@osn/api",
     "dev:osn": "turbo dev --filter=@osn/api",
     "dev:social": "turbo dev --filter=@osn/social --filter=@osn/api",

@@ -140,7 +140,7 @@ Reach for these before hand-rolling setup:
 | `cire/api/src/test-helpers/osn-token.ts` → `makeOsnTestAuth()` | The cire-shaped `{ key, sign }` adapter over the above. |
 | `cire/api/src/test-helpers.ts` → `appRequest()` | Elysia requests with `cf-connecting-ip` + `Origin` pre-injected. |
 | `cire/host/src/test-support/mocks.ts` | The `@shared/rp-auth/solid` + `solid-toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`. |
-| `pulse/app/tests/helpers/toast.ts` → `solidToastMock()` | Same idea for the Pulse app. |
+| `pulse/web/tests/helpers/toast.ts` → `solidToastMock()` | Same idea for the Pulse app. |
 
 Call `makeAccessTokenSigner()` once per suite in `beforeAll` — there is no reason to re-key per test.
 

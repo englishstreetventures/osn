@@ -14,7 +14,7 @@
  * non-secure (local) env.
  */
 export const LOCAL_DEV_CORS_ORIGINS = [
-  "http://localhost:1420", // @pulse/app (event chats)
+  "http://localhost:1420", // @pulse/web (event chats)
   "http://localhost:1422", // @osn/social
 ] as const;
 

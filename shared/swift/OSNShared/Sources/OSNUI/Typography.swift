@@ -10,7 +10,7 @@ import SwiftUI
 ///
 /// BLOCKED: font files not vendored. Instrument Serif and Geist/Geist Mono
 /// are OFL 1.1 (pulled from Google Fonts in the web app at
-/// `pulse/app/index.html:9`); vendoring the `.ttf`/`.otf` files into this
+/// `pulse/web/src/entry-server.tsx`); vendoring the `.ttf`/`.otf` files into this
 /// package and registering them (Info.plist `UIAppFonts` / `CTFontManager`)
 /// is a decision for the app target, not made here. Until then `Font.custom`
 /// falls back to the system font.

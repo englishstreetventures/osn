@@ -128,7 +128,7 @@ indefinitely — the platform is not designed for under-13 users.
 
 ### EAA — first cut
 
-WCAG 2.1 AA across `@pulse/app`, `@osn/social`, `@zap/app` (when shipped),
+WCAG 2.1 AA across `@pulse/web`, `@osn/social`, `@zap/app` (when shipped),
 and `@osn/landing`. We audit it with:
 
 - `@axe-core/playwright` in CI on the four apps.

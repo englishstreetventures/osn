@@ -19,7 +19,7 @@ related:
   - "[[pulse]]"
 packages:
   - "@osn/ui"
-  - "@pulse/app"
+  - "@pulse/web"
 last-reviewed: 2026-08-07
 ---
 
@@ -250,7 +250,7 @@ import { Card } from "@osn/ui/ui/card";
 
 ## CSS Theme Variables
 
-Components reference CSS variables defined in each app's root CSS (e.g. `pulse/app/src/App.css`). The variable naming follows the shadcn convention:
+Components reference CSS variables defined in each app's root CSS (e.g. `pulse/web/src/app.css`). The variable naming follows the shadcn convention:
 
 ```css
 :root {
@@ -276,7 +276,7 @@ Components reference CSS variables defined in each app's root CSS (e.g. `pulse/a
 
 Tailwind maps these via `@theme inline` to utility classes (`bg-primary`, `text-muted-foreground`, etc.). Dark mode overrides go in `.dark {}`.
 
-**Any new app** that uses `@osn/ui` components must define these CSS variables in its root stylesheet. Copy from `pulse/app/src/App.css` as the starting point.
+**Any new app** that uses `@osn/ui` components must define these CSS variables in its root stylesheet. Copy from `pulse/web/src/app.css` as the starting point.
 
 ## Adding a New Component
 
@@ -304,4 +304,4 @@ Tailwind maps these via `@theme inline` to utility classes (`bg-primary`, `text-
 - [osn/ui/src/components/ui/](../../osn/ui/src/components/ui/) — all component source
 - [osn/ui/src/lib/utils.ts](../../osn/ui/src/lib/utils.ts) — `clsx`, `cn()`, and the deprecated `bx()` identity function
 - [osn/ui/package.json](../../osn/ui/package.json) — subpath exports
-- [pulse/app/src/App.css](../../pulse/app/src/App.css) — CSS variable theme + `@custom-variant base`
+- [pulse/web/src/app.css](../../pulse/web/src/app.css) — CSS variable theme + `@custom-variant base`

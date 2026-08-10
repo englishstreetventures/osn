@@ -28,5 +28,5 @@ picks up the classes from `@osn/ui` source files.
 
 ## Consumed by
 
-`@pulse/app` — any future first-party OSN app should follow the same
+`@pulse/web` — any future first-party OSN app should follow the same
 pattern.

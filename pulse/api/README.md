@@ -36,7 +36,7 @@ affects rate limits, DB planning, and the free-vs-paid tier boundary.
 
 The package's `exports` field publishes `@pulse/api/client`, a thin
 wrapper around `@elysiajs/eden`'s `treaty<App>()`. Frontends (notably
-`@pulse/app`) import that subpath to get fully-typed API calls:
+`@pulse/web`) import that subpath to get fully-typed API calls:
 
 ```ts
 import { createClient } from "@pulse/api/client";
@@ -52,5 +52,5 @@ bun run --cwd pulse/api dev
 
 ## Consumed by
 
-`@pulse/app` (frontend only — `@pulse/api` does not import from any
+`@pulse/web` (frontend only — `@pulse/api` does not import from any
 other workspace except `@pulse/db`).

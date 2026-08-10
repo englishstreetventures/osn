@@ -5,7 +5,7 @@ import UIKit
 import AppKit
 #endif
 
-/// Pulse brand tokens, ported from `pulse/app/src/App.css:56-73` (oklch source).
+/// Pulse brand tokens, ported from `pulse/web/src/app.css:56-73` (oklch source).
 /// Conversion: oklch -> OKLab -> linear sRGB (Ottosson matrices) -> XYZ (D65)
 /// -> linear Display P3 -> gamma-encoded (sRGB OETF). Arithmetic and full
 /// output in `a4-notes.md`. `.displayP3` used throughout per brief: these are

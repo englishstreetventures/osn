@@ -68,7 +68,7 @@ bun run changeset        # Create a new changeset (required for every PR)
 **Important notes:**
 
 - Every PR must include a changeset -- CI will fail without one
-- Changeset packages must use the workspace `name` field exactly (e.g. `"@pulse/app"`, not `"pulse"`)
+- Changeset packages must use the workspace `name` field exactly (e.g. `"@pulse/web"`, not `"pulse"`)
 - `bun run version` runs automatically on merge to main -- do not run manually
 - The Changeset Check workflow runs `bunx changeset status` to catch typos before merge
 

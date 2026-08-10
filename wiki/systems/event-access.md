@@ -120,7 +120,7 @@ When the same gate runs on the share-attribution surface (`POST /events/:id/shar
 - Service decode: `ShareSourceSchema` (Effect Schema literal) in the same file
 - Metric attribute type: `import type { ShareSource } from "./lib/shareSource"` in `pulse/api/src/metrics.ts`
 
-All three layers must agree on the wire shape. To add a destination (e.g. Zap, future OSN-native share targets), widen the array constant and the matching frontend mirror in `pulse/app/src/lib/shareSource.ts`.
+All three layers must agree on the wire shape. To add a destination (e.g. Zap, future OSN-native share targets), widen the array constant and the matching frontend mirror in `pulse/web/src/lib/shareSource.ts`.
 
 ### Attribution rules
 

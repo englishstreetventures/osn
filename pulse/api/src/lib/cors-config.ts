@@ -13,12 +13,12 @@
  */
 
 /**
- * Frontend dev port for the Pulse app (`@pulse/app`). Used as the CORS
+ * Frontend dev port for the Pulse app (`@pulse/web`). Used as the CORS
  * fallback when `PULSE_CORS_ORIGIN` is unset in a non-secure (local) env so
  * `bun run dev:pulse` works out of the box.
  */
 export const LOCAL_DEV_CORS_ORIGINS = [
-  "http://localhost:1420", // @pulse/app
+  "http://localhost:1420", // @pulse/web
 ] as const;
 
 export type CorsEnv = Readonly<Record<string, string | undefined>>;

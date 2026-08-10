@@ -17,7 +17,7 @@ related:
   - "[[pulse]]"
   - "[[testing-patterns]]"
 packages:
-  - "@pulse/app"
+  - "@pulse/web"
   - "@osn/ui"
 last-reviewed: 2026-07-22
 ---
@@ -30,7 +30,7 @@ UI primitives (Button, Input, Card, Dialog, etc.) live in `@osn/ui` as Zaidan-st
 
 ## Shared UI Tokens
 
-Visual treatments that appear in more than one component live in `pulse/app/src/lib/ui.ts` as exported constants. Changing a colour or ring style should be a **single-file edit**.
+Visual treatments that appear in more than one component live in `pulse/web/src/lib/ui.ts` as exported constants. Changing a colour or ring style should be a **single-file edit**.
 
 ### Current Tokens
 
@@ -81,7 +81,7 @@ Route-level components (`EventDetailPage`, `SettingsPage`) are `lazy()`-loaded i
 
 - [osn/ui/src/components/ui/](../../osn/ui/src/components/ui/) — Zaidan component primitives
 - [osn/ui/src/lib/utils.ts](../../osn/ui/src/lib/utils.ts) — `cn()` utility
-- [pulse/app/src/lib/ui.ts](../../pulse/app/src/lib/ui.ts) — shared UI tokens
+- [pulse/web/src/lib/ui.ts](../../pulse/web/src/lib/ui.ts) — shared UI tokens
 - [osn/ui/src/auth/Register.tsx](../../osn/ui/src/auth/Register.tsx) — shared registration component
 - [osn/ui/src/auth/SignIn.tsx](../../osn/ui/src/auth/SignIn.tsx) — shared sign-in component
 - [CLAUDE.md](../../CLAUDE.md) — conventions and commands

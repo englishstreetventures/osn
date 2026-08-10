@@ -24,7 +24,7 @@ packages:
   - "@osn/ui"
   - "@osn/landing"
   - "@osn/social"
-  - "@pulse/app"
+  - "@pulse/web"
   - "@pulse/api"
   - "@pulse/db"
   - "@pulse/landing"
@@ -75,7 +75,7 @@ osn/
   social/              # @osn/social — SolidJS web app for identity + graph management (port 1422)
   landing/             # @osn/landing — Astro + Solid marketing site (port 4324)
 pulse/
-  app/                 # @pulse/app — SolidJS browser SPA
+  web/                 # @pulse/web — SolidStart app, client-rendered
     src/               #   SolidJS frontend
   api/                 # @pulse/api — Elysia + Eden events server (port 3001)
   db/                  # @pulse/db — Drizzle + SQLite (events, RSVPs)

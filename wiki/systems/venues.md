@@ -15,7 +15,7 @@ related:
 packages:
   - "@pulse/db"
   - "@pulse/api"
-  - "@pulse/app"
+  - "@pulse/web"
 last-reviewed: 2026-07-22
 ---
 
@@ -53,11 +53,11 @@ Routes nest under `/venues` (`createVenuesRoutes`, public — no viewer-scoped a
 
 Services are Effect-based with `pulse.venue.*` spans. Metrics (`pulse.venue.detail.requests/.duration`, `pulse.venue.events.listed`, `pulse.venue.lineup.listed`) use bounded attributes — `bucketVenueKind()` collapses free-text kinds to a closed union (`club | bar | warehouse | outdoor | theatre | other`) so crafted kind values can't inflate cardinality. `getVenue` records the detail metric only when called with `{ recordMetric: true }` (the detail route) — internal reuse by the programme/lineup paths stays out of the counter so it measures page views.
 
-## Frontend (`@pulse/app`)
+## Frontend (`@pulse/web`)
 
 - **`VenueDetailPage`** (`/venues/:orgHandle/:venueHandle`): vertical mono-time lineup timeline (`VenueLineupTimeline`), snap-scroll event carousel (`VenueEventCarousel`), real-time open/closed badge computed in the venue's timezone (`computeOpenStatus` handles midnight-crossing windows), "Open in Maps" (`venueMapsUrl`), website + Instagram icon links. Fetches `scope=upcoming`; falls back to `scope=past&limit=1` only when no upcoming nights exist. `website_url` / `hero_image_url` render through `safeHttpUrl()`, which drops non-http(s) schemes (S-M2).
 - **Explore map venue layer**: diamond venue pins wrapped in `<A>` links. When a visible event pin sits at the same venue, the diamond is hidden and the event popover gains a "See venue →" CTA. Event pins are focusable `<button>`s — the popover opens on focus as well as hover (grace-timer dismiss, Escape closes), so the venue link stays keyboard-reachable (C-M2 / WCAG 2.1.1).
-- Client fetchers in `pulse/app/src/lib/venues.ts` are fail-soft (null / `[]` on error) and `encodeURIComponent` every path segment.
+- Client fetchers in `pulse/web/src/lib/venues.ts` are fail-soft (null / `[]` on error) and `encodeURIComponent` every path segment.
 - `Icon` was promoted from `explore/` to `components/` with `globe` + `instagram` glyphs added.
 
 ## Deferred / known follow-ups

@@ -13,7 +13,7 @@ Read all changed source files in the affected workspaces and examine them for th
 - **Large serialised payloads** — JSON responses that include unnecessary nested data or could be streamed
 - **WebSocket fan-out** — message broadcasting that iterates all connections in O(n) without grouping or batching
 
-## Frontend (pulse/app, osn/landing, osn/ui)
+## Frontend (pulse/web, osn/landing, osn/ui)
 
 - **Unnecessary SolidJS re-renders** — signals read outside of JSX or tracked contexts (defeating fine-grained reactivity), or `createEffect` with broad dependencies
 - **Heavy bundle imports** — importing entire libraries (`import * as _`) where tree-shaking would suffice; or missing dynamic `import()` for large code paths

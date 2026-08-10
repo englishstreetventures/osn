@@ -5,7 +5,7 @@
  * organiser will see in their attribution analytics. New platforms (e.g.
  * Zap, future OSN-native shares) extend this union — adding a value is a
  * one-line change here plus the matching constant in the frontend mirror
- * at `pulse/app/src/lib/shareSource.ts`.
+ * at `pulse/web/src/lib/shareSource.ts`.
  *
  * Three layers consume this:
  *   1. The Effect Schema literal (`ShareSourceSchema`) — service-layer

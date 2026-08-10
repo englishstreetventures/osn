@@ -23,5 +23,5 @@ agnostic at the core, with an optional SolidJS integration under
 
 ## Consumed by
 
-`@pulse/app`, any future first-party OSN apps, and `@osn/ui/auth`
+`@pulse/web`, any future first-party OSN apps, and `@osn/ui/auth`
 components (which inject client instances via props).

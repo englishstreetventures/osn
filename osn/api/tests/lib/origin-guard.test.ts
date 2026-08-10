@@ -111,7 +111,7 @@ describe("createOriginGuard", () => {
     expect(result).toBeUndefined();
   });
 
-  it("admits the monorepo dev ports (@pulse/app:1420, @osn/social:1422) when configured", () => {
+  it("admits the monorepo dev ports (@pulse/web:1420, @osn/social:1422) when configured", () => {
     const devGuard = createOriginGuard({
       allowedOrigins: new Set(["http://localhost:1420", "http://localhost:1422"]),
     });

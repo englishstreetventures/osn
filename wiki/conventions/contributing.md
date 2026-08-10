@@ -73,7 +73,7 @@ bun run changeset
 
 | Correct | Wrong |
 |---------|-------|
-| `"@pulse/app"` | `"pulse"` |
+| `"@pulse/web"` | `"pulse"` |
 | `"@osn/api"` | `"osn-api"` |
 | `"@shared/db-utils"` | `"db-utils"` |
 

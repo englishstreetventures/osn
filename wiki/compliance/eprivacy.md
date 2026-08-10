@@ -52,7 +52,7 @@ Per the EDPB Guidelines 2/2023:
 |---|---|---|---|
 | `osn_session` cookie | HttpOnly, Secure, SameSite=Lax, Path=/, refresh token | ✓ Strictly necessary for authenticated session | First-party only. |
 | `localStorage:@osn/client:account_session` | Profile-scoped access tokens, active profile id | ✓ Strictly necessary | First-party only. The 5-min TTL limits the damage. |
-| `localStorage:@pulse/app:*` (theme, last-tab, draft-event) | UX state | Borderline — request-driven UX state, generally accepted as exempt under "user-friendly design" tests | Document on the privacy notice anyway. |
+| `localStorage:@pulse/web:*` (theme, last-tab, draft-event) | UX state | Borderline — request-driven UX state, generally accepted as exempt under "user-friendly design" tests | Document on the privacy notice anyway. |
 | iOS Keychain (planned) | Refresh / session tokens on native | ✓ Strictly necessary | iOS Keychain / Android Keystore equivalent. |
 
 ## Project changes required

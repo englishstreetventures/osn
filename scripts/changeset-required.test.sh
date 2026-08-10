@@ -40,7 +40,7 @@ run_case "source file in a versioned package" required \
   'osn/api/src/routes/graph.ts'
 
 run_case "package.json bump" required \
-  'pulse/app/package.json'
+  'pulse/web/package.json'
 
 # The case a denylist would miss: a lockfile-only `bun update` changes what
 # every deployed package builds from without touching a workspace file.

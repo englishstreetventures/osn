@@ -109,7 +109,7 @@ Horizontal card: 180px media thumbnail + body. Featured cards go full-width with
 
 ## Onboarding illustrations
 
-The first-run flow (`/welcome`) introduces six themed SVGs in `pulse/app/src/assets/onboarding/`. They follow these rules so theme tokens drive every accent — no hard-coded colours, dark-mode automatic.
+The first-run flow (`/welcome`) introduces six themed SVGs in `pulse/web/src/assets/onboarding/`. They follow these rules so theme tokens drive every accent — no hard-coded colours, dark-mode automatic.
 
 | Illustration | File | Token usage |
 |--------------|------|-------------|

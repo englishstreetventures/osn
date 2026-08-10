@@ -4,7 +4,7 @@
 # bun, no @changesets/cli, no network) so it runs identically in CI and locally.
 #
 # The bug class this guards against: a changeset that names a package which
-# doesn't exist in the workspace tree (e.g. "pulse" instead of "@pulse/app")
+# doesn't exist in the workspace tree (e.g. "pulse" instead of "@pulse/web")
 # passes PR review and then crashes the post-merge Release workflow on `main`,
 # blocking all subsequent versioning until someone hand-edits the offending file.
 #
@@ -113,7 +113,7 @@ if [ $bad -ne 0 ]; then
   echo
   echo "Open the offending .changeset/*.md files. For an unknown package,"
   echo "use the exact workspace 'name' from its package.json (e.g. '@osn/ui',"
-  echo "'@pulse/app', not 'pulse'). For a mixed changeset, split it in two:"
+  echo "'@pulse/web', not 'pulse'). For a mixed changeset, split it in two:"
   echo "one file for the ignored (version-less) packages and one for the"
   echo "versioned packages."
   exit 1

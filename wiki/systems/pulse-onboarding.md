@@ -83,15 +83,15 @@ ARC-protected with the **dedicated `graph:resolve-account` scope** (audience `os
 
 ## Frontend
 
-- Route: `/welcome` (`pulse/app/src/pages/WelcomePage.tsx`), lazy-loaded.
-- Stepper: `pulse/app/src/pages/onboarding/OnboardingStepper.tsx` — owns step index + captured state, calls `/complete` on finish.
+- Route: `/welcome` (`pulse/web/src/routes/welcome.tsx`), lazy-loaded.
+- Stepper: `pulse/web/src/components/onboarding/OnboardingStepper.tsx` — owns step index + captured state, calls `/complete` on finish.
 - Step components: `Step1Welcome` … `Step6Finish` — one file per step, each composes the shared `StepShell`.
-- First-run gate: `OnboardingGate` in `pulse/app/src/components/OnboardingGate.tsx` — fetches status when an access token is available; if `completedAt === null` and the user isn't on `/welcome` and the session isn't already resolved, redirects to `/welcome`. **Fetch source is keyed only on the access token** (not the pathname) so the resource fires once per session and never re-fetches when the user navigates between routes — the pathname check moved into the redirect effect (P-W1 fix).
-- Resolved-this-session: `markOnboardingResolvedThisSession()` / `isOnboardingResolvedThisSession()` in `pulse/app/src/lib/onboarding.ts`, backed by `sessionStorage` (key `pulse:onboarding-resolved`). Set on BOTH skip and completion — the gate's `createResource` is token-keyed and caches the pre-complete status, so without this flag a successful `POST /me/onboarding/complete` followed by `navigate("/")` would bounce the user back to `/welcome` (the redirect-loop fix). Server-side state stays authoritative — next session boot fetches fresh and sees `completedAt` set.
+- First-run gate: `OnboardingGate` in `pulse/web/src/components/OnboardingGate.tsx` — fetches status when an access token is available; if `completedAt === null` and the user isn't on `/welcome` and the session isn't already resolved, redirects to `/welcome`. **Fetch source is keyed only on the access token** (not the pathname) so the resource fires once per session and never re-fetches when the user navigates between routes — the pathname check moved into the redirect effect (P-W1 fix).
+- Resolved-this-session: `markOnboardingResolvedThisSession()` / `isOnboardingResolvedThisSession()` in `pulse/web/src/lib/onboarding.ts`, backed by `sessionStorage` (key `pulse:onboarding-resolved`). Set on BOTH skip and completion — the gate's `createResource` is token-keyed and caches the pre-complete status, so without this flag a successful `POST /me/onboarding/complete` followed by `navigate("/")` would bounce the user back to `/welcome` (the redirect-loop fix). Server-side state stays authoritative — next session boot fetches fresh and sees `completedAt` set.
 
 ## Themed illustrations
 
-Six SVGs in `pulse/app/src/assets/onboarding/`:
+Six SVGs in `pulse/web/src/assets/onboarding/`:
 
 | File | Step | Token usage |
 |------|------|-------------|
@@ -127,6 +127,6 @@ All attribute types are bounded string-literal unions (no profileId / accountId 
 
 ## Future extensions
 
-- `@pulse/app` uses the standard browser geolocation/notification APIs; the native iOS app is a separate Swift target with its own permission prompts and does not load this bundle.
+- `@pulse/web` uses the standard browser geolocation/notification APIs; the native iOS app is a separate Swift target with its own permission prompts and does not load this bundle.
 - Settings page surface for revisiting captured prefs (interests, reminder opt-in). The service already has the `updateOnboardingPrefs` shape sketched out; it needs a route + UI.
 - Friend-suggestion step (post-step-3) once OSN exposes a "people on Pulse you may know" recommendation feed.
