@@ -19,9 +19,12 @@ vi.mock("@solidjs/router", async () => {
   };
 });
 
-vi.mock("@osn/client/solid", () => ({
-  useAuth: () => ({ session: () => null, profiles: () => null, createProfile: vi.fn() }),
-}));
+import { authState } from "../helpers/auth";
+
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../helpers/auth");
+  return rpAuthSolidMock();
+});
 
 // Sub-components pulled in by the page — stub them to simple markers so
 // the test focuses on the header card + price badge.
@@ -94,6 +97,7 @@ function makeEvent(overrides: Partial<EventShape>): EventShape {
 
 describe("EventDetailPage price badge", () => {
   beforeEach(() => {
+    authState.session = null;
     mockGet.mockReset();
   });
 
@@ -139,6 +143,7 @@ describe("EventDetailPage price badge", () => {
 
 describe("EventDetailPage source-attribution wiring", () => {
   beforeEach(() => {
+    authState.session = null;
     mockGet.mockReset();
     mockRecordShareExposure.mockClear();
     rsvpSectionProps.mockClear();
@@ -164,7 +169,7 @@ describe("EventDetailPage source-attribution wiring", () => {
     const { findByTestId } = render(() => <EventDetailPage />);
     await findByTestId("rsvp-stub");
     await waitFor(() => {
-      expect(mockRecordShareExposure).toHaveBeenCalledWith("evt_1", "tiktok", null);
+      expect(mockRecordShareExposure).toHaveBeenCalledWith("evt_1", "tiktok");
     });
     const lastProps = rsvpSectionProps.mock.calls.at(-1)?.[0] as {
       inboundSource?: string | null;
@@ -177,7 +182,7 @@ describe("EventDetailPage source-attribution wiring", () => {
     const { findByTestId } = render(() => <EventDetailPage />);
     await findByTestId("rsvp-stub");
     await waitFor(() => {
-      expect(mockRecordShareExposure).toHaveBeenCalledWith("evt_1", "other", null);
+      expect(mockRecordShareExposure).toHaveBeenCalledWith("evt_1", "other");
     });
   });
 

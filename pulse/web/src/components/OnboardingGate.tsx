@@ -1,4 +1,4 @@
-import { useAuth } from "@osn/client/solid";
+import { useAuth } from "@shared/rp-auth/solid";
 import { useLocation, useNavigate } from "@solidjs/router";
 import { createEffect, createResource } from "solid-js";
 
@@ -10,9 +10,8 @@ import { fetchOnboardingStatus, isOnboardingResolvedThisSession } from "../lib/o
  * to skip this session), redirect to `/welcome`. Anonymous browsers are
  * unaffected — Pulse's public discovery surface stays open.
  *
- * The gate is keyed on the access token so a profile switch (which
- * issues a new token) re-runs the check; switching to a profile whose
- * account already onboarded is a cache hit and resolves instantly.
+ * The gate is keyed on the signed-in profile id, so signing out and back in
+ * as someone else re-runs the check while an ordinary re-render does not.
  *
  * Lives in its own module (rather than inline in `App.tsx`) so the
  * redirect logic — the only seam between this feature and every other
@@ -23,7 +22,7 @@ export function OnboardingGate() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Only the access token controls whether we fetch — NOT the pathname.
+  // Only the signed-in profile controls whether we fetch — NOT the pathname.
   // Including pathname in the source signal made `createResource` re-run
   // every time the user navigated `/welcome` ↔ another route (because the
   // source flipped to null and back), defeating the "once per session"
@@ -31,10 +30,10 @@ export function OnboardingGate() {
   // moved into the redirect effect where it belongs — deciding whether to
   // navigate, not whether to fetch.
   const fetchKey = () => {
-    const token = session()?.accessToken ?? null;
-    if (!token) return null;
+    const profileId = session()?.osnProfileId ?? null;
+    if (!profileId) return null;
     if (isOnboardingResolvedThisSession()) return null;
-    return token;
+    return profileId;
   };
 
   const [status] = createResource(fetchKey, fetchOnboardingStatus);

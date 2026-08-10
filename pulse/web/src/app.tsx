@@ -1,12 +1,13 @@
-import { AuthProvider } from "@osn/client/solid";
+import { AuthProvider } from "@shared/rp-auth/solid";
 import { type RouteSectionProps, Router, useLocation } from "@solidjs/router";
 import { FileRoutes } from "@solidjs/start/router";
 import { Show, Suspense } from "solid-js";
 import { Toaster } from "solid-toast";
 
+import { AuthErrorToast } from "./components/AuthErrorToast";
 import { Header } from "./components/Header";
 import { OnboardingGate } from "./components/OnboardingGate";
-import { OSN_ISSUER_URL } from "./lib/auth";
+import { authConfig } from "./lib/auth";
 
 import "./app.css";
 
@@ -21,6 +22,7 @@ function Layout(props: RouteSectionProps) {
 
   return (
     <>
+      <AuthErrorToast />
       <OnboardingGate />
       <Show when={!isHome() && !isWelcome()}>
         <Header />
@@ -33,7 +35,7 @@ function Layout(props: RouteSectionProps) {
 
 export default function App() {
   return (
-    <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
+    <AuthProvider config={authConfig}>
       <Router root={Layout}>
         <FileRoutes />
       </Router>

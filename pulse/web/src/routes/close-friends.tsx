@@ -1,61 +1,46 @@
-import type { ConnectionEntry } from "@osn/client";
-import { useAuth } from "@osn/client/solid";
 import { Avatar, AvatarFallback } from "@osn/ui/ui/avatar";
 import { Button } from "@osn/ui/ui/button";
 import { Card } from "@osn/ui/ui/card";
+import { useAuth } from "@shared/rp-auth/solid";
 import { createResource, createSignal, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
-import { OSN_ISSUER_URL } from "../lib/auth";
 import {
   addCloseFriend,
+  listCloseFriendCandidates,
   listCloseFriends,
   removeCloseFriend,
+  type CandidateEntry,
   type CloseFriendEntry,
 } from "../lib/closeFriends";
 
-interface ConnectionsResponse {
-  connections: ConnectionEntry[];
-}
-
-async function fetchConnections(token: string): Promise<ConnectionEntry[]> {
-  const res = await fetch(`${OSN_ISSUER_URL}/graph/connections`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return [];
-  const body = (await res.json()) as ConnectionsResponse;
-  return body.connections ?? [];
-}
-
 export function CloseFriendsPage() {
   const { session } = useAuth();
-  const token = () => session()?.accessToken ?? null;
+  // Both lists are the viewer's own, and both requests are authorised by the
+  // session cookie — so the resources key on who's signed in, not on a token.
+  const viewer = () => session()?.osnProfileId;
 
   const [closeFriends, { refetch: refetchCloseFriends }] = createResource<
     CloseFriendEntry[],
     string
-  >(
-    () => token() ?? undefined,
-    async (tk) => listCloseFriends(tk),
-    { initialValue: [] },
-  );
-  const [connections, { refetch: refetchConnections }] = createResource<ConnectionEntry[], string>(
-    () => token() ?? undefined,
-    async (tk) => fetchConnections(tk),
-    { initialValue: [] },
-  );
+  >(viewer, () => listCloseFriends(), { initialValue: [] });
+  // `null` distinguishes an unreachable graph from a viewer with no
+  // connections; the two read very differently to someone looking at an
+  // empty card.
+  const [candidates, { refetch: refetchCandidates }] = createResource<
+    CandidateEntry[] | null,
+    string
+  >(viewer, () => listCloseFriendCandidates(), { initialValue: [] });
 
   const [busy, setBusy] = createSignal<string | null>(null);
 
   const closeFriendIds = () => new Set(closeFriends().map((c) => c.profileId));
-  const eligible = () => connections().filter((c) => !closeFriendIds().has(c.id));
+  const eligible = () => (candidates() ?? []).filter((c) => !closeFriendIds().has(c.profileId));
 
-  async function add(connection: ConnectionEntry) {
-    const tk = token();
-    if (!tk) return;
-    setBusy(connection.id);
+  async function add(candidate: CandidateEntry) {
+    setBusy(candidate.profileId);
     try {
-      const res = await addCloseFriend(connection.id, tk);
+      const res = await addCloseFriend(candidate.profileId);
       if (!res.ok) {
         toast.error(
           res.error === "not_a_connection"
@@ -64,20 +49,18 @@ export function CloseFriendsPage() {
         );
         return;
       }
-      toast.success(`Added @${connection.handle} to close friends`);
+      toast.success(`Added @${candidate.handle} to close friends`);
       refetchCloseFriends();
-      refetchConnections();
+      refetchCandidates();
     } finally {
       setBusy(null);
     }
   }
 
   async function remove(entry: CloseFriendEntry) {
-    const tk = token();
-    if (!tk) return;
     setBusy(entry.profileId);
     try {
-      const res = await removeCloseFriend(entry.profileId, tk);
+      const res = await removeCloseFriend(entry.profileId);
       if (!res.ok) {
         toast.error("Could not remove close friend");
         return;
@@ -152,44 +135,53 @@ export function CloseFriendsPage() {
         <Card class="flex flex-col gap-2 p-4">
           <h2 class="text-base font-semibold">Add from your connections</h2>
           <Show
-            when={eligible().length > 0}
+            when={candidates() !== null}
             fallback={
               <p class="text-muted-foreground text-sm">
-                You've added all your connections, or you don't have any yet.
+                Couldn't load your connections just now. Try again in a moment.
               </p>
             }
           >
-            <ul class="flex flex-col gap-1">
-              <For each={eligible()}>
-                {(connection) => (
-                  <li class="hover:bg-muted/50 flex items-center gap-3 rounded-lg px-2 py-2 transition-colors">
-                    <Avatar class="h-9 w-9">
-                      <AvatarFallback class="text-xs">
-                        {connection.handle.slice(0, 2).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div class="min-w-0 flex-1">
-                      <p class="text-foreground text-sm font-medium">
-                        {connection.displayName || `@${connection.handle}`}
-                      </p>
-                      <Show when={connection.displayName}>
-                        <p class="text-muted-foreground text-xs">@{connection.handle}</p>
-                      </Show>
-                    </div>
-                    <Button
-                      size="sm"
-                      class="h-7 text-xs"
-                      disabled={busy() === connection.id}
-                      onClick={() => {
-                        void add(connection);
-                      }}
-                    >
-                      Add
-                    </Button>
-                  </li>
-                )}
-              </For>
-            </ul>
+            <Show
+              when={eligible().length > 0}
+              fallback={
+                <p class="text-muted-foreground text-sm">
+                  You've added all your connections, or you don't have any yet.
+                </p>
+              }
+            >
+              <ul class="flex flex-col gap-1">
+                <For each={eligible()}>
+                  {(candidate) => (
+                    <li class="hover:bg-muted/50 flex items-center gap-3 rounded-lg px-2 py-2 transition-colors">
+                      <Avatar class="h-9 w-9">
+                        <AvatarFallback class="text-xs">
+                          {candidate.handle.slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div class="min-w-0 flex-1">
+                        <p class="text-foreground text-sm font-medium">
+                          {candidate.displayName || `@${candidate.handle}`}
+                        </p>
+                        <Show when={candidate.displayName}>
+                          <p class="text-muted-foreground text-xs">@{candidate.handle}</p>
+                        </Show>
+                      </div>
+                      <Button
+                        size="sm"
+                        class="h-7 text-xs"
+                        disabled={busy() === candidate.profileId}
+                        onClick={() => {
+                          void add(candidate);
+                        }}
+                      >
+                        Add
+                      </Button>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </Show>
           </Show>
         </Card>
       </Show>

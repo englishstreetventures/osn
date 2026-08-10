@@ -22,22 +22,17 @@ function initials(name: string): string {
  * (Can't make it); confirming/declining calls the RSVP endpoint and asks
  * the page to refetch via `onChanged`.
  */
-export function CalendarEventCard(props: {
-  entry: CalendarEntry;
-  accessToken: string | null;
-  onChanged: () => void;
-}) {
+export function CalendarEventCard(props: { entry: CalendarEntry; onChanged: () => void }) {
   const event = () => props.entry.event;
   const [submitting, setSubmitting] = createSignal(false);
 
+  // No signed-in check here: the calendar page itself only renders for a
+  // signed-in viewer, and the RSVP call carries the session cookie. A stale
+  // session surfaces as the expiry message `upsertMyRsvp` already returns.
   async function confirm(status: "going" | "not_going") {
-    if (!props.accessToken) {
-      toast.error("Sign in to update your RSVP");
-      return;
-    }
     setSubmitting(true);
     try {
-      const result = await upsertMyRsvp(event().id, status, props.accessToken);
+      const result = await upsertMyRsvp(event().id, status);
       if (!result.ok) {
         toast.error(result.error ?? "Failed to update RSVP");
         return;

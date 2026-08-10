@@ -1,6 +1,6 @@
-import { useAuth } from "@osn/client/solid";
 import { Badge } from "@osn/ui/ui/badge";
 import { Card } from "@osn/ui/ui/card";
+import { useAuth } from "@shared/rp-auth/solid";
 import { A, useParams, useSearchParams } from "@solidjs/router";
 import { createEffect, createResource, createSignal, on, untrack, Show } from "solid-js";
 
@@ -14,7 +14,7 @@ import { api } from "../../lib/api";
 import { formatPrice } from "../../lib/formatPrice";
 import { apiBaseUrl, recordShareExposure } from "../../lib/rsvps";
 import { coerceShareSource, type ShareSource } from "../../lib/shareSource";
-import { formatTime, getProfileIdFromToken } from "../../lib/utils";
+import { formatTime } from "../../lib/utils";
 
 interface EventDetail {
   id: string;
@@ -42,10 +42,10 @@ interface EventDetail {
 
 const locationLabel = (e: EventDetail) => [e.venue, e.location].filter(Boolean).join(", ") || null;
 
-async function fetchEvent(id: string, token: string | null): Promise<EventDetail | null> {
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-  const { data, error } = await api.events({ id }).get({ headers });
+// No headers: the client sends the session cookie on every call, and the API
+// widens what it returns once it recognises the caller.
+async function fetchEvent(id: string): Promise<EventDetail | null> {
+  const { data, error } = await api.events({ id }).get();
   if (error) return null;
   return (data?.event ?? null) as EventDetail | null;
 }
@@ -54,11 +54,14 @@ export function EventDetailPage() {
   const params = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const { session } = useAuth();
-  const accessToken = () => session()?.accessToken ?? null;
-  const currentProfileId = () => getProfileIdFromToken(accessToken());
+  // The viewer's id comes from the session the API handed us, not from a token
+  // the browser parses — it never holds one.
+  const currentProfileId = () => session()?.osnProfileId ?? null;
 
-  const fetchKey = () => ({ id: params.id, token: accessToken() });
-  const [event] = createResource(fetchKey, ({ id, token }) => fetchEvent(id, token));
+  // Re-fetch when the viewer changes: the same event shows more to a signed-in
+  // caller than to an anonymous one.
+  const fetchKey = () => ({ id: params.id, viewer: currentProfileId() });
+  const [event] = createResource(fetchKey, ({ id }) => fetchEvent(id));
 
   // Inbound share-source attribution: latch the `?source=` param so it
   // survives router-driven URL cleanups, and only forward it on the
@@ -86,7 +89,7 @@ export function EventDetailPage() {
     const source = inboundSource();
     const ev = event();
     if (!source || !ev) return;
-    void recordShareExposure(ev.id, source, accessToken());
+    void recordShareExposure(ev.id, source);
   });
 
   return (
@@ -175,11 +178,7 @@ export function EventDetailPage() {
                 </Show>
                 <div class="mt-4 flex flex-wrap gap-2">
                   <AddToCalendarButton eventId={e().id} apiBaseUrl={apiBaseUrl} />
-                  <ShareEventButton
-                    eventId={e().id}
-                    eventTitle={e().title}
-                    accessToken={accessToken()}
-                  />
+                  <ShareEventButton eventId={e().id} eventTitle={e().title} />
                 </div>
               </div>
             </Card>
@@ -194,7 +193,6 @@ export function EventDetailPage() {
             {/* RSVPs */}
             <RsvpSection
               event={e()}
-              accessToken={accessToken()}
               currentProfileId={currentProfileId()}
               inboundSource={inboundSource()}
               onSourceConsumed={() => setInboundSource(null)}

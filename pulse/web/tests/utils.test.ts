@@ -5,8 +5,9 @@ import {
   toDatetimeLocal,
   composeLabel,
   isEndBeforeOrAtStart,
-  getProfileIdFromToken,
-  getDisplayNameFromToken,
+  displayNameOf,
+  initialOf,
+  safeAvatarUrl,
   deriveEndFromDuration,
   type PhotonFeature,
 } from "../src/lib/utils";
@@ -74,56 +75,76 @@ describe("isEndBeforeOrAtStart", () => {
   });
 });
 
-// Builds a fake JWT with a base64-encoded payload (no signature verification in client code)
-function fakeJwt(payload: Record<string, unknown>): string {
-  return `header.${btoa(JSON.stringify(payload))}.sig`;
-}
-
-describe("getProfileIdFromToken", () => {
-  it("returns null for null input", () => {
-    expect(getProfileIdFromToken(null)).toBeNull();
+describe("displayNameOf", () => {
+  it("returns null for a signed-out viewer (null identity)", () => {
+    expect(displayNameOf(null)).toBeNull();
   });
 
-  it("returns null for a malformed token (no dots)", () => {
-    expect(getProfileIdFromToken("notajwt")).toBeNull();
+  it("prefers the display name over handle and email", () => {
+    expect(
+      displayNameOf({ displayName: "Alice Ng", handle: "alice", email: "alice@example.com" }),
+    ).toBe("Alice Ng");
   });
 
-  it("returns null for a token with invalid base64 payload", () => {
-    expect(getProfileIdFromToken("header.!!!.sig")).toBeNull();
+  it("falls back to @handle when there is no display name", () => {
+    expect(displayNameOf({ displayName: null, handle: "alice", email: "alice@example.com" })).toBe(
+      "@alice",
+    );
   });
 
-  it("returns null when payload has no sub claim", () => {
-    expect(getProfileIdFromToken(fakeJwt({ email: "alice@example.com" }))).toBeNull();
+  it("falls back to the email local-part when there is no name or handle", () => {
+    expect(displayNameOf({ displayName: null, handle: null, email: "alice@example.com" })).toBe(
+      "alice",
+    );
   });
 
-  it("returns null when sub claim is not a string", () => {
-    expect(getProfileIdFromToken(fakeJwt({ sub: 42 }))).toBeNull();
-  });
-
-  it("returns the sub claim when present", () => {
-    expect(getProfileIdFromToken(fakeJwt({ sub: "usr_test" }))).toBe("usr_test");
+  it("returns null when the identity carries none of the three", () => {
+    expect(displayNameOf({ displayName: null, handle: null, email: null })).toBeNull();
   });
 });
 
-describe("getDisplayNameFromToken", () => {
-  it("returns null for null input", () => {
-    expect(getDisplayNameFromToken(null)).toBeNull();
+describe("initialOf", () => {
+  it("upper-cases the first character", () => {
+    expect(initialOf("alice")).toBe("A");
   });
 
-  it("returns null for a malformed token", () => {
-    expect(getDisplayNameFromToken("notajwt")).toBeNull();
+  it("skips leading whitespace", () => {
+    expect(initialOf("  bob")).toBe("B");
   });
 
-  it("returns null when payload has no email claim", () => {
-    expect(getDisplayNameFromToken(fakeJwt({ sub: "usr_test" }))).toBeNull();
+  it("returns ? for null", () => {
+    expect(initialOf(null)).toBe("?");
   });
 
-  it("returns the local-part of the email claim", () => {
-    expect(getDisplayNameFromToken(fakeJwt({ email: "alice@example.com" }))).toBe("alice");
+  it("returns ? for an empty name", () => {
+    expect(initialOf("   ")).toBe("?");
+  });
+});
+
+describe("safeAvatarUrl", () => {
+  it("passes an absolute https URL through", () => {
+    expect(safeAvatarUrl("https://cdn.example.com/a.png")).toBe("https://cdn.example.com/a.png");
   });
 
-  it("returns null when email claim is not a string", () => {
-    expect(getDisplayNameFromToken(fakeJwt({ email: 123 }))).toBeNull();
+  it("rejects http", () => {
+    expect(safeAvatarUrl("http://cdn.example.com/a.png")).toBeNull();
+  });
+
+  it("rejects javascript:", () => {
+    expect(safeAvatarUrl("javascript:alert(1)")).toBeNull();
+  });
+
+  it("rejects data:", () => {
+    expect(safeAvatarUrl("data:image/png;base64,AAAA")).toBeNull();
+  });
+
+  it("rejects a protocol-relative URL (unparseable without a base)", () => {
+    expect(safeAvatarUrl("//cdn.example.com/a.png")).toBeNull();
+  });
+
+  it("returns null for null or empty input", () => {
+    expect(safeAvatarUrl(null)).toBeNull();
+    expect(safeAvatarUrl("")).toBeNull();
   });
 });
 

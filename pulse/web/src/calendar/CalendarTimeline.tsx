@@ -7,11 +7,7 @@ import { CalendarEventCard } from "./CalendarEventCard";
  * Vertical-timeline agenda: a continuous axis runs down the left edge,
  * with a dated marker per day and that day's events listed to the right.
  */
-export function CalendarTimeline(props: {
-  entries: CalendarEntry[];
-  accessToken: string | null;
-  onChanged: () => void;
-}) {
+export function CalendarTimeline(props: { entries: CalendarEntry[]; onChanged: () => void }) {
   const groups = () => groupEntriesByDay(props.entries);
 
   return (
@@ -35,13 +31,7 @@ export function CalendarTimeline(props: {
                 <h2 class="cal-day__label">{group.label}</h2>
                 <div class="flex flex-col gap-2.5">
                   <For each={group.entries}>
-                    {(entry) => (
-                      <CalendarEventCard
-                        entry={entry}
-                        accessToken={props.accessToken}
-                        onChanged={props.onChanged}
-                      />
-                    )}
+                    {(entry) => <CalendarEventCard entry={entry} onChanged={props.onChanged} />}
                   </For>
                 </div>
               </div>

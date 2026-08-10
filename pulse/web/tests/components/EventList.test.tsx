@@ -17,32 +17,13 @@ vi.mock("solid-toast", async () => {
   const { solidToastMock } = await import("../helpers/toast");
   return solidToastMock();
 });
+import { authState, fakeSession } from "../helpers/auth";
 import { mockToastError, mockToastSuccess } from "../helpers/toast";
 
-const mockLogin = vi.fn();
-const mockLogout = vi.fn();
-let mockSession: () => { accessToken: string } | null = () => null;
-
-vi.mock("@osn/client/solid", () => ({
-  useAuth: () => ({
-    session: () => mockSession(),
-    login: mockLogin,
-    logout: mockLogout,
-    profiles: () => [
-      {
-        id: "usr_test",
-        handle: "test",
-        email: "test@example.com",
-        displayName: null,
-        avatarUrl: null,
-      },
-    ],
-    activeProfileId: () => "usr_test",
-    switchProfile: vi.fn(),
-    deleteProfile: vi.fn(),
-    createProfile: vi.fn(),
-  }),
-}));
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../helpers/auth");
+  return rpAuthSolidMock();
+});
 
 const mockGet = vi.fn();
 const mockDelete = vi.fn();
@@ -59,34 +40,10 @@ vi.mock("../../src/lib/api", () => ({
   },
 }));
 
-vi.mock("../../src/lib/authClients", () => ({
-  registrationClient: {
-    checkHandle: vi.fn(),
-    beginRegistration: vi.fn(),
-    completeRegistration: vi.fn(),
-  },
-  loginClient: {
-    passkeyBegin: vi.fn(),
-    passkeyComplete: vi.fn(),
-  },
-  recoveryClient: {
-    generateRecoveryCodes: vi.fn(),
-    loginWithRecoveryCode: vi.fn(),
-  },
-}));
-
-vi.mock("@simplewebauthn/browser", () => ({
-  browserSupportsWebAuthn: () => false,
-  startAuthentication: vi.fn(),
-  startRegistration: vi.fn(),
-}));
-
 describe("EventList — unauthenticated", () => {
   beforeEach(() => {
-    mockSession = () => null;
+    authState.session = null;
     mockGet.mockReset();
-    mockLogin.mockReset();
-    mockLogout.mockReset();
   });
 
   afterEach(() => {
@@ -143,15 +100,10 @@ describe("EventList — unauthenticated", () => {
   // See Header.test.tsx for those tests.
 });
 
-// A minimal fake JWT with a decodable payload — no signature verification in client code.
-const FAKE_JWT = `header.${btoa(JSON.stringify({ sub: "usr_test", email: "test@example.com" }))}.sig`;
-
 describe("EventList — authenticated", () => {
   beforeEach(() => {
-    mockSession = () => ({ accessToken: FAKE_JWT });
+    authState.session = fakeSession();
     mockGet.mockReset();
-    mockLogin.mockReset();
-    mockLogout.mockReset();
     mockPost.mockReset();
     mockDelete.mockReset();
     mockToastError.mockReset();
@@ -199,11 +151,9 @@ describe("EventList — authenticated", () => {
     const { findByText, getByText } = render(() => <EventList />);
     await findByText("Delete Me");
     fireEvent.click(getByText("Delete"));
-    expect(mockDelete).toHaveBeenCalledWith(
-      "evt_del",
-      undefined,
-      expect.objectContaining({ headers: expect.any(Object) }),
-    );
+    // Event id only — the session cookie rides along with the Eden call, so
+    // there is no second headers argument to pass.
+    expect(mockDelete).toHaveBeenCalledWith("evt_del");
     await Promise.resolve();
     await Promise.resolve();
     expect(mockToastSuccess).toHaveBeenCalledWith("Event deleted");

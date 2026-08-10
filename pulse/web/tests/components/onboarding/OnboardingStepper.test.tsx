@@ -69,7 +69,7 @@ describe("OnboardingStepper", () => {
   function mount(displayName: string | null = "Sarah") {
     const onCompleted = vi.fn();
     const view = render(() => (
-      <OnboardingStepper accessToken="tok" displayName={displayName} onCompleted={onCompleted} />
+      <OnboardingStepper displayName={displayName} onCompleted={onCompleted} />
     ));
     return { view, onCompleted };
   }
@@ -206,8 +206,9 @@ describe("OnboardingStepper", () => {
     await waitFor(() => {
       expect(mockComplete).toHaveBeenCalledTimes(1);
     });
-    const [token, payload] = mockComplete.mock.calls[0]!;
-    expect(token).toBe("tok");
+    // Payload only — the session cookie authenticates the POST, so there is no
+    // token argument in front of it.
+    const [payload] = mockComplete.mock.calls[0]!;
     expect(payload).toMatchObject({
       interests: expect.arrayContaining(["music", "tech"]),
       notificationsOptIn: true,
@@ -236,7 +237,7 @@ describe("OnboardingStepper", () => {
     fireEvent.click(view.getByText("Start exploring"));
 
     await waitFor(() => expect(mockComplete).toHaveBeenCalled());
-    const [, payload] = mockComplete.mock.calls[0]!;
+    const [payload] = mockComplete.mock.calls[0]!;
     expect(payload).toMatchObject({
       interests: [],
       notificationsOptIn: false,

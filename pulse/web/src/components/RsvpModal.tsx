@@ -25,18 +25,19 @@ type Tab = "going" | "maybe" | "not_going" | "invited";
  */
 export function RsvpModal(props: {
   event: Event;
-  accessToken: string | null;
   currentProfileId?: string | null;
   onClose: () => void;
 }) {
   const [tab, setTab] = createSignal<Tab>("going");
+  // The session cookie carries the credential; the viewer still keys the
+  // resource because the server filters the list by who is asking.
   const source = createMemo(() => ({
     eventId: props.event.id,
-    token: props.accessToken,
+    profileId: props.currentProfileId ?? null,
     tab: tab(),
   }));
-  const [rsvps] = createResource(source, ({ eventId, token, tab: selectedTab }) =>
-    fetchRsvpsByStatus(eventId, selectedTab as RsvpStatus, token),
+  const [rsvps] = createResource(source, ({ eventId, tab: selectedTab }) =>
+    fetchRsvpsByStatus(eventId, selectedTab as RsvpStatus),
   );
 
   const isOrganiser = () => props.currentProfileId === props.event.createdByProfileId;

@@ -1,4 +1,4 @@
-import { useAuth } from "@osn/client/solid";
+import { useAuth } from "@shared/rp-auth/solid";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 
 import { CreateEventForm } from "../components/CreateEventForm";
@@ -87,10 +87,7 @@ function mergeAdvanced(base: DiscoveryQuery, v: DiscoveryFilterValues): Discover
   return merged;
 }
 
-async function fetchDiscovery(
-  accessToken: string | null,
-  q: DiscoveryQuery,
-): Promise<DiscoveryResponse> {
+async function fetchDiscovery(q: DiscoveryQuery): Promise<DiscoveryResponse> {
   const query: Record<string, string> = {};
   if (q.category) query.category = q.category;
   if (q.from) query.from = q.from;
@@ -104,9 +101,9 @@ async function fetchDiscovery(
     query.lng = String(q.lng);
     query.radiusKm = String(q.radiusKm);
   }
-  const headers: Record<string, string> = {};
-  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
-  const { data, error } = await api.events.discover.get({ query, headers });
+  // The session cookie rides on every call; a recognised caller gets the
+  // wider result set without the browser handling a token.
+  const { data, error } = await api.events.discover.get({ query });
   if (error) throw error;
   const body = data;
   // The Eden client types the response as a union of success / error
@@ -131,7 +128,7 @@ async function fetchDiscovery(
 
 export function ExplorePage() {
   const { session } = useAuth();
-  const accessToken = () => session()?.accessToken ?? null;
+  const viewer = () => session()?.osnProfileId ?? null;
 
   const [chip, setChip] = createSignal("all");
   const [advanced, setAdvanced] = createSignal<DiscoveryFilterValues>(emptyFilters());
@@ -139,10 +136,10 @@ export function ExplorePage() {
 
   const query = createMemo(() => mergeAdvanced(chipToQuery(chip()), advanced()));
 
-  const fetchSource = createMemo(() => ({ token: accessToken(), q: query() }));
-  const [discovery, { refetch }] = createResource(fetchSource, ({ token, q }) =>
-    fetchDiscovery(token, q),
-  );
+  // Keyed on the viewer as well as the filters: signing in or out changes
+  // what discovery returns for the same query.
+  const fetchSource = createMemo(() => ({ viewer: viewer(), q: query() }));
+  const [discovery, { refetch }] = createResource(fetchSource, ({ q }) => fetchDiscovery(q));
 
   // Venues feed the Explore map's clickable venue layer. Public surface,
   // no auth needed.
@@ -193,7 +190,6 @@ export function ExplorePage() {
       <Show when={showCreateForm()}>
         <div class="mx-auto max-w-3xl px-8 pt-6">
           <CreateEventForm
-            accessToken={accessToken()}
             onSuccess={handleFormSuccess}
             onCancel={() => setShowCreateForm(false)}
           />

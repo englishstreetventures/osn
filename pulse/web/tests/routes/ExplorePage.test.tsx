@@ -5,29 +5,14 @@ import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
 
 import { wrapRouter } from "../helpers/router";
 
-let mockSession: () => { accessToken: string } | null = () => null;
 const mockGet = vi.fn();
 
-vi.mock("@osn/client/solid", () => ({
-  useAuth: () => ({
-    session: () => mockSession(),
-    login: vi.fn(),
-    logout: vi.fn(),
-    profiles: () => [
-      {
-        id: "usr_test",
-        handle: "maya",
-        email: "maya@test.com",
-        displayName: "Maya Chen",
-        avatarUrl: null,
-      },
-    ],
-    activeProfileId: () => "usr_test",
-    switchProfile: vi.fn(),
-    deleteProfile: vi.fn(),
-    createProfile: vi.fn(),
-  }),
-}));
+import { authState, fakeSession } from "../helpers/auth";
+
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../helpers/auth");
+  return rpAuthSolidMock();
+});
 
 vi.mock("../../src/lib/api", () => ({
   api: {
@@ -39,22 +24,6 @@ vi.mock("../../src/lib/api", () => ({
       },
     }),
   },
-}));
-
-vi.mock("../../src/lib/authClients", () => ({
-  registrationClient: {
-    checkHandle: vi.fn(),
-    beginRegistration: vi.fn(),
-    completeRegistration: vi.fn(),
-  },
-  loginClient: { passkeyBegin: vi.fn(), passkeyComplete: vi.fn() },
-  recoveryClient: { generateRecoveryCodes: vi.fn(), loginWithRecoveryCode: vi.fn() },
-}));
-
-vi.mock("@simplewebauthn/browser", () => ({
-  browserSupportsWebAuthn: () => false,
-  startAuthentication: vi.fn(),
-  startRegistration: vi.fn(),
 }));
 
 vi.mock("solid-toast", async () => {
@@ -120,7 +89,7 @@ const sampleEvents = [
 
 describe("ExplorePage", () => {
   beforeEach(() => {
-    mockSession = () => null;
+    authState.session = null;
     mockGet.mockReset();
   });
   afterEach(cleanup);
@@ -145,6 +114,20 @@ describe("ExplorePage", () => {
     const { findByText } = render(() => <ExplorePage />);
     expect(await findByText("Jazz Night")).toBeTruthy();
     expect(await findByText("Ceramics Open Studio")).toBeTruthy();
+  });
+
+  it("renders the same feed for a signed-in viewer, with no token in the request", async () => {
+    // The viewer only re-keys the resource — the session cookie is what the
+    // API reads, so the query the browser sends carries no credential.
+    authState.session = fakeSession();
+    mockGet.mockResolvedValue({
+      data: { events: sampleEvents, nextCursor: null, series: {} },
+      error: null,
+    });
+    const { findByText } = render(() => <ExplorePage />);
+    expect(await findByText("Jazz Night")).toBeTruthy();
+    const args = mockGet.mock.calls.at(-1)![0] as { query?: Record<string, string> };
+    expect(JSON.stringify(args.query ?? {})).not.toContain("tok");
   });
 
   it("renders 'Happening now' section for ongoing events", async () => {

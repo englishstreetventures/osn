@@ -266,11 +266,14 @@ export type AuthFetch = (input: RequestInfo | URL, init?: RequestInit) => Promis
  * `credentials: "include"` is forced rather than defaulted — the API is on a
  * different host from the app in every deployed tier, and the browser omits
  * cookies cross-origin without it.
+ *
+ * The transport is resolved per call, not captured here: apps build their
+ * `authFetch` once at module load, and anything that replaces `globalThis.fetch`
+ * afterwards — instrumentation, a test double — must still be seen.
  */
 export function createAuthFetch(config: RpAuthConfig): AuthFetch {
-  const run = doFetch(config);
   return async (input, init) => {
-    const res = await run(input, { ...init, credentials: "include" });
+    const res = await doFetch(config)(input, { ...init, credentials: "include" });
     if (res.status === 401) throw new AuthExpiredError();
     return res;
   };

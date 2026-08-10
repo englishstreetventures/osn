@@ -37,7 +37,7 @@ describe("CreateEventForm", () => {
 
   it("renders title, start time, end time, location, description fields + Cancel/Create buttons", () => {
     const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
     ));
     expect(getByLabelText("Title")).toBeTruthy();
     expect(getByLabelText("Start time")).toBeTruthy();
@@ -51,7 +51,7 @@ describe("CreateEventForm", () => {
   it("Cancel button calls onCancel", () => {
     const onCancel = vi.fn();
     const { getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={onCancel} />
+      <CreateEventForm onSuccess={() => {}} onCancel={onCancel} />
     ));
     fireEvent.click(getByText("Cancel"));
     expect(onCancel).toHaveBeenCalled();
@@ -59,7 +59,7 @@ describe("CreateEventForm", () => {
 
   it("end-time error shown when end ≤ start; hidden when end > start", () => {
     const { getByLabelText, queryByText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
     ));
     const startInput = getByLabelText("Start time") as HTMLInputElement;
     const endInput = getByLabelText("End time") as HTMLInputElement;
@@ -74,7 +74,7 @@ describe("CreateEventForm", () => {
 
   it("submit with end-time error → does NOT call api.events.post", async () => {
     const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
     ));
     const startInput = getByLabelText("Start time") as HTMLInputElement;
     const endInput = getByLabelText("End time") as HTMLInputElement;
@@ -91,7 +91,7 @@ describe("CreateEventForm", () => {
     mockPost.mockResolvedValue({ error: null });
     const onSuccess = vi.fn();
     const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={onSuccess} onCancel={() => {}} />
+      <CreateEventForm onSuccess={onSuccess} onCancel={() => {}} />
     ));
 
     fireEvent.input(getByLabelText("Title"), { target: { value: "My Event" } });
@@ -102,17 +102,14 @@ describe("CreateEventForm", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(mockPost).toHaveBeenCalledWith(
-      expect.objectContaining({ title: "My Event" }),
-      expect.objectContaining({ headers: expect.any(Object) }),
-    );
+    expect(mockPost).toHaveBeenCalledWith(expect.objectContaining({ title: "My Event" }));
     expect(onSuccess).toHaveBeenCalled();
   });
 
-  it("accessToken present → sets Authorization header in the post call", async () => {
+  it("posts the body alone — no headers, the session cookie is the credential", async () => {
     mockPost.mockResolvedValue({ error: null });
     const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken="tok_123" onSuccess={() => {}} onCancel={() => {}} />
+      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
     ));
 
     fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
@@ -121,34 +118,14 @@ describe("CreateEventForm", () => {
     fireEvent.submit(getByText("Create").closest("form")!);
     await Promise.resolve();
 
-    expect(mockPost).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ headers: { Authorization: "Bearer tok_123" } }),
-    );
-  });
-
-  it("accessToken null → no Authorization header", async () => {
-    mockPost.mockResolvedValue({ error: null });
-    const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
-    ));
-
-    fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
-    fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
-
-    fireEvent.submit(getByText("Create").closest("form")!);
-    await Promise.resolve();
-
-    expect(mockPost).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ headers: {} }),
-    );
+    expect(mockPost).toHaveBeenCalledTimes(1);
+    expect(mockPost.mock.calls[0]).toHaveLength(1);
   });
 
   it("submit with endTime set → api called with endTime present", async () => {
     mockPost.mockResolvedValue({ error: null });
     const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
     ));
 
     fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
@@ -167,7 +144,7 @@ describe("CreateEventForm", () => {
     mockPost.mockResolvedValue({ error: new Error("server error") });
     const onSuccess = vi.fn();
     const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={onSuccess} onCancel={() => {}} />
+      <CreateEventForm onSuccess={onSuccess} onCancel={() => {}} />
     ));
 
     fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
@@ -184,7 +161,7 @@ describe("CreateEventForm", () => {
   it("RadioGroup: clicking 'Private (link only)' changes visibility in submit payload", async () => {
     mockPost.mockResolvedValue({ error: null });
     const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
     ));
 
     fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
@@ -204,7 +181,7 @@ describe("CreateEventForm", () => {
   it("RadioGroup: clicking 'Guest list only' changes joinPolicy in submit payload", async () => {
     mockPost.mockResolvedValue({ error: null });
     const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
     ));
 
     fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
@@ -223,7 +200,7 @@ describe("CreateEventForm", () => {
   it("Checkbox: toggling SMS channel includes it in submit payload", async () => {
     mockPost.mockResolvedValue({ error: null });
     const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
     ));
 
     fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
@@ -243,7 +220,7 @@ describe("CreateEventForm", () => {
   it("price blank → submit omits priceAmount/priceCurrency", async () => {
     mockPost.mockResolvedValue({ error: null });
     const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
     ));
     fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
     fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
@@ -258,7 +235,7 @@ describe("CreateEventForm", () => {
   it("price 0 → submit omits priceAmount/priceCurrency (free)", async () => {
     mockPost.mockResolvedValue({ error: null });
     const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
     ));
     fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
     fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
@@ -274,7 +251,7 @@ describe("CreateEventForm", () => {
   it("price 18.50 + default currency → submit includes priceAmount + priceCurrency", async () => {
     mockPost.mockResolvedValue({ error: null });
     const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
     ));
     fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
     fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
@@ -289,7 +266,7 @@ describe("CreateEventForm", () => {
 
   it("price > 99999.99 → validation error shown, does NOT call api.events.post", async () => {
     const { getByLabelText, getByText, queryByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
     ));
     fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });
     fireEvent.input(getByLabelText("Start time"), { target: { value: "2030-06-01T10:00" } });
@@ -304,7 +281,7 @@ describe("CreateEventForm", () => {
     // Never-resolving promise
     mockPost.mockReturnValue(new Promise(() => {}));
     const { getByLabelText, getByText } = render(() => (
-      <CreateEventForm accessToken={null} onSuccess={() => {}} onCancel={() => {}} />
+      <CreateEventForm onSuccess={() => {}} onCancel={() => {}} />
     ));
 
     fireEvent.input(getByLabelText("Title"), { target: { value: "Event" } });

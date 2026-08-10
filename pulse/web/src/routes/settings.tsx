@@ -1,13 +1,11 @@
-import { useAuth } from "@osn/client/solid";
-import { ProfileOnboarding } from "@osn/ui/auth/ProfileOnboarding";
 import { Button } from "@osn/ui/ui/button";
 import { Card } from "@osn/ui/ui/card";
 import { Label } from "@osn/ui/ui/label";
 import { RadioGroup, RadioGroupItem } from "@osn/ui/ui/radio-group";
+import { useAuth } from "@shared/rp-auth/solid";
 import { createSignal, Show } from "solid-js";
 import { toast } from "solid-toast";
 
-import { registrationClient } from "../lib/authClients";
 import { updateMySettings } from "../lib/rsvps";
 
 type Visibility = "connections" | "no_one";
@@ -27,20 +25,18 @@ const OPTIONS: { value: Visibility; label: string; description: string }[] = [
 
 export function SettingsPage() {
   const { session } = useAuth();
-  const accessToken = () => session()?.accessToken ?? null;
 
   const [selected, setSelected] = createSignal<Visibility>("connections");
   const [saving, setSaving] = createSignal(false);
 
   async function save() {
-    const token = accessToken();
-    if (!token) {
+    if (!session()) {
       toast.error("Sign in to change settings");
       return;
     }
     setSaving(true);
     try {
-      const res = await updateMySettings({ attendanceVisibility: selected() }, token);
+      const res = await updateMySettings({ attendanceVisibility: selected() });
       if (!res.ok) {
         toast.error(res.error ?? "Failed to save settings");
         return;
@@ -55,17 +51,14 @@ export function SettingsPage() {
     <main class="mx-auto max-w-3xl px-6 py-6">
       <h1 class="text-foreground mb-2 text-2xl font-bold">Pulse settings</h1>
       <p class="text-muted-foreground mb-6 text-sm">
-        Settings specific to Pulse. OSN identity settings (name, handle, email) live in your OSN
-        profile.
+        Settings specific to Pulse. Your name, handle and email belong to your musubi account — edit
+        them there and every app that uses it, Pulse included, follows.
       </p>
 
       <Show
         when={session()}
         fallback={<p class="text-muted-foreground text-sm">Sign in to change your settings.</p>}
       >
-        <div class="mb-4">
-          <ProfileOnboarding checkHandle={registrationClient.checkHandle} dismissible />
-        </div>
         <Card class="flex flex-col gap-3 p-4">
           <Label class="text-base font-semibold">Who can see events you're attending?</Label>
           <p class="text-muted-foreground text-xs">

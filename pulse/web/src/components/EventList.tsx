@@ -1,43 +1,37 @@
-import { useAuth } from "@osn/client/solid";
+import { useAuth } from "@shared/rp-auth/solid";
 import { createResource, createSignal, createMemo, For, Show } from "solid-js";
 import { toast } from "solid-toast";
 
 import { api } from "../lib/api";
 import { showCreateForm, setShowCreateForm } from "../lib/createEventSignal";
 import type { EventItem } from "../lib/types";
-import { getProfileIdFromToken, getDisplayNameFromToken } from "../lib/utils";
 import { CreateEventForm } from "./CreateEventForm";
 import { EventCard } from "./EventCard";
 
-async function fetchEvents(accessToken: string | null): Promise<EventItem[]> {
-  const headers: Record<string, string> = {};
-  if (accessToken) headers["Authorization"] = `Bearer ${accessToken}`;
-  const { data, error } = await api.events.get({ headers });
+// No `Authorization` header anywhere below: the Eden client carries the
+// Pulse session cookie, and the API widens what it returns — and permits a
+// delete — on the strength of that alone.
+async function fetchEvents(): Promise<EventItem[]> {
+  const { data, error } = await api.events.get();
   if (error) throw error;
   return data!.events;
 }
 
 export function EventList() {
   const { session } = useAuth();
-  const accessToken = () => session()?.accessToken ?? null;
-  const authClaims = createMemo(() => {
-    const token = accessToken();
-    return { profileId: getProfileIdFromToken(token), displayName: getDisplayNameFromToken(token) };
-  });
-  const currentProfileId = () => authClaims().profileId;
-  const tokenSource = createMemo(() => ({ token: accessToken() }));
-  const [events, { refetch }] = createResource(tokenSource, ({ token }) => fetchEvents(token));
+  const currentProfileId = () => session()?.osnProfileId ?? null;
+  // Re-keyed on who is signed in, so signing in or out reloads the list with
+  // the visibility that person has.
+  const viewerSource = createMemo(() => ({ profileId: currentProfileId() }));
+  const [events, { refetch }] = createResource(viewerSource, fetchEvents);
   const [deletingIds, setDeletingIds] = createSignal(new Set<string>());
 
   function handleDelete(id: string) {
     if (deletingIds().has(id)) return;
-    const headers: Record<string, string> = {};
-    const token = accessToken();
-    if (token) headers["Authorization"] = `Bearer ${token}`;
     setDeletingIds((prev) => new Set([...prev, id]));
     api
       .events({ id })
-      .delete(undefined, { headers })
+      .delete()
       .then(() => {
         toast.success("Event deleted");
         refetch();
@@ -66,11 +60,7 @@ export function EventList() {
   return (
     <main class="mx-auto max-w-3xl px-6 py-6">
       <Show when={showCreateForm()}>
-        <CreateEventForm
-          accessToken={accessToken()}
-          onSuccess={handleFormSuccess}
-          onCancel={() => setShowCreateForm(false)}
-        />
+        <CreateEventForm onSuccess={handleFormSuccess} onCancel={() => setShowCreateForm(false)} />
       </Show>
       <Show when={events.loading}>
         <p class="text-muted-foreground py-16 text-center">Loading events…</p>

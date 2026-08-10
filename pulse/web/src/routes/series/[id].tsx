@@ -1,6 +1,6 @@
-import { useAuth } from "@osn/client/solid";
 import { Badge } from "@osn/ui/ui/badge";
 import { Card } from "@osn/ui/ui/card";
+import { useAuth } from "@shared/rp-auth/solid";
 import { A, useParams } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
 
@@ -95,16 +95,18 @@ function InstanceRow(props: { instance: SeriesInstance }) {
 export function SeriesDetailPage() {
   const params = useParams<{ id: string }>();
   const { session } = useAuth();
-  const accessToken = () => session()?.accessToken ?? null;
+  // Both reads go out with the session cookie, so they key on the viewer:
+  // a private series in the set appears only once someone is signed in.
+  const viewer = () => session()?.osnProfileId ?? null;
   const [scope, setScope] = createSignal<"upcoming" | "past">("upcoming");
 
   const [series] = createResource(
-    () => ({ id: params.id, token: accessToken() }),
-    ({ id, token }): Promise<SeriesSummary | null> => fetchSeries(id, token),
+    () => ({ id: params.id, viewer: viewer() }),
+    ({ id }): Promise<SeriesSummary | null> => fetchSeries(id),
   );
   const [instances] = createResource(
-    () => ({ id: params.id, token: accessToken(), s: scope() }),
-    ({ id, token, s }) => fetchSeriesInstances(id, s, token),
+    () => ({ id: params.id, viewer: viewer(), s: scope() }),
+    ({ id, s }) => fetchSeriesInstances(id, s),
   );
 
   return (

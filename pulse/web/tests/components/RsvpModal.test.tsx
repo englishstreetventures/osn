@@ -28,14 +28,14 @@ describe("RsvpModal", () => {
   });
 
   it("renders the Going tab by default and fetches its rsvps on open", async () => {
-    render(() => <RsvpModal event={baseEvent} accessToken="tok" onClose={() => {}} />);
+    render(() => <RsvpModal event={baseEvent} onClose={() => {}} />);
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith("evt_1", "going", "tok");
+      expect(mockFetch).toHaveBeenCalledWith("evt_1", "going");
     });
   });
 
   it("includes Maybe / Not going / Going tabs but omits Invited for open events", () => {
-    render(() => <RsvpModal event={baseEvent} accessToken={null} onClose={() => {}} />);
+    render(() => <RsvpModal event={baseEvent} onClose={() => {}} />);
     // Kobalte Dialog portals content — use screen to search the whole document.
     expect(screen.queryByText("Going")).toBeTruthy();
     expect(screen.queryByText("Maybe")).toBeTruthy();
@@ -47,7 +47,7 @@ describe("RsvpModal", () => {
     render(() => (
       <RsvpModal
         event={{ ...baseEvent, joinPolicy: "guest_list" }}
-        accessToken={null}
+
         onClose={() => {}}
       />
     ));
@@ -58,7 +58,7 @@ describe("RsvpModal", () => {
     render(() => (
       <RsvpModal
         event={{ ...baseEvent, allowInterested: false }}
-        accessToken={null}
+
         onClose={() => {}}
       />
     ));
@@ -66,11 +66,11 @@ describe("RsvpModal", () => {
   });
 
   it("re-fetches when the user switches tabs", async () => {
-    render(() => <RsvpModal event={baseEvent} accessToken="tok" onClose={() => {}} />);
-    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("evt_1", "going", "tok"));
+    render(() => <RsvpModal event={baseEvent} onClose={() => {}} />);
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith("evt_1", "going"));
     fireEvent.click(screen.getByText("Not going"));
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith("evt_1", "not_going", "tok");
+      expect(mockFetch).toHaveBeenCalledWith("evt_1", "not_going");
     });
   });
 
@@ -87,7 +87,7 @@ describe("RsvpModal", () => {
         profile: { id: "usr_bob", handle: "bob", displayName: "Bob Smith", avatarUrl: null },
       },
     ]);
-    render(() => <RsvpModal event={baseEvent} accessToken="tok" onClose={() => {}} />);
+    render(() => <RsvpModal event={baseEvent} onClose={() => {}} />);
     expect(await screen.findByText("Bob Smith")).toBeTruthy();
     expect(await screen.findByText("@bob")).toBeTruthy();
   });
@@ -96,7 +96,7 @@ describe("RsvpModal", () => {
     render(() => (
       <RsvpModal
         event={{ ...baseEvent, guestListVisibility: "private" }}
-        accessToken="tok"
+
         currentProfileId="usr_dan"
         onClose={() => {}}
       />
@@ -109,7 +109,7 @@ describe("RsvpModal", () => {
     render(() => (
       <RsvpModal
         event={{ ...baseEvent, guestListVisibility: "private" }}
-        accessToken="tok"
+
         currentProfileId="usr_alice"
         onClose={() => {}}
       />
@@ -120,14 +120,14 @@ describe("RsvpModal", () => {
 
   it("calls onClose when the close button is clicked", () => {
     const onClose = vi.fn();
-    render(() => <RsvpModal event={baseEvent} accessToken={null} onClose={onClose} />);
+    render(() => <RsvpModal event={baseEvent} onClose={onClose} />);
     fireEvent.click(screen.getByLabelText("Close"));
     expect(onClose).toHaveBeenCalled();
   });
 
   it("calls onClose when the dialog is dismissed via Escape", () => {
     const onClose = vi.fn();
-    render(() => <RsvpModal event={baseEvent} accessToken={null} onClose={onClose} />);
+    render(() => <RsvpModal event={baseEvent} onClose={onClose} />);
     // Kobalte Dialog handles Escape natively to dismiss the dialog.
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();

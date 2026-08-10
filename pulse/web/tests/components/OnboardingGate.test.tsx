@@ -3,15 +3,16 @@ import { createMemoryHistory, MemoryRouter, Route, useLocation } from "@solidjs/
 import { cleanup, render as _baseRender, waitFor } from "@solidjs/testing-library";
 import { createEffect } from "solid-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 // ---------------------------------------------------------------------------
 // Mocks — useAuth + lib/onboarding (the gate's only direct dependencies)
 // ---------------------------------------------------------------------------
 
-let mockSession: () => { accessToken: string } | null = () => ({ accessToken: "tok" });
-vi.mock("@osn/client/solid", () => ({
-  useAuth: () => ({ session: () => mockSession() }),
-}));
+import { authState, fakeSession } from "../helpers/auth";
+
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../helpers/auth");
+  return rpAuthSolidMock();
+});
 
 const mockFetchStatus = vi.fn();
 const mockIsSkipped = vi.fn(() => false);
@@ -76,7 +77,7 @@ const renderAt = (initialPath: string) => {
 
 describe("OnboardingGate", () => {
   beforeEach(() => {
-    mockSession = () => ({ accessToken: "tok" });
+    authState.session = fakeSession();
     mockFetchStatus.mockReset();
     mockIsSkipped.mockReset();
     mockIsSkipped.mockReturnValue(false);
@@ -88,7 +89,7 @@ describe("OnboardingGate", () => {
   });
 
   it("does not fetch and does not navigate when there is no session", async () => {
-    mockSession = () => null;
+    authState.session = null;
     renderAt("/");
     // Give the resource a tick to settle.
     await new Promise((r) => setTimeout(r, 10));

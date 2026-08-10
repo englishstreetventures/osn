@@ -1,4 +1,4 @@
-import { useAuth } from "@osn/client/solid";
+import { useAuth } from "@shared/rp-auth/solid";
 import { createMemo, createResource, createSignal, Show } from "solid-js";
 
 import { CalendarTimeline } from "../calendar/CalendarTimeline";
@@ -8,15 +8,16 @@ import "../calendar/calendar.css";
 
 export function CalendarPage() {
   const { session } = useAuth();
-  const accessToken = () => session()?.accessToken ?? null;
+  const signedIn = () => session() != null;
 
   // Bumped after a maybe-confirmation so the agenda refetches.
   const [refreshKey, setRefreshKey] = createSignal(0);
-  const source = createMemo(() => {
-    const token = accessToken();
-    return token ? { token, key: refreshKey() } : null;
-  });
-  const [calendar, { refetch }] = createResource(source, ({ token }) => fetchMyCalendar(token));
+  // The calendar is personal, so it's only fetched for a signed-in viewer —
+  // the request itself is authorised by the session cookie.
+  const source = createMemo(() =>
+    signedIn() ? { profileId: session()!.osnProfileId, key: refreshKey() } : null,
+  );
+  const [calendar, { refetch }] = createResource(source, () => fetchMyCalendar());
 
   function handleChanged() {
     setRefreshKey((k) => k + 1);
@@ -43,7 +44,7 @@ export function CalendarPage() {
       </h1>
 
       <Show
-        when={accessToken()}
+        when={signedIn()}
         fallback={
           <p class="text-muted-foreground py-16 text-center">
             Sign in to see the events you're going to.
@@ -70,11 +71,7 @@ export function CalendarPage() {
               </div>
             }
           >
-            <CalendarTimeline
-              entries={calendar()!}
-              accessToken={accessToken()}
-              onChanged={handleChanged}
-            />
+            <CalendarTimeline entries={calendar()!} onChanged={handleChanged} />
           </Show>
         </Show>
       </Show>

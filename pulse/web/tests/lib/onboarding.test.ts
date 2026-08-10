@@ -174,14 +174,9 @@ describe("fetchOnboardingStatus", () => {
     mockMeOnboardingGet.mockReset();
   });
 
-  it("returns null when no token is provided (skips the network call)", async () => {
-    expect(await fetchOnboardingStatus(null)).toBeNull();
-    expect(mockMeOnboardingGet).not.toHaveBeenCalled();
-  });
-
   it("returns null on transport error", async () => {
     mockMeOnboardingGet.mockResolvedValueOnce({ data: null, error: { value: "boom" } });
-    expect(await fetchOnboardingStatus("tok")).toBeNull();
+    expect(await fetchOnboardingStatus()).toBeNull();
   });
 
   it("returns the status payload on success", async () => {
@@ -196,7 +191,7 @@ describe("fetchOnboardingStatus", () => {
       },
       error: null,
     });
-    const status = await fetchOnboardingStatus("tok");
+    const status = await fetchOnboardingStatus();
     expect(status?.completedAt).toBeNull();
     expect(status?.interests).toEqual([]);
   });
@@ -228,7 +223,7 @@ describe("completeOnboarding", () => {
       },
       error: null,
     });
-    const status = await completeOnboarding("tok", { ...validPayload });
+    const status = await completeOnboarding({ ...validPayload });
     expect(status.completedAt).toBe(completedAt);
     expect(status.interests).toEqual(["music"]);
   });
@@ -238,7 +233,7 @@ describe("completeOnboarding", () => {
       data: null,
       error: { value: { error: "Invalid onboarding payload" } },
     });
-    await expect(completeOnboarding("tok", { ...validPayload })).rejects.toThrow(
+    await expect(completeOnboarding({ ...validPayload })).rejects.toThrow(
       /Invalid onboarding payload/,
     );
   });
@@ -248,7 +243,7 @@ describe("completeOnboarding", () => {
       data: null,
       error: "boom",
     });
-    await expect(completeOnboarding("tok", { ...validPayload })).rejects.toThrow(
+    await expect(completeOnboarding({ ...validPayload })).rejects.toThrow(
       "Failed to complete onboarding",
     );
   });
@@ -258,12 +253,12 @@ describe("completeOnboarding", () => {
       data: { somethingElse: 1 },
       error: null,
     });
-    await expect(completeOnboarding("tok", { ...validPayload })).rejects.toThrow(
+    await expect(completeOnboarding({ ...validPayload })).rejects.toThrow(
       "Unexpected onboarding response",
     );
   });
 
-  it("forwards the bearer token in the Authorization header", async () => {
+  it("posts the payload alone — the session cookie is the only credential", async () => {
     mockMeOnboardingCompletePost.mockResolvedValueOnce({
       data: {
         completedAt: new Date().toISOString(),
@@ -275,10 +270,7 @@ describe("completeOnboarding", () => {
       },
       error: null,
     });
-    await completeOnboarding("the-token", { ...validPayload });
-    const [, opts] = mockMeOnboardingCompletePost.mock.calls[0]!;
-    expect((opts as { headers: Record<string, string> }).headers.Authorization).toBe(
-      "Bearer the-token",
-    );
+    await completeOnboarding({ ...validPayload });
+    expect(mockMeOnboardingCompletePost).toHaveBeenCalledWith({ ...validPayload });
   });
 });

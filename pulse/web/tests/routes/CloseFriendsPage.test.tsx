@@ -9,27 +9,24 @@ vi.mock("solid-toast", async () => {
   const { solidToastMock } = await import("../helpers/toast");
   return solidToastMock();
 });
+import { authState, fakeSession } from "../helpers/auth";
 import { mockToastError, mockToastSuccess } from "../helpers/toast";
 
-// Mock the auth context.
-let mockSession: () => { accessToken: string } | null = () => ({ accessToken: "tok" });
-vi.mock("@osn/client/solid", () => ({
-  useAuth: () => ({
-    session: () => mockSession(),
-  }),
-}));
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../helpers/auth");
+  return rpAuthSolidMock();
+});
 
 const mockList = vi.fn();
+const mockCandidates = vi.fn();
 const mockAdd = vi.fn();
 const mockRemove = vi.fn();
 vi.mock("../../src/lib/closeFriends", () => ({
   listCloseFriends: (...args: unknown[]) => mockList(...args),
+  listCloseFriendCandidates: (...args: unknown[]) => mockCandidates(...args),
   addCloseFriend: (...args: unknown[]) => mockAdd(...args),
   removeCloseFriend: (...args: unknown[]) => mockRemove(...args),
 }));
-
-const fetchMock = vi.fn();
-vi.stubGlobal("fetch", fetchMock);
 
 import { CloseFriendsPage } from "../../src/routes/close-friends";
 
@@ -38,30 +35,25 @@ const render: typeof _baseRender = ((factory: () => JSX.Element) =>
 
 describe("CloseFriendsPage", () => {
   beforeEach(() => {
-    mockSession = () => ({ accessToken: "tok" });
+    authState.session = fakeSession();
     mockList.mockResolvedValue([]);
+    mockCandidates.mockResolvedValue([]);
     mockAdd.mockResolvedValue({ ok: true });
     mockRemove.mockResolvedValue({ ok: true });
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ connections: [] }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      }),
-    );
   });
 
   afterEach(() => {
     cleanup();
     mockList.mockReset();
+    mockCandidates.mockReset();
     mockAdd.mockReset();
     mockRemove.mockReset();
     mockToastError.mockReset();
     mockToastSuccess.mockReset();
-    fetchMock.mockReset();
   });
 
   it("renders sign-in prompt when not authenticated", () => {
-    mockSession = () => null;
+    authState.session = null;
     const { getByText } = render(() => <CloseFriendsPage />);
     expect(getByText(/Sign in to manage close friends/)).toBeTruthy();
   });
@@ -82,48 +74,32 @@ describe("CloseFriendsPage", () => {
     expect(await findByText("@bob")).toBeTruthy();
   });
 
+  it("tells the viewer the graph was unreachable when candidates come back null", async () => {
+    // `null` is not an empty list — the copy has to say so.
+    mockCandidates.mockResolvedValueOnce(null);
+    const { findByText } = render(() => <CloseFriendsPage />);
+    expect(await findByText(/Couldn't load your connections/)).toBeTruthy();
+  });
+
   it("clicking Add on a connection calls addCloseFriend with the profile ID", async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          connections: [
-            {
-              id: "usr_carol",
-              handle: "carol",
-              displayName: "Carol",
-              connectedAt: "2030-01-01",
-            },
-          ],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    );
+    mockCandidates.mockResolvedValueOnce([
+      { profileId: "usr_carol", handle: "carol", displayName: "Carol", avatarUrl: null },
+    ]);
     const { findByText, getByText } = render(() => <CloseFriendsPage />);
     await findByText("Carol");
     fireEvent.click(getByText("Add"));
     await waitFor(() => {
-      expect(mockAdd).toHaveBeenCalledWith("usr_carol", "tok");
+      // Profile id only — the session cookie authorises the write.
+      expect(mockAdd).toHaveBeenCalledWith("usr_carol");
       expect(mockToastSuccess).toHaveBeenCalled();
     });
   });
 
   it("toasts not_a_connection error when addCloseFriend rejects", async () => {
     mockAdd.mockResolvedValueOnce({ ok: false, error: "not_a_connection" });
-    fetchMock.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          connections: [
-            {
-              id: "usr_carol",
-              handle: "carol",
-              displayName: "Carol",
-              connectedAt: "2030-01-01",
-            },
-          ],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      ),
-    );
+    mockCandidates.mockResolvedValueOnce([
+      { profileId: "usr_carol", handle: "carol", displayName: "Carol", avatarUrl: null },
+    ]);
     const { findByText, getByText } = render(() => <CloseFriendsPage />);
     await findByText("Carol");
     fireEvent.click(getByText("Add"));
@@ -140,7 +116,7 @@ describe("CloseFriendsPage", () => {
     await findByText("Bob");
     fireEvent.click(getByText("Remove"));
     await waitFor(() => {
-      expect(mockRemove).toHaveBeenCalledWith("usr_bob", "tok");
+      expect(mockRemove).toHaveBeenCalledWith("usr_bob");
       expect(mockToastSuccess).toHaveBeenCalled();
     });
   });

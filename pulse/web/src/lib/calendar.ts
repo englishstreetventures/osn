@@ -7,7 +7,9 @@
  * stable.
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+import { authFetch, PULSE_API_URL } from "./auth";
+
+const BASE_URL = PULSE_API_URL;
 
 export type EventStatus = "upcoming" | "ongoing" | "maybe_finished" | "finished" | "cancelled";
 
@@ -34,11 +36,9 @@ export interface CalendarEntry {
   isHost: boolean;
 }
 
-export async function fetchMyCalendar(token: string, limit = 50): Promise<CalendarEntry[]> {
-  const res = await fetch(`${BASE_URL}/events/calendar?limit=${limit}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return [];
+export async function fetchMyCalendar(limit = 50): Promise<CalendarEntry[]> {
+  const res = await authFetch(`${BASE_URL}/events/calendar?limit=${limit}`).catch(() => null);
+  if (!res?.ok) return [];
   const body = (await res.json()) as { entries?: CalendarEntry[] };
   return body.entries ?? [];
 }

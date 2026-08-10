@@ -1,16 +1,15 @@
 /**
  * Lightweight REST wrappers for the Pulse close-friends surface.
  *
- * Mirrors the pattern in `./rsvps.ts` — raw fetch against `VITE_API_URL`
- * with bearer-token auth, no Eden treaty client (the type chain breaks
- * across PRs).
+ * Mirrors the pattern in `./rsvps.ts` — raw fetch against `VITE_API_URL`,
+ * no Eden treaty client (the type chain breaks across PRs). Every route
+ * here needs a signed-in caller, so all of them go through `authFetch`
+ * and the session cookie it carries.
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+import { authFetch, isExpired, PULSE_API_URL } from "./auth";
 
-function authHeaders(token: string | null): Record<string, string> {
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+const BASE_URL = PULSE_API_URL;
 
 export interface CloseFriendEntry {
   profileId: string;
@@ -19,25 +18,48 @@ export interface CloseFriendEntry {
   avatarUrl: string | null;
 }
 
-export async function listCloseFriends(token: string): Promise<CloseFriendEntry[]> {
-  const res = await fetch(`${BASE_URL}/close-friends`, {
-    headers: authHeaders(token),
-  });
-  if (!res.ok) return [];
+export async function listCloseFriends(): Promise<CloseFriendEntry[]> {
+  const res = await authFetch(`${BASE_URL}/close-friends`).catch(() => null);
+  if (!res?.ok) return [];
   const body = (await res.json()) as { closeFriends?: CloseFriendEntry[] };
   return body.closeFriends ?? [];
 }
 
-export type AddCloseFriendError = "self" | "not_a_connection" | "unknown";
+export interface CandidateEntry {
+  profileId: string;
+  handle: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
+/**
+ * The people the caller may add: their OSN connections, already sorted by
+ * name. The browser can't read the OSN graph itself — it holds a Pulse
+ * session cookie, not an OSN token — so Pulse serves the list.
+ *
+ * `null` means the graph was unreachable, which is not the same as an empty
+ * list and must not be shown as "you have no connections".
+ */
+export async function listCloseFriendCandidates(): Promise<CandidateEntry[] | null> {
+  const res = await authFetch(`${BASE_URL}/close-friends/candidates`).catch(() => null);
+  if (!res?.ok) return null;
+  const body = (await res.json()) as { connections?: CandidateEntry[] };
+  return body.connections ?? [];
+}
+
+export type AddCloseFriendError = "self" | "not_a_connection" | "expired" | "unknown";
 
 export async function addCloseFriend(
   friendId: string,
-  token: string,
 ): Promise<{ ok: true } | { ok: false; error: AddCloseFriendError }> {
-  const res = await fetch(`${BASE_URL}/close-friends/${encodeURIComponent(friendId)}`, {
-    method: "POST",
-    headers: authHeaders(token),
-  });
+  let res: Response;
+  try {
+    res = await authFetch(`${BASE_URL}/close-friends/${encodeURIComponent(friendId)}`, {
+      method: "POST",
+    });
+  } catch (err) {
+    return { ok: false, error: isExpired(err) ? "expired" : "unknown" };
+  }
   if (res.ok) return { ok: true };
   const body = (await res.json().catch(() => ({}))) as { error?: string };
   if (body.error === "self") return { ok: false, error: "self" };
@@ -45,10 +67,9 @@ export async function addCloseFriend(
   return { ok: false, error: "unknown" };
 }
 
-export async function removeCloseFriend(friendId: string, token: string): Promise<{ ok: boolean }> {
-  const res = await fetch(`${BASE_URL}/close-friends/${encodeURIComponent(friendId)}`, {
+export async function removeCloseFriend(friendId: string): Promise<{ ok: boolean }> {
+  const res = await authFetch(`${BASE_URL}/close-friends/${encodeURIComponent(friendId)}`, {
     method: "DELETE",
-    headers: authHeaders(token),
-  });
-  return { ok: res.ok };
+  }).catch(() => null);
+  return { ok: res?.ok === true };
 }

@@ -10,12 +10,15 @@ vi.mock("solid-toast", async () => {
   return solidToastMock();
 });
 
-// Auth context — the page reads `session()` to get the access token, and
-// claims-decode helpers in `lib/utils` derive the displayName from it.
-let mockSession: () => { accessToken: string } | null = () => ({ accessToken: "tok" });
-vi.mock("@osn/client/solid", () => ({
-  useAuth: () => ({ session: () => mockSession() }),
-}));
+// Auth context — the page reads `session()` for the viewer, and `displayNameOf`
+// picks the label out of it. No token decode: the session already carries the
+// identity fields the Pulse API resolved at sign-in.
+import { authState, fakeSession } from "../helpers/auth";
+
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../helpers/auth");
+  return rpAuthSolidMock();
+});
 
 // Spy on the navigation hook so we can assert that handleCompleted runs
 // markOnboardingResolvedThisSession BEFORE navigate("/"). Routing is the
@@ -46,12 +49,6 @@ vi.mock("../../src/components/onboarding/OnboardingStepper", () => ({
   ),
 }));
 
-// `lib/utils.getDisplayNameFromToken` decodes the JWT — stub the whole
-// utils module so we don't need to mint a real ES256 token here.
-vi.mock("../../src/lib/utils", () => ({
-  getDisplayNameFromToken: (token: string | null) => (token ? "Sarah" : null),
-}));
-
 import { WelcomePage } from "../../src/routes/welcome";
 
 const render: typeof _baseRender = ((factory: () => JSX.Element) =>
@@ -59,7 +56,7 @@ const render: typeof _baseRender = ((factory: () => JSX.Element) =>
 
 describe("WelcomePage", () => {
   beforeEach(() => {
-    mockSession = () => ({ accessToken: "tok" });
+    authState.session = fakeSession({ displayName: "Sarah" });
     mockNavigate.mockReset();
     mockMarkResolved.mockReset();
   });
@@ -71,13 +68,19 @@ describe("WelcomePage", () => {
     expect(getByTestId("stepper")).toBeTruthy();
   });
 
-  it("passes the decoded displayName through to the stepper", () => {
+  it("passes the session's displayName through to the stepper", () => {
     const { getByText } = render(() => <WelcomePage />);
     expect(getByText("stepper:Sarah")).toBeTruthy();
   });
 
+  it("falls back to @handle when the session carries no displayName", () => {
+    authState.session = fakeSession({ displayName: null, handle: "sarah" });
+    const { getByText } = render(() => <WelcomePage />);
+    expect(getByText("stepper:@sarah")).toBeTruthy();
+  });
+
   it("shows the sign-in fallback when no session is present", () => {
-    mockSession = () => null;
+    authState.session = null;
     const { getByText, queryByTestId } = render(() => <WelcomePage />);
     expect(getByText("Sign in to continue")).toBeTruthy();
     expect(queryByTestId("stepper")).toBeNull();

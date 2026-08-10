@@ -39,36 +39,28 @@ describe("fetchLatestRsvps", () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(200, { rsvps: [{ id: "rsvp_1", profileId: "usr_bob", profile: null }] }),
     );
-    const result = await fetchLatestRsvps("evt_1", null);
+    const result = await fetchLatestRsvps("evt_1");
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe("rsvp_1");
   });
 
   it("returns an empty array on non-200", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(500, { error: "boom" }));
-    const result = await fetchLatestRsvps("evt_1", null);
+    const result = await fetchLatestRsvps("evt_1");
     expect(result).toEqual([]);
   });
 
-  it("attaches the Authorization header when a token is provided", async () => {
+  it("sends the session cookie and no Authorization header", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { rsvps: [] }));
-    await fetchLatestRsvps("evt_1", "abc.def.ghi");
+    await fetchLatestRsvps("evt_1");
     const [, init] = fetchMock.mock.calls[0]!;
-    const headers = (init as RequestInit).headers as Record<string, string>;
-    expect(headers["Authorization"]).toBe("Bearer abc.def.ghi");
-  });
-
-  it("omits the Authorization header when token is null", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, { rsvps: [] }));
-    await fetchLatestRsvps("evt_1", null);
-    const [, init] = fetchMock.mock.calls[0]!;
-    const headers = (init as RequestInit).headers as Record<string, string>;
-    expect(headers["Authorization"]).toBeUndefined();
+    expect((init as RequestInit).credentials).toBe("include");
+    expect((init as RequestInit).headers).toBeUndefined();
   });
 
   it("uses the requested limit in the query string", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { rsvps: [] }));
-    await fetchLatestRsvps("evt_1", null, 3);
+    await fetchLatestRsvps("evt_1", 3);
     const [url] = fetchMock.mock.calls[0]!;
     expect(String(url)).toContain("limit=3");
   });
@@ -79,7 +71,7 @@ describe("fetchLatestRsvps", () => {
 describe("fetchRsvpsByStatus", () => {
   it("hits the rsvps endpoint with the status query param", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { rsvps: [] }));
-    await fetchRsvpsByStatus("evt_1", "going", null);
+    await fetchRsvpsByStatus("evt_1", "going");
     const [url] = fetchMock.mock.calls[0]!;
     expect(String(url)).toContain("/events/evt_1/rsvps?status=going");
     expect(String(url)).toContain("limit=200");
@@ -87,7 +79,7 @@ describe("fetchRsvpsByStatus", () => {
 
   it("returns [] on non-200 instead of throwing", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(404, { message: "not found" }));
-    const result = await fetchRsvpsByStatus("evt_1", "going", null);
+    const result = await fetchRsvpsByStatus("evt_1", "going");
     expect(result).toEqual([]);
   });
 });
@@ -122,7 +114,7 @@ describe("fetchRsvpCounts", () => {
 describe("upsertMyRsvp", () => {
   it("returns { ok: true } on success and POSTs the status", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { rsvp: { id: "rsvp_1" } }));
-    const result = await upsertMyRsvp("evt_1", "going", "tok");
+    const result = await upsertMyRsvp("evt_1", "going");
     expect(result.ok).toBe(true);
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toContain("/events/evt_1/rsvps");
@@ -132,20 +124,20 @@ describe("upsertMyRsvp", () => {
 
   it("extracts body.message on failure", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(403, { message: "Invitation required" }));
-    const result = await upsertMyRsvp("evt_1", "going", "tok");
+    const result = await upsertMyRsvp("evt_1", "going");
     expect(result.ok).toBe(false);
     expect(result.error).toBe("Invitation required");
   });
 
   it("falls back to body.error when message is missing", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(422, { error: "bad status" }));
-    const result = await upsertMyRsvp("evt_1", "going", "tok");
+    const result = await upsertMyRsvp("evt_1", "going");
     expect(result.error).toBe("bad status");
   });
 
   it("falls back to HTTP <status> when both message and error are missing", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(500, {}));
-    const result = await upsertMyRsvp("evt_1", "going", "tok");
+    const result = await upsertMyRsvp("evt_1", "going");
     expect(result.error).toBe("HTTP 500");
   });
 
@@ -156,14 +148,21 @@ describe("upsertMyRsvp", () => {
         headers: { "Content-Type": "text/html" },
       }),
     );
-    const result = await upsertMyRsvp("evt_1", "going", "tok");
+    const result = await upsertMyRsvp("evt_1", "going");
     expect(result.ok).toBe(false);
     expect(result.error).toBe("HTTP 502");
   });
 
+  it("reports an expired sign-in on 401", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(401, { message: "Unauthorized" }));
+    const result = await upsertMyRsvp("evt_1", "going");
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("Your sign-in has expired. Sign in again to continue.");
+  });
+
   it("forwards shareSource on the request body when provided", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { rsvp: { id: "rsvp_1" } }));
-    await upsertMyRsvp("evt_1", "going", "tok", "tiktok");
+    await upsertMyRsvp("evt_1", "going", "tiktok");
     const [, init] = fetchMock.mock.calls[0]!;
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       status: "going",
@@ -173,7 +172,7 @@ describe("upsertMyRsvp", () => {
 
   it("omits shareSource from the body when null is passed", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(200, { rsvp: { id: "rsvp_1" } }));
-    await upsertMyRsvp("evt_1", "going", "tok", null);
+    await upsertMyRsvp("evt_1", "going", null);
     const [, init] = fetchMock.mock.calls[0]!;
     const body = JSON.parse((init as RequestInit).body as string);
     expect(body).toEqual({ status: "going" });
@@ -184,81 +183,75 @@ describe("upsertMyRsvp", () => {
 // ── recordShareInvoked ───────────────────────────────────────────────────────
 
 describe("recordShareInvoked", () => {
-  it("POSTs the source to /events/:id/share with keepalive and no auth header when token is null", async () => {
+  it("POSTs the source to /events/:id/share with keepalive and the session cookie", async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
-    await recordShareInvoked("evt_1", "instagram", null);
+    await recordShareInvoked("evt_1", "instagram");
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toContain("/events/evt_1/share");
     expect((init as RequestInit).method).toBe("POST");
     expect((init as RequestInit).keepalive).toBe(true);
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({ source: "instagram" });
+    // The cookie is what identifies an organiser sharing their own private
+    // event; without it the server's visibility gate 404s and the counter
+    // silently never moves.
+    expect((init as RequestInit).credentials).toBe("include");
     expect((init as RequestInit).headers).not.toMatchObject({ Authorization: expect.anything() });
-  });
-
-  it("attaches the bearer token when one is provided (organiser private-event share)", async () => {
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
-    await recordShareInvoked("evt_1", "instagram", "tok");
-    const [, init] = fetchMock.mock.calls[0]!;
-    expect((init as RequestInit).headers).toMatchObject({ Authorization: "Bearer tok" });
   });
 
   it("swallows fetch failures so the share UX doesn't break", async () => {
     fetchMock.mockRejectedValueOnce(new Error("network down"));
-    await expect(recordShareInvoked("evt_1", "facebook", null)).resolves.toBeUndefined();
+    await expect(recordShareInvoked("evt_1", "facebook")).resolves.toBeUndefined();
   });
 });
 
 // ── recordShareExposure ──────────────────────────────────────────────────────
 
 describe("recordShareExposure", () => {
-  it("POSTs the source to /events/:id/exposure with no auth header when token is null", async () => {
+  it("POSTs the source to /events/:id/exposure with the session cookie", async () => {
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
-    await recordShareExposure("evt_1", "x", null);
+    await recordShareExposure("evt_1", "x");
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toContain("/events/evt_1/exposure");
     expect((init as RequestInit).method).toBe("POST");
     expect((init as RequestInit).keepalive).toBe(true);
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({ source: "x" });
+    expect((init as RequestInit).credentials).toBe("include");
     expect((init as RequestInit).headers).not.toMatchObject({ Authorization: expect.anything() });
-  });
-
-  it("attaches the bearer token when one is provided", async () => {
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
-    await recordShareExposure("evt_1", "whatsapp", "tok");
-    const [, init] = fetchMock.mock.calls[0]!;
-    expect((init as RequestInit).headers).toMatchObject({ Authorization: "Bearer tok" });
   });
 
   it("swallows fetch failures silently", async () => {
     fetchMock.mockRejectedValueOnce(new Error("offline"));
-    await expect(recordShareExposure("evt_1", "copy_link", null)).resolves.toBeUndefined();
+    await expect(recordShareExposure("evt_1", "copy_link")).resolves.toBeUndefined();
   });
 });
 
 // ── updateMySettings ─────────────────────────────────────────────────────────
 
 describe("updateMySettings", () => {
-  it("PATCHes /me/settings with the JSON body and bearer token", async () => {
+  it("PATCHes /me/settings with the JSON body and the session cookie", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(200, { settings: { profileId: "usr_alice", attendanceVisibility: "no_one" } }),
     );
-    const result = await updateMySettings({ attendanceVisibility: "no_one" }, "tok");
+    const result = await updateMySettings({ attendanceVisibility: "no_one" });
     expect(result.ok).toBe(true);
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(String(url)).toContain("/me/settings");
     expect((init as RequestInit).method).toBe("PATCH");
+    expect((init as RequestInit).credentials).toBe("include");
     const headers = (init as RequestInit).headers as Record<string, string>;
-    expect(headers["Authorization"]).toBe("Bearer tok");
+    expect(headers["Authorization"]).toBeUndefined();
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({
       attendanceVisibility: "no_one",
     });
   });
 
-  it("returns { ok: false, error } on 401", async () => {
+  it("reports an expired sign-in on 401 rather than the server's wording", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(401, { message: "Unauthorized" }));
-    const result = await updateMySettings({ attendanceVisibility: "no_one" }, "tok");
+    const result = await updateMySettings({ attendanceVisibility: "no_one" });
     expect(result.ok).toBe(false);
-    expect(result.error).toBe("Unauthorized");
+    // `authFetch` turns 401 into AuthExpiredError, and the copy has to send
+    // the user to sign in rather than hunting a fault that isn't theirs.
+    expect(result.error).toBe("Your sign-in has expired. Sign in again to continue.");
   });
 });
 

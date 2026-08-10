@@ -24,7 +24,6 @@ interface Event {
 
 export function RsvpSection(props: {
   event: Event;
-  accessToken: string | null;
   currentProfileId: string | null;
   /**
    * Inbound `?source=` value latched from the URL on this mount. Sent
@@ -34,12 +33,15 @@ export function RsvpSection(props: {
   inboundSource?: ShareSource | null;
   onSourceConsumed?: () => void;
 }) {
-  const tokenSource = () => ({
+  // Keyed on the viewer, not a credential: the session cookie rides along on
+  // its own, but who is signed in still decides what the server returns, so a
+  // sign-in or sign-out has to reload the list.
+  const viewerSource = () => ({
     eventId: props.event.id,
-    token: props.accessToken,
+    profileId: props.currentProfileId,
   });
-  const [latest, { refetch: refetchLatest }] = createResource(tokenSource, ({ eventId, token }) =>
-    fetchLatestRsvps(eventId, token),
+  const [latest, { refetch: refetchLatest }] = createResource(viewerSource, ({ eventId }) =>
+    fetchLatestRsvps(eventId),
   );
   const [counts, { refetch: refetchCounts }] = createResource<RsvpCounts>(() =>
     fetchRsvpCounts(props.event.id),
@@ -51,19 +53,14 @@ export function RsvpSection(props: {
   const isPrivateList = () => props.event.guestListVisibility === "private" && !isOrganiser();
 
   async function handleRsvp(status: "going" | "maybe" | "not_going") {
-    if (!props.accessToken) {
+    if (!props.currentProfileId) {
       toast.error("Sign in to RSVP");
       return;
     }
     setSubmitting(true);
     const sourceForThisCall = props.inboundSource ?? null;
     try {
-      const result = await upsertMyRsvp(
-        props.event.id,
-        status,
-        props.accessToken,
-        sourceForThisCall,
-      );
+      const result = await upsertMyRsvp(props.event.id, status, sourceForThisCall);
       if (!result.ok) {
         toast.error(result.error ?? "Failed to RSVP");
         return;
@@ -150,7 +147,7 @@ export function RsvpSection(props: {
       <Show when={modalOpen()}>
         <RsvpModal
           event={props.event}
-          accessToken={props.accessToken}
+          currentProfileId={props.currentProfileId}
           onClose={() => setModalOpen(false)}
         />
       </Show>

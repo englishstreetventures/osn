@@ -23,7 +23,6 @@ import "./onboarding.css";
 const TOTAL_STEPS = 6;
 
 export interface OnboardingStepperProps {
-  accessToken: string;
   displayName: string | null;
   /** Called after a successful POST /me/onboarding/complete. Caller invalidates the resource and navigates home. */
   onCompleted: () => void;
@@ -83,7 +82,7 @@ export function OnboardingStepper(props: OnboardingStepperProps) {
       locationPerm: locationPerm(),
     };
     try {
-      await completeOnboarding(props.accessToken, payload);
+      await completeOnboarding(payload);
       props.onCompleted();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Couldn't finish setup");

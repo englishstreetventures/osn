@@ -43,27 +43,21 @@ export interface CompleteOnboardingPayload {
 // API wrappers
 // ---------------------------------------------------------------------------
 
-const authHeaders = (token: string | null): Record<string, string> =>
-  token ? { Authorization: `Bearer ${token}` } : {};
+// The Eden client sends the session cookie on every call, so neither of
+// these carries a credential of its own. Both are for signed-in callers;
+// a visitor's request comes back 401 and `fetchOnboardingStatus` reads
+// that as "nothing to show", which is what the gate wants anyway.
 
-export async function fetchOnboardingStatus(
-  token: string | null,
-): Promise<OnboardingStatus | null> {
-  if (!token) return null;
-  const { data, error } = await api.me.onboarding.get({
-    headers: authHeaders(token),
-  });
+export async function fetchOnboardingStatus(): Promise<OnboardingStatus | null> {
+  const { data, error } = await api.me.onboarding.get();
   if (error || !data || !("completedAt" in data)) return null;
   return data as OnboardingStatus;
 }
 
 export async function completeOnboarding(
-  token: string,
   payload: CompleteOnboardingPayload,
 ): Promise<OnboardingStatus> {
-  const { data, error } = await api.me.onboarding.complete.post(payload, {
-    headers: authHeaders(token),
-  });
+  const { data, error } = await api.me.onboarding.complete.post(payload);
   if (error) {
     const message =
       typeof error === "object" && error && "value" in error

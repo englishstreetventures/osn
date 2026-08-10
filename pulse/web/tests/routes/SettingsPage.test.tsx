@@ -9,24 +9,13 @@ vi.mock("solid-toast", async () => {
   const { solidToastMock } = await import("../helpers/toast");
   return solidToastMock();
 });
+import { authState, fakeSession } from "../helpers/auth";
 import { mockToastError, mockToastSuccess } from "../helpers/toast";
 
-// Mock the auth context — settingsPage reads `session()` for the access token.
-let mockSession: () => { accessToken: string } | null = () => ({ accessToken: "tok" });
-vi.mock("@osn/client/solid", () => ({
-  useAuth: () => ({
-    session: () => mockSession(),
-    profiles: () =>
-      mockSession()
-        ? [{ id: "usr_test", handle: "test", email: "t@t.com", displayName: null, avatarUrl: null }]
-        : null,
-    createProfile: vi.fn(),
-  }),
-}));
-
-vi.mock("../../src/lib/authClients", () => ({
-  registrationClient: { checkHandle: vi.fn() },
-}));
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../helpers/auth");
+  return rpAuthSolidMock();
+});
 
 // Mock the rsvps lib so we can assert updateMySettings is called and stub
 // success / failure paths without touching the network.
@@ -43,7 +32,7 @@ const render: typeof _baseRender = ((factory: () => JSX.Element) =>
 
 describe("SettingsPage", () => {
   beforeEach(() => {
-    mockSession = () => ({ accessToken: "tok" });
+    authState.session = fakeSession();
     mockUpdate.mockResolvedValue({ ok: true });
   });
 
@@ -81,7 +70,7 @@ describe("SettingsPage", () => {
     fireEvent.click(noOne);
     fireEvent.click(getByText("Save"));
     await waitFor(() => {
-      expect(mockUpdate).toHaveBeenCalledWith({ attendanceVisibility: "no_one" }, "tok");
+      expect(mockUpdate).toHaveBeenCalledWith({ attendanceVisibility: "no_one" });
       expect(mockToastSuccess).toHaveBeenCalledWith("Settings saved");
     });
   });
@@ -96,7 +85,7 @@ describe("SettingsPage", () => {
   });
 
   it("renders a sign-in prompt instead of the form when there is no session", () => {
-    mockSession = () => null;
+    authState.session = null;
     const { getByText, queryByText } = render(() => <SettingsPage />);
     expect(getByText("Sign in to change your settings.")).toBeTruthy();
     expect(queryByText("Save")).toBeNull();

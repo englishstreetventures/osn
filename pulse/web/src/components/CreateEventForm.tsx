@@ -31,11 +31,7 @@ const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"] as const;
 type Currency = (typeof CURRENCIES)[number];
 const MAX_PRICE_MAJOR = 99999.99;
 
-export function CreateEventForm(props: {
-  accessToken: string | null;
-  onSuccess: () => void;
-  onCancel: () => void;
-}) {
+export function CreateEventForm(props: { onSuccess: () => void; onCancel: () => void }) {
   const [title, setTitle] = createSignal("");
   const [startTime, setStartTime] = createSignal(toDatetimeLocal(new Date()));
   const [endTime, setEndTime] = createSignal("");
@@ -94,29 +90,26 @@ export function CreateEventForm(props: {
     if (endTimeError() || commsError() || priceError()) return;
     setSubmitting(true);
     try {
-      const headers: Record<string, string> = {};
-      if (props.accessToken) headers["Authorization"] = `Bearer ${props.accessToken}`;
       const p = parsedPrice();
       const includePrice = p !== null && !Number.isNaN(p) && p > 0;
-      const { error } = await api.events.post(
-        {
-          title: title(),
-          startTime: new Date(startTime()) as unknown as string,
-          endTime: endTime() ? (new Date(endTime()) as unknown as string) : undefined,
-          location: location() || undefined,
-          latitude: latitude(),
-          longitude: longitude(),
-          description: description() || undefined,
-          visibility: visibility(),
-          guestListVisibility: guestListVisibility(),
-          joinPolicy: joinPolicy(),
-          allowInterested: allowInterested(),
-          commsChannels: Array.from(commsChannels()),
-          priceAmount: includePrice ? p : undefined,
-          priceCurrency: includePrice ? priceCurrency() : undefined,
-        },
-        { headers },
-      );
+      // No headers: the Eden client carries the session cookie, which is the
+      // only credential the browser holds.
+      const { error } = await api.events.post({
+        title: title(),
+        startTime: new Date(startTime()) as unknown as string,
+        endTime: endTime() ? (new Date(endTime()) as unknown as string) : undefined,
+        location: location() || undefined,
+        latitude: latitude(),
+        longitude: longitude(),
+        description: description() || undefined,
+        visibility: visibility(),
+        guestListVisibility: guestListVisibility(),
+        joinPolicy: joinPolicy(),
+        allowInterested: allowInterested(),
+        commsChannels: Array.from(commsChannels()),
+        priceAmount: includePrice ? p : undefined,
+        priceCurrency: includePrice ? priceCurrency() : undefined,
+      });
       if (error) {
         // eslint-disable-next-line no-console -- DEV-only client-side debug logging
         if (import.meta.env.DEV) console.error("Failed to create event:", error);

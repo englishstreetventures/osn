@@ -385,10 +385,9 @@
       "name": "@pulse/web",
       "version": "0.21.5",
       "dependencies": {
-        "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
         "@pulse/api": "workspace:*",
-        "@simplewebauthn/browser": "^13.3.0",
+        "@shared/rp-auth": "workspace:*",
         "@solidjs/meta": "^0.29.4",
         "@solidjs/router": "^0.16.2",
         "@solidjs/start": "^2.0.0",

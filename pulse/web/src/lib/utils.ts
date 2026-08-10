@@ -54,50 +54,43 @@ export function deriveEndFromDuration(start: string, hours: number): string {
   return toDatetimeLocal(end);
 }
 
+/** The identity fields any signed-in surface needs to label a person. */
+export interface DisplayIdentity {
+  displayName: string | null;
+  handle: string | null;
+  email: string | null;
+}
+
 /**
- * Decodes a JWT payload without verifying the signature.
- * Safe for display-only purposes — the server verifies the signature on every write.
+ * Picks the best name we hold for someone: their chosen display name, else
+ * `@handle`, else the local part of their email. Null when we hold none of
+ * the three, which is a signed-out viewer.
  */
-function decodeJwtPayload(accessToken: string): Record<string, unknown> | null {
+export function displayNameOf(identity: DisplayIdentity | null | undefined): string | null {
+  if (!identity) return null;
+  if (identity.displayName) return identity.displayName;
+  if (identity.handle) return `@${identity.handle}`;
+  if (identity.email) return identity.email.split("@")[0] ?? null;
+  return null;
+}
+
+/** First character of a name, upper-cased — the fallback when no avatar renders. */
+export function initialOf(name: string | null): string {
+  return name?.trim().charAt(0).toUpperCase() || "?";
+}
+
+/**
+ * The avatar URL arrives from the issuer's `picture` claim and is stored
+ * verbatim at login, so it is third-party data by the time it reaches an
+ * `<img src>`. Only an absolute `https:` URL is rendered — that rules out
+ * `javascript:`, `data:` and protocol-relative URLs without needing the
+ * sink to be careful.
+ */
+export function safeAvatarUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
   try {
-    return JSON.parse(atob(accessToken.split(".")[1]!)) as Record<string, unknown>;
+    return new URL(url).protocol === "https:" ? url : null;
   } catch {
     return null;
   }
-}
-
-/** Extracts the `sub` (profile ID) claim from an access token. */
-export function getProfileIdFromToken(accessToken: string | null): string | null {
-  return getTokenClaims(accessToken).profileId;
-}
-
-export interface TokenClaims {
-  profileId: string | null;
-  email: string | null;
-  handle: string | null;
-  displayName: string | null;
-}
-
-/** Decodes all OSN claims from an access token in one pass. */
-export function getTokenClaims(accessToken: string | null): TokenClaims {
-  const payload = decodeJwtPayload(accessToken ?? "");
-  return {
-    profileId: typeof payload?.sub === "string" ? payload.sub : null,
-    email: typeof payload?.email === "string" ? payload.email : null,
-    handle: typeof payload?.handle === "string" ? payload.handle : null,
-    displayName: typeof payload?.displayName === "string" ? payload.displayName : null,
-  };
-}
-
-/**
- * Derives a display name from an access token.
- * Prefers the `displayName` claim, falls back to `@handle`, then to the email local-part.
- */
-export function getDisplayNameFromToken(accessToken: string | null): string | null {
-  if (!accessToken) return null;
-  const { displayName, handle, email } = getTokenClaims(accessToken);
-  if (displayName) return displayName;
-  if (handle) return `@${handle}`;
-  if (email) return email.split("@")[0] ?? null;
-  return null;
 }

@@ -114,12 +114,6 @@ const DESTINATIONS: Destination[] = [
 interface ShareEventButtonProps {
   eventId: string;
   eventTitle: string;
-  /**
-   * Caller's access token, forwarded to the share telemetry ping so the
-   * server's visibility gate can recognise an organiser sharing their
-   * own private event. Optional — anonymous sharers pass null.
-   */
-  accessToken?: string | null;
 }
 
 /**
@@ -152,8 +146,10 @@ export function ShareEventButton(props: ShareEventButtonProps) {
     const sourcedUrl = withShareSource(baseUrl(), dest.id);
     const ok = await dest.handle(sourcedUrl, props.eventTitle);
     if (ok) {
-      // Telemetry is fire-and-forget — don't block the close on it.
-      void recordShareInvoked(props.eventId, dest.id, props.accessToken ?? null);
+      // Telemetry is fire-and-forget — don't block the close on it. The ping
+      // sends the session cookie, so the server's visibility gate still
+      // recognises an organiser sharing their own private event.
+      void recordShareInvoked(props.eventId, dest.id);
     }
     setOpen(false);
   }

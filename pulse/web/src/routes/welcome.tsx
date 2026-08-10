@@ -1,10 +1,10 @@
-import { useAuth } from "@osn/client/solid";
+import { useAuth } from "@shared/rp-auth/solid";
 import { useNavigate } from "@solidjs/router";
 import { createMemo, Show } from "solid-js";
 
 import { OnboardingStepper } from "../components/onboarding/OnboardingStepper";
 import { markOnboardingResolvedThisSession } from "../lib/onboarding";
-import { getDisplayNameFromToken } from "../lib/utils";
+import { displayNameOf } from "../lib/utils";
 
 /**
  * Route component for `/welcome`. The first-run gate in `App.tsx` is what
@@ -17,13 +17,14 @@ import { getDisplayNameFromToken } from "../lib/utils";
 export function WelcomePage() {
   const { session } = useAuth();
   const navigate = useNavigate();
-  const accessToken = () => session()?.accessToken ?? null;
-  const displayName = createMemo(() => getDisplayNameFromToken(accessToken()));
+  // The name comes from the session the Pulse API hands back, not from a
+  // token this page decodes — the browser never sees an OSN token.
+  const displayName = createMemo(() => displayNameOf(session() ?? null));
 
   const handleCompleted = () => {
     // Suppress the gate's cached pre-complete status for the rest of this
-    // session — the createResource in OnboardingGate is keyed on access
-    // token and won't refetch without a reload. Server-side state is
+    // session — the createResource in OnboardingGate is keyed on the signed-in
+    // profile and won't refetch without a reload. Server-side state is
     // authoritative; next session boot will fetch and see completedAt set.
     markOnboardingResolvedThisSession();
     navigate("/", { replace: true });
@@ -31,7 +32,7 @@ export function WelcomePage() {
 
   return (
     <Show
-      when={accessToken()}
+      when={session()}
       fallback={
         <div class="onb-root">
           <div class="onb-shell">
@@ -41,13 +42,7 @@ export function WelcomePage() {
         </div>
       }
     >
-      {(token) => (
-        <OnboardingStepper
-          accessToken={token()}
-          displayName={displayName()}
-          onCompleted={handleCompleted}
-        />
-      )}
+      <OnboardingStepper displayName={displayName()} onCompleted={handleCompleted} />
     </Show>
   );
 }

@@ -3,46 +3,13 @@ import { render as _baseRender, cleanup, fireEvent } from "@solidjs/testing-libr
 import type { JSX } from "solid-js";
 import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
 
+import { authState, fakeSession, mockSignIn } from "../helpers/auth";
 import { wrapRouter } from "../helpers/router";
 
-let mockSession: () => { accessToken: string } | null = () => null;
-
-vi.mock("@osn/client/solid", () => ({
-  useAuth: () => ({
-    session: () => mockSession(),
-    login: vi.fn(),
-    logout: vi.fn(),
-    profiles: () => [
-      {
-        id: "usr_test",
-        handle: "maya",
-        email: "maya@example.com",
-        displayName: "Maya Chen",
-        avatarUrl: null,
-      },
-    ],
-    activeProfileId: () => "usr_test",
-    switchProfile: vi.fn(),
-    deleteProfile: vi.fn(),
-    createProfile: vi.fn(),
-  }),
-}));
-
-vi.mock("../../src/lib/authClients", () => ({
-  registrationClient: {
-    checkHandle: vi.fn(),
-    beginRegistration: vi.fn(),
-    completeRegistration: vi.fn(),
-  },
-  loginClient: { passkeyBegin: vi.fn(), passkeyComplete: vi.fn() },
-  recoveryClient: { generateRecoveryCodes: vi.fn(), loginWithRecoveryCode: vi.fn() },
-}));
-
-vi.mock("@simplewebauthn/browser", () => ({
-  browserSupportsWebAuthn: () => false,
-  startAuthentication: vi.fn(),
-  startRegistration: vi.fn(),
-}));
+vi.mock("@shared/rp-auth/solid", async () => {
+  const { rpAuthSolidMock } = await import("../helpers/auth");
+  return rpAuthSolidMock();
+});
 
 vi.mock("solid-toast", async () => {
   const { solidToastMock } = await import("../helpers/toast");
@@ -57,7 +24,7 @@ const render: typeof _baseRender = ((factory: () => JSX.Element) =>
 
 describe("ExploreNav — unauthenticated", () => {
   beforeEach(() => {
-    mockSession = () => null;
+    authState.session = null;
   });
   afterEach(cleanup);
 
@@ -75,9 +42,12 @@ describe("ExploreNav — unauthenticated", () => {
     expect(queryByText("Hosting")).toBeNull();
   });
 
-  it("renders a Sign in button", () => {
+  it("renders a sign-in button that leaves for the issuer", () => {
     const { getByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    expect(getByText("Sign in")).toBeTruthy();
+    const button = getByText("Continue with musubi");
+    expect(button).toBeTruthy();
+    fireEvent.click(button);
+    expect(mockSignIn).toHaveBeenCalled();
   });
 
   it("does not render Host button or notification bell", () => {
@@ -146,10 +116,7 @@ describe("ExploreNav — unauthenticated", () => {
 
 describe("ExploreNav — authenticated", () => {
   beforeEach(() => {
-    mockSession = () => ({
-      accessToken:
-        "eyJ0eXAiOiJKV1QiLCJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJ1c3JfdGVzdCIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSIsImhhbmRsZSI6Im1heWEiLCJkaXNwbGF5TmFtZSI6Ik1heWEgQ2hlbiIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxODAwMDAwMDAwLCJhdWQiOiJvc24tYWNjZXNzIn0.fakesig",
-    });
+    authState.session = fakeSession();
   });
   afterEach(cleanup);
 
@@ -188,18 +155,17 @@ describe("ExploreNav — authenticated", () => {
     expect(container.querySelector("[title='Notifications']")).toBeTruthy();
   });
 
-  it("does not render Sign in button", () => {
+  it("does not render the sign-in button", () => {
     const { queryByText } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    // Should not have a standalone "Sign in" button (avatar dropdown is shown instead)
-    const signIn = queryByText("Sign in");
-    expect(signIn).toBeNull();
+    // The avatar dropdown stands in for it once someone is signed in.
+    expect(queryByText("Continue with musubi")).toBeNull();
   });
 
   it("renders avatar", () => {
     const { container } = render(() => <ExploreNav query="" onQueryChange={() => {}} />);
-    // Avatar fallback should show "MA" for "Maya Chen" initials → first 2 chars
+    // Avatar fallback shows the first initial of "Maya Chen".
     const avatarFallbacks = container.querySelectorAll("span.base\\:relative");
-    const found = Array.from(avatarFallbacks).some((el) => el.textContent === "MA");
+    const found = Array.from(avatarFallbacks).some((el) => el.textContent === "M");
     expect(found).toBe(true);
   });
 

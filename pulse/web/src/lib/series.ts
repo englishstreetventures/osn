@@ -4,11 +4,9 @@
  * are added in separate PRs.
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3001";
+import { PULSE_API_URL, publicFetch } from "./auth";
 
-function authHeaders(token: string | null): Record<string, string> {
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+const BASE_URL = PULSE_API_URL;
 
 export interface SeriesSummary {
   id: string;
@@ -45,8 +43,8 @@ export interface SeriesInstance {
   createdByName: string | null;
 }
 
-export async function fetchSeries(id: string, token: string | null): Promise<SeriesSummary | null> {
-  const res = await fetch(`${BASE_URL}/series/${id}`, { headers: authHeaders(token) });
+export async function fetchSeries(id: string): Promise<SeriesSummary | null> {
+  const res = await publicFetch(`${BASE_URL}/series/${id}`);
   if (!res.ok) return null;
   const body = (await res.json()) as { series?: SeriesSummary };
   return body.series ?? null;
@@ -55,11 +53,8 @@ export async function fetchSeries(id: string, token: string | null): Promise<Ser
 export async function fetchSeriesInstances(
   id: string,
   scope: "past" | "upcoming" | "all",
-  token: string | null,
 ): Promise<SeriesInstance[]> {
-  const res = await fetch(`${BASE_URL}/series/${id}/instances?scope=${scope}`, {
-    headers: authHeaders(token),
-  });
+  const res = await publicFetch(`${BASE_URL}/series/${id}/instances?scope=${scope}`);
   if (!res.ok) return [];
   const body = (await res.json()) as { instances?: SeriesInstance[] };
   return body.instances ?? [];
