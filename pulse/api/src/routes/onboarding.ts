@@ -1,9 +1,9 @@
 import { DbLive, type Db } from "@pulse/db/service";
-import { extractClaims } from "@shared/osn-auth-client/verify";
 import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
+import { makeCallerResolver } from "../lib/caller";
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
 import {
   completeOnboarding,
@@ -122,6 +122,7 @@ export const createOnboardingRoutes = (
 ) => {
   // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
   const runtime = ManagedRuntime.make(dbLayer);
+  const resolveCaller = makeCallerResolver({ runtime, jwksUrl, testKey: _testKey });
   return new Elysia({ prefix: "/me/onboarding" })
     .get(
       "/",
@@ -141,10 +142,7 @@ export const createOnboardingRoutes = (
           set.status = 429;
           return { error: "Too many requests" } as const;
         }
-        const claims = await extractClaims(headers["authorization"], jwksUrl, {
-          testKey: _testKey as CryptoKey,
-          audience: "osn-access",
-        });
+        const claims = await resolveCaller(headers);
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;
@@ -206,10 +204,7 @@ export const createOnboardingRoutes = (
           set.status = 429;
           return { error: "Too many requests" } as const;
         }
-        const claims = await extractClaims(headers["authorization"], jwksUrl, {
-          testKey: _testKey as CryptoKey,
-          audience: "osn-access",
-        });
+        const claims = await resolveCaller(headers);
         if (!claims) {
           set.status = 401;
           return { message: "Unauthorized" } as const;

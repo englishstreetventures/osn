@@ -8,3 +8,4 @@ export * from "./deletionJobs";
 export * from "./onboarding";
 export * from "./venues";
 export * from "./eventLineup";
+export * from "./webSessions";

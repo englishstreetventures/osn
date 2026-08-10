@@ -1,8 +1,8 @@
 import { DbLive, type Db } from "@pulse/db/service";
-import { extractClaims } from "@shared/osn-auth-client/verify";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
+import { makeCallerResolver } from "../lib/caller";
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
 import { notifyAppLeft, verifyStepUp } from "../lib/osn-bridge";
 import {
@@ -35,14 +35,12 @@ export const createAccountRoutes = (
 ) => {
   // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
   const runtime = ManagedRuntime.make(dbLayer);
+  const resolveCaller = makeCallerResolver({ runtime, jwksUrl, testKey: _testKey });
   return new Elysia({ prefix: "/account" })
     .delete(
       "",
       async ({ body, headers, set }) => {
-        const claims = await extractClaims(headers["authorization"], jwksUrl, {
-          testKey: _testKey as CryptoKey,
-          audience: "osn-access",
-        });
+        const claims = await resolveCaller(headers);
         if (!claims) {
           set.status = 401;
           metricPulseAccountDeletionRequested("error");
@@ -149,10 +147,7 @@ export const createAccountRoutes = (
     .post(
       "/restore",
       async ({ headers, set }) => {
-        const claims = await extractClaims(headers["authorization"], jwksUrl, {
-          testKey: _testKey as CryptoKey,
-          audience: "osn-access",
-        });
+        const claims = await resolveCaller(headers);
         if (!claims) {
           set.status = 401;
           return { error: "unauthorized" } as const;
@@ -183,10 +178,7 @@ export const createAccountRoutes = (
     .get(
       "/deletion-status",
       async ({ headers, set }) => {
-        const claims = await extractClaims(headers["authorization"], jwksUrl, {
-          testKey: _testKey as CryptoKey,
-          audience: "osn-access",
-        });
+        const claims = await resolveCaller(headers);
         if (!claims) {
           set.status = 401;
           return { error: "unauthorized" } as const;

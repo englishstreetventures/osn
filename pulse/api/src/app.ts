@@ -2,12 +2,15 @@ import { cors } from "@elysiajs/cors";
 import { openapi } from "@elysiajs/openapi";
 import { DbLive, type Db } from "@pulse/db/service";
 import { healthRoutes, observabilityPlugin } from "@shared/observability";
+import type { OidcConfig } from "@shared/osn-auth-client/oidc-rp";
 import type { ClientIpOptions } from "@shared/rate-limit";
 import type { Layer } from "effect";
 import { Elysia } from "elysia";
 
+import { originGuard } from "./lib/origin-guard";
 import { makeMemoryRateLimiters, type PulseRateLimiters } from "./redis";
 import { createAccountRoutes } from "./routes/account";
+import { createAuthRoutes } from "./routes/auth";
 import { createCloseFriendsRoutes } from "./routes/closeFriends";
 import { createEventsRoutes } from "./routes/events";
 import { createInternalRoutes } from "./routes/internal";
@@ -47,6 +50,21 @@ export interface AppOptions {
    * → wildcard `cors()` (tests only).
    */
   corsOrigins?: string[];
+  /**
+   * OIDC relying-party config for browser sign-in. `null`/omitted ⇒ the tier
+   * has no OSN client credentials, and `/api/auth/oidc/*` answers with the
+   * `sign_in_unavailable` marker instead of half-starting a flow. The
+   * composition root builds it from env (see `lib/oidc.ts` for the HMAC info).
+   */
+  oidc?: OidcConfig | null;
+  /** Cookie `Secure` flag — true on every https tier, false for local http. */
+  secureCookies?: boolean;
+  /**
+   * Absolute URL of the Pulse web login page. Terminal sign-in failures with
+   * no trusted `return_to` land here with an `?auth_error` marker. Defaults to
+   * the local web app.
+   */
+  loginFallbackUrl?: string;
 }
 
 /**
@@ -63,9 +81,12 @@ export function createApp(options: AppOptions = {}) {
     rateLimiters = makeMemoryRateLimiters(),
     clientIpConfig = {},
     corsOrigins,
+    oidc = null,
+    secureCookies = false,
+    loginFallbackUrl = "http://localhost:1420/",
   } = options;
 
-  const { write, discovery, share, exposure } = rateLimiters;
+  const { write, discovery, share, exposure, authStart, authSession } = rateLimiters;
 
   return (
     // `aot: false` — Elysia's ahead-of-time compilation builds handlers via
@@ -73,6 +94,11 @@ export function createApp(options: AppOptions = {}) {
     new Elysia({ aot: false })
       .use(corsOrigins ? cors({ origin: corsOrigins, credentials: true }) : cors())
       .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
+      // CSRF guard for the cookie-authenticated surface — mounted before any
+      // route factory so it gates the whole app. Only fires when the request
+      // carries `pulse_web_session`; see `lib/origin-guard.ts` for why Pulse
+      // cannot guard every state-changing request the way cire does.
+      .use(originGuard(corsOrigins ?? []))
       .use(healthRoutes({ serviceName: SERVICE_NAME }))
       .get("/", () => ({ status: "ok", service: SERVICE_NAME }))
       .use(
@@ -101,6 +127,16 @@ export function createApp(options: AppOptions = {}) {
               "/internal/account-export",
             ],
           },
+        }),
+      )
+      .use(
+        createAuthRoutes(dbLayer, {
+          oidc,
+          secureCookies,
+          loginFallbackUrl,
+          startLimiter: authStart,
+          sessionLimiter: authSession,
+          clientIpConfig,
         }),
       )
       .use(

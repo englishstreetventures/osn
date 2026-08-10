@@ -56,6 +56,7 @@ describe("applySchema", () => {
       "pulse_deletion_jobs",
       "pulse_profile_accounts",
       "pulse_users",
+      "pulse_web_sessions",
       "venues",
     ]);
   });

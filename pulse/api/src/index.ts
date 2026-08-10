@@ -1,9 +1,11 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { makeDbD1Live } from "@pulse/db/service";
 import type { ClientIpOptions } from "@shared/rate-limit";
+import { Effect } from "effect";
 
 import { createApp, type App } from "./app";
 import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
+import { buildPulseOidcConfig } from "./lib/oidc";
 import { makeMemoryRateLimiters, type PulseRateLimiters } from "./redis";
 
 // Re-export the Eden treaty type so `@pulse/api` consumers and `./client` keep
@@ -30,6 +32,21 @@ export interface Env {
   PULSE_TRUSTED_PROXY_COUNT?: string;
   /** Environment discriminator — `local` vs anything else. */
   OSN_ENV?: string;
+  /** OSN issuer origin — the OIDC provider this app is a relying party of. */
+  OSN_ISSUER_URL?: string;
+  /**
+   * Public origin of this Worker. The registered redirect URI is
+   * `${PULSE_API_ORIGIN}/api/auth/oidc/callback`, and the session cookie is
+   * host-scoped to it — so it must be same-site with the Pulse web origin
+   * (`api.<pulse-domain>`) or a `SameSite=Lax` cookie is never sent.
+   */
+  PULSE_API_ORIGIN?: string;
+  /** OIDC client id registered with osn-api (var). */
+  OSN_OIDC_CLIENT_ID?: string;
+  /** OIDC client secret (secret, never a var). */
+  OSN_OIDC_CLIENT_SECRET?: string;
+  /** Absolute URL of the Pulse web login page — the `?auth_error` landing. */
+  PULSE_LOGIN_URL?: string;
 }
 
 /**
@@ -87,12 +104,28 @@ function buildApp(env: Env): App {
 
   const rateLimiters: PulseRateLimiters = makeMemoryRateLimiters();
 
+  // Browser sign-in (OIDC relying party). All five pieces or none — see
+  // `lib/oidc.ts`. On a deployed tier an incomplete set is a misconfiguration
+  // worth a log line, but not worth refusing to serve: every other route works
+  // without it, and the sign-in legs answer `sign_in_unavailable`.
+  const oidc = buildPulseOidcConfig(env, corsOrigins);
+  if (secure && !oidc) {
+    void Effect.runPromise(
+      Effect.logError(
+        "pulse-api: OIDC sign-in disabled — set OSN_ISSUER_URL, OSN_JWKS_URL, PULSE_API_ORIGIN, OSN_OIDC_CLIENT_ID and OSN_OIDC_CLIENT_SECRET to enable it",
+      ),
+    ).catch(() => undefined);
+  }
+
   return createApp({
     dbLayer: makeDbD1Live(env.DB as D1Database),
     jwksUrl,
     rateLimiters,
     clientIpConfig: resolveClientIpConfig(env),
     corsOrigins,
+    oidc,
+    secureCookies: secure,
+    ...(env.PULSE_LOGIN_URL ? { loginFallbackUrl: env.PULSE_LOGIN_URL } : {}),
   });
 }
 

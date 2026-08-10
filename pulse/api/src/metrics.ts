@@ -19,6 +19,7 @@ import type {
   DeletionCompletedSource,
   DeletionPhase,
   EventStatus,
+  OriginGuardRejectionReason,
   Result,
 } from "@shared/observability/metrics";
 import { Effect } from "effect";
@@ -94,6 +95,14 @@ export const PULSE_METRICS = {
   hostCancelledHardDeleted: "pulse.events.host_cancelled.hard_delete",
   // Per-user write rate limiting (W4 — events/RSVP/invite/blast/series/close-friends)
   writeRateLimited: "pulse.write.rate_limited",
+  // Browser sign-in: the OSN OIDC redirect flow and the session cookie it mints
+  webSessionCreated: "pulse.web_session.created",
+  webSessionSwept: "pulse.web_session.swept",
+  oidcLogin: "pulse.oidc.login",
+  // Which credential authenticated a request — bearer (native app) or cookie (web)
+  callerAuth: "pulse.caller.auth",
+  // CSRF origin guard over the cookie-authenticated surface
+  originGuardRejections: "pulse.origin_guard.rejections",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -1033,6 +1042,95 @@ const writeRateLimited = createCounter<WriteRateLimitedAttrs>({
 
 export const metricWriteRateLimited = (endpoint: PulseWriteEndpoint): void =>
   writeRateLimited.inc({ endpoint });
+
+// --- Browser sign-in (OSN OIDC redirect flow + the Pulse web session) ---
+
+type WebSessionCreatedAttrs = { result: "ok" | "error" };
+type WebSessionSweptAttrs = { result: "ok" | "error" };
+
+/**
+ * Which leg of the OIDC redirect flow ended, and how. Closed set — never carry
+ * a client id, profile id, or the provider's error string, all of which are
+ * unbounded. Mirrors cire's `OidcLoginOutcome`.
+ *
+ * `start` — we redirected the browser to the OSN authorize endpoint.
+ * `callback_ok` — the code exchanged, the ID token verified, a session exists.
+ * `provider_error` — OSN handed us back an `error=` instead of a code.
+ * `state_mismatch` — no transaction cookie, or its `state` did not match.
+ * `exchange_failed` — the back-channel token request was refused or unreachable.
+ * `token_invalid` — the ID token failed verification, or lacked a profile id.
+ * `bad_request` — the caller's own inputs were wrong (e.g. a foreign
+ *   `return_to`); nothing reached the provider.
+ */
+export type OidcLoginOutcome =
+  | "start"
+  | "callback_ok"
+  | "provider_error"
+  | "state_mismatch"
+  | "exchange_failed"
+  | "token_invalid"
+  | "bad_request";
+type OidcLoginAttrs = { outcome: OidcLoginOutcome };
+
+const webSessionCreated = createCounter<WebSessionCreatedAttrs>({
+  name: PULSE_METRICS.webSessionCreated,
+  description: "Pulse web session-cookie creations after an OSN OIDC sign-in, by outcome",
+  unit: "{session}",
+});
+
+const webSessionSwept = createCounter<WebSessionSweptAttrs>({
+  name: PULSE_METRICS.webSessionSwept,
+  description:
+    "Expired Pulse web sessions deleted by the sweeper — increment is the row count, so the sum tracks reclaimed rows",
+  unit: "{session}",
+});
+
+const oidcLogin = createCounter<OidcLoginAttrs>({
+  name: PULSE_METRICS.oidcLogin,
+  description: "OSN OIDC sign-in legs, by outcome",
+  unit: "{attempt}",
+});
+
+export const metricWebSessionCreated = (result: "ok" | "error"): void =>
+  webSessionCreated.inc({ result });
+
+/** On success `count` is the number of expired rows deleted, so the counter sum
+ *  tracks reclaimed sessions. A failed sweep records a single `error`. */
+export const metricWebSessionSwept = (result: "ok" | "error", count = 1): void =>
+  webSessionSwept.add(count, { result });
+
+/** Record one leg of an OIDC sign-in. See `OidcLoginOutcome` for the values. */
+export const metricOidcLogin = (outcome: OidcLoginOutcome): void => oidcLogin.inc({ outcome });
+
+/**
+ * Which credential a request presented. `bearer` is the iOS app's access JWT,
+ * `cookie` the browser's Pulse web session — the split shows how the web
+ * surface's traffic moves off bearer tokens as sign-in rolls out. A request
+ * with no credential at all is not counted: on the many optional-auth reads
+ * that is the ordinary case, not an event.
+ */
+export type CallerCredential = "bearer" | "cookie";
+type CallerAuthAttrs = { credential: CallerCredential; result: "ok" | "rejected" };
+
+const callerAuth = createCounter<CallerAuthAttrs>({
+  name: PULSE_METRICS.callerAuth,
+  description: "Requests carrying a credential, by credential kind and whether it resolved",
+  unit: "{request}",
+});
+
+/** Record one credential presentation. See `CallerCredential`. */
+export const metricCallerAuth = (credential: CallerCredential, result: "ok" | "rejected"): void =>
+  callerAuth.inc({ credential, result });
+
+const originGuardRejections = createCounter<{ reason: OriginGuardRejectionReason }>({
+  name: PULSE_METRICS.originGuardRejections,
+  description: "State-changing cookie-authenticated requests refused by the origin guard",
+  unit: "{request}",
+});
+
+/** A cookie-carrying write was refused for a missing or non-allowlisted `Origin`. */
+export const metricOriginGuardRejection = (reason: OriginGuardRejectionReason): void =>
+  originGuardRejections.inc({ reason });
 
 const measureSecondsHelper =
   (onDuration: (seconds: number, outcome: "ok" | "error") => void) =>

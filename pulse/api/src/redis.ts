@@ -26,6 +26,8 @@ import { createClientFromUrl } from "@shared/redis/ioredis";
 import { Effect, type Layer } from "effect";
 
 import {
+  createRedisAuthSessionRateLimiter,
+  createRedisAuthStartRateLimiter,
   createRedisDiscoveryRateLimiter,
   createRedisExposureRateLimiter,
   createRedisShareRateLimiter,
@@ -46,6 +48,10 @@ export interface PulseRateLimiters {
   discovery: RateLimiterBackend;
   share: RateLimiterBackend;
   exposure: RateLimiterBackend;
+  /** Redirect legs of the OIDC sign-in (`/api/auth/oidc/*`) — tight bucket. */
+  authStart: RateLimiterBackend;
+  /** Session probe + sign-out (`/api/auth/session`, `/api/auth/signout`). */
+  authSession: RateLimiterBackend;
 }
 
 /** Build every Pulse rate-limiter backend from a single `RedisClient`. */
@@ -55,6 +61,8 @@ export function makeRateLimiters(client: RedisClient): PulseRateLimiters {
     discovery: createRedisDiscoveryRateLimiter(client),
     share: createRedisShareRateLimiter(client),
     exposure: createRedisExposureRateLimiter(client),
+    authStart: createRedisAuthStartRateLimiter(client),
+    authSession: createRedisAuthSessionRateLimiter(client),
   };
 }
 

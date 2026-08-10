@@ -1,8 +1,8 @@
 import { DbLive, type Db } from "@pulse/db/service";
-import { extractClaims } from "@shared/osn-auth-client/verify";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
+import { makeCallerResolver } from "../lib/caller";
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
 import { metricSettingsUpdated } from "../metrics";
 import { updateSettings } from "../services/pulseUsers";
@@ -21,13 +21,11 @@ export const createSettingsRoutes = (
 ) => {
   // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
   const runtime = ManagedRuntime.make(dbLayer);
+  const resolveCaller = makeCallerResolver({ runtime, jwksUrl, testKey: _testKey });
   return new Elysia({ prefix: "/me" }).patch(
     "/settings",
     async ({ body, headers, set }) => {
-      const claims = await extractClaims(headers["authorization"], jwksUrl, {
-        testKey: _testKey as CryptoKey,
-        audience: "osn-access",
-      });
+      const claims = await resolveCaller(headers);
       if (!claims) {
         metricSettingsUpdated("attendance_visibility", "unauthorized");
         set.status = 401;

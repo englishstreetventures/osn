@@ -5,6 +5,7 @@ import { Effect, Logger } from "effect";
 
 import { createApp, SERVICE_NAME } from "./app";
 import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
+import { buildPulseOidcConfig } from "./lib/oidc";
 import { registerLeaveAppKeyWithOsnApi } from "./lib/outbound-arc";
 import { initRedisClient, makeRateLimiters } from "./redis";
 import * as accountErasure from "./services/accountErasure";
@@ -68,7 +69,36 @@ const clientIpConfig: Omit<ClientIpOptions, "socketIp"> = { trustedProxyCount };
 const corsOrigins = resolveCorsOrigins(process.env, !!nonLocal);
 assertCorsOriginsConfigured(corsOrigins, !!nonLocal);
 
-const app = createApp({ jwksUrl, rateLimiters, clientIpConfig, corsOrigins });
+// Browser sign-in (OIDC relying party) — all five env pieces or none, see
+// `lib/oidc.ts`. Unset locally, so `bun run dev:pulse` boots without an OSN
+// client registration and the sign-in legs answer `sign_in_unavailable`.
+const oidc = buildPulseOidcConfig(
+  {
+    OSN_ISSUER_URL: process.env.OSN_ISSUER_URL,
+    OSN_JWKS_URL: process.env.OSN_JWKS_URL,
+    PULSE_API_ORIGIN: process.env.PULSE_API_ORIGIN,
+    OSN_OIDC_CLIENT_ID: process.env.OSN_OIDC_CLIENT_ID,
+    OSN_OIDC_CLIENT_SECRET: process.env.OSN_OIDC_CLIENT_SECRET,
+  },
+  corsOrigins,
+);
+if (nonLocal && !oidc) {
+  void Effect.runPromise(
+    Effect.logError(
+      "pulse-api: OIDC sign-in disabled — set OSN_ISSUER_URL, OSN_JWKS_URL, PULSE_API_ORIGIN, OSN_OIDC_CLIENT_ID and OSN_OIDC_CLIENT_SECRET to enable it",
+    ).pipe(Effect.provide(Logger.pretty), Effect.provide(observabilityLayer)),
+  ).catch(() => undefined);
+}
+
+const app = createApp({
+  jwksUrl,
+  rateLimiters,
+  clientIpConfig,
+  corsOrigins,
+  oidc,
+  secureCookies: !!nonLocal,
+  ...(process.env.PULSE_LOGIN_URL ? { loginFallbackUrl: process.env.PULSE_LOGIN_URL } : {}),
+});
 
 const port = process.env.PORT || 3001;
 

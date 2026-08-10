@@ -861,6 +861,192 @@
         ]
       }
     },
+    "/api/auth/oidc/callback": {
+      "get": {
+        "operationId": "completeOidcSignIn",
+        "responses": {
+          "302": {
+            "description": "Redirect back to `return_to`, setting the Pulse session cookie and clearing the transaction cookie. Every failure path redirects to the same place with an `?auth_error=` marker instead."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Per-IP rate limit exceeded."
+          }
+        },
+        "summary": "Complete OSN OIDC sign-in"
+      }
+    },
+    "/api/auth/oidc/start": {
+      "get": {
+        "operationId": "startOidcSignIn",
+        "responses": {
+          "302": {
+            "description": "Redirect to the OSN authorize endpoint, carrying the transaction cookie. On a misconfigured issuer, a redirect back to the app with an `?auth_error=` marker instead."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "`return_to` is missing or not an allowlisted origin."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Per-IP rate limit exceeded."
+          }
+        },
+        "summary": "Begin OSN OIDC sign-in"
+      }
+    },
+    "/api/auth/session": {
+      "get": {
+        "operationId": "getWebSession",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "avatarUrl": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "email": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "handle": {
+                      "type": "string"
+                    },
+                    "osnProfileId": {
+                      "type": "string"
+                    },
+                    "signedIn": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "signedIn"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The viewer's session. The identity fields are present only when `signedIn` is true."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Per-IP rate limit exceeded."
+          }
+        },
+        "summary": "Who is signed in"
+      }
+    },
+    "/api/auth/signout": {
+      "post": {
+        "operationId": "signOutWebSession",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Signed out. Always 200, with or without a live session."
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Per-IP rate limit exceeded."
+          }
+        },
+        "summary": "Drop the Pulse session cookie"
+      }
+    },
     "/close-friends/": {
       "get": {
         "operationId": "listCloseFriends",
@@ -932,6 +1118,101 @@
               }
             },
             "description": "Response for status 401"
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/close-friends/candidates": {
+      "get": {
+        "operationId": "listCloseFriendCandidates",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "connections": {
+                      "items": {
+                        "properties": {
+                          "avatarUrl": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "displayName": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "handle": {
+                            "type": "string"
+                          },
+                          "profileId": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "profileId",
+                          "handle",
+                          "displayName",
+                          "avatarUrl"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "required": [
+                    "connections"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 200"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "message"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 401"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 502"
           }
         },
         "security": [

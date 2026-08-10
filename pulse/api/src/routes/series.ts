@@ -1,10 +1,10 @@
 import type { EventSeries } from "@pulse/db/schema";
 import { DbLive, type Db } from "@pulse/db/service";
-import { extractClaims } from "@shared/osn-auth-client/verify";
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
+import { makeCallerResolver } from "../lib/caller";
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
 import { checkWriteRateLimit, createDefaultWriteRateLimiter } from "../lib/rate-limit";
 import { canViewEvent } from "../services/eventAccess";
@@ -100,6 +100,7 @@ export const createSeriesRoutes = (
 ) => {
   // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
   const runtime = ManagedRuntime.make(dbLayer);
+  const resolveCaller = makeCallerResolver({ runtime, jwksUrl, testKey: _testKey });
   const seriesCreateLimiter =
     writeRateLimiters.seriesCreate ?? createDefaultWriteRateLimiter("series_create");
   const seriesUpdateLimiter =
@@ -114,10 +115,7 @@ export const createSeriesRoutes = (
       .post(
         "/",
         async ({ body, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], jwksUrl, {
-            testKey: _testKey as CryptoKey,
-            audience: "osn-access",
-          });
+          const claims = await resolveCaller(headers);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -195,10 +193,7 @@ export const createSeriesRoutes = (
       .get(
         "/:id",
         async ({ params, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], jwksUrl, {
-            testKey: _testKey as CryptoKey,
-            audience: "osn-access",
-          });
+          const claims = await resolveCaller(headers);
           const viewerId = claims?.profileId ?? null;
 
           const series = await runtime.runPromise(
@@ -253,10 +248,7 @@ export const createSeriesRoutes = (
       .get(
         "/:id/instances",
         async ({ params, query, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], jwksUrl, {
-            testKey: _testKey as CryptoKey,
-            audience: "osn-access",
-          });
+          const claims = await resolveCaller(headers);
           const result = await runtime.runPromise(
             listInstances(params.id, {
               scope: query.scope ?? "upcoming",
@@ -288,10 +280,7 @@ export const createSeriesRoutes = (
       .patch(
         "/:id",
         async ({ params, body, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], jwksUrl, {
-            testKey: _testKey as CryptoKey,
-            audience: "osn-access",
-          });
+          const claims = await resolveCaller(headers);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -361,10 +350,7 @@ export const createSeriesRoutes = (
       .delete(
         "/:id",
         async ({ params, headers, set }) => {
-          const claims = await extractClaims(headers["authorization"], jwksUrl, {
-            testKey: _testKey as CryptoKey,
-            audience: "osn-access",
-          });
+          const claims = await resolveCaller(headers);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;

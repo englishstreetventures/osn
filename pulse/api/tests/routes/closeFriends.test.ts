@@ -124,6 +124,41 @@ describe("close-friends routes", () => {
     expect(body.closeFriends.find((c) => c.profileId === "usr_bob")?.handle).toBe("bob");
   });
 
+  it("GET /close-friends/candidates returns the caller's connections, name-sorted", async () => {
+    vi.mocked(bridge.getConnectionIds).mockReturnValue(
+      Effect.succeed(new Set(["usr_bob", "usr_carol"])),
+    );
+    vi.mocked(bridge.getProfileDisplays).mockReturnValue(
+      Effect.succeed(
+        new Map([
+          ["usr_bob", { id: "usr_bob", handle: "bob", displayName: "Bob", avatarUrl: null }],
+          [
+            "usr_carol",
+            { id: "usr_carol", handle: "carol", displayName: "Alice C", avatarUrl: null },
+          ],
+        ]),
+      ),
+    );
+    const res = await get(app, "/close-friends/candidates", aliceToken);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      connections: Array<{ profileId: string; displayName: string | null }>;
+    };
+    expect(body.connections.map((c) => c.profileId)).toEqual(["usr_carol", "usr_bob"]);
+  });
+
+  it("GET /close-friends/candidates 502 when the graph bridge fails", async () => {
+    vi.mocked(bridge.getConnectionIds).mockReturnValue(
+      Effect.fail(new bridge.GraphBridgeError({ cause: new Error("down") })),
+    );
+    const res = await get(app, "/close-friends/candidates", aliceToken);
+    expect(res.status).toBe(502);
+  });
+
+  it("GET /close-friends/candidates 401 unauthenticated", async () => {
+    expect((await get(app, "/close-friends/candidates")).status).toBe(401);
+  });
+
   it("GET /close-friends/:friendId/check returns the boolean", async () => {
     await Effect.runPromise(seedCloseFriend("usr_alice", "usr_bob").pipe(Effect.provide(layer)));
     const yes = await get(app, "/close-friends/usr_bob/check", aliceToken);

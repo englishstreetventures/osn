@@ -17,6 +17,12 @@ migrations_dir = "../db/drizzle"
 
 [env.dev.vars]
 OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"
+OSN_ISSUER_URL = "http://localhost:4000"
+PULSE_API_ORIGIN = "http://localhost:3001"
+PULSE_LOGIN_URL = "http://localhost:1420/"
+# OSN_OIDC_CLIENT_ID / OSN_OIDC_CLIENT_SECRET come from a client registered with
+# osn-api. Until both are set, /api/auth/oidc/* answers `sign_in_unavailable`
+# and the rest of the API is unaffected.
 
 # ── staging ──────────────────────────────────────────────────────────────────
 [[env.staging.d1_databases]]
@@ -28,6 +34,14 @@ migrations_dir = "../db/drizzle"
 [env.staging.vars]
 # TODO: real OSN issuer origin before staging deploy
 OSN_JWKS_URL = "https://osn-api.example.com/.well-known/jwks.json"
+OSN_ISSUER_URL = "https://osn-api.example.com"
+# TODO: set once the Pulse domain is chosen. Must be same-site with the Pulse
+# web origin (`api.<pulse-domain>`) — the session cookie is host-scoped and
+# `SameSite=Lax`, so a cross-site API host is never sent one.
+PULSE_API_ORIGIN = "https://api.pulse.example.com"
+PULSE_LOGIN_URL = "https://pulse.example.com/"
+# OSN_OIDC_CLIENT_ID is a var; OSN_OIDC_CLIENT_SECRET is a secret
+# (`wrangler secret put OSN_OIDC_CLIENT_SECRET --env staging`).
 
 # ── production ───────────────────────────────────────────────────────────────
 [[env.production.d1_databases]]
@@ -39,6 +53,14 @@ migrations_dir = "../db/drizzle"
 [env.production.vars]
 # TODO: real OSN issuer origin before prod deploy
 OSN_JWKS_URL = "https://osn-api.example.com/.well-known/jwks.json"
+OSN_ISSUER_URL = "https://osn-api.example.com"
+# TODO: set once the Pulse domain is chosen. Must be same-site with the Pulse
+# web origin (`api.<pulse-domain>`) — the session cookie is host-scoped and
+# `SameSite=Lax`, so a cross-site API host is never sent one.
+PULSE_API_ORIGIN = "https://api.pulse.example.com"
+PULSE_LOGIN_URL = "https://pulse.example.com/"
+# OSN_OIDC_CLIENT_ID is a var; OSN_OIDC_CLIENT_SECRET is a secret
+# (`wrangler secret put OSN_OIDC_CLIENT_SECRET --env production`).
 
 # The leave-app deletion sweepers run on the long-lived `local` host today. On
 # Workers they belong on a Cron Trigger — add a [triggers] crons entry + a

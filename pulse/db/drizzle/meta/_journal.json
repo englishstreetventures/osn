@@ -71,6 +71,13 @@
       "when": 1785974400000,
       "tag": "0009_events_chat_and_price",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1786406400000,
+      "tag": "0010_pulse_web_sessions",
+      "breakpoints": true
     }
   ]
 }

@@ -74,6 +74,33 @@ export function createRedisShareRateLimiter(client: RedisClient): RateLimiterBac
 }
 
 /**
+ * Per-IP limiter for the OIDC redirect legs (`GET /api/auth/oidc/start` and
+ * `/callback`). Namespace `pulse:auth:start` — key is the client IP. Matches
+ * the 20/min in-memory default (`createDefaultAuthStartRateLimiter`).
+ */
+export function createRedisAuthStartRateLimiter(client: RedisClient): RateLimiterBackend {
+  return createRedisRateLimiter(client, {
+    namespace: "pulse:auth:start",
+    maxRequests: 20,
+    windowMs: ONE_MINUTE_MS,
+  });
+}
+
+/**
+ * Per-IP limiter for `GET /api/auth/session` + `POST /api/auth/signout`.
+ * Namespace `pulse:auth:session` — key is the client IP. The 120/min ceiling
+ * mirrors `createDefaultAuthSessionRateLimiter`: the probe runs on every page
+ * load, and a shared NAT egress puts many users behind one key.
+ */
+export function createRedisAuthSessionRateLimiter(client: RedisClient): RateLimiterBackend {
+  return createRedisRateLimiter(client, {
+    namespace: "pulse:auth:session",
+    maxRequests: 120,
+    windowMs: ONE_MINUTE_MS,
+  });
+}
+
+/**
  * Per-IP limiter for the unauthenticated `POST /events/:id/exposure` ping.
  * Namespace `pulse:exposure` — key is the client IP. Higher 120/min ceiling
  * mirrors `createDefaultExposureRateLimiter` (legitimate page reloads /
