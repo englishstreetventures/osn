@@ -3,6 +3,12 @@ import { Elysia, t } from "elysia";
 import { buildSessionCookie } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
+import {
+  errorResponse,
+  publicKeyCredentialRequestOptions,
+  publicProfile,
+  tokenResponse,
+} from "./response-schemas";
 
 export function createPasskeyLoginRoutes(ctx: AuthRouteContext) {
   const {
@@ -80,6 +86,18 @@ export function createPasskeyLoginRoutes(ctx: AuthRouteContext) {
             // schema; enforced by `turnstileGate` only when configured.
             turnstileToken: t.Optional(t.String()),
           }),
+          response: {
+            200: t.Object({
+              options: publicKeyCredentialRequestOptions,
+              // Present only on the discoverable-credential path; the client
+              // must round-trip it to /login/passkey/complete.
+              challengeId: t.Optional(t.String()),
+            }),
+            400: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "beginPasskeyLogin" },
         },
       )
       .post(
@@ -134,6 +152,13 @@ export function createPasskeyLoginRoutes(ctx: AuthRouteContext) {
             challengeId: t.Optional(t.String()),
             assertion: t.Any(),
           }),
+          response: {
+            200: t.Object({ session: tokenResponse, profile: publicProfile }),
+            400: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "completePasskeyLogin" },
         },
       )
   );

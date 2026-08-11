@@ -77,6 +77,11 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
   // The key does not change during the server's lifetime — no need to allocate
   // a new object (and spread-copy all JWK fields) on every request.
   // S-L2: include key_ops alongside use for RFC 7517 compliance.
+  //
+  // Deliberately not `as const`: that widens to a readonly tuple, which no
+  // TypeBox `t.Array` accepts, and the JWKS route now declares a response
+  // schema. The prebuild-once win comes from the shared object, not the
+  // literal type.
   const jwksResponse = {
     keys: [
       {
@@ -87,7 +92,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
         key_ops: ["verify"],
       },
     ],
-  } as const;
+  };
 
   const auth = createAuthService(authConfig);
 

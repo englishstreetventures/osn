@@ -7,6 +7,7 @@ import {
 } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
+import { errorResponse, tokenResponse } from "./response-schemas";
 
 export function createTokenRoutes(ctx: AuthRouteContext) {
   const { auth, run, cookieConfig } = ctx;
@@ -47,6 +48,13 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
           body: t.Object({
             grant_type: t.String(),
           }),
+          response: {
+            200: tokenResponse,
+            // `unsupported_grant_type`, `invalid_request` (no session cookie)
+            // and `invalid_grant` (rotation/expiry) all land here.
+            400: errorResponse,
+          },
+          detail: { operationId: "refreshSession" },
         },
       )
       // -------------------------------------------------------------------------
@@ -57,17 +65,24 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
       // accepting it here kept the server one accidental-logging incident
       // away from a credential leak. Idempotent — always returns 200.
       // -------------------------------------------------------------------------
-      .post("/logout", async ({ set, headers }) => {
-        const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
-        if (cookieToken) {
-          try {
-            await run(auth.invalidateSession(cookieToken));
-          } catch {
-            // Swallow — don't leak whether the session existed.
+      .post(
+        "/logout",
+        async ({ set, headers }) => {
+          const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
+          if (cookieToken) {
+            try {
+              await run(auth.invalidateSession(cookieToken));
+            } catch {
+              // Swallow — don't leak whether the session existed.
+            }
           }
-        }
-        set.headers["set-cookie"] = buildClearSessionCookie(cookieConfig);
-        return { success: true };
-      })
+          set.headers["set-cookie"] = buildClearSessionCookie(cookieConfig);
+          return { success: true };
+        },
+        {
+          response: { 200: t.Object({ success: t.Boolean() }) },
+          detail: { operationId: "logout" },
+        },
+      )
   );
 }

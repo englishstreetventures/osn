@@ -188,7 +188,13 @@ export function createApp(deps: AppDeps) {
         // as well, but the plugin matches with `excludePaths.includes(path)`, so
         // a pattern silently matches nothing. The ARC-gated internal prefixes
         // are therefore dropped in `scripts/generate-openapi.ts` instead.
-        exclude: { paths: ["/", "/health", "/ready"] },
+        //
+        // `staticFile: false` because the plugin's static-asset heuristic is
+        // "the path contains a dot", which silently drops
+        // `/.well-known/openid-configuration` and `/.well-known/jwks.json` —
+        // the two endpoints every relying party reads first. No route here
+        // serves a file, so nothing else changes.
+        exclude: { paths: ["/", "/health", "/ready"], staticFile: false },
       }),
     )
     .use(

@@ -20,7 +20,7 @@ const BASE_CONFIG = {
 export async function makeTestAuthConfig(): Promise<AuthConfig> {
   const { privateKey, publicKey } = await generateArcKeyPair();
   const kid = await thumbprintKid(publicKey);
-  const jwtPublicKeyJwk = (await exportJWK(publicKey)) as Record<string, unknown>;
+  const jwtPublicKeyJwk = await exportJWK(publicKey);
   return {
     ...BASE_CONFIG,
     jwtPrivateKey: privateKey,
