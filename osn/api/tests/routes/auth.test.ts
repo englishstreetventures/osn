@@ -880,6 +880,44 @@ describe("auth routes", () => {
       expect(json.challenge).toBeTruthy();
     });
 
+    // The route declares a `response` schema, and Elysia DELETES any key the
+    // schema doesn't declare. A ceremony stripped of `rp`, `user` or
+    // `pubKeyCredParams` fails in the browser, not in a test that only looks
+    // at `challenge` — so assert the whole options object survives. The
+    // `credProps` extension matters most: @simplewebauthn/server injects it
+    // unconditionally, the route never passes it, and nothing else here would
+    // notice it vanishing.
+    it("returns the full creation options, including the injected credProps extension", async () => {
+      const { profileId, accessToken } = await setupProfileAndAccessToken();
+      const res = await app.handle(
+        new Request("http://localhost/passkey/register/begin", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ profileId }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const json = (await res.json()) as {
+        rp?: { name?: string; id?: string };
+        user?: { id?: string; name?: string; displayName?: string };
+        pubKeyCredParams?: { alg: number; type: string }[];
+        authenticatorSelection?: { residentKey?: string; userVerification?: string };
+        extensions?: { credProps?: boolean };
+      };
+      expect(json.rp?.id).toBeTruthy();
+      expect(json.rp?.name).toBeTruthy();
+      expect(json.user?.id).toBeTruthy();
+      expect(json.user?.name).toBeTruthy();
+      expect(json.user?.displayName).toBeTruthy();
+      expect(json.pubKeyCredParams?.length).toBeGreaterThan(0);
+      expect(json.pubKeyCredParams?.[0]?.type).toBe("public-key");
+      expect(json.authenticatorSelection?.residentKey).toBeTruthy();
+      expect(json.extensions?.credProps).toBe(true);
+    });
+
     it("rejects requests without Authorization header", async () => {
       const svc = createAuthService(config);
       const profile = await Effect.runPromise(
@@ -2290,6 +2328,18 @@ describe("auth routes", () => {
       expect(json.events).toHaveLength(1);
       expect(json.events[0]!.kind).toBe("recovery_code_generate");
       expect(json.events[0]!.id).toMatch(/^sev_[a-f0-9]{12}$/);
+      // The route's `response` schema deletes any key it doesn't declare, so
+      // pin the whole `SecurityEventSummary` key set: dropping `createdAt` or
+      // `uaLabel` would quietly leave the banner unable to say when the event
+      // happened or which device caused it.
+      expect(Object.keys(json.events[0]!).toSorted()).toEqual([
+        "createdAt",
+        "id",
+        "ipHash",
+        "kind",
+        "uaLabel",
+      ]);
+      expect(typeof json.events[0]!.createdAt).toBe("number");
     });
 
     // S-M1: an access-token-only ack would let an XSS silently dismiss the

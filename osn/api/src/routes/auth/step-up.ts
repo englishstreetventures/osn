@@ -2,6 +2,11 @@ import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
 import type { AuthRouteContext } from "./context";
+import {
+  errorResponse,
+  publicKeyCredentialRequestOptions,
+  stepUpTokenResponse,
+} from "./response-schemas";
 
 export function createStepUpRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, rl } = ctx;
@@ -14,35 +19,48 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
       // account is known up-front; the challenge / OTP stores are keyed
       // by accountId to keep the ceremony scoped to the caller.
       // -------------------------------------------------------------------------
-      .post("/step-up/passkey/begin", async ({ headers, set, server, request }) => {
-        const rlErr = await rateLimit(
-          headers,
-          socketIpOf({ server, request }),
-          "step_up_passkey_begin",
-          rl.stepUpPasskeyBegin,
-        );
-        if (rlErr) {
-          set.status = 429;
-          return rlErr;
-        }
-        try {
-          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-          if (!claims) {
-            set.status = 401;
-            return { error: "unauthorized" };
+      .post(
+        "/step-up/passkey/begin",
+        async ({ headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "step_up_passkey_begin",
+            rl.stepUpPasskeyBegin,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
           }
-          const profile = await run(auth.findProfileById(claims.profileId));
-          if (!profile) {
-            set.status = 401;
-            return { error: "unauthorized" };
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            return await run(auth.beginStepUpPasskey(profile.accountId));
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
           }
-          return await run(auth.beginStepUpPasskey(profile.accountId));
-        } catch (e) {
-          const { status, body: errBody } = handleError(e);
-          set.status = status;
-          return errBody;
-        }
-      })
+        },
+        {
+          response: {
+            200: t.Object({ options: publicKeyCredentialRequestOptions }),
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "beginStepUpPasskey", security: [{ bearerAuth: [] }] },
+        },
+      )
       .post(
         "/step-up/passkey/complete",
         async ({ body, headers, set, server, request }) => {
@@ -100,37 +118,61 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               ]),
             ),
           }),
+          response: {
+            200: stepUpTokenResponse,
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "completeStepUpPasskey", security: [{ bearerAuth: [] }] },
         },
       )
-      .post("/step-up/otp/begin", async ({ headers, set, server, request }) => {
-        const rlErr = await rateLimit(
-          headers,
-          socketIpOf({ server, request }),
-          "step_up_otp_begin",
-          rl.stepUpOtpBegin,
-        );
-        if (rlErr) {
-          set.status = 429;
-          return rlErr;
-        }
-        try {
-          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-          if (!claims) {
-            set.status = 401;
-            return { error: "unauthorized" };
+      .post(
+        "/step-up/otp/begin",
+        async ({ headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "step_up_otp_begin",
+            rl.stepUpOtpBegin,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
           }
-          const profile = await run(auth.findProfileById(claims.profileId));
-          if (!profile) {
-            set.status = 401;
-            return { error: "unauthorized" };
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            return await run(auth.beginStepUpOtp(profile.accountId));
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
           }
-          return await run(auth.beginStepUpOtp(profile.accountId));
-        } catch (e) {
-          const { status, body: errBody } = handleError(e);
-          set.status = status;
-          return errBody;
-        }
-      })
+        },
+        {
+          response: {
+            // `sent` is always true on the success path — the OTP send is
+            // awaited, so a transport failure surfaces as an error status
+            // rather than `{ sent: false }`.
+            200: t.Object({ sent: t.Boolean() }),
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "beginStepUpOtp", security: [{ bearerAuth: [] }] },
+        },
+      )
       .post(
         "/step-up/otp/complete",
         async ({ body, headers, set, server, request }) => {
@@ -186,6 +228,14 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
               ]),
             ),
           }),
+          response: {
+            200: stepUpTokenResponse,
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "completeStepUpOtp", security: [{ bearerAuth: [] }] },
         },
       )
   );

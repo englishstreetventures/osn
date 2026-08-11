@@ -4,6 +4,7 @@ import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
 import { buildSessionCookie } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
+import { errorResponse, publicProfile, tokenResponse } from "./response-schemas";
 
 export function createCrossDeviceRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, sessionMetaFrom, rl, cookieConfig } = ctx;
@@ -24,28 +25,49 @@ export function createCrossDeviceRoutes(ctx: AuthRouteContext) {
       // `POST /login/cross-device/:requestId/reject` — authenticated. Device A
       //   explicitly rejects the request.
       // -------------------------------------------------------------------------
-      .post("/login/cross-device/begin", async ({ set, headers, server, request }) => {
-        const rlErr = await rateLimit(
-          headers,
-          socketIpOf({ server, request }),
-          "cross_device_begin",
-          rl.crossDeviceBegin,
-        );
-        if (rlErr) {
-          set.status = 429;
-          return rlErr;
-        }
-        try {
-          const result = await run(
-            auth.beginCrossDeviceLogin(sessionMetaFrom(headers, socketIpOf({ server, request }))),
+      .post(
+        "/login/cross-device/begin",
+        async ({ set, headers, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "cross_device_begin",
+            rl.crossDeviceBegin,
           );
-          return result;
-        } catch (e) {
-          const { status, body: errBody } = handleError(e);
-          set.status = status;
-          return errBody;
-        }
-      })
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const result = await run(
+              auth.beginCrossDeviceLogin(sessionMetaFrom(headers, socketIpOf({ server, request }))),
+            );
+            return result;
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          response: {
+            // The wire field is `cdlSecret`, not `secret` — the name matches
+            // the log redaction deny-list entry, so renaming it here would
+            // silently start logging the QR secret. `expiresAt` is Unix
+            // seconds; the store holds milliseconds.
+            200: t.Object({
+              requestId: t.String(),
+              cdlSecret: t.String(),
+              expiresAt: t.Number(),
+            }),
+            400: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          // Unauthenticated — device B has no session yet; that is the point.
+          detail: { operationId: "beginCrossDeviceLogin" },
+        },
+      )
       .post(
         "/login/cross-device/:requestId/status",
         async ({ params, body, set, headers, server, request }) => {
@@ -82,6 +104,32 @@ export function createCrossDeviceRoutes(ctx: AuthRouteContext) {
         {
           params: t.Object({ requestId: t.String({ pattern: "^cdl_[a-f0-9]{12}$" }) }),
           body: t.Object({ secret: t.String() }),
+          response: {
+            // Four shapes discriminated by `status`. Only `approved` carries
+            // the session, and only once — the poll consumes the request.
+            200: t.Union([
+              t.Object({
+                status: t.Literal("pending"),
+                uaLabel: t.Union([t.String(), t.Null()]),
+              }),
+              t.Object({
+                status: t.Literal("approved"),
+                // Cookie-only token set: the refresh token went out in the
+                // `Set-Cookie` header above, never in this body.
+                session: tokenResponse,
+                profile: publicProfile,
+              }),
+              t.Object({ status: t.Literal("rejected") }),
+              // `expired` also covers "no such request" — an unknown id is
+              // indistinguishable from a lapsed one on purpose.
+              t.Object({ status: t.Literal("expired") }),
+            ]),
+            // A wrong secret fails as an `AuthError` → 400 `invalid_request`.
+            400: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "getCrossDeviceLoginStatus" },
         },
       )
       .post(
@@ -126,6 +174,16 @@ export function createCrossDeviceRoutes(ctx: AuthRouteContext) {
         {
           params: t.Object({ requestId: t.String({ pattern: "^cdl_[a-f0-9]{12}$" }) }),
           body: t.Object({ secret: t.String() }),
+          response: {
+            200: t.Object({ success: t.Boolean() }),
+            // Wrong secret, already-consumed or expired request — all
+            // `AuthError` → 400. No explicit 403 branch on this route.
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "approveCrossDeviceLogin", security: [{ bearerAuth: [] }] },
         },
       )
       .post(
@@ -158,6 +216,14 @@ export function createCrossDeviceRoutes(ctx: AuthRouteContext) {
         {
           params: t.Object({ requestId: t.String({ pattern: "^cdl_[a-f0-9]{12}$" }) }),
           body: t.Object({ secret: t.String() }),
+          response: {
+            200: t.Object({ success: t.Boolean() }),
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "rejectCrossDeviceLogin", security: [{ bearerAuth: [] }] },
         },
       )
   );

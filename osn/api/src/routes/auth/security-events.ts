@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
 import type { AuthRouteContext } from "./context";
+import { errorResponse, securityEventSummary } from "./response-schemas";
 
 export function createSecurityEventRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, rl } = ctx;
@@ -16,35 +17,50 @@ export function createSecurityEventRoutes(ctx: AuthRouteContext) {
       // `POST /account/security-events/:id/ack` dismisses the banner for a
       // single event and is idempotent on missing / already-acked IDs.
       // -------------------------------------------------------------------------
-      .get("/account/security-events", async ({ headers, set, server, request }) => {
-        const rlErr = await rateLimit(
-          headers,
-          socketIpOf({ server, request }),
-          "security_event_list",
-          rl.securityEventList,
-        );
-        if (rlErr) {
-          set.status = 429;
-          return rlErr;
-        }
-        try {
-          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-          if (!claims) {
-            set.status = 401;
-            return { error: "unauthorized" };
+      .get(
+        "/account/security-events",
+        async ({ headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "security_event_list",
+            rl.securityEventList,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
           }
-          const profile = await run(auth.findProfileById(claims.profileId));
-          if (!profile) {
-            set.status = 401;
-            return { error: "unauthorized" };
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            return await run(auth.listUnacknowledgedSecurityEvents(profile.accountId));
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
           }
-          return await run(auth.listUnacknowledgedSecurityEvents(profile.accountId));
-        } catch (e) {
-          const { status, body: errBody } = handleError(e);
-          set.status = status;
-          return errBody;
-        }
-      })
+        },
+        {
+          response: {
+            // Unacknowledged events only — the acked ones stay in the table
+            // but never come back here.
+            200: t.Object({ events: t.Array(securityEventSummary) }),
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "listSecurityEvents", security: [{ bearerAuth: [] }] },
+        },
+      )
       .post(
         "/account/security-events/:id/ack",
         async ({ params, body, headers, set, server, request }) => {
@@ -91,6 +107,21 @@ export function createSecurityEventRoutes(ctx: AuthRouteContext) {
         {
           params: t.Object({ id: t.String({ pattern: "^sev_[a-f0-9]{12}$" }) }),
           body: t.Object({ step_up_token: t.Optional(t.String()) }),
+          response: {
+            // Boolean here, a COUNT on `ack-all` — same key, different type,
+            // so the two routes cannot share one schema. False means the id
+            // matched nothing or was already acked; both are idempotent, not
+            // errors.
+            200: t.Object({ acknowledged: t.Boolean() }),
+            400: errorResponse,
+            401: errorResponse,
+            // No step-up token presented at all. A presented-but-invalid one
+            // fails inside the service as an `AuthError` → 400.
+            403: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "acknowledgeSecurityEvent", security: [{ bearerAuth: [] }] },
         },
       )
       .post(
@@ -135,6 +166,17 @@ export function createSecurityEventRoutes(ctx: AuthRouteContext) {
         },
         {
           body: t.Object({ step_up_token: t.Optional(t.String()) }),
+          response: {
+            // A COUNT of the rows this call acked — not the boolean the
+            // single-event route returns.
+            200: t.Object({ acknowledged: t.Number() }),
+            400: errorResponse,
+            401: errorResponse,
+            403: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "acknowledgeAllSecurityEvents", security: [{ bearerAuth: [] }] },
         },
       )
   );

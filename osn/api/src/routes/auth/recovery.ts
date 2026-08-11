@@ -4,6 +4,7 @@ import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
 import { buildSessionCookie } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
+import { errorResponse, publicProfile, tokenResponse } from "./response-schemas";
 
 export function createRecoveryRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, sessionMetaFrom, rl, cookieConfig } = ctx;
@@ -79,41 +80,72 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
           body: t.Object({
             step_up_token: t.Optional(t.String()),
           }),
+          response: {
+            // The only time the plaintext codes ever cross the wire. S-L2:
+            // the field is `recoveryCodes` so the log redaction deny-list
+            // entry matches — renaming it here silently un-redacts them.
+            200: t.Object({ recoveryCodes: t.Array(t.String()) }),
+            400: errorResponse,
+            401: errorResponse,
+            403: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "generateRecoveryCodes", security: [{ bearerAuth: [] }] },
         },
       )
-      .get("/recovery/status", async ({ headers, set, server, request }) => {
-        const rlErr = await rateLimit(
-          headers,
-          socketIpOf({ server, request }),
-          "recovery_status",
-          rl.recoveryStatus,
-        );
-        if (rlErr) {
-          set.status = 429;
-          return rlErr;
-        }
-        try {
-          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-          if (!claims) {
-            set.status = 401;
-            return { error: "unauthorized" };
+      .get(
+        "/recovery/status",
+        async ({ headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "recovery_status",
+            rl.recoveryStatus,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
           }
-          const profile = await run(auth.findProfileById(claims.profileId));
-          if (!profile) {
-            set.status = 401;
-            return { error: "unauthorized" };
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const counts = await run(auth.countActiveRecoveryCodes(profile.accountId));
+            // Account-scoped and it changes the moment a code is burnt — never
+            // let a shared cache hand one account's counts to another request.
+            set.headers["cache-control"] = "no-store";
+            return counts;
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
           }
-          const counts = await run(auth.countActiveRecoveryCodes(profile.accountId));
-          // Account-scoped and it changes the moment a code is burnt — never
-          // let a shared cache hand one account's counts to another request.
-          set.headers["cache-control"] = "no-store";
-          return counts;
-        } catch (e) {
-          const { status, body: errBody } = handleError(e);
-          set.status = status;
-          return errBody;
-        }
-      })
+        },
+        {
+          response: {
+            // Counts only, never a code. `generatedAt` is Unix seconds, null
+            // when the account has never minted a set.
+            200: t.Object({
+              active: t.Number(),
+              total: t.Number(),
+              generatedAt: t.Union([t.Number(), t.Null()]),
+            }),
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "getRecoveryStatus", security: [{ bearerAuth: [] }] },
+        },
+      )
       .post(
         "/login/recovery/complete",
         async ({ body, set, headers, server, request }) => {
@@ -151,6 +183,16 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
         },
         {
           body: t.Object({ identifier: t.String(), code: t.String() }),
+          response: {
+            // Same envelope as passkey login: the refresh token stays in the
+            // HttpOnly cookie, so `session` is the cookie-only token set.
+            200: t.Object({ session: tokenResponse, profile: publicProfile }),
+            400: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          // Unauthenticated — the recovery code IS the credential.
+          detail: { operationId: "completeRecoveryLogin" },
         },
       )
   );

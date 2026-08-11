@@ -3,6 +3,7 @@ import { Elysia, t } from "elysia";
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
 import { readSessionCookie } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
+import { errorResponse, passkeySummary } from "./response-schemas";
 
 export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
   const { auth, run, handleError, rateLimit, socketIpOf, sessionMetaFrom, rl, cookieConfig } = ctx;
@@ -18,35 +19,48 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
       //                          captured an access token cannot drop the
       //                          account's real authenticators.
       // -------------------------------------------------------------------------
-      .get("/passkeys", async ({ headers, set, server, request }) => {
-        const rlErr = await rateLimit(
-          headers,
-          socketIpOf({ server, request }),
-          "passkey_list",
-          rl.passkeyList,
-        );
-        if (rlErr) {
-          set.status = 429;
-          return rlErr;
-        }
-        try {
-          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-          if (!claims) {
-            set.status = 401;
-            return { error: "unauthorized" };
+      .get(
+        "/passkeys",
+        async ({ headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "passkey_list",
+            rl.passkeyList,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
           }
-          const profile = await run(auth.findProfileById(claims.profileId));
-          if (!profile) {
-            set.status = 401;
-            return { error: "unauthorized" };
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            return await run(auth.listPasskeys(profile.accountId));
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
           }
-          return await run(auth.listPasskeys(profile.accountId));
-        } catch (e) {
-          const { status, body: errBody } = handleError(e);
-          set.status = status;
-          return errBody;
-        }
-      })
+        },
+        {
+          response: {
+            200: t.Object({ passkeys: t.Array(passkeySummary) }),
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "listPasskeys", security: [{ bearerAuth: [] }] },
+        },
+      )
       .patch(
         "/passkeys/:id",
         async ({ params, body, headers, set, server, request }) => {
@@ -93,6 +107,17 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
         {
           params: t.Object({ id: t.String({ pattern: "^pk_[a-f0-9]{12}$" }) }),
           body: t.Object({ label: t.String(), step_up_token: t.Optional(t.String()) }),
+          response: {
+            200: t.Object({ success: t.Boolean() }),
+            400: errorResponse,
+            401: errorResponse,
+            // No step-up token presented at all (`step_up_required`). A token
+            // that IS presented but fails verification comes back as 400.
+            403: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "renamePasskey", security: [{ bearerAuth: [] }] },
         },
       )
       .delete(
@@ -170,6 +195,20 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
         {
           params: t.Object({ id: t.String({ pattern: "^pk_[a-f0-9]{12}$" }) }),
           body: t.Optional(t.Object({ step_up_token: t.Optional(t.String()) })),
+          response: {
+            // `remaining` is the account's passkey count after the delete —
+            // the client needs it to know whether the last-passkey guard is
+            // now one credential away.
+            200: t.Object({ success: t.Boolean(), remaining: t.Number() }),
+            400: errorResponse,
+            401: errorResponse,
+            403: errorResponse,
+            // S-M2: a presented-but-stale session binding.
+            409: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "deletePasskey", security: [{ bearerAuth: [] }] },
         },
       )
   );
