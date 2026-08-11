@@ -11,8 +11,8 @@ import { createGraphService } from "../services/graph";
 import {
   graphConnectionStatus,
   graphConnectionSummary,
-  graphErrorResponse,
-  graphOkResponse,
+  errorResponse,
+  okResponse,
   graphProfileSummary,
   graphRequestSummary,
 } from "./response-schemas";
@@ -193,20 +193,20 @@ export function createGraphRoutes(
           response: {
             // 201 rather than 200: a request row now exists, and the sender
             // sees it in `/connections/sent`.
-            201: graphOkResponse,
+            201: okResponse,
             // Every refusal the service raises — already connected, request
             // already pending, blocked in either direction, self-connect —
             // arrives here through `safeError`, which keeps a tagged
             // `GraphError` message and swallows anything else.
-            400: graphErrorResponse,
-            401: graphErrorResponse,
+            400: errorResponse,
+            401: errorResponse,
             // No profile with that handle. Note the block cases do NOT land
             // here: a blocked target still resolves, and the refusal is a 400.
-            404: graphErrorResponse,
-            429: graphErrorResponse,
+            404: errorResponse,
+            429: errorResponse,
             // Only from `resolveHandle`'s catch — the mutation's own failures
             // are already 400s.
-            500: graphErrorResponse,
+            500: errorResponse,
           },
           detail: { operationId: "sendConnectionRequest", security: [{ bearerAuth: [] }] },
         },
@@ -241,14 +241,14 @@ export function createGraphRoutes(
             // Accept and reject both answer `{ ok: true }` — the caller
             // already knows which it asked for, and neither leaves anything
             // to report.
-            200: graphOkResponse,
+            200: okResponse,
             // Includes "there was no pending request from that profile",
             // which is what a double-accept looks like.
-            400: graphErrorResponse,
-            401: graphErrorResponse,
-            404: graphErrorResponse,
-            429: graphErrorResponse,
-            500: graphErrorResponse,
+            400: errorResponse,
+            401: errorResponse,
+            404: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
           },
           detail: { operationId: "respondToConnectionRequest", security: [{ bearerAuth: [] }] },
         },
@@ -277,14 +277,14 @@ export function createGraphRoutes(
           response: {
             // Removal is symmetric — it deletes the edge, not the caller's
             // half of it, so the other profile loses the connection too.
-            200: graphOkResponse,
+            200: okResponse,
             // "Not connected" is a 400, not a 404: the profile exists, the
             // edge doesn't.
-            400: graphErrorResponse,
-            401: graphErrorResponse,
-            404: graphErrorResponse,
-            429: graphErrorResponse,
-            500: graphErrorResponse,
+            400: errorResponse,
+            401: errorResponse,
+            404: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
           },
           detail: { operationId: "removeConnection", security: [{ bearerAuth: [] }] },
         },
@@ -315,8 +315,8 @@ export function createGraphRoutes(
             // Reads aren't rate limited and take no handle, so this route
             // cannot 404 or 429 — the only two failures are "no token" and
             // "the query blew up".
-            401: graphErrorResponse,
-            500: graphErrorResponse,
+            401: errorResponse,
+            500: errorResponse,
           },
           detail: { operationId: "listConnections", security: [{ bearerAuth: [] }] },
         },
@@ -347,8 +347,8 @@ export function createGraphRoutes(
           response: {
             // Requests waiting on the caller to accept or reject.
             200: t.Object({ pending: t.Array(graphRequestSummary) }),
-            401: graphErrorResponse,
-            500: graphErrorResponse,
+            401: errorResponse,
+            500: errorResponse,
           },
           detail: { operationId: "listPendingConnectionRequests", security: [{ bearerAuth: [] }] },
         },
@@ -380,8 +380,8 @@ export function createGraphRoutes(
             // The mirror of `pending` — requests the caller sent and nobody
             // has answered yet. Same row shape, different direction.
             200: t.Object({ sent: t.Array(graphRequestSummary) }),
-            401: graphErrorResponse,
-            500: graphErrorResponse,
+            401: errorResponse,
+            500: errorResponse,
           },
           detail: { operationId: "listSentConnectionRequests", security: [{ bearerAuth: [] }] },
         },
@@ -408,9 +408,9 @@ export function createGraphRoutes(
             // row read from opposite ends, so a client can label the button
             // "Cancel" or "Accept" without a second call.
             200: t.Object({ status: graphConnectionStatus }),
-            401: graphErrorResponse,
-            404: graphErrorResponse,
-            500: graphErrorResponse,
+            401: errorResponse,
+            404: errorResponse,
+            500: errorResponse,
           },
           detail: { operationId: "getConnectionStatus", security: [{ bearerAuth: [] }] },
         },
@@ -445,12 +445,12 @@ export function createGraphRoutes(
             // exists. Blocking also tears down any connection or pending
             // request between the two, which the empty body doesn't report —
             // clients refetch rather than patch state from this.
-            201: graphOkResponse,
-            400: graphErrorResponse,
-            401: graphErrorResponse,
-            404: graphErrorResponse,
-            429: graphErrorResponse,
-            500: graphErrorResponse,
+            201: okResponse,
+            400: errorResponse,
+            401: errorResponse,
+            404: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
           },
           detail: { operationId: "blockProfile", security: [{ bearerAuth: [] }] },
         },
@@ -480,14 +480,14 @@ export function createGraphRoutes(
             // 200, not 201: unblocking deletes a row rather than creating one.
             // Note it does NOT restore the connection the block tore down —
             // that has to be requested again.
-            200: graphOkResponse,
+            200: okResponse,
             // `unblockProfile` fails with NotFoundError when no block exists,
             // and the handler maps every service failure here to 400.
-            400: graphErrorResponse,
-            401: graphErrorResponse,
-            404: graphErrorResponse,
-            429: graphErrorResponse,
-            500: graphErrorResponse,
+            400: errorResponse,
+            401: errorResponse,
+            404: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
           },
           detail: { operationId: "unblockProfile", security: [{ bearerAuth: [] }] },
         },
@@ -514,8 +514,8 @@ export function createGraphRoutes(
             200: t.Object({ blocks: t.Array(graphProfileSummary) }),
             // A read: no rate limiter, and no handle to resolve, so 429 and
             // 404 can't happen here.
-            401: graphErrorResponse,
-            500: graphErrorResponse,
+            401: errorResponse,
+            500: errorResponse,
           },
           detail: { operationId: "listBlocks", security: [{ bearerAuth: [] }] },
         },
@@ -547,11 +547,11 @@ export function createGraphRoutes(
             // the CALLER has blocked the target. A client can't learn from this
             // that it has been blocked.
             200: t.Object({ blocked: t.Boolean() }),
-            401: graphErrorResponse,
+            401: errorResponse,
             // `resolveHandle` runs inside the try here, so a miss still sets
             // 404 and a lookup failure still sets 500.
-            404: graphErrorResponse,
-            500: graphErrorResponse,
+            404: errorResponse,
+            500: errorResponse,
           },
           detail: { operationId: "isProfileBlocked", security: [{ bearerAuth: [] }] },
         },
