@@ -1,5 +1,166 @@
 # @osn/osn
 
+## 3.20.0
+
+### Minor Changes
+
+- ae68f78: Declare `response:` schemas for the core session-lifecycle auth routes, and stop the OpenAPI document dropping `/.well-known/*`.
+
+  Fourteen operations — handle availability, registration, `/token`, logout, passkey login, session introspection and revocation, profile list and switch, OIDC discovery and JWKS — now declare TypeBox `response:` schemas and an `operationId`. Shared shapes (`errorResponse`, `tokenResponse`, `publicProfile`, `sessionSummary`, the WebAuthn request options) live in a new `routes/auth/response-schemas.ts`.
+
+  These schemas are not documentation. Elysia validates and _cleans_ every response against them at runtime: an undeclared key is deleted from the body before it is sent, and a value that fails its type check turns the route into a 500. Each schema here was written against the handler's actual return value and the service's return type rather than the endpoint's intent. The JWK object carries `additionalProperties: true` for exactly that reason — a JWK field the schema forgot would be silently stripped from the document every relying party verifies signatures against.
+
+  `jwtPublicKeyJwk` on `AuthConfig` is now typed as jose's `JWK` rather than `Record<string, unknown>`, because a property of type `unknown` satisfies no TypeBox schema. The three `as Record<string, unknown>` casts at its call sites are gone.
+
+  The generated document also gains `/.well-known/openid-configuration` and `/.well-known/jwks.json`, which had never appeared in it: `@elysiajs/openapi` decides a route serves a static file when its path contains a dot, and dropped both. No route in `@osn/api` serves a file, so the heuristic is now off.
+
+### Patch Changes
+
+- cc81135: Describe the response bodies of the last nine operations: profiles, recommendations, account erasure and account export. Every operation in the OpenAPI document now declares its success and error shapes, so a generated client no longer has to guess.
+
+  Account export keeps its 200 out of the `response` map on purpose — the success path streams a raw NDJSON `Response`, and an Elysia response schema is a runtime validator as much as a document. It is described through `detail.responses` instead.
+
+- 3feb77c: Graph route group — response schemas and stable operation ids (PR 5 of the
+  `shared/openapi/osn.json` series). All eleven user-facing routes in
+  `routes/graph.ts` — connection request, respond, remove, the three connection
+  lists, connection status, block, unblock, block list and the block check —
+  previously generated with an empty `responses` object, and so a `Void` return
+  in any generated client. Each now describes every status it can emit.
+
+  The schemas live in a new `routes/response-schemas.ts`, deliberately separate
+  from `routes/auth/response-schemas.ts`. The two groups do not share an error
+  envelope: the auth surface funnels failures through `publicError`, whose body
+  carries an optional human-readable `message` alongside `error`, while these
+  routes answer with a bare `{ error }` whose value already IS the message —
+  either a fixed string ("Unauthorized", "Profile not found", "Too many
+  requests") or `makeSafeError`'s output. A single shared const would have had to
+  be a superset of both, documenting a `message` field that half the API never
+  sends.
+
+  Each status set is taken from the handler's literal control flow rather than
+  from what the endpoint looks like it should do. Three consequences worth
+  naming:
+
+  - The three list endpoints and `GET /blocks` declare only 200/401/500. They are
+    reads, so no rate limiter runs, and they take no handle, so nothing can 404.
+  - Both mutations that create a row (`POST /connections/:handle`,
+    `POST /blocks/:handle`) answer 201; every other mutation answers 200.
+  - "Not connected", "no pending request" and "no block to remove" are all 400,
+    not 404. The profile in the path exists in each case — it is the edge that
+    doesn't, and `resolveHandle` is what owns 404.
+
+  `resolveHandle` also sets **500** when the lookup itself throws, returning null
+  either way, so every route that resolves a handle can emit a 500 carrying the
+  same `{ error: "Profile not found" }` shape. That is why 500 is declared with
+  the error envelope throughout rather than left off the read paths.
+
+  `getConnectionStatus` returns a closed union (`none` / `pending_sent` /
+  `pending_received` / `connected`) rather than a plain string, matching the
+  service's own return type, so a generated client gets an enum it can switch
+  over. It is directional on purpose: a client can label the button "Cancel" or
+  "Accept" without a second call.
+
+  No behaviour change: the route set in `shared/openapi/osn.json` is identical
+  before and after (62 paths, 73 operations), and `shared/openapi/pulse.json`
+  regenerates byte-identical.
+
+- e485818: OIDC route group — response schemas and stable operation ids (PR 4 of the
+  `shared/openapi/osn.json` series). Covers `routes/auth/oidc-clients.ts` (client
+  registration, list, disable) and `routes/auth/oidc.ts` (`/authorize`,
+  `/authorize/context`, `/authorize/decision`, `/oidc/token`,
+  `/oidc/connections`). Nine operations that previously generated with an empty
+  `responses` object — and so a `Void` return in any generated client — now
+  describe every status they can emit.
+
+  Two things about this group are unlike the ones before it.
+
+  The OIDC routes emit **two different error envelopes at the same status**.
+  Their own refusals use the RFC 6749 §5.2 `{ error, error_description }` shape;
+  the shared rate-limit gate and `handleError` use the house
+  `{ error, message }`. Elysia's `response:` schemas clean as well as validate —
+  an undeclared key is deleted from the body before it is sent — so a schema
+  carrying only the RFC pair would silently blank the message on a 429 or a 500.
+  `oidcErrorResponse` is therefore a superset of both, with `error_description`
+  and `message` each optional, rather than a union.
+
+  `GET /authorize` is the only route in the auth surface whose body is sometimes
+  a string. It answers a browser navigation, not a fetch, and has three shapes:
+  an empty body at 302 (every success and every post-validation error, which
+  travels back to the relying party as query parameters); a rendered HTML page at
+  400/401/429, because RFC 6749 §4.1.2.1 forbids redirecting before the client
+  and redirect URI are trusted, so the user is stranded and gets a real page; and
+  a JSON error at 400/500 when a non-OIDC failure falls through `handleError`.
+  Its 400 is a `t.Union([t.String(), oidcErrorResponse])` for that reason —
+  declaring only the object would have made Elysia reject the error page it was
+  rendering.
+
+  Four new schema consts in `routes/auth/response-schemas.ts`
+  (`oidcErrorResponse`, `ownedClientSummary`, `oidcConnectionSummary`,
+  `oidcTokenResponse`), each modelled on the service's literal return type rather
+  than the endpoint's apparent intent. Routes authenticated by session cookie or
+  client credentials get an `operationId` but no `security: [{ bearerAuth: [] }]`,
+  since a bearer token is not what authenticates them.
+
+  No behaviour change: the route set in `shared/openapi/osn.json` is identical
+  before and after, and `shared/openapi/pulse.json` regenerates byte-identical.
+
+- 2c06824: Organisation route group — response schemas and stable operation ids (PR 6 of
+  the `shared/openapi/osn.json` series). All nine routes in
+  `routes/organisation.ts` — create, list mine, read, update, delete, add member,
+  remove member, change role, list members — previously generated with an empty
+  `responses` object. Nine of the eighteen remaining empty operations; the last
+  nine are account erasure/export, profiles and recommendations.
+
+  Two consts in `routes/response-schemas.ts` were named after the graph but are
+  not specific to it, so they are renamed rather than duplicated per group:
+  `graphErrorResponse` → `errorResponse` and `graphOkResponse` → `okResponse`.
+  Both are internal to `osn/api` and the generated spec is unchanged by the
+  rename. Four groups still to come would each have needed its own copy.
+
+  Points where the described behaviour is not what the endpoint looks like:
+
+  - **`POST /organisations/` cannot 500.** Its catch maps every service failure
+    to 400, so a taken handle and a database fault are reported identically. The
+    schema says so rather than declaring a 500 that never arrives.
+  - **Authorisation refusals are 400, not 403,** everywhere a check lives in the
+    service: "only admins can update", "only the owner can delete", "only the
+    owner can grant admin". The single real 403 is `GET
+/organisations/:handle/members`, whose membership check runs in the route.
+  - **404 on the member routes covers two different misses** — no such
+    organisation and no such profile — told apart by the message, since both
+    handles are in the path.
+  - `resolveOrg` sets **500** when the lookup itself throws and returns null
+    either way, so every handle-resolving route can emit a 500 carrying the same
+    `{ error: "Organisation not found" }` body.
+
+  One behaviour change, and it is a fix: in `GET /organisations/:handle/members`
+  the `getMemberRole` call sat outside the `try`, so a database fault during the
+  membership check escaped to Elysia's default handler and answered with a body
+  unlike every other error in the group. It now runs inside the `try` and reports
+  `{ error }` at 500 like its neighbours. The 200 and 403 paths are untouched.
+
+  `listMembers` also had its return type narrowed from `role: string` to the
+  column's own `"admin" | "member"`. The roster is what a client reads before
+  PATCHing a role back, and both request bodies accept exactly those two values,
+  so the wider type was wrong at the source — and a `t.String()` in the response
+  schema would have propagated it into every generated client.
+
+  Route set unchanged: 62 paths, 73 operations before and after.
+  `shared/openapi/pulse.json` regenerates byte-identical.
+
+- deee38a: Declare response schemas for the passkey, step-up, recovery, cross-device, email-change and security-event routes.
+
+  Twenty-one operations now carry a `response` map and an `operationId`, so the generated OpenAPI document describes what each one actually returns instead of an untyped body. Every schema is taken from the service's real return type, because Elysia deletes any key a response schema omits — an incomplete schema is silent data loss, not a documentation gap.
+
+  Two details worth naming:
+
+  - The WebAuthn registration options declare `extensions`, which `@simplewebauthn/server` fills with `credProps` unconditionally. Omitting it would have stripped the extension and broken enrolment in the browser.
+  - `POST /login/cross-device/:requestId/status` is a union of four shapes discriminated by `status`, only one of which carries a session.
+
+  Enum-ish WebAuthn members stay plain strings: those vocabularies grow, and an unrecognised value would fail response validation and take down the ceremony.
+
+  New tests pin the full key set of the registration options, the passkey list and the security-event list, so a future schema edit that drops a field fails a test rather than a client.
+
 ## 3.19.0
 
 ### Minor Changes
