@@ -35,6 +35,12 @@ import {
 import { metricOidcAuthorize, metricOidcConsentGranted, metricOidcToken } from "../../metrics";
 import type { AuthorizeSession, OidcErrorCode } from "../../services/auth";
 import type { AuthRouteContext } from "./context";
+import {
+  oidcConnectionSummary,
+  oidcErrorResponse,
+  oidcTokenResponse,
+  publicProfile,
+} from "./response-schemas";
 
 /** The wire codes that map onto their own authorize metric bucket. */
 const AUTHORIZE_RESULTS = new Set<string>([
@@ -230,126 +236,163 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
       // relying party with a code, off to the consent UI, or back to the
       // relying party with an error.
       // -----------------------------------------------------------------------
-      .get("/authorize", async ({ query, set, headers, server, request }) => {
-        set.headers["cache-control"] = "no-store";
-        // The interaction redirect carries the parked-request id in its query
-        // string, and the whole endpoint carries the relying party's OAuth
-        // parameters. Neither may ride a `Referer` header onto the next page.
-        set.headers["referrer-policy"] = "no-referrer";
+      .get(
+        "/authorize",
+        async ({ query, set, headers, server, request }) => {
+          set.headers["cache-control"] = "no-store";
+          // The interaction redirect carries the parked-request id in its query
+          // string, and the whole endpoint carries the relying party's OAuth
+          // parameters. Neither may ride a `Referer` header onto the next page.
+          set.headers["referrer-policy"] = "no-referrer";
 
-        const rlErr = await rateLimit(
-          headers,
-          socketIpOf({ server, request }),
-          "oidc_authorize",
-          rl.oidcAuthorize,
-        );
-        if (rlErr) {
-          // Top-level navigation: a JSON blob would strand the user. Render the
-          // branded error page instead (the XHR context/decision routes below
-          // keep returning JSON).
-          set.status = 429;
-          set.headers["content-type"] = "text/html; charset=utf-8";
-          return renderAuthorizeErrorPage("rate_limited");
-        }
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "oidc_authorize",
+            rl.oidcAuthorize,
+          );
+          if (rlErr) {
+            // Top-level navigation: a JSON blob would strand the user. Render the
+            // branded error page instead (the XHR context/decision routes below
+            // keep returning JSON).
+            set.status = 429;
+            set.headers["content-type"] = "text/html; charset=utf-8";
+            return renderAuthorizeErrorPage("rate_limited");
+          }
 
-        const q = query as Record<string, string | undefined>;
-        const params = {
-          clientId: q["client_id"] ?? "",
-          redirectUri: q["redirect_uri"] ?? "",
-          responseType: q["response_type"] ?? "",
-          scope: q["scope"] ?? null,
-          state: q["state"] ?? null,
-          nonce: q["nonce"] ?? null,
-          codeChallenge: q["code_challenge"] ?? null,
-          codeChallengeMethod: q["code_challenge_method"] ?? "",
-          prompt: q["prompt"] ?? null,
-          maxAge: q["max_age"] ?? null,
-        };
+          const q = query as Record<string, string | undefined>;
+          const params = {
+            clientId: q["client_id"] ?? "",
+            redirectUri: q["redirect_uri"] ?? "",
+            responseType: q["response_type"] ?? "",
+            scope: q["scope"] ?? null,
+            state: q["state"] ?? null,
+            nonce: q["nonce"] ?? null,
+            codeChallenge: q["code_challenge"] ?? null,
+            codeChallengeMethod: q["code_challenge_method"] ?? "",
+            prompt: q["prompt"] ?? null,
+            maxAge: q["max_age"] ?? null,
+          };
 
-        const validated = await run(Effect.either(auth.validateAuthorizeRequest(params)));
+          const validated = await run(Effect.either(auth.validateAuthorizeRequest(params)));
 
-        if (Either.isLeft(validated)) {
-          const oidc = asOidcError(validated.left);
-          if (!oidc) {
-            metricOidcAuthorize({ result: "server_error", clientKind: "third_party" });
-            const { status, body } = handleError(validated.left);
+          if (Either.isLeft(validated)) {
+            const oidc = asOidcError(validated.left);
+            if (!oidc) {
+              metricOidcAuthorize({ result: "server_error", clientKind: "third_party" });
+              const { status, body } = handleError(validated.left);
+              set.status = status;
+              return body;
+            }
+            // No trusted redirect URI exists yet, so this is rendered — never
+            // redirected (open-redirect guard). The client kind is unknowable for
+            // the same reason. This is a top-level browser navigation, so render
+            // a branded HTML page (keyed only off our own error code, never any
+            // RP-supplied value) rather than stranding the user on raw JSON.
+            metricOidcAuthorize({
+              result: authorizeResultOf(oidc.code),
+              clientKind: "third_party",
+            });
+            set.status = oidc.code === "invalid_client" ? 401 : 400;
+            set.headers["content-type"] = "text/html; charset=utf-8";
+            return renderAuthorizeErrorPage(oidc.code);
+          }
+
+          const outcome = validated.right;
+
+          if (outcome.kind === "error") {
+            metricOidcAuthorize({
+              result: authorizeResultOf(outcome.code),
+              clientKind: clientKindOf(outcome.client),
+            });
+            set.status = 302;
+            set.headers["location"] = auth.buildOidcErrorRedirect(
+              outcome.redirectUri,
+              outcome.code,
+              outcome.description,
+              outcome.state,
+            );
+            return "";
+          }
+
+          const { request: authorizeRequest, prompts } = outcome;
+          const clientKind = clientKindOf(authorizeRequest.client);
+          const session = await resolveSession(headers.cookie);
+
+          let prepared;
+          try {
+            prepared = await run(auth.prepareAuthorization(authorizeRequest, prompts, session));
+          } catch (e) {
+            metricOidcAuthorize({ result: "server_error", clientKind });
+            const { status, body } = handleError(e);
             set.status = status;
             return body;
           }
-          // No trusted redirect URI exists yet, so this is rendered — never
-          // redirected (open-redirect guard). The client kind is unknowable for
-          // the same reason. This is a top-level browser navigation, so render
-          // a branded HTML page (keyed only off our own error code, never any
-          // RP-supplied value) rather than stranding the user on raw JSON.
-          metricOidcAuthorize({ result: authorizeResultOf(oidc.code), clientKind: "third_party" });
-          set.status = oidc.code === "invalid_client" ? 401 : 400;
-          set.headers["content-type"] = "text/html; charset=utf-8";
-          return renderAuthorizeErrorPage(oidc.code);
-        }
 
-        const outcome = validated.right;
-
-        if (outcome.kind === "error") {
-          metricOidcAuthorize({
-            result: authorizeResultOf(outcome.code),
-            clientKind: clientKindOf(outcome.client),
-          });
           set.status = 302;
+          if (prepared.kind === "code") {
+            metricOidcAuthorize({ result: "redirected", clientKind });
+            set.headers["location"] = auth.buildOidcCodeRedirect(
+              authorizeRequest.redirectUri,
+              prepared.code,
+              authorizeRequest.state,
+            );
+            return "";
+          }
+          if (prepared.kind === "interaction") {
+            metricOidcAuthorize({ result: "interaction", clientKind });
+            // S-M1: bind the parked request to this browser. The consent screen's
+            // context + decision calls must arrive with this cookie, so a leaked
+            // or guessed request id approves nothing anywhere else.
+            set.headers["set-cookie"] = buildBindingCookie(
+              prepared.requestId,
+              prepared.bindingSecret,
+              cookieConfig,
+            );
+            set.headers["location"] = buildInteractionRedirect(prepared.requestId, prepared.reason);
+            return "";
+          }
+          metricOidcAuthorize({ result: authorizeResultOf(prepared.code), clientKind });
           set.headers["location"] = auth.buildOidcErrorRedirect(
-            outcome.redirectUri,
-            outcome.code,
-            outcome.description,
-            outcome.state,
-          );
-          return "";
-        }
-
-        const { request: authorizeRequest, prompts } = outcome;
-        const clientKind = clientKindOf(authorizeRequest.client);
-        const session = await resolveSession(headers.cookie);
-
-        let prepared;
-        try {
-          prepared = await run(auth.prepareAuthorization(authorizeRequest, prompts, session));
-        } catch (e) {
-          metricOidcAuthorize({ result: "server_error", clientKind });
-          const { status, body } = handleError(e);
-          set.status = status;
-          return body;
-        }
-
-        set.status = 302;
-        if (prepared.kind === "code") {
-          metricOidcAuthorize({ result: "redirected", clientKind });
-          set.headers["location"] = auth.buildOidcCodeRedirect(
             authorizeRequest.redirectUri,
             prepared.code,
+            prepared.description,
             authorizeRequest.state,
           );
           return "";
-        }
-        if (prepared.kind === "interaction") {
-          metricOidcAuthorize({ result: "interaction", clientKind });
-          // S-M1: bind the parked request to this browser. The consent screen's
-          // context + decision calls must arrive with this cookie, so a leaked
-          // or guessed request id approves nothing anywhere else.
-          set.headers["set-cookie"] = buildBindingCookie(
-            prepared.requestId,
-            prepared.bindingSecret,
-            cookieConfig,
-          );
-          set.headers["location"] = buildInteractionRedirect(prepared.requestId, prepared.reason);
-          return "";
-        }
-        metricOidcAuthorize({ result: authorizeResultOf(prepared.code), clientKind });
-        set.headers["location"] = auth.buildOidcErrorRedirect(
-          authorizeRequest.redirectUri,
-          prepared.code,
-          prepared.description,
-          authorizeRequest.state,
-        );
-        return "";
-      })
+        },
+        {
+          // The only route in this file that answers a browser navigation
+          // rather than a fetch, so it is the only one whose body is sometimes
+          // a string. Three shapes, not two:
+          //
+          //   302 + empty body   — every success and every post-validation
+          //                        error, which goes back to the relying party
+          //                        as query parameters, never as a body.
+          //   HTML page          — an error raised BEFORE the redirect URI is
+          //                        trusted. RFC 6749 §4.1.2.1 forbids
+          //                        redirecting there, so the user is stranded
+          //                        and gets a real page.
+          //   JSON error         — a non-OIDC failure falling through
+          //                        `handleError` (a DatabaseError is the only
+          //                        realistic one).
+          //
+          // 400 carries both of the latter two, hence the union. Declaring
+          // only the object would have made Elysia reject the HTML string.
+          response: {
+            302: t.String(),
+            400: t.Union([t.String(), oidcErrorResponse]),
+            // `invalid_client` alone — an unrecognised or disabled relying
+            // party, rendered for the same reason.
+            401: t.String(),
+            429: t.String(),
+            500: oidcErrorResponse,
+          },
+          // Unauthenticated by design: an unsigned-in browser is the normal
+          // case here, and the answer to it is the sign-in screen.
+          detail: { operationId: "oidcAuthorize" },
+        },
+      )
       // -----------------------------------------------------------------------
       // GET /authorize/context — what the consent screen needs to draw itself.
       //
@@ -424,7 +467,37 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             return body;
           }
         },
-        { query: t.Object({ request: t.String({ pattern: "^oar_[a-f0-9]{12}$" }) }) },
+        {
+          query: t.Object({ request: t.String({ pattern: "^oar_[a-f0-9]{12}$" }) }),
+          response: {
+            200: t.Object({
+              client: t.Object({
+                clientId: t.String(),
+                name: t.String(),
+                logoUrl: t.Union([t.String(), t.Null()]),
+                firstParty: t.Boolean(),
+                // The host the code is actually delivered to for THIS request.
+                // The consent screen shows it beside the self-asserted (and so
+                // spoofable) name, so dropping it would remove the one signal
+                // that separates a genuine first-party app from a look-alike.
+                redirectDomain: t.String(),
+              }),
+              scopes: t.Array(t.String()),
+              signedIn: t.Boolean(),
+              // Empty when the browser holds no session — the screen then
+              // sends the user to sign in and retries the same request id.
+              profiles: t.Array(publicProfile),
+              linkedProfileId: t.Union([t.String(), t.Null()]),
+            }),
+            400: oidcErrorResponse,
+            // Unknown id, expired id, and a right id in the wrong browser all
+            // answer identically: a leaked request id learns nothing here.
+            404: oidcErrorResponse,
+            429: oidcErrorResponse,
+            500: oidcErrorResponse,
+          },
+          detail: { operationId: "getOidcAuthorizeContext" },
+        },
       )
       // -----------------------------------------------------------------------
       // POST /authorize/decision — the user's answer.
@@ -497,6 +570,22 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             profileId: t.String(),
             approved: t.Boolean(),
           }),
+          response: {
+            // A refusal is a 200 too: `approved: false` still produces a URL,
+            // one carrying `error=access_denied` back to the relying party.
+            // The screen navigates there itself, which is why this is JSON and
+            // not a 302 — a fetch would follow a redirect instead of handing
+            // it to the page.
+            200: t.Object({ redirectTo: t.String() }),
+            // Includes `login_required`, which leaves the parked request alive
+            // so the screen can re-authenticate and retry the same id.
+            400: oidcErrorResponse,
+            401: oidcErrorResponse,
+            429: oidcErrorResponse,
+            500: oidcErrorResponse,
+          },
+          // The session cookie authenticates this, not a bearer token.
+          detail: { operationId: "submitOidcAuthorizeDecision" },
         },
       )
       // -----------------------------------------------------------------------
@@ -604,6 +693,18 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             client_id: t.Optional(t.String()),
             client_secret: t.Optional(t.String()),
           }),
+          response: {
+            200: oidcTokenResponse,
+            400: oidcErrorResponse,
+            // `invalid_client`. Paired with a `WWW-Authenticate: Basic` header
+            // when the credentials came in over HTTP Basic.
+            401: oidcErrorResponse,
+            429: oidcErrorResponse,
+            500: oidcErrorResponse,
+          },
+          // Client authentication, not user authentication — HTTP Basic or
+          // form credentials, so no `bearerAuth`.
+          detail: { operationId: "exchangeOidcAuthorizationCode" },
         },
       )
       // -----------------------------------------------------------------------
@@ -613,38 +714,52 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
       // settings surface lists, and the record Art. 15 says the person may
       // see. Access-token authed like every other settings read.
       // -----------------------------------------------------------------------
-      .get("/oidc/connections", async ({ headers, set, server, request }) => {
-        set.headers["cache-control"] = "no-store";
+      .get(
+        "/oidc/connections",
+        async ({ headers, set, server, request }) => {
+          set.headers["cache-control"] = "no-store";
 
-        const rlErr = await rateLimit(
-          headers,
-          socketIpOf({ server, request }),
-          "oidc_connections_list",
-          rl.oidcConnectionsList,
-        );
-        if (rlErr) {
-          set.status = 429;
-          return rlErr;
-        }
-        try {
-          const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
-          if (!claims) {
-            set.status = 401;
-            return { error: "unauthorized" };
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "oidc_connections_list",
+            rl.oidcConnectionsList,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
           }
-          const profile = await run(auth.findProfileById(claims.profileId));
-          if (!profile) {
-            set.status = 401;
-            return { error: "unauthorized" };
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const connections = await run(auth.listOidcConsents(profile.accountId));
+            return { connections };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
           }
-          const connections = await run(auth.listOidcConsents(profile.accountId));
-          return { connections };
-        } catch (e) {
-          const { status, body: errBody } = handleError(e);
-          set.status = status;
-          return errBody;
-        }
-      })
+        },
+        {
+          response: {
+            // Live consents only — a revoked row never comes back here.
+            200: t.Object({ connections: t.Array(oidcConnectionSummary) }),
+            400: oidcErrorResponse,
+            401: oidcErrorResponse,
+            429: oidcErrorResponse,
+            500: oidcErrorResponse,
+          },
+          detail: { operationId: "listOidcConnections", security: [{ bearerAuth: [] }] },
+        },
+      )
       // -----------------------------------------------------------------------
       // DELETE /oidc/connections/:clientId — withdraw an app's authorization.
       //
@@ -692,7 +807,20 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             return errBody;
           }
         },
-        { params: t.Object({ clientId: t.String({ minLength: 1, maxLength: 128 }) }) },
+        {
+          params: t.Object({ clientId: t.String({ minLength: 1, maxLength: 128 }) }),
+          response: {
+            200: t.Object({ success: t.Boolean() }),
+            400: oidcErrorResponse,
+            401: oidcErrorResponse,
+            // No live consent for that pair — already revoked, or never
+            // granted. The two are not told apart.
+            404: oidcErrorResponse,
+            429: oidcErrorResponse,
+            500: oidcErrorResponse,
+          },
+          detail: { operationId: "revokeOidcConnection", security: [{ bearerAuth: [] }] },
+        },
       )
   );
 }
