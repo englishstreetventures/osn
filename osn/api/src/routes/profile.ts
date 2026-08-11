@@ -16,6 +16,7 @@ import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
 import { metricAuthRateLimited } from "../metrics";
 import { createAuthService, type AuthConfig } from "../services/auth";
 import { createProfileService } from "../services/profile";
+import { errorResponse, publicProfile } from "./auth/response-schemas";
 
 // ---------------------------------------------------------------------------
 // Rate limiter types
@@ -139,6 +140,19 @@ export function createProfileRoutes(
           handle: t.String(),
           display_name: t.Optional(t.String()),
         }),
+        response: {
+          201: t.Object({ profile: publicProfile }),
+          // A taken handle, a malformed one and a breached per-account profile
+          // cap all arrive here as `invalid_request`. `publicError` maps
+          // `ValidationError` and `AuthError` to the same opaque 400 on
+          // purpose — a create endpoint that distinguished them would be a
+          // handle-enumeration oracle.
+          400: errorResponse,
+          401: errorResponse,
+          429: errorResponse,
+          500: errorResponse,
+        },
+        detail: { operationId: "createProfile", security: [{ bearerAuth: [] }] },
       },
     )
     .post(
@@ -172,6 +186,19 @@ export function createProfileRoutes(
         body: t.Object({
           profile_id: t.String({ pattern: "^usr_[a-f0-9]{12}$" }),
         }),
+        response: {
+          200: t.Object({ deleted: t.Boolean() }),
+          // Four refusals share this status: no such profile, a profile
+          // belonging to another account, the account's last profile, and a
+          // profile that still owns an organisation. All are `AuthError`, so
+          // all read `invalid_request` — deliberately, since telling "not
+          // yours" from "does not exist" would confirm a stranger's id.
+          400: errorResponse,
+          401: errorResponse,
+          429: errorResponse,
+          500: errorResponse,
+        },
+        detail: { operationId: "deleteProfile", security: [{ bearerAuth: [] }] },
       },
     )
     .post(
@@ -207,6 +234,16 @@ export function createProfileRoutes(
         params: t.Object({
           profileId: t.String({ pattern: "^usr_[a-f0-9]{12}$" }),
         }),
+        response: {
+          // Returns the profile that is now default, so a client can render
+          // the switch without re-reading the list.
+          200: t.Object({ profile: publicProfile }),
+          400: errorResponse,
+          401: errorResponse,
+          429: errorResponse,
+          500: errorResponse,
+        },
+        detail: { operationId: "setDefaultProfile", security: [{ bearerAuth: [] }] },
       },
     );
 }

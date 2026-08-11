@@ -1,12 +1,13 @@
 /**
- * Shared TypeBox response schemas for the non-auth route groups (graph,
- * organisations, profiles, recommendations, erasure, export).
+ * Shared TypeBox response schemas for the route groups that answer with a bare
+ * `{ error }`: graph, organisations and recommendations.
  *
- * The auth groups have their own file, `routes/auth/response-schemas.ts`, and
- * the two are deliberately not merged: the auth surface funnels every failure
- * through `publicError`, so its envelope carries an optional human-readable
- * `message`, while these routes answer with a bare `{ error }` whose value is
- * already the human-readable string. One shared const would have had to be a
+ * The other file, `routes/auth/response-schemas.ts`, serves everything that
+ * funnels failures through `publicError`. The split is by envelope, not by
+ * folder — account erasure, account export and profiles live outside
+ * `routes/auth/` and still belong there, because `publicError`'s envelope
+ * carries an optional human-readable `message` while these routes' `error`
+ * field IS the human-readable string. One shared const would have had to be a
  * superset of both, which would document a `message` field that half the API
  * never sends.
  *
@@ -115,4 +116,51 @@ export const organisationMemberSummary = t.Object({
   displayName: t.Union([t.String(), t.Null()]),
   role: t.Union([t.Literal("admin"), t.Literal("member")]),
   joinedAt: t.String({ format: "date-time" }),
+});
+
+/**
+ * `Suggestion` from `services/recommendations.ts` — one card in "people you may
+ * know". Addressed by handle, not id, like the organisation surface.
+ *
+ * `reason` names the STRONGEST signal, not the only one: `sharedOrganisation`
+ * can be present alongside `reason: "mutual_connections"`, because the card
+ * shows both lines. Read them independently.
+ *
+ * `mutualCount` is a count, never a list. The connection graph is not
+ * enumerable through this endpoint — that is the whole reason the suggestion
+ * carries a number instead of the names behind it.
+ */
+export const suggestionSummary = t.Object({
+  handle: t.String(),
+  displayName: t.Union([t.String(), t.Null()]),
+  avatarUrl: t.Union([t.String(), t.Null()]),
+  mutualCount: t.Number(),
+  reason: t.Union([t.Literal("mutual_connections"), t.Literal("shared_organisation")]),
+  sharedOrganisation: t.Union([t.Object({ handle: t.String(), name: t.String() }), t.Null()]),
+});
+
+/**
+ * `ProfileSearchResult` — one person in the typeahead. `connectionStatus` is
+ * the same closed union as `graphConnectionStatus`, deliberately: it lets the
+ * result row render Connect / Pending / Connected without a second request per
+ * result, and a client can hand the value straight to the graph code it
+ * already has.
+ */
+export const profileSearchResult = t.Object({
+  handle: t.String(),
+  displayName: t.Union([t.String(), t.Null()]),
+  avatarUrl: t.Union([t.String(), t.Null()]),
+  connectionStatus: graphConnectionStatus,
+});
+
+/**
+ * `OrganisationSearchResult` — one organisation in the typeahead. No id, for
+ * the same reason `organisationSummary` has none: every organisation route
+ * addresses it by handle.
+ */
+export const organisationSearchResult = t.Object({
+  handle: t.String(),
+  name: t.String(),
+  avatarUrl: t.Union([t.String(), t.Null()]),
+  isMember: t.Boolean(),
 });

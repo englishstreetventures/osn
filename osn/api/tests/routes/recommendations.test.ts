@@ -111,11 +111,25 @@ describe("recommendations routes", () => {
     );
     expect(res.status).toBe(200);
     const json = (await res.json()) as {
-      suggestions: Array<{ handle: string; mutualCount: number }>;
+      suggestions: Array<Record<string, unknown>>;
     };
     expect(json.suggestions).toHaveLength(1);
+    // The whole card, key for key. Elysia cleans the body against the route's
+    // `response` schema, so a field the schema forgot would vanish here and
+    // nowhere else — assert the shape, not just the two fields the UI reads
+    // first.
+    expect(Object.keys(json.suggestions[0]!).toSorted()).toEqual([
+      "avatarUrl",
+      "displayName",
+      "handle",
+      "mutualCount",
+      "reason",
+      "sharedOrganisation",
+    ]);
     expect(json.suggestions[0]!.handle).toBe("dana");
     expect(json.suggestions[0]!.mutualCount).toBe(1);
+    expect(json.suggestions[0]!.reason).toBe("mutual_connections");
+    expect(json.suggestions[0]!.sharedOrganisation).toBeNull();
   });
 
   // -------------------------------------------------------------------------

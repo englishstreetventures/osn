@@ -21,6 +21,7 @@ import {
   type ExportDownstream,
 } from "../services/account-export";
 import { createAuthService, type AuthConfig } from "../services/auth";
+import { errorResponse, stepUpRequiredResponse } from "./auth/response-schemas";
 
 /**
  * C-H1 — `GET /account/export` (DSAR Art. 15 access / Art. 20 portability).
@@ -162,6 +163,36 @@ export function createAccountExportRoutes(
         set.status = status;
         return errBody;
       }
+    },
+    {
+      // No 200 in this map, and that is on purpose. The success path returns a
+      // raw `Response` wrapping an NDJSON stream, and a `response` schema is a
+      // runtime validator as much as a document — putting one on 200 would
+      // make Elysia try to validate a stream it cannot read without consuming
+      // it. The 200 is described in `detail.responses` below instead, which
+      // reaches the spec without touching the wire.
+      response: {
+        400: errorResponse,
+        401: errorResponse,
+        403: stepUpRequiredResponse,
+        // Two different limits, same status: the pre-auth per-IP throttle, and
+        // the per-account 1-per-24h cap. The second is consumed only AFTER a
+        // successful step-up, so a fumbled ceremony never burns the day's
+        // allowance.
+        429: errorResponse,
+        500: errorResponse,
+      },
+      detail: {
+        operationId: "exportAccount",
+        security: [{ bearerAuth: [] }],
+        responses: {
+          "200": {
+            description:
+              "The export bundle as newline-delimited JSON, streamed. Sent as an attachment; each line is one record and the set of record types is the DSAR contract in `services/account-export.ts`.",
+            content: { "application/x-ndjson": { schema: { type: "string" } } },
+          },
+        },
+      },
     },
   );
 }
