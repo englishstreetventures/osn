@@ -59,7 +59,7 @@ Refresh failure is **HTTP 400 with an `error` string, never 401**. A client that
 
 ## Musubi's screens
 
-Three tabs so far.
+Four tabs so far.
 
 **Devices** — every live session on the account, with per-row revoke and "sign out everywhere else": `listSessions` / `revokeSession` / `revokeAllOtherSessions` ([[sessions]]). Built first because it needs no new API work and it is the screen that *shows* the shared jar: sign in on Pulse, and the session appears in Musubi's list.
 
@@ -89,7 +89,21 @@ Two contract details worth keeping:
 - Generating writes a `recovery_code_generate` event of its own, so the screen reloads afterwards for two reasons, not one: the counts moved *and* the feed is a row short.
 - `GET /recovery/status` deliberately has **no** step-up. It carries counts, never a code, and it is what tells a user whether starting a ceremony is worth it. A failed status call therefore does not fail the screen — the feed is the point, the counts are a header.
 
-View models take a narrow protocol (`DevicesAPI`, three methods; `PasskeysAPI`, four; `SecurityAPI`, five), not the generated `APIProtocol` (73). A test double for the latter would be 70 stubs of nothing. `OSNDevicesAPI`, `OSNPasskeysAPI` and `OSNSecurityAPI` are the only places generated shapes and ceremonies are unwrapped — which is also why the mutating methods on `PasskeysAPI` and `SecurityAPI` are `@MainActor`: `ASAuthorizationController` is.
+**Account** — the profiles on the account, the address it answers to, an export of everything it holds, and the button that ends it. Contract details:
+
+- **`email` is account-level, not profile-level.** `toPublicProfile(u, email)` takes the address off the linked `accounts` row (`osn/api/src/services/auth/types.ts`), so every profile on an account carries the same one. The Email card reads it off the first row and labels it as the account's, rather than the current profile's — which it may not know.
+- **The app can't always know which profile it is.** A silent restore round-trips a token, and no route answers "which profile is this token". So `MusubiSession.currentProfileID` is seeded by sign-in and updated by a switch this app made, and is `nil` otherwise — the list marks no row rather than guessing at the first. It sits beside `state` and not inside it because `state`'s `PasskeyProfile` payload is what *login* returned, and a switch produces no such payload.
+- **A switch re-issues the access token**, which `OSNAccountAPI` writes to the Keychain before returning. The list itself doesn't change — same account, same profiles — so the screen moves the marker and does not re-read.
+- **Setting a default is not a switch.** It says where the *next* sign-in lands, on this device and any other. Pressing it on a profile you aren't using must not move you there.
+- **`GET /account/deletion-status` answers `{ scheduled: false }` for a live account, not a 404** — it backs a polled banner, so "nothing pending" has to be an ordinary success. Its 200 body is an `anyOf`, and `anyOf` means *at least* one branch matched: a scheduled payload also satisfies the `{ scheduled }` branch, so the generated decoder fills **both** `value1` and `value2`. `MusubiDeletionStatus` reads the richer branch first; reading `value1` first would report a live account and hide the countdown.
+- **The export can't go through the generated client.** The spec documents no 2xx for it and never declares `x-step-up-token`, so `AccountExportClient` is hand-written on the shared-jar `URLSession`. The bundle lands in caches, is handed to `ShareLink`, and is deleted when the sheet closes — it is somebody's whole account in plaintext and has no business outliving the sheet.
+- **`begin` answering `sent: false` is not progress.** No code arrived, so the screen stays on step one rather than asking for a code that doesn't exist. Completing the change also revokes the account's other sessions, and the card says so before the tap, not after.
+- **Restoring is deliberately not step-up gated.** Deleting is; taking it back isn't. A `cancelled: false` means nothing was pending — another device got there first, or the window closed — so the screen re-reads instead of claiming a rescue that didn't happen.
+- Deletion is confirmed by typing the handle, not by an alert: an alert is one tap away from a tap you didn't mean, and this isn't.
+
+`POST /profiles/create` and `POST /profiles/delete` are deliberately not on this screen yet — making a second profile is a bigger design question than switching between the ones you have.
+
+View models take a narrow protocol (`DevicesAPI`, three methods; `PasskeysAPI`, four; `SecurityAPI`, five; `AccountAPI`, nine), not the generated `APIProtocol` (73). A test double for the latter would be 70 stubs of nothing. `OSNDevicesAPI`, `OSNPasskeysAPI`, `OSNSecurityAPI` and `OSNAccountAPI` are the only places generated shapes and ceremonies are unwrapped — which is also why the ceremony-running methods on `PasskeysAPI`, `SecurityAPI` and `AccountAPI` are `@MainActor`: `ASAuthorizationController` is.
 
 ## macOS purity rule
 

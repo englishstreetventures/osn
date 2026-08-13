@@ -30,6 +30,15 @@ public final class MusubiSession {
 
     public private(set) var state: SessionState = .restoring
 
+    /// The profile the app is signed in as, when it knows — which is after a
+    /// sign-in, and after a profile switch it made itself.
+    ///
+    /// `nil` after a silent restore: the restore round-trips a token, and no
+    /// route on osn-api answers "which profile is this token". Kept beside
+    /// `state` rather than inside it because `state`'s payload is what the
+    /// login response said, and a switch doesn't produce one of those.
+    public private(set) var currentProfileID: String?
+
     /// Every osn-api call in this feature goes through this client. The
     /// bearer middleware inside it consults `OSNAuthenticatedOperations`,
     /// so the sign-in and `/token` calls go out with no `Authorization`
@@ -41,6 +50,7 @@ public final class MusubiSession {
     private let passkeyManagementClient: PasskeyManagementClient
     private let stepUpClient: StepUpPasskeyClient
     private let passkeyEnrollmentClient: PasskeyEnrollmentClient
+    private let accountExportClient: AccountExportClient
 
     /// - Parameter environment: identity host for passkey ceremonies, token
     ///   refresh *and* the API. Defaults to `.local`; the app target picks
@@ -58,6 +68,7 @@ public final class MusubiSession {
         self.passkeyManagementClient = PasskeyManagementClient(session: session, environment: environment)
         self.stepUpClient = StepUpPasskeyClient(session: session, environment: environment)
         self.passkeyEnrollmentClient = PasskeyEnrollmentClient(session: session, environment: environment)
+        self.accountExportClient = AccountExportClient(session: session, environment: environment)
         self.api = makeOSNClient(environment: environment, session: session, tokenRefresher: tokenRefresher)
     }
 
@@ -94,6 +105,28 @@ public final class MusubiSession {
         )
     }
 
+    /// The account screen's API. Nine calls, four of which run a ceremony,
+    /// and one of which — the export — can't go through the generated client
+    /// at all (`AccountExportClient` says why).
+    ///
+    /// - Parameter anchorProvider: the app target's key-window lookup, for
+    ///   the ceremonies behind the email change, the export and the delete.
+    public func makeAccountAPI(anchorProvider: @escaping PresentationAnchorProvider) -> OSNAccountAPI {
+        OSNAccountAPI(
+            client: api,
+            stepUp: stepUpClient,
+            export: accountExportClient,
+            anchorProvider: anchorProvider
+        )
+    }
+
+    /// Told by the account screen after a switch. The access token has
+    /// already been swapped by then — this only keeps the shell's idea of
+    /// who's signed in from going stale.
+    public func adopt(profile: MusubiProfile) {
+        currentProfileID = profile.id
+    }
+
     /// Silent restore on launch. A throw from `TokenRefresher.refresh()`
     /// means "signed out", not an error banner.
     public func restore() async {
@@ -111,6 +144,7 @@ public final class MusubiSession {
         anchorProvider: @escaping PresentationAnchorProvider
     ) async throws {
         let response = try await loginClient.signIn(identifier: identifier, anchorProvider: anchorProvider)
+        currentProfileID = response.profile.id
         state = .signedIn(response.profile)
     }
 
@@ -121,6 +155,7 @@ public final class MusubiSession {
     public func signOut() async {
         try? await tokenRefresher.logout()
         try? KeychainAccessTokenStore.delete()
+        currentProfileID = nil
         state = .signedOut
     }
 }
