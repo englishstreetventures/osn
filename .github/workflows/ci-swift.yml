@@ -62,7 +62,7 @@ jobs:
             # it at build time — so a spec-only change can break the iOS build
             # while touching no file under `shared/swift/`. This very PR is that
             # case: it rewrites every nullable field's spelling and nothing else.
-            if echo "$changed" | grep -qE '^(shared/swift/|shared/openapi/|pulse/ios/|\.github/workflows/ci-swift\.yml$)'; then
+            if echo "$changed" | grep -qE '^(shared/swift/|shared/openapi/|pulse/ios/|osn/ios/|\.github/workflows/ci-swift\.yml$)'; then
               echo "ios=true" >> "$GITHUB_OUTPUT"
             else
               echo "ios=false" >> "$GITHUB_OUTPUT"
@@ -74,7 +74,7 @@ jobs:
           fi
 
   swift:
-    name: swift test + xcodebuild (Pulse)
+    name: swift test + xcodebuild (Pulse, Musubi)
     needs: changes
     if: needs.changes.outputs.ios == 'true'
     runs-on: macos-latest
@@ -96,7 +96,7 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
-      - name: xcodegen generate
+      - name: xcodegen generate (Pulse)
         working-directory: pulse/ios
         run: xcodegen generate
 
@@ -113,10 +113,30 @@ jobs:
       # "OpenAPIGenerator" in package "swift-openapi-generator"`. The flag is
       # how you consent on a runner. The package and its version are pinned in
       # `Package.resolved`, so this doesn't widen what code can run.
-      - name: xcodebuild
+      - name: xcodebuild (Pulse)
         working-directory: pulse/ios
         run: |
           xcodebuild -scheme Pulse \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipPackagePluginValidation \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO \
+            EXCLUDED_ARCHS=x86_64 \
+            build
+
+      # Musubi is the second app on the same package, and the second consumer
+      # of the shared cookie jar. It gets its own generate+build rather than
+      # riding on Pulse's: they share every library target, so a change that
+      # breaks only Musubi's app target (an entitlement, a product it alone
+      # depends on) would otherwise reach main green.
+      - name: xcodegen generate (Musubi)
+        working-directory: osn/ios
+        run: xcodegen generate
+
+      - name: xcodebuild (Musubi)
+        working-directory: osn/ios
+        run: |
+          xcodebuild -scheme Musubi \
             -destination 'generic/platform=iOS Simulator' \
             -skipPackagePluginValidation \
             -quiet \

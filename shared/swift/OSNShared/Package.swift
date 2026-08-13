@@ -21,6 +21,7 @@ let package = Package(
         .library(name: "OSNAPI", targets: ["OSNAPI"]),
         .library(name: "PulseAPI", targets: ["PulseAPI"]),
         .library(name: "PulseFeature", targets: ["PulseFeature"]),
+        .library(name: "MusubiFeature", targets: ["MusubiFeature"]),
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-openapi-runtime", from: "1.0.0"),
@@ -73,5 +74,11 @@ let package = Package(
         .testTarget(name: "PulseAPITests", dependencies: ["PulseAPI", "OSNKit", "OSNTesting"]),
         .target(name: "PulseFeature", dependencies: ["OSNKit", "OSNAuth", "OSNUI", "PulseAPI"]),
         .testTarget(name: "PulseFeatureTests", dependencies: ["PulseFeature", "OSNTesting"]),
+        // Musubi's own feature code. It takes `OSNAPI` where Pulse takes
+        // `PulseAPI`, and the same `OSNKit`/`OSNAuth`/`OSNUI` as Pulse — the
+        // shared cookie jar and passkey ceremonies are one implementation,
+        // not one per app.
+        .target(name: "MusubiFeature", dependencies: ["OSNKit", "OSNAuth", "OSNUI", "OSNAPI"]),
+        .testTarget(name: "MusubiFeatureTests", dependencies: ["MusubiFeature", "OSNAPI"]),
     ]
 )

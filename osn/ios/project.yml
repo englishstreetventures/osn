@@ -1,0 +1,49 @@
+name: Musubi
+options:
+  bundleIdPrefix: social.musubi
+  deploymentTarget:
+    iOS: "26.0"
+packages:
+  OSNShared:
+    path: ../../shared/swift/OSNShared
+targets:
+  Musubi:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Sources
+    dependencies:
+      - package: OSNShared
+        product: OSNKit
+      - package: OSNShared
+        product: OSNAuth
+      - package: OSNShared
+        product: OSNUI
+      - package: OSNShared
+        product: OSNAPI
+      - package: OSNShared
+        product: MusubiFeature
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: social.musubi.app
+        DEVELOPMENT_TEAM: FV59Y8RSUH
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        GENERATE_INFOPLIST_FILE: "YES"
+        SWIFT_VERSION: "6.2"
+    # BLOCKED: same two unregistered capabilities as pulse/ios/project.yml —
+    # no App ID exists yet for webcredentials:musubi.social or for the
+    # group.social.musubi.session App Group, so codesigning fails until both
+    # are added in the Apple developer portal. The App Group must be the
+    # same string in both apps or there is no shared cookie jar: it is the
+    # container the session cookie lives in
+    # (OSNKit/SharedCookieJar.swift:10, osnSessionAppGroupIdentifier).
+    entitlements:
+      path: Musubi.entitlements
+      properties:
+        com.apple.developer.associated-domains:
+          - webcredentials:musubi.social
+        com.apple.security.application-groups:
+          - group.social.musubi.session

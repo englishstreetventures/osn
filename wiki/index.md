@@ -2,7 +2,7 @@
 title: OSN Wiki
 aliases: [home, map of content, MOC]
 tags: [index]
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-13
 ---
 
 # OSN Wiki
@@ -65,6 +65,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[cire-landing]] — marketing site for the apex `cireweddings.com` (`@cire/landing`) + domain-migration / platform roadmap
 - [[osn-landing]] — marketing site for OSN (`@osn/landing`) — dark/dotted, connections-led
 - [[pulse-landing]] — marketing site for Pulse events (`@pulse/landing`) — colourful + fun
+- [[ios]] — the Swift stack: one `OSNShared` package, two app targets (Pulse, Musubi), one shared session
 
 ## Conventions
 
