@@ -393,6 +393,13 @@
       "when": 1785574649753,
       "tag": "0056_settings_attribution",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "6",
+      "when": 1786784249753,
+      "tag": "0057_registry",
+      "breakpoints": true
     }
   ]
 }

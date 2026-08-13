@@ -4,10 +4,12 @@ tags: [todo, api]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-08-08
+last-reviewed: 2026-08-13
 ---
 
 # cire/api
+
+- [x] **Gift registry — organiser API, shipped locked** (2026-08-13): `services/registry.ts`, `schemas/registry.ts` and `routes/registry.ts` (split read/write factories, as budget). Every route sits behind `weddingEntitlement(db, "registry")`, which no wedding holds, so all of them answer 402 `payment_required` today — the route tests assert exactly that for all seven, because a green suite is the only thing standing between "built" and "accidentally launched". Two non-obvious bits: `claim` is a SINGLE conditional INSERT (the remaining-quantity check lives in its `WHERE`, and success is decided by `RETURNING` — re-reading the `(item, family)` pair would report success for a refused re-claim, since a released row still satisfies it), and that statement writes timestamps directly so it must use drizzle's epoch-SECONDS unit. `PUT /registry/settings` refuses `cashGiftsEnabled` with 409 `stripe_not_ready` until Connect can take a charge. New metrics `cire.registry.item.write` / `cire.registry.gift`, action-attributed only. See [[registry]].
 
 Backend feature work. The Elysia + Effect + Drizzle layer in `cire/api`.
 

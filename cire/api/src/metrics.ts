@@ -116,6 +116,11 @@ export const CIRE_METRICS = {
   // (`POST /api/csp-report`). Counted by the violated effective-directive only
   // (a small fixed set) — NEVER the blocked URI (unbounded).
   cspReport: "cire.csp.report",
+  // Gift registry — organiser item writes and gift-log thank-you toggles. Both
+  // are attributed by ACTION only; no weddingId, itemId or familyId ever reaches
+  // a metric attribute (those belong in spans + logs).
+  registryItemWrite: "cire.registry.item.write",
+  registryGift: "cire.registry.gift",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -290,6 +295,14 @@ type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" 
  *  passed; `preview` = the organiser's host-preview family, which never writes. */
 export type RsvpBlockedReason = "deadline" | "preview";
 type RsvpBlockedAttrs = { reason: RsvpBlockedReason };
+/** Which organiser write touched a registry item. Bounded, one per route. */
+export type RegistryItemAction = "create" | "update" | "remove";
+type RegistryItemWriteAttrs = { action: RegistryItemAction };
+/** What happened to a gift-log row. `thanked`/`unthanked` are the toggle's two
+ *  directions — worth separating, since a couple un-thanking in bulk is a
+ *  different (and more suspicious) signal than thanking. */
+export type RegistryGiftAction = "thanked" | "unthanked";
+type RegistryGiftAttrs = { action: RegistryGiftAction };
 type ImportSimpleAttrs = { result: "ok" | "error" };
 type ImportRowsAttrs = { entity: ImportEntity };
 type ImportParseRejectedAttrs = { reason: ParseRejectReason };
@@ -423,6 +436,18 @@ const rsvpUpserted = createCounter<RsvpUpsertedAttrs>({
   name: CIRE_METRICS.rsvpUpserted,
   description: "RSVP upserts (one per (guest,event) pair), by terminal status + writer",
   unit: "{rsvp}",
+});
+
+const registryItemWrite = createCounter<RegistryItemWriteAttrs>({
+  name: CIRE_METRICS.registryItemWrite,
+  description: "Organiser registry item writes, by action",
+  unit: "{write}",
+});
+
+const registryGift = createCounter<RegistryGiftAttrs>({
+  name: CIRE_METRICS.registryGift,
+  description: "Registry gift-log thank-you toggles, by direction",
+  unit: "{gift}",
 });
 
 const rsvpBlocked = createCounter<RsvpBlockedAttrs>({
@@ -671,6 +696,12 @@ export const metricRsvpUpserted = (
 ): void => rsvpUpserted.inc({ status, source, result });
 
 export const metricRsvpBlocked = (reason: RsvpBlockedReason): void => rsvpBlocked.inc({ reason });
+
+export const metricRegistryItemWrite = (action: RegistryItemAction): void =>
+  registryItemWrite.inc({ action });
+
+export const metricRegistryGift = (action: RegistryGiftAction): void =>
+  registryGift.inc({ action });
 
 export const metricRsvpBatchSize = (size: number): void => rsvpBatchSize.record(size, {});
 

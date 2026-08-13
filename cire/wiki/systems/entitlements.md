@@ -3,8 +3,9 @@ title: Entitlements — per-wedding capability gates
 tags: [systems, cire, entitlements, phase1]
 related:
   - "[[vendors]]"
+  - "[[registry]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-08-13
 ---
 
 # Entitlements — per-wedding capability gates
@@ -32,7 +33,7 @@ Added by migration 0042.
 
 ## Entitlement keys
 
-Five opaque capability flags. The table stores keys as plain strings. How the application checks a key decides what it means.
+Six opaque capability flags. The table stores keys as plain strings. How the application checks a key decides what it means.
 
 | Key | What its presence enables |
 |---|---|
@@ -41,8 +42,9 @@ Five opaque capability flags. The table stores keys as plain strings. How the ap
 | `ai` | AI-assisted content generation features |
 | `capacity_500` | Guest import ceiling raised to 500 |
 | `capacity_1000` | Guest import ceiling raised to 1000 |
+| `registry` | Gift registry module — the organiser routes and, transitively, the guest-facing registry section |
 
-Boolean capability flags (`premium_templates`, `vendors`, `ai`) are presence-only: the row either exists or it doesn't. Capacity flags work differently — see below.
+Boolean capability flags (`premium_templates`, `vendors`, `ai`, `registry`) are presence-only: the row either exists or it doesn't. Capacity flags work differently — see below.
 
 ---
 
@@ -142,4 +144,5 @@ wrangler d1 execute cire-db --remote --command "<printed SQL>"
 ## Related
 
 - [[vendors]] — Vendor CRM + Directory; both route groups gate on the `vendors` entitlement
+- [[registry]] — Gift registry; granted to NO wedding, which is how that module ships built but unreachable
 - [[cire-auth]] — role gate middleware; ordering of role vs entitlement vs rate-limit gates

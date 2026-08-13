@@ -549,7 +549,7 @@ export const weddingEntitlements = sqliteTable(
       .notNull()
       .references(() => weddings.id, { onDelete: "cascade" }),
     entitlement: text("entitlement", {
-      enum: ["premium_templates", "vendors", "ai", "capacity_500", "capacity_1000"],
+      enum: ["premium_templates", "vendors", "ai", "capacity_500", "capacity_1000", "registry"],
     }).notNull(),
     source: text("source", { enum: ["purchase", "comp"] }).notNull(),
     grantedAt: integer("granted_at", { mode: "timestamp" }).notNull(),
@@ -557,6 +557,197 @@ export const weddingEntitlements = sqliteTable(
     providerRef: text("provider_ref"),
   },
   (t) => [primaryKey({ columns: [t.weddingId, t.entitlement] })],
+);
+
+// ── Gift registry (migration 0057) ────────────────────────────────────────────
+// Gated by the `registry` entitlement, which is granted to no wedding — so every
+// table below is empty in production until someone grants it.
+//
+// MONEY: the wedding has ONE primary currency (`weddings.currency`) and
+// everything the organiser authors is denominated in it — `registry_items` has
+// no currency column on purpose, because a gift list quoted in four currencies
+// is unreadable. Only RECEIVED money can be foreign, and `registry_contributions`
+// carries both sides of that (see its comment).
+
+// One row per wedding. Absent row ⇒ the registry has never been opened, which
+// reads identically to `published = 0`.
+export const registrySettings = sqliteTable("registry_settings", {
+  weddingId: text("wedding_id")
+    .primaryKey()
+    .references(() => weddings.id, { onDelete: "cascade" }),
+  // Guest visibility. The guest GET 404s unless this is 1 AND the wedding holds
+  // the entitlement — two independent gates, because an entitlement lapsing must
+  // not silently republish a registry the couple had turned off (and vice versa).
+  published: integer("published", { mode: "boolean" }).notNull().default(false),
+  headline: text("headline"),
+  // The couple's note above the list — "your presence is the present", "no boxed
+  // gifts please". NULL ⇒ nothing renders (same idiom as `footer_message`).
+  message: text("message"),
+  // Card contributions via Stripe. Independently off by default: a registry is
+  // fully usable as an honour-system list with no Stripe account at all.
+  cashGiftsEnabled: integer("cash_gifts_enabled", { mode: "boolean" }).notNull().default(false),
+  // Organiser-provided delivery address, shown to CLAIMED guests only.
+  shippingAddress: text("shipping_address"),
+  // Optional ISO date (YYYY-MM-DD) before which the address stays hidden — the
+  // "don't ship until we're back from honeymoon" pattern. NULL ⇒ visible as soon
+  // as it is set.
+  shippingVisibleFrom: text("shipping_visible_from"),
+  // Stripe Connect Express account for this wedding's cash gifts. The couple is
+  // the merchant of record (direct charges) — cire never holds gift funds, which
+  // is what keeps the platform out of money transmission.
+  stripeAccountId: text("stripe_account_id"),
+  // Cached from the `account.updated` webhook so the portal can show onboarding
+  // state without a live Stripe call on every page load.
+  stripeChargesEnabled: integer("stripe_charges_enabled", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  stripePayoutsEnabled: integer("stripe_payouts_enabled", { mode: "boolean" })
+    .notNull()
+    .default(false),
+  stripeAccountUpdatedAt: integer("stripe_account_updated_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const registryItems = sqliteTable(
+  "registry_items",
+  {
+    id: text("id").primaryKey(),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    // v1 writes only `product`. `cash_fund` is the named-fund seam (honeymoon,
+    // house deposit, charity) — declared now so adding funds is UI work, not a
+    // migration.
+    kind: text("kind", { enum: ["product", "cash_fund"] })
+      .notNull()
+      .default("product"),
+    title: text("title").notNull(),
+    description: text("description"),
+    // R2 object key + the same normalised crop JSON the invite images use, so a
+    // registry image gets the existing variants/transform pipeline for free.
+    // Images are ALWAYS our own copy: a hotlinked retailer image would put a
+    // third-party origin in the guest site's `img-src` and need a consent entry.
+    imageKey: text("image_key"),
+    imageCrop: text("image_crop"),
+    // Where to buy it. Validated `https:` on write AND re-checked on render —
+    // an unvalidated URL in an `href` is a `javascript:` sink (precedent
+    // CON-S-L2).
+    externalUrl: text("external_url"),
+    // Minor units of the WEDDING's currency (`weddings.currency`). No per-item
+    // currency column — see the module comment above.
+    priceMinor: integer("price_minor"),
+    quantityWanted: integer("quantity_wanted").notNull().default(1),
+    // Group-gifting seam (many guests part-fund one item). Off in v1.
+    allowPartial: integer("allow_partial", { mode: "boolean" }).notNull().default(false),
+    // Cash-fund goal, minor units of the wedding's currency. Unused in v1.
+    targetMinor: integer("target_minor"),
+    category: text("category"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  // Every list read is `WHERE wedding_id = ? ORDER BY sort_order` — one
+  // composite serves filter + order in a single b-tree walk.
+  (t) => [index("registry_items_wedding_sort_idx").on(t.weddingId, t.sortOrder)],
+);
+
+// A household saying "we've got this". Honour system — no money moves here.
+export const registryClaims = sqliteTable(
+  "registry_claims",
+  {
+    id: text("id").primaryKey(),
+    // Denormalised from the item so the gift log filters by wedding without a
+    // join, and so a wedding delete cascades even if the item is already gone.
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => registryItems.id, { onDelete: "cascade" }),
+    // The claiming HOUSEHOLD (from the guest session cookie), not an individual
+    // guest — gifts come from households, and that is the unit the couple thanks.
+    familyId: text("family_id")
+      .notNull()
+      .references(() => families.id, { onDelete: "cascade" }),
+    quantity: integer("quantity").notNull().default(1),
+    // `released` is a tombstone, not a delete: a guest who changes their mind
+    // frees the quantity back up, and the row keeps the unique pair below stable
+    // so they can re-claim later.
+    status: text("status", { enum: ["reserved", "purchased", "released"] })
+      .notNull()
+      .default("reserved"),
+    note: text("note"),
+    // Who to thank, when that differs from the household name ("Auntie Ros").
+    displayName: text("display_name"),
+    thankedAt: integer("thanked_at", { mode: "timestamp" }),
+    thankedBy: text("thanked_by"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    // One claim row per (item, household) — re-claiming UPDATES rather than
+    // stacking rows, which is what makes the quantity arithmetic in
+    // registryService.claim tractable.
+    uniqueIndex("registry_claims_item_family_uniq").on(t.itemId, t.familyId),
+    index("registry_claims_wedding_created_idx").on(t.weddingId, t.createdAt),
+    // The remaining-quantity subquery reads `WHERE item_id = ? AND status <> …`.
+    index("registry_claims_item_status_idx").on(t.itemId, t.status),
+  ],
+);
+
+// Money. One row per Stripe Checkout Session.
+export const registryContributions = sqliteTable(
+  "registry_contributions",
+  {
+    id: text("id").primaryKey(),
+    weddingId: text("wedding_id")
+      .notNull()
+      .references(() => weddings.id, { onDelete: "cascade" }),
+    // NULL for a general cash gift that isn't against a listed item.
+    itemId: text("item_id").references(() => registryItems.id, { onDelete: "set null" }),
+    familyId: text("family_id")
+      .notNull()
+      .references(() => families.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["pending", "succeeded", "failed", "refunded"] })
+      .notNull()
+      .default("pending"),
+    // ── The money, both ways round ──────────────────────────────────────────
+    // `amount_minor` + `currency` are AS GIVEN, snapshotted at charge time and
+    // never re-read from `weddings.currency` (which an organiser can change).
+    amountMinor: integer("amount_minor").notNull(),
+    currency: text("currency").notNull(),
+    // The primary-currency equivalent, for the smaller line the host sees under
+    // the as-given figure, and the only column a total can be summed over. All
+    // four are NULL when the gift was already in the primary currency — the
+    // common case — and the UI then shows a single figure.
+    //
+    // The rate comes from Stripe's balance transaction (`exchange_rate`): it is
+    // authoritative, free, arrives with a webhook we already handle, and matches
+    // what actually reached the couple's bank. It is written ONCE. A gift log
+    // that re-values itself whenever rates move is not a record of anything.
+    primaryAmountMinor: integer("primary_amount_minor"),
+    primaryCurrency: text("primary_currency"),
+    // Stored as text, not a float: an exchange rate is a decimal we only ever
+    // display and audit, and binary float would round it on the way in.
+    fxRate: text("fx_rate"),
+    fxRateAt: integer("fx_rate_at", { mode: "timestamp" }),
+    // The webhook idempotency anchor — the same role `provider_ref` plays for
+    // entitlement grants. A replayed `checkout.session.completed` conflicts here
+    // instead of writing a second gift.
+    stripeCheckoutSessionId: text("stripe_checkout_session_id").notNull().unique(),
+    stripePaymentIntentId: text("stripe_payment_intent_id"),
+    message: text("message"),
+    displayName: text("display_name"),
+    thankedAt: integer("thanked_at", { mode: "timestamp" }),
+    thankedBy: text("thanked_by"),
+    createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+    updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+  },
+  (t) => [
+    index("registry_contributions_wedding_created_idx").on(t.weddingId, t.createdAt),
+    index("registry_contributions_item_idx").on(t.itemId),
+  ],
 );
 
 export const guestEvents = sqliteTable(
@@ -856,6 +1047,15 @@ export const weddingInviteCustomisations = sqliteTable("wedding_invite_customisa
   storyTone: text("story_tone"),
   detailsTone: text("details_tone"),
   welcomeTone: text("welcome_tone"),
+  // Gift-registry section copy + tone (migration 0057). Same nullable-means-
+  // built-in-default contract as the details/story headers above, so every
+  // pre-0057 wedding renders exactly as it does today. The section itself only
+  // appears when the wedding holds the `registry` entitlement AND has published
+  // a registry — this is presentation, never the gate.
+  registryEyebrow: text("registry_eyebrow"),
+  registryHeading: text("registry_heading"),
+  registryBody: text("registry_body"),
+  registryTone: text("registry_tone"),
   // Optional host override for the FIRST line of the message an organiser copies
   // to send a family their invite (migration 0023). NULL ⇒ the built-in default
   // prose. The copied message is always the same 3-line shape — this line, then

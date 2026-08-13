@@ -5,11 +5,12 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-08-01
+last-reviewed: 2026-08-13
 ---
 
 # cire/db
 
+- [x] **Migration `0057` — gift registry** (2026-08-13): four new tables (`registry_settings`, `registry_items`, `registry_claims`, `registry_contributions`) plus four `registry_*` copy columns on `wedding_invite_customisations`. Additive and inert — the `registry` entitlement is granted to no wedding, so every table stays empty in production. Three shape decisions worth knowing before touching them: `registry_items` has **no currency column** (everything the organiser authors is in `weddings.currency`, and a per-item currency is what makes a gift list unreadable); `registry_contributions` carries the amount **as given** *and* a snapshotted primary-currency equivalent, written once and never recomputed; and `registry_contributions.item_id` is `ON DELETE SET NULL`, not cascade, so deleting a listing never erases the record of money someone actually sent. The unique `(item_id, family_id)` on claims is what makes the single-statement quantity guard tractable. See [[registry]].
 - [x] **Migration `0056` — settings attribution** (2026-08-01): `weddings.updated_by_osn_profile_id` (nullable text, opaque OSN profile id, no cross-DB FK). The Settings profile stopped having a single writer when the RSVP-by deadline became editable by an `editor` co-host, so a guest-facing change needs an author (S-L2, SOC 2 CC6/CC7). NULL on every existing row = "unknown", never "the owner". Written by `weddingSettingsService.update`, so the budget-total route that shares the service records it too. Not projected by `GET /settings` — internal audit field. See [[security]], root wiki `[[data-map]]`.
 
 Schema and migration work. See [[monorepo-structure]] for how this package fits into the dependency graph.

@@ -266,7 +266,7 @@ domain-migration plan in [[cire-landing]].
 
 ### Platform roadmap (withjoy parity)
 
-- [ ] **Gift registry** — first-class registry surface (parity with withjoy).
+- [ ] **Gift registry** — first-class registry surface (parity with withjoy). **In flight**, shipping locked behind a `registry` entitlement granted to no wedding. Landed 2026-08-13: migration 0057 (settings/items/claims/contributions + the invite copy columns), the entitlement key, `registryService` and the organiser read/write routes — all answering 402 today. Remaining: host portal module, link-preview image picker, guest surface, Stripe Connect (Express). Design + the money rules in `[[cire/wiki/systems/registry]]`; new data classes already mapped in `[[data-map]]` and a Stripe row parked in `[[subprocessors]]` pending the Connect PR.
 - [ ] **Wedding-management platform** — budget, vendors + availability + location search, pricing estimates, seating, checklist/timeline, guest comms — built out from the organiser dashboard (`host.cireweddings.com`), with guests/events decoupled from the invite as their own sources of truth. Multi-tenant `weddings` root already in place. **Phased build plan shipped 2026-07-08**: `cire/wiki/architecture/platform-plan.md` (architecture + schema sketches) + `cire/wiki/todo/platform.md` (checklist). Phase 0 (invite decoupling + wedding profile + roles) is the entry point; it also closes the co-host **roles** item in the Cire section above. See [[cire]].
 - [ ] **Marketing depth** — pricing page, case studies, blog/SEO content; flip testimonials live once permissioned.
 

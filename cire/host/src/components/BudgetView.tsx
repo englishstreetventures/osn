@@ -14,6 +14,7 @@ import {
   setCachedBudget,
 } from "../lib/budget-store";
 import { haptic } from "../lib/haptics";
+import { formatMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import Button from "./ui/Button";
 import Field, { Input, Select } from "./ui/Field";
@@ -28,14 +29,11 @@ interface BudgetViewProps {
 }
 
 /** Format minor units as major with the wedding currency, e.g. 1250000 → "$12,500.00".
- *  Uses Intl with the ISO currency; falls back to a plain number if unknown. */
-function fmtMinor(minor: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, { style: "currency", currency }).format(minor / 100);
-  } catch {
-    return (minor / 100).toFixed(2);
-  }
-}
+ *  Delegates to the shared `lib/money` formatter: it memoises the `Intl` instance
+ *  (this one built a fresh formatter per cell, inside a `<For>`) and it knows the
+ *  currency's real minor-unit exponent, which a fixed `/ 100` gets wrong for JPY
+ *  and the three-decimal currencies. */
+const fmtMinor = (minor: number, currency: string): string => formatMinor(minor, currency);
 
 export default function BudgetView(props: BudgetViewProps) {
   const { authFetch } = useAuth();

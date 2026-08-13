@@ -214,7 +214,11 @@ CREATE TABLE IF NOT EXISTS wedding_invite_customisations (
   invite_message TEXT,
   design_id TEXT NOT NULL DEFAULT 'classic',
   updated_at INTEGER NOT NULL,
-  images_updated_at INTEGER
+  images_updated_at INTEGER,
+  registry_eyebrow TEXT,
+  registry_heading TEXT,
+  registry_body TEXT,
+  registry_tone TEXT
 );
 
 CREATE TABLE IF NOT EXISTS imports (
@@ -352,6 +356,80 @@ CREATE TABLE IF NOT EXISTS wedding_entitlements (
   provider_ref TEXT,
   PRIMARY KEY (wedding_id, entitlement)
 );
+CREATE TABLE IF NOT EXISTS registry_settings (
+  wedding_id TEXT PRIMARY KEY REFERENCES weddings(id) ON DELETE CASCADE,
+  published INTEGER NOT NULL DEFAULT 0,
+  headline TEXT,
+  message TEXT,
+  cash_gifts_enabled INTEGER NOT NULL DEFAULT 0,
+  shipping_address TEXT,
+  shipping_visible_from TEXT,
+  stripe_account_id TEXT,
+  stripe_charges_enabled INTEGER NOT NULL DEFAULT 0,
+  stripe_payouts_enabled INTEGER NOT NULL DEFAULT 0,
+  stripe_account_updated_at INTEGER,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS registry_items (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL DEFAULT 'product',
+  title TEXT NOT NULL,
+  description TEXT,
+  image_key TEXT,
+  image_crop TEXT,
+  external_url TEXT,
+  price_minor INTEGER,
+  quantity_wanted INTEGER NOT NULL DEFAULT 1,
+  allow_partial INTEGER NOT NULL DEFAULT 0,
+  target_minor INTEGER,
+  category TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS registry_items_wedding_sort_idx ON registry_items(wedding_id, sort_order);
+CREATE TABLE IF NOT EXISTS registry_claims (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  item_id TEXT NOT NULL REFERENCES registry_items(id) ON DELETE CASCADE,
+  family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+  quantity INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'reserved',
+  note TEXT,
+  display_name TEXT,
+  thanked_at INTEGER,
+  thanked_by TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS registry_claims_item_family_uniq ON registry_claims(item_id, family_id);
+CREATE INDEX IF NOT EXISTS registry_claims_wedding_created_idx ON registry_claims(wedding_id, created_at);
+CREATE INDEX IF NOT EXISTS registry_claims_item_status_idx ON registry_claims(item_id, status);
+CREATE TABLE IF NOT EXISTS registry_contributions (
+  id TEXT PRIMARY KEY,
+  wedding_id TEXT NOT NULL REFERENCES weddings(id) ON DELETE CASCADE,
+  item_id TEXT REFERENCES registry_items(id) ON DELETE SET NULL,
+  family_id TEXT NOT NULL REFERENCES families(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending',
+  amount_minor INTEGER NOT NULL,
+  currency TEXT NOT NULL,
+  primary_amount_minor INTEGER,
+  primary_currency TEXT,
+  fx_rate TEXT,
+  fx_rate_at INTEGER,
+  stripe_checkout_session_id TEXT NOT NULL UNIQUE,
+  stripe_payment_intent_id TEXT,
+  message TEXT,
+  display_name TEXT,
+  thanked_at INTEGER,
+  thanked_by TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS registry_contributions_wedding_created_idx ON registry_contributions(wedding_id, created_at);
+CREATE INDEX IF NOT EXISTS registry_contributions_item_idx ON registry_contributions(item_id);
 `;
 
 export function createDb(path: string = ":memory:"): Db {

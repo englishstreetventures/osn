@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { __resetMoneyFormatters, formatMinor } from "./money";
+import { __resetMoneyFormatters, formatMinor, formatMinorPair } from "./money";
 
 /**
  * ENQ-P-W3. The behaviour these pin is mostly the memoisation, because that is
@@ -72,5 +72,79 @@ describe("formatMinor", () => {
     const ctor = countConstructions();
     for (let i = 0; i < 25; i += 1) formatMinor(100, "not-a-currency");
     expect(ctor).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses each currency's real minor-unit exponent, not a fixed /100", () => {
+    // The trap this pins: a fixed `/ 100` is right for AUD and wrong by 100× for
+    // JPY (no minor unit at all) and 10× for the three-decimal currencies. It was
+    // invisible while every wedding was in AUD, and states amounts wildly wrong
+    // the moment a gift arrives in yen.
+    //
+    // 1000 minor units is ¥1000 — NOT ¥10.
+    const jpy = formatMinor(1000, "JPY");
+    expect(jpy).toMatch(/1[,. ]?000/);
+    expect(jpy).not.toMatch(/\b10\b/);
+
+    // KWD has three: 1000 minor units is 1 dinar.
+    expect(formatMinor(1000, "KWD")).toMatch(/\b1[.,]000\b/);
+
+    // AUD is unchanged — two decimals.
+    expect(formatMinor(1000, "AUD")).toMatch(/\b10[.,]00\b/);
+  });
+
+  it("does not construct an extra formatter to learn the exponent", () => {
+    // The exponent is read off the formatter the module already builds. If a
+    // future refactor probes with its own `new Intl.NumberFormat`, the whole
+    // memoisation win halves — silently, since output is identical.
+    const ctor = countConstructions();
+    for (let i = 0; i < 25; i += 1) formatMinor(i * 100, "JPY");
+    expect(ctor).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("formatMinorPair", () => {
+  afterEach(() => {
+    __resetMoneyFormatters();
+    vi.restoreAllMocks();
+  });
+
+  it("returns one line when the gift is already in the primary currency", () => {
+    const pair = formatMinorPair({ minor: 10_000, currency: "AUD" }, null);
+    expect(pair.given).toMatch(/100/);
+    expect(pair.primary).toBeNull();
+  });
+
+  it("returns both lines when the gift arrived in another currency", () => {
+    // The as-given amount is the primary visual; the primary-currency equivalent
+    // is the supporting line. Both are formatted in their OWN currency.
+    const pair = formatMinorPair(
+      { minor: 5_000, currency: "GBP" },
+      { minor: 9_700, currency: "AUD" },
+    );
+    expect(pair.given).toMatch(/£|GBP/);
+    expect(pair.given).toMatch(/\b50[.,]00\b/);
+    expect(pair.primary).toMatch(/\b97[.,]00\b/);
+  });
+
+  it("suppresses a redundant second line when the snapshot matches the given currency", () => {
+    // A webhook can legitimately write a same-currency snapshot; repeating the
+    // figure underneath itself reads as a conversion that did not happen.
+    const pair = formatMinorPair(
+      { minor: 5_000, currency: "AUD" },
+      { minor: 5_000, currency: "AUD" },
+    );
+    expect(pair.primary).toBeNull();
+  });
+
+  it("never re-derives a rate — it formats exactly the two amounts it is given", () => {
+    // Rates are snapshotted per gift at charge time. If this function ever
+    // converted, a gift log would quietly re-value itself as rates moved. Feed it
+    // a deliberately absurd pair: it must render both verbatim.
+    const pair = formatMinorPair(
+      { minor: 100, currency: "GBP" },
+      { minor: 999_900, currency: "AUD" },
+    );
+    expect(pair.given).toMatch(/\b1[.,]00\b/);
+    expect(pair.primary).toMatch(/9[,. ]?999/);
   });
 });
