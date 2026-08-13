@@ -79,6 +79,21 @@ public final class MusubiSession {
         )
     }
 
+    /// The security screen's API. Only two of its five calls are `OSNAuth`
+    /// work — the ack routes and the generate route each need a step-up
+    /// token first — so it takes the same step-up client the passkeys screen
+    /// uses, plus the generated osn-api client for the routes themselves.
+    ///
+    /// - Parameter anchorProvider: the app target's key-window lookup, for
+    ///   the ceremonies the writes run.
+    public func makeSecurityAPI(anchorProvider: @escaping PresentationAnchorProvider) -> OSNSecurityAPI {
+        OSNSecurityAPI(
+            client: api,
+            stepUp: stepUpClient,
+            anchorProvider: anchorProvider
+        )
+    }
+
     /// Silent restore on launch. A throw from `TokenRefresher.refresh()`
     /// means "signed out", not an error banner.
     public func restore() async {

@@ -7,6 +7,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[step-up]]"
+  - "[[recovery-codes]]"
   - "[[pulse]]"
   - "[[osn-core]]"
 packages:
@@ -58,7 +59,7 @@ Refresh failure is **HTTP 400 with an `error` string, never 401**. A client that
 
 ## Musubi's screens
 
-Two tabs so far.
+Three tabs so far.
 
 **Devices** — every live session on the account, with per-row revoke and "sign out everywhere else": `listSessions` / `revokeSession` / `revokeAllOtherSessions` ([[sessions]]). Built first because it needs no new API work and it is the screen that *shows* the shared jar: sign in on Pulse, and the session appears in Musubi's list.
 
@@ -77,7 +78,18 @@ Two contract details worth keeping:
 - The account invariant is ≥1 passkey ([[passkey-primary]]) and the server enforces it, so the last row offers no Remove rather than spending a biometric prompt on a refusal.
 - Enrolment needs a `profileId`, and a *restored* session is `signedIn(nil)` — `PasskeyProfile` only ever arrives from a live `/login/passkey/complete`. So it comes off the wire, via `listAccountProfiles`.
 
-View models take a narrow protocol (`DevicesAPI`, three methods; `PasskeysAPI`, four), not the generated `APIProtocol` (73). A test double for the latter would be 70 stubs of nothing. `OSNDevicesAPI` and `OSNPasskeysAPI` are the only places generated shapes and ceremonies are unwrapped — which is also why `PasskeysAPI`'s three mutating methods are `@MainActor`: `ASAuthorizationController` is.
+**Security** — the unacknowledged security-event feed ([[recovery-codes]], [[step-up]]) with the recovery-code counts above it. Contract details:
+
+- `GET /account/security-events` returns **unacknowledged events only**, newest first. So this is a to-read list, not a history: acknowledging removes a row and the app has no way back to it.
+- Both ack routes are **step-up gated** with `security_event_ack`. That is the point of them: an XSS-captured access token must not be able to silently dismiss the banner that exists to notice that compromise. "Clear all" runs **one** ceremony for the lot — a prompt per row would train the user to tap through Face ID without reading.
+- Ack-one answers `{ acknowledged: Boolean }`, ack-all answers `{ acknowledged: Number }` — same key, different type, so the two routes cannot share a schema. A `false` means the id matched nothing unacknowledged (another device got there first); it is idempotent, not an error, and the honest response is to re-list.
+- `kind` is a bare string on the wire. `SecurityEventKind` keeps an `other(String)` case and renders the raw name tidied up: a kind added on the server after a build shipped must still appear, since seeing everything is the entire job of the screen.
+- Event timestamps are Unix seconds as **`Double`**, like the session routes and unlike the passkey routes' `Int`.
+- `POST /recovery/generate` is step-up gated (`recovery_generate`), replaces any existing set whole, and hands back 10 plaintext codes **once** — the server keeps only hashes. They live in `SecurityViewModel.freshCodes` until the sheet closes and are never written to disk. Copying uses `ShareLink`, not `UIPasteboard`, which is UIKit (see the purity rule below).
+- Generating writes a `recovery_code_generate` event of its own, so the screen reloads afterwards for two reasons, not one: the counts moved *and* the feed is a row short.
+- `GET /recovery/status` deliberately has **no** step-up. It carries counts, never a code, and it is what tells a user whether starting a ceremony is worth it. A failed status call therefore does not fail the screen — the feed is the point, the counts are a header.
+
+View models take a narrow protocol (`DevicesAPI`, three methods; `PasskeysAPI`, four; `SecurityAPI`, five), not the generated `APIProtocol` (73). A test double for the latter would be 70 stubs of nothing. `OSNDevicesAPI`, `OSNPasskeysAPI` and `OSNSecurityAPI` are the only places generated shapes and ceremonies are unwrapped — which is also why the mutating methods on `PasskeysAPI` and `SecurityAPI` are `@MainActor`: `ASAuthorizationController` is.
 
 ## macOS purity rule
 

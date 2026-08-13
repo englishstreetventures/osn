@@ -7,9 +7,8 @@ import SwiftUI
 /// iOS anchor provider in from `App.swift` (this package can't import
 /// UIKit).
 ///
-/// Two signed-in screens now, so the tab bar arrives as promised. Sign out
-/// sits in each tab's own toolbar rather than a third tab: it is an action,
-/// not a place.
+/// Three signed-in screens now. Sign out sits in each tab's own toolbar
+/// rather than a tab of its own: it is an action, not a place.
 public struct MusubiRootView: View {
     private let session: MusubiSession
     private let anchorProvider: PresentationAnchorProvider
@@ -46,6 +45,12 @@ public struct MusubiRootView: View {
                 Tab("Passkeys", systemImage: "person.badge.key") {
                     NavigationStack {
                         PasskeysView(session: session, anchorProvider: anchorProvider)
+                            .toolbar { signOutButton }
+                    }
+                }
+                Tab("Security", systemImage: "shield") {
+                    NavigationStack {
+                        SecurityView(session: session, anchorProvider: anchorProvider)
                             .toolbar { signOutButton }
                     }
                 }
