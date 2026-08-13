@@ -17,6 +17,8 @@ let package = Package(
         .library(name: "OSNAuth", targets: ["OSNAuth"]),
         .library(name: "OSNUI", targets: ["OSNUI"]),
         .library(name: "OSNTesting", targets: ["OSNTesting"]),
+        .library(name: "OSNTransport", targets: ["OSNTransport"]),
+        .library(name: "OSNAPI", targets: ["OSNAPI"]),
         .library(name: "PulseAPI", targets: ["PulseAPI"]),
         .library(name: "PulseFeature", targets: ["PulseFeature"]),
     ],
@@ -33,10 +35,35 @@ let package = Package(
         .target(name: "OSNTesting", dependencies: ["OSNKit"]),
         .testTarget(name: "OSNKitTests", dependencies: ["OSNKit", "OSNTesting"]),
         .testTarget(name: "OSNAuthTests", dependencies: ["OSNAuth", "OSNTesting"]),
+        // The bearer-token middleware, shared by both generated clients. It
+        // sits in its own target so `OSNAPI` doesn't have to depend on
+        // `PulseAPI` (or the reverse) to reuse it.
+        .target(
+            name: "OSNTransport",
+            dependencies: [
+                "OSNKit",
+                .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
+                .product(name: "HTTPTypes", package: "swift-http-types"),
+            ]
+        ),
+        .testTarget(name: "OSNTransportTests", dependencies: ["OSNTransport", "OSNKit", "OSNTesting"]),
+        .target(
+            name: "OSNAPI",
+            dependencies: [
+                "OSNKit",
+                "OSNTransport",
+                .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
+                .product(name: "OpenAPIURLSession", package: "swift-openapi-urlsession"),
+                .product(name: "HTTPTypes", package: "swift-http-types"),
+            ],
+            plugins: [.plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")]
+        ),
+        .testTarget(name: "OSNAPITests", dependencies: ["OSNAPI", "OSNKit", "OSNTesting"]),
         .target(
             name: "PulseAPI",
             dependencies: [
                 "OSNKit",
+                "OSNTransport",
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
                 .product(name: "OpenAPIURLSession", package: "swift-openapi-urlsession"),
                 .product(name: "HTTPTypes", package: "swift-http-types"),

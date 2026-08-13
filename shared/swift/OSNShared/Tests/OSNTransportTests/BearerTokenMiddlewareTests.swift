@@ -5,7 +5,7 @@ import OSNKit
 import OSNTesting
 import Testing
 
-@testable import PulseAPI
+@testable import OSNTransport
 
 /// Self-contained copy of `OSNKitTests`' `MockURLProtocol` pattern — this
 /// test target can't import `OSNKitTests` (separate test target), and the
@@ -182,6 +182,69 @@ struct BearerTokenMiddlewareTests {
         #expect(response.status.code == 200)
         #expect(await nextCallCount.value == 2)
         #expect(await authorizationsSeen.values == ["Bearer looks-valid", "Bearer rotated-token"])
+    }
+
+    /// The reason the policy exists. osn-api's registration and login routes
+    /// are callable with no session, so attaching a token would mean minting
+    /// one first — a `/token` call that can only fail before sign-in, against
+    /// a rate-limited endpoint, on the very requests that create the session.
+    @Test func publicOperationsSendNoHeaderAndNeverRefresh() async throws {
+        try KeychainAccessTokenStore.delete()
+
+        let session = makeTestSession()
+        let refresher = TokenRefresher(session: session, environment: .local)
+        let middleware = BearerTokenMiddleware(
+            tokenRefresher: refresher,
+            requiresAuthentication: { $0 != "beginPasskeyLogin" }
+        )
+
+        // No handler: a refresh would fail the request outright, so reaching
+        // `next` at all proves none was attempted.
+        MiddlewareMockURLProtocol.handler = nil
+
+        let seenAuthorization = Recorder<String?>()
+        let (response, _) = try await middleware.intercept(
+            HTTPRequest(method: .post, scheme: "https", authority: "localhost", path: "/auth/passkey/login/begin"),
+            body: nil,
+            baseURL: URL(string: "http://localhost:4000")!,
+            operationID: "beginPasskeyLogin"
+        ) { request, _, _ in
+            await seenAuthorization.record(request.headerFields[.authorization])
+            return (HTTPResponse(status: .ok), nil)
+        }
+
+        #expect(await seenAuthorization.values == [nil])
+        #expect(response.status.code == 200)
+    }
+
+    /// A 401 from a public operation is the server's answer, not a stale
+    /// token — refreshing and retrying would double the request and still
+    /// come back 401.
+    @Test func publicOperationsAreNotRetriedOn401() async throws {
+        try KeychainAccessTokenStore.delete()
+        try KeychainAccessTokenStore.save("valid-token", expiresIn: 300)
+
+        let session = makeTestSession()
+        let refresher = TokenRefresher(session: session, environment: .local)
+        let middleware = BearerTokenMiddleware(
+            tokenRefresher: refresher,
+            requiresAuthentication: { _ in false }
+        )
+        MiddlewareMockURLProtocol.handler = nil
+
+        let nextCallCount = Counter()
+        let (response, _) = try await middleware.intercept(
+            HTTPRequest(method: .post, scheme: "https", authority: "localhost", path: "/auth/register/begin"),
+            body: nil,
+            baseURL: URL(string: "http://localhost:4000")!,
+            operationID: "beginRegistration"
+        ) { _, _, _ in
+            await nextCallCount.increment()
+            return (HTTPResponse(status: .unauthorized), nil)
+        }
+
+        #expect(response.status.code == 401)
+        #expect(await nextCallCount.value == 1)
     }
 
     @Test func doesNotRetryWhenTheBodyCannotBeReplayed() async throws {

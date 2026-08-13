@@ -3,9 +3,10 @@ import Testing
 /// Serializes any test carrying this trait against every other test carrying
 /// it, even across suites and test targets. `@Suite(.serialized)` only
 /// orders tests *within* one suite — Swift Testing still runs different
-/// suites (and different test targets, e.g. `OSNKitTests` vs `PulseAPITests`)
-/// concurrently in the same `swift test` process. `OSNKitTests`'
-/// `KeychainSerialTests` and `PulseAPITests`' `BearerTokenMiddlewareTests`
+/// suites (and different test targets, e.g. `OSNKitTests` vs
+/// `OSNTransportTests`) concurrently in the same `swift test` process.
+/// `OSNKitTests`' `KeychainSerialTests` and `OSNTransportTests`'
+/// `BearerTokenMiddlewareTests`
 /// both read/write the one physical `KeychainAccessTokenStore` item, so
 /// without this they race: concurrent `SecItemAdd`/`SecItemDelete` calls
 /// produce `OSStatus -25299` (duplicate item), and interleaved writes
