@@ -202,9 +202,17 @@ convention.
 Everything below needs the dashboard or a credential CI does not hold. Ordered — do
 them in this order, and do them **before** the first merge that would fire the dev jobs.
 
-Status as of 2026-08-14: **steps 1 and 2 are done** — `cire-db-dev`, `osn-db-dev`, both
-R2 buckets and the dev Upstash database exist, the D1 ids are in the wrangler blocks,
-and both GitHub Environments exist and are armed. Steps 3–9 are open.
+Status as of 2026-08-14: **steps 1–6 are done** — both dev databases, both R2 buckets
+and the dev Upstash database exist, the D1 ids are in the wrangler blocks, both GitHub
+Environments are armed, every dev Worker secret is set, both dev Workers are deployed
+and answering on their custom domains, the dev `oauth_clients` row is seeded and
+`cire-api` is ARC-registered against the dev issuer. **Steps 7–9 are open** and are all
+dashboard-only.
+
+> **Bootstrap ordering.** `wrangler secret put` needs the Worker to exist, so the very
+> first pass is **deploy → set secrets → deploy again**. The second deploy is not
+> optional: `secret put` does not cycle warm isolates, so a Worker deployed before its
+> secrets keeps answering from the isolate that has none.
 
 1. **Create the backing resources.** ✅ done
    ```bash
@@ -248,7 +256,7 @@ and both GitHub Environments exist and are armed. Steps 3–9 are open.
 
    `CLOUDFLARE_ACCOUNT_ID` is shared by both Environments.
 
-3. **Set the dev Worker secrets.** Same inventory as production
+3. **Set the dev Worker secrets.** ✅ done. Same inventory as production
    ([[production-deploy]] §3.1/§3.2), `--env dev`:
 
    ```bash
@@ -264,6 +272,7 @@ and both GitHub Environments exist and are armed. Steps 3–9 are open.
    bunx wrangler secret put CIRE_OIDC_CLIENT_SECRET  --env dev
    bunx wrangler secret put CIRE_API_ARC_PRIVATE_KEY --env dev   # own ARC keypair
    bunx wrangler secret put CIRE_API_ARC_KEY_ID      --env dev
+   bunx wrangler secret put OSN_API_URL              --env dev   # https://id-dev.musubi.social
    ```
 
    > ⚠️ Never `source` a secrets file to set a JWK-shaped value — an unquoted
@@ -272,9 +281,28 @@ and both GitHub Environments exist and are armed. Steps 3–9 are open.
    > VAL=$(grep -m1 '^KEY=' "$SF" | sed 's/^[^=]*=//'); printf '%s' "$VAL" | bunx wrangler secret put KEY --env dev
    > ```
 
+   Three of these are easy to miss because they are not in the production secrets
+   file under an obvious name:
+
+   - `OSN_API_URL` is a **secret, not a var** on cire-api, and it feeds the ARC
+     bridge. Absent ⇒ `POST /api/account/link` answers 503.
+   - `OSN_PAIRWISE_SALT` is step 4, not this list.
+   - Two are deliberately **left unset on dev, matching production**:
+     `CIRE_INTERNAL_REVOKE_SECRET`, and `TURNSTILE_SECRET_KEY` — the Turnstile gate
+     is key-optional and fail-closed, so setting the key before the dev hostnames
+     are in the widget's Domains (step 8) breaks **every** guest claim. That exact
+     incident hit production on 2026-07-20. [[turnstile]]
+
+   > On this machine `bunx --bun wrangler` is silently broken — every
+   > network-touching command prints nothing and exits 0. Use plain `bunx wrangler`
+   > (node), notwithstanding the repo-wide `bunx --bun` rule.
+
 4. **Set the dev `OSN_PAIRWISE_SALT`** with the **Set OSN_PAIRWISE_SALT**
    workflow, `tier: dev`. It generates 64 random bytes in-job, never prints them,
-   and **refuses to rotate** an existing value.
+   and **refuses to rotate** an existing value. ✅ done — but set by hand with
+   `wrangler secret put`, because `workflow_dispatch` resolves the workflow file
+   against `main` and the `tier` input does not exist there until this branch
+   merges. Same effect; from the next dev bootstrap on, use the workflow.
 
    > ⚠️ The dev salt must never be rotated either. Rotation changes every pairwise
    > `sub`, so every dev relying party sees its users as strangers — permanently.
@@ -285,20 +313,40 @@ and both GitHub Environments exist and are armed. Steps 3–9 are open.
    `deploy-osn-api-dev` preflights this secret and fails with an actionable error
    rather than deploying a Worker that 503s every route.
 
-5. **Seed the dev `oauth_clients` row** in `osn-db-dev` — `client_id` `cid_cire`,
+5. **Seed the dev `oauth_clients` row** ✅ done — in `osn-db-dev`, `client_id` `cid_cire`,
    redirect URI `https://api-dev.cireweddings.com/api/auth/oidc/callback`,
    `sector_identifier` `cireweddings.com`, `is_first_party = 1`. The row's hash
    must be the SHA-256 of the `CIRE_OIDC_CLIENT_SECRET` set in step 3. Shape and
    procedure: [[production-deploy]] §3.5.
 
-6. **Register `cire-api-dev` for ARC** — `POST /graph/internal/register-service`
+6. **Register `cire-api-dev` for ARC** ✅ done — `POST /graph/internal/register-service`
    against `id-dev.musubi.social`, bearing `INTERNAL_SERVICE_SECRET`. Idempotent
-   and per-environment; a non-local env throws at startup without it.
+   and per-environment; a non-local env throws at startup without it. Body:
+   `serviceId: "cire-api"`, `keyId` = the `CIRE_API_ARC_KEY_ID` UUID,
+   `publicKeyJwk` = the public JWK **as a JSON string**, `allowedScopes` =
+   `graph:read,graph:resolve-account,org:read` (drop `org:read` and every
+   `/api/vendor/*` write answers 503). Note the two key encodings differ: the OSN
+   JWT keys are **base64-encoded** JWK JSON, the ARC keys are a **raw** JWK string.
 
 7. **Attach the custom domains.** Worker routes (`api-dev`, `invite-dev`,
-   `id-dev`) auto-provision from `custom_domain = true` on deploy. The four Pages
-   projects need their domain attached in the dashboard —
-   Pages → project → Custom domains.
+   `id-dev`) auto-provision from `custom_domain = true` on deploy — ✅ all three
+   are live. The four Pages projects exist and have had their first dev deploy
+   (bootstrapped by hand on 2026-08-14, the same build env the CI jobs use), so
+   each answers on its `*.pages.dev` URL. **Attaching the custom domain is still
+   open** and is dashboard-only: wrangler has no `pages domain` command, and the
+   Pages domains API needs a real API token — the OAuth login CI and this machine
+   use cannot reach it. Pages → project → Custom domains:
+
+   | Project | Domain to attach |
+   |---|---|
+   | `cire-host-dev` | `host-dev.cireweddings.com` |
+   | `cire-vendor-dev` | `vendor-dev.cireweddings.com` |
+   | `cire-landing-dev` | `dev.cireweddings.com` |
+   | `osn-social-dev` | `dev.musubi.social` |
+
+   `dev.musubi.social` is not cosmetic — it is the dev **WebAuthn RP ID**. Until it
+   resolves, no dev passkey can be registered and verification steps 3 and 4 cannot
+   run.
 
 8. **Add the dev hostnames to the Turnstile widget's Domains** — dashboard only,
    the wrangler OAuth token lacks `Account.Turnstile:Edit`. A gated origin missing
@@ -330,9 +378,25 @@ Cloudflare Access (Zero Trust, free for 50 users), email-OTP policy, on the
 A dev tier is only proven when a passkey ceremony completes end to end — a
 ceremony spans two requests, so it is what catches Redis being misconfigured.
 
-1. `curl https://api-dev.cireweddings.com/health` → 200. `wrangler tail
-   cire-api-dev` shows the tier as `dev`, not `local`.
-2. `https://id-dev.musubi.social/.well-known/jwks.json` serves keys.
+1. `cire-api` has **no health route** in any tier — `/health` is a 404 on dev and
+   on production alike, so it proves nothing. Probe two real routes instead and
+   read the status codes, not the bodies:
+
+   ```bash
+   curl -s -o /dev/null -w '%{http_code}\n' https://api-dev.cireweddings.com/api/claim/session
+   # 401 — the route ran. A 503 here means the CLAIM_RATE_LIMITER binding is
+   # missing and the deployed-tier guard failed closed.
+
+   curl -s -o /dev/null -w '%{http_code}\n' https://api-dev.cireweddings.com/api/auth/oidc/start
+   # 400 — the handler ran and rejected the empty body. A 503 means one of
+   # OSN_ISSUER_URL / CIRE_API_ORIGIN / CIRE_OIDC_CLIENT_ID / _SECRET is unset.
+
+   bunx wrangler tail cire-api-dev   # tier logs as `dev`, not `local`
+   ```
+
+2. `https://id-dev.musubi.social/.well-known/jwks.json` serves keys, and
+   `/.well-known/openid-configuration` reports
+   `"issuer": "https://id-dev.musubi.social"` — not the prod issuer.
 3. Register a **new** passkey on `https://dev.musubi.social`, sign out, sign back
    in. Proves Upstash-backed ceremony state survives across requests.
 4. Sign in on `host-dev.cireweddings.com` through the OIDC redirect. Proves the
@@ -362,7 +426,20 @@ bunx wrangler deploy --env dev        # from cire/api or osn/api
 # Watch a dev Worker
 bunx wrangler tail cire-api-dev
 bunx wrangler tail osn-api-dev
+
+# Redeploy a dev frontend out of band. The PUBLIC_*/VITE_* values are baked in at
+# build time, so they must be passed to the BUILD, not the deploy — a bundle built
+# without them points at production.
+PUBLIC_ORGANISER_URL=https://host-dev.cireweddings.com SITE=https://dev.cireweddings.com \
+  bun run --cwd cire/landing build
+(cd cire/landing && bunx wrangler pages deploy dist --project-name cire-landing-dev --branch main --commit-dirty=true)
 ```
+
+Each dev job in `deploy.yml` carries the full env block for its surface — copy it
+from there rather than retyping the hostnames. `cire/invites` is the odd one out:
+it is a **Worker**, not Pages, and its generated `dist/server/wrangler.json` must be
+retargeted at `cire-invites-dev` before `wrangler deploy` (the committed
+`wrangler.jsonc` names the production Worker). The job does that rewrite inline.
 
 Every remote script names its target database explicitly **and** passes `--env`.
 Neither is optional: without `--env`, wrangler resolves the name against the
