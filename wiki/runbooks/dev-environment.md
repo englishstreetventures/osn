@@ -113,7 +113,7 @@ See [[musubi-identity-migration]] for why RP IDs behave this way.
 
 | Environment | Cloudflare token secret | Reviewers |
 |---|---|---|
-| `dev` | `CLOUDFLARE_API_TOKEN_DEV` — scoped to the `*-dev` resources only | none |
+| `dev` | `CLOUDFLARE_API_TOKEN_DEV` | none |
 | `production` | `CLOUDFLARE_API_TOKEN` | required |
 
 The two secrets are deliberately named differently. A job that lands in the wrong
@@ -121,6 +121,22 @@ Environment then fails on an empty token instead of quietly deploying with the
 other tier's rights. This is what closed the tracked finding **S-M
 (preview-ci-prod-token)**: no push-triggered job can reach a prod-scoped
 credential any more.
+
+Store both **only** on their Environment. A repository-level `CLOUDFLARE_API_TOKEN`
+is visible to every job in every workflow, gate or no gate — which hands the
+unattended dev job the production credential and undoes the split. Check with
+`gh secret list` (repo scope) and `gh secret list --env production`; if the token
+appears at repo scope, delete it there (`gh secret delete CLOUDFLARE_API_TOKEN`)
+after confirming the `production` Environment holds it.
+
+**What the split does not buy.** `Workers Scripts:Edit` and `D1:Edit` are
+account-level permissions — Cloudflare offers no per-script or per-database
+resource filter, and only R2 scopes per bucket. So `CLOUDFLARE_API_TOKEN_DEV`
+can write production Workers as well, however the token is named. The boundary
+is the approval gate plus a separate credential to revoke, not a narrower grant.
+The only hard boundary is a **separate Cloudflare account** for dev; that is
+tracked as an open item rather than done here, because a second account means a
+second zone, second D1 set and second Upstash, and the free-tier maths changes.
 
 ### Concurrency is per job, not per workflow
 
