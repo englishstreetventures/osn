@@ -1,6 +1,7 @@
 import { Effect, Logger } from "effect";
 import { describe, expect, it } from "vitest";
 
+import type { DeploymentEnvironment } from "../src/config";
 import { loadConfig } from "../src/config";
 import { initObservability, makeObservabilityLayer } from "../src/index";
 import { makeLoggerLayer } from "../src/logger/layer";
@@ -77,6 +78,56 @@ describe("makeLoggerLayer", () => {
     expect(captured.length).toBe(1);
     expect(captured[0]?.message).toEqual(["login attempt"]);
     expect(captured[0]?.annotations.get("profileId")).toBe("u_123");
+  });
+});
+
+describe("makeLoggerLayer output format", () => {
+  // Runs one `Effect.logInfo` through the real layer for a tier and returns
+  // whatever reached stdout. Both loggers write via console.log, so the shape
+  // of that string is the only observable difference between them — and an
+  // empty string means the tier emitted nothing at all, which is the failure
+  // these tests exist to catch.
+  const emit = async (env: DeploymentEnvironment): Promise<string> => {
+    const written: string[] = [];
+    const original = globalThis.console.log;
+    globalThis.console.log = (...args: unknown[]) => {
+      written.push(args.map((a) => String(a)).join(" "));
+    };
+    try {
+      const config = loadConfig({ serviceName: "test", env });
+      await Effect.runPromise(
+        Effect.logInfo("hello").pipe(Effect.provide(makeLoggerLayer(config))),
+      );
+    } finally {
+      globalThis.console.log = original;
+    }
+    return written.join("\n");
+  };
+
+  it("writes machine-readable JSON on every deployed tier", async () => {
+    // `dev` belongs in this list. It reads like a developer tier but it is
+    // deployed, and its logs land in Workers Logs beside production's — where
+    // pretty output is multi-line ANSI, costs several ingested events per
+    // entry, and cannot be queried by field. It used to get prettyLogger.
+    //
+    // The emptiness assertion is the load-bearing one. `Logger.jsonLogger` is
+    // `Logger<unknown, string>` — it formats and returns, it does not write —
+    // and TypeScript accepts it where a `Logger<unknown, void>` is wanted, so
+    // for as long as the deployed tiers used it bare they emitted *nothing*
+    // and nothing complained. Only `local` (prettyLogger, which writes for
+    // itself) ever produced output, which is exactly why no one noticed.
+    for (const env of ["dev", "staging", "production"] as const) {
+      const line = await emit(env);
+      expect(line, `${env} emitted no log line at all`).not.toBe("");
+      expect(() => JSON.parse(line) as unknown).not.toThrow();
+      expect((JSON.parse(line) as { message: unknown }).message).toBe("hello");
+    }
+  });
+
+  it("writes pretty output only on local, where a human is watching stdout", async () => {
+    const line = await emit("local");
+    expect(() => JSON.parse(line) as unknown).toThrow(SyntaxError);
+    expect(line).toContain("hello");
   });
 });
 

@@ -71,7 +71,16 @@ jobs:
           TIER: ${{ inputs.tier }}
         run: |
           set -euo pipefail
-          if bunx wrangler secret list --env "$TIER" | grep -q '"OSN_PAIRWISE_SALT"'; then
+          # Capture the listing into a variable FIRST, so a failing `wrangler
+          # secret list` aborts here under `set -e`. Piping it straight into an
+          # `if` condition would not: a command used as a condition is exempt
+          # from `set -e`, and `pipefail` only sets the pipeline's status, which
+          # the `if` then swallows. An expired token or a typo'd tier would look
+          # exactly like "the secret is absent" — and the next two lines would
+          # ROTATE a live salt, which permanently orphans every OIDC connection.
+          # Failing closed is the whole point of this step.
+          existing="$(bunx wrangler secret list --env "$TIER")"
+          if printf '%s\n' "$existing" | grep -q '"OSN_PAIRWISE_SALT"'; then
             echo "OSN_PAIRWISE_SALT is already set on $TIER — refusing to rotate. Nothing to do."
             exit 0
           fi

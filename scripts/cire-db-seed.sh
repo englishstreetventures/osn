@@ -58,6 +58,15 @@ fi
 if [ "$TARGET" != "local" ]; then
   echo "db:seed: seeded $CIRE_DEV_DB_NAME (owner stays usr_dev_bootstrap_owner)"
 elif [ -n "${CIRE_DEV_OWNER_PROFILE_ID:-}" ]; then
+  # The value is interpolated into a SQL string literal below. It comes from
+  # cire/db/.env or the ambient environment — trusted-ish, but a stray apostrophe
+  # closes the literal and the rest of the value runs as SQL against the whole
+  # local database. Profile ids are `usr_` + url-safe base64, so an exact match
+  # on that shape costs nothing and removes the question.
+  if ! printf '%s' "$CIRE_DEV_OWNER_PROFILE_ID" | grep -qE '^usr_[A-Za-z0-9_-]+$'; then
+    echo "db:seed: CIRE_DEV_OWNER_PROFILE_ID='${CIRE_DEV_OWNER_PROFILE_ID}' is not a profile id (expected usr_ followed by letters, digits, - or _). Refusing." >&2
+    exit 1
+  fi
   "${WRANGLER[@]}" --command \
     "UPDATE weddings SET owner_osn_profile_id='${CIRE_DEV_OWNER_PROFILE_ID}' WHERE id='wed_bootstrap';"
   echo "db:seed: wedding owner set to ${CIRE_DEV_OWNER_PROFILE_ID}"

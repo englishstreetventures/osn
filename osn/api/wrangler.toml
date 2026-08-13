@@ -148,11 +148,13 @@ OSN_ISSUER_URL = "https://id-dev.musubi.social"
 # guard — add an origin only when a browser genuinely fetches this Worker from it.
 OSN_CORS_ORIGIN = "https://dev.musubi.social"
 OSN_AUTHORIZE_UI_URL = "https://dev.musubi.social/authorize"
-# Resend has no verified musubi.social domain, so dev sends from the same
-# verified cireweddings.com sender as production. Dev mail is OTP + security
-# notices to whoever registers a dev account (us) — no real guest is ever a
-# recipient, because dev holds no real guest rows.
-OSN_EMAIL_FROM = "hello@cireweddings.com"
+# Resend has no verified musubi.social domain, so dev sends over the verified
+# cireweddings.com domain — but from its OWN address, never production's.
+# Verification is per-domain, so this needs no extra setup, and it buys two
+# things: a recipient can tell a dev OTP from a real one at a glance, and a dev
+# send loop that trips a spam complaint burns `dev@`'s reputation rather than
+# the address every live couple's guests receive their invites from.
+OSN_EMAIL_FROM = "dev@cireweddings.com"
 
 # Custom-domain route: serves osn-api-dev on id-dev.musubi.social, one label deep
 # so the free Universal SSL certificate covers it. Named envs do NOT inherit
@@ -229,29 +231,36 @@ database_id = "eb71428e-8540-4a30-815f-fb9cd4ae97ea"
 migrations_dir = "../db/drizzle"
 
 # Native rate-limit bindings mirrored into staging (named envs don't inherit).
+#
+# 2201–2205, not the 2001–2005 production uses. `namespace_id` is ACCOUNT-scoped,
+# not worker-scoped: two Workers naming the same id share one set of counters. On
+# the shared ids, a staging load test against /login would have spent production's
+# per-IP budget and locked real users out of sign-in — and any staging IP that
+# collided with a real one would have done it quietly. Dev already sits on
+# 2101–2105 for the same reason.
 [[env.staging.ratelimits]]
 name = "RL_AUTH_IP_5_60"
-namespace_id = "2001"
+namespace_id = "2201"
 simple = { limit = 5, period = 60 }
 
 [[env.staging.ratelimits]]
 name = "RL_AUTH_IP_10_60"
-namespace_id = "2002"
+namespace_id = "2202"
 simple = { limit = 10, period = 60 }
 
 [[env.staging.ratelimits]]
 name = "RL_AUTH_IP_20_60"
-namespace_id = "2003"
+namespace_id = "2203"
 simple = { limit = 20, period = 60 }
 
 [[env.staging.ratelimits]]
 name = "RL_AUTH_IP_30_60"
-namespace_id = "2004"
+namespace_id = "2204"
 simple = { limit = 30, period = 60 }
 
 [[env.staging.ratelimits]]
 name = "RL_AUTH_IP_60_60"
-namespace_id = "2005"
+namespace_id = "2205"
 simple = { limit = 60, period = 60 }
 
 [env.staging.observability]

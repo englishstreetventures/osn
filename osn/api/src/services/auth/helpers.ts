@@ -115,8 +115,30 @@ export function genOtpCode(): string {
 // OTP logging — for the process lifetime. "Unset ⇒ local" itself matches the
 // codebase-wide convention (`isNonLocal` in index.ts).
 let isLocalEnvCached: boolean | undefined;
-const isLocalEnv = (): boolean =>
-  (isLocalEnvCached ??= !process.env.OSN_ENV || process.env.OSN_ENV === "local");
+
+// The Workers runtime hands `OSN_ENV` to the fetch/scheduled handler as a
+// BINDING, and that binding is authoritative — it is populated before any
+// request runs, whatever `process.env` does. `process.env` on workerd is a
+// compatibility shim: it only fills from `[vars]` when
+// `nodejs_compat_populate_process_env` is on, and only on first access. Drop
+// that flag, bump the compat date past a rename, deploy a Worker that never
+// touches `process` first — and `OSN_ENV` reads empty, "unset ⇒ local" holds,
+// and live OTP codes go to the log sink. So the deployed path stamps the real
+// tier here from the binding and `process.env` is only the fallback for the Bun
+// entry (`local.ts`), where it is native and always populated.
+// An absent binding normalises to "unknown", NOT to undefined: undefined would
+// fall back to `process.env` and land back on "unset ⇒ local". Once the Workers
+// entry has stamped, the answer comes from the binding or not at all.
+let runtimeTier: string | undefined;
+export const setRuntimeTier = (tier: string | undefined): void => {
+  runtimeTier = tier ?? "unknown";
+  isLocalEnvCached = undefined;
+};
+
+const isLocalEnv = (): boolean => {
+  if (runtimeTier !== undefined) return runtimeTier === "local";
+  return (isLocalEnvCached ??= !process.env.OSN_ENV || process.env.OSN_ENV === "local");
+};
 
 // S-L4: the recipient address used to be interpolated into this line. A
 // free-text message is not annotation-shaped, so the key-based redaction

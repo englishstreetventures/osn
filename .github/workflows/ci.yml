@@ -134,6 +134,23 @@ jobs:
       - name: Browser tests
         run: bun run test:browser
 
+  shell-tests:
+    name: Shell Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # scripts/cire-dev-db-guard.sh is the only thing standing between the
+      # unattended `db:reset:dev` step and the live-wedding D1, and a weakened
+      # guard's failure mode is *passing* — nothing downstream would notice
+      # until the tables were gone. Its own tests therefore run on every PR,
+      # not just when someone remembers. No bun needed: plain bash + awk.
+      #
+      # (The changeset gate's two shell tests live in changeset-check.yml
+      # instead, beside the job whose scripts they self-test.)
+      - name: Test the cire dev-db guard
+        run: bash scripts/cire-dev-db-guard.test.sh
+
   openapi-freshness:
     name: OpenAPI Freshness
     runs-on: ubuntu-latest
@@ -169,7 +186,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [lint, typecheck, build-test, openapi-freshness]
+    needs: [lint, typecheck, build-test, shell-tests, openapi-freshness]
     runs-on: ubuntu-latest
     steps:
       - name: Check results

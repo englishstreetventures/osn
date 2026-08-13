@@ -188,10 +188,23 @@ export function generateSeedSql(): string {
 // matching DROP would survive the reset, and the next migration replay would die
 // on `CREATE TABLE` — a green deploy that quietly stopped resetting is worse.
 export function schemaTableNames(): readonly string[] {
-  return Object.values(schema)
+  const names = Object.values(schema)
     .filter((value) => is(value, SQLiteTable))
     .map((table) => getTableName(table))
     .toSorted();
+
+  // A reflection walk that returns nothing looks exactly like a schema with no
+  // tables, and both regenerate green: seed.test.ts would compare an empty
+  // committed file against an empty generated one and agree. The deploy would
+  // then stop resetting silently, which is the failure this file exists to
+  // prevent. cire has had tables since 0001 and will never have none.
+  if (names.length === 0) {
+    throw new Error(
+      "cire/db/src/schema.ts exported no SQLiteTable — refusing to emit a reset that drops nothing.",
+    );
+  }
+
+  return names;
 }
 
 export function generateResetSql(): string {

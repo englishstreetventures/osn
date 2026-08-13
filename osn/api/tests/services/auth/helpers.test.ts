@@ -98,4 +98,41 @@ describe("logDevOtp", () => {
     const lines = await capture(logDevOtp("registration", "111111"));
     expect(lines).toHaveLength(1);
   });
+
+  // The Workers entry stamps the tier from the request-scoped binding, because
+  // `process.env` on workerd is a shim that can read empty — and "unset ⇒
+  // local" then puts a live OTP code in the log sink. Once stamped, the
+  // binding wins over `process.env` in both directions.
+  it.each(["dev", "staging", "production"])(
+    "emits nothing when the stamped tier is %s, whatever process.env says",
+    async (tier) => {
+      vi.resetModules();
+      delete process.env.OSN_ENV;
+      const mod = await import("../../../src/services/auth/helpers");
+      mod.setRuntimeTier(tier);
+      const lines = await capture(mod.logDevOtp("step-up", "999999"));
+      expect(lines).toEqual([]);
+    },
+  );
+
+  // A deployed Worker with no OSN_ENV var must NOT fall back to `process.env`
+  // — that is the same fail-open by a longer route. Absent normalises to
+  // "unknown", which is not local.
+  it("emits nothing when the binding is absent", async () => {
+    vi.resetModules();
+    delete process.env.OSN_ENV;
+    const mod = await import("../../../src/services/auth/helpers");
+    mod.setRuntimeTier(undefined);
+    const lines = await capture(mod.logDevOtp("registration", "222222"));
+    expect(lines).toEqual([]);
+  });
+
+  it("still logs when the stamped tier is local", async () => {
+    vi.resetModules();
+    process.env.OSN_ENV = "production";
+    const mod = await import("../../../src/services/auth/helpers");
+    mod.setRuntimeTier("local");
+    const lines = await capture(mod.logDevOtp("registration", "333333"));
+    expect(lines).toHaveLength(1);
+  });
 });

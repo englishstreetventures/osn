@@ -20,12 +20,19 @@ name: Deploy
 #
 # Two Environments, two Cloudflare tokens, deliberately different secret NAMES:
 #
-#   dev         -> CLOUDFLARE_API_TOKEN_DEV, scoped to the *-dev resources only
+#   dev         -> CLOUDFLARE_API_TOKEN_DEV, held only by the `dev` Environment
 #   production  -> CLOUDFLARE_API_TOKEN, reachable only from an approved job
 #
 # The names differ so a job that lands in the wrong Environment fails on a
 # missing secret instead of quietly deploying with the other tier's rights.
 # Secret VALUES are never embedded here.
+#
+# What the split does NOT buy: `Workers Scripts:Edit` and `D1:Edit` are
+# ACCOUNT-level permissions — Cloudflare has no per-script or per-database
+# resource filter (only R2 scopes per bucket). So CLOUDFLARE_API_TOKEN_DEV can
+# technically write production Workers too. The boundary here is the approval
+# gate and the separate credential, not a narrower grant. A real boundary means
+# a separate Cloudflare account; tracked in wiki/TODO.md.
 #
 # The dev tier is fully isolated — own Workers, own D1, own R2, own OSN identity
 # origin — and its database is wiped and re-seeded on every deploy. See
@@ -506,7 +513,7 @@ jobs:
       # domain (host-dev.cireweddings.com) is a dashboard step — wrangler cannot
       # attach one.
       - name: Ensure the cire-host-dev Pages project exists
-        run: bunx wrangler pages project create cire-host-dev --production-branch main || true
+        run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" cire-host-dev main
         working-directory: cire/host
 
       - name: Deploy cire/host to Cloudflare Pages (dev)
@@ -607,7 +614,7 @@ jobs:
           PUBLIC_OSN_ACCOUNT_URL: https://dev.musubi.social
 
       - name: Ensure the cire-vendor-dev Pages project exists
-        run: bunx wrangler pages project create cire-vendor-dev --production-branch main || true
+        run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" cire-vendor-dev main
         working-directory: cire/vendor
 
       - name: Deploy cire/vendor to Cloudflare Pages (dev)
@@ -702,7 +709,7 @@ jobs:
           SITE: https://dev.cireweddings.com
 
       - name: Ensure the cire-landing-dev Pages project exists
-        run: bunx wrangler pages project create cire-landing-dev --production-branch main || true
+        run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" cire-landing-dev main
         working-directory: cire/landing
 
       - name: Deploy cire/landing to Cloudflare Pages (dev)
@@ -963,7 +970,7 @@ jobs:
           VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
 
       - name: Ensure the osn-social-dev Pages project exists
-        run: bunx wrangler pages project create osn-social-dev --production-branch main || true
+        run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" osn-social-dev main
         working-directory: osn/social
 
       - name: Deploy osn/social to Cloudflare Pages (dev)
@@ -1042,12 +1049,14 @@ jobs:
           VITE_OSN_ISSUER_URL: https://id.musubi.social
           VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
 
-      # Idempotent: creates the project on the first run, no-ops (|| true) after.
+      # Idempotent: creates the project on the first run, no-ops after. The
+      # helper swallows only "already exists" — a bad token or a rate limit still
+      # fails the step, where `|| true` used to report it green.
       # `pages deploy` against a project that does not exist fails outright in a
       # non-interactive shell. The custom domain (musubi.social) is still a
       # dashboard step — wrangler cannot attach one.
       - name: Ensure the osn-social Pages project exists
-        run: bunx wrangler pages project create osn-social --production-branch main || true
+        run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" osn-social main
         working-directory: osn/social
 
       - name: Deploy osn/social to Cloudflare Pages
