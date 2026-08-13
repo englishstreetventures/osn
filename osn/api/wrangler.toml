@@ -124,7 +124,7 @@ crons = ["0 */6 * * *"]
 
 # ── dev ──────────────────────────────────────────────────────────────────────
 # A real deployed tier since 2026-08-13, not a localhost placeholder: osn-api-dev
-# on id-dev.musubi.social, backed by its own D1 (`osn-db-dev`), its own Upstash
+# on id.dev.musubi.social, backed by its own D1 (`osn-db-dev`), its own Upstash
 # database, its own signing keys and its own pairwise salt. Deployed
 # automatically on every merge to main, ahead of the approval-gated production
 # jobs. It shares NOTHING with production identity — a dev account is a different
@@ -141,7 +141,7 @@ OSN_ENV = "dev"
 OSN_RP_ID = "dev.musubi.social"
 OSN_RP_NAME = "OSN (dev)"
 OSN_ORIGIN = "https://dev.musubi.social"
-OSN_ISSUER_URL = "https://id-dev.musubi.social"
+OSN_ISSUER_URL = "https://id.dev.musubi.social"
 # Same reasoning as production: the cire dev origins exchange OIDC codes
 # server-side (cire-api-dev → this Worker), so no browser on a cireweddings-dev
 # surface makes a credentialed fetch here. This list also feeds the CSRF origin
@@ -156,13 +156,16 @@ OSN_AUTHORIZE_UI_URL = "https://dev.musubi.social/authorize"
 # the address every live couple's guests receive their invites from.
 OSN_EMAIL_FROM = "dev@cireweddings.com"
 
-# Custom-domain route: serves osn-api-dev on id-dev.musubi.social, one label deep
-# so the free Universal SSL certificate covers it. Named envs do NOT inherit
-# top-level routes. Deliberately NOT behind Cloudflare Access: an Access cookie
+# Custom-domain route: serves osn-api-dev on id.dev.musubi.social. Two labels
+# deep is fine — a Workers Custom Domain provisions its own certificate for the
+# exact hostname (verified 2026-08-14, issued free, no ACM subscription), so
+# nothing here rides on the zone's single-label Universal wildcard. Named envs
+# do NOT inherit top-level routes. Deliberately NOT behind Cloudflare Access: an
+# Access cookie
 # is not sent on cross-origin XHR, so gating this host would break every dev API
 # call and the OIDC redirect. It stays guarded by CORS + the origin guard.
 [[env.dev.routes]]
-pattern = "id-dev.musubi.social"
+pattern = "id.dev.musubi.social"
 custom_domain = true
 
 # Created 2026-08-13 (`wrangler d1 create osn-db-dev`, primary location OC to

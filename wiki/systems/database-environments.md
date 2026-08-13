@@ -126,7 +126,7 @@ Three rewrite shapes recur:
 **`@osn/api` on Workers — done.** The old caveat here (ioredis and module-top-level
 JWT key loading, neither of which runs on workerd) was resolved by the Upstash REST
 client and request-scoped key loading. osn-api has been a deployed Worker since
-2026-07-27 — `id.musubi.social` in production, `id-dev.musubi.social` on dev — and
+2026-07-27 — `id.musubi.social` in production, `id.dev.musubi.social` on dev — and
 CI deploys it. See [[musubi-identity-migration]] and [[dev-environment]].
 
 **Databases and region.** All D1 databases are in **`oc` (Oceania / Sydney)** and

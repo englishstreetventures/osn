@@ -37,12 +37,12 @@ production account.
 
 | Surface | Dev host | Dev resource | Prod host |
 |---|---|---|---|
-| cire API | `api-dev.cireweddings.com` | Worker `cire-api-dev` (`[env.dev]`) | `api.cireweddings.com` |
-| Guest invites | `invite-dev.cireweddings.com` | Worker `cire-invites-dev` | `invite.cireweddings.com` |
-| Organiser portal | `host-dev.cireweddings.com` | Pages `cire-host-dev` | `host.cireweddings.com` |
-| Vendor portal | `vendor-dev.cireweddings.com` | Pages `cire-vendor-dev` | `vendor.cireweddings.com` |
+| cire API | `api.dev.cireweddings.com` | Worker `cire-api-dev` (`[env.dev]`) | `api.cireweddings.com` |
+| Guest invites | `invite.dev.cireweddings.com` | Worker `cire-invites-dev` | `invite.cireweddings.com` |
+| Organiser portal | `host.dev.cireweddings.com` | Pages `cire-host-dev` | `host.cireweddings.com` |
+| Vendor portal | `vendor.dev.cireweddings.com` | Pages `cire-vendor-dev` | `vendor.cireweddings.com` |
 | Cire marketing | `dev.cireweddings.com` | Pages `cire-landing-dev` | `cireweddings.com` (apex) |
-| OSN identity API | `id-dev.musubi.social` | Worker `osn-api-dev` (`[env.dev]`) | `id.musubi.social` |
+| OSN identity API | `id.dev.musubi.social` | Worker `osn-api-dev` (`[env.dev]`) | `id.musubi.social` |
 | OSN social / consent | `dev.musubi.social` | Pages `osn-social-dev` | `musubi.social` |
 
 Backing resources:
@@ -61,11 +61,17 @@ Backing resources:
 > other dev resource here is free. If the dev tier is ever cut, cancelling that
 > plan is the saving. [[free-tier-limits]]
 
-> [!important] Hostnames are one label deep on purpose
-> `invite-dev.cireweddings.com`, not `invite.dev.cireweddings.com`. Cloudflare's
-> free Universal SSL certificate covers the apex and **one** subdomain label. A
-> two-label host needs Advanced Certificate Manager (paid), so every dev host
-> flattens the tier into the label itself.
+> [!note] Two-label dev hosts are free, despite the free-SSL rule
+> The zone's free Universal SSL certificate does cover only the apex and **one**
+> subdomain label — but no dev host rides on it. Every one is an explicit custom
+> domain, and both products issue a certificate per hostname: Workers custom
+> domains auto-provision an advanced certificate for the exact name (free, no ACM
+> subscription), Pages custom domains use Cloudflare for SaaS certificates. Both
+> work at any depth. Verified on 2026-08-14 by attaching
+> `invite.dev.cireweddings.com` to `cire-invites-dev`: the certificate issued
+> about two minutes after deploy, `SAN: invite.dev.cireweddings.com`, issuer
+> Google Trust Services. That two-minute wait is worth remembering — a TLS
+> handshake failure right after attaching a domain is provisioning, not failure.
 
 > [!warning] Rate-limit namespace ids are the whole scope of the counter
 > The Worker name is not part of the key. Reusing production's ids would let dev
@@ -272,7 +278,7 @@ dashboard-only.
    bunx wrangler secret put CIRE_OIDC_CLIENT_SECRET  --env dev
    bunx wrangler secret put CIRE_API_ARC_PRIVATE_KEY --env dev   # own ARC keypair
    bunx wrangler secret put CIRE_API_ARC_KEY_ID      --env dev
-   bunx wrangler secret put OSN_API_URL              --env dev   # https://id-dev.musubi.social
+   bunx wrangler secret put OSN_API_URL              --env dev   # https://id.dev.musubi.social
    ```
 
    > ⚠️ Never `source` a secrets file to set a JWK-shaped value — an unquoted
@@ -314,13 +320,13 @@ dashboard-only.
    rather than deploying a Worker that 503s every route.
 
 5. **Seed the dev `oauth_clients` row** ✅ done — in `osn-db-dev`, `client_id` `cid_cire`,
-   redirect URI `https://api-dev.cireweddings.com/api/auth/oidc/callback`,
+   redirect URI `https://api.dev.cireweddings.com/api/auth/oidc/callback`,
    `sector_identifier` `cireweddings.com`, `is_first_party = 1`. The row's hash
    must be the SHA-256 of the `CIRE_OIDC_CLIENT_SECRET` set in step 3. Shape and
    procedure: [[production-deploy]] §3.5.
 
 6. **Register `cire-api-dev` for ARC** ✅ done — `POST /graph/internal/register-service`
-   against `id-dev.musubi.social`, bearing `INTERNAL_SERVICE_SECRET`. Idempotent
+   against `id.dev.musubi.social`, bearing `INTERNAL_SERVICE_SECRET`. Idempotent
    and per-environment; a non-local env throws at startup without it. Body:
    `serviceId: "cire-api"`, `keyId` = the `CIRE_API_ARC_KEY_ID` UUID,
    `publicKeyJwk` = the public JWK **as a JSON string**, `allowedScopes` =
@@ -328,8 +334,8 @@ dashboard-only.
    `/api/vendor/*` write answers 503). Note the two key encodings differ: the OSN
    JWT keys are **base64-encoded** JWK JSON, the ARC keys are a **raw** JWK string.
 
-7. **Attach the custom domains.** Worker routes (`api-dev`, `invite-dev`,
-   `id-dev`) auto-provision from `custom_domain = true` on deploy — ✅ all three
+7. **Attach the custom domains.** Worker routes (`api.dev`, `invite.dev`,
+   `id.dev`) auto-provision from `custom_domain = true` on deploy — ✅ all three
    are live. The four Pages projects exist and have had their first dev deploy
    (bootstrapped by hand on 2026-08-14, the same build env the CI jobs use), so
    each answers on its `*.pages.dev` URL. **Attaching the custom domain is still
@@ -339,8 +345,8 @@ dashboard-only.
 
    | Project | Domain to attach |
    |---|---|
-   | `cire-host-dev` | `host-dev.cireweddings.com` |
-   | `cire-vendor-dev` | `vendor-dev.cireweddings.com` |
+   | `cire-host-dev` | `host.dev.cireweddings.com` |
+   | `cire-vendor-dev` | `vendor.dev.cireweddings.com` |
    | `cire-landing-dev` | `dev.cireweddings.com` |
    | `osn-social-dev` | `dev.musubi.social` |
 
@@ -362,10 +368,10 @@ dashboard-only.
 Cloudflare Access (Zero Trust, free for 50 users), email-OTP policy, on the
 **browser** hosts only:
 
-`invite-dev.cireweddings.com`, `host-dev.cireweddings.com`,
-`vendor-dev.cireweddings.com`, `dev.cireweddings.com`, `dev.musubi.social`.
+`invite.dev.cireweddings.com`, `host.dev.cireweddings.com`,
+`vendor.dev.cireweddings.com`, `dev.cireweddings.com`, `dev.musubi.social`.
 
-> [!warning] Do NOT put Access on `api-dev` or `id-dev`
+> [!warning] Do NOT put Access on `api.dev` or `id.dev`
 > An Access cookie is not sent on a cross-origin XHR. Gating the API hosts would
 > break every dev fetch and the whole OIDC redirect, and the failure looks like a
 > CORS bug rather than an auth policy. Those two stay guarded by the CORS
@@ -383,28 +389,28 @@ ceremony spans two requests, so it is what catches Redis being misconfigured.
    read the status codes, not the bodies:
 
    ```bash
-   curl -s -o /dev/null -w '%{http_code}\n' https://api-dev.cireweddings.com/api/claim/session
+   curl -s -o /dev/null -w '%{http_code}\n' https://api.dev.cireweddings.com/api/claim/session
    # 401 — the route ran. A 503 here means the CLAIM_RATE_LIMITER binding is
    # missing and the deployed-tier guard failed closed.
 
-   curl -s -o /dev/null -w '%{http_code}\n' https://api-dev.cireweddings.com/api/auth/oidc/start
+   curl -s -o /dev/null -w '%{http_code}\n' https://api.dev.cireweddings.com/api/auth/oidc/start
    # 400 — the handler ran and rejected the empty body. A 503 means one of
    # OSN_ISSUER_URL / CIRE_API_ORIGIN / CIRE_OIDC_CLIENT_ID / _SECRET is unset.
 
    bunx wrangler tail cire-api-dev   # tier logs as `dev`, not `local`
    ```
 
-2. `https://id-dev.musubi.social/.well-known/jwks.json` serves keys, and
+2. `https://id.dev.musubi.social/.well-known/jwks.json` serves keys, and
    `/.well-known/openid-configuration` reports
-   `"issuer": "https://id-dev.musubi.social"` — not the prod issuer.
+   `"issuer": "https://id.dev.musubi.social"` — not the prod issuer.
 3. Register a **new** passkey on `https://dev.musubi.social`, sign out, sign back
    in. Proves Upstash-backed ceremony state survives across requests.
-4. Sign in on `host-dev.cireweddings.com` through the OIDC redirect. Proves the
+4. Sign in on `host.dev.cireweddings.com` through the OIDC redirect. Proves the
    dev `oauth_clients` row, the pairwise salt and the redirect URI agree.
-5. Claim the seeded code `TESTFOR-JOY-DD44` on `invite-dev.cireweddings.com` and
+5. Claim the seeded code `TESTFOR-JOY-DD44` on `invite.dev.cireweddings.com` and
    submit an RSVP. Proves the guest session cookie, the `WEB_ORIGIN` ordering and
    the D1 seed.
-6. Every browser host prompts for Access; `api-dev` and `id-dev` do not.
+6. Every browser host prompts for Access; `api.dev` and `id.dev` do not.
 7. Re-run the dev deploy and confirm the reset replayed migrations from zero.
 
 ---
@@ -430,7 +436,7 @@ bunx wrangler tail osn-api-dev
 # Redeploy a dev frontend out of band. The PUBLIC_*/VITE_* values are baked in at
 # build time, so they must be passed to the BUILD, not the deploy — a bundle built
 # without them points at production.
-PUBLIC_ORGANISER_URL=https://host-dev.cireweddings.com SITE=https://dev.cireweddings.com \
+PUBLIC_ORGANISER_URL=https://host.dev.cireweddings.com SITE=https://dev.cireweddings.com \
   bun run --cwd cire/landing build
 (cd cire/landing && bunx wrangler pages deploy dist --project-name cire-landing-dev --branch main --commit-dirty=true)
 ```

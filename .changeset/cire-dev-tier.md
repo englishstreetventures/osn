@@ -8,7 +8,7 @@ Give cire an isolated dev tier, and put production behind a manual approval.
 `cireweddings.com` now serves live weddings, and every push to `main` deployed
 straight to production with no human in the loop and nowhere to try a change
 first. A merge now deploys a fully isolated **dev** tier automatically
-(`api-dev` / `invite-dev` / `host-dev` / `vendor-dev` / `dev.cireweddings.com`,
+(`api.dev` / `invite.dev` / `host.dev` / `vendor.dev` / `dev.cireweddings.com`,
 own D1, R2, Upstash and native rate-limit namespaces), and the production jobs
 in the same run wait on someone approving the protected `production` GitHub
 Environment.

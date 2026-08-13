@@ -9,7 +9,7 @@ Deploy OSN identity to its own dev tier, isolated from production.
 The cire dev tier needs an identity provider it can break. `[env.dev]` in
 `osn/api/wrangler.toml` was a set of localhost placeholders pointing at the
 production `osn-db`; it is now a real deployed tier — route
-`id-dev.musubi.social` (`custom_domain = true`), `OSN_RP_ID = "dev.musubi.social"`,
+`id.dev.musubi.social` (`custom_domain = true`), `OSN_RP_ID = "dev.musubi.social"`,
 its own issuer and authorize-UI URLs, the `osn-db-dev` D1 database, five native
 rate-limit namespaces on fresh ids, and its own `[env.dev.triggers]`. Dev
 passkeys are separate credentials from production, which is the point.

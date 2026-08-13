@@ -159,7 +159,7 @@ binding = "IMAGES"
 # Deployed automatically on every merge to main (.github/workflows/deploy.yml),
 # ahead of the approval-gated production jobs. Fully isolated from production:
 # its own D1, its own R2 buckets, its own rate-limit namespaces, and its own OSN
-# identity origin (id-dev.musubi.social) — nothing here reads or writes a byte of
+# identity origin (id.dev.musubi.social) — nothing here reads or writes a byte of
 # live-wedding data. Its D1 is wiped and re-seeded on every deploy, so treat any
 # data in it as disposable. See [[wiki/runbooks/dev-environment]].
 #
@@ -173,20 +173,20 @@ binding = "IMAGES"
 OSN_ENV = "dev"
 # ORDER IS LOAD-BEARING: src/index.ts maps the comma-separated entries
 # positionally — [0] guest site, [1] organiser portal, [2] vendor portal. Same
-# order as [env.production.vars] with dev hosts. Single-level subdomains because
-# free Universal SSL covers one label only (`invite-dev.` works, `invite.dev.`
-# would need Advanced Certificate Manager).
-WEB_ORIGIN = "https://invite-dev.cireweddings.com,https://host-dev.cireweddings.com,https://vendor-dev.cireweddings.com"
+# order as [env.production.vars] with dev hosts, nested under `dev.` — each dev
+# host is a custom domain with its own per-hostname certificate, so none of them
+# depends on the zone's single-label Universal wildcard.
+WEB_ORIGIN = "https://invite.dev.cireweddings.com,https://host.dev.cireweddings.com,https://vendor.dev.cireweddings.com"
 # Dev OSN identity — a SEPARATE osn-api Worker + D1 (`osn-api-dev` on
-# id-dev.musubi.social). Must equal that Worker's own OSN_ISSUER_URL or
+# id.dev.musubi.social). Must equal that Worker's own OSN_ISSUER_URL or
 # access-token verification fails. Dev never verifies a prod-issued token.
-OSN_JWKS_URL = "https://id-dev.musubi.social/.well-known/jwks.json"
-OSN_ISSUER_URL = "https://id-dev.musubi.social"
+OSN_JWKS_URL = "https://id.dev.musubi.social/.well-known/jwks.json"
+OSN_ISSUER_URL = "https://id.dev.musubi.social"
 OSN_AUDIENCE = "osn-access"
 # Organiser sign-in (OIDC). CIRE_API_ORIGIN builds the redirect URI, which must
 # match the dev `oauth_clients` row in osn-db-dev byte-for-byte. Set the matching
 # secret once:  bunx wrangler secret put CIRE_OIDC_CLIENT_SECRET --env dev
-CIRE_API_ORIGIN = "https://api-dev.cireweddings.com"
+CIRE_API_ORIGIN = "https://api.dev.cireweddings.com"
 CIRE_OIDC_CLIENT_ID = "cid_cire"
 # ZAP_API_URL is deliberately NOT set. Named envs inherit no vars, so the code
 # default (localhost) applies and vendor-enquiry email delivery fails closed — a
@@ -204,7 +204,7 @@ GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
 crons = ["0 4 * * *"]
 
 [[env.dev.routes]]
-pattern = "api-dev.cireweddings.com"
+pattern = "api.dev.cireweddings.com"
 custom_domain = true
 
 # Fresh namespace ids, NOT a copy of production's. Sharing 1001/1002 would make

@@ -349,8 +349,8 @@ jobs:
       - name: Build cire/invites (dev)
         run: bun run --cwd cire/invites build
         env:
-          PUBLIC_API_URL: https://api-dev.cireweddings.com
-          PUBLIC_SITE_URL: https://invite-dev.cireweddings.com
+          PUBLIC_API_URL: https://api.dev.cireweddings.com
+          PUBLIC_SITE_URL: https://invite.dev.cireweddings.com
           PUBLIC_MARKETING_URL: https://dev.cireweddings.com
           # One Turnstile widget serves both tiers — the dev hostnames are added
           # to its Domains list (dashboard step, see the dev runbook). Whether
@@ -376,7 +376,7 @@ jobs:
             const c = JSON.parse(fs.readFileSync(f, 'utf8'));
             delete c.legacy_env;
             c.name = 'cire-invites-dev';
-            c.routes = [{ pattern: 'invite-dev.cireweddings.com', custom_domain: true }];
+            c.routes = [{ pattern: 'invite.dev.cireweddings.com', custom_domain: true }];
             fs.writeFileSync(f, JSON.stringify(c));
           "
         working-directory: cire/invites
@@ -506,15 +506,15 @@ jobs:
       - name: Build cire/host (dev)
         run: bun run --cwd cire/host build
         env:
-          PUBLIC_CIRE_API_URL: https://api-dev.cireweddings.com
+          PUBLIC_CIRE_API_URL: https://api.dev.cireweddings.com
           # Dev account pages live on the dev identity app — a dev passkey is a
           # different credential from a prod one (RP ID dev.musubi.social), so
           # this must never deep-link to the production account surface.
           PUBLIC_OSN_ACCOUNT_URL: https://dev.musubi.social
-          PUBLIC_CIRE_WEB_URL: https://invite-dev.cireweddings.com
+          PUBLIC_CIRE_WEB_URL: https://invite.dev.cireweddings.com
 
       # Idempotent: creates the project on first run, no-ops after. The custom
-      # domain (host-dev.cireweddings.com) is a dashboard step — wrangler cannot
+      # domain (host.dev.cireweddings.com) is a dashboard step — wrangler cannot
       # attach one.
       - name: Ensure the cire-host-dev Pages project exists
         run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" cire-host-dev main
@@ -614,7 +614,7 @@ jobs:
       - name: Build cire/vendor (dev)
         run: bun run --cwd cire/vendor build
         env:
-          PUBLIC_CIRE_API_URL: https://api-dev.cireweddings.com
+          PUBLIC_CIRE_API_URL: https://api.dev.cireweddings.com
           PUBLIC_OSN_ACCOUNT_URL: https://dev.musubi.social
 
       - name: Ensure the cire-vendor-dev Pages project exists
@@ -709,7 +709,7 @@ jobs:
       - name: Build cire/landing (dev)
         run: bun run --cwd cire/landing build
         env:
-          PUBLIC_ORGANISER_URL: https://host-dev.cireweddings.com
+          PUBLIC_ORGANISER_URL: https://host.dev.cireweddings.com
           SITE: https://dev.cireweddings.com
 
       - name: Ensure the cire-landing-dev Pages project exists
@@ -778,7 +778,7 @@ jobs:
   # (`wrangler secret put … --env <tier>`); these jobs only migrate + deploy.
   #
   # ── dev ────────────────────────────────────────────────────────────────────
-  # The dev issuer is id-dev.musubi.social with its OWN D1 (`osn-db-dev`) and its
+  # The dev issuer is id.dev.musubi.social with its OWN D1 (`osn-db-dev`) and its
   # own WebAuthn RP ID (dev.musubi.social), so a dev passkey is a separate
   # credential from a prod one and no dev sign-in can touch a real account.
   #
@@ -970,7 +970,7 @@ jobs:
       - name: Build osn/social (dev)
         run: bun run --cwd osn/social build
         env:
-          VITE_OSN_ISSUER_URL: https://id-dev.musubi.social
+          VITE_OSN_ISSUER_URL: https://id.dev.musubi.social
           VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
 
       - name: Ensure the osn-social-dev Pages project exists

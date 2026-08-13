@@ -287,7 +287,7 @@ are wired into `osn/api/wrangler.toml` under each `[[env.<env>.d1_databases]]`:
 
 > Before 2026-08-13 `[env.dev]` pointed at `osn-db` and carried localhost
 > placeholder vars — it was the local devloop's config, not a tier. It is now a
-> real deployed tier on `id-dev.musubi.social` with its own database, and
+> real deployed tier on `id.dev.musubi.social` with its own database, and
 > `osn-db` is what plain `wrangler dev` still uses. [[dev-environment]]
 
 All are in **`oc` (Sydney)** (co-located with cire-db + Upstash `ap-southeast-2`).
@@ -451,7 +451,7 @@ build outside CI, export these before `bun run --cwd <site> build`.
 | `PUBLIC_CIRE_API_URL` | cire/host | **Yes** | `https://api.cireweddings.com` | cire-api prod origin (`cire/host/src/lib/osn.ts`; `PUBLIC_API_URL` honoured as legacy fallback). |
 | `PUBLIC_OSN_ACCOUNT_URL` | cire/host **and** cire/vendor | Recommended | `https://musubi.social` | Where "Manage your account" links point — passkeys, recovery codes and connected apps all live on musubi's own origin now. **Replaced `PUBLIC_OSN_ISSUER_URL` on 2026-07-27**: the frontends no longer talk to the issuer at all. Sign-in is a top-level redirect to cire-api (`/api/auth/oidc/start`), which runs the code exchange server-side. [[cire-auth]], [[oidc-provider]] |
 | `PUBLIC_CIRE_WEB_URL` | cire/host | Recommended | `https://invite.cireweddings.com` | Guest site URL used in organiser preview links (`osn.ts`). |
-| `VITE_OSN_ISSUER_URL` | osn/social | **Yes** | `https://id.musubi.social` | osn-api prod origin for the identity app **and** the `/authorize` consent screen (`osn/social/src/lib/auth.ts`, dev default `http://localhost:4000`). A Vite SPA, so this bakes into the bundle: unset, the deployed app dials the visitor's own localhost. Set in `deploy.yml` (`deploy-osn-social`). Since 2026-08-13 a second job, `deploy-osn-social-dev`, builds the same app with `https://id-dev.musubi.social` for `dev.musubi.social` — change one and change the other, or dev silently dials prod identity. [[dev-environment]] |
+| `VITE_OSN_ISSUER_URL` | osn/social | **Yes** | `https://id.musubi.social` | osn-api prod origin for the identity app **and** the `/authorize` consent screen (`osn/social/src/lib/auth.ts`, dev default `http://localhost:4000`). A Vite SPA, so this bakes into the bundle: unset, the deployed app dials the visitor's own localhost. Set in `deploy.yml` (`deploy-osn-social`). Since 2026-08-13 a second job, `deploy-osn-social-dev`, builds the same app with `https://id.dev.musubi.social` for `dev.musubi.social` — change one and change the other, or dev silently dials prod identity. [[dev-environment]] |
 | `PUBLIC_TURNSTILE_SITEKEY` | cire/invites **and** cire/host **and** cire/vendor | Optional (key-optional) | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Cloudflare Turnstile **sitekey** (public — safe to embed in client HTML). When set, the guest claim form (cire/invites) renders the Turnstile challenge and gates submit on it; when unset/blank no widget renders and no token is sent. Wired in the `deploy-cire-invites` / `deploy-cire-host` / `deploy-cire-vendor` build steps, and the repo **Variable** is set (#160). Genuinely optional **here**, because the matching `TURNSTILE_SECRET_KEY` is **unset on cire-api** today (§3.2). Since the 2026-07-27 OIDC swap the organiser/vendor builds no longer render an OSN ceremony form, so their copy of this var is now inert. |
 | `VITE_TURNSTILE_SITEKEY` | osn/social | **Yes — see note** | `${{ vars.PUBLIC_TURNSTILE_SITEKEY }}` | Same widget, same repo Variable; the name differs only because Vite exposes `VITE_*` where Astro exposes `PUBLIC_*`. Feeds `turnstileSiteKey` into `SignIn` + `Register` (`@osn/ui`) at all three call sites — the sidebar dialogs and the `/authorize` sign-in island — via `osn/social/src/lib/auth.ts`, which normalises blank to `undefined`. **Key-optional in code but required in production:** osn-api's `TURNSTILE_SECRET_KEY` is set, so a blank sitekey fails every gated call closed with `400 turnstile_failed`. Set in `deploy.yml` (`deploy-osn-social`), and again in `deploy-osn-social-dev` since 2026-08-13 — so `dev.musubi.social` needs its own widget **Domains** entry alongside `musubi.social`, or dev sign-in fails closed the same way. [[turnstile]] [[dev-environment]] |
 
@@ -826,7 +826,7 @@ so the run sits on `Waiting` until someone approves it.
 1. Open the run in **Actions → Deploy**. Jobs waiting on the gate show `Waiting` with a
    **Review deployments** button.
 2. **Check the dev tier first** — that is the point of the gate. The dev jobs for the same
-   commit have already deployed to `*-dev.cireweddings.com` / `dev.musubi.social`; walk the
+   commit have already deployed to `*.dev.cireweddings.com` / `dev.musubi.social`; walk the
    smoke checks in [[dev-environment]] §6 before approving.
 3. Click **Review deployments**, tick every environment you mean to release, approve.
    Approving releases *all* ticked production jobs in that run; there is no way to approve
