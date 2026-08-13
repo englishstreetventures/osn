@@ -18,14 +18,18 @@ name: Deploy
 # job runs unattended; every prod job sits behind the `production` GitHub
 # Environment's required reviewer, so the run pauses and waits for a human.
 #
-# Two Environments, two Cloudflare tokens, deliberately different secret NAMES:
+# Two Environments, two Cloudflare credential NAMES:
 #
-#   dev         -> CLOUDFLARE_API_TOKEN_DEV, held only by the `dev` Environment
+#   dev         -> CLOUDFLARE_API_TOKEN_DEV, held only by the `dev` Environment,
+#                  falling back to CLOUDFLARE_API_TOKEN while that is unset
 #   production  -> CLOUDFLARE_API_TOKEN, reachable only from an approved job
 #
-# The names differ so a job that lands in the wrong Environment fails on a
-# missing secret instead of quietly deploying with the other tier's rights.
-# Secret VALUES are never embedded here.
+# The names differ so the day a dev-only credential exists, every dev job picks
+# it up with no change here. The fallback is what makes today work: dev and
+# production share ONE Cloudflare account (decided 2026-08-14 — ship the dev
+# tier now, split accounts later), and inside a single account a second token
+# grants exactly what the first one already does, for the reason below. Secret
+# VALUES are never embedded here.
 #
 # What the split does NOT buy: `Workers Scripts:Edit` and `D1:Edit` are
 # ACCOUNT-level permissions — Cloudflare has no per-script or per-database
@@ -208,7 +212,7 @@ jobs:
       group: deploy-dev-cire-api
       cancel-in-progress: false
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
@@ -322,7 +326,7 @@ jobs:
       group: deploy-dev-cire-invites
       cancel-in-progress: false
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
@@ -479,7 +483,7 @@ jobs:
       group: deploy-dev-cire-host
       cancel-in-progress: false
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
@@ -587,7 +591,7 @@ jobs:
       group: deploy-dev-cire-vendor
       cancel-in-progress: false
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
@@ -682,7 +686,7 @@ jobs:
       group: deploy-dev-cire-landing
       cancel-in-progress: false
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
@@ -791,7 +795,7 @@ jobs:
       group: deploy-dev-osn-api
       cancel-in-progress: false
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
@@ -939,7 +943,7 @@ jobs:
       group: deploy-dev-osn-social
       cancel-in-progress: false
     env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4

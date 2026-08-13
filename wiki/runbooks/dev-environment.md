@@ -8,7 +8,7 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
-last-reviewed: 2026-08-13
+last-reviewed: 2026-08-14
 ---
 
 # Dev environment (cire + OSN identity)
@@ -196,10 +196,12 @@ convention.
 Everything below needs the dashboard or a credential CI does not hold. Ordered — do
 them in this order, and do them **before** the first merge that would fire the dev jobs.
 
-Status as of 2026-08-13: **step 1 is done** (`cire-db-dev`, `osn-db-dev`, both R2
-buckets exist and their real ids are in the wrangler blocks). Steps 2–9 are open.
+Status as of 2026-08-14: **steps 1 and 2 are done** — `cire-db-dev`, `osn-db-dev` and
+both R2 buckets exist with their real ids in the wrangler blocks, and both GitHub
+Environments exist and are armed. The Upstash dev database (part of step 1) and steps
+3–9 are open.
 
-1. **Create the backing resources.** ✅ done
+1. **Create the backing resources.** ✅ done — except Upstash
    ```bash
    bunx wrangler d1 create cire-db-dev --location oc
    bunx wrangler d1 create osn-db-dev  --location oc
@@ -211,10 +213,34 @@ buckets exist and their real ids are in the wrangler blocks). Steps 2–9 are op
    Create the second Upstash database (free plan allows 10) in the same Sydney
    region as prod.
 
-2. **Create the GitHub Environments.** `dev` with no protection rules;
-   `production` with **Required reviewers**. Put `CLOUDFLARE_API_TOKEN_DEV` on
-   `dev` and the existing `CLOUDFLARE_API_TOKEN` on `production`.
-   `CLOUDFLARE_ACCOUNT_ID` is shared.
+2. **Create the GitHub Environments.** ✅ done — `dev` carries a branch policy only
+   (`main`), `production` carries **Required reviewers** (`chav-aniket`) plus the same
+   branch policy. Verify with:
+
+   ```bash
+   gh api repos/xchromo/osn/environments --jq '.environments[] | {name, rules: [.protection_rules[].type]}'
+   ```
+
+   `production` had existed with **empty** protection rules, so the approval gate this
+   whole pipeline depends on was not armed until 2026-08-14. Re-check it after any
+   repo-settings change; an unarmed `production` silently deploys straight to the live
+   couples' sites.
+
+   **On the two token names.** Every dev job reads
+   `${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}`; prod jobs
+   read the bare `CLOUDFLARE_API_TOKEN`. `CLOUDFLARE_API_TOKEN_DEV` is **not set today**
+   and an unset secret is the empty string, so dev falls through to the prod-scoped
+   token. That is deliberate: it was decided on 2026-08-14 to ship the dev tier on the
+   single existing Cloudflare account and take separate accounts later. A second token
+   inside one account buys nothing anyway — `Workers Scripts:Edit` and `D1:Edit` are
+   account-scoped with no per-script or per-database filter (only R2 scopes per bucket),
+   so a token named `…_DEV` can still write production Workers. The boundary that makes
+   the name real is a **separate Cloudflare account**, tracked as S-M
+   (`dev-token-not-resource-scoped`) in [[TODO]]. Set `CLOUDFLARE_API_TOKEN_DEV` on the
+   `dev` Environment the day that account exists — no workflow change needed, the
+   fallback picks it up.
+
+   `CLOUDFLARE_ACCOUNT_ID` is shared by both Environments.
 
 3. **Set the dev Worker secrets.** Same inventory as production
    ([[production-deploy]] §3.1/§3.2), `--env dev`:
