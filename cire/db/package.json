@@ -12,9 +12,13 @@
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "db:push": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply cire-db --local",
-    "db:push:remote": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply cire-db --remote",
+    "db:migrate:local": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply cire-db --local",
+    "db:migrate:dev": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply cire-db-dev --env dev --remote",
+    "db:migrate:prod": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply cire-db --env production --remote",
     "db:seed": "bash ../../scripts/cire-db-seed.sh",
-    "db:reset": "rm -rf ../api/.wrangler/state/v3/d1 && bun run db:push && bun run db:seed"
+    "db:seed:dev": "bash ../../scripts/cire-db-seed.sh --dev",
+    "db:reset": "rm -rf ../api/.wrangler/state/v3/d1 && bun run db:push && bun run db:seed",
+    "db:reset:dev": "bash ../../scripts/cire-db-reset.sh --dev"
   },
   "dependencies": {
     "drizzle-orm": "^0.45.2",

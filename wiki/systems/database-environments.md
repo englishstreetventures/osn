@@ -14,7 +14,8 @@ related:
   - "[[backend-patterns]]"
   - "[[schema-layers]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-07-26
+  - "[[dev-environment]]"
+last-reviewed: 2026-08-13
 ---
 
 # Database Environments
@@ -119,22 +120,37 @@ Three rewrite shapes recur:
 |---|---|---|---|
 | `@zap/api` | ✅ | ✅ (Miniflare-tested) | 0 |
 | `@pulse/api` | ✅ | ✅ (Miniflare-tested) | 5 → `commitBatch` |
-| `@osn/api` | ✅ | DB layer ✅ (Miniflare-tested) · Workers hosting ⛔ | 17 → `commitBatch` |
+| `@osn/api` | ✅ | ✅ (Miniflare-tested) · **deployed** on Workers | 17 → `commitBatch` |
 | `@cire/api` | ✅ (dev/tests) | ✅ (always was) | n/a (async from day 1) |
 
-**`@osn/api` Workers-hosting caveat:** the DB layer is fully D1-ready and
-Miniflare-tested, but the long-lived osn-api process also depends on **ioredis**
-(rate-limiters, rotated-session + step-up JTI stores) and loads JWT keys from env
-at module top level — neither runs on Cloudflare Workers. Hosting osn-api on
-Workers needs a Workers-compatible Redis (e.g. Upstash REST) and request-scoped
-key loading. Its `wrangler.toml` therefore has no `main`/deploy target yet — it
-exists so that creating and migrating the osn D1 databases stays free. Tracked in
-`wiki/TODO.md`.
+**`@osn/api` on Workers — done.** The old caveat here (ioredis and module-top-level
+JWT key loading, neither of which runs on workerd) was resolved by the Upstash REST
+client and request-scoped key loading. osn-api has been a deployed Worker since
+2026-07-27 — `id.musubi.social` in production, `id-dev.musubi.social` on dev — and
+CI deploys it. See [[musubi-identity-migration]] and [[dev-environment]].
 
-**Region:** all four D1 databases (`cire-db` + osn-db dev/staging/prod) are in **`oc`
-(Oceania / Sydney)**, and the Workers Redis (Upstash) is in **`ap-southeast-2`
-(Sydney)** — co-located for low AU latency (the project is AU-centric). See
-[[production-deploy]] for the database ids.
+**Databases and region.** All D1 databases are in **`oc` (Oceania / Sydney)** and
+both Upstash Redis databases are in **`ap-southeast-2` (Sydney)** — co-located for
+low AU latency (the project is AU-centric).
+
+| Database | Environment | Id |
+|---|---|---|
+| `cire-db` | cire prod | `6e835474-e0a7-4db9-8883-3247c3c891cd` |
+| `cire-db-dev` | cire dev | `bf0510eb-6998-4ee3-b5a0-833c646ef855` |
+| `osn-db-prod` | osn prod | `767a9ac1-129b-4efa-9fcf-f68ed7a48c38` |
+| `osn-db-dev` | osn dev | `1c1425e1-bb9f-4760-b090-763ccf61eb83` |
+| `osn-db-staging` | unused | `eb71428e-8540-4a30-815f-fb9cd4ae97ea` |
+| `osn-db` | unused (pre-split) | `a1dfceb8-2e7a-48eb-a161-ad428f3ddff5` |
+| `zap-db-prod` | zap prod | `9b75f81a-7439-412a-9aad-cf47836bca07` |
+
+The account holds **7 of the free plan's 10** D1 databases. `staging` is declared
+in wrangler but not part of any pipeline — the dev tier is the only step before
+production. See [[free-tier-limits]].
+
+The `dev` row above is a **deployed, isolated tier**, not the "run it locally"
+sense of the word used in the table at the top of this page. Both meanings are
+live: `wrangler dev --env dev` still points a local miniflare D1 at the same
+config block.
 
 ## Worker bundling: keep `bun:sqlite` out of the Worker
 

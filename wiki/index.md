@@ -2,7 +2,7 @@
 title: OSN Wiki
 aliases: [home, map of content, MOC]
 tags: [index]
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-13
 ---
 
 # OSN Wiki
@@ -101,6 +101,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 
 ## Runbooks
 
+- [[dev-environment]] — the isolated cire + OSN dev tier: tier map, how a merge deploys dev, how to promote to production past the approval gate, how to reset dev by hand
 - [[production-deploy]] — first production cut-over of osn-api + the cire stack (secret/var checklist, migrations, CI pipeline, smoke checks)
 - [[free-tier-limits]] — provider free-tier ceilings (Upstash / Workers / D1 / Pages / Turnstile / WAF), what breaks at each cap, the unavailability playbook, and the Cloudflare security-hardening TODO
 - [[musubi-identity-migration]] — moving osn-api to `id.musubi.social` and making musubi.social the OSN identity home (blockers, credential bridge, config inventory, cutover order)

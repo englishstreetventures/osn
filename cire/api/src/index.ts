@@ -1,6 +1,6 @@
 import { makeLogEmailLive, makeResendEmailLive } from "@shared/email";
 import { createFeatureFlags } from "@shared/feature-flags";
-import { loadConfig } from "@shared/observability/config";
+import { loadConfig, parseDeploymentEnvironment } from "@shared/observability/config";
 import { createWorkersRateLimiter } from "@shared/rate-limit";
 import type { WorkersRateLimitBinding } from "@shared/rate-limit";
 import { createTurnstileVerifier } from "@shared/turnstile";
@@ -34,6 +34,13 @@ import { createZapChatClientFromEnv } from "./services/zap-bridge";
 // `services/r2-imports.ts`. Bindings are optional because a misconfigured
 // deployment must fail at the edge with a 503, not a type lie.
 export interface Env {
+  // Deployment tier — `local` | `dev` | `staging` | `production`. Set as a
+  // plain var in EVERY wrangler env block; absent ⇒ `local`, which switches OFF
+  // the fail-closed rate-limiter guard below, so it is security-relevant, not
+  // just cosmetic. Read from the binding rather than `process.env` because on
+  // workerd `process.env` is empty until first access and unavailable at module
+  // scope; the binding is always correct.
+  OSN_ENV?: string;
   DB?: D1Database;
   SHEETS?: R2Bucket;
   // R2 bucket for invite-builder images. Separate from SHEETS (different
@@ -134,14 +141,22 @@ const misconfigured = (detail: string) =>
 
 // Is this a *deployed* tier (dev/staging/production) rather than `local`? Reuse
 // the canonical four-tier signal — `OSN_ENV`, parsed by `@shared/observability`'s
-// `loadConfig` into local|dev|staging|production (the same value that drives the
-// log level in observability.ts). On workerd `nodejs_compat` populates
-// `process.env` from wrangler `[vars]`/secrets; in bun:sqlite/local dev it's
-// native. Using `loadConfig` rather than an ad-hoc "https WEB_ORIGIN" heuristic
-// keeps the tier decision drift-proof: it is the ONE place the repo decides the
-// environment, so this guard can never disagree with the logger about which tier
-// we're in.
-const isDeployedTier = (): boolean => loadConfig({ serviceName: "cire-api" }).env !== "local";
+// `parseDeploymentEnvironment` into local|dev|staging|production (the same value
+// that drives the log level in observability.ts). Using the shared parser rather
+// than an ad-hoc "https WEB_ORIGIN" heuristic keeps the tier decision
+// drift-proof: it is the ONE place the repo decides the environment, so this
+// guard can never disagree with the logger about which tier we're in.
+//
+// The value comes from the request-scoped `env` binding, NOT `process.env`.
+// workerd only populates `process.env` from wrangler `[vars]`/secrets on first
+// access under `nodejs_compat_populate_process_env`, and never during module
+// evaluation — so reading it here would be one flag away from silently
+// resolving `local` on a live Worker and disabling the fail-closed
+// CLAIM_RATE_LIMITER guard below. The binding has no such timing hazard.
+// `loadConfig` still runs so its S-L3 production-mismatch check applies.
+const isDeployedTier = (env: Env): boolean =>
+  loadConfig({ serviceName: "cire-api", env: parseDeploymentEnvironment(env.OSN_ENV) }).env !==
+  "local";
 
 const handler: ExportedHandler<Env> = {
   async fetch(request, env, ctx) {
@@ -190,7 +205,7 @@ const handler: ExportedHandler<Env> = {
     // fallback is kept so `bun run dev` works without the binding. The real prod
     // Worker HAS the binding declared under `[env.production.unsafe.bindings]`
     // in wrangler.toml, so this only ever trips on a genuine misconfiguration.
-    if (!env.CLAIM_RATE_LIMITER && isDeployedTier()) {
+    if (!env.CLAIM_RATE_LIMITER && isDeployedTier(env)) {
       await runCire(
         Effect.logError("CLAIM_RATE_LIMITER binding missing in a deployed tier", {
           detail:
@@ -335,7 +350,7 @@ const handler: ExportedHandler<Env> = {
               txHmacInfo: CIRE_OIDC_TX_HMAC_INFO,
             }
           : null;
-      if (!oidc && isDeployedTier()) {
+      if (!oidc && isDeployedTier(env)) {
         await runCire(
           Effect.logError("OIDC client config incomplete — organiser sign-in disabled", {
             detail:

@@ -1,30 +1,135 @@
 name: Deploy
 
-# Production deploy pipeline.
+# Two-tier deploy pipeline: dev automatically, production behind an approval.
 #
 # Triggers:
 #   - push to `main` (after a merge)
 #   - manual `workflow_dispatch`
 #
-# The actual deploy jobs are gated on a `build` job that re-runs the same
-# install + build + test the CI workflow does, so we never ship a broken tree.
-# Cloudflare credentials come from the `production` GitHub Environment secrets;
-# secret VALUES are never embedded here.
+# Shape of a run:
+#
+#   changes ──┐
+#             ├──> deploy-<surface>-dev ──> deploy-<surface>-prod
+#   build ────┘        (automatic)            (waits for approval)
+#
+# `build` re-runs the same install + build + test CI does, so nothing ships from
+# a broken tree. `changes` computes one boolean per deployable surface from the
+# push diff, so a landing-page tweak does not redeploy seven things. Every dev
+# job runs unattended; every prod job sits behind the `production` GitHub
+# Environment's required reviewer, so the run pauses and waits for a human.
+#
+# Two Environments, two Cloudflare tokens, deliberately different secret NAMES:
+#
+#   dev         -> CLOUDFLARE_API_TOKEN_DEV, scoped to the *-dev resources only
+#   production  -> CLOUDFLARE_API_TOKEN, reachable only from an approved job
+#
+# The names differ so a job that lands in the wrong Environment fails on a
+# missing secret instead of quietly deploying with the other tier's rights.
+# Secret VALUES are never embedded here.
+#
+# The dev tier is fully isolated — own Workers, own D1, own R2, own OSN identity
+# origin — and its database is wiped and re-seeded on every deploy. See
+# [[wiki/runbooks/dev-environment]].
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-# Never run two production deploys at once; let an in-flight deploy finish
-# before starting the next (do not cancel — a half-applied deploy is worse).
-concurrency:
-  group: deploy-production
-  cancel-in-progress: false
+# Read-only: this workflow deploys to Cloudflare, it never writes to the repo.
+permissions:
+  contents: read
+
+# NOTE: concurrency is set PER JOB (below), not here. A workflow-level group
+# would make the whole run the unit of exclusion, and since prod jobs park
+# waiting for an approval click, the next merge's *dev* deploy would queue
+# behind a human — exactly the automation the dev tier exists to provide. Each
+# job instead takes a group named for its own surface AND tier, so two runs
+# never deploy the same thing at once while unrelated surfaces stay parallel.
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # ── Path filter ────────────────────────────────────────────────────────────
+  # One boolean per deployable surface. Same plain-`git diff` approach as the
+  # `changes` job in ci-swift.yml, including its fail-open branch: a diff that
+  # cannot be computed must mean "deploy", not "skip".
+  changes:
+    name: Detect changed surfaces
+    runs-on: ubuntu-latest
+    outputs:
+      cire_api: ${{ steps.filter.outputs.cire_api }}
+      cire_invites: ${{ steps.filter.outputs.cire_invites }}
+      cire_host: ${{ steps.filter.outputs.cire_host }}
+      cire_vendor: ${{ steps.filter.outputs.cire_vendor }}
+      cire_landing: ${{ steps.filter.outputs.cire_landing }}
+      osn_api: ${{ steps.filter.outputs.osn_api }}
+      osn_social: ${{ steps.filter.outputs.osn_social }}
+      zap_api: ${{ steps.filter.outputs.zap_api }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          set -uo pipefail
+
+          # `all=true` means "deploy every surface". Two ways to get there: a
+          # trigger with no diff base (workflow_dispatch — an operator asking for
+          # a deploy wants all of it), or a diff that failed to compute (GitHub
+          # sets event.before to the all-zero SHA on a branch's first push and to
+          # an orphaned commit after a force-push; `git diff` exits 128 on both).
+          # A wasted deploy costs a minute; a silently skipped one ships a
+          # half-updated tier.
+          all=false
+          changed=""
+          if [ "$EVENT_NAME" != "push" ]; then
+            echo "event '$EVENT_NAME' has no diff base — deploying every surface."
+            all=true
+          elif changed=$(git diff --name-only "$BEFORE_SHA" HEAD 2>&1); then
+            echo "changed files:"
+            echo "$changed"
+          else
+            echo "cannot diff against '$BEFORE_SHA': $changed"
+            echo "assuming every surface changed"
+            all=true
+            changed=""
+          fi
+
+          # Anything shared sits under everything: the shared/ packages, the
+          # lockfile, the root build config, and this workflow itself. Rather
+          # than map each shared package to its consumers (a mapping that rots
+          # the first time an import is added), treat any of them as "all".
+          if [ "$all" != "true" ] && echo "$changed" | grep -qE '^(shared/|bun\.lock$|package\.json$|turbo\.json$|tsconfig\.json$|\.github/workflows/deploy\.yml$)'; then
+            echo "a shared package or root build file changed — deploying every surface."
+            all=true
+          fi
+
+          emit() {
+            if [ "$all" = "true" ] || echo "$changed" | grep -qE "$2"; then
+              echo "$1=true" >> "$GITHUB_OUTPUT"
+              echo "  $1: true"
+            else
+              echo "$1=false" >> "$GITHUB_OUTPUT"
+              echo "  $1: false"
+            fi
+          }
+
+          # cire-api owns the D1 migrations + the seed scripts, so a change to
+          # either has to redeploy it (the dev job resets and re-seeds).
+          emit cire_api     '^(cire/api/|cire/db/|cire/invite-designs/|cire/theme/|scripts/(cire-db-|cire-dev-db-guard|check-d1-database-id))'
+          emit cire_invites '^(cire/invites/|cire/invite-designs/|cire/theme/)'
+          emit cire_host    '^(cire/host/|cire/invite-designs/|cire/theme/)'
+          emit cire_vendor  '^(cire/vendor/|cire/theme/)'
+          emit cire_landing '^cire/landing/'
+          emit osn_api      '^(osn/api/|osn/db/)'
+          emit osn_social   '^(osn/social/|osn/client/|osn/ui/)'
+          emit zap_api      '^zap/'
+
   # ── Gate ─────────────────────────────────────────────────────────────────
   # Re-run install + build + test before any deploy. If this fails, every
   # deploy job below is skipped (they `needs: build`).
@@ -74,18 +179,85 @@ jobs:
       - name: D1 integration tests
         run: bun run test:d1
 
-  # ── cire API + D1 migrations ───────────────────────────────────────────────
+  # ═══ cire API + D1 ═════════════════════════════════════════════════════════
+  #
+  # ── dev ────────────────────────────────────────────────────────────────────
+  # The dev database is DISPOSABLE and is rebuilt from scratch here:
+  # reset (drop every table incl. the migration ledger) -> migrate (replay all
+  # migrations from 0001 against an empty DB) -> seed -> deploy. Two things fall
+  # out of that order: dev data never drifts, and every merge re-tests the whole
+  # migration chain, so a migration that only works as an increment fails here
+  # rather than in production months later.
+  #
+  # Both destructive steps route through scripts/ guards that re-derive the
+  # target from cire/api/wrangler.toml and refuse anything but `cire-db-dev`.
+  deploy-cire-api-dev:
+    name: Deploy cire/api — dev
+    needs: [build, changes]
+    if: needs.changes.outputs.cire_api == 'true'
+    runs-on: ubuntu-latest
+    environment: dev
+    concurrency:
+      group: deploy-dev-cire-api
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Guard against placeholder D1 database_id
+        run: bash scripts/check-d1-database-id.sh
+
+      - name: Reset the dev D1 (drops every table)
+        run: bun run --cwd cire/db db:reset:dev
+
+      - name: Replay cire D1 migrations from zero (dev)
+        run: bun run --cwd cire/db db:migrate:dev
+
+      - name: Seed the dev D1
+        run: bun run --cwd cire/db db:seed:dev
+
+      - name: Deploy cire/api Worker (dev)
+        run: bunx wrangler deploy --env dev
+        working-directory: cire/api
+
+  # ── production ─────────────────────────────────────────────────────────────
   # Migrations are applied to the REMOTE prod DB FIRST, then the Worker is
-  # deployed — both in a single job so the order is guaranteed and the
-  # migration runs exactly once. The cire-db D1 binding lives at the top level
-  # of cire/api/wrangler.toml (uuid 6e835474-e0a7-4db9-8883-3247c3c891cd), so we
-  # apply migrations against that config; the `--env production` overlay only
-  # changes vars (WEB_ORIGIN / OSN issuer), not the DB.
+  # deployed — both in a single job so the order is guaranteed and the migration
+  # runs exactly once. `--env production` selects the prod D1 binding explicitly;
+  # the top-level block carries the same id today, but naming the env means a
+  # future split of the two cannot silently retarget this step.
+  #
+  # `needs: deploy-cire-api-dev` is the promotion edge: prod ships only what dev
+  # already accepted, and the run parks here for the approval click.
   deploy-cire-api:
-    name: Deploy cire/api (+ D1 migrate)
-    needs: build
+    name: Deploy cire/api — production
+    needs: [build, changes, deploy-cire-api-dev]
+    if: needs.changes.outputs.cire_api == 'true'
     runs-on: ubuntu-latest
     environment: production
+    concurrency:
+      group: deploy-production-cire-api
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -111,30 +283,40 @@ jobs:
       - name: Guard against placeholder D1 database_id
         run: bash scripts/check-d1-database-id.sh
 
-      # Apply pending migrations to the remote prod cire-db BEFORE the new
-      # Worker code starts serving. Idempotent: wrangler skips already-applied
-      # migrations, so re-running the workflow is safe.
+      # Idempotent: wrangler skips already-applied migrations, so re-running the
+      # workflow is safe. Production is never reset and never seeded.
       - name: Apply cire D1 migrations (remote prod)
-        run: bunx wrangler d1 migrations apply cire-db --remote
-        working-directory: cire/api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bun run --cwd cire/db db:migrate:prod
 
       - name: Deploy cire/api Worker
         run: bunx wrangler deploy --env production
         working-directory: cire/api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-  # ── cire invites (Astro → Cloudflare Pages) ─────────────────────────────────
-  # Independent of the API job; runs in parallel once `build` passes.
-  deploy-cire-invites:
-    name: Deploy cire/invites (Worker SSR)
-    needs: build
+  # ═══ cire invites (Astro SSR → Cloudflare Worker) ══════════════════════════
+  # The guest site is Astro SSR on Cloudflare (output: "server", the
+  # @astrojs/cloudflare adapter). It resolves which wedding to render FROM THE
+  # PATH per request — there is NO PUBLIC_WEDDING_SLUG any more. The adapter
+  # emits a Cloudflare Worker with Static Assets: `dist/server/entry.mjs` (the
+  # SSR Worker), `dist/client/` (prerendered legal pages + JS/CSS), and a
+  # generated `dist/server/wrangler.json` that EXTENDS the committed
+  # cire/invites/wrangler.jsonc (worker name + custom-domain route).
+  # PUBLIC_API_URL / PUBLIC_SITE_URL are read both server-side (per request) and
+  # by the client islands; they bake in at build time, which is why dev needs its
+  # own build and cannot re-point the prod bundle.
+  #
+  # ── dev ────────────────────────────────────────────────────────────────────
+  deploy-cire-invites-dev:
+    name: Deploy cire/invites — dev
+    needs: [build, changes]
+    if: needs.changes.outputs.cire_invites == 'true'
     runs-on: ubuntu-latest
-    environment: production
+    environment: dev
+    concurrency:
+      group: deploy-dev-cire-invites
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -153,15 +335,76 @@ jobs:
       - name: Install dependencies
         run: bun install
 
-      # The guest site is now Astro SSR on Cloudflare (output: "server", the
-      # @astrojs/cloudflare adapter). It resolves which wedding to render FROM THE
-      # PATH per request — there is NO PUBLIC_WEDDING_SLUG any more. The adapter
-      # emits a Cloudflare Worker with Static Assets: `dist/server/entry.mjs` (the
-      # SSR Worker), `dist/client/` (prerendered legal pages + JS/CSS), and a
-      # generated `dist/server/wrangler.json` that EXTENDS the committed
-      # cire/invites/wrangler.jsonc (worker name + invite.cireweddings.com
-      # custom-domain route). PUBLIC_API_URL / PUBLIC_SITE_URL are read both server-side (per
-      # request) and by the client islands; they still bake in at build time.
+      - name: Build cire/invites (dev)
+        run: bun run --cwd cire/invites build
+        env:
+          PUBLIC_API_URL: https://api-dev.cireweddings.com
+          PUBLIC_SITE_URL: https://invite-dev.cireweddings.com
+          PUBLIC_MARKETING_URL: https://dev.cireweddings.com
+          # One Turnstile widget serves both tiers — the dev hostnames are added
+          # to its Domains list (dashboard step, see the dev runbook). Whether
+          # the gate actually enforces depends on the API side: cire-api-dev only
+          # verifies if TURNSTILE_SECRET_KEY is set on that Worker (key-optional).
+          PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
+          PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
+
+      # Two edits to the adapter's generated config, in one pass:
+      #
+      #  1. drop `legacy_env` — @astrojs/cloudflare still writes it, wrangler
+      #     4.111+ hard-errors on it, and removing it is a behavioural no-op
+      #     (`true` WAS the default). See the prod job for the full history.
+      #  2. retarget name + routes at the dev Worker. The committed
+      #     wrangler.jsonc names the PRODUCTION worker and its custom domain;
+      #     rewriting here keeps one checked-in config instead of a near-copy
+      #     that would drift.
+      - name: Retarget the generated config at dev
+        run: |
+          node -e "
+            const fs = require('fs');
+            const f = 'dist/server/wrangler.json';
+            const c = JSON.parse(fs.readFileSync(f, 'utf8'));
+            delete c.legacy_env;
+            c.name = 'cire-invites-dev';
+            c.routes = [{ pattern: 'invite-dev.cireweddings.com', custom_domain: true }];
+            fs.writeFileSync(f, JSON.stringify(c));
+          "
+        working-directory: cire/invites
+
+      - name: Deploy cire/invites (dev Worker)
+        run: bunx wrangler deploy --config dist/server/wrangler.json
+        working-directory: cire/invites
+
+  # ── production ─────────────────────────────────────────────────────────────
+  deploy-cire-invites:
+    name: Deploy cire/invites — production
+    needs: [build, changes, deploy-cire-invites-dev]
+    if: needs.changes.outputs.cire_invites == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production-cire-invites
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
       #   PUBLIC_GOOGLE_MAPS_EMBED_KEY is an optional referrer-restricted Embed
       #   key — wire it from a secret/var only if/when one exists.
       #   PUBLIC_TURNSTILE_SITEKEY is the optional Cloudflare Turnstile sitekey
@@ -211,28 +454,84 @@ jobs:
       - name: Deploy cire/invites (Worker)
         run: bunx wrangler deploy --config dist/server/wrangler.json
         working-directory: cire/invites
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-  # ── cire host (Astro → Cloudflare Pages) ────────────────────────────────────
+  # ═══ cire host (Astro → Cloudflare Pages) ══════════════════════════════════
   # The organiser portal is a separate static Astro build + Pages project from
   # the guest site. Its PUBLIC_* vars (cire-api origin, musubi account origin for
   # the security deep-link, guest-site URL for the preview link) bake in at build
   # time; sign-in itself is a redirect through cire-api, so no issuer var.
   #
+  # ── dev ────────────────────────────────────────────────────────────────────
+  deploy-cire-host-dev:
+    name: Deploy cire/host — dev
+    needs: [build, changes]
+    if: needs.changes.outputs.cire_host == 'true'
+    runs-on: ubuntu-latest
+    environment: dev
+    concurrency:
+      group: deploy-dev-cire-host
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build cire/host (dev)
+        run: bun run --cwd cire/host build
+        env:
+          PUBLIC_CIRE_API_URL: https://api-dev.cireweddings.com
+          # Dev account pages live on the dev identity app — a dev passkey is a
+          # different credential from a prod one (RP ID dev.musubi.social), so
+          # this must never deep-link to the production account surface.
+          PUBLIC_OSN_ACCOUNT_URL: https://dev.musubi.social
+          PUBLIC_CIRE_WEB_URL: https://invite-dev.cireweddings.com
+
+      # Idempotent: creates the project on first run, no-ops after. The custom
+      # domain (host-dev.cireweddings.com) is a dashboard step — wrangler cannot
+      # attach one.
+      - name: Ensure the cire-host-dev Pages project exists
+        run: bunx wrangler pages project create cire-host-dev --production-branch main || true
+        working-directory: cire/host
+
+      - name: Deploy cire/host to Cloudflare Pages (dev)
+        run: bunx wrangler pages deploy dist --project-name cire-host-dev --branch main --commit-dirty=true
+        working-directory: cire/host
+
+  # ── production ─────────────────────────────────────────────────────────────
   # Renamed from the `cire-organiser` Pages project 2026-08-07 (package rename
   # @cire/organiser -> @cire/host). The `cire-host` Pages project must exist in
   # the account before this job's first run — create it once (dashboard or
   # `wrangler pages project create cire-host`) and re-attach the
   # host.cireweddings.com custom domain to it (previously on `cire-organiser`);
-  # neither step can be done from CI. The old `cire-organiser` project can be
-  # retired once `cire-host` is confirmed serving host.cireweddings.com.
+  # neither step can be done from CI.
   deploy-cire-host:
-    name: Deploy cire/host (Pages)
-    needs: build
+    name: Deploy cire/host — production
+    needs: [build, changes, deploy-cire-host-dev]
+    if: needs.changes.outputs.cire_host == 'true'
     runs-on: ubuntu-latest
     environment: production
+    concurrency:
+      group: deploy-production-cire-host
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -266,20 +565,71 @@ jobs:
       - name: Deploy cire/host to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire-host
         working-directory: cire/host
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-  # ── cire vendor (Astro → Cloudflare Pages, vendor.cireweddings.com) ──────────
-  # The vendor self-service portal (vendor.cireweddings.com). PUBLIC_* vars bake
-  # in at build time. The `cire-vendor` Pages project must exist in the account
-  # before first run (create once: `wrangler pages project create cire-vendor`,
-  # then add the custom domain vendor.cireweddings.com in the dashboard).
+  # ═══ cire vendor (Astro → Cloudflare Pages) ════════════════════════════════
+  # The vendor self-service portal. PUBLIC_* vars bake in at build time.
+  #
+  # ── dev ────────────────────────────────────────────────────────────────────
+  deploy-cire-vendor-dev:
+    name: Deploy cire/vendor — dev
+    needs: [build, changes]
+    if: needs.changes.outputs.cire_vendor == 'true'
+    runs-on: ubuntu-latest
+    environment: dev
+    concurrency:
+      group: deploy-dev-cire-vendor
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build cire/vendor (dev)
+        run: bun run --cwd cire/vendor build
+        env:
+          PUBLIC_CIRE_API_URL: https://api-dev.cireweddings.com
+          PUBLIC_OSN_ACCOUNT_URL: https://dev.musubi.social
+
+      - name: Ensure the cire-vendor-dev Pages project exists
+        run: bunx wrangler pages project create cire-vendor-dev --production-branch main || true
+        working-directory: cire/vendor
+
+      - name: Deploy cire/vendor to Cloudflare Pages (dev)
+        run: bunx wrangler pages deploy dist --project-name cire-vendor-dev --branch main --commit-dirty=true
+        working-directory: cire/vendor
+
+  # ── production ─────────────────────────────────────────────────────────────
+  # The `cire-vendor` Pages project must exist in the account before first run
+  # (create once: `wrangler pages project create cire-vendor`, then add the
+  # custom domain vendor.cireweddings.com in the dashboard).
   deploy-cire-vendor:
-    name: Deploy cire/vendor (Pages)
-    needs: build
+    name: Deploy cire/vendor — production
+    needs: [build, changes, deploy-cire-vendor-dev]
+    if: needs.changes.outputs.cire_vendor == 'true'
     runs-on: ubuntu-latest
     environment: production
+    concurrency:
+      group: deploy-production-cire-vendor
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -308,24 +658,75 @@ jobs:
       - name: Deploy cire/vendor to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire-vendor
         working-directory: cire/vendor
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-  # ── cire landing (Astro → Cloudflare Pages, APEX cireweddings.com) ─────────
-  # The marketing site for the apex. Built fully static (output: "static", no
-  # Cloudflare adapter) and deployed to its OWN Pages project, separate from the
-  # guest site + organiser portal. Domain reshuffle 2026-07-16: this now serves
-  # the APEX `cireweddings.com` (guest invites moved to `invite.`, organiser to
-  # `host.`). The apex custom domain is attached to the `cire-landing` Pages
-  # project in the Cloudflare dashboard (a Pages custom domain, not a wrangler
-  # config route) — see wiki/apps/cire-landing.md cutover steps. The
-  # `cire-landing` Pages project must exist in the account before first run.
+  # ═══ cire landing (Astro → Cloudflare Pages) ═══════════════════════════════
+  # The marketing site. Built fully static (output: "static", no Cloudflare
+  # adapter) and deployed to its OWN Pages project, separate from the guest site
+  # and organiser portal.
+  #
+  # ── dev ────────────────────────────────────────────────────────────────────
+  deploy-cire-landing-dev:
+    name: Deploy cire/landing — dev
+    needs: [build, changes]
+    if: needs.changes.outputs.cire_landing == 'true'
+    runs-on: ubuntu-latest
+    environment: dev
+    concurrency:
+      group: deploy-dev-cire-landing
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build cire/landing (dev)
+        run: bun run --cwd cire/landing build
+        env:
+          PUBLIC_ORGANISER_URL: https://host-dev.cireweddings.com
+          SITE: https://dev.cireweddings.com
+
+      - name: Ensure the cire-landing-dev Pages project exists
+        run: bunx wrangler pages project create cire-landing-dev --production-branch main || true
+        working-directory: cire/landing
+
+      - name: Deploy cire/landing to Cloudflare Pages (dev)
+        run: bunx wrangler pages deploy dist --project-name cire-landing-dev --branch main --commit-dirty=true
+        working-directory: cire/landing
+
+  # ── production ─────────────────────────────────────────────────────────────
+  # Domain reshuffle 2026-07-16: this serves the APEX `cireweddings.com` (guest
+  # invites moved to `invite.`, organiser to `host.`). The apex custom domain is
+  # attached to the `cire-landing` Pages project in the Cloudflare dashboard (a
+  # Pages custom domain, not a wrangler config route) — see
+  # wiki/apps/cire-landing.md cutover steps.
   deploy-cire-landing:
-    name: Deploy cire/landing (Pages, apex)
-    needs: build
+    name: Deploy cire/landing — production (apex)
+    needs: [build, changes, deploy-cire-landing-dev]
+    if: needs.changes.outputs.cire_landing == 'true'
     runs-on: ubuntu-latest
     environment: production
+    concurrency:
+      group: deploy-production-cire-landing
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -358,43 +759,233 @@ jobs:
       - name: Deploy cire/landing to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire-landing
         working-directory: cire/landing
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-  # ── osn/social (Vite SPA → Cloudflare Pages, musubi.social) ──────────────────
+  # ═══ osn/api (Worker + D1) ═════════════════════════════════════════════════
+  # osn-api (identity/auth) is a Cloudflare Worker (`main = "src/index.ts"`,
+  # a custom-domain route per env). It runs on workerd with Upstash + native
+  # Workers rate-limiters. Secrets are set out-of-band per tier
+  # (`wrangler secret put … --env <tier>`); these jobs only migrate + deploy.
+  #
+  # ── dev ────────────────────────────────────────────────────────────────────
+  # The dev issuer is id-dev.musubi.social with its OWN D1 (`osn-db-dev`) and its
+  # own WebAuthn RP ID (dev.musubi.social), so a dev passkey is a separate
+  # credential from a prod one and no dev sign-in can touch a real account.
+  #
+  # Unlike cire's dev D1, this one is NOT reset: accounts and passkeys are the
+  # thing being tested, and wiping them every merge would mean re-registering a
+  # credential before every manual check. Migrations still apply forward.
+  deploy-osn-api-dev:
+    name: Deploy osn/api — dev
+    needs: [build, changes]
+    if: needs.changes.outputs.osn_api == 'true'
+    runs-on: ubuntu-latest
+    environment: dev
+    concurrency:
+      group: deploy-dev-osn-api
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Apply osn D1 migrations (remote dev)
+        run: bun run --cwd osn/db db:migrate:dev
+
+      # Same fail-closed secret preflight as prod (see that job for why). Dev
+      # needs its OWN OSN_PAIRWISE_SALT — a dev value, and once set it must never
+      # be rotated either, or every dev relying party sees its users as
+      # strangers. Set it with the `Set OSN_PAIRWISE_SALT` workflow (tier: dev).
+      - name: Preflight — required dev secrets are set
+        run: |
+          set -euo pipefail
+          required="OSN_PAIRWISE_SALT"
+          set_names="$(bunx wrangler secret list --env dev | grep -oE '"name" *: *"[^"]+"' | sed -E 's/.*"name" *: *"([^"]+)".*/\1/')"
+          missing=""
+          for name in $required; do
+            if ! printf '%s\n' "$set_names" | grep -qx "$name"; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::osn-api-dev is missing required secret(s):$missing — run the 'Set OSN_PAIRWISE_SALT' workflow with tier=dev. osn-api fails closed on these, so deploying now would 503 every route."
+            exit 1
+          fi
+          echo "All required osn-api dev secrets are set."
+        working-directory: osn/api
+
+      - name: Deploy osn/api Worker (dev)
+        run: bunx wrangler deploy --env dev
+        working-directory: osn/api
+
+  # ── production ─────────────────────────────────────────────────────────────
+  deploy-osn-api:
+    name: Deploy osn/api — production
+    needs: [build, changes, deploy-osn-api-dev]
+    if: needs.changes.outputs.osn_api == 'true'
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production-osn-api
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      # Apply pending migrations to the remote prod osn D1 (`osn-db-prod`, the
+      # `[env.production].d1_databases` binding) BEFORE the new Worker serves.
+      # `--env production` selects that binding; idempotent — wrangler skips
+      # already-applied migrations.
+      - name: Apply osn D1 migrations (remote prod)
+        run: bun run --cwd osn/db db:migrate:prod
+
+      # Secret preflight: osn-api fails CLOSED at boot/request time when a
+      # required secret is missing (e.g. the OSN_PAIRWISE_SALT check), so a
+      # `wrangler deploy` can report success while every route 503s — exactly
+      # the #315 outage. Assert the required secrets are configured on the prod
+      # Worker BEFORE promoting the new code. Read-only (`wrangler secret list`);
+      # never prints values. Add a name here whenever a new fail-closed secret
+      # gate lands.
+      - name: Preflight — required prod secrets are set
+        run: |
+          set -euo pipefail
+          required="OSN_PAIRWISE_SALT"
+          set_names="$(bunx wrangler secret list --env production | grep -oE '"name" *: *"[^"]+"' | sed -E 's/.*"name" *: *"([^"]+)".*/\1/')"
+          missing=""
+          for name in $required; do
+            if ! printf '%s\n' "$set_names" | grep -qx "$name"; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::osn-api is missing required prod secret(s):$missing — set them with 'wrangler secret put <NAME> --env production' before deploying. osn-api fails closed on these, so deploying now would 503 every route."
+            exit 1
+          fi
+          echo "All required osn-api prod secrets are set."
+        working-directory: osn/api
+
+      - name: Deploy osn/api Worker
+        run: bunx wrangler deploy --env production
+        working-directory: osn/api
+
+  # ═══ osn/social (Vite SPA → Cloudflare Pages) ══════════════════════════════
   # The identity web app: profile, connections, organisations, settings — and
   # `/authorize`, the OIDC consent screen osn-api redirects to. It must be
-  # served under the SAME registrable domain as osn-api, because the session
-  # cookie and the per-request OIDC binding cookie are host-bound to
-  # id.musubi.social and only ride along on same-site credentialed fetches. That is
-  # why the host is the musubi.social apex and not a *.pages.dev URL.
+  # served under the SAME registrable domain as its osn-api, because the session
+  # cookie and the per-request OIDC binding cookie are host-bound to the issuer
+  # and only ride along on same-site credentialed fetches. That is why each tier
+  # pairs a musubi.social host with its own issuer host, never a *.pages.dev URL.
   #
-  # The apex is also the WebAuthn RP ID (`OSN_RP_ID = musubi.social`), so this app
-  # is the one surface that can run a passkey ceremony.
+  # The app's host is also the WebAuthn RP ID, so this is the one surface that
+  # can run a passkey ceremony — per tier.
   #
   # `osn/social/public/_redirects` rewrites every path to index.html (200) so
   # client-side routes deep-link; `_headers` ships the framing denial the
   # consent screen needs. Both are static files Pages serves as-is.
   #
+  # There is NO feature-branch preview for this app. `deploy-osn-social-preview.yml`
+  # was removed on 2026-07-27: a preview on `*.pages.dev` can neither run a
+  # passkey ceremony nor complete an OIDC round-trip — wrong RP ID, and the
+  # `__Host-` cookies are bound to the issuer host. The dev tier below replaces
+  # it properly: dev.musubi.social IS a real RP ID with a real issuer behind it.
+  #
+  # ── dev ────────────────────────────────────────────────────────────────────
+  deploy-osn-social-dev:
+    name: Deploy osn/social — dev
+    needs: [build, changes]
+    if: needs.changes.outputs.osn_social == 'true'
+    runs-on: ubuntu-latest
+    environment: dev
+    concurrency:
+      group: deploy-dev-osn-social
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      # No hard sitekey gate here, unlike prod: whether Turnstile enforces on dev
+      # depends on osn-api-dev holding TURNSTILE_SECRET_KEY, which is a
+      # per-tier choice (key-optional, fail-closed only when the secret is set).
+      # The prod job's gate is what protects the pairing that actually matters.
+      - name: Build osn/social (dev)
+        run: bun run --cwd osn/social build
+        env:
+          VITE_OSN_ISSUER_URL: https://id-dev.musubi.social
+          VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
+
+      - name: Ensure the osn-social-dev Pages project exists
+        run: bunx wrangler pages project create osn-social-dev --production-branch main || true
+        working-directory: osn/social
+
+      - name: Deploy osn/social to Cloudflare Pages (dev)
+        run: bunx wrangler pages deploy dist --project-name osn-social-dev --branch main --commit-dirty=true
+        working-directory: osn/social
+
+  # ── production ─────────────────────────────────────────────────────────────
   # The `osn-social` Pages project must exist in the account before first run,
   # and musubi.social is attached to it in the dashboard (a Pages custom domain,
   # not a wrangler route) — see the runbook.
-  #
-  # There is NO feature-branch preview for this app. `deploy-osn-social-preview.yml`
-  # (a separate `osn-social-preview` Pages project) was removed on 2026-07-27: a
-  # preview on `*.pages.dev` can neither run a passkey ceremony nor complete an
-  # OIDC round-trip — wrong RP ID, and the `__Host-` cookies are bound to
-  # id.musubi.social — so it could only ever be looked at, and it cost a
-  # prod-scoped Cloudflare token on every branch push (TODO.md S-M
-  # preview-ci-prod-token). Review social changes locally with `bun run dev:osn`.
-  # If a preview is ever reinstated it must NOT target this project, whose
-  # production deployment serves a real hostname.
   deploy-osn-social:
-    name: Deploy osn/social (Pages)
-    needs: build
+    name: Deploy osn/social — production
+    needs: [build, changes, deploy-osn-social-dev]
+    if: needs.changes.outputs.osn_social == 'true'
     runs-on: ubuntu-latest
     environment: production
+    concurrency:
+      group: deploy-production-osn-social
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
 
@@ -458,95 +1049,12 @@ jobs:
       - name: Ensure the osn-social Pages project exists
         run: bunx wrangler pages project create osn-social --production-branch main || true
         working-directory: osn/social
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
       - name: Deploy osn/social to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name osn-social --branch main --commit-dirty=true
         working-directory: osn/social
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-  # ── osn/api (Worker + D1 migrate) ──────────────────────────────────────────
-  # osn-api (identity/auth) is a Cloudflare Worker (`main = "src/index.ts"`,
-  # `[env.production]` custom-domain route → id.musubi.social). It runs on
-  # workerd with Upstash + native Workers rate-limiters — the old ioredis gate
-  # that kept it out of CI is long resolved (it's been a deployed Worker since the
-  # 2026-06 cutover), so it now deploys here alongside cire-api instead of by hand.
-  # Prod secrets are set out-of-band (`wrangler secret put … --env production`,
-  # runbook §1/§5.1); this job only runs migrate + deploy against them.
-  deploy-osn-api:
-    name: Deploy osn/api (+ D1 migrate)
-    needs: build
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: .bun-version
-
-      - name: Cache bun dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-bun-
-
-      - name: Install dependencies
-        run: bun install
-
-      # Apply pending migrations to the remote prod osn D1 (`osn-db-prod`, the
-      # `[env.production].d1_databases` binding) BEFORE the new Worker serves.
-      # `--env production` selects that binding (top-level `osn-db` is the dev DB);
-      # idempotent — wrangler skips already-applied migrations.
-      - name: Apply osn D1 migrations (remote prod)
-        run: bunx wrangler d1 migrations apply osn-db-prod --remote --env production
-        working-directory: osn/api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      # Secret preflight: osn-api fails CLOSED at boot/request time when a
-      # required secret is missing (e.g. the OSN_PAIRWISE_SALT check), so a
-      # `wrangler deploy` can report success while every route 503s — exactly
-      # the #315 outage. Assert the required secrets are configured on the prod
-      # Worker BEFORE promoting the new code. Read-only (`wrangler secret list`);
-      # never prints values. Add a name here whenever a new fail-closed secret
-      # gate lands.
-      - name: Preflight — required prod secrets are set
-        run: |
-          set -euo pipefail
-          required="OSN_PAIRWISE_SALT"
-          set_names="$(bunx wrangler secret list --env production | grep -oE '"name" *: *"[^"]+"' | sed -E 's/.*"name" *: *"([^"]+)".*/\1/')"
-          missing=""
-          for name in $required; do
-            if ! printf '%s\n' "$set_names" | grep -qx "$name"; then
-              missing="$missing $name"
-            fi
-          done
-          if [ -n "$missing" ]; then
-            echo "::error::osn-api is missing required prod secret(s):$missing — set them with 'wrangler secret put <NAME> --env production' before deploying. osn-api fails closed on these, so deploying now would 503 every route."
-            exit 1
-          fi
-          echo "All required osn-api prod secrets are set."
-        working-directory: osn/api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      - name: Deploy osn/api Worker
-        run: bunx wrangler deploy --env production
-        working-directory: osn/api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-  # ── zap/api (Worker + D1 migrate) ──────────────────────────────────────────
+  # ═══ zap/api (Worker + D1) ═════════════════════════════════════════════════
   # DORMANT: zap-api is not yet provisioned in prod (the D1 database doesn't
   # exist yet). Until the real D1 id is filled in (a deploy-time step — see
   # wiki/runbooks/production-deploy.md), the "Detect zap prod provisioning"
@@ -554,11 +1062,22 @@ jobs:
   # both the migrate + deploy steps to be skipped. The job runs green + inert.
   # Once zap-db-prod is created and its id replaces the placeholder, both steps
   # fire on the next push to main.
+  #
+  # Zap has no dev tier (out of scope for the 2026-08-13 dev-tier work), so this
+  # job has no dev counterpart to promote from — it goes straight to the
+  # approval-gated production Environment.
   deploy-zap-api:
-    name: Deploy zap/api (+ D1 migrate)
-    needs: build
+    name: Deploy zap/api — production
+    needs: [build, changes]
+    if: needs.changes.outputs.zap_api == 'true'
     runs-on: ubuntu-latest
     environment: production
+    concurrency:
+      group: deploy-production-zap-api
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -592,13 +1111,7 @@ jobs:
         if: steps.zapcheck.outputs.provisioned == 'true'
         run: bunx wrangler d1 migrations apply zap-db-prod --env production --remote
         working-directory: zap/api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Deploy zap/api Worker
         if: steps.zapcheck.outputs.provisioned == 'true'
         run: bunx wrangler deploy --env production
         working-directory: zap/api
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

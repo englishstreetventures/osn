@@ -1,7 +1,21 @@
 name = "osn-api"
 main = "src/index.ts"
 compatibility_date = "2025-03-01"
-compatibility_flags = ["nodejs_compat"]
+# `nodejs_compat_populate_process_env` is what makes `process.env` reflect the
+# [vars] below plus the Worker's secrets. It is only a DEFAULT for
+# compatibility_date >= 2025-04-01, and this Worker is pinned to 2025-03-01 — so
+# without naming it explicitly `process.env` is permanently EMPTY on workerd and
+# `@shared/observability`'s `loadConfig` resolved every deployed tier as `local`
+# (local log format, debug level) no matter what OSN_ENV said. Opting the flag in
+# by name, rather than bumping the compatibility date on a live identity Worker,
+# changes this one behaviour and nothing else.
+#
+# It populates LAZILY on first access to `process`, never during module
+# evaluation, so a config parsed at module top level still sees nothing — hence
+# the lazy `Layer.suspend` in src/observability.ts. Note this does NOT apply to
+# secrets-as-`env`-bindings: `src/index.ts` still threads the request-scoped
+# `env` object through `buildAppDeps`, which is the only correct source for keys.
+compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 
 # Refuse to publish the top-level (env-less) config to a *.workers.dev URL. The
 # top-level block is the local `wrangler dev` posture (OSN_ENV=local: ephemeral
@@ -36,8 +50,10 @@ OSN_ISSUER_URL = "http://localhost:8787"
 OSN_CORS_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:4326,http://localhost:4321"
 
 # Local `wrangler dev` D1 (miniflare). database_id is ignored locally but
-# required syntactically; reuse the dev id so `--local` and `--remote dev` share
-# one migrations_dir.
+# required syntactically, so this names the little-used remote `osn-db`. It is
+# NOT the dev tier's database — [env.dev] has its own `osn-db-dev` (they were the
+# same row until 2026-08-13, which would have had a deployed dev Worker sharing a
+# database with the local devloop).
 [[d1_databases]]
 binding = "DB"
 database_name = "osn-db"
@@ -107,46 +123,83 @@ head_sampling_rate = 1
 crons = ["0 */6 * * *"]
 
 # ── dev ──────────────────────────────────────────────────────────────────────
+# A real deployed tier since 2026-08-13, not a localhost placeholder: osn-api-dev
+# on id-dev.musubi.social, backed by its own D1 (`osn-db-dev`), its own Upstash
+# database, its own signing keys and its own pairwise salt. Deployed
+# automatically on every merge to main, ahead of the approval-gated production
+# jobs. It shares NOTHING with production identity — a dev account is a different
+# account, and a dev passkey is a different credential. See
+# `[[wiki/runbooks/dev-environment]]`.
+#
+# RP ID is `dev.musubi.social`, the origin `@osn/social`'s dev deployment is
+# served from — a WebAuthn ceremony may only run on an origin same-site with the
+# RP ID, and the ceremonies (plus the OIDC consent screen) live on that app, not
+# on this API host. Deliberately NOT the `musubi.social` apex: an apex RP ID would
+# make dev-enrolled credentials usable against production.
 [env.dev.vars]
 OSN_ENV = "dev"
-# TODO(prod-domains): replace with the real dev frontend origin once a
-# workers.dev / dev domain is provisioned. Until then point at the dev SPA host.
-OSN_RP_ID = "localhost"
+OSN_RP_ID = "dev.musubi.social"
 OSN_RP_NAME = "OSN (dev)"
-OSN_ORIGIN = "http://localhost:1422"
-OSN_ISSUER_URL = "http://localhost:8787"
-OSN_CORS_ORIGIN = "http://localhost:1422"
+OSN_ORIGIN = "https://dev.musubi.social"
+OSN_ISSUER_URL = "https://id-dev.musubi.social"
+# Same reasoning as production: the cire dev origins exchange OIDC codes
+# server-side (cire-api-dev → this Worker), so no browser on a cireweddings-dev
+# surface makes a credentialed fetch here. This list also feeds the CSRF origin
+# guard — add an origin only when a browser genuinely fetches this Worker from it.
+OSN_CORS_ORIGIN = "https://dev.musubi.social"
+OSN_AUTHORIZE_UI_URL = "https://dev.musubi.social/authorize"
+# Resend has no verified musubi.social domain, so dev sends from the same
+# verified cireweddings.com sender as production. Dev mail is OTP + security
+# notices to whoever registers a dev account (us) — no real guest is ever a
+# recipient, because dev holds no real guest rows.
+OSN_EMAIL_FROM = "hello@cireweddings.com"
 
+# Custom-domain route: serves osn-api-dev on id-dev.musubi.social, one label deep
+# so the free Universal SSL certificate covers it. Named envs do NOT inherit
+# top-level routes. Deliberately NOT behind Cloudflare Access: an Access cookie
+# is not sent on cross-origin XHR, so gating this host would break every dev API
+# call and the OIDC redirect. It stays guarded by CORS + the origin guard.
+[[env.dev.routes]]
+pattern = "id-dev.musubi.social"
+custom_domain = true
+
+# Created 2026-08-13 (`wrangler d1 create osn-db-dev`, primary location OC to
+# match prod). Was pointed at `osn-db` — the top-level local/miniflare database —
+# which would have made a deployed dev Worker write to the same remote D1 the
+# local devloop migrates.
 [[env.dev.d1_databases]]
 binding = "DB"
-database_name = "osn-db"
-database_id = "a1dfceb8-2e7a-48eb-a161-ad428f3ddff5"
+database_name = "osn-db-dev"
+database_id = "1c1425e1-bb9f-4760-b090-763ccf61eb83"
 migrations_dir = "../db/drizzle"
 
 # Native rate-limit bindings mirrored into dev (named envs don't inherit them).
+# Fresh 21xx namespace ids, NOT production's 20xx: the namespace is the entire
+# scope of the counter — the Worker name is not part of the key — so sharing them
+# would let dev traffic burn a real user's per-IP auth budget.
 [[env.dev.ratelimits]]
 name = "RL_AUTH_IP_5_60"
-namespace_id = "2001"
+namespace_id = "2101"
 simple = { limit = 5, period = 60 }
 
 [[env.dev.ratelimits]]
 name = "RL_AUTH_IP_10_60"
-namespace_id = "2002"
+namespace_id = "2102"
 simple = { limit = 10, period = 60 }
 
 [[env.dev.ratelimits]]
 name = "RL_AUTH_IP_20_60"
-namespace_id = "2003"
+namespace_id = "2103"
 simple = { limit = 20, period = 60 }
 
 [[env.dev.ratelimits]]
 name = "RL_AUTH_IP_30_60"
-namespace_id = "2004"
+namespace_id = "2104"
 simple = { limit = 30, period = 60 }
 
 [[env.dev.ratelimits]]
 name = "RL_AUTH_IP_60_60"
-namespace_id = "2005"
+namespace_id = "2105"
 simple = { limit = 60, period = 60 }
 
 [env.dev.observability]

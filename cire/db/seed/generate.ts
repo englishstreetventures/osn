@@ -1,13 +1,18 @@
-// Derives seed/dev-seed.sql from the canonical seed data in ./data. Run with
-// `bun run --cwd cire/db seed:generate` after editing anything under ./data —
-// the SQL is generated, never hand-edited. seed.test.ts fails CI if the
-// committed dev-seed.sql drifts from what this emits.
+// Derives seed/dev-seed.sql from the canonical seed data in ./data, and
+// seed/dev-reset.sql from the Drizzle schema. Run with
+// `bun run --cwd cire/db seed:generate` after editing anything under ./data or
+// adding a table to src/schema.ts — both files are generated, never hand-edited.
+// seed.test.ts fails CI if either committed file drifts from what this emits.
 //
-//   bun run --cwd cire/db seed:generate         # regenerate dev-seed.sql
+//   bun run --cwd cire/db seed:generate         # regenerate both files
 //
-// The output is byte-for-byte deterministic so the in-repo file is a pure
-// function of ./data.
+// The output is byte-for-byte deterministic so the in-repo files are a pure
+// function of ./data + src/schema.ts.
 
+import { getTableName, is } from "drizzle-orm";
+import { SQLiteTable } from "drizzle-orm/sqlite-core";
+
+import * as schema from "../src/schema";
 import { bootstrapWedding, events, guests } from "./data";
 
 // SQL single-quote escaping: double any embedded apostrophe.
@@ -174,8 +179,49 @@ export function generateSeedSql(): string {
   ].join("\n")}\n`;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// dev-reset.sql — wipe a disposable database back to empty
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Every table Drizzle declares in src/schema.ts, sorted so the output is stable.
+// Read from the schema rather than a hand-kept list: a new table added without a
+// matching DROP would survive the reset, and the next migration replay would die
+// on `CREATE TABLE` — a green deploy that quietly stopped resetting is worse.
+export function schemaTableNames(): readonly string[] {
+  return Object.values(schema)
+    .filter((value) => is(value, SQLiteTable))
+    .map((table) => getTableName(table))
+    .toSorted();
+}
+
+export function generateResetSql(): string {
+  const drops = [
+    // wrangler's own migration ledger. Dropping it is the point: the dev deploy
+    // then replays every migration from 0001 against an empty database, so each
+    // deploy doubles as a migration test. Leave it and `d1 migrations apply`
+    // believes the (now missing) tables are already there.
+    "d1_migrations",
+    ...schemaTableNames(),
+  ];
+
+  return `-- Wipes a cire D1 back to empty. GENERATED FILE — do not edit by hand.
+-- Regenerate with: bun run --cwd cire/db seed:generate
+-- The table list is read from cire/db/src/schema.ts; seed.test.ts fails CI on drift.
+--
+-- DESTRUCTIVE. Only ever run against a disposable database. The dev deploy runs
+-- it on every merge (reset -> migrate -> seed), and scripts/cire-db-seed.sh
+-- refuses any remote target whose name is not \`cire-db-dev\`.
+--
+-- Foreign keys are deferred for the batch so the drop order does not have to
+-- follow the dependency graph — wrangler runs a --file as one transaction.
+PRAGMA defer_foreign_keys = true;
+
+${drops.map((name) => `DROP TABLE IF EXISTS ${name};`).join("\n")}
+`;
+}
+
 if (import.meta.main) {
   const { writeFileSync } = await import("node:fs");
-  const target = new URL("./dev-seed.sql", import.meta.url);
-  writeFileSync(target, generateSeedSql());
+  writeFileSync(new URL("./dev-seed.sql", import.meta.url), generateSeedSql());
+  writeFileSync(new URL("./dev-reset.sql", import.meta.url), generateResetSql());
 }

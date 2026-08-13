@@ -1,7 +1,21 @@
 name = "cire-api"
 main = "src/index.ts"
 compatibility_date = "2025-03-01"
-compatibility_flags = ["nodejs_compat"]
+# `nodejs_compat_populate_process_env` is what makes `process.env` reflect this
+# file's [vars] + the Worker's secrets. It is only a DEFAULT for
+# compatibility_date >= 2025-04-01; this Worker is pinned to 2025-03-01, so
+# without listing it explicitly `process.env` is permanently EMPTY on workerd.
+# That is not cosmetic: `@shared/observability`'s `loadConfig` reads
+# `process.env.OSN_ENV`, so every deployed tier resolved as `local` — local log
+# format and debug level in production. Opting the flag in by name (rather than
+# bumping the compatibility date on a live Worker) changes exactly this one
+# behaviour and nothing else.
+#
+# Note it populates LAZILY, on first access to `process`, and never during
+# module evaluation — so a config parsed at module top level still sees nothing.
+# See src/observability.ts (lazy `Layer.suspend`) and the `OSN_ENV` binding read
+# in src/index.ts.
+compatibility_flags = ["nodejs_compat", "nodejs_compat_populate_process_env"]
 
 # Refuse to publish the top-level (env-less) config to a *.workers.dev URL. This
 # block carries the PRODUCTION D1 binding but a local security posture
@@ -31,6 +45,15 @@ enabled = true
 head_sampling_rate = 1
 
 [vars]
+# Deployment tier — local | dev | staging | production. Read two ways: through
+# `process.env` by `@shared/observability`'s `loadConfig` (log format + level),
+# and straight off the request-scoped binding by `isDeployedTier()` in
+# src/index.ts, which fail-closes the guest claim endpoint when the native
+# CLAIM_RATE_LIMITER binding is missing. Set it in EVERY env block — named
+# environments inherit no vars, and an absent value silently means `local`,
+# which switches that fail-closed guard OFF. This top-level block carries the
+# local posture (localhost origins), so `local` is the honest value here.
+OSN_ENV = "local"
 WEB_ORIGIN = "http://localhost:4321"
 OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"
 OSN_ISSUER_URL = "http://localhost:4000"
@@ -132,7 +155,109 @@ binding = "IMAGES"
 # binding = "KV_GB_PAYLOAD"
 # id = "<paste-namespace-id>"
 
+# ═══ dev tier ════════════════════════════════════════════════════════════════
+# Deployed automatically on every merge to main (.github/workflows/deploy.yml),
+# ahead of the approval-gated production jobs. Fully isolated from production:
+# its own D1, its own R2 buckets, its own rate-limit namespaces, and its own OSN
+# identity origin (id-dev.musubi.social) — nothing here reads or writes a byte of
+# live-wedding data. Its D1 is wiped and re-seeded on every deploy, so treat any
+# data in it as disposable. See [[wiki/runbooks/dev-environment]].
+#
+# Named environments inherit NOTHING from the top level, so every section below
+# is a deliberate redeclaration: vars, routes, unsafe.bindings, d1_databases,
+# r2_buckets, images, observability, triggers.
+[env.dev.vars]
+# Deployment tier — see the top-level [vars] note. Without this the dev Worker
+# resolves `local` and the fail-closed CLAIM_RATE_LIMITER guard goes inert on a
+# publicly reachable Worker.
+OSN_ENV = "dev"
+# ORDER IS LOAD-BEARING: src/index.ts maps the comma-separated entries
+# positionally — [0] guest site, [1] organiser portal, [2] vendor portal. Same
+# order as [env.production.vars] with dev hosts. Single-level subdomains because
+# free Universal SSL covers one label only (`invite-dev.` works, `invite.dev.`
+# would need Advanced Certificate Manager).
+WEB_ORIGIN = "https://invite-dev.cireweddings.com,https://host-dev.cireweddings.com,https://vendor-dev.cireweddings.com"
+# Dev OSN identity — a SEPARATE osn-api Worker + D1 (`osn-api-dev` on
+# id-dev.musubi.social). Must equal that Worker's own OSN_ISSUER_URL or
+# access-token verification fails. Dev never verifies a prod-issued token.
+OSN_JWKS_URL = "https://id-dev.musubi.social/.well-known/jwks.json"
+OSN_ISSUER_URL = "https://id-dev.musubi.social"
+OSN_AUDIENCE = "osn-access"
+# Organiser sign-in (OIDC). CIRE_API_ORIGIN builds the redirect URI, which must
+# match the dev `oauth_clients` row in osn-db-dev byte-for-byte. Set the matching
+# secret once:  bunx wrangler secret put CIRE_OIDC_CLIENT_SECRET --env dev
+CIRE_API_ORIGIN = "https://api-dev.cireweddings.com"
+CIRE_OIDC_CLIENT_ID = "cid_cire"
+# ZAP_API_URL is deliberately NOT set. Named envs inherit no vars, so the code
+# default (localhost) applies and vendor-enquiry email delivery fails closed — a
+# dev deploy must never send real mail to a real vendor. The rest of the enquiry
+# flow still works; only the outbound send is inert.
+GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
+# GROWTHBOOK_CLIENT_KEY unset ⇒ every flag serves its coded default with zero
+# network, which is the honest dev posture until a dev GrowthBook environment
+# exists. Set it to test a flag rollout before promoting it to prod.
+
+# Mirror of the top-level [triggers] block (named envs do NOT inherit it). Same
+# 04:00 UTC expired-session sweep as production — dev exercising the same cron is
+# the point: a broken scheduled handler surfaces here first.
+[env.dev.triggers]
+crons = ["0 4 * * *"]
+
+[[env.dev.routes]]
+pattern = "api-dev.cireweddings.com"
+custom_domain = true
+
+# Fresh namespace ids, NOT a copy of production's. Sharing 1001/1002 would make
+# dev traffic consume a live guest household's claim budget (the namespace is the
+# whole scope of the counter — the Worker name is not part of the key). 11xx is
+# the dev range; the torn-down preview tier's 1002 is now owned by the live
+# CLAIM_SESSION_RATE_LIMITER, so that id is unavailable.
+[[env.dev.unsafe.bindings]]
+name = "CLAIM_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1101"
+simple = { limit = 5, period = 60 }
+
+[[env.dev.unsafe.bindings]]
+name = "CLAIM_SESSION_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1102"
+simple = { limit = 60, period = 60 }
+
+# Created 2026-08-13 (`wrangler d1 create cire-db-dev`, primary location OC to
+# match prod). Reset + re-migrated + re-seeded on every dev deploy, so each
+# deploy also replays the migration chain from zero — a free migration test.
+[[env.dev.d1_databases]]
+binding = "DB"
+database_name = "cire-db-dev"
+database_id = "bf0510eb-6998-4ee3-b5a0-833c646ef855"
+migrations_dir = "../db/migrations"
+
+# Created 2026-08-13. Separate buckets so a dev upload can never land in, or
+# overwrite, a real couple's spreadsheet or invite image.
+[[env.dev.r2_buckets]]
+binding = "SHEETS"
+bucket_name = "cire-sheets-dev"
+
+[[env.dev.r2_buckets]]
+binding = "ASSETS"
+bucket_name = "cire-assets-dev"
+
+[env.dev.images]
+binding = "IMAGES"
+
+[env.dev.observability]
+enabled = true
+head_sampling_rate = 1
+
+# ═══ production tier ═════════════════════════════════════════════════════════
+# Deployed only after the manual approval on the `production` GitHub Environment.
 [env.production.vars]
+# Deployment tier — see the top-level [vars] note. Named envs inherit NO vars,
+# so this must be set here or the production Worker resolves `local`: local log
+# format/level, and `isDeployedTier()` returns false so a missing
+# CLAIM_RATE_LIMITER binding stops fail-closing the guest claim endpoint.
+OSN_ENV = "production"
 # Comma-separated allowlist (index.ts splits on "," and trims). Entry 0 is the
 # guest site (`invite.cireweddings.com`); the organiser portal origin
 # (`host.cireweddings.com`) MUST also be present or organiser writes to
@@ -168,12 +293,17 @@ ZAP_API_URL = "https://zap.cireweddings.com"
 # production`) to activate live evaluation in prod.
 GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
 # GROWTHBOOK_CLIENT_KEY = "sdk-xxxxxxxx"
-# OSN_ENV — deployment tier (dev|staging|production). Drives the structured-log
-# level (see src/observability.ts); debug logs are local-only. Set it as a var
-# or secret per environment. No bootstrap-owner config is needed: every
-# authenticated OSN user is a first-class organiser who creates their own
-# weddings via POST /api/organiser/weddings, with per-wedding access scoped by
+# No bootstrap-owner config is needed: every authenticated OSN user is a
+# first-class organiser who creates their own weddings via
+# POST /api/organiser/weddings, with per-wedding access scoped by
 # weddingOwner()/weddingMember() — there is no global boot gate or seeded owner.
+
+# Mirror of the top-level [triggers] block — named environments do NOT inherit
+# it, so until this was added the daily expired-session sweep (C-M2/C-M15) was
+# registered only on the never-deployed top-level config and had never actually
+# run in production. Keep the schedule in sync with the top-level block.
+[env.production.triggers]
+crons = ["0 4 * * *"]
 
 # Custom-domain route: serves cire-api on api.cireweddings.com. `custom_domain =
 # true` auto-provisions DNS + edge cert because the cireweddings.com zone is in
@@ -235,7 +365,8 @@ enabled = true
 head_sampling_rate = 1
 
 # ── OpenTelemetry export ─────────────────────────────────────────────────────
-# Read by `@shared/observability` `loadConfig` (workerd `nodejs_compat`
+# Read by `@shared/observability` `loadConfig` (the
+# `nodejs_compat_populate_process_env` flag at the top of this file is what
 # populates `process.env` from these [vars] + secrets). With the endpoint UNSET,
 # tracing + metrics are a true no-op (zero export attempts) — so leaving this
 # commented out keeps local/dev safe. Set the base OTLP/HTTP endpoint to turn
