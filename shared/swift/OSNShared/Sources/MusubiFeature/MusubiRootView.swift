@@ -7,9 +7,9 @@ import SwiftUI
 /// iOS anchor provider in from `App.swift` (this package can't import
 /// UIKit).
 ///
-/// There is one signed-in screen so far, so this is a `NavigationStack`
-/// rather than a `TabView` — a tab bar with one tab is a tab bar that lies
-/// about what is built. Tabs arrive with the second surface.
+/// Two signed-in screens now, so the tab bar arrives as promised. Sign out
+/// sits in each tab's own toolbar rather than a third tab: it is an action,
+/// not a place.
 public struct MusubiRootView: View {
     private let session: MusubiSession
     private let anchorProvider: PresentationAnchorProvider
@@ -36,15 +36,28 @@ public struct MusubiRootView: View {
         case .signedOut, .failed:
             MusubiSignInView(session: session, anchorProvider: anchorProvider)
         case .signedIn:
-            NavigationStack {
-                DevicesView(session: session)
-                    .toolbar {
-                        ToolbarItem(placement: .primaryAction) {
-                            Button("Sign out") {
-                                Task { await session.signOut() }
-                            }
-                        }
+            TabView {
+                Tab("Devices", systemImage: "laptopcomputer.and.iphone") {
+                    NavigationStack {
+                        DevicesView(session: session)
+                            .toolbar { signOutButton }
                     }
+                }
+                Tab("Passkeys", systemImage: "person.badge.key") {
+                    NavigationStack {
+                        PasskeysView(session: session, anchorProvider: anchorProvider)
+                            .toolbar { signOutButton }
+                    }
+                }
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var signOutButton: some ToolbarContent {
+        ToolbarItem(placement: .secondaryAction) {
+            Button("Sign out") {
+                Task { await session.signOut() }
             }
         }
     }

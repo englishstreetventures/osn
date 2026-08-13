@@ -6,6 +6,7 @@ related:
   - "[[sessions]]"
   - "[[identity-model]]"
   - "[[passkey-primary]]"
+  - "[[step-up]]"
   - "[[pulse]]"
   - "[[osn-core]]"
 packages:
@@ -55,16 +56,28 @@ Access tokens are the 5-minute ES256 JWTs from [[identity-model]], cached in the
 
 Refresh failure is **HTTP 400 with an `error` string, never 401**. A client that branches on 401 retries a dead session forever.
 
-## Musubi's first screen
+## Musubi's screens
 
-Devices: every live session on the account, with per-row revoke and "sign out everywhere else" — `listSessions` / `revokeSession` / `revokeAllOtherSessions` ([[sessions]]). Chosen because it needs no new API work and it is the screen that *shows* the shared jar: sign in on Pulse, and the session appears in Musubi's list.
+Two tabs so far.
+
+**Devices** — every live session on the account, with per-row revoke and "sign out everywhere else": `listSessions` / `revokeSession` / `revokeAllOtherSessions` ([[sessions]]). Built first because it needs no new API work and it is the screen that *shows* the shared jar: sign in on Pulse, and the session appears in Musubi's list.
 
 Two contract details worth keeping:
 
 - Session timestamps are **Unix seconds** (`osn/api/src/routes/auth/response-schemas.ts`), so the generated types are `Double`; conversion to `Date` happens once, in `MusubiDevice`.
 - Whether a revoke killed *this* session is read from the server's `revokedSelf`, never inferred from the row's `isCurrent`.
 
-View models take a narrow protocol (`DevicesAPI`, three methods), not the generated `APIProtocol` (73). A test double for the latter would be 70 stubs of nothing. `OSNDevicesAPI` is the only place generated shapes are unwrapped.
+**Passkeys** — list, rename, delete, add. The consumer `OSNAuth`'s `PasskeyManagementClient`, `StepUpPasskeyClient` and `PasskeyEnrollmentClient` were written for and had until now gone without. Contract details:
+
+- Every mutation mints its **own** step-up token first ([[step-up]]) — they are single-use and short-lived, so there is nothing to cache, and one ceremony per action is what makes the action safe. Face ID *is* the confirmation; the screen adds no "are you sure?" sheet in front of it.
+- **Rename mints `passkey_delete`.** The server shares one verifier for rename and delete (`osn/api/src/services/auth/step-up.ts:398-400`). A `passkey_rename` purpose does not exist and would be rejected.
+- `PATCH /passkeys/:id` answers a bare `{ "success": true }`, not the updated summary, so a rename can only get its new label back by re-listing. Enrolment likewise returns just an id.
+- `PasskeySummary` timestamps are Unix seconds as **`Int`** — the management routes hand back integers where the session routes hand back `Double`.
+- Absent `backupEligible`/`backupState` read as **false**. Calling a passkey synced when no authenticator said so is the one wrong answer: eligible-but-unbacked means it dies with the device.
+- The account invariant is ≥1 passkey ([[passkey-primary]]) and the server enforces it, so the last row offers no Remove rather than spending a biometric prompt on a refusal.
+- Enrolment needs a `profileId`, and a *restored* session is `signedIn(nil)` — `PasskeyProfile` only ever arrives from a live `/login/passkey/complete`. So it comes off the wire, via `listAccountProfiles`.
+
+View models take a narrow protocol (`DevicesAPI`, three methods; `PasskeysAPI`, four), not the generated `APIProtocol` (73). A test double for the latter would be 70 stubs of nothing. `OSNDevicesAPI` and `OSNPasskeysAPI` are the only places generated shapes and ceremonies are unwrapped — which is also why `PasskeysAPI`'s three mutating methods are `@MainActor`: `ASAuthorizationController` is.
 
 ## macOS purity rule
 

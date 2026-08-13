@@ -38,6 +38,9 @@ public final class MusubiSession {
 
     private let tokenRefresher: TokenRefresher
     private let loginClient: PasskeyLoginClient
+    private let passkeyManagementClient: PasskeyManagementClient
+    private let stepUpClient: StepUpPasskeyClient
+    private let passkeyEnrollmentClient: PasskeyEnrollmentClient
 
     /// - Parameter environment: identity host for passkey ceremonies, token
     ///   refresh *and* the API. Defaults to `.local`; the app target picks
@@ -52,7 +55,28 @@ public final class MusubiSession {
         let tokenRefresher = TokenRefresher(session: session, environment: environment)
         self.tokenRefresher = tokenRefresher
         self.loginClient = PasskeyLoginClient(session: session, environment: environment)
+        self.passkeyManagementClient = PasskeyManagementClient(session: session, environment: environment)
+        self.stepUpClient = StepUpPasskeyClient(session: session, environment: environment)
+        self.passkeyEnrollmentClient = PasskeyEnrollmentClient(session: session, environment: environment)
         self.api = makeOSNClient(environment: environment, session: session, tokenRefresher: tokenRefresher)
+    }
+
+    /// The passkeys screen's API, assembled from the three `OSNAuth` clients
+    /// this session already owns. Built here rather than in the view because
+    /// the clients are built off the shared-jar `URLSession`, which nothing
+    /// outside this type holds.
+    ///
+    /// - Parameter anchorProvider: the app target's key-window lookup —
+    ///   every call on the returned API runs a passkey ceremony that needs
+    ///   somewhere to present.
+    public func makePasskeysAPI(anchorProvider: @escaping PresentationAnchorProvider) -> OSNPasskeysAPI {
+        OSNPasskeysAPI(
+            management: passkeyManagementClient,
+            stepUp: stepUpClient,
+            enrollment: passkeyEnrollmentClient,
+            client: api,
+            anchorProvider: anchorProvider
+        )
     }
 
     /// Silent restore on launch. A throw from `TokenRefresher.refresh()`

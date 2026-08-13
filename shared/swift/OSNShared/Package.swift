@@ -79,6 +79,6 @@ let package = Package(
         // shared cookie jar and passkey ceremonies are one implementation,
         // not one per app.
         .target(name: "MusubiFeature", dependencies: ["OSNKit", "OSNAuth", "OSNUI", "OSNAPI"]),
-        .testTarget(name: "MusubiFeatureTests", dependencies: ["MusubiFeature", "OSNAPI"]),
+        .testTarget(name: "MusubiFeatureTests", dependencies: ["MusubiFeature", "OSNAPI", "OSNAuth"]),
     ]
 )
