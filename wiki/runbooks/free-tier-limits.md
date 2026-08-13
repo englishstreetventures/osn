@@ -12,14 +12,16 @@ related:
   - "[[observability-setup]]"
   - "[[cire-auth]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-08-13
+last-reviewed: 2026-08-14
 ---
 
 # Free-Tier Limits & Unavailability Runbook
 
-> Scope: we run **exclusively on provider free tiers** — Cloudflare Free zone +
-> Workers Free, Cloudflare D1, Cloudflare Pages, Upstash Redis Free, and
-> Cloudflare Turnstile. This runbook records every ceiling, what
+> Scope: **every provider is on its free tier except Upstash** — Cloudflare Free
+> zone + Workers Free, Cloudflare D1, Cloudflare Pages and Cloudflare Turnstile
+> cost nothing; **Upstash Redis has been a paid $10/month plan since 2026-08-14**,
+> because the dev tier needs a second database and the free plan allows one.
+> This runbook records every ceiling, what
 > breaks when we hit it, how to detect it, the immediate mitigation, and the
 > upgrade trigger + cost.
 >
@@ -47,9 +49,14 @@ last-reviewed: 2026-08-13
 
 ---
 
-## Upstash Redis (Free)
+## Upstash Redis (paid — $10/month since 2026-08-14)
 
 **Source:** [upstash.com/docs/redis/overall/pricing](https://upstash.com/docs/redis/overall/pricing) · [pricing](https://upstash.com/pricing/redis) — re-verify.
+
+The table below is the **free** plan, which we left on 2026-08-14 to get a second
+database for dev. It is kept because it is the floor we would fall back to, and
+because the failure modes it describes are the same ones a paid cap produces.
+Read the current plan's ceilings off the console before acting on a quota call.
 
 | Limit | Free value (re-verify) |
 |---|---|
@@ -116,12 +123,16 @@ DB's 256 MB fills, move to **Upstash Pay-as-you-go** (pay per command +
 bandwidth; first 200 GB bandwidth free). This also lifts the archive-on-idle
 constraint. Re-verify current pricing before you upgrade.
 
-**Two databases, one quota.** Since 2026-08-13 the dev tier has its own Upstash
-database (the free plan allows up to **10** — an earlier note here claiming one
-was wrong). They are separate keyspaces but the **500K commands/month is per
-account**, so dev auth traffic spends prod's budget. Dev traffic is a handful of
-manual ceremonies per merge, which is noise against 500K — but if that ever
-changes, dev is the first thing to cut. [[dev-environment]]
+**Upstash is no longer free — $10/month since 2026-08-14.** The dev tier needs a
+second database, and the free plan allows exactly **one**. Planning for this work
+assumed the free plan allowed 10; that was wrong, and the second database was
+bought on a **$10/month paid plan** instead. So Upstash is the first line item on
+an otherwise-free stack, and the "what breaks at the cap" numbers above describe
+the **free** plan we are no longer on — re-read the console for the current
+plan's ceilings before treating 500K commands as the limit. The two databases are
+separate keyspaces; dev traffic is a handful of manual ceremonies per merge, so
+it is noise either way. If the bill ever needs cutting, dev is the first thing to
+go. [[dev-environment]]
 
 ---
 

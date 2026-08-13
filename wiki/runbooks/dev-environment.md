@@ -52,8 +52,14 @@ Backing resources:
 | D1 | `cire-db-dev` `bf0510eb-6998-4ee3-b5a0-833c646ef855` | `cire-db` `6e835474-…` |
 | D1 | `osn-db-dev` `1c1425e1-bb9f-4760-b090-763ccf61eb83` | `osn-db-prod` `767a9ac1-…` |
 | R2 | `cire-sheets-dev`, `cire-assets-dev` | `cire-sheets`, `cire-assets` |
-| Redis | second free Upstash database | `osn-redis` (Sydney) |
+| Redis | second Upstash database (**paid** — see below) | `osn-redis` (Sydney) |
 | Rate-limit namespaces | cire `1101`/`1102`, osn `2101`–`2105` | cire `1001`/`1002`, osn `2001`–`2005` |
+
+> [!warning] The dev tier costs $10/month, and Upstash is the whole bill
+> Planning assumed the Upstash free plan allowed 10 databases. It allows **one**,
+> so the dev database needed a **paid $10/month plan**, bought 2026-08-14. Every
+> other dev resource here is free. If the dev tier is ever cut, cancelling that
+> plan is the saving. [[free-tier-limits]]
 
 > [!important] Hostnames are one label deep on purpose
 > `invite-dev.cireweddings.com`, not `invite.dev.cireweddings.com`. Cloudflare's
@@ -136,7 +142,7 @@ can write production Workers as well, however the token is named. The boundary
 is the approval gate plus a separate credential to revoke, not a narrower grant.
 The only hard boundary is a **separate Cloudflare account** for dev; that is
 tracked as an open item rather than done here, because a second account means a
-second zone, second D1 set and second Upstash, and the free-tier maths changes.
+second zone, second D1 set and second Upstash, and the cost maths changes.
 
 ### Concurrency is per job, not per workflow
 
@@ -196,12 +202,11 @@ convention.
 Everything below needs the dashboard or a credential CI does not hold. Ordered — do
 them in this order, and do them **before** the first merge that would fire the dev jobs.
 
-Status as of 2026-08-14: **steps 1 and 2 are done** — `cire-db-dev`, `osn-db-dev` and
-both R2 buckets exist with their real ids in the wrangler blocks, and both GitHub
-Environments exist and are armed. The Upstash dev database (part of step 1) and steps
-3–9 are open.
+Status as of 2026-08-14: **steps 1 and 2 are done** — `cire-db-dev`, `osn-db-dev`, both
+R2 buckets and the dev Upstash database exist, the D1 ids are in the wrangler blocks,
+and both GitHub Environments exist and are armed. Steps 3–9 are open.
 
-1. **Create the backing resources.** ✅ done — except Upstash
+1. **Create the backing resources.** ✅ done
    ```bash
    bunx wrangler d1 create cire-db-dev --location oc
    bunx wrangler d1 create osn-db-dev  --location oc
@@ -210,8 +215,9 @@ Environments exist and are armed. The Upstash dev database (part of step 1) and 
    ```
    Paste each real `database_id` into the matching `[[env.dev.d1_databases]]`
    block. `scripts/check-d1-database-id.sh` fails CI on a placeholder.
-   Create the second Upstash database (free plan allows 10) in the same Sydney
-   region as prod.
+   The Upstash dev database sits in the same Sydney region as prod. It needed a
+   **paid $10/month plan** — the free plan allows one database, not ten. Its REST
+   URL and token go in as Worker secrets in step 3.
 
 2. **Create the GitHub Environments.** ✅ done — `dev` carries a branch policy only
    (`main`), `production` carries **Required reviewers** (`chav-aniket`) plus the same
