@@ -14,7 +14,7 @@
 // them byte-for-byte.
 //
 // Manual, not CI: R2 objects survive the D1 reset, so this is a one-off per
-// bucket. See wiki/runbooks/cire-dev-environment.md.
+// bucket. See wiki/runbooks/dev-environment.md.
 
 import { deflateSync } from "node:zlib";
 

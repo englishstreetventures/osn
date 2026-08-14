@@ -8,7 +8,7 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
-last-reviewed: 2026-08-14
+last-reviewed: 2026-08-15
 ---
 
 # Dev environment (cire + OSN identity)
@@ -386,7 +386,8 @@ dashboard-only.
    Only add an entry here if a dev host ever moves off those two zones.
    [[turnstile]]
 
-9. **Cloudflare Access** — see §5.
+9. **Cloudflare Access** — done 2026-08-15, one application over all five browser
+   hosts. See §5.
 
 ---
 
@@ -398,22 +399,36 @@ Cloudflare Access (Zero Trust, free for 50 users), email-OTP policy, on the
 `invite.dev.cireweddings.com`, `host.dev.cireweddings.com`,
 `vendor.dev.cireweddings.com`, `dev.cireweddings.com`, `dev.musubi.social`.
 
-> [!note] Zero Trust is not onboarded on this account yet (2026-08-14)
-> `dash.cloudflare.com/<account>/one` still lands on **Choose a plan**, so there is
-> no Access application to add a policy to. Onboarding Zero Trust Free first asks
-> for a **team domain** — it becomes `<team>.cloudflareaccess.com`, is account-wide
-> and is not meant to be renamed — so it is an owner decision, not a step to take
-> on someone's behalf. Pick the team name, take the Free plan, then come back here.
->
-> Until then the dev tier is **publicly reachable**. That is survivable only
-> because it holds nothing real: the seed is synthetic, no production guest row is
-> copied into it, and the claim codes are the published `TEST*` ones. Do not put a
-> real couple's data on dev before Access is on.
+**Live since 2026-08-15.** Zero Trust Free is onboarded; the team domain is
+`wispy-sun-215a.cloudflareaccess.com`. All five hosts 302 to
+`…cloudflareaccess.com/cdn-cgi/access/login/<host>` before the app is reached.
 
-Once Zero Trust exists: one self-hosted Access application per host above,
-identity provider **One-time PIN**, policy `Allow` → `Emails` →
-`owner@example.com`. Add more emails to that one policy rather than making a
-second application per person.
+What exists, exactly — **one** self-hosted application, not one per host:
+
+| Field | Value |
+|---|---|
+| Application name | `cire dev tier` |
+| Type | Self-hosted |
+| Destinations | the five public hostnames above |
+| Policy | `allow owner email` — Action `Allow`, Include `Emails` → `owner@example.com` |
+| Identity | "Accept all available identity providers" left **on**; One-time PIN is the only IdP on this account, so that is the email-OTP path |
+| Session duration | 24 hours |
+
+One app beats five because an Access session is **per application**: five apps
+would mean five separate OTP prompts for one browsing session. Five is also the
+cap — the form refuses a sixth destination with *"You've added the maximum number
+of hostnames per application allowed."* A sixth dev host needs a second
+application, and then two OTP prompts.
+
+Add more people by adding emails to `allow owner email`, never by adding an
+application.
+
+> [!note] Building it in the dashboard
+> Save the policy with **Save policy** inside the Access-policies card *before*
+> clicking **Create**. Until you do, the Preview card reads "No policies added /
+> No destinations assigned" — which looks like the destinations were lost, but
+> they are only unrendered. Use the **Builder** tab rather than "Create new
+> policy", which navigates away and drops the unsaved destination list.
 
 > [!warning] Do NOT put Access on `api.dev` or `id.dev`
 > An Access cookie is not sent on a cross-origin XHR. Gating the API hosts would
@@ -454,8 +469,14 @@ ceremony spans two requests, so it is what catches Redis being misconfigured.
 5. Claim the seeded code `TESTFOR-JOY-DD44` on `invite.dev.cireweddings.com` and
    submit an RSVP. Proves the guest session cookie, the `WEB_ORIGIN` ordering and
    the D1 seed.
-6. Every browser host prompts for Access; `api.dev` and `id.dev` do not. Skip
-   while §5 is still blocked on Zero Trust onboarding — nothing prompts yet.
+6. Every browser host prompts for Access; `api.dev` and `id.dev` do not. No
+   browser needed — `curl -sI` each one. Verified 2026-08-15: the five browser
+   hosts return **302** to
+   `https://wispy-sun-215a.cloudflareaccess.com/cdn-cgi/access/login/<host>`,
+   `api.dev.cireweddings.com/api/claim/session` still returns **401** and
+   `id.dev.musubi.social/.well-known/openid-configuration` still returns **200**.
+   A 302 on either API host means Access was put on the wrong destination — pull
+   it off before anything else.
 7. Re-run the dev deploy and confirm the reset replayed migrations from zero.
 
 ---
