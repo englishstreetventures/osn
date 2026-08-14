@@ -8,7 +8,7 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
-last-reviewed: 2026-08-14
+last-reviewed: 2026-08-15
 ---
 
 # Dev environment (cire + OSN identity)
@@ -165,9 +165,33 @@ runs never deploy the same thing at once while unrelated surfaces stay parallel.
 ```
 bun run --cwd cire/db db:reset:dev    # drop every table INCLUDING d1_migrations
 bun run --cwd cire/db db:migrate:dev  # replay 0001.. against an empty database
-bun run --cwd cire/db db:seed:dev     # sample wedding, 4 families, 6 guests
+bun run --cwd cire/db db:seed:dev     # the sample wedding, at production scale
 bunx wrangler deploy --env dev        # from cire/api
 ```
+
+The seeded wedding matches a real live one in shape and size — 5 events, 199
+households, 494 guests, 1131 invitations, 168 replies, 3 co-hosts, all 4
+entitlements comped, and the invite customisation row. Four households and six
+guests are hand-written (`seed/data/`) and are the ones every claim-code and RSVP
+test uses; the rest are generated from a seeded PRNG in `seed/data/households.ts`
+so a list, a search and a dashboard count all have enough rows to be honest. **No
+real guest's details are copied into dev** — the synthetic names, codes and
+dietary notes are invented and deterministic.
+
+### Placeholder images (one-off, not CI)
+
+The seed stores R2 object **keys**, not URLs. A key with nothing behind it is a
+broken image on every guest page, and R2 objects survive the D1 reset — so the
+images are uploaded once per bucket, by hand, not on every deploy:
+
+```bash
+bun run --cwd cire/db assets:seed:dev   # 8 generated PNGs -> cire-assets-dev
+```
+
+It writes the hero, story and footer slots plus one image per event. The pictures
+are generated gradients, not photographs: the bucket is `cire-assets-dev`, pinned
+in `seed/assets.ts`, and no couple's photo is ever copied onto a tier this many
+people can reach. Re-run only after recreating the bucket.
 
 Two things fall out of that order. Dev data never drifts from the seed, and
 **every merge re-tests the whole migration chain** — a migration that only works
@@ -354,12 +378,16 @@ dashboard-only.
    resolves, no dev passkey can be registered and verification steps 3 and 4 cannot
    run.
 
-8. **Add the dev hostnames to the Turnstile widget's Domains** — dashboard only,
-   the wrangler OAuth token lacks `Account.Turnstile:Edit`. A gated origin missing
-   from that list fires `error-callback` (`110200`) and the form's submit never
-   enables. [[turnstile]]
+8. **Turnstile domains — nothing to do.** Checked on 2026-08-14 and left alone.
+   The one account widget `osn-turnstile` lists the two **apexes**
+   `cireweddings.com` and `musubi.social`, and Turnstile matches subdomains, so
+   every dev host is already allowed. Confirmed live: the widget renders on
+   `dev.musubi.social` with no `error-callback` (`110200`) and no console error.
+   Only add an entry here if a dev host ever moves off those two zones.
+   [[turnstile]]
 
-9. **Cloudflare Access** — see §5.
+9. **Cloudflare Access** — done 2026-08-15, one application over all five browser
+   hosts. See §5.
 
 ---
 
@@ -370,6 +398,37 @@ Cloudflare Access (Zero Trust, free for 50 users), email-OTP policy, on the
 
 `invite.dev.cireweddings.com`, `host.dev.cireweddings.com`,
 `vendor.dev.cireweddings.com`, `dev.cireweddings.com`, `dev.musubi.social`.
+
+**Live since 2026-08-15.** Zero Trust Free is onboarded; the team domain is
+`wispy-sun-215a.cloudflareaccess.com`. All five hosts 302 to
+`…cloudflareaccess.com/cdn-cgi/access/login/<host>` before the app is reached.
+
+What exists, exactly — **one** self-hosted application, not one per host:
+
+| Field | Value |
+|---|---|
+| Application name | `cire dev tier` |
+| Type | Self-hosted |
+| Destinations | the five public hostnames above |
+| Policy | `allow owner email` — Action `Allow`, Include `Emails` → `owner@example.com` |
+| Identity | "Accept all available identity providers" left **on**; One-time PIN is the only IdP on this account, so that is the email-OTP path |
+| Session duration | 24 hours |
+
+One app beats five because an Access session is **per application**: five apps
+would mean five separate OTP prompts for one browsing session. Five is also the
+cap — the form refuses a sixth destination with *"You've added the maximum number
+of hostnames per application allowed."* A sixth dev host needs a second
+application, and then two OTP prompts.
+
+Add more people by adding emails to `allow owner email`, never by adding an
+application.
+
+> [!note] Building it in the dashboard
+> Save the policy with **Save policy** inside the Access-policies card *before*
+> clicking **Create**. Until you do, the Preview card reads "No policies added /
+> No destinations assigned" — which looks like the destinations were lost, but
+> they are only unrendered. Use the **Builder** tab rather than "Create new
+> policy", which navigates away and drops the unsaved destination list.
 
 > [!warning] Do NOT put Access on `api.dev` or `id.dev`
 > An Access cookie is not sent on a cross-origin XHR. Gating the API hosts would
@@ -448,10 +507,26 @@ ceremony spans two requests, so it is what catches Redis being misconfigured.
    in. Proves Upstash-backed ceremony state survives across requests.
 4. Sign in on `host.dev.cireweddings.com` through the OIDC redirect. Proves the
    dev `oauth_clients` row, the pairwise salt and the redirect URI agree.
+
+   Steps 3 and 4 both passed on 2026-08-15. Neither leaves a log line worth
+   keeping, so check the two databases instead — `osn-db-dev` should hold
+   `accounts`/`users`/`passkeys`/`sessions`/`oauth_consents` = 1 each with
+   `oauth_authorization_codes` back to 0 (the code is single-use and consumed),
+   and `cire-db-dev` should hold one `organiser_sessions` row. A consent row with
+   no organiser session means the token came back but cire refused it — look at
+   `CIRE_OIDC_CLIENT_SECRET` and the pairwise salt.
 5. Claim the seeded code `TESTFOR-JOY-DD44` on `invite.dev.cireweddings.com` and
    submit an RSVP. Proves the guest session cookie, the `WEB_ORIGIN` ordering and
-   the D1 seed.
-6. Every browser host prompts for Access; `api.dev` and `id.dev` do not.
+   the D1 seed. Passed 2026-08-15 — the reply lands in `rsvps` with
+   `status = 'attending'` and a seconds-precision `created_at`.
+6. Every browser host prompts for Access; `api.dev` and `id.dev` do not. No
+   browser needed — `curl -sI` each one. Verified 2026-08-15: the five browser
+   hosts return **302** to
+   `https://wispy-sun-215a.cloudflareaccess.com/cdn-cgi/access/login/<host>`,
+   `api.dev.cireweddings.com/api/claim/session` still returns **401** and
+   `id.dev.musubi.social/.well-known/openid-configuration` still returns **200**.
+   A 302 on either API host means Access was put on the wrong destination — pull
+   it off before anything else.
 7. Re-run the dev deploy and confirm the reset replayed migrations from zero.
 
 ---

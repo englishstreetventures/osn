@@ -9,6 +9,15 @@
 
 export type DressCodeSwatch = { readonly name: string; readonly color: string };
 
+// Normalised crop rectangle in SOURCE FRACTIONS (0..1), matching
+// `events.event_image_crop` / the invite image schema.
+export type SeedCrop = {
+  readonly x: number;
+  readonly y: number;
+  readonly w: number;
+  readonly h: number;
+};
+
 export type SeedEvent = {
   readonly id: string;
   readonly slug: string;
@@ -23,6 +32,15 @@ export type SeedEvent = {
   readonly pinterestUrl: string;
   readonly mapsUrl: string;
   readonly sortOrder: number;
+  // R2 object KEY (not a URL) for this event's image, in the same
+  // `assets/<weddingId>/<slot>-<uuid>` namespace the upload endpoint mints
+  // (cire/api/src/services/invite-assets.ts#assetKey). Pinned rather than random
+  // so the bytes can be uploaded once per dev bucket and survive every DB reset.
+  // The bytes must actually exist in the tier's bucket — a key with no object
+  // renders a broken image, not a text-only card. Upload them with
+  // `bun run --cwd cire/db assets:seed:dev` (see seed/assets/).
+  readonly eventImageKey: string;
+  readonly eventImageCrop: SeedCrop;
 };
 
 // Keyed by slug so tests can reach a specific event (`events.catholic.id`,
@@ -47,6 +65,8 @@ export const events = {
     pinterestUrl: "https://www.pinterest.com/example/catholic-moodboard/",
     mapsUrl: "https://maps.google.com/?q=123+Example+St+Sampletown+NSW+2000",
     sortOrder: 0,
+    eventImageKey: "assets/wed_bootstrap/event-d0000000-0000-4000-8000-000000000001",
+    eventImageCrop: { x: 0, y: 0.04, w: 1, h: 0.78 },
   },
   "kitchen-tea": {
     id: "9f7a2c14-1b3d-4e5f-8a01-000000000005",
@@ -67,6 +87,8 @@ export const events = {
     pinterestUrl: "https://www.pinterest.com/example/kitchen-tea-moodboard/",
     mapsUrl: "https://maps.google.com/?q=124+Sample+Avenue+Exampleville+NSW+2001",
     sortOrder: 1,
+    eventImageKey: "assets/wed_bootstrap/event-d0000000-0000-4000-8000-000000000005",
+    eventImageCrop: { x: 0.06, y: 0, w: 0.88, h: 1 },
   },
   mehendi: {
     id: "9f7a2c14-1b3d-4e5f-8a01-000000000002",
@@ -87,6 +109,8 @@ export const events = {
     pinterestUrl: "https://www.pinterest.com/example/mehendi-moodboard/",
     mapsUrl: "https://maps.google.com/?q=124+Sample+Avenue+Exampleville+NSW+2001",
     sortOrder: 2,
+    eventImageKey: "assets/wed_bootstrap/event-d0000000-0000-4000-8000-000000000002",
+    eventImageCrop: { x: 0, y: 0.12, w: 1, h: 0.7 },
   },
   hindu: {
     id: "9f7a2c14-1b3d-4e5f-8a01-000000000003",
@@ -108,6 +132,8 @@ export const events = {
     pinterestUrl: "https://www.pinterest.com/example/hindu-moodboard/",
     mapsUrl: "https://maps.google.com/?q=125+Placeholder+Highway+Mocktown+NSW+2002",
     sortOrder: 3,
+    eventImageKey: "assets/wed_bootstrap/event-d0000000-0000-4000-8000-000000000003",
+    eventImageCrop: { x: 0.02, y: 0.06, w: 0.96, h: 0.8 },
   },
   reception: {
     id: "9f7a2c14-1b3d-4e5f-8a01-000000000004",
@@ -128,5 +154,7 @@ export const events = {
     pinterestUrl: "https://www.pinterest.com/example/reception-moodboard/",
     mapsUrl: "https://maps.google.com/?q=126+Example+Road+Testburg+NSW+2003",
     sortOrder: 4,
+    eventImageKey: "assets/wed_bootstrap/event-d0000000-0000-4000-8000-000000000004",
+    eventImageCrop: { x: 0, y: 0, w: 1, h: 0.85 },
   },
 } as const satisfies Record<string, SeedEvent>;
