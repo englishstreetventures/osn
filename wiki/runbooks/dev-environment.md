@@ -466,9 +466,18 @@ ceremony spans two requests, so it is what catches Redis being misconfigured.
    in. Proves Upstash-backed ceremony state survives across requests.
 4. Sign in on `host.dev.cireweddings.com` through the OIDC redirect. Proves the
    dev `oauth_clients` row, the pairwise salt and the redirect URI agree.
+
+   Steps 3 and 4 both passed on 2026-08-15. Neither leaves a log line worth
+   keeping, so check the two databases instead — `osn-db-dev` should hold
+   `accounts`/`users`/`passkeys`/`sessions`/`oauth_consents` = 1 each with
+   `oauth_authorization_codes` back to 0 (the code is single-use and consumed),
+   and `cire-db-dev` should hold one `organiser_sessions` row. A consent row with
+   no organiser session means the token came back but cire refused it — look at
+   `CIRE_OIDC_CLIENT_SECRET` and the pairwise salt.
 5. Claim the seeded code `TESTFOR-JOY-DD44` on `invite.dev.cireweddings.com` and
    submit an RSVP. Proves the guest session cookie, the `WEB_ORIGIN` ordering and
-   the D1 seed.
+   the D1 seed. Passed 2026-08-15 — the reply lands in `rsvps` with
+   `status = 'attending'` and a seconds-precision `created_at`.
 6. Every browser host prompts for Access; `api.dev` and `id.dev` do not. No
    browser needed — `curl -sI` each one. Verified 2026-08-15: the five browser
    hosts return **302** to
