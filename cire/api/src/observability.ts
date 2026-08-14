@@ -1,6 +1,6 @@
 import { loadConfig } from "@shared/observability/config";
 import { makeLoggerLayer } from "@shared/observability/logger";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 
 /**
  * Redacting structured-logger layer for cire/api.
@@ -14,10 +14,16 @@ import { Effect } from "effect";
  * The deny-list already enumerates every cire field (see `redact.ts`); this
  * layer is what finally applies it.
  *
- * Built once at module load from env (`OSN_ENV` / `OSN_LOG_LEVEL`, parsed by
- * `loadConfig`). On workerd `nodejs_compat` populates `process.env` from
- * wrangler `[vars]` + secrets; in bun:sqlite tests and the local dev server
- * `process.env` is native.
+ * Configured from env (`OSN_ENV` / `OSN_LOG_LEVEL`, parsed by `loadConfig`),
+ * but built LAZILY — `Layer.suspend` defers `loadConfig` to the first time the
+ * layer is actually provided to an effect, which is always inside a request or
+ * cron handler. On workerd this is load-bearing: `nodejs_compat_populate_process_env`
+ * fills `process.env` from wrangler `[vars]` + secrets on first access, and
+ * during module evaluation there is nothing to read yet — a config parsed at
+ * module load would see an empty `process.env` and pin every deployed tier to
+ * `local` (pretty logs, debug level). In bun:sqlite tests and the local dev
+ * server `process.env` is native and the timing makes no difference. The result
+ * is memoised, so the config is parsed once per isolate, not once per request.
  *
  * Workerd-safe: the `/logger` and `/config` subpaths import only `effect` (no
  * `@opentelemetry/*` SDK), so adopting this does not drag the Node OTel SDK
@@ -26,7 +32,11 @@ import { Effect } from "effect";
  * no-ops until an exporter is attached, but the recording call-sites are
  * correct and type-checked today.
  */
-export const cireLoggerLayer = makeLoggerLayer(loadConfig({ serviceName: "cire-api" }));
+let builtLayer: Layer.Layer<never> | undefined;
+
+export const cireLoggerLayer: Layer.Layer<never> = Layer.suspend(
+  () => (builtLayer ??= makeLoggerLayer(loadConfig({ serviceName: "cire-api" }))),
+);
 
 /**
  * Run a fully-resolved cire effect to a Promise with the redacting logger

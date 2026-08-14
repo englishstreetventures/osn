@@ -32,7 +32,16 @@ export interface ObservabilityConfig {
   readonly traceSampleRatio: number;
 }
 
-const parseEnv = (value: string | undefined): DeploymentEnvironment => {
+/**
+ * Parse a raw tier string (`OSN_ENV` / `NODE_ENV`) into the four-tier union.
+ *
+ * Exported because on workerd the tier arrives as a request-scoped binding
+ * (`env.OSN_ENV`), not through `process.env`: `process.env` is unpopulated
+ * during module evaluation, so a caller that must decide the tier from the
+ * Worker's own `env` object needs the same parser `loadConfig` uses. Keeping
+ * one parser keeps those two answers from drifting apart.
+ */
+export const parseDeploymentEnvironment = (value: string | undefined): DeploymentEnvironment => {
   switch (value) {
     case "production":
     case "prod":
@@ -121,7 +130,9 @@ export interface ConfigOverrides {
 }
 
 export const loadConfig = (overrides: ConfigOverrides = {}): ObservabilityConfig => {
-  const env = overrides.env ?? parseEnv(process.env.OSN_ENV ?? process.env.NODE_ENV ?? undefined);
+  const env =
+    overrides.env ??
+    parseDeploymentEnvironment(process.env.OSN_ENV ?? process.env.NODE_ENV ?? undefined);
 
   // S-L3: if anything claims we're in production, require an explicit
   // `OSN_ENV=production` — `NODE_ENV` alone is not sufficient because

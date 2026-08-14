@@ -11,6 +11,7 @@ import { registerOutboundKeysOnce } from "./lib/outbound-arc";
 import { osnLoggerLayer } from "./observability";
 import { initRedisClientFromEnv } from "./redis";
 import * as accountErasure from "./services/account-erasure";
+import { setRuntimeTier } from "./services/auth/helpers";
 import { runExpiredAuthCodeSweep } from "./services/auth/oidc";
 
 // ---------------------------------------------------------------------------
@@ -194,6 +195,11 @@ export const handler: {
   scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void>;
 } = {
   async fetch(request, env) {
+    // Tell the auth helpers which tier this is, from the binding rather than
+    // `process.env`. The dev-OTP log line is gated on it, and a `process.env`
+    // that reads empty on workerd would put a live OTP code in the log sink.
+    setRuntimeTier(env.OSN_ENV);
+
     // Fail closed at the edge if any required binding/var is missing, rather
     // than letting createApp fall back to localhost dev defaults in a
     // misconfigured deployment.
@@ -258,6 +264,7 @@ export const handler: {
   // tick from re-POSTing. A failure here is logged and swallowed so a transient
   // downstream outage never aborts the sweeps (the next tick retries).
   async scheduled(_event, env, ctx) {
+    setRuntimeTier(env.OSN_ENV);
     if (!env.DB) return;
     const dbLayer = makeDbD1Live(env.DB);
     const fanoutUrls = { pulseApiUrl: env.PULSE_API_URL, zapApiUrl: env.ZAP_API_URL };

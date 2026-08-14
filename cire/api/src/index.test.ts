@@ -14,6 +14,13 @@ import handler from "./index";
 // deployed-tier env (`OSN_ENV=production`) with NO bootstrap owner set and
 // assert the app boots + routes — i.e. it never fail-closes at the edge with a
 // 503 for the missing var.
+//
+// The tier travels on the `env` BINDING, not `process.env` — on workerd
+// `process.env` is unpopulated during module evaluation and only fills lazily,
+// so `index.ts` reads `env.OSN_ENV`. These tests therefore set the tier in the
+// env object passed to `handler.fetch`, and clear `process.env.OSN_ENV` in
+// `beforeAll` so the two can never disagree (a disagreement is what
+// `loadConfig`'s S-L3 guard exists to catch, and it throws).
 
 let mf: Miniflare;
 let DB: D1Database;
@@ -27,6 +34,9 @@ const MF_HOOK_TIMEOUT_MS = 30_000;
 const fakeRateLimiter = { limit: async () => ({ success: true }) };
 
 const BASE_ENV = {
+  // Deployed tier, carried on the binding exactly as wrangler's [env.*.vars]
+  // deliver it. `isDeployedTier()` parses this; absent ⇒ `local`.
+  OSN_ENV: "production",
   WEB_ORIGIN: "https://app.example.com",
   OSN_JWKS_URL: "https://id.example.com/.well-known/jwks.json",
   OSN_AUDIENCE: "osn-access",
@@ -38,11 +48,13 @@ const BASE_ENV = {
 const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as ExecutionContext;
 
 beforeAll(async () => {
-  // Deployed tier — under the OLD gate this is exactly the case that 503'd when
-  // BOOTSTRAP_OWNER_PROFILE_ID was unset (the legacy fixup keyed off
-  // process.env.OSN_ENV). It must now boot cleanly with no bootstrap config.
+  // Clear the ambient tier so every case is driven purely by its `env` binding.
+  // Leaving `process.env.OSN_ENV = "production"` here would trip `loadConfig`'s
+  // S-L3 mismatch guard the moment a case asks for a non-production tier — the
+  // guard is right to throw, since on a real Worker both values come from the
+  // same wrangler [vars] and can never disagree.
   savedOsnEnv = process.env.OSN_ENV;
-  process.env.OSN_ENV = "production";
+  delete process.env.OSN_ENV;
   delete process.env.BOOTSTRAP_OWNER_PROFILE_ID;
 
   mf = new Miniflare({
@@ -88,6 +100,7 @@ describe("Worker boot (no bootstrap-owner config)", () => {
     // WEB_ORIGIN omitted — the real misconfiguration guard must still fire.
     const env = {
       DB,
+      OSN_ENV: BASE_ENV.OSN_ENV,
       OSN_JWKS_URL: BASE_ENV.OSN_JWKS_URL,
       OSN_AUDIENCE: BASE_ENV.OSN_AUDIENCE,
       CLAIM_RATE_LIMITER: fakeRateLimiter,
@@ -106,8 +119,10 @@ describe("Worker boot (no bootstrap-owner config)", () => {
 // in-memory limiter — no real cross-request brute-force defence on the guest
 // claim endpoint. The guard 503s at the edge in a deployed tier, but keeps the
 // in-memory fallback in `local` so `bun run dev` / tests boot without it.
-// Tier is read from OSN_ENV (via @shared/observability loadConfig), so these
-// tests drive it by toggling process.env.OSN_ENV inside each case.
+// Tier is read from the `OSN_ENV` BINDING (parsed by @shared/observability's
+// `parseDeploymentEnvironment`), so each case drives it by setting OSN_ENV in
+// the env object — not `process.env`, which is empty on workerd at the moment
+// this decision is made.
 describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
   const runFetch = (env: Record<string, unknown>) =>
     handler.fetch!(
@@ -116,11 +131,15 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
       ctx,
     );
 
-  it("fail-closes 503 in a deployed tier when the binding is absent", async () => {
-    process.env.OSN_ENV = "production";
-    const { CLAIM_RATE_LIMITER: _omit, ...withoutBinding } = BASE_ENV;
+  // BASE_ENV minus the native limiter binding, at the requested tier.
+  const withoutBindingAt = (tier: string) => {
+    const { CLAIM_RATE_LIMITER: _omit, ...rest } = BASE_ENV;
     void _omit;
-    const res = await runFetch(withoutBinding);
+    return { ...rest, OSN_ENV: tier };
+  };
+
+  it("fail-closes 503 in a deployed tier when the binding is absent", async () => {
+    const res = await runFetch(withoutBindingAt("production"));
     expect(res.status).toBe(503);
     expect(await res.json()).toEqual({
       error: "Worker misconfigured: missing CLAIM_RATE_LIMITER binding",
@@ -128,26 +147,31 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
   });
 
   it("also fail-closes 503 in the `dev` deployed tier when the binding is absent", async () => {
-    process.env.OSN_ENV = "dev";
-    const { CLAIM_RATE_LIMITER: _omit, ...withoutBinding } = BASE_ENV;
-    void _omit;
-    const res = await runFetch(withoutBinding);
+    const res = await runFetch(withoutBindingAt("dev"));
     expect(res.status).toBe(503);
   });
 
   it("boots (in-memory fallback) in the `local` tier when the binding is absent", async () => {
-    process.env.OSN_ENV = "local";
-    const { CLAIM_RATE_LIMITER: _omit, ...withoutBinding } = BASE_ENV;
-    void _omit;
-    const res = await runFetch(withoutBinding);
+    const res = await runFetch(withoutBindingAt("local"));
     // Not the guard's 503 — the app boots and the route's own auth gate answers
     // 401 (no token), proving the in-memory fallback path was taken locally.
     expect(res.status).not.toBe(503);
     expect(res.status).toBe(401);
   });
 
+  it("treats an ABSENT OSN_ENV binding as `local` (in-memory fallback)", async () => {
+    // Regression guard for the shape of the prod defect this replaced: with the
+    // tier unset the Worker must not pretend to be deployed. It is the wrangler
+    // [env.*.vars] entry, present in every deployed env block, that flips this —
+    // so an env block that forgets OSN_ENV degrades the claim-endpoint defence
+    // silently. That is why the deploy runbook checks the tier in `wrangler tail`.
+    const { OSN_ENV: _omit, ...withoutTier } = withoutBindingAt("local");
+    void _omit;
+    const res = await runFetch(withoutTier);
+    expect(res.status).toBe(401);
+  });
+
   it("boots (native binding) in a deployed tier when the binding is present", async () => {
-    process.env.OSN_ENV = "production";
     const res = await runFetch(BASE_ENV);
     // Binding present ⇒ no guard 503; app boots and the route answers 401.
     expect(res.status).not.toBe(503);

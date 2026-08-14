@@ -19,9 +19,10 @@ cire/db/
     │   ├── guests.ts     # sample families + guests (stable UUIDs)
     │   ├── wedding.ts    # bootstrap wedding row + DEV_OWNER_PROFILE_ID
     │   └── index.ts      # re-export — `@cire/db/seed`
-    ├── generate.ts       # derives dev-seed.sql from ./data (bun run seed:generate)
-    ├── seed.test.ts      # fails CI if dev-seed.sql drifts from ./data
-    └── dev-seed.sql      # GENERATED local-D1 dev seed (events + families + guests)
+    ├── generate.ts       # derives dev-seed.sql from ./data + dev-reset.sql from schema.ts
+    ├── seed.test.ts      # fails CI if either generated .sql drifts from its source
+    ├── dev-seed.sql      # GENERATED dev seed (events + families + guests)
+    └── dev-reset.sql     # GENERATED DROP of every table incl. d1_migrations (dev only)
 ```
 
 ## Scripts
@@ -29,16 +30,29 @@ cire/db/
 Run from the repo root with `bun run --cwd cire/db <script>`. Wrangler reads
 `cire/api/wrangler.toml` via the `--config` flag baked into each script.
 
-| Script           | What it does                                                                           |
-| ---------------- | -------------------------------------------------------------------------------------- |
-| `db:generate`    | `drizzle-kit generate` — diff `schema.ts` against the latest migration, emit a new one |
-| `db:push`        | Apply all pending migrations to the **local** D1 (Miniflare-backed)                    |
-| `db:push:remote` | Apply all pending migrations to the **production** D1. Coordinate with deploys.        |
-| `db:seed`        | Apply `seed/dev-seed.sql` to the local D1 (idempotent — uses `INSERT OR IGNORE`)       |
-| `db:reset`       | Wipe local D1 state, re-run migrations + seed. Destructive — local only.               |
-| `db:studio`      | Launch Drizzle Studio for browsing the schema / writing one-off queries                |
-| `seed:generate`  | Regenerate `seed/dev-seed.sql` from the canonical `seed/data/` modules                 |
-| `test`           | Run the seed sync test (`bun test`) — fails if `dev-seed.sql` is out of sync           |
+| Script             | What it does                                                                                      |
+| ------------------ | ------------------------------------------------------------------------------------------------- |
+| `db:generate`      | `drizzle-kit generate` — diff `schema.ts` against the latest migration, emit a new one            |
+| `db:push`          | Apply all pending migrations to the **local** D1 (Miniflare-backed)                               |
+| `db:migrate:local` | Same as `db:push`, named to match the `:dev` / `:prod` pair                                       |
+| `db:migrate:dev`   | Apply pending migrations to the **dev** D1 (`cire-db-dev`, `--env dev`). CI runs this every merge |
+| `db:migrate:prod`  | Apply pending migrations to the **production** D1 (`--env production`). Coordinate with deploys.  |
+| `db:seed`          | Apply `seed/dev-seed.sql` to the local D1 (idempotent — uses `INSERT OR IGNORE`)                  |
+| `db:seed:dev`      | Same seed against `cire-db-dev`. Guarded — refuses any other remote database.                     |
+| `db:reset`         | Wipe local D1 state, re-run migrations + seed. Destructive — local only.                          |
+| `db:reset:dev`     | Drop every table in `cire-db-dev` incl. `d1_migrations`. Destructive — dev only, no prod flag.    |
+| `db:studio`        | Launch Drizzle Studio for browsing the schema / writing one-off queries                           |
+| `seed:generate`    | Regenerate `seed/dev-seed.sql` and `seed/dev-reset.sql` from `seed/data/` + `src/schema.ts`       |
+| `test`             | Run the seed sync tests (`bun test`) — fail if either generated `.sql` is out of sync             |
+
+Every remote script names its target database explicitly **and** passes `--env`.
+Neither is optional: without `--env`, wrangler resolves the name against the
+top-level config, so a script meant for dev silently hits production. The two
+destructive dev scripts also re-check `cire/api/wrangler.toml` at run time
+(`scripts/cire-dev-db-guard.sh`) and abort unless `[env.dev]` really is
+`cire-db-dev` with an id no other environment shares.
+
+Production is never reset and never seeded — no script here can do either.
 
 ### Typical flows
 

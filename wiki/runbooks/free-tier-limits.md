@@ -11,14 +11,17 @@ related:
   - "[[database-environments]]"
   - "[[observability-setup]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-08-07
+  - "[[dev-environment]]"
+last-reviewed: 2026-08-14
 ---
 
 # Free-Tier Limits & Unavailability Runbook
 
-> Scope: we run **exclusively on provider free tiers** — Cloudflare Free zone +
-> Workers Free, Cloudflare D1, Cloudflare Pages, Upstash Redis Free, and
-> Cloudflare Turnstile. This runbook records every ceiling, what
+> Scope: **every provider is on its free tier except Upstash** — Cloudflare Free
+> zone + Workers Free, Cloudflare D1, Cloudflare Pages and Cloudflare Turnstile
+> cost nothing; **Upstash Redis has been a paid $10/month plan since 2026-08-14**,
+> because the dev tier needs a second database and the free plan allows one.
+> This runbook records every ceiling, what
 > breaks when we hit it, how to detect it, the immediate mitigation, and the
 > upgrade trigger + cost.
 >
@@ -46,9 +49,14 @@ last-reviewed: 2026-08-07
 
 ---
 
-## Upstash Redis (Free)
+## Upstash Redis (paid — $10/month since 2026-08-14)
 
 **Source:** [upstash.com/docs/redis/overall/pricing](https://upstash.com/docs/redis/overall/pricing) · [pricing](https://upstash.com/pricing/redis) — re-verify.
+
+The table below is the **free** plan, which we left on 2026-08-14 to get a second
+database for dev. It is kept because it is the floor we would fall back to, and
+because the failure modes it describes are the same ones a paid cap produces.
+Read the current plan's ceilings off the console before acting on a quota call.
 
 | Limit | Free value (re-verify) |
 |---|---|
@@ -110,11 +118,21 @@ per-account lockout (security regression, not an outage the user sees).
   (not cluster-safe). Wait out a short blip; the stores degrade as described
   above.
 
-**Upgrade trigger / cost:** when monthly commands trend toward ~500K, or the
-single free DB's 256 MB fills, move to **Upstash Pay-as-you-go** (pay per
-command + bandwidth; first 200 GB bandwidth free). This also lifts the
-1-DB and archive-on-idle constraints. Re-verify current pricing before you
-upgrade.
+**Upgrade trigger / cost:** when monthly commands trend toward ~500K, or a free
+DB's 256 MB fills, move to **Upstash Pay-as-you-go** (pay per command +
+bandwidth; first 200 GB bandwidth free). This also lifts the archive-on-idle
+constraint. Re-verify current pricing before you upgrade.
+
+**Upstash is no longer free — $10/month since 2026-08-14.** The dev tier needs a
+second database, and the free plan allows exactly **one**. Planning for this work
+assumed the free plan allowed 10; that was wrong, and the second database was
+bought on a **$10/month paid plan** instead. So Upstash is the first line item on
+an otherwise-free stack, and the "what breaks at the cap" numbers above describe
+the **free** plan we are no longer on — re-read the console for the current
+plan's ceilings before treating 500K commands as the limit. The two databases are
+separate keyspaces; dev traffic is a handful of manual ceremonies per merge, so
+it is noise either way. If the bill ever needs cutting, dev is the first thing to
+go. [[dev-environment]]
 
 ---
 
@@ -130,8 +148,12 @@ upgrade.
 | Subrequests to CF services (D1/R2/KV) | **1,000 / invocation** |
 
 **What happens at the cap.** Past 100K requests/day the account's Workers
-(osn-api **and** cire-api together) start returning **HTTP 429 from
-Cloudflare's edge** — before our handler runs. CPU overruns terminate the
+(osn-api **and** cire-api together — **and both dev Workers, and the two
+invites Workers**: the limit is account-wide, not per Worker) start returning
+**HTTP 429 from Cloudflare's edge** — before our handler runs. A dev tier under
+load therefore *can* 429 production. Cloudflare Access on the dev browser hosts
+is the practical guard: it keeps crawlers and randoms off dev entirely.
+CPU overruns terminate the
 single invocation (`exceededCpu`); subrequest overruns throw "Too many
 subrequests" (`exceededResources`).
 
@@ -151,7 +173,7 @@ once both APIs are in production. Re-verify pricing.
 
 ## Cloudflare D1 (Free)
 
-**Source:** [d1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) · [limits](https://developers.cloudflare.com/d1/platform/limits/) — re-verify. Applies to **both** `osn-db-prod` and `cire-db`.
+**Source:** [d1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) · [limits](https://developers.cloudflare.com/d1/platform/limits/) — re-verify. Applies to every database on the account: `osn-db-prod`, `cire-db`, `zap-db-prod`, the two dev databases, and the two unused ones.
 
 | Limit | Free value (re-verify) |
 |---|---|
@@ -159,7 +181,7 @@ once both APIs are in production. Re-verify pricing.
 | Rows written | **100,000 / day** |
 | Storage | **5 GB / account total** |
 | Max DB size | **500 MB** |
-| Databases | **10 / account** |
+| Databases | **10 / account** — **7 used** (see below) |
 | Queries per Worker invocation | **50** |
 | Max row size | **2 MB** |
 
@@ -168,8 +190,17 @@ queries start **failing** (the binding returns errors). Because both cire-api
 and osn-api **fail closed** on a missing/erroring DB (cire-api: `index.ts`
 returns **503** if `env.DB` is absent/erroring), the symptom is **503s on any
 DB-touching route** — i.e. effectively the whole app, since auth, claims, RSVP,
-graph all read D1. Note the daily counters are **shared across both DBs on the
+graph all read D1. Note the daily counters are **shared across every DB on the
 one account** (5 GB storage and the day's read/write counts are account-wide).
+
+**Dev's share.** The account holds **7 of 10** databases: `cire-db`,
+`osn-db-prod`, `zap-db-prod`, `cire-db-dev`, `osn-db-dev`, plus the unused
+`osn-db-staging` and `osn-db`. The two unused ones are the obvious reclaim if a
+new tier ever needs a slot. The dev tier's write cost is not zero: every merge
+that touches cire drops and re-seeds `cire-db-dev`, so it spends rows-written
+from the same **100K/day** budget production draws on. A seed is on the order of
+tens of rows, so this only matters if deploys ever run in a tight loop.
+[[dev-environment]]
 
 **User-visible symptom:** 503 / "service unavailable" across the app until the
 daily counter resets at **UTC midnight**, or storage is freed.

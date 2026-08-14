@@ -10,7 +10,8 @@ related:
   - "[[cire-auth]]"
   - "[[production-deploy]]"
   - "[[free-tier-limits]]"
-last-reviewed: 2026-08-07
+  - "[[dev-environment]]"
+last-reviewed: 2026-08-13
 ---
 
 # Cire Landing
@@ -184,8 +185,11 @@ allow-lists `images.unsplash.com` for `img-src`.
 `cireweddings.com` → this landing site; `invite.cireweddings.com` → guest site
 (`cire/invites`); `host.cireweddings.com` → organiser portal (`cire/host`, moved
 off `app.cireweddings.com`). CI job `deploy-cire-landing` in
-`.github/workflows/deploy.yml` mirrors `deploy-cire-organiser` (the `cire-landing`
-Pages project must exist in the account before first run).
+`.github/workflows/deploy.yml` mirrors `deploy-cire-host` (the `cire-landing`
+Pages project must exist in the account before first run). Since 2026-08-13 there
+is a `deploy-cire-landing-dev` job as well, serving `dev.cireweddings.com` from
+the `cire-landing-dev` Pages project; the apex job now waits on it **and** on a
+human approving the `production` GitHub Environment. See [[dev-environment]].
 
 **Passkey safety:** prod `OSN_RP_ID = cireweddings.com` (the registrable apex), so
 WebAuthn credentials are scoped to the whole domain — moving the organiser portal
