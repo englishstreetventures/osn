@@ -53,6 +53,12 @@ export interface Env {
   OSN_ORIGIN?: string;
   OSN_ISSUER_URL?: string;
   OSN_CORS_ORIGIN?: string;
+  // `Domain` for the readable `osn_has_session` marker only — never for the
+  // session cookie, which stays `__Host-` prefixed and host-only. Needed
+  // because the issuer and the app are different hosts; set it to the app's
+  // apex, not this Worker's host. Unset ⇒ marker is host-only (correct for
+  // localhost, where issuer and app share a host).
+  OSN_COOKIE_DOMAIN?: string;
   OSN_ACCESS_TOKEN_TTL?: string;
   OSN_REFRESH_TOKEN_TTL?: string;
   OSN_EMAIL_FROM?: string;

@@ -6,6 +6,19 @@
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1c1c1c" />
     <title>OSN</title>
+    <!-- Leave the pages.dev copy before anything else loads. Cloudflare gives
+         every Pages project that hostname and offers no way to switch it off,
+         and nothing works on it — the WebAuthn RP ID and the API's CORS
+         allowlist both name the custom domain only. Doing this here rather than
+         in the module means a crawler never fetches the entry bundle. The host
+         match is exact, so <branch>.osn-social.pages.dev previews are untouched.
+         src/lib/canonical-host.ts repeats the check and carries the tests; it
+         stays as the backstop for anyone who reaches the module some other way. -->
+    <script>
+      if (location.hostname === "osn-social.pages.dev") {
+        location.replace("https://musubi.social" + location.pathname + location.search + location.hash);
+      }
+    </script>
     <!-- Set the theme before first paint (no flash). Mirrors resolveTheme() in
          src/lib/theme.ts: system default, dark fallback, light only on an
          explicit light signal. -->

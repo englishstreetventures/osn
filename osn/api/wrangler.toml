@@ -148,6 +148,13 @@ OSN_ISSUER_URL = "https://id.dev.musubi.social"
 # guard — add an origin only when a browser genuinely fetches this Worker from it.
 OSN_CORS_ORIGIN = "https://dev.musubi.social"
 OSN_AUTHORIZE_UI_URL = "https://dev.musubi.social/authorize"
+# Scope of the readable `osn_has_session` marker. Must be the app's apex, not
+# this Worker's host: the issuer is `id.dev.musubi.social` and the app is
+# `dev.musubi.social`, so a host-only marker would be invisible to the script
+# that reads it and every dev cold start would read as signed out. Deliberately
+# NOT the `musubi.social` parent — that would let dev and production overwrite
+# each other's marker in one browser profile.
+OSN_COOKIE_DOMAIN = "dev.musubi.social"
 # Resend has no verified musubi.social domain, so dev sends over the verified
 # cireweddings.com domain — but from its OWN address, never production's.
 # Verification is per-domain, so this needs no extra setup, and it buys two
@@ -226,6 +233,8 @@ OSN_RP_NAME = "OSN (staging)"
 OSN_ORIGIN = "https://staging.osn.example"
 OSN_ISSUER_URL = "https://api.staging.osn.example"
 OSN_CORS_ORIGIN = "https://staging.osn.example"
+# Marker-cookie domain only — see the production block. Placeholder like the rest.
+OSN_COOKIE_DOMAIN = "staging.osn.example"
 
 [[env.staging.d1_databases]]
 binding = "DB"
@@ -305,6 +314,12 @@ OSN_RP_NAME = "OSN"
 OSN_ORIGIN = "https://musubi.social"
 OSN_ISSUER_URL = "https://id.musubi.social"
 OSN_CORS_ORIGIN = "https://musubi.social"
+# Domain for the JS-readable session MARKER cookie (`osn_has_session`) only —
+# the session cookie itself keeps its `__Host-` prefix and stays host-only on
+# id.musubi.social. The apps that redeem the cookie sit on the apex, a different
+# host, so a host-only marker would be invisible to them and every anonymous
+# page load would keep firing a pointless POST /token.
+OSN_COOKIE_DOMAIN = "musubi.social"
 # Sender stays on cireweddings.com: Resend has no verified musubi.social domain, and
 # a sender it cannot authenticate fails closed — which would take OTP with it,
 # and OTP step-up is exactly the route back in after a recovery-code login. Move

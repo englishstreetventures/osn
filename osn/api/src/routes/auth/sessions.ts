@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
-import { buildClearSessionCookie, readSessionCookie } from "../../lib/cookie-session";
+import { buildClearSessionCookies, readSessionCookie } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { errorResponse, sessionSummary } from "./response-schemas";
 
@@ -93,7 +93,7 @@ export function createSessionRoutes(ctx: AuthRouteContext) {
               auth.revokeAccountSession(profile.accountId, params.id, currentHash),
             );
             if (result.revokedSelf) {
-              set.headers["set-cookie"] = buildClearSessionCookie(cookieConfig);
+              set.headers["set-cookie"] = buildClearSessionCookies(cookieConfig);
             }
             return { success: true, revokedSelf: result.revokedSelf };
           } catch (e) {

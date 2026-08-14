@@ -9,6 +9,7 @@ import { rowsChanged } from "@shared/db-utils";
 import { desc, eq, inArray } from "drizzle-orm";
 import { Effect } from "effect";
 
+import { ROTATION_RACE_MESSAGE } from "../../lib/grant-failure";
 import type { RotatedHashRecord } from "../../lib/rotated-session-store";
 import {
   metricRotatedStoreDuration,
@@ -522,7 +523,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         yield* Effect.logInfo(
           "Refresh rotation CAS lost to a concurrent grant — benign race, family preserved",
         );
-        return yield* Effect.fail(new AuthError({ message: "Invalid or expired session" }));
+        // Distinct from the "this token does not verify" failures above, and
+        // deliberately so: `POST /token` must NOT retract the session marker
+        // here. The cookie the winner set is alive; only this losing grant
+        // failed. See `lib/grant-failure` (S-M2).
+        return yield* Effect.fail(new AuthError({ message: ROTATION_RACE_MESSAGE }));
       }
 
       yield* Effect.tryPromise({

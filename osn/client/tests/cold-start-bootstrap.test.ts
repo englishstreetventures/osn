@@ -403,3 +403,141 @@ it.effect("loadSession bootstrap racing refreshSession fires exactly ONE /token"
     vi.unstubAllGlobals();
   }).pipe(Effect.provide(createTestLayer())),
 );
+
+// ---------------------------------------------------------------------------
+// Session marker gate.
+//
+// A browser that has never held a session has nothing for /token to redeem,
+// and the grant it fires anyway is what a bot fleet turns into ~46k requests a
+// day against the issuer. The server sets a readable `osn_has_session` cookie
+// beside the HttpOnly one; no marker ⇒ no bootstrap grant.
+// ---------------------------------------------------------------------------
+
+/** Count /token calls against a fetch that would succeed if it were reached. */
+function countingTokenFetch(profileId: string) {
+  let tokenCalls = 0;
+  const fetchMock = vi
+    .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
+    .mockImplementation((input) => {
+      const url = typeof input === "string" ? input : ((input as Request).url ?? "");
+      if (url.endsWith("/token")) {
+        tokenCalls += 1;
+        return Promise.resolve(
+          mockResponse(200, {
+            access_token: fakeJwt(profileId),
+            token_type: "Bearer",
+            expires_in: 300,
+            scope: "openid profile",
+          }),
+        );
+      }
+      return Promise.resolve(mockResponse(404));
+    });
+  return { fetchMock, calls: () => tokenCalls };
+}
+
+it.effect("loadSession fires ZERO /token calls when the browser holds no marker", () =>
+  Effect.gen(function* () {
+    const { fetchMock, calls } = countingTokenFetch("usr_nomarker001");
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("document", { cookie: "theme=dark; locale=en-AU" });
+
+    const auth = yield* OsnAuth;
+    const session = yield* auth.loadSession();
+
+    expect(session).toBeNull();
+    expect(calls()).toBe(0);
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("loadSession still bootstraps from the cookie when the marker is present", () =>
+  Effect.gen(function* () {
+    const { fetchMock, calls } = countingTokenFetch("usr_marker001");
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("document", { cookie: "theme=dark; osn_has_session=1" });
+
+    const auth = yield* OsnAuth;
+    const session = yield* auth.loadSession();
+
+    expect(session).not.toBeNull();
+    expect(calls()).toBe(1);
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("the marker gate is inert where there is no document (iOS, SSR, tests)", () =>
+  Effect.gen(function* () {
+    const { fetchMock, calls } = countingTokenFetch("usr_nodocument01");
+    vi.stubGlobal("fetch", fetchMock);
+    // No document stub: a non-browser transport keeps its session elsewhere
+    // (Keychain), so the gate must not lock it out.
+    expect(typeof document).toBe("undefined");
+
+    const auth = yield* OsnAuth;
+    const session = yield* auth.loadSession();
+
+    expect(session).not.toBeNull();
+    expect(calls()).toBe(1);
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+// ---------------------------------------------------------------------------
+// A CORS refusal is indistinguishable from a network blip — both surface as an
+// opaque TypeError. Retrying the full ladder turned every blocked page load
+// into three requests, so the network path retries once, not twice.
+// ---------------------------------------------------------------------------
+
+it.effect("a CORS/network TypeError is attempted twice, not three times", () =>
+  Effect.gen(function* () {
+    let tokenCalls = 0;
+    const fetchMock = vi
+      .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
+      .mockImplementation((input) => {
+        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
+        if (url.endsWith("/token")) {
+          tokenCalls += 1;
+          return Promise.reject(new TypeError("Failed to fetch"));
+        }
+        return Promise.resolve(mockResponse(404));
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = yield* OsnAuth;
+    const session = yield* auth.loadSession();
+
+    expect(session).toBeNull();
+    expect(tokenCalls).toBe(2);
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);
+
+it.effect("a persistent 503 still gets the full transient ladder — three attempts", () =>
+  Effect.gen(function* () {
+    let tokenCalls = 0;
+    const fetchMock = vi
+      .fn<(...args: Parameters<typeof fetch>) => Promise<Response>>()
+      .mockImplementation((input) => {
+        const url = typeof input === "string" ? input : ((input as Request).url ?? "");
+        if (url.endsWith("/token")) {
+          tokenCalls += 1;
+          return Promise.resolve(mockResponse(503, { error: "upstream" }));
+        }
+        return Promise.resolve(mockResponse(404));
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = yield* OsnAuth;
+    const session = yield* auth.loadSession();
+
+    expect(session).toBeNull();
+    expect(tokenCalls).toBe(3);
+
+    vi.unstubAllGlobals();
+  }).pipe(Effect.provide(createTestLayer())),
+);

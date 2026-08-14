@@ -314,7 +314,13 @@ export async function buildAppDeps(env: EnvRecord, parts: BuildParts): Promise<B
     : ({ trustedProxyCount } as const);
 
   // C3: Cookie session config — Secure flag + __Host- prefix in non-local envs.
-  const cookieConfig: CookieSessionConfig = { secure: envNonLocal };
+  // `OSN_COOKIE_DOMAIN` widens ONLY the JS-readable session marker (never the
+  // session cookie itself) to the registrable domain, so an app on
+  // `musubi.social` can see the marker set by `id.musubi.social`.
+  const cookieConfig: CookieSessionConfig = {
+    secure: envNonLocal,
+    markerDomain: env.OSN_COOKIE_DOMAIN,
+  };
 
   // Build the application layer graph ONCE into a long-lived runtime and thread
   // it through every route factory. Rebuilding the graph per request would

@@ -1,7 +1,7 @@
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
-import { buildSessionCookie } from "../../lib/cookie-session";
+import { buildSessionCookies } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
 import { errorResponse, publicProfile, tokenResponse } from "./response-schemas";
@@ -84,7 +84,7 @@ export function createCrossDeviceRoutes(ctx: AuthRouteContext) {
           try {
             const result = await run(auth.getCrossDeviceLoginStatus(params.requestId, body.secret));
             if (result.status === "approved") {
-              set.headers["set-cookie"] = buildSessionCookie(
+              set.headers["set-cookie"] = buildSessionCookies(
                 result.session.refreshToken,
                 cookieConfig,
               );

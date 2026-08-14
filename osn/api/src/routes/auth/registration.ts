@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 
-import { buildSessionCookie } from "../../lib/cookie-session";
+import { buildSessionCookies } from "../../lib/cookie-session";
 import type { AuthRouteContext } from "./context";
 import { toTokenResponseCookieOnly } from "./context";
 import { errorResponse, tokenResponse } from "./response-schemas";
@@ -144,7 +144,7 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
               ),
             );
             set.status = 201;
-            set.headers["set-cookie"] = buildSessionCookie(result.refreshToken, cookieConfig);
+            set.headers["set-cookie"] = buildSessionCookies(result.refreshToken, cookieConfig);
             return {
               profileId: result.profileId,
               handle: result.handle,

@@ -588,6 +588,85 @@ describe("auth routes", () => {
       const json = (await res.json()) as { error: string };
       expect(json.error).toBe("invalid_request");
     });
+
+    it("a granted rotation re-sets both the session cookie and its marker", async () => {
+      const capture = buildEmailCapture(layer);
+      const markerApp = createAuthRoutes(config, capture.layer);
+
+      await markerApp.handle(
+        new Request("http://localhost/register/begin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: "marker-grant@example.com",
+            handle: "markergrant",
+            birthdate: "1990-01-01",
+          }),
+        }),
+      );
+      const completeRes = await markerApp.handle(
+        new Request("http://localhost/register/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: "marker-grant@example.com", code: capture.code()! }),
+        }),
+      );
+      expect(completeRes.status).toBe(201);
+      // Registration itself arms the marker alongside the session cookie.
+      const registerCookies = completeRes.headers.getSetCookie();
+      expect(registerCookies.some((c) => c.startsWith("osn_session="))).toBe(true);
+      expect(registerCookies.some((c) => c.startsWith("osn_has_session=1"))).toBe(true);
+
+      const session = registerCookies
+        .find((c) => c.startsWith("osn_session="))!
+        .match(/osn_session=([^;]+)/)![1]!;
+
+      const rotateRes = await markerApp.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", cookie: `osn_session=${session}` },
+          body: JSON.stringify({ grant_type: "refresh_token" }),
+        }),
+      );
+      expect(rotateRes.status).toBe(200);
+      const rotatedCookies = rotateRes.headers.getSetCookie();
+      expect(rotatedCookies.some((c) => c.startsWith("osn_session="))).toBe(true);
+      expect(rotatedCookies.some((c) => c.startsWith("osn_has_session=1"))).toBe(true);
+    });
+
+    it("retracts the marker — and only the marker — when no session cookie is sent", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ grant_type: "refresh_token" }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      const cookies = res.headers.getSetCookie();
+      // Marker cleared, so a browser that keeps a stale marker stops
+      // re-arming this pointless grant on every page load.
+      expect(cookies.some((c) => c.startsWith("osn_has_session=;"))).toBe(true);
+      // The session cookie is not touched: it is already absent.
+      expect(cookies.some((c) => c.startsWith("osn_session="))).toBe(false);
+    });
+
+    it("retracts the marker but leaves the session cookie alone on a rejected grant", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", cookie: "osn_session=ses_bogus" },
+          body: JSON.stringify({ grant_type: "refresh_token" }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      const cookies = res.headers.getSetCookie();
+      expect(cookies.some((c) => c.startsWith("osn_has_session=;"))).toBe(true);
+      // Clearing the session cookie here would harden a storage blip into a
+      // permanent logout — a client holding local account state must be able
+      // to retry the grant.
+      expect(cookies.some((c) => c.startsWith("osn_session="))).toBe(false);
+    });
   });
 
   // -------------------------------------------------------------------------

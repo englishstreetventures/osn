@@ -5,7 +5,7 @@ related:
   - "[[identity-model]]"
   - "[[step-up]]"
   - "[[passkey-primary]]"
-last-reviewed: 2026-07-26
+last-reviewed: 2026-08-14
 ---
 
 # Session introspection + revocation
@@ -41,6 +41,30 @@ sequenceDiagram
     API-->>Client: 200 + new HttpOnly cookie + access token
   end
 ```
+
+### The session marker cookie (`osn_has_session`)
+
+Every route that establishes or clears a session sets **two** cookies, via `buildSessionCookies` / `buildClearSessionCookies` in `osn/api/src/lib/cookie-session.ts`:
+
+| Cookie | Flags | Holds |
+|---|---|---|
+| `__Host-osn_session` (`osn_session` locally) | HttpOnly, Secure, SameSite=Lax, Path=/, host-only | the opaque `ses_*` refresh token |
+| `osn_has_session` | Secure, SameSite=Lax, Path=/, `Domain=` from `OSN_COOKIE_DOMAIN` | the single bit `1` |
+
+The marker exists so the client can tell "never signed in" from "signed in, cookie not yet replayed" **without a request**. Before this, every cold page load with no stored account fired a bootstrap `POST /token`. A bot fleet loading a `*.pages.dev` copy of the app turned that into ~33k requests a day at the issuer — half the free-tier Worker budget — and rotating IPs defeated the per-IP limiters. `loadSession` now skips the grant when the marker is absent.
+
+Design points worth keeping:
+
+- **The server sets it, not the client.** It stays atomic with the cookie it describes, and it carries the right `Domain` — `id.musubi.social` issues, `musubi.social` reads, so a host-only marker would be invisible. The session cookie stays `__Host-` (a prefix forbids `Domain=`); the marker takes no prefix for the same reason.
+- **It holds no secret.** A forged marker buys one 400. It is advisory only: no server-side decision may branch on it, and none does — the API reads it nowhere, it is write-only from the issuer's side.
+- **The server retracts it only when the failure proves the cookie is dead** (S-M2). The `/token` 400 paths are not equal: no cookie sent at all retracts; a rejected grant retracts only if the rejection was a real verification failure. A `DatabaseError` and the benign concurrent-rotation race (`ROTATION_RACE_MESSAGE`, see PR #289) both arrive with a live cookie, and retracting on either would strand a cold-start browser — the exact population the marker serves — signed out until the user signs in by hand. The predicate is `sessionStatusUnknown` in `osn/api/src/lib/grant-failure.ts`; it fails *toward* retraction on anything unrecognised, and the response-header contract is pinned in `tests/routes/token-marker-retraction.test.ts`. The client can't delete the marker itself: from the apex it can't reproduce the `Domain` attribute, so a JS delete would only shadow it with a host-only cookie.
+- **A rejected grant never clears the session cookie.** That branch also covers a storage blip; clearing would harden a transient failure into a permanent logout. A client that still holds local account state retries the grant without consulting the marker, which is the way back from a false negative.
+- **No `document` ⇒ no gate.** iOS (Keychain transport) and SSR keep the old behaviour.
+- **One-off migration cost:** a user holding a live cookie but no local account at deploy time is bounced to sign-in once, since no marker exists yet.
+
+Local dev leaves `OSN_COOKIE_DOMAIN` unset — localhost is one host, so a host-only marker works. Dev sets `dev.musubi.social`, not the `musubi.social` parent: a marker set by the dev issuer must not reach production hosts. The value is validated against a bare-hostname pattern before it reaches the header (S-L2) and drops to host-only if it fails, so a bad var costs a cold-start sign-in rather than a spliced `Set-Cookie`.
+
+**Standing constraint (S-L1):** the marker is readable by every host under `OSN_COOKIE_DOMAIN`. That is accepted — the bit is not a secret — but it means a `*.musubi.social` subdomain must never be delegated to a party that shouldn't learn whether a visitor holds an OSN session. Keep subdomain delegation in-house.
 
 Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. `issueTokens` LRU-evicts the oldest rows once the cap is reached so an attacker can't inflate the revocation surface. The public revocation handle (first 16 hex of the SHA-256) is collision-safe inside that bounded population.
 

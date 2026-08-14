@@ -37,6 +37,7 @@ import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
 
+import { ROTATION_RACE_MESSAGE } from "../../src/lib/grant-failure";
 import { createInMemoryRotatedSessionStore } from "../../src/lib/rotated-session-store";
 import * as metrics from "../../src/metrics";
 import { createAuthService } from "../../src/services/auth";
@@ -210,7 +211,10 @@ describe("refresh rotation CAS 0-rows → benign race (family preserved)", () =>
 
         // 1. The losing grant is rejected (no sibling minted for it).
         expect(error._tag).toBe("AuthError");
-        expect(error.message).toMatch(/Invalid or expired session/);
+        // Distinct from the "token does not verify" message on purpose: the
+        // route reads it to decide NOT to retract the session marker, because
+        // the winning grant's cookie is alive (S-M2).
+        expect(error.message).toBe(ROTATION_RACE_MESSAGE);
 
         // 2. The family is PRESERVED — the concurrent winner's sibling session
         //    survives (this is the false-positive-logout fix).
