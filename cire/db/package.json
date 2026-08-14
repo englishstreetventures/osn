@@ -9,6 +9,7 @@
   "scripts": {
     "test": "bun test",
     "seed:generate": "bun run seed/generate.ts",
+    "assets:seed:dev": "bun run seed/assets.ts",
     "db:generate": "drizzle-kit generate",
     "db:studio": "drizzle-kit studio",
     "db:push": "bunx wrangler --config ../api/wrangler.toml d1 migrations apply cire-db --local",

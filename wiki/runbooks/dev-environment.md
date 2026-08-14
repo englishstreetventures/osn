@@ -165,9 +165,33 @@ runs never deploy the same thing at once while unrelated surfaces stay parallel.
 ```
 bun run --cwd cire/db db:reset:dev    # drop every table INCLUDING d1_migrations
 bun run --cwd cire/db db:migrate:dev  # replay 0001.. against an empty database
-bun run --cwd cire/db db:seed:dev     # sample wedding, 4 families, 6 guests
+bun run --cwd cire/db db:seed:dev     # the sample wedding, at production scale
 bunx wrangler deploy --env dev        # from cire/api
 ```
+
+The seeded wedding matches a real live one in shape and size — 5 events, 199
+households, 494 guests, 1131 invitations, 168 replies, 3 co-hosts, all 4
+entitlements comped, and the invite customisation row. Four households and six
+guests are hand-written (`seed/data/`) and are the ones every claim-code and RSVP
+test uses; the rest are generated from a seeded PRNG in `seed/data/households.ts`
+so a list, a search and a dashboard count all have enough rows to be honest. **No
+real guest's details are copied into dev** — the synthetic names, codes and
+dietary notes are invented and deterministic.
+
+### Placeholder images (one-off, not CI)
+
+The seed stores R2 object **keys**, not URLs. A key with nothing behind it is a
+broken image on every guest page, and R2 objects survive the D1 reset — so the
+images are uploaded once per bucket, by hand, not on every deploy:
+
+```bash
+bun run --cwd cire/db assets:seed:dev   # 8 generated PNGs -> cire-assets-dev
+```
+
+It writes the hero, story and footer slots plus one image per event. The pictures
+are generated gradients, not photographs: the bucket is `cire-assets-dev`, pinned
+in `seed/assets.ts`, and no couple's photo is ever copied onto a tier this many
+people can reach. Re-run only after recreating the bucket.
 
 Two things fall out of that order. Dev data never drifts from the seed, and
 **every merge re-tests the whole migration chain** — a migration that only works
