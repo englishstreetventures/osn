@@ -378,10 +378,13 @@ dashboard-only.
    resolves, no dev passkey can be registered and verification steps 3 and 4 cannot
    run.
 
-8. **Add the dev hostnames to the Turnstile widget's Domains** — dashboard only,
-   the wrangler OAuth token lacks `Account.Turnstile:Edit`. A gated origin missing
-   from that list fires `error-callback` (`110200`) and the form's submit never
-   enables. [[turnstile]]
+8. **Turnstile domains — nothing to do.** Checked on 2026-08-14 and left alone.
+   The one account widget `osn-turnstile` lists the two **apexes**
+   `cireweddings.com` and `musubi.social`, and Turnstile matches subdomains, so
+   every dev host is already allowed. Confirmed live: the widget renders on
+   `dev.musubi.social` with no `error-callback` (`110200`) and no console error.
+   Only add an entry here if a dev host ever moves off those two zones.
+   [[turnstile]]
 
 9. **Cloudflare Access** — see §5.
 
@@ -394,6 +397,23 @@ Cloudflare Access (Zero Trust, free for 50 users), email-OTP policy, on the
 
 `invite.dev.cireweddings.com`, `host.dev.cireweddings.com`,
 `vendor.dev.cireweddings.com`, `dev.cireweddings.com`, `dev.musubi.social`.
+
+> [!note] Zero Trust is not onboarded on this account yet (2026-08-14)
+> `dash.cloudflare.com/<account>/one` still lands on **Choose a plan**, so there is
+> no Access application to add a policy to. Onboarding Zero Trust Free first asks
+> for a **team domain** — it becomes `<team>.cloudflareaccess.com`, is account-wide
+> and is not meant to be renamed — so it is an owner decision, not a step to take
+> on someone's behalf. Pick the team name, take the Free plan, then come back here.
+>
+> Until then the dev tier is **publicly reachable**. That is survivable only
+> because it holds nothing real: the seed is synthetic, no production guest row is
+> copied into it, and the claim codes are the published `TEST*` ones. Do not put a
+> real couple's data on dev before Access is on.
+
+Once Zero Trust exists: one self-hosted Access application per host above,
+identity provider **One-time PIN**, policy `Allow` → `Emails` →
+`owner@example.com`. Add more emails to that one policy rather than making a
+second application per person.
 
 > [!warning] Do NOT put Access on `api.dev` or `id.dev`
 > An Access cookie is not sent on a cross-origin XHR. Gating the API hosts would
@@ -434,7 +454,8 @@ ceremony spans two requests, so it is what catches Redis being misconfigured.
 5. Claim the seeded code `TESTFOR-JOY-DD44` on `invite.dev.cireweddings.com` and
    submit an RSVP. Proves the guest session cookie, the `WEB_ORIGIN` ordering and
    the D1 seed.
-6. Every browser host prompts for Access; `api.dev` and `id.dev` do not.
+6. Every browser host prompts for Access; `api.dev` and `id.dev` do not. Skip
+   while §5 is still blocked on Zero Trust onboarding — nothing prompts yet.
 7. Re-run the dev deploy and confirm the reset replayed migrations from zero.
 
 ---
