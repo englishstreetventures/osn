@@ -53,6 +53,21 @@ export interface AppDeps {
    * `healthRoutes` stay on both paths.
    */
   includeObservabilityPlugin: boolean;
+  /**
+   * Whether to mount the `@elysiajs/openapi` plugin — the Scalar UI at
+   * `/openapi` and the document at `/openapi/json`. True on `local` and on the
+   * `dev` tier; false on `staging` and `production`.
+   *
+   * The document is a complete map of every route, every parameter and every
+   * error shape, and nothing reads it at runtime: `shared/openapi/osn.json` is
+   * committed, generated clients are built from that file, and the generator
+   * boots its own app to produce it. So a deployed public host gains nothing by
+   * serving it and loses the cheapest reconnaissance step an attacker has.
+   *
+   * `buildAppDeps` derives this from `OSN_ENV` and fails closed — a tier string
+   * it doesn't recognise is not `dev`, so the docs stay off.
+   */
+  includeOpenapiPlugin: boolean;
   /** Auth config (rp id/name, origins, issuer, JWT key material, TTLs, pepper). */
   authConfig: AuthConfig;
   /** Cookie session config — drives Secure flag + `__Host-` prefix. */
@@ -129,6 +144,7 @@ export function createApp(deps: AppDeps) {
   const {
     serviceName,
     includeObservabilityPlugin,
+    includeOpenapiPlugin,
     authConfig,
     cookieConfig,
     corsOrigins,
@@ -170,33 +186,42 @@ export function createApp(deps: AppDeps) {
     ? base.use(observabilityPlugin({ serviceName }))
     : base;
 
-  return withObservability
+  const withRoot = withObservability
     .use(healthRoutes({ serviceName }))
-    .get("/", () => ({ status: "ok", service: "osn-auth" }))
-    .use(
-      openapi({
-        documentation: {
-          openapi: "3.1.0",
-          info: { title: "OSN Identity API", version: "1.0.0" },
-          components: {
-            securitySchemes: {
-              bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
+    .get("/", () => ({ status: "ok", service: "osn-auth" }));
+
+  // The docs are gated the same way, and mounted in the same position in the
+  // chain either way: the plugin renders from the finished route table, so the
+  // document is identical wherever it sits, but keeping the position fixed
+  // keeps the committed spec byte-stable.
+  const withDocs = includeOpenapiPlugin
+    ? withRoot.use(
+        openapi({
+          documentation: {
+            openapi: "3.1.0",
+            info: { title: "OSN Identity API", version: "1.0.0" },
+            components: {
+              securitySchemes: {
+                bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" },
+              },
             },
           },
-        },
-        // Only exact strings work here. The option is typed to accept a RegExp
-        // as well, but the plugin matches with `excludePaths.includes(path)`, so
-        // a pattern silently matches nothing. The ARC-gated internal prefixes
-        // are therefore dropped in `scripts/generate-openapi.ts` instead.
-        //
-        // `staticFile: false` because the plugin's static-asset heuristic is
-        // "the path contains a dot", which silently drops
-        // `/.well-known/openid-configuration` and `/.well-known/jwks.json` —
-        // the two endpoints every relying party reads first. No route here
-        // serves a file, so nothing else changes.
-        exclude: { paths: ["/", "/health", "/ready"], staticFile: false },
-      }),
-    )
+          // Only exact strings work here. The option is typed to accept a RegExp
+          // as well, but the plugin matches with `excludePaths.includes(path)`, so
+          // a pattern silently matches nothing. The ARC-gated internal prefixes
+          // are therefore dropped in `scripts/generate-openapi.ts` instead.
+          //
+          // `staticFile: false` because the plugin's static-asset heuristic is
+          // "the path contains a dot", which silently drops
+          // `/.well-known/openid-configuration` and `/.well-known/jwks.json` —
+          // the two endpoints every relying party reads first. No route here
+          // serves a file, so nothing else changes.
+          exclude: { paths: ["/", "/health", "/ready"], staticFile: false },
+        }),
+      )
+    : withRoot;
+
+  return withDocs
     .use(
       createAuthRoutes(
         // INTEGRATION: O3/O2 (W6) — ceremonyStores + recoveryLockoutStore + the

@@ -1,5 +1,6 @@
 import type { D1Database } from "@cloudflare/workers-types";
 import { makeDbD1Live } from "@pulse/db/service";
+import { parseDeploymentEnvironment } from "@shared/observability/config";
 import type { ClientIpOptions } from "@shared/rate-limit";
 import { Effect } from "effect";
 
@@ -125,6 +126,14 @@ function buildApp(env: Env): App {
     corsOrigins,
     oidc,
     secureCookies: secure,
+    // OpenAPI docs on `local` and `dev` only — see `AppOptions.includeOpenapi`.
+    // Derived from the request-scoped binding, never `process.env`: workerd
+    // leaves that empty during module evaluation, so a decision made at import
+    // time would read every deployed tier as `local` and serve the docs
+    // everywhere. Fails closed — `secure` treats anything that isn't exactly
+    // `local` as deployed, and the parser answers `dev` only for
+    // `dev`/`development`, so an unrecognised tier string is off, not on.
+    includeOpenapi: !secure || parseDeploymentEnvironment(env.OSN_ENV) === "dev",
     ...(env.PULSE_LOGIN_URL ? { loginFallbackUrl: env.PULSE_LOGIN_URL } : {}),
   });
 }

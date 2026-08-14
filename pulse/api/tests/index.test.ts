@@ -47,4 +47,38 @@ describe("pulse API app", () => {
     const res = await app.handle(new Request("http://localhost/health"));
     expect(res.headers.get("x-request-id")).toBeTruthy();
   });
+
+  /**
+   * The docs are a tier-gated surface — served on `local` and `dev`, absent on
+   * `staging` and `production`. The document maps every route, parameter and
+   * error shape, and nothing reads it at runtime (the committed
+   * `shared/openapi/pulse.json` feeds the generated clients), so a deployed
+   * public host serving it only donates reconnaissance. `src/index.ts` derives
+   * the flag from the request-scoped `OSN_ENV` binding; here we check the
+   * mount honours it in both directions.
+   */
+  describe("OpenAPI docs gate", () => {
+    it("mounts the document by default (local, tests, the generator)", async () => {
+      const res = await app.handle(new Request("http://localhost/openapi/json"));
+      expect(res.status).toBe(200);
+    });
+
+    it("withholds the document when includeOpenapi is false", async () => {
+      const noDocs = createApp({ includeOpenapi: false });
+      const res = await noDocs.handle(new Request("http://localhost/openapi/json"));
+      expect(res.status).toBe(404);
+    });
+
+    it("withholds the Scalar UI too, not just the document", async () => {
+      const noDocs = createApp({ includeOpenapi: false });
+      const res = await noDocs.handle(new Request("http://localhost/openapi"));
+      expect(res.status).toBe(404);
+    });
+
+    it("still serves the rest of the app with the docs off", async () => {
+      const noDocs = createApp({ includeOpenapi: false });
+      const res = await noDocs.handle(new Request("http://localhost/health"));
+      expect(res.status).toBe(200);
+    });
+  });
 });

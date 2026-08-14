@@ -377,6 +377,47 @@ Cloudflare Access (Zero Trust, free for 50 users), email-OTP policy, on the
 > CORS bug rather than an auth policy. Those two stay guarded by the CORS
 > allowlist and `origin-guard.ts`, exactly as production is.
 
+### The API docs are a dev-only surface
+
+`osn-api` and `pulse-api` mount `@elysiajs/openapi` — the Scalar UI at
+`/openapi`, the document at `/openapi/json` — on **`local` and `dev` only**.
+On `staging` and `production` both paths are a 404, because the plugin is never
+mounted; there is no route there to authorise or block.
+
+Why it comes off the public tiers: the document is a complete map of every
+route, every parameter and every error shape, and nothing reads it at runtime.
+`shared/openapi/osn.json` and `shared/openapi/pulse.json` are committed, the
+generated clients are built from those files, and each generator boots its own
+app to produce one. So a deployed public host gains nothing by serving it and
+saves an attacker the cheapest reconnaissance step there is.
+
+> [!important] The tier comes from the `env` binding, never `process.env`
+> On workerd `process.env` is a shim populated from `[vars]` on first access,
+> and it is **empty during module evaluation**. Any tier decision taken at
+> import time therefore reads `local` on every deployed tier and serves the
+> docs everywhere. `osn-api` derives the flag inside `buildAppDeps(env, …)`
+> (`osn/api/src/build-deps.ts`, `servesOpenapiDocs`); `pulse-api` derives it in
+> `buildApp(env)` (`pulse/api/src/index.ts`) and passes
+> `AppOptions.includeOpenapi`. Both read the request-scoped `env.OSN_ENV`.
+
+Both gates fail closed. `isNonLocal` counts anything that isn't exactly `local`
+as deployed, and `parseDeploymentEnvironment` answers `dev` only for `dev` or
+`development` — so a typo'd tier string leaves the docs **off**, not on. To read
+the docs against a deployed tier, use dev:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' https://id.dev.musubi.social/openapi/json  # 200
+curl -s -o /dev/null -w '%{http_code}\n' https://id.musubi.social/openapi/json      # 404
+```
+
+`pulse-api` has no deployed tier yet. Its `[env.dev.vars]` still points at
+localhost and deliberately leaves `OSN_ENV` unset, which reads as `local`, so
+`wrangler dev --env dev` keeps its docs; set `OSN_ENV = "dev"` there in the same
+commit that gives that env real https origins. `staging` and `production` do set
+it, which also switches on the cookie `Secure` flag, the plaintext-JWKS refusal
+and the fail-closed CORS check on those tiers — all three were silently off
+before, since the code keys them off the same var.
+
 ---
 
 ## 6. Verifying the dev tier

@@ -16,6 +16,12 @@ database_id = "placeholder-replace-after-d1-create"
 migrations_dir = "../db/drizzle"
 
 [env.dev.vars]
+# OSN_ENV is deliberately unset here. Every var below still points at localhost,
+# so this env is the `wrangler dev --env dev` config, and `OSN_ENV = "dev"` would
+# flip `secure` on in src/index.ts — which refuses a plaintext JWKS URL and
+# fail-closes CORS, breaking the local run. Unset reads as `local`: http cookies
+# allowed, and /openapi served (the docs gate is on for `local` and `dev` alike).
+# Set it to "dev" in the same commit that gives this env real https origins.
 OSN_JWKS_URL = "http://localhost:4000/.well-known/jwks.json"
 OSN_ISSUER_URL = "http://localhost:4000"
 PULSE_API_ORIGIN = "http://localhost:3001"
@@ -32,6 +38,7 @@ database_id = "placeholder-replace-after-d1-create"
 migrations_dir = "../db/drizzle"
 
 [env.staging.vars]
+OSN_ENV = "staging"
 # TODO: real OSN issuer origin before staging deploy
 OSN_JWKS_URL = "https://osn-api.example.com/.well-known/jwks.json"
 OSN_ISSUER_URL = "https://osn-api.example.com"
@@ -51,6 +58,7 @@ database_id = "placeholder-replace-after-d1-create"
 migrations_dir = "../db/drizzle"
 
 [env.production.vars]
+OSN_ENV = "production"
 # TODO: real OSN issuer origin before prod deploy
 OSN_JWKS_URL = "https://osn-api.example.com/.well-known/jwks.json"
 OSN_ISSUER_URL = "https://osn-api.example.com"

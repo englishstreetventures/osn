@@ -65,6 +65,21 @@ export interface AppOptions {
    * the local web app.
    */
   loginFallbackUrl?: string;
+  /**
+   * Whether to mount the `@elysiajs/openapi` plugin — the Scalar UI at
+   * `/openapi` and the document at `/openapi/json`. Defaults to `true`, which
+   * is right for tests, local dev and `scripts/generate-openapi.ts` (which
+   * boots this app to fetch its own document).
+   *
+   * The Workers entry passes `false` on every deployed tier except `dev`. The
+   * document is a complete map of every route, parameter and error shape, and
+   * nothing reads it at runtime — `shared/openapi/pulse.json` is committed and
+   * the generated clients are built from that file — so serving it from a
+   * public host only hands out reconnaissance. The entry derives the flag from
+   * the request-scoped `OSN_ENV` binding, never `process.env`, which workerd
+   * leaves empty during module evaluation.
+   */
+  includeOpenapi?: boolean;
 }
 
 /**
@@ -84,11 +99,12 @@ export function createApp(options: AppOptions = {}) {
     oidc = null,
     secureCookies = false,
     loginFallbackUrl = "http://localhost:1420/",
+    includeOpenapi = true,
   } = options;
 
   const { write, discovery, share, exposure, authStart, authSession } = rateLimiters;
 
-  return (
+  const base =
     // `aot: false` — Elysia's ahead-of-time compilation builds handlers via
     // `new Function`, which Cloudflare Workers forbid (no dynamic code eval).
     new Elysia({ aot: false })
@@ -100,8 +116,13 @@ export function createApp(options: AppOptions = {}) {
       // cannot guard every state-changing request the way cire does.
       .use(originGuard(corsOrigins ?? []))
       .use(healthRoutes({ serviceName: SERVICE_NAME }))
-      .get("/", () => ({ status: "ok", service: SERVICE_NAME }))
-      .use(
+      .get("/", () => ({ status: "ok", service: SERVICE_NAME }));
+
+  // Mounted in the same position either way: the plugin renders from the
+  // finished route table, so the document is identical wherever it sits, but a
+  // fixed position keeps the committed `shared/openapi/pulse.json` byte-stable.
+  const withDocs = includeOpenapi
+    ? base.use(
         openapi({
           documentation: {
             openapi: "3.1.0",
@@ -129,47 +150,49 @@ export function createApp(options: AppOptions = {}) {
           },
         }),
       )
-      .use(
-        createAuthRoutes(dbLayer, {
-          oidc,
-          secureCookies,
-          loginFallbackUrl,
-          startLimiter: authStart,
-          sessionLimiter: authSession,
-          clientIpConfig,
-        }),
-      )
-      .use(
-        createEventsRoutes(
-          dbLayer,
-          jwksUrl,
-          undefined,
-          discovery,
-          share,
-          exposure,
-          {
-            eventCreate: write.event_create,
-            eventUpdate: write.event_update,
-            rsvpUpsert: write.rsvp_upsert,
-            eventInvite: write.event_invite,
-            commsBlast: write.comms_blast,
-          },
-          clientIpConfig,
-        ),
-      )
-      .use(
-        createSeriesRoutes(dbLayer, jwksUrl, undefined, {
-          seriesCreate: write.series_create,
-          seriesUpdate: write.series_update,
-        }),
-      )
-      .use(createVenuesRoutes(dbLayer, jwksUrl))
-      .use(createSettingsRoutes(dbLayer, jwksUrl))
-      .use(createCloseFriendsRoutes(dbLayer, jwksUrl, undefined, write.close_friend_mutate))
-      .use(createOnboardingRoutes(dbLayer, jwksUrl))
-      .use(createAccountRoutes(dbLayer, jwksUrl))
-      .use(createInternalRoutes(dbLayer))
-  );
+    : base;
+
+  return withDocs
+    .use(
+      createAuthRoutes(dbLayer, {
+        oidc,
+        secureCookies,
+        loginFallbackUrl,
+        startLimiter: authStart,
+        sessionLimiter: authSession,
+        clientIpConfig,
+      }),
+    )
+    .use(
+      createEventsRoutes(
+        dbLayer,
+        jwksUrl,
+        undefined,
+        discovery,
+        share,
+        exposure,
+        {
+          eventCreate: write.event_create,
+          eventUpdate: write.event_update,
+          rsvpUpsert: write.rsvp_upsert,
+          eventInvite: write.event_invite,
+          commsBlast: write.comms_blast,
+        },
+        clientIpConfig,
+      ),
+    )
+    .use(
+      createSeriesRoutes(dbLayer, jwksUrl, undefined, {
+        seriesCreate: write.series_create,
+        seriesUpdate: write.series_update,
+      }),
+    )
+    .use(createVenuesRoutes(dbLayer, jwksUrl))
+    .use(createSettingsRoutes(dbLayer, jwksUrl))
+    .use(createCloseFriendsRoutes(dbLayer, jwksUrl, undefined, write.close_friend_mutate))
+    .use(createOnboardingRoutes(dbLayer, jwksUrl))
+    .use(createAccountRoutes(dbLayer, jwksUrl))
+    .use(createInternalRoutes(dbLayer));
 }
 
 export type App = ReturnType<typeof createApp>;

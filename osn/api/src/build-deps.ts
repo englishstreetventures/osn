@@ -1,6 +1,7 @@
 import type { Db } from "@osn/db/service";
 import { generateArcKeyPair, importKeyFromJwk, thumbprintKid } from "@shared/crypto";
 import type { EmailService } from "@shared/email";
+import { parseDeploymentEnvironment } from "@shared/observability/config";
 import type { RedisClient } from "@shared/redis";
 import { sanitizeCause } from "@shared/redis";
 import { createTurnstileVerifier } from "@shared/turnstile";
@@ -37,6 +38,26 @@ export const SERVICE_NAME = "osn-api";
 export type EnvRecord = Readonly<Record<string, string | undefined>>;
 
 const isNonLocal = (env: EnvRecord): boolean => !!env.OSN_ENV && env.OSN_ENV !== "local";
+
+/**
+ * Which tiers serve the OpenAPI docs (`/openapi` + `/openapi/json`): `local`
+ * and `dev` only. See `AppDeps.includeOpenapiPlugin` for why the deployed
+ * public tiers don't.
+ *
+ * Derived here rather than passed in by the caller because this function
+ * already takes the tier the honest way on both runtimes — the Workers entries
+ * hand it the request-scoped `env` binding, and `process.env` is empty during
+ * module evaluation on workerd, so any decision made at import time would pin
+ * every deployed tier to `local`. The generator passes `{}`, reads as `local`,
+ * and keeps its document.
+ *
+ * Fails closed on a tier string neither parser recognises: `isNonLocal` treats
+ * anything that isn't exactly `local` as deployed, while
+ * `parseDeploymentEnvironment` only answers `dev` for `dev`/`development`. A
+ * typo is therefore off, not on.
+ */
+const servesOpenapiDocs = (env: EnvRecord): boolean =>
+  !isNonLocal(env) || parseDeploymentEnvironment(env.OSN_ENV) === "dev";
 
 // ---------------------------------------------------------------------------
 // JWT key pair — ES256 (ECDSA P-256)
@@ -341,6 +362,7 @@ export async function buildAppDeps(env: EnvRecord, parts: BuildParts): Promise<B
   const deps: AppDeps = {
     serviceName: SERVICE_NAME,
     includeObservabilityPlugin,
+    includeOpenapiPlugin: servesOpenapiDocs(env),
     authConfig,
     cookieConfig,
     corsOrigins,
