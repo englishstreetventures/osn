@@ -7,11 +7,13 @@ related:
   - "[[consent]]"
   - "[[host-portal-layout]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-08-08
+last-reviewed: 2026-08-15
 ---
 
 # cire/invites
 
+- [x] **Both invite pages used `ImageCrop` without importing it** (2026-08-15, `fix/invite-imagecrop-import`) — `designs/classic/InvitePage.tsx` and `designs/gala/InvitePage.tsx` each name `ImageCrop` in the `footer.imageCrop` field of their local `InviteCustomisationResponse`, with no import for it. Nothing broke at runtime: the field is a type-only annotation, `astro build` strips types, and `components/image-crop.ts` was already a value dependency of both files through `EventCard` and `InviteClosing`. It stayed invisible because **`@cire/invites` has no `check` script**, so `bun run check` skips the package entirely — the same hole that had let six errors pile up in `@cire/vendor`. One `import type` line per pack. Closing the gate itself is tracked below.
+- [ ] **Put `@cire/invites` inside the type-check gate** — add `@astrojs/check` + `typescript` and a `"check": "bunx --bun astro check"` script, so turbo's `check` task covers the guest site. Blocked on clearing roughly 30 accumulated errors first: mostly test-file drift (`FamilyMember.nickname` missing from fixtures, indexing an empty tuple, implicit `any` on mocked hook params) and a real `eventsSectionRef` used-before-assigned in both design packs. `@cire/landing` has the same gap. Own PR — do not bundle it with feature work.
 - [x] **Guest sign-out control** (2026-08-08, `claude/cire-invites-claim-code-button-sn5br8`) — "Not the <name> family? Sign out" below the post-claim welcome, in both design packs (classic via `LoginSection`'s `onSignOut` prop, gala inline). Calls `POST /api/claim/signout`, drops the `cire_claimed` hint, resets the claim form to a submittable state (code, error, loading, spent Turnstile token) and moves focus to the code input. Closes the guest half of security S-M2. Four defects were caught in review before merge and are logged in `[[security]]` (S-H1, S-M1, C-L1) and `[[perf]]` (P-W1, P-W2); one of them — Motion leaving `opacity: 0` on the form wrapper, so the restored form was invisible in a real browser — was only visible to the browser tier, see `[[browser-tests]]`.
 
 Frontend feature work. Tick items as PRs land; add new entries when scope is discovered. Don't edit `wiki/todo/status.md` for area-specific items.

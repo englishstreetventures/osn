@@ -17,6 +17,7 @@ import { createSessionRestore, noteClaimed, signOut } from "../../components/cla
 import { createRsvpClosed } from "../../components/createRsvpClosed";
 import { DetailsModal } from "../../components/DetailsModal";
 import { EventCard } from "../../components/EventCard";
+import type { ImageCrop } from "../../components/image-crop";
 import {
   applyPaletteToRoot,
   filterThemeVars,
