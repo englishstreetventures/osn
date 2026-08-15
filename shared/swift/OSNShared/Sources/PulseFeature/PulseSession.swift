@@ -43,8 +43,9 @@ public final class PulseSession {
     ///     for the same reason.
     /// - Throws: whatever `SharedCookieJar.makeSession()` throws
     ///   (`OSNKitError.appGroupContainerUnavailable` when the App Group
-    ///   entitlement isn't registered — see `pulse/ios/project.yml`'s
-    ///   `BLOCKED:` comment). That is an infrastructure/build-config
+    ///   container doesn't resolve — the group is registered, so this means
+    ///   the target is missing the entitlement or is signed by another team;
+    ///   see `pulse/ios/project.yml`). That is an infrastructure/build-config
     ///   failure, not a session state — there is no working `URLSession` to
     ///   hand out if it happens, so it isn't folded into `SessionState`.
     public init(environment: Environment = .local, pulseEnvironment: PulseEnvironment = .local) throws {

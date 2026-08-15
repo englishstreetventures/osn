@@ -5,9 +5,9 @@ import Foundation
 /// otherwise show up only as "the ceremony succeeded and the user is still
 /// signed out," with nothing in the logs.
 public enum OSNKitError: Error, Sendable, Equatable {
-    /// Door 2 — the App Group container is unavailable. Either the group is
-    /// not registered in the Apple developer portal yet, or the entitlement
-    /// is missing from this target. `HTTPCookieStorage
+    /// Door 2 — the App Group container is unavailable. The group is
+    /// registered, so this means the entitlement is missing from this target
+    /// or the build is signed by another team. `HTTPCookieStorage
     /// .sharedCookieStorage(forGroupContainerIdentifier:)` does not itself
     /// fail in this case — it silently hands back storage that never
     /// actually shares with another process. This error is raised from a
@@ -58,7 +58,7 @@ extension OSNKitError: CustomStringConvertible {
     public var description: String {
         switch self {
         case .appGroupContainerUnavailable(let groupIdentifier):
-            return "App Group container unavailable for \(groupIdentifier) — not registered in the developer portal, or the entitlement is missing from this target. Cross-app session sharing does not exist until this is fixed."
+            return "App Group container unavailable for \(groupIdentifier) — the entitlement is missing from this target, or the build is signed by a team the group isn't registered under. Cross-app session sharing does not exist until this is fixed."
         case .sessionCookieNotPersisted(let name, let host):
             return "Expected cookie \(name) for \(host) to be in the shared jar after a successful /token response, but it isn't. Check the URLSession is the shared one, and that the cookie name matches this environment's `secure` setting."
         case .refreshUnsupportedGrantType:

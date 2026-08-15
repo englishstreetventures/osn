@@ -1,6 +1,6 @@
 name: Pulse
 options:
-  bundleIdPrefix: com.osn
+  bundleIdPrefix: social.musubi
   deploymentTarget:
     iOS: "26.0"
 packages:
@@ -26,19 +26,27 @@ targets:
         product: PulseFeature
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.osn.pulse
+        # Changing this means changing `osn/social/public/.well-known/
+        # apple-app-site-association` in the same commit — it names
+        # `<TEAMID>.<bundle id>`, and a stale entry there means the
+        # associated domain silently never forms and passkeys never appear.
+        PRODUCT_BUNDLE_IDENTIFIER: social.musubi.pulse
         DEVELOPMENT_TEAM: FV59Y8RSUH
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         GENERATE_INFOPLIST_FILE: "YES"
         SWIFT_VERSION: "6.2"
-    # BLOCKED: neither capability is registered in the Apple developer portal
-    # yet (no App ID configured for webcredentials:musubi.social or for the
-    # group.social.musubi.session App Group). Xcode codesigning will fail
-    # until both are added there. RP ID/App Group string sourced from
-    # brief-a3.md and OSNKit/SharedCookieJar.swift:10 (osnSessionAppGroupIdentifier)
-    # — not invented here.
+    # The App Group `group.social.musubi.session` is registered under team
+    # FV59Y8RSUH, so the shared cookie jar resolves and every OSN app signs in
+    # once. The string must stay in step with
+    # OSNKit/SharedCookieJar.swift:10 (osnSessionAppGroupIdentifier) — change
+    # one and the jar silently splits in two.
+    #
+    # Both capabilities are on the App ID: App Groups (with this group
+    # assigned) and Associated Domains. Adding or removing a capability there
+    # invalidates every provisioning profile carrying this App ID, so they
+    # have to be regenerated afterwards.
     entitlements:
       path: Pulse.entitlements
       properties:

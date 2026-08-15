@@ -4,9 +4,13 @@ import Foundation
 /// and any later OSN app see the same HttpOnly session cookie. Named in
 /// exactly one place — nothing else in `OSNShared` should hardcode it.
 ///
-/// BLOCKED: this identifier is not yet registered in the Apple developer
-/// portal (brief open question 1). `SharedCookieJar.makeConfiguration`
-/// throws `OSNKitError.appGroupContainerUnavailable` until it is.
+/// Registered in the Apple developer portal under team FV59Y8RSUH, so the
+/// container resolves on device and `makeConfiguration` returns a real shared
+/// jar. It still throws `OSNKitError.appGroupContainerUnavailable` where the
+/// container is absent — an app target missing the
+/// `com.apple.security.application-groups` entitlement, or a build signed by
+/// another team. Both are the loud failure we want, not a jar that silently
+/// shares with nobody.
 public let osnSessionAppGroupIdentifier = "group.social.musubi.session"
 
 public enum SharedCookieJar {

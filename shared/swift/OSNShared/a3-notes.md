@@ -63,15 +63,23 @@
   `performAutoFillAssistedRequests()`. The discoverable-credential flow the
   brief asked for works; the QuickType-bar suggestion does not exist yet.
 - Xcode build of the Pulse target with the new entitlements has not been
-  run (would fail regardless — see BLOCKED below) — `swift build`/`swift test`
-  only exercise the SPM package, not the Xcode project XcodeGen would
-  generate.
+  run — `swift build`/`swift test` only exercise the SPM package, not the
+  Xcode project XcodeGen would generate. Nothing blocks that build now (see
+  BLOCKED below); it just hasn't been done.
 
 ## BLOCKED
 
-- `pulse/ios/project.yml`: `com.apple.developer.associated-domains`
-  (`webcredentials:musubi.social`) and App Group
-  `group.social.musubi.session` are declared in the entitlements block
-  but neither capability is registered in the Apple developer portal.
-  Xcode codesigning of the Pulse target will fail until both are added
-  there.
+Nothing. Cleared 2026-08-15: App ID `social.musubi.pulse` is registered
+under team FV59Y8RSUH with both capabilities the entitlements block
+declares — **Associated Domains**, and **App Groups** with
+`group.social.musubi.session` assigned. So Xcode codesigning of the Pulse
+target no longer fails on a missing capability, and
+`SharedCookieJar.makeSession()` no longer throws on a correctly signed
+build.
+
+The portal never takes the domain string itself. `webcredentials:musubi.social`
+is matched against `osn/social/public/.well-known/apple-app-site-association`,
+which now names `FV59Y8RSUH.social.musubi.pulse`. iOS reads that file through
+Apple's CDN and caches it up to ~24h; during development append
+`?mode=developer` to the entitlement and turn on Settings → Developer →
+Associated Domains Development to skip the cache. Strip it before TestFlight.
