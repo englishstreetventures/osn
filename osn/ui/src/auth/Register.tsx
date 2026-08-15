@@ -67,6 +67,9 @@ export function Register(props: RegisterProps) {
   const [resendCooldown, setResendCooldown] = createSignal(0);
   const [profileId, setProfileId] = createSignal<string | null>(null);
   const [accessToken, setAccessToken] = createSignal<string | null>(null);
+  // Held, not published, between OTP verify and passkey enrollment. See
+  // `submitOtp` for why the hand-off to `adoptSession` waits.
+  const [session, setSession] = createSignal<Session | null>(null);
   const [passkeyError, setPasskeyError] = createSignal<string | null>(null);
   // Turnstile token — REQUIRED only when a sitekey is provided.
   const [turnstileToken, setTurnstileToken] = createSignal<string | null>(null);
@@ -155,11 +158,17 @@ export function Register(props: RegisterProps) {
   }
 
   /**
-   * Verifies the OTP and persists the session. The session is adopted
-   * immediately so the passkey step's fetch calls are authenticated, but
-   * the UI refuses to dismiss until enrollment succeeds — the "every
-   * account has ≥1 passkey" invariant rests on that refusal combined
-   * with the server-side last-passkey guard on `DELETE /passkeys/:id`.
+   * Verifies the OTP and parks the new session in a signal — it is NOT
+   * adopted here. The passkey step authenticates with the access token
+   * directly, so nothing in the flow needs a published session, and
+   * publishing one early would announce a signed-in user whose account
+   * still has zero passkeys. Consumers act on that announcement:
+   * `@osn/social` hides its auth dialogs the moment `session()` is
+   * truthy, which unmounted this component mid-flow and skipped
+   * enrollment altogether. `enrollPasskey` adopts it once the credential
+   * exists — that, plus the server-side last-passkey guard on
+   * `DELETE /passkeys/:id`, is what holds up the "every account has ≥1
+   * passkey" invariant.
    */
   async function submitOtp(e: Event) {
     e.preventDefault();
@@ -171,8 +180,8 @@ export function Register(props: RegisterProps) {
       const result = await client.completeRegistration({ email: email(), code: value });
       setProfileId(result.profileId);
       setAccessToken(result.session.accessToken);
+      setSession(result.session as Session);
       setOtpStatus("accepted");
-      await adoptSession(result.session as Session);
       toast.success("Email verified");
       setStep("passkey");
     } catch (err) {
@@ -221,6 +230,13 @@ export function Register(props: RegisterProps) {
     }
   }
 
+  /**
+   * Enrolls the account's first credential, then signs the user in. The
+   * order matters: `adoptSession` is what tells the rest of the app a user
+   * is present, and until the credential exists there is no account worth
+   * announcing — a failed or abandoned ceremony leaves the user signed out,
+   * still on this step, able to try again.
+   */
   async function enrollPasskey() {
     const id = profileId();
     const token = accessToken();
@@ -239,6 +255,13 @@ export function Register(props: RegisterProps) {
         attestation,
       });
       toast.success(`Welcome, @${handle()}`);
+      const next = session();
+      if (next) await adoptSession(next);
+      // "done" comes last, after the session is actually published. It is the
+      // one step with no error slot and no retry button, so anything that can
+      // still fail has to fail while the passkey step is on screen — and
+      // `adoptSession` can: it writes to `localStorage`, which throws when
+      // storage is disabled or full.
       setStep("done");
       props.onSuccess?.();
     } catch (err) {

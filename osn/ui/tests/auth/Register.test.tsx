@@ -358,10 +358,66 @@ describe("Register component", () => {
       await waitFor(() => screen.getByRole("button", { name: /Enroll credential/i }));
     }
 
-    it("adopts the session immediately after OTP verify so the access token can drive enrollment", async () => {
+    // The passkey step is the whole reason this component holds `accessToken`
+    // in a signal: enrollment is authenticated by that explicit bearer token,
+    // not by an adopted session. Adopting early published a session to the
+    // app while the account still had zero passkeys — and in `@osn/social`
+    // that unmounted the dialog mid-flow, skipping enrollment entirely.
+    it("does not adopt the session after OTP verify — enrollment carries its own token", async () => {
       await reachPasskey();
-      expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession);
+      expect(hoisted.adoptSession).not.toHaveBeenCalled();
       expect(stub.passkeyRegisterBegin).not.toHaveBeenCalled();
+    });
+
+    it("adopts the session only once the credential is enrolled", async () => {
+      await reachPasskey();
+      stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
+      hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
+      stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
+
+      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+
+      await waitFor(() => {
+        expect(hoisted.adoptSession).toHaveBeenCalledWith(sampleSession);
+      });
+      expect(stub.passkeyRegisterComplete.mock.invocationCallOrder[0]).toBeLessThan(
+        hoisted.adoptSession.mock.invocationCallOrder[0],
+      );
+    });
+
+    it("leaves the user signed out when enrollment fails", async () => {
+      await reachPasskey();
+      stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
+      hoisted.startRegistration.mockRejectedValue(new Error("ceremony cancelled"));
+
+      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/ceremony cancelled/)).toBeTruthy();
+      });
+      // No session, so no half-made account signed in behind a dismissed
+      // dialog — the user is still on the step that can finish the job.
+      expect(hoisted.adoptSession).not.toHaveBeenCalled();
+    });
+
+    // `adoptSession` writes the session to `localStorage`, which throws when
+    // storage is disabled or full — Safari private mode, quota exceeded. The
+    // credential exists by then, so the account is fine; what must not happen
+    // is the user being parked on the "done" step, which has no error slot and
+    // no retry, while the app still considers them signed out.
+    it("stays on the passkey step when adopting the session fails", async () => {
+      await reachPasskey();
+      stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });
+      hoisted.startRegistration.mockResolvedValue({ id: "cred", rawId: "raw" });
+      stub.passkeyRegisterComplete.mockResolvedValue({ passkeyId: "pk_1" });
+      hoisted.adoptSession.mockRejectedValue(new Error("storage unavailable"));
+
+      fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/storage unavailable/)).toBeTruthy();
+      });
+      expect(screen.getByRole("button", { name: /Enroll credential/i })).toBeTruthy();
     });
 
     it("happy path: enrolls a WebAuthn credential using the freshly-issued access token", async () => {
@@ -404,6 +460,9 @@ describe("Register component", () => {
 
       fireEvent.click(screen.getByRole("button", { name: /Enroll credential/i }));
 
+      // onSuccess now sits behind the adoptSession await, one microtask hop
+      // further out than `waitFor`'s fake-timer loop drains on its own.
+      await vi.advanceTimersByTimeAsync(0);
       await waitFor(() => {
         expect(onSuccess).toHaveBeenCalledTimes(1);
       });

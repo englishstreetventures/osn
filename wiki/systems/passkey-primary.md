@@ -11,7 +11,7 @@ packages:
   - "@osn/client"
   - "@osn/ui"
   - "@cire/host"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-15
 ---
 
 # Passkey-Primary Login
@@ -29,7 +29,27 @@ holds from registration to deletion:
 
 - **Registration.** `/register/complete` returns a session, but the UI
   refuses to dismiss the registration flow until `/passkey/register/complete`
-  succeeds. There is no "skip for now" button.
+  succeeds. There is no "skip for now" button. **`Register.tsx` holds that
+  session without adopting it** — enrolment authenticates with the returned
+  access token, passed explicitly as a bearer token, so nothing before the
+  ceremony needs a published session. It adopts only once the credential
+  exists. Adopting earlier announces a signed-in user whose account has zero
+  passkeys, and consumers act on that announcement: `@osn/social`'s
+  `AuthDialogs` hides its auth dialogs the moment `session()` is truthy,
+  which unmounted the flow mid-registration and skipped enrolment entirely
+  (fixed 2026-08-15). Anything that publishes a session before the first
+  credential breaks this invariant, whatever the UI claims.
+  **Known hole:** `/register/complete` sets the refresh cookie, so a user who
+  abandons at the passkey step and reloads is signed in to a passkey-less
+  account and never re-prompted. Reloading is not the only way there — Cancel
+  is live on the passkey step, the shell unmounts when the viewport crosses the
+  `md` breakpoint, and the enrolment access token dies after 5 minutes with no
+  refresh path. That session also satisfies `/authorize`, so a credential-less
+  account can be federated to a relying party. Closing the hole properly needs a
+  server-side registration-incomplete state that gates `/authorize` and `/token`
+  as well as app routes; a client-side `logout()` on the walk-away paths is a
+  worthwhile partial, since `POST /logout` needs only the cookie. See
+  `wiki/TODO.md` for all three findings.
 - **Deletion.** `deletePasskey` refuses unconditionally if the delete would
   drop the account below 1 passkey (`osn/api/src/services/auth/passkey-management.ts`). Recovery
   codes are NOT a substitute credential — they are the "my device is gone"

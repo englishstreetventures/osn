@@ -2,6 +2,7 @@ import { useAuth } from "@osn/client/solid";
 import { Register } from "@osn/ui/auth/Register";
 import { SignIn } from "@osn/ui/auth/SignIn";
 import { Dialog } from "@osn/ui/ui/dialog";
+import { createEffect } from "solid-js";
 
 import { TURNSTILE_SITEKEY } from "../lib/auth";
 import { registrationClient, loginClient, recoveryClient } from "../lib/authClients";
@@ -19,6 +20,19 @@ export function AuthDialogs(props: {
   onShowSignInChange: (open: boolean) => void;
 }) {
   const { session } = useAuth();
+
+  // A controlled Dialog never fires `onOpenChange` when the `open` prop flips
+  // on its own, so the `!session()` guard below hides a dialog without ever
+  // clearing the shell's flag. Left set, that flag re-opened the sheet the
+  // next time the session went away — sign out, and the create-account modal
+  // was waiting. Reset on any arriving session, whatever its source: this
+  // flow's own `onSuccess`, another tab, a cookie bootstrap.
+  createEffect(() => {
+    if (!session()) return;
+    if (props.showRegister) props.onShowRegisterChange(false);
+    if (props.showSignIn) props.onShowSignInChange(false);
+  });
+
   return (
     <>
       <Dialog open={props.showRegister && !session()} onOpenChange={props.onShowRegisterChange}>
@@ -27,6 +41,7 @@ export function AuthDialogs(props: {
             client={registrationClient}
             turnstileSiteKey={TURNSTILE_SITEKEY}
             onCancel={() => props.onShowRegisterChange(false)}
+            onSuccess={() => props.onShowRegisterChange(false)}
           />
         </ResponsiveDialogContent>
       </Dialog>
