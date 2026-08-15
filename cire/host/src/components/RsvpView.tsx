@@ -1,10 +1,22 @@
 import { useAuth } from "@shared/rp-auth/solid";
-import { createSignal, For, onMount, Show } from "solid-js";
+import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
+import {
+  filterRows,
+  mergeRows,
+  RSVP_FILTERS,
+  type RsvpFilterEvent,
+  type RsvpFilterKey,
+  type RsvpRow,
+  type RsvpRowStatus,
+  type RsvpStatus,
+  statusCounts,
+} from "../lib/rsvp-filter";
 import SectionIntro from "./SectionIntro";
 import EmptyState from "./ui/EmptyState";
+import Field, { Input } from "./ui/Field";
 import Notice from "./ui/Notice";
 import { Table, Td, Th } from "./ui/Table";
 
@@ -14,29 +26,7 @@ interface RsvpViewProps {
   canEdit?: boolean;
 }
 
-type RsvpStatus = "attending" | "declined" | "maybe";
-type ConsentSource = "guest" | "organiser_attested";
-
-interface RsvpViewGuest {
-  guestId: string;
-  firstName: string;
-  lastName: string;
-  familyName: string;
-  familyCode: string;
-  status: RsvpStatus;
-  dietary: string;
-  consentSource: ConsentSource;
-}
-
-interface RsvpViewInvitedGuest {
-  guestId: string;
-  firstName: string;
-  lastName: string;
-  familyName: string;
-  familyCode: string;
-}
-
-interface RsvpViewEvent {
+interface RsvpViewEvent extends RsvpFilterEvent {
   id: string;
   name: string;
   invited: number;
@@ -45,16 +35,23 @@ interface RsvpViewEvent {
   maybe: number;
   responded: number;
   noResponse: number;
-  guests: RsvpViewGuest[];
-  unresponded: RsvpViewInvitedGuest[];
 }
 
-/** Human label + badge styling per RSVP status. */
-const STATUS_META: Record<RsvpStatus, { label: string; class: string }> = {
+/** Human label + badge styling per row status. "No reply" is deliberately the
+ *  quiet one: it is the most common state early on, and a loud badge on every
+ *  second row would drown the answers that did come in. */
+const STATUS_META: Record<RsvpRowStatus, { label: string; class: string }> = {
   attending: { label: "Attending", class: "bg-gold text-bg" },
   declined: { label: "Declined", class: "border-error/40 text-error border" },
   maybe: { label: "Maybe", class: "border-gold/40 text-gold border" },
+  none: { label: "No reply", class: "border-border text-text-muted border" },
 };
+
+const CHIP_CLASS =
+  "border-border hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 " +
+  "font-body text-text-muted aria-pressed:border-gold aria-pressed:text-gold " +
+  "flex items-center gap-1.5 rounded-sm border px-3 py-1.5 text-[0.75rem] tracking-[0.06em] " +
+  "uppercase transition outline-none focus-visible:ring-2";
 
 /** Identifies the row being edited (event + guest) so only one form is open. */
 interface EditTarget {
@@ -66,18 +63,26 @@ interface EditTarget {
 }
 
 /**
- * In-dashboard RSVP summary. Per event: a status tally and the guests who
- * responded, with status + dietary + a provenance badge (organiser-entered vs
- * guest-submitted). Editors additionally get a "Record / edit" affordance to
- * enter a phone/paper RSVP on a guest's behalf — the API stamps such rows
+ * In-dashboard RSVP summary. Per event: a status tally and every guest invited
+ * to it — those who replied, with status + dietary + a provenance badge
+ * (organiser-entered vs guest-submitted), and those who have not, as "No reply"
+ * rows in the same list. Above them sits one search box and one set of status
+ * chips, applied to every event at once.
+ *
+ * Editors get a "Record / Edit" button in each row to enter a phone/paper RSVP
+ * on a guest's behalf — the API stamps such rows
  * `consent_source='organiser_attested'` and they VISIBLY OVERWRITE a prior
- * guest reply (platform-plan §3.3). Viewers see the read-only view.
+ * guest reply (platform-plan §3.3). Viewers see the same list, read-only.
  */
 export default function RsvpView(props: RsvpViewProps) {
   const { authFetch } = useAuth();
   const [events, setEvents] = createSignal<RsvpViewEvent[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
+
+  // The control bar: a search box and one status chip, applied to every event.
+  const [query, setQuery] = createSignal("");
+  const [filter, setFilter] = createSignal<RsvpFilterKey>("all");
 
   // The open editor form (one at a time), plus its transient field state.
   const [edit, setEdit] = createSignal<EditTarget | null>(null);
@@ -105,7 +110,15 @@ export default function RsvpView(props: RsvpViewProps) {
   onMount(load);
 
   const hasEvents = () => events().length > 0;
-  const hasReplies = (event: RsvpViewEvent) => event.guests.length > 0;
+  /** Every guest invited to this event, replied or not, before filtering. */
+  const rowsFor = (event: RsvpViewEvent) => mergeRows(event);
+  const shownFor = (event: RsvpViewEvent) => filterRows(rowsFor(event), query(), filter());
+
+  const counts = createMemo(() => statusCounts(events()));
+  const shownCount = createMemo(() =>
+    events().reduce((total, event) => total + shownFor(event).length, 0),
+  );
+  const filtering = () => query().trim().length > 0 || filter() !== "all";
 
   const openEditor = (
     eventId: string,
@@ -125,6 +138,16 @@ export default function RsvpView(props: RsvpViewProps) {
       status: existing?.status ?? "attending",
       dietary: existing?.dietary ?? "",
     });
+  };
+
+  /** Open the editor on a list row: prefilled when there is a reply to edit,
+   *  blank when the guest has said nothing yet. */
+  const openRow = (eventId: string, row: RsvpRow) => {
+    if (row.responded && row.status !== "none") {
+      openEditor(eventId, row, { status: row.status, dietary: row.dietary });
+      return;
+    }
+    openEditor(eventId, row);
   };
 
   const closeEditor = () => {
@@ -197,8 +220,8 @@ export default function RsvpView(props: RsvpViewProps) {
         title="Replies at a glance"
         description={
           props.canEdit
-            ? "Who's coming to each event, with dietary notes. Record a phone or paper reply on a guest's behalf — it overwrites any earlier answer and is marked as host-entered."
-            : "Who's coming to each event, with dietary notes — updated as guests reply. Read-only; download the full sheet from the Guests tab."
+            ? "Who's coming to each event, with dietary notes and who still owes a reply. Search or filter to find a guest, then record a phone or paper reply on their behalf — it overwrites any earlier answer and is marked as host-entered."
+            : "Who's coming to each event, with dietary notes and who still owes a reply — updated as guests reply. Read-only; download the full sheet from the Guests tab."
         }
       />
 
@@ -222,6 +245,46 @@ export default function RsvpView(props: RsvpViewProps) {
       </Show>
 
       <Show when={!loading() && !error() && hasEvents()}>
+        {/* One bar for the whole page, not one per event: the question a host
+            asks — who still owes a reply, who has an allergy — is asked of the
+            wedding, and each section keeps its own tallies below regardless. */}
+        <div class="flex flex-col gap-2">
+          <div class="border-border bg-surface/20 flex flex-wrap items-center gap-3 rounded-sm border p-4">
+            <Field label="Search guests" labelHidden class="min-w-[12rem] flex-1">
+              {(field) => (
+                <Input
+                  {...field}
+                  type="search"
+                  value={query()}
+                  onInput={(e) => setQuery(e.currentTarget.value)}
+                  placeholder="Search a name, household, code or dietary note…"
+                />
+              )}
+            </Field>
+            <div class="flex flex-wrap gap-2" role="group" aria-label="Filter by reply">
+              <For each={RSVP_FILTERS}>
+                {(chip) => (
+                  <button
+                    type="button"
+                    class={CHIP_CLASS}
+                    aria-pressed={filter() === chip.key}
+                    onClick={() => setFilter(chip.key)}
+                  >
+                    {chip.label}
+                    <span class="text-text font-mono text-[0.72rem]">{counts()[chip.key]}</span>
+                  </button>
+                )}
+              </For>
+            </div>
+          </div>
+          {/* Announced, because narrowing to nothing is otherwise silent. */}
+          <p role="status" class="font-body text-text-muted text-[0.78rem]">
+            <Show when={filtering()}>
+              Showing {shownCount()} of {counts().all} guests.
+            </Show>
+          </p>
+        </div>
+
         <div class="flex flex-col gap-10">
           <For each={events()}>
             {(event) => (
@@ -255,123 +318,90 @@ export default function RsvpView(props: RsvpViewProps) {
                 </header>
 
                 <Show
-                  when={hasReplies(event)}
+                  when={rowsFor(event).length > 0}
                   fallback={
                     <p class="font-body text-text-muted text-[0.82rem] italic">
-                      No replies yet for this event.
+                      No guests to show for this event.
                     </p>
                   }
                 >
-                  <Table label={`Replies for ${event.name}`} class="font-body">
-                    <caption class="sr-only">RSVPs for {event.name}</caption>
-                    <thead>
-                      <tr>
-                        <Th>Guest</Th>
-                        <Th>Household</Th>
-                        <Th>Status</Th>
-                        <Th>Dietary</Th>
-                        <Show when={props.canEdit}>
-                          <Th class="text-right">
-                            <span class="sr-only">Actions</span>
-                          </Th>
-                        </Show>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <For each={event.guests}>
-                        {(guest) => (
-                          <>
-                            <tr class="hover:[&>td]:bg-surface">
-                              <Td class="align-middle">
-                                {guest.firstName} {guest.lastName}
-                                <Show when={guest.consentSource === "organiser_attested"}>
-                                  {" "}
-                                  <span
-                                    class="border-gold/40 text-gold ml-1 inline-block rounded-sm border px-1.5 py-0.5 text-[0.55rem] tracking-[0.12em] uppercase"
-                                    title="Recorded by a host (phone/paper RSVP)"
-                                  >
-                                    Host-entered
-                                  </span>
-                                </Show>
-                              </Td>
-                              <Td class="text-text-muted align-middle">{guest.familyName}</Td>
-                              <Td class="align-middle">
-                                <span
-                                  class={`font-body inline-block rounded-sm px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase ${STATUS_META[guest.status].class}`}
-                                >
-                                  {STATUS_META[guest.status].label}
-                                </span>
-                              </Td>
-                              <Td class="text-text-muted align-middle">
-                                <Show
-                                  when={guest.dietary.trim().length > 0}
-                                  fallback={<span class="text-text-muted">--</span>}
-                                >
-                                  {guest.dietary}
-                                </Show>
-                              </Td>
-                              <Show when={props.canEdit}>
-                                <Td class="text-right align-middle">
-                                  <button
-                                    type="button"
-                                    class="border-border text-text-muted hover:text-text hover:border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.08em] uppercase"
-                                    onClick={() =>
-                                      openEditor(event.id, guest, {
-                                        status: guest.status,
-                                        dietary: guest.dietary,
-                                      })
-                                    }
-                                  >
-                                    Edit
-                                  </button>
+                  <Show
+                    when={shownFor(event).length > 0}
+                    fallback={
+                      <p class="font-body text-text-muted text-[0.82rem] italic">
+                        No guests match this filter.
+                      </p>
+                    }
+                  >
+                    <Table label={`Replies for ${event.name}`} class="font-body">
+                      <caption class="sr-only">RSVPs for {event.name}</caption>
+                      <thead>
+                        <tr>
+                          <Th>Guest</Th>
+                          <Th>Household</Th>
+                          <Th>Status</Th>
+                          <Th>Dietary</Th>
+                          <Show when={props.canEdit}>
+                            <Th class="text-right">
+                              <span class="sr-only">Actions</span>
+                            </Th>
+                          </Show>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <For each={shownFor(event)}>
+                          {(row) => (
+                            <>
+                              <tr class="hover:[&>td]:bg-surface">
+                                <Td class="align-middle">
+                                  {row.firstName} {row.lastName}
+                                  <Show when={row.consentSource === "organiser_attested"}>
+                                    {" "}
+                                    <span
+                                      class="border-gold/40 text-gold ml-1 inline-block rounded-sm border px-1.5 py-0.5 text-[0.55rem] tracking-[0.12em] uppercase"
+                                      title="Recorded by a host (phone/paper RSVP)"
+                                    >
+                                      Host-entered
+                                    </span>
+                                  </Show>
                                 </Td>
+                                <Td class="text-text-muted align-middle">{row.familyName}</Td>
+                                <Td class="align-middle">
+                                  <span
+                                    class={`font-body inline-block rounded-sm px-1.5 py-0.5 text-[0.6rem] tracking-[0.14em] uppercase ${STATUS_META[row.status].class}`}
+                                  >
+                                    {STATUS_META[row.status].label}
+                                  </span>
+                                </Td>
+                                <Td class="text-text-muted align-middle">
+                                  <Show
+                                    when={row.dietary.trim().length > 0}
+                                    fallback={<span class="text-text-muted">--</span>}
+                                  >
+                                    {row.dietary}
+                                  </Show>
+                                </Td>
+                                <Show when={props.canEdit}>
+                                  <Td class="text-right align-middle">
+                                    <button
+                                      type="button"
+                                      class="border-border text-text-muted hover:text-text hover:border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.08em] uppercase"
+                                      onClick={() => openRow(event.id, row)}
+                                    >
+                                      {row.responded ? "Edit" : "Record"}
+                                    </button>
+                                  </Td>
+                                </Show>
+                              </tr>
+                              <Show when={props.canEdit && isEditing(event.id, row.guestId)}>
+                                {renderEditorRow()}
                               </Show>
-                            </tr>
-                            <Show when={props.canEdit && isEditing(event.id, guest.guestId)}>
-                              {renderEditorRow()}
-                            </Show>
-                          </>
-                        )}
-                      </For>
-                    </tbody>
-                  </Table>
-                </Show>
-
-                {/* Record a reply for an invited guest who hasn't responded. */}
-                <Show when={props.canEdit && event.unresponded.length > 0}>
-                  <details class="border-border bg-surface/40 rounded-sm border">
-                    <summary class="font-body text-text-muted hover:text-text cursor-pointer px-4 py-2.5 text-[0.78rem]">
-                      Record a reply for another guest ({event.unresponded.length} awaiting)
-                    </summary>
-                    <ul class="flex flex-col gap-1 px-4 pb-3">
-                      <For each={event.unresponded}>
-                        {(guest) => (
-                          <li>
-                            <Show
-                              when={isEditing(event.id, guest.guestId)}
-                              fallback={
-                                <button
-                                  type="button"
-                                  class="text-text-muted hover:text-gold flex w-full items-center justify-between gap-3 py-1.5 text-left text-[0.84rem]"
-                                  onClick={() => openEditor(event.id, guest)}
-                                >
-                                  <span>
-                                    {guest.firstName} {guest.lastName}
-                                    <span class="text-text-muted"> — {guest.familyName}</span>
-                                  </span>
-                                  <span class="text-gold text-[0.72rem] tracking-[0.08em] uppercase">
-                                    Record
-                                  </span>
-                                </button>
-                              }
-                            >
-                              <div class="py-2">{renderEditorForm(guest)}</div>
-                            </Show>
-                          </li>
-                        )}
-                      </For>
-                    </ul>
-                  </details>
+                            </>
+                          )}
+                        </For>
+                      </tbody>
+                    </Table>
+                  </Show>
                 </Show>
               </section>
             )}
@@ -381,8 +411,8 @@ export default function RsvpView(props: RsvpViewProps) {
     </div>
   );
 
-  /** The editor form body, shared by the responded-row and unresponded-list
-   *  entry points. `label` names the guest being edited. */
+  /** The editor form body. `guest` names whoever the reply is being recorded
+   *  for — the form reads the same whether or not they answered before. */
   function renderEditorForm(guest: { firstName: string; lastName: string }) {
     return (
       <form
@@ -466,14 +496,14 @@ export default function RsvpView(props: RsvpViewProps) {
     );
   }
 
-  /** The editor form wrapped in a full-width table row (for the responded table). */
+  /** The editor form wrapped in a full-width row, opened under the row it edits. */
   function renderEditorRow() {
     const target = edit();
     if (!target) return null;
     const [firstName, ...rest] = target.guestName.split(" ");
     return (
       <tr>
-        <td colSpan={5} class="border-border border-b px-4 py-3">
+        <td colSpan={props.canEdit ? 5 : 4} class="border-border border-b px-4 py-3">
           {renderEditorForm({ firstName: firstName ?? "", lastName: rest.join(" ") })}
         </td>
       </tr>

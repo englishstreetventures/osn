@@ -3,11 +3,12 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/te
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
- * RsvpView is the in-dashboard RSVP summary: per event, a status tally and the
- * guests who responded (status + dietary + provenance badge). Editors also get a
- * record/edit affordance. The OSN auth + api helpers are stubbed; this asserts
- * the grouped render, the counts, the empty state, provenance badging, and the
- * organiser-record flow.
+ * RsvpView is the in-dashboard RSVP summary: per event, a status tally and every
+ * invited guest — replies (status + dietary + provenance badge) and the silent
+ * ones as "No reply" rows — under one search box and one set of status chips.
+ * Editors also get a record/edit affordance. The OSN auth + api helpers are
+ * stubbed; this asserts the grouped render, the counts, the empty state,
+ * provenance badging, the filtering, and the organiser-record flow.
  */
 
 vi.mock("@shared/rp-auth/solid", async () => {
@@ -119,13 +120,22 @@ describe("RsvpView", () => {
     expect(dl.textContent).toContain("4");
   });
 
-  it("shows a per-event empty note when no one has replied", async () => {
+  it("shows a per-event empty note when the event has no guests at all", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" />);
 
     await waitFor(() => expect(screen.getByText("Reception")).toBeTruthy());
     const reception = screen.getByText("Reception").closest("section")!;
-    expect(within(reception).getByText(/No replies yet/i)).toBeTruthy();
+    expect(within(reception).getByText(/No guests to show/i)).toBeTruthy();
+  });
+
+  it("lists a guest who has not replied in the same table, badged No reply", async () => {
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" />);
+
+    await waitFor(() => expect(screen.getByText("Cleo Jones")).toBeTruthy());
+    const row = screen.getByText("Cleo Jones").closest("tr")!;
+    expect(within(row).getByText("No reply")).toBeTruthy();
   });
 
   it("shows the no-events empty state when the wedding has no events", async () => {
@@ -161,7 +171,62 @@ describe("RsvpView", () => {
     render(() => <RsvpView weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Ada Sharma")).toBeTruthy());
     expect(screen.queryByRole("button", { name: /^Edit$/i })).toBeNull();
-    expect(screen.queryByText(/Record a reply for another guest/i)).toBeNull();
+    // The no-reply row is still listed — a viewer may read it, not act on it.
+    expect(screen.getByText("Cleo Jones")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Record$/i })).toBeNull();
+  });
+
+  it("filters every event by a status chip", async () => {
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ada Sharma")).toBeTruthy());
+
+    // The chip carries its count: 1 guest owes a reply across both events.
+    const noReply = screen.getByRole("button", { name: /^No reply/i });
+    expect(noReply.textContent).toContain("1");
+
+    fireEvent.click(noReply);
+    expect(noReply.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Cleo Jones")).toBeTruthy();
+    expect(screen.queryByText("Ada Sharma")).toBeNull();
+    expect(screen.getByText(/Showing 1 of 3 guests/i)).toBeTruthy();
+
+    // The event sections stay put, with their tallies, and say why they're bare.
+    expect(screen.getByText("Reception")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Attending/i }));
+    const ceremony = screen.getByText("Ceremony").closest("section")!;
+    expect(within(ceremony).getByText("Ada Sharma")).toBeTruthy();
+    expect(within(ceremony).queryByText("Cleo Jones")).toBeNull();
+  });
+
+  it("searches across name, household and dietary text", async () => {
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ada Sharma")).toBeTruthy());
+
+    const search = screen.getByPlaceholderText(/Search a name/i);
+    fireEvent.input(search, { target: { value: "jones" } });
+    expect(screen.getByText("Bo Jones")).toBeTruthy();
+    expect(screen.getByText("Cleo Jones")).toBeTruthy();
+    expect(screen.queryByText("Ada Sharma")).toBeNull();
+
+    // Dietary text is searchable — the caterer's question.
+    fireEvent.input(search, { target: { value: "gluten" } });
+    expect(screen.getByText("Ada Sharma")).toBeTruthy();
+    expect(screen.queryByText("Bo Jones")).toBeNull();
+  });
+
+  it("says so when a filter matches nobody", async () => {
+    authFetchMock.mockResolvedValueOnce(json(VIEW));
+    render(() => <RsvpView weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ada Sharma")).toBeTruthy());
+
+    fireEvent.input(screen.getByPlaceholderText(/Search a name/i), {
+      target: { value: "nobody" },
+    });
+    const ceremony = screen.getByText("Ceremony").closest("section")!;
+    expect(within(ceremony).getByText(/No guests match this filter/i)).toBeTruthy();
+    expect(screen.getByText(/Showing 0 of 3 guests/i)).toBeTruthy();
   });
 
   it("editor records a phone RSVP: PUTs consent-attested body and reloads", async () => {
@@ -175,9 +240,8 @@ describe("RsvpView", () => {
 
     await waitFor(() => expect(screen.getByText("Ada Sharma")).toBeTruthy());
 
-    // Open the record list for an unresponded guest.
-    fireEvent.click(screen.getByText(/Record a reply for another guest/i));
-    fireEvent.click(screen.getByRole("button", { name: /Record/i }));
+    // Cleo hasn't replied; her row carries the Record button.
+    fireEvent.click(screen.getByRole("button", { name: /^Record$/i }));
 
     // Enter dietary text → the consent checkbox appears + gates submit.
     const dietary = await screen.findByLabelText(/Dietary requirements/i);
