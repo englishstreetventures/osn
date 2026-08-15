@@ -19,6 +19,13 @@
  *
  * Dietary text is part of what a word can match on purpose. "Search nut" is the
  * caterer's question, and it has no other home in the portal.
+ *
+ * ## Why a row carries its own search text
+ *
+ * Every keystroke re-tests every row. Building the lower-cased haystack inside
+ * the predicate meant one string concatenation per row per keystroke, for text
+ * that never changes between loads. `mergeRows` builds it once instead, and
+ * `filterRows` only reads it.
  */
 
 export type RsvpStatus = "attending" | "declined" | "maybe";
@@ -63,6 +70,8 @@ export interface RsvpRow {
   /** Null on a row nobody has answered for — there is no reply to attribute. */
   consentSource: ConsentSource | null;
   responded: boolean;
+  /** Everything a typed word can land on, lower-cased once at merge time. */
+  search: string;
 }
 
 export const RSVP_FILTERS: readonly { key: RsvpFilterKey; label: string }[] = [
@@ -72,6 +81,17 @@ export const RSVP_FILTERS: readonly { key: RsvpFilterKey; label: string }[] = [
   { key: "maybe", label: "Maybe" },
   { key: "none", label: "No reply" },
 ];
+
+/** Everything about a row a word can land on, lower-cased once. */
+function haystack(guest: {
+  firstName: string;
+  lastName: string;
+  familyName: string;
+  familyCode: string;
+  dietary?: string;
+}): string {
+  return `${guest.firstName} ${guest.lastName} ${guest.familyName} ${guest.familyCode} ${guest.dietary ?? ""}`.toLowerCase();
+}
 
 /** Replies in the order the API gave them, then the guests who owe one. */
 export function mergeRows(event: RsvpFilterEvent): RsvpRow[] {
@@ -85,6 +105,7 @@ export function mergeRows(event: RsvpFilterEvent): RsvpRow[] {
     dietary: guest.dietary,
     consentSource: guest.consentSource,
     responded: true,
+    search: haystack(guest),
   }));
   const silent: RsvpRow[] = event.unresponded.map((guest) => ({
     guestId: guest.guestId,
@@ -96,13 +117,9 @@ export function mergeRows(event: RsvpFilterEvent): RsvpRow[] {
     dietary: "",
     consentSource: null,
     responded: false,
+    search: haystack(guest),
   }));
   return [...replied, ...silent];
-}
-
-/** Everything about a row a word can land on, lower-cased once per test. */
-function haystack(row: RsvpRow): string {
-  return `${row.firstName} ${row.lastName} ${row.familyName} ${row.familyCode} ${row.dietary}`.toLowerCase();
 }
 
 function terms(query: string): string[] {
@@ -112,11 +129,10 @@ function terms(query: string): string[] {
 /** Rows matching both the typed words and the chosen status. */
 export function filterRows(rows: RsvpRow[], query: string, filter: RsvpFilterKey): RsvpRow[] {
   const words = terms(query);
+  if (words.length === 0 && filter === "all") return rows;
   return rows.filter((row) => {
     if (filter !== "all" && row.status !== filter) return false;
-    if (words.length === 0) return true;
-    const text = haystack(row);
-    return words.every((word) => text.includes(word));
+    return words.every((word) => row.search.includes(word));
   });
 }
 
@@ -124,8 +140,12 @@ export function filterRows(rows: RsvpRow[], query: string, filter: RsvpFilterKey
  * How many rows each chip would show, summed over every event. A guest invited
  * to three events counts three times — the chips label rows, and rows are what
  * the list shows.
+ *
+ * Takes the merged rows rather than the raw events so the caller can hand over
+ * a merge it already holds; re-merging here would do the same work twice on
+ * every load.
  */
-export function statusCounts(events: RsvpFilterEvent[]): Record<RsvpFilterKey, number> {
+export function statusCounts(rowGroups: Iterable<RsvpRow[]>): Record<RsvpFilterKey, number> {
   const counts: Record<RsvpFilterKey, number> = {
     all: 0,
     attending: 0,
@@ -133,8 +153,8 @@ export function statusCounts(events: RsvpFilterEvent[]): Record<RsvpFilterKey, n
     maybe: 0,
     none: 0,
   };
-  for (const event of events) {
-    for (const row of mergeRows(event)) {
+  for (const rows of rowGroups) {
+    for (const row of rows) {
       counts.all += 1;
       counts[row.status] += 1;
     }

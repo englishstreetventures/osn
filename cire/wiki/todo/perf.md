@@ -5,10 +5,21 @@ related:
   - "[[index]]"
   - "[[review-findings]]"
   - "[[host-portal-layout]]"
-last-reviewed: 2026-08-08
+last-reviewed: 2026-08-15
 ---
 
 # Performance Backlog
+
+### Host RSVP search + status filter (`fix/cire-rsvp-filter-review`, 2026-08-15)
+
+Post-merge review of PR #445 (the gate was skipped when it merged). Everything below was found on the merged code; the fixes ship on the follow-up branch.
+
+- [x] **P-C1** (FIXED on the follow-up branch) — **the merge and the filter ran once per read, and the markup reads them four times per event.** `RsvpView` called `mergeRows(event)` / `filterRows(...)` from plain accessors inside the `<For>` body — the row count, the empty-state test, the table body and the tally each triggered a fresh pass. Every keystroke therefore re-merged and re-filtered every event, times four. **Fixed** by two `createMemo`s keyed by event id: `merged` (all rows per event, recomputed only when the payload changes) and `shown` (the filtered subset, recomputed only when the query or the chip changes). Reads are now map lookups.
+- [x] **P-W1** (FIXED) — **the search haystack was rebuilt per row per keystroke.** `filterRows` concatenated five fields and lower-cased them inside the predicate, for text that never changes between loads. `mergeRows` now builds `row.search` once and `filterRows` only reads it. `filterRows` also short-circuits to the input array when there is no query and the chip is `all`, so the common case allocates nothing.
+- [x] **P-I1** (FIXED) — **`statusCounts` re-merged every event to count rows the component had already merged.** Its signature is now `statusCounts(rowGroups: Iterable<RsvpRow[]>)`, fed straight from `merged().values()`.
+- [x] **P-I2** (FIXED) — **`<For>` rebuilt the whole table on every keystroke.** Solid reconciles by referential equality, and a per-read merge handed it new row objects every time, so a narrowing search discarded and recreated every remaining `<tr>` instead of removing the ones that stopped matching. The memos keep row identity stable across reads, so `<For>` patches.
+- [ ] **P-W2** (open, deliberately not attempted) — **the RSVP table has no `table-layout: fixed`, so every filter change re-runs auto table layout over the surviving rows.** Auto layout measures every cell in every row before it can size a column, which is the one layout cost that grows with row count on a change that only ever removes rows. Setting `table-layout: fixed` would make column widths a function of the header alone and take the measure pass off the filter path. **Not done here** because the column widths are currently content-derived — a household code is much wider than a status badge — and switching would need explicit widths chosen against real guest lists, plus a browser-tier measurement to prove the change is a win rather than a re-flow of the same work. File it, measure it, then do it.
+- [ ] **P-W3** (open, pre-existing) — **a saved RSVP reloads the whole wedding's payload and replaces every row object.** `load()` re-fetches `/rsvps` and `setEvents(body.events)` swaps the array wholesale, so one guest's saved reply re-merges every event and hands `<For>` an entirely new row set — the table rebuild the memos otherwise avoid, paid on every save. **Fix:** hold the payload in a `createStore` and apply the reload with `reconcile(body.events, { key: "id" })`, so only the rows whose fields actually changed are written. Left out of this branch on purpose: it changes how the component owns its state, which is a wider diff than a review follow-up should carry, and the memos make the steady-state cost (typing) cheap already — this is the save path only.
 
 ### Guest sign-out control (claude/cire-invites-claim-code-button-sn5br8, 2026-08-08)
 

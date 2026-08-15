@@ -5,12 +5,21 @@ related:
   - "[[index]]"
   - "[[overview]]"
   - "[[review-findings]]"
-last-reviewed: 2026-08-08
+last-reviewed: 2026-08-15
 ---
 
 # Security Backlog
 
 See [[overview]] for observability rules that apply to all security-sensitive code paths. See [[review-findings]] for severity prefix conventions.
+
+### Host RSVP search + status filter (`fix/cire-rsvp-filter-review`, 2026-08-15)
+
+Post-merge review of PR #445 (the gate was skipped when it merged). **No Critical, High or Medium findings.** The diff is one new pure module and one component in `cire/host` — no route, no gate, no token, no query construction, no outbound `fetch`, no dependency, no logging. Two things were checked rather than assumed: the non-repliers a viewer can now see were **already** in the `GET …/rsvps` payload this component has always fetched (the old build hid them behind an editor-only `<details>` — presentation, never authorisation, and the route is `weddingMember()`-gated for reads either way), so no recipient class widened; and search runs entirely client-side over data already in the browser, so no query text reaches the API and none is logged.
+
+- [ ] **S-L1** (open, no code change here) — **the RSVP search matches the household claim CODE, which sharpens the already-open `S-M2`.** `families.public_id` is a credential (see the claim-code row in root `[[wiki/compliance/data-map]]`) and the payload has always carried it; what is new is that any co-host, **read-only `viewer` included**, can now type a fragment and pull up the household it belongs to. On its own that is not a capability — the codes are printed on the dashboard for the same roles. It matters because the recipient set can widen **without the owner acting**: an `editor` may create a co-host seat, and owner notification is the open **S-M2** in the co-host-seats section below ("a new co-host seat is a silent, immediate grant"). Search makes a seat granted that way more useful against the codes than a scroll through a table was. Two mitigations were considered and **not** taken: a minimum query length (say 4 characters) before a code fragment is matched at all, which costs the caterer nothing and blunts fragment-probing; and dropping `familyCode` from the searchable text entirely, which would break the organiser's real workflow of pasting a code from a message to find the household. **Do S-M2 first** — it is the finding that actually bounds who is holding the codes; a length floor on top of an unnotified seat is decoration. Revisit the floor once notification lands.
+- [x] **C-L1** (FIXED on the follow-up branch) — **the Article 30 record under-listed which organiser reads disclose the claim code.** The claim-code row named `/guests`, `/households`, `/guests.csv` and `/export/guests.csv?fidelity=full`, but `rsvp-export.ts` also selects `families.public_id` as `familyCode` for the dashboard RSVP view. A record that under-reports a credential's recipients is exactly the kind that gets relied on when scoping a new gate. **Fixed:** `/rsvps` added to that cell in root `[[wiki/compliance/data-map]]`, with a note that the portal holds the code in memory and now searches it, `last-reviewed` bumped.
+- [x] **C-L2** (FIXED) — **the row action was a bare "Record" / "Edit" with nothing naming the guest.** In a table of near-identical rows, a screen-reader user tabbing the action column heard the same two words over and over with no way to tell which household they were about to write an RSVP for — and this button writes special-category dietary data under an organiser attestation. WCAG 2.2 SC 2.4.6 / 4.1.2, in scope under the EAA. **Fixed:** each button carries `aria-label="Record reply for Cleo Jones"` / `"Edit reply for Ada Sharma"`, pinned by a test naming all three.
+- [x] **C-L3** (FIXED) — **the live region announced on every keystroke.** One `role="status"` carried the visible count, so a screen reader interrupted itself on each letter with a number the host had already typed past. **Fixed** by splitting it: the printed line updates immediately (a sighted host reading a stale count is the worse failure), and a separate `sr-only role="status"` is written 450ms after typing stops. WCAG 2.2 SC 4.1.3.
 
 ### RSVP sheet close delay (`claude/rsvp-modal-close-delay-d8sqnd`, 2026-08-08)
 

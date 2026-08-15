@@ -44,7 +44,7 @@ const CEREMONY: RsvpFilterEvent = {
       familyName: "Rao",
       familyCode: "RAO-EMBER-51X8",
       status: "maybe",
-      dietary: "Nut allergy",
+      dietary: "Nut allergy (severe)",
       consentSource: "guest",
     },
   ],
@@ -87,6 +87,13 @@ describe("mergeRows", () => {
       dietary: "",
       responded: false,
     });
+  });
+
+  it("builds each row's search text once, lower-cased, over every matchable field", () => {
+    const rows = mergeRows(CEREMONY);
+    expect(rows[0]?.search).toBe("ada sharma sharma sharma-widget-ab3k9 gluten free");
+    // A silent guest has no dietary text, but is still searchable by household.
+    expect(rows[3]?.search).toBe("cleo jones jones jones-kite-77q2 ");
   });
 
   it("keeps the provenance of a reply and leaves it off a non-reply", () => {
@@ -136,6 +143,16 @@ describe("filterRows", () => {
     expect(ids(filterRows(rows, "nut", "all"))).toEqual(["g4"]);
   });
 
+  it("matches punctuation inside a dietary note as typed", () => {
+    expect(ids(filterRows(rows, "(severe)", "all"))).toEqual(["g4"]);
+    expect(ids(filterRows(rows, "allergy (severe)", "all"))).toEqual(["g4"]);
+  });
+
+  it("treats a whitespace-only query as no query at all", () => {
+    expect(ids(filterRows(rows, "   ", "all"))).toEqual(["g1", "g2", "g4", "g3"]);
+    expect(ids(filterRows(rows, " \t ", "attending"))).toEqual(["g1"]);
+  });
+
   it("applies the query and the status together", () => {
     expect(ids(filterRows(rows, "jones", "none"))).toEqual(["g3"]);
     expect(ids(filterRows(rows, "jones", "attending"))).toEqual([]);
@@ -148,7 +165,7 @@ describe("filterRows", () => {
 
 describe("statusCounts", () => {
   it("sums each status across every event, with 'all' as the total", () => {
-    expect(statusCounts([CEREMONY, RECEPTION])).toEqual({
+    expect(statusCounts([mergeRows(CEREMONY), mergeRows(RECEPTION)])).toEqual({
       all: 5,
       attending: 2,
       declined: 1,
@@ -159,6 +176,16 @@ describe("statusCounts", () => {
 
   it("counts nothing for a wedding with no events", () => {
     expect(statusCounts([])).toEqual({ all: 0, attending: 0, declined: 0, maybe: 0, none: 0 });
+  });
+
+  it("counts the same rows the list renders, taking any iterable of groups", () => {
+    const groups = new Map([
+      ["evt_1", mergeRows(CEREMONY)],
+      ["evt_2", mergeRows(RECEPTION)],
+    ]);
+    expect(statusCounts(groups.values())).toEqual(
+      statusCounts([mergeRows(CEREMONY), mergeRows(RECEPTION)]),
+    );
   });
 
   it("names every filter the chips render", () => {

@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-15
 ---
 
 # Data Map
@@ -113,7 +113,7 @@ organiser-initiated wedding administration.
 | Field | Purpose | Lawful basis | Retention | Recipients | System page |
 |---|---|---|---|---|---|
 | `families.family_name` | Guest household label on the invite + organiser guest table | Art. 6(1)(f) — legit interest in wedding administration (organiser-controlled) | Tied to wedding lifecycle — no automated purge yet (C-H1) | `@cire/api` + the wedding owner (organiser) | [[cire-auth]] |
-| `families.public_id` (claim CODE, e.g. `SHARMA-IVY-QM42`) | **Credential** — exchanged at `POST /api/claim` for a guest session; not a public identifier | Art. 6(1)(b) — contract (the access mechanism for the guest's RSVP) | Tied to wedding lifecycle (C-H1) | `@cire/api` + the wedding owner **and every co-host, viewers included** — the code is shown on the dashboard and returned by the organiser roster reads `/guests`, `/households`, `/guests.csv` and `/export/guests.csv?fidelity=full`. Treated as a secret elsewhere: redacted in logs (C-M2), and every response carrying it is `Cache-Control: no-store` | [[cire-auth]] |
+| `families.public_id` (claim CODE, e.g. `SHARMA-IVY-QM42`) | **Credential** — exchanged at `POST /api/claim` for a guest session; not a public identifier | Art. 6(1)(b) — contract (the access mechanism for the guest's RSVP) | Tied to wedding lifecycle (C-H1) | `@cire/api` + the wedding owner **and every co-host, viewers included** — the code is shown on the dashboard and returned by the organiser roster reads `/guests`, `/households`, `/guests.csv`, `/export/guests.csv?fidelity=full` and `/rsvps` (the dashboard RSVP view — `rsvp-export.ts` selects `families.public_id` as `familyCode` for every replied and unresponded guest; the portal does not print it, but it holds it in memory and, since 2026-08-15, the RSVP search matches on it). Treated as a secret elsewhere: redacted in logs (C-M2), and every response carrying it is `Cache-Control: no-store` | [[cire-auth]] |
 | `families.public_id` where `kind = 'host'` (host preview CODE, `HOST-*`) | **Credential** — organiser-provisioned code that opens the guest invite to see every event ("Preview invite"). Synthetic host family carries no real guest personal data (one placeholder member "Wedding Host"); preview-only, cannot RSVP | Art. 6(1)(f) — wedding administration (organiser self-service preview) | Tied to wedding lifecycle (C-H1) | `@cire/api` only (treated as a secret — redacted via the `publicId`/`public_id` deny-list) | [[cire-auth]] |
 | `guests.first_name`, `last_name` | Per-guest identity on the invite + RSVP attribution | Art. 6(1)(f) — wedding administration (organiser-controlled) | Tied to wedding lifecycle (C-H1) | `@cire/api` + wedding owner | [[cire-auth]] |
 | `families.code_shared_at`, `first_opened_at`, `deactivated_at` (invite-tracking timestamps) | Organiser invite-delivery tracking — drives the dashboard's Sent/Opened badges + Deactivated state and the `guests.csv` roster export. `first_opened_at` is behavioural (when a guest household first opened the invite; host-preview claims excluded) | Art. 6(1)(f) — wedding administration (organiser-controlled) | Tied to wedding lifecycle — covered by the 1-year `sweepExpiredGuestData` families sweep, see [[retention]] (C-H1 for the R2 side) | `@cire/api` + wedding owner/co-hosts (dashboard + CSV export) | [[cire-auth]] |

@@ -1,5 +1,5 @@
 import { useAuth } from "@shared/rp-auth/solid";
-import { createMemo, createSignal, For, onMount, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
@@ -110,13 +110,26 @@ export default function RsvpView(props: RsvpViewProps) {
   onMount(load);
 
   const hasEvents = () => events().length > 0;
-  /** Every guest invited to this event, replied or not, before filtering. */
-  const rowsFor = (event: RsvpViewEvent) => mergeRows(event);
-  const shownFor = (event: RsvpViewEvent) => filterRows(rowsFor(event), query(), filter());
 
-  const counts = createMemo(() => statusCounts(events()));
+  // Two memos, both keyed by event id. Without them the merge and the filter
+  // ran once per read — and the markup reads them four times per event, on
+  // every keystroke. The rows also keep their identity between reads, which is
+  // what lets <For> patch the table instead of rebuilding it.
+  /** Every guest invited to each event, replied or not, before filtering. */
+  const merged = createMemo(
+    () => new Map(events().map((event) => [event.id, mergeRows(event)] as const)),
+  );
+  const shown = createMemo(() => {
+    const q = query();
+    const f = filter();
+    return new Map([...merged()].map(([id, rows]) => [id, filterRows(rows, q, f)] as const));
+  });
+  const rowsFor = (event: RsvpViewEvent) => merged().get(event.id) ?? [];
+  const shownFor = (event: RsvpViewEvent) => shown().get(event.id) ?? [];
+
+  const counts = createMemo(() => statusCounts(merged().values()));
   const shownCount = createMemo(() =>
-    events().reduce((total, event) => total + shownFor(event).length, 0),
+    [...shown().values()].reduce((total, rows) => total + rows.length, 0),
   );
   const filtering = () => query().trim().length > 0 || filter() !== "all";
 
@@ -160,6 +173,27 @@ export default function RsvpView(props: RsvpViewProps) {
     const e = edit();
     return e !== null && e.eventId === eventId && e.guestId === guestId;
   };
+
+  // A filter that hides the row an editor is open on would otherwise leave the
+  // form floating under a row that is no longer there — and a Save would write
+  // an RSVP the host can't see. Close it instead.
+  createEffect(() => {
+    const target = edit();
+    if (!target) return;
+    const rows = shown().get(target.eventId);
+    if (!rows?.some((row) => row.guestId === target.guestId)) closeEditor();
+  });
+
+  // The count a screen reader hears, held back until the typing stops. Read
+  // live, a status region interrupts on every keystroke and says a number the
+  // host is already halfway past; the printed line beside it stays immediate,
+  // because a sighted host reading a stale number is the worse failure.
+  const [announcement, setAnnouncement] = createSignal("");
+  createEffect(() => {
+    const message = filtering() ? `Showing ${shownCount()} of ${counts().all} guest rows.` : "";
+    const timer = setTimeout(() => setAnnouncement(message), 450);
+    onCleanup(() => clearTimeout(timer));
+  });
 
   const save = async () => {
     const target = edit();
@@ -277,11 +311,15 @@ export default function RsvpView(props: RsvpViewProps) {
               </For>
             </div>
           </div>
-          {/* Announced, because narrowing to nothing is otherwise silent. */}
-          <p role="status" class="font-body text-text-muted text-[0.78rem]">
+          {/* Two readings of one fact: the printed count updates as you type,
+              the announced one waits for you to stop. */}
+          <p class="font-body text-text-muted text-[0.78rem]">
             <Show when={filtering()}>
-              Showing {shownCount()} of {counts().all} guests.
+              Showing {shownCount()} of {counts().all} guest rows.
             </Show>
+          </p>
+          <p role="status" class="sr-only">
+            {announcement()}
           </p>
         </div>
 
@@ -386,6 +424,7 @@ export default function RsvpView(props: RsvpViewProps) {
                                     <button
                                       type="button"
                                       class="border-border text-text-muted hover:text-text hover:border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.08em] uppercase"
+                                      aria-label={`${row.responded ? "Edit" : "Record"} reply for ${row.firstName} ${row.lastName}`}
                                       onClick={() => openRow(event.id, row)}
                                     >
                                       {row.responded ? "Edit" : "Record"}
