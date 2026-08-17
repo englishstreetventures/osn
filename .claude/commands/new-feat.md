@@ -48,8 +48,11 @@ The remote environment already has the repo checked out in the working directory
 
 Explore the OSN codebase and produce a concise implementation plan for the feature described in $ARGUMENTS.
 
+**Start in the wiki, not in the source.** The systems this feature touches almost certainly have a page describing their contract, their finding history, and their observability — cheaper to read than to reconstruct from code. Follow the three-tier ladder in the "Searching the wiki" section of `CLAUDE.md`: Obsidian MCP (`search_vault_smart` for meaning, `get_note_outline` before reading a whole page, `get_backlinks` to find what else depends on it), else the `obsidian` CLI (`obsidian:obsidian-cli` skill), else grep. Then go to the source to confirm what the pages claim.
+
 The plan should:
 - Identify relevant existing files and patterns (Effect.ts services, Elysia routes, Drizzle schema, SolidJS frontend)
+- Cite the wiki pages that cover the affected systems, and name which of them this feature will make stale — `/prep-pr` Step 7 has to update every one, so finding them now is cheaper than finding them at PR time
 - List the files that need to be created or modified
 - Outline the implementation steps in order
 - Flag any Effect.ts, WebSocket, or E2E encryption considerations
@@ -79,6 +82,11 @@ The plan should:
 | A bug, test failure, or unexpected behavior | `systematic-debugging` |
 | The feature is ambiguous / needs product direction | `brainstorming` **with the user first**, before implementing |
 | Importing from / pushing to Figma designs | the `figma-*` skills (`figma-use`, `figma-generate-design`, …) |
+| Writing or restructuring any page under `wiki/` (also `CLAUDE.md`, `README.md`) | `obsidian:obsidian-markdown` — wikilinks, callouts, embeds, properties, block IDs. See "Writing to the wiki" in `CLAUDE.md` for what survives on GitHub |
+| Searching the wiki from the `obsidian` CLI | `obsidian:obsidian-cli` (local machine, Obsidian running). **Read only** — its write commands hit `main`'s worktree, not your branch |
+| Reading a vendor doc, RFC, or advisory from a URL | `obsidian:defuddle` if `defuddle` is installed (`npm install -g defuddle`) — `defuddle parse <url> --md` strips the page chrome and costs far fewer tokens than WebFetch. Not for `.md`/raw URLs; those are already clean |
+| A page-shaped set of records in the wiki (backlog, inventory, status board) that a table can no longer hold | `obsidian:obsidian-bases` for a `.base` view — **only alongside the prose**, never instead of it (renders in Obsidian only) |
+| A phase graph, dependency graph, or task graph worth seeing spatially | `obsidian:json-canvas` for a `.canvas` — same Obsidian-only caveat; keep mermaid in the page for everyone else |
 
 If none apply, proceed with the repo's own conventions (root + area `CLAUDE.md`). When unsure whether a skill fits, invoke it — a wrong fit costs little.
 

@@ -91,6 +91,8 @@ Ask the user: "Do you want to address any findings before pushing?" If yes, paus
 
 Before pushing, update the relevant docs to reflect the changes made on this branch.
 
+**Invoke `obsidian:obsidian-markdown` before writing any page under `wiki/`.** It is the syntax authority for this vault — wikilinks, callouts, embeds, properties, block IDs. Two constraints on top of it, both in the "Writing to the wiki" section of `CLAUDE.md`: edit with **Edit/Write in this worktree** (the Obsidian MCP and the `obsidian` CLI both write to `main`'s tree, so they search and nothing more), and keep anything a GitHub reader needs in tables and mermaid, which render on both surfaces.
+
 **Always check and update as needed:**
 
 - **`wiki/TODO.md` — Security/Performance backlogs**: add any new `S-*` / `P-*` findings from Step 6. Use the finding ID as the item label (e.g. `- [ ] S-M1 — No rate limit on /foo endpoint`). Include `[[wiki links]]` to affected system pages (e.g., `[[rate-limiting]]`, `[[arc-tokens]]`). Mark findings resolved on this branch with `[x]` + short note.
@@ -101,6 +103,20 @@ Before pushing, update the relevant docs to reflect the changes made on this bra
   - **New system/pattern** → create a wiki page with YAML frontmatter (title, tags, related, packages, last-reviewed). Link from ≥2 existing pages. Add to the CLAUDE.md Wiki Navigation table and `wiki/index.md`.
   - **Modified system** → update the corresponding wiki page to reflect the changes.
   - **Update `last-reviewed`** in frontmatter of any wiki page you touch.
+
+**Then check the links you just wrote resolve.** A new page whose `related` points at nothing, or a `[[wikilink]]` with a typo, is invisible until someone clicks it. `mcp__obsidian-wiki__find_broken_links` is the right tool but the wrong tree — it indexes `main`, so it cannot see this branch's pages at all. Check locally instead:
+
+```bash
+# every wikilink target on the branch, minus every page that exists
+# both sides reduced to a bare page name, since links come in both
+# `[[arc-tokens]]` and `[[systems/arc-tokens]]` form
+comm -23 \
+  <(git diff origin/main...HEAD --name-only -- 'wiki/**/*.md' \
+      | xargs -r grep -oh '\[\[[^]|#]*' | sed 's/^\[\[//; s#.*/##' | sort -u) \
+  <(find wiki -name '*.md' | xargs -n1 basename | sed 's/\.md$//' | sort -u)
+```
+
+Every line of output is a link that resolves to nothing — fix it or drop it. Two things that look like breaks and aren't: a TOML array header inside a fenced code block (`[[env.<name>.d1_databases]]`) has the same shape as a wikilink and gets picked up, and a link ending in a stray `\` is a typo in the source, not a missing page. Run `find_broken_links` / `find_orphaned_notes` over the MCP **after** the PR merges, when `main` has caught up, to sweep the rot this branch didn't cause.
 
 Commit any doc updates with the message: `docs: update wiki and TODO for <branch-summary>`.
 

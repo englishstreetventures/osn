@@ -3,7 +3,7 @@ title: OSN Wiki — vault README
 tags: [wiki, meta]
 related:
   - "[[index]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-15
 ---
 
 # OSN Wiki
@@ -21,7 +21,7 @@ This directory is an [Obsidian](https://obsidian.md/) vault that holds the OSN p
 When you first open the vault, configure these settings in Obsidian:
 
 - **Settings > Files & Links > New link format**: "Shortest path when possible"
-- **Settings > Files & Links > Use [[Wikilinks]]**: ON (default)
+- **Settings > Files & Links > Use `[[Wikilinks]]`**: ON (default)
 - **Settings > Editor > Show frontmatter**: ON
 
 ## For AI Agents

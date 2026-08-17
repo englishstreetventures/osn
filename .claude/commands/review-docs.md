@@ -9,6 +9,16 @@ Docs reviewed by this skill:
 
 Read each in-scope file in full. Where a doc makes a factual claim about the code (package name, file path, route exists, column name, env var), cross-check against the actual source — grep for the symbol, `cat` the `package.json`, or list the referenced directory. A doc that is *internally tidy* but contradicts the code is the most dangerous failure mode and must be flagged at the highest tier.
 
+**Two tools to have loaded before you start.** Invoke the **`obsidian:obsidian-markdown` skill** — it is the syntax authority for this vault, and §3, §5 and §6 below all judge pages against it. Then check whether `mcp__obsidian-wiki__*` is available: the MCP indexes the vault, so `find_broken_links`, `find_orphaned_notes` and `get_backlinks` answer §4 and §6 in one call each instead of a shell pipeline.
+
+**The MCP indexes `main`, not this branch.** That is the whole of its limitation, and it decides which tool to reach for:
+
+| Reviewing | Use |
+|---|---|
+| `--full` sweep of the wiki as it stands on `main` | the MCP — it is the vault index and it is right |
+| A branch diff (the default) | the shell checks below. Run `git diff --name-only origin/main...HEAD -- 'wiki/**'` first; any page in that list is one the MCP cannot see the current version of |
+| Neither available (Obsidian shut, or running remote/CI) | grep. Expected, not a fault — don't retry or ask for Obsidian to be opened |
+
 ---
 
 ## 1. Currency — does the doc still match the code? (OWASP-of-docs)
@@ -39,16 +49,35 @@ Read each in-scope file in full. Where a doc makes a factual claim about the cod
   - S2S call sequences
 - **ASCII-art diagrams** — replace with Mermaid unless the ASCII adds something Mermaid cannot (rare). Mermaid renders in Obsidian and in GitHub's Markdown viewer.
 - **Missing at-a-glance tables** — if a page describes N of something (routes, packages, columns, limits, finding IDs) and readers will compare or reference them, a table belongs at the top.
+- **A warning buried in a paragraph** — a footgun, a "never do X", a prerequisite that bites if missed, should be a callout: `> [!warning]`, `> [!important]`, `> [!tip]`. Long asides that most readers skip belong in a collapsed one (`> [!note]- Why this was rejected`). See `obsidian:obsidian-markdown` for the full type list.
+
+**Check what surface the reader is on before recommending any of these.** Wiki pages get read in Obsidian *and* on GitHub, and the two render different subsets:
+
+| Aid | Obsidian | GitHub |
+|---|---|---|
+| Tables, mermaid, footnotes | Yes | Yes |
+| Callouts — `note` / `tip` / `important` / `warning` / `caution` | Yes | Yes (GitHub alerts, same syntax) |
+| Any other callout type, `[[wikilinks]]`, embeds, block IDs, `==highlight==` | Yes | No — literal text |
+| `.base` (Obsidian Bases), `.canvas` (JSON Canvas) | Yes | No — raw YAML/JSON |
+
+So the five alert-compatible callout types are safe everywhere; the rest are a judgement call about audience. Two further aids, both **additions to a page's prose and never a replacement for it**:
+
+- **A page-shaped set of records outgrowing its table** — a backlog, an inventory, a status board that now needs sorting and filtering. `obsidian:obsidian-bases` for a `.base` view alongside the table.
+- **A graph worth seeing spatially** — phase dependencies, system topology, a decision tree. `obsidian:json-canvas` for a `.canvas` alongside the mermaid.
+
+Flag the reverse too: a `.base` or `.canvas` carrying content that exists nowhere else is a **D-M** finding. A GitHub reader sees raw JSON, and a remote or CI session has only grep, which can read neither.
 
 ## 4. Structure — page shape and navigability
 
 - **No purpose opener** — page jumps into implementation detail without a "What is this for / why does it exist" paragraph at the top. Readers landing from a wikilink need a 2-sentence orient.
 - **Overview and deep detail interleaved** — split into "Overview" / "Current surface" / "Details" sections or, for big pages, into sibling pages.
-- **Every wiki page links to ≥2 other wiki pages** (per the repo's own `wiki/README.md` convention). Flag pages that don't.
-- **Wiki pages reachable from the map** — every `wiki/**/*.md` should be linked from `wiki/index.md` AND from the `CLAUDE.md` "Wiki Navigation" table. Flag orphans.
+- **Every wiki page links to ≥2 other wiki pages** (per the repo's own `wiki/README.md` convention). Flag pages that don't. `mcp__obsidian-wiki__get_outgoing_links` counts them per page.
+- **Wiki pages reachable from the map** — every `wiki/**/*.md` should be linked from `wiki/index.md` AND from the `CLAUDE.md` "Wiki Navigation" table. Flag orphans. On a `--full` sweep, `mcp__obsidian-wiki__find_orphaned_notes` finds these directly; `get_backlinks` on a suspect page confirms whether anything reaches it. Both index `main` — a page created on this branch will read as an orphan whether or not it is one, so check the branch's own `index.md` by hand.
 - **Related-field signals navigability** — `related` in YAML frontmatter should list the wiki pages a reader is most likely to jump to next. Empty or stale `related` blocks are a structure smell.
 
 ## 5. Frontmatter — YAML metadata
+
+Obsidian calls these **properties** and types them (text, list, date, checkbox); `obsidian:obsidian-markdown` has the rules for what parses and what silently doesn't. Consult it before flagging a shape as wrong — a `related` list written inline (`related: ["[[a]]", "[[b]]"]`) and one written as a YAML block are both valid, and calling either a finding is noise.
 
 Every wiki page (`wiki/**/*.md` except `wiki/TODO.md` and `wiki/README.md`) must have YAML frontmatter between `---` fences with:
 
@@ -66,7 +95,19 @@ Also check:
 
 ## 6. Wikilinks + cross-references
 
-- **Broken wikilinks** — `[[foo]]` whose basename doesn't match any file under `wiki/`. Derive the list by running `ls wiki/*.md wiki/*/*.md | xargs -I {} basename {} .md`.
+- **Broken wikilinks** — `[[foo]]` resolving to no file under `wiki/`. On a `--full` sweep, `mcp__obsidian-wiki__find_broken_links` is the answer: it uses Obsidian's own resolver, so it handles heading anchors (`[[page#Heading]]`), block IDs (`[[page#^id]]`), aliases (`[[page|shown as]]`) and path-style targets that a shell pipeline gets wrong. On a branch diff it is blind — it indexes `main` — so check the branch locally:
+
+  ```bash
+  # both sides reduced to a bare page name, since links appear as
+  # `[[arc-tokens]]` and as `[[systems/arc-tokens]]`
+  comm -23 \
+    <(git diff origin/main...HEAD --name-only -- 'wiki/**/*.md' \
+        | xargs -r grep -oh '\[\[[^]|#]*' | sed 's/^\[\[//; s#.*/##' | sort -u) \
+    <(find wiki -name '*.md' | xargs -n1 basename | sed 's/\.md$//' | sort -u)
+  ```
+
+  Two shapes that look like output and aren't findings: a TOML array header in a fenced code block (`[[env.<name>.d1_databases]]`) has a wikilink's shape, and a target ending in `\` is a typo in the link, not a missing page — flag the typo, not the page.
+- **Links pointing at a heading or block that moved** — `[[page#Heading]]` survives a rename of the *page* and breaks on a rename of the *heading*, silently. Any page whose headings this branch reorganised: check what links into it (`get_backlinks`, or grep for its name) before calling the rename done.
 - **Out-of-vault wikilinks** — the Obsidian vault root is `wiki/`. Links to files outside it (e.g. `[[CLAUDE]]` pointing to repo-root `CLAUDE.md`) don't resolve in graph view. Replace with relative markdown links: `` [`../CLAUDE.md`](../CLAUDE.md) ``.
 - **Relative markdown links between wiki pages** — the convention is `[[wikilinks]]`, not `[foo](../foo.md)`. Flag mixed usage.
 - **Source-file links** — links from a wiki page to source code should be relative and correct (e.g. `[osn/api/src/routes/auth.ts](../../osn/api/src/routes/auth.ts)` from `wiki/systems/`). Broken source-file links are worse than no link.
@@ -125,3 +166,5 @@ This skill is a **review** skill: by default it produces findings only, not edit
 - The finding is low-tier (D-L) and the fix is mechanical — add missing `last-reviewed`, fix a typo, replace a broken wikilink with the right one.
 
 Anything D-M or above — surface the finding, get a decision, then fix. Rewriting a page while reviewing it is how this family of drift started in the first place.
+
+When you do fix: **Edit/Write in this worktree, never the MCP write tools and never `obsidian create`/`append`/`property:set`.** Both act on the vault, and the vault is `main`'s `wiki/` — a fix applied through either lands in `main`'s working tree instead of the branch under review, where it dirties another worktree and never reaches the PR.

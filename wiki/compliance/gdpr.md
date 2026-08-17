@@ -12,7 +12,7 @@ related:
   - "[[identity-model]]"
   - "[[dpia/cire-guest-data]]"
   - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-15
 ---
 
 # GDPR + UK GDPR
@@ -32,7 +32,7 @@ becomes the controller; we process on its instruction).
 | Art. 5(1)(c) — Data minimisation | Collect only what is needed | OK — no email duplication, accountId never leaves auth boundary, IPs are HMAC-peppered hashes, metric attrs bounded | [[identity-model]], [[sessions]], [[observability/overview]] |
 | Art. 5(1)(d) — Accuracy | Let users correct their data | Profile rename + handle update in `@osn/social`; email change ceremony in `@osn/api`. **Gap** — no rectification API for non-self-service fields | [[identity-model]] |
 | Art. 5(1)(e) — Storage limitation | Don't keep data forever | **Gap** — no documented retention schedule | [[retention]] |
-| Art. 5(1)(f) — Integrity + confidentiality | Encryption, access control, hashing, redaction | Strong: passkey-primary, ES256 access tokens, SHA-256 hashed sessions / OTP / recovery codes / CDL secrets, Argon2 not in scope (no passwords), TLS at edge, log redaction deny-list, CSP, CORS, Origin guard | Most [[systems]] pages |
+| Art. 5(1)(f) — Integrity + confidentiality | Encryption, access control, hashing, redaction | Strong: passkey-primary, ES256 access tokens, SHA-256 hashed sessions / OTP / recovery codes / CDL secrets, Argon2 not in scope (no passwords), TLS at edge, log redaction deny-list, CSP, CORS, Origin guard | Most `wiki/systems/` pages |
 | Art. 6 — Lawful basis | Document the basis for each purpose | **Gap** — not documented per purpose | [[data-map]] |
 | Art. 7 — Conditions for consent | Where consent is the basis (cookies, marketing, geocoder), record it and let users withdraw | **Gap** — Photon geocoder sends keystrokes without consent (S-M13) | Fix S-M13; add consent-record table when first consent surface ships |
 | Art. 9 — Special-category data | Extra protections for health / orientation / political views / etc. | **Indirect risk** — Pulse events can reveal these (Pride parade, AA meeting). Treat all event metadata as special-category in privacy notice. | [[event-access]] |

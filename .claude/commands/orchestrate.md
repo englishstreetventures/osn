@@ -43,6 +43,8 @@ The build loop (Steps 1–5) is autonomous; the design phase is **not**. `superp
 - **Small/cohesive phase** (a plan with a handful of tightly-coupled tasks, one clear deliverable) → the Step-3 subagent runs **`/new-feat`** as usual and implements the whole phase.
 - **Large phase** (a plan with many independent tasks — the S4 PR C shape: 11 tasks) → tell the Step-3 subagent to run **`superpowers:subagent-driven-development`** against the phase's plan file instead of `/new-feat`: fresh implementer per task + per-task review + whole-branch review, all inside the one phase branch. Still one branch → one PR; `/prep-pr` (Step 4) runs once over the finished branch.
 
+For a feature with enough phases that their dependencies are hard to hold in prose, a **`.canvas` next to the plan** (`obsidian:json-canvas` — one node per phase, edges for dependencies, edges labelled with the files two phases both touch) gives the user something to check the ordering against. Optional, and only for genuinely tangled graphs; the plan file stays the source of truth, since the canvas renders in Obsidian alone.
+
 Point every Step-3 dispatch (and every reviewer) at the phase's **plan file path** and its **Global Constraints** — that plan is the single source of requirements, so you don't paste task detail into the dispatch.
 
 ---
@@ -65,6 +67,10 @@ State the plan (the ordered task list + which gets its own branch) in one short 
 
 Explore the codebase to collect **orientation pointers** for the subagent — relevant existing files, the patterns/conventions in play, reference implementations elsewhere in the repo, the schema/types involved, and any footguns. Use `Explore`/grep/Read. This is **context, not a design** — do not produce an implementation plan; the subagent plans via `/new-feat`.
 
+**Hit the wiki before the source.** Its system pages already hold the contract, the finding history, and the footguns you'd otherwise rediscover by reading code. Use the three-tier ladder in the "Searching the wiki" section of `CLAUDE.md` — Obsidian MCP (`search_vault_smart`, then `get_note_outline` and `get_vault_file_partial` so you pull one heading rather than a whole page; `get_backlinks` to find what else depends on the system), else the `obsidian` CLI, else grep.
+
+Hand the subagent **wiki page paths, not pasted wiki prose**. It has its own context window and can read them; yours is the scarce one. Include the pages the task will make stale — that's `/prep-pr` Step 7's work list.
+
 ### Step 2 — Prep the worktree + branch (`/new-feat` Agent 1A)
 
 ```bash
@@ -82,6 +88,7 @@ Dispatch ONE `general-purpose` subagent that **owns planning + implementation**.
 
 - **Invoke the `/new-feat` skill** and follow it (it routes to the right sub-skills — frontend-design, cloudflare, TDD, etc. — see the skills table in `new-feat.md`). Plan the implementation itself; do not wait for a plan from you.
 - Match repo conventions (root + area `CLAUDE.md`), add the required **changeset**, follow the observability rules, write tests (TDD where there's logic).
+- **Edit wiki pages with Edit/Write in its own worktree, invoking `obsidian:obsidian-markdown` for the syntax.** Tell it explicitly: the Obsidian MCP and the `obsidian` CLI both point at `main`'s `wiki/`, so they read but never write.
 - **Commit on the branch; do NOT push and do NOT open a PR** — `/prep-pr` (Step 4) owns PR creation.
 - **If it hits a decision it cannot resolve** from the context + sensible defaults, **STOP and return `NEEDS INPUT: <question> + options + your recommendation`** in its final report rather than guessing — you will answer or escalate (see "Handling subagent questions").
 
@@ -136,6 +143,9 @@ Subagents cannot prompt the user — they surface `NEEDS INPUT` in their report.
 | Fresh worktrees have **no `node_modules`** | the subagent must `bun install` at the worktree root before running tests |
 | LSP diagnostics in a worktree are often **stale/wrong** (no node_modules → bad type resolution) | trust the real `bun test` / `tsc --noEmit` / `wrangler dry-run` over streamed diagnostics |
 | Merging many PRs in sequence: the release workflow auto-versions on each merge, and sibling PRs touching the same file (e.g. `wrangler.toml`, an entry `index.ts`) conflict | merge in dependency order; rebase + resolve additively as you go |
+| A wiki edit made through the Obsidian MCP or the `obsidian` CLI lands in **`main`'s working tree**, not the task's branch — it never reaches the PR, and it dirties `main` | both are read-only by construction here (the vault path is baked to `main/wiki/`). Search with them; edit with Edit/Write in the task's worktree. If `main` is already dirty, tell the user — never reset another worktree |
+| The MCP shows the pre-branch version of a page the task just rewrote, so a later step "corrects" the branch back to stale content | `git diff --name-only origin/main...HEAD -- wiki/` before trusting an MCP result. Any page in that list → read the branch copy |
+| Obsidian shut, or the task running remote/CI → `mcp__obsidian-wiki__*` absent and `obsidian` not on PATH | expected, not a fault. Drop straight to grep; don't retry or ask for Obsidian to be opened. `.base`/`.canvas` files are unreadable at this tier — another reason they never carry load-bearing content |
 
 ---
 

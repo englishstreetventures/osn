@@ -130,17 +130,22 @@ If it refuses, leave it alone — never force or reset another worktree. Grep yo
 
 That's the whole protocol: freshen, one guard command, then lean on semantic search instead of grepping and reading whole pages.
 
-**2. Obsidian CLI** — same limits: local machine, app running:
+**2. Obsidian CLI** — same limits: local machine, app running. Invoke the **`obsidian:obsidian-cli` skill** for the command surface; it wraps `obsidian help`, which is authoritative and stays current. Quick reference:
 
 ```bash
 which obsidian 2>/dev/null || echo "not installed"
-obsidian search query="arc tokens"                     # full-text search
-obsidian search:context query="arc tokens"             # search with line context
-obsidian tag name=systems verbose                      # list files tagged #systems
-obsidian read path=wiki/systems/arc-tokens.md          # read a page
-obsidian backlinks file=arc-tokens                     # find pages linking to it
-obsidian files folder=wiki/systems                     # list files in a folder
+obsidian search vault=wiki query="arc tokens"          # full-text search
+obsidian search:context vault=wiki query="arc tokens"  # search with line context
+obsidian tag vault=wiki name=systems verbose           # list files tagged #systems
+obsidian read vault=wiki path=systems/arc-tokens.md    # read a page
+obsidian backlinks vault=wiki file=arc-tokens          # find pages linking to it
+obsidian files vault=wiki folder=systems               # list files in a folder
 ```
+
+Two repo-specific rules the skill can't know:
+
+- **Paths are vault-root-relative, and the vault root is `wiki/`.** `path=systems/arc-tokens.md`, not `path=wiki/systems/...` — the latter errors with `File not found`. `file=` takes a wikilink target (`file=arc-tokens`) instead.
+- **Read only, same as the MCP and for the same reason.** The CLI acts on the vault, and the vault is `main`'s `wiki/`. `create`, `append`, and `property:set` would write to `main`'s working tree, not your branch. There are three vaults registered (`wiki`, `echo_chamber`, `vault_india_22`) — always pass `vault=wiki` rather than trusting the default.
 
 **3. grep** — works everywhere, including remote and CI. Reads your worktree's own `wiki/`:
 
@@ -149,12 +154,29 @@ grep -r "arc token" wiki/ --include="*.md" -l          # find matching pages
 grep -r "arc token" wiki/ --include="*.md" -n          # with line numbers
 ```
 
+### Writing to the wiki
+
+Searching is the three tiers above. **Writing is always Edit/Write in your own worktree** — never the MCP write tools, never `obsidian create`/`append`/`property:set`. Both of those target `main`'s working tree.
+
+Invoke the **`obsidian:obsidian-markdown` skill** before writing or restructuring any page under `wiki/`. It is the syntax authority for the flavour this vault is in: wikilinks (`[[Note#Heading]]`, `[[Note#^block-id]]`, `[[Note|alias]]`), embeds (`![[…]]`), callouts (`> [!warning]`, `> [!faq]-` for collapsed), properties, `#nested/tags`, `%%comments%%`, `==highlights==`, and mermaid nodes that link back to notes (`class NodeName internal-link;`). Don't hand-guess the syntax — half of it is not CommonMark.
+
+Two rendering surfaces, and pages are read on both:
+
+| Feature | Obsidian | GitHub |
+|---|---|---|
+| Tables, mermaid, footnotes | Yes | Yes |
+| Callouts — `note`/`tip`/`important`/`warning`/`caution` only | Yes | Yes (GitHub alerts, same syntax) |
+| Any other callout type, `[[wikilinks]]`, embeds, block IDs, `==highlight==` | Yes | No — renders as literal text |
+| `.base` (Obsidian Bases) and `.canvas` (JSON Canvas) files | Yes | No — raw YAML/JSON |
+
+So: tables and mermaid for anything a reader might hit through GitHub; the Obsidian-only features where the vault is the real audience. `.base` and `.canvas` are additions to a page's prose, never a replacement for it — a remote or CI session only has grep, and grep can't read either.
+
 ### Wiki maintenance rules
 
 - **New system or pattern** → create wiki page, link from table above and `[[wiki/index]]`.
 - **Modify existing pattern** → update wiki page in same PR.
 - **Every wiki page must have YAML frontmatter** with `title`, `tags`, `related`, `last-reviewed`.
-- **Use `[[wiki links]]`** between wiki pages; never relative markdown links.
+- **Use `[[wiki links]]`** between wiki pages; never relative markdown links. The vault is `wiki/` alone, so a page in another tree — `cire/wiki/` — cannot be reached by a wikilink in any form: cite it as a backticked repo path (`` `cire/wiki/systems/vendors.md` ``). `[[vendors]]`, `[[systems/vendors]]` and `[[cire/wiki/systems/vendors]]` all render as broken links.
 - **Security/performance findings** in `wiki/TODO.md` include `[[wiki links]]` to affected system pages (e.g., `[[rate-limiting]]`, `[[arc-tokens]]`).
 - **Update `last-reviewed`** in frontmatter of any wiki page you touch.
 
@@ -219,7 +241,7 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | oxfmt | `.oxfmtrc.json` — import sorting + Tailwind class sorting |
 | Runtime | Use `bunx --bun` for all tooling |
 | Branching | PRs required to merge to main; always work on feature branch |
-| Changesets | Every PR includes changeset (`bun run changeset`) — CI fails without. Package names must match workspace `name` field exactly (e.g. `"@pulse/web"`, not `"pulse"`). Never mix ignored (version-less, e.g. `@cire/*`) and versioned packages in one changeset — split them; Changeset Check (`scripts/validate-changesets.sh`) enforces both rules. **One exception**, added with the Swift work: a PR that touches nothing any versioned package ships — `shared/swift/`, `pulse/ios/`, `osn/ios/`, `.github/`, `scripts/`, `wiki/`, `docs/`, top-level prose — needs no changeset, because there is no honest package to name. The test is an **allowlist** (`scripts/changeset-required.sh`, fixtures in `changeset-required.test.sh`): anything not on it, including `bun.lock` and root `turbo.json`/`tsconfig.json`, still requires one |
+| Changesets | Every PR includes changeset (`bun run changeset`) — CI fails without. Package names must match workspace `name` field exactly (e.g. `"@pulse/web"`, not `"pulse"`). Never mix ignored (version-less, e.g. `@cire/*`) and versioned packages in one changeset — split them; Changeset Check (`scripts/validate-changesets.sh`) enforces both rules. **One exception**, added with the Swift work: a PR that touches nothing any versioned package ships — `shared/swift/`, `pulse/ios/`, `osn/ios/`, `.github/`, `.claude/`, `scripts/`, `wiki/`, `docs/`, top-level prose — needs no changeset, because there is no honest package to name. The test is an **allowlist** (`scripts/changeset-required.sh`, fixtures in `changeset-required.test.sh`): anything not on it, including `bun.lock` and root `turbo.json`/`tsconfig.json`, still requires one |
 | Versioning | Automatic — changesets consumed + committed by CI on merge to main |
 
 ## Commands

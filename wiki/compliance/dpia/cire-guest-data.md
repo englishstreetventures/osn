@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-08-02
+last-reviewed: 2026-08-15
 ---
 
 # DPIA — Cire guest data
@@ -202,7 +202,7 @@ household. Art. 36 prior consultation is not triggered.
 - Deactivating a family still deletes its sessions in the same commit, and the
   restore re-checks `deactivated_at` independently.
 
-**Outstanding mitigation — required, tracked as S-M2 in [[cire/wiki/todo/security]].**
+**Outstanding mitigation — required, tracked as S-M2 in `cire/wiki/todo/security.md`.**
 There is no guest sign-out: `sessionService.revoke` exists but is wired to no
 guest-facing route, and the guest site offers no session control at all. A
 credential that auto-exercises itself needs a user-controlled way to stop it.
