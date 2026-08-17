@@ -1,0 +1,56 @@
+name: Musubi
+options:
+  bundleIdPrefix: social.musubi
+  deploymentTarget:
+    iOS: "26.0"
+packages:
+  OSNShared:
+    path: ../../shared/swift/OSNShared
+targets:
+  Musubi:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: Sources
+    dependencies:
+      - package: OSNShared
+        product: OSNKit
+      - package: OSNShared
+        product: OSNAuth
+      - package: OSNShared
+        product: OSNUI
+      - package: OSNShared
+        product: OSNAuthUI
+      - package: OSNShared
+        product: MusubiFeature
+    settings:
+      base:
+        # Changing this means changing `osn/social/public/.well-known/
+        # apple-app-site-association` in the same commit — it names
+        # `<TEAMID>.<bundle id>`, and a stale entry there means the
+        # associated domain silently never forms and passkeys never appear.
+        PRODUCT_BUNDLE_IDENTIFIER: social.musubi.app
+        DEVELOPMENT_TEAM: FV59Y8RSUH
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        GENERATE_INFOPLIST_FILE: "YES"
+        SWIFT_VERSION: "6.2"
+    # The App Group `group.social.musubi.session` is registered under team
+    # FV59Y8RSUH, so the shared cookie jar resolves and every OSN app signs in
+    # once. The string must stay in step with
+    # OSNKit/SharedCookieJar.swift:10 (osnSessionAppGroupIdentifier) — change
+    # one and the jar silently splits in two.
+    #
+    # Both capabilities are on the App ID: App Groups (with this group
+    # assigned) and Associated Domains. Adding or removing a capability there
+    # invalidates every provisioning profile carrying this App ID, so they
+    # have to be regenerated afterwards.
+    entitlements:
+      path: Musubi.entitlements
+      properties:
+        com.apple.developer.associated-domains:
+          - webcredentials:musubi.social
+        com.apple.security.application-groups:
+          - group.social.musubi.session

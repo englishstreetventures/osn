@@ -62,7 +62,7 @@ jobs:
             # it at build time — so a spec-only change can break the iOS build
             # while touching no file under `shared/swift/`. This very PR is that
             # case: it rewrites every nullable field's spelling and nothing else.
-            if echo "$changed" | grep -qE '^(shared/swift/|shared/openapi/|pulse/ios/|\.github/workflows/ci-swift\.yml$)'; then
+            if echo "$changed" | grep -qE '^(shared/swift/|shared/openapi/|pulse/ios/|osn/ios/|\.github/workflows/ci-swift\.yml$)'; then
               echo "ios=true" >> "$GITHUB_OUTPUT"
             else
               echo "ios=false" >> "$GITHUB_OUTPUT"
@@ -73,6 +73,8 @@ jobs:
             echo "ios=true" >> "$GITHUB_OUTPUT"
           fi
 
+  # Name kept as-is even though this job now also builds Musubi — a required
+  # status check may pin the exact string "swift test + xcodebuild (Pulse)".
   swift:
     name: swift test + xcodebuild (Pulse)
     needs: changes
@@ -113,11 +115,32 @@ jobs:
       # "OpenAPIGenerator" in package "swift-openapi-generator"`. The flag is
       # how you consent on a runner. The package and its version are pinned in
       # `Package.resolved`, so this doesn't widen what code can run.
-      - name: xcodebuild
+      # Both apps consume the same `OSNShared` products (`OSNKit`, `OSNAuth`,
+      # `OSNUI`). DerivedData is keyed per project by default, so without a
+      # shared path the second xcodebuild recompiles all three from scratch
+      # inside the same job. One path, one compile.
+      - name: xcodebuild (Pulse)
         working-directory: pulse/ios
         run: |
           xcodebuild -scheme Pulse \
             -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -skipPackagePluginValidation \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO \
+            EXCLUDED_ARCHS=x86_64 \
+            build
+
+      - name: xcodegen generate (Musubi)
+        working-directory: osn/ios
+        run: xcodegen generate
+
+      - name: xcodebuild (Musubi)
+        working-directory: osn/ios
+        run: |
+          xcodebuild -scheme Musubi \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             -skipPackagePluginValidation \
             -quiet \
             CODE_SIGNING_ALLOWED=NO \
