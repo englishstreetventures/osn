@@ -42,6 +42,31 @@ enum PasskeyCeremony {
 ///   closure returns, before the ceremony completes. Both the controller and
 ///   this runner are held as strong properties/locals for the whole async
 ///   call so neither disappears mid-ceremony.
+/// Brief T3 §2 — the handle a caller keeps to cancel a still-running
+/// ceremony. `PasskeyCeremony.perform` above is untouched: the modal path
+/// is fire-and-forget and has never needed cancellation. Autofill does,
+/// since a `.task`-armed request can outlive the view that started it.
+@MainActor
+final class PasskeyCeremonyHandle {
+    private let runner: PasskeyCeremonyRunner
+    private let requests: [ASAuthorizationRequest]
+    private let autoFill: Bool
+
+    init(requests: [ASAuthorizationRequest], autoFill: Bool = false, anchorProvider: @escaping PresentationAnchorProvider) {
+        runner = PasskeyCeremonyRunner(anchorProvider: anchorProvider)
+        self.requests = requests
+        self.autoFill = autoFill
+    }
+
+    func result() async throws -> ASAuthorization {
+        try await runner.run(requests: requests, autoFill: autoFill)
+    }
+
+    func cancel() {
+        runner.cancel()
+    }
+}
+
 final class PasskeyCeremonyRunner: NSObject, ASAuthorizationControllerDelegate,
     ASAuthorizationControllerPresentationContextProviding
 {
@@ -53,16 +78,45 @@ final class PasskeyCeremonyRunner: NSObject, ASAuthorizationControllerDelegate,
         self.anchorProvider = anchorProvider
     }
 
-    func run(requests: [ASAuthorizationRequest]) async throws -> ASAuthorization {
-        try await withCheckedThrowingContinuation { continuation in
-            let guarded = SingleResumeContinuation(continuation)
-            self.guarded = guarded
-            let controller = ASAuthorizationController(authorizationRequests: requests)
-            controller.delegate = self
-            controller.presentationContextProvider = self
-            self.controller = controller
-            controller.performRequests()
+    /// `autoFill` arms `performAutoFillAssistedRequests()` (conditional UI,
+    /// iOS-only — brief T3 §3) instead of the modal `performRequests()`.
+    /// Default keeps `PasskeyCeremony.perform`'s existing call site
+    /// (`runner.run(requests: requests)`) compiling unchanged.
+    func run(requests: [ASAuthorizationRequest], autoFill: Bool = false) async throws -> ASAuthorization {
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                let guarded = SingleResumeContinuation(continuation)
+                self.guarded = guarded
+                let controller = ASAuthorizationController(authorizationRequests: requests)
+                controller.delegate = self
+                controller.presentationContextProvider = self
+                self.controller = controller
+                if autoFill {
+                    #if os(iOS)
+                    controller.performAutoFillAssistedRequests()
+                    #else
+                    preconditionFailure("performAutoFillAssistedRequests() does not exist on macOS")
+                    #endif
+                } else {
+                    controller.performRequests()
+                }
+            }
+        } onCancel: {
+            // Brief T3 §2 — without this, a `.task`-started autofill whose
+            // Task is cancelled on disappear awaits a continuation nothing
+            // resumes and hangs forever. `SingleResumeContinuation` guards
+            // double-resume, not never-resume. `onCancel` is `@Sendable` and
+            // can run off the main actor, so hop back to call `cancel()`.
+            Task { @MainActor in
+                self.cancel()
+            }
         }
+    }
+
+    /// Shared by `PasskeyCeremonyHandle.cancel()` (explicit) and the
+    /// `onCancel` handler above (implicit Task cancellation).
+    func cancel() {
+        controller?.cancel()
     }
 
     func authorizationController(

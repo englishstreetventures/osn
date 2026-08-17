@@ -26,58 +26,24 @@ public final class PasskeyLoginClient: Sendable {
         turnstileToken: String? = nil,
         anchorProvider: @escaping PresentationAnchorProvider
     ) async throws -> PasskeyLoginCompleteResponse {
-        let begun = try await begin(identifier: identifier, turnstileToken: turnstileToken)
-        let options = begun.options
-
-        // RP ID always comes off the response (DoD 4) — never hardcoded.
-        let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: options.rpId)
-        guard let challenge = Base64URL.decode(options.challenge) else {
-            throw OSNAuthError.responseMalformed(status: 200)
-        }
-        let assertionRequest = provider.createCredentialAssertionRequest(challenge: challenge)
-        assertionRequest.allowedCredentials = try options.allowCredentials.map { credential in
-            guard let id = Base64URL.decode(credential.id) else {
-                throw OSNAuthError.responseMalformed(status: 200)
-            }
-            return ASAuthorizationPlatformPublicKeyCredentialDescriptor(credentialID: id)
-        }
-        if let preference = RequestHelpers.userVerificationPreference(from: options.userVerification) {
-            assertionRequest.userVerificationPreference = preference
-        }
-
-        let target: PasskeyLoginTarget
-        if let identifier {
-            target = .identifier(identifier)
-        } else if let challengeId = begun.challengeId {
-            target = .challengeId(challengeId)
-        } else {
-            throw OSNAuthError.responseMalformed(status: 200)
-        }
+        let begun = try await beginLogin(identifier: identifier, turnstileToken: turnstileToken)
+        let assertionRequest = try makeAssertionRequest(from: begun)
+        let target = try loginTarget(identifier: identifier, begun: begun)
 
         let authorization = try await PasskeyCeremony.perform(
             requests: [assertionRequest],
             anchorProvider: anchorProvider
         )
-        guard let credential = authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion else {
-            throw OSNAuthError.unexpectedCredentialType
-        }
-
-        let assertion = AuthenticationResponseJSON(
-            id: Base64URL.encode(credential.credentialID),
-            rawId: Base64URL.encode(credential.credentialID),
-            authenticatorAttachment: "platform",
-            response: AuthenticatorAssertionResponseJSON(
-                clientDataJSON: Base64URL.encode(credential.rawClientDataJSON),
-                authenticatorData: Base64URL.encode(credential.rawAuthenticatorData),
-                signature: Base64URL.encode(credential.signature),
-                userHandle: credential.userID.map(Base64URL.encode)
-            )
-        )
+        let assertion = try packageAssertion(authorization)
 
         return try await complete(target: target, assertion: assertion)
     }
 
-    private func begin(identifier: String?, turnstileToken: String?) async throws -> PasskeyLoginBeginResponse {
+    /// Autofill (brief T3 §4) reuses each step individually: `beginLogin` with
+    /// `identifier: nil` to get a discoverable challenge, `makeAssertionRequest`
+    /// to arm `performAutoFillAssistedRequests()`, then `loginTarget` +
+    /// `packageAssertion` once the QuickType suggestion resolves.
+    func beginLogin(identifier: String?, turnstileToken: String?) async throws -> PasskeyLoginBeginResponse {
         var request = URLRequest(url: environment.baseURL.appendingPathComponent("login/passkey/begin"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -94,6 +60,57 @@ public final class PasskeyLoginClient: Sendable {
             throw OSNAuthError.responseMalformed(status: http.statusCode)
         }
         return decoded
+    }
+
+    /// RP ID always comes off the response (DoD 4) — never hardcoded.
+    func makeAssertionRequest(
+        from begun: PasskeyLoginBeginResponse
+    ) throws -> ASAuthorizationPlatformPublicKeyCredentialAssertionRequest {
+        let options = begun.options
+        let provider = ASAuthorizationPlatformPublicKeyCredentialProvider(relyingPartyIdentifier: options.rpId)
+        guard let challenge = Base64URL.decode(options.challenge) else {
+            throw OSNAuthError.responseMalformed(status: 200)
+        }
+        let assertionRequest = provider.createCredentialAssertionRequest(challenge: challenge)
+        assertionRequest.allowedCredentials = try options.allowCredentials.map { credential in
+            guard let id = Base64URL.decode(credential.id) else {
+                throw OSNAuthError.responseMalformed(status: 200)
+            }
+            return ASAuthorizationPlatformPublicKeyCredentialDescriptor(credentialID: id)
+        }
+        if let preference = RequestHelpers.userVerificationPreference(from: options.userVerification) {
+            assertionRequest.userVerificationPreference = preference
+        }
+        return assertionRequest
+    }
+
+    /// A typed `identifier` always wins; a discoverable/conditional-UI begin
+    /// (`identifier == nil`) falls back to the server-issued `challengeId`.
+    func loginTarget(identifier: String?, begun: PasskeyLoginBeginResponse) throws -> PasskeyLoginTarget {
+        if let identifier {
+            return .identifier(identifier)
+        } else if let challengeId = begun.challengeId {
+            return .challengeId(challengeId)
+        } else {
+            throw OSNAuthError.responseMalformed(status: 200)
+        }
+    }
+
+    func packageAssertion(_ authorization: ASAuthorization) throws -> AuthenticationResponseJSON {
+        guard let credential = authorization.credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion else {
+            throw OSNAuthError.unexpectedCredentialType
+        }
+        return AuthenticationResponseJSON(
+            id: Base64URL.encode(credential.credentialID),
+            rawId: Base64URL.encode(credential.credentialID),
+            authenticatorAttachment: "platform",
+            response: AuthenticatorAssertionResponseJSON(
+                clientDataJSON: Base64URL.encode(credential.rawClientDataJSON),
+                authenticatorData: Base64URL.encode(credential.rawAuthenticatorData),
+                signature: Base64URL.encode(credential.signature),
+                userHandle: credential.userID.map(Base64URL.encode)
+            )
+        )
     }
 
     /// Internal, not private: lets `OSNAuthTests` exercise the

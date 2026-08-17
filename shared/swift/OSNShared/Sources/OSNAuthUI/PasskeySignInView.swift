@@ -52,6 +52,14 @@ public struct PasskeySignInView: View {
             .disabled(isSigningIn)
         }
         .padding()
+        #if os(iOS)
+        .task {
+            await session.startAutoFillSignIn(anchorProvider: anchorProvider)
+        }
+        .onDisappear {
+            session.cancelAutoFillSignIn()
+        }
+        #endif
     }
 
     private func signIn(identifier: String?) {
