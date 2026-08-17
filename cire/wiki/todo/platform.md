@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[platform-plan]]"
   - "[[future]]"
-last-reviewed: 2026-08-14
+last-reviewed: 2026-08-15
 ---
 
 # Platform
@@ -60,5 +60,5 @@ PR slicing + dependency order in [[platform-plan]] §3.6 (PRs 0–2 parallel; IA
   - [x] Schema + entitlement + organiser API
   - [x] **Host portal module** (2026-08-14) — rail entry + `list`/`gifts` sub-tabs in `dashboard-route.ts`, `registry-store.ts` (vendors-shaped snapshot cache with inflight dedupe), `RegistryView.tsx` (add/edit/remove items, ↑/↓ reorder with an optimistic splice, paged gift log, thank-you toggle), and `UpsellPanel` copy. The whole module sits behind the entitlement `<Show>`, so the **upsell is what an organiser sees today** — the module below it is unreachable without a comp grant. Three points worth knowing before touching it: the gift log renders three guest-authored fields (`note`, `displayName`, `familyName`) as **text nodes only**, pinned by an S-L3 test that renders a `<script>`-shaped note; both price inputs are `step="any"`, since `0.01` makes a valid three-decimal KWD price a browser-level constraint violation; and there is deliberately **no Overview card**, because a registry tile would fire a guaranteed-402 request on the busiest page in the portal for every wedding. Not built here: the settings form (publish, shipping address, cash gifts) and any image field — the editor omits `imageKey` rather than ship an input with no picker behind it.
   - [ ] Link preview + image picker (paste a URL → choose an image; hardened fetcher)
-  - [ ] Guest surface (invite section, claim/release routes)
+  - [x] **Guest surface** (2026-08-15) — the invite section in both design packs, the claim/release controls and the household read, over the guest routes that landed with the API. Counts only, no optimistic update, and the 409 race handled by refetching and saying so. Full write-up in [[web]]; contract in [[registry]] §Guest surface.
   - [ ] Stripe Connect (Express): onboarding, hosted Checkout, webhook, balance-transaction FX capture

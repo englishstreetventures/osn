@@ -44,6 +44,13 @@ export interface InviteCustomisation {
   // older API simply keeps the built-in copy.
   details?: { eyebrow: string | null; heading: string | null };
   welcome?: { message: string | null };
+  // Gift-registry section header copy (eyebrow + heading + intro body). Same
+  // nullable-means-built-in-default contract as `details`, and optional for the
+  // same mid-deploy reason. Note this copy is PUBLIC and independent of the
+  // registry itself: a wedding that never opened a registry may still carry a
+  // heading here, and whether the section renders at all is decided by the
+  // registry endpoint's own entitlement + `published` check, never by this.
+  registry?: { eyebrow: string | null; heading: string | null; body: string | null };
   // NOTE: the closing section (`footer_*`) is deliberately ABSENT here. It is
   // addressed to the invited household, so the API redacts it from the public
   // `GET /api/invite/:slug` this type describes and delivers it in the claim

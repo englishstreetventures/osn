@@ -23,8 +23,43 @@ const CLAIMED_HINT = "cire_claimed";
 /** Matches the session TTL in `cire/api/src/routes/claim.ts` (30 days). */
 const CLAIMED_HINT_MAX_AGE = 30 * 24 * 60 * 60;
 
-function hasClaimedHint(): boolean {
+/**
+ * Whether this browser has ever claimed. Exported because the gift-registry
+ * section needs the same gate for the same reason the restore does: its
+ * household read (`GET …/registry/mine`) is credentialed, so on a first-time
+ * visitor it is a guaranteed 401 — and unlike the restore it would fire on a
+ * PUBLIC section every visitor scrolls past, i.e. once per page view.
+ */
+export function hasClaimedHint(): boolean {
   return document.cookie.split(";").some((c) => c.trim().startsWith(`${CLAIMED_HINT}=`));
+}
+
+/**
+ * Fired on `window` whenever this browser's household session CHANGES — a claim
+ * landing ({@link noteClaimed}) or an explicit sign-out ({@link signOut}).
+ *
+ * The guest page is several ISLANDS, not one app. `InvitePage` owns the code
+ * form and therefore the claim; the gift registry is its own island beside it,
+ * because the public registry read is unauthenticated and must render for a
+ * visitor who has not claimed — which `InvitePage`, gated on a claim, cannot do.
+ * They share no Solid root, and a claim navigates nowhere: the reveal is an
+ * in-page animation. So nothing but this event can tell the second island that
+ * the first one just signed in.
+ *
+ * Without it the registry keeps the signed-out surface for the rest of the
+ * visit, and its advice — "enter your invite code at the top of this page" —
+ * points at a form the unlock sequence has already faded away.
+ *
+ * A bare `CustomEvent` with no payload, deliberately: the receiver re-reads the
+ * server rather than trusting anything carried across, so this says only "ask
+ * again", never "you are signed in".
+ */
+export const CLAIM_SESSION_EVENT = "cire:claim-session";
+
+/** Tell the other islands to re-read their household state. */
+function announceClaimSession(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(CLAIM_SESSION_EVENT));
 }
 
 /**
@@ -45,6 +80,8 @@ export function noteClaimed(): void {
   // the browser drop the cookie, silently disabling the restore in local dev.
   const secure = window.location.protocol === "https:" ? "; Secure" : "";
   document.cookie = `${CLAIMED_HINT}=1; Path=/; Max-Age=${CLAIMED_HINT_MAX_AGE}; SameSite=Lax${secure}`;
+  // The cookie alone is inert: no other island is watching `document.cookie`.
+  announceClaimSession();
 }
 
 /**
@@ -65,6 +102,10 @@ export function noteClaimed(): void {
  */
 export async function signOut(apiUrl: string): Promise<boolean> {
   clearClaimedHint();
+  // Announced BEFORE the revoke round trip, and whatever it answers — the same
+  // rule the boolean below exists for: a guest on a borrowed phone who taps
+  // "Sign out" must not be left looking at controls that still say "Reserve".
+  announceClaimSession();
   try {
     const res = await fetch(`${apiUrl}/api/claim/signout`, {
       method: "POST",

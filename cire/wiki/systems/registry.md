@@ -7,7 +7,7 @@ related:
   - "[[platform-plan]]"
   - "[[consent]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-08-14
+last-reviewed: 2026-08-15
 ---
 
 # Gift registry
@@ -281,6 +281,36 @@ Candidates are filtered to `https:` **again in the browser** before any of them 
 
 ---
 
+## Guest surface (`@cire/invites`)
+
+`src/lib/gift-registry.ts` is the client, `src/components/gift-registry/` is the UI: `GiftRegistrySection.tsx` (the section, both reads, every write) and `GiftRegistryItemCard.tsx` (one gift, its own claim form). Both design packs mount the section from `Document.astro` as a `client:visible={{ rootMargin: "600px" }}` island between `<InvitePage>` and `<SiteFooter>`.
+
+**It is its own island, not a section inside `InvitePage`.** The public read is unauthenticated and `InvitePage`'s whole body is gated on a claim, so a section living inside it could not render for a visitor who has not entered their code. A signed-out guest sees the gifts and a line telling them to enter their invite code — never a button that can only 401.
+
+**Counts, never names.** The card renders `giftRegistryRemainingCopy` ("1 of 2 left", "All reserved") and, for a taken item, "Another guest has this one covered." The only name on the page is this household's own `displayName`, read from the credentialed `…/registry/mine` route and echoed back to the people who typed it. Notes are never rendered at all — they are addressed to the couple. Pinned by tests in both component files that assert no `reserved by`-shaped text and no claimant identity in the DOM.
+
+**No optimistic update anywhere, on purpose.** Every count a guest reads came from a read the server had just answered. A claim that returns 409 `item_fully_claimed` refetches **both** reads, then says: *"Another guest reserved the last "X" a moment ago. The list below is up to date."* — and leaves the guest's form open with what they typed still in it. `applyOutcome` is the single place that decides what a write means: `ok` / `fully-claimed` / `item-gone` re-read both, `hidden` re-reads the list (which then 404s and unmounts the section, the honest end state), `signed-out` drops to the signed-out surface, and rate-limited / invalid / transport errors re-read nothing because nothing moved.
+
+**The list is keyed by id, not by item.** `<For>` reconciles by reference and every refetch parses fresh objects, so iterating the items would dispose and re-create every row on each re-read — throwing away the open claim form at precisely the moment the 409 path re-reads in order to show the new counts *beside* the words the guest just wrote. It iterates `itemIds()` and looks the item up in `itemsById()`.
+
+**The reserve ceiling is not `remaining`.** The server's claim is an upsert whose availability guard excludes the caller's own row, so a household may raise its own reservation to `remaining + ownClaim.quantity` (capped at 99). A household holding both of two copies still sees a Change control, not a dead card.
+
+**`external_url` is re-checked at the render site.** `giftRegistryExternalHref` re-parses the column and returns `null` for anything that is not `https:` (and for embedded credentials), so a non-https value renders no link at all rather than an `<a href>`; the link carries `target="_blank" rel="noopener noreferrer"`. Same reasoning as **CON-S-L2** and as the organiser-side re-filter: a render site that trusts its input because of what the server promised is one API change away from being wrong.
+
+**Reads.** The public list read is uncredentialed and `no-store`. The household read passes `credentials: "include"` — the guest cookie is host-scoped to the API origin, which is a different origin from the guest site, and a cross-origin fetch on the default `same-origin` mode drops it silently. It is also gated on the `cire_claimed` hint cookie (`hasClaimedHint`, now exported from `claim-session.ts`): this section is public and every visitor scrolls past it, so an unconditional `…/registry/mine` would spend a guaranteed 401 **per page view** rather than per guest, against an account-wide Workers Free budget.
+
+**States that look alike and are not.** An unpublished or unentitled registry 404s and the section renders nothing at all; a published empty one renders its heading and "The couple haven't added any gifts yet." The shipping address renders only when the household read actually returned one — the field is optional on the wire and carries no reason, so absent covers both "the couple set none" and "you may not see it", and there is nothing honest to print in its place.
+
+**Copy and theme.** `registry_*` copy columns reach the island as `eyebrow` / `heading` / `body` props; `null` means the built-in default (`With Love` / `Gift Registry`), the same contract as the details section. Where both exist, the invite's own section copy wins over the registry module's `headline` / `message`, because it is section furniture themed with every other header. `ThemeSection` gains `"registry"`, so the section takes a tone through the same `sectionVars` allow-list as the rest.
+
+**Status is a live region at the section root**, never an overlay: this section sits among animated ones and any ancestor `transform` traps `position: fixed`. The claim form is inline in the card for the same reason.
+
+**`kind: "cash_fund"` is not special-cased.** It renders like any other item. Contributions land with Stripe Connect; a contribute flow over a backend that cannot take a charge would be UI standing in for something that does not exist.
+
+**Not built here:** contributions, and any surface for a claim's `status` beyond `reserved`.
+
+---
+
 ## Observability
 
 `cire.registry.item.write` (attribute: `action` = create/update/remove) and `cire.registry.gift` (attribute: `action` = thanked/unthanked). Both are attributed by action only — no `weddingId`, `itemId` or `familyId` ever reaches a metric attribute; those belong in spans and logs.
@@ -297,5 +327,5 @@ Every handler runs `Effect.tapDefect` before its catch-all, so a defect is **log
 
 ## Still to land
 
-- Guest surface: the invite section, the claim/release routes, the household read path
+- Organiser settings form: the publish toggle, the shipping address, cash gifts — the three fields the guest surface already reads and cannot yet be set from the portal
 - Stripe Connect (Express): onboarding, hosted Checkout, the webhook, and the balance-transaction FX capture described under [Money](#money)

@@ -4,7 +4,8 @@ import { apiPreconnectHref } from '../../lib/api-origin'
 import { inviteTitle } from '../../lib/invite-title'
 import InviteHeader from './InviteHeader'
 import InvitePage from './InvitePage'
-import { paletteRootVars, styleAttr } from '../../components/invite-theme'
+import { filterThemeVars, paletteRootVars, sectionVars, styleAttr } from '../../components/invite-theme'
+import { GiftRegistrySection } from '../../components/gift-registry/GiftRegistrySection'
 import SiteFooter from '../../components/SiteFooter.astro'
 import { ConsentBanner } from '../../components/consent/ConsentBanner'
 import type { InviteDesignProps } from '../types'
@@ -38,6 +39,11 @@ const preloadHeroHref = heroBase ? `${heroBase}${heroSep}variant=hero-bg` : null
 // Warm the browser's connection to cire-api. See `lib/api-origin.ts` for why
 // this is separate from the hero preload and why it carries no `crossorigin`.
 const apiPreconnect = apiPreconnectHref(apiUrl)
+
+// The gift-registry section's surface, resolved server-side from the same SSR
+// payload every other section uses. Filtered through the allow-list because it
+// is spread into a `style` object in the island.
+const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, 'registry'))
 ---
 <!DOCTYPE html>
 <html lang="en" style={paletteStyle}>
@@ -88,6 +94,21 @@ const apiPreconnect = apiPreconnectHref(apiUrl)
       theme={initialInvite?.theme ?? null}
       details={initialInvite?.details ?? null}
       welcomeMessage={initialInvite?.welcome?.message ?? null}
+    />
+    {/* The couple's gift list. Its OWN island, deliberately after InvitePage:
+        the public registry read is unauthenticated, so it must render for a
+        visitor who hasn't entered their code — which InvitePage, gated on a
+        claim, cannot do. `client:visible` because it is below the fold on every
+        invite; the section renders nothing at all when the registry is
+        unpublished or the wedding isn't entitled (that read 404s). */}
+    <GiftRegistrySection
+      client:visible={{ rootMargin: "600px" }}
+      apiUrl={apiUrl}
+      slug={slug}
+      eyebrow={initialInvite?.registry?.eyebrow ?? null}
+      heading={initialInvite?.registry?.heading ?? null}
+      body={initialInvite?.registry?.body ?? null}
+      themeVars={registryVars}
     />
     {/* Site-wide chrome: the couple's name over the legal links. Always here,
         on the invite and on the legal pages alike. The couple's own sign-off is
