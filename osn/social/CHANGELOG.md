@@ -1,5 +1,11 @@
 # @osn/social
 
+## 0.12.5
+
+### Patch Changes
+
+- 37ee823: Add `social.musubi.app` (the Musubi iOS app) to the `apple-app-site-association` webcredentials list, alongside Pulse, so passkey autofill associates with the new app.
+
 ## 0.12.4
 
 ### Patch Changes
