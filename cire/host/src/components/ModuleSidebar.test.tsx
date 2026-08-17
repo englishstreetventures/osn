@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { MODULE_NAV } from "../lib/module-nav";
 import ModuleSidebar from "./ModuleSidebar";
 
 /**
@@ -39,6 +40,7 @@ describe("ModuleSidebar", () => {
       "✓Checklist",
       "$Budget",
       "⬡Vendors",
+      "⊞Registry",
       "✎Guests",
       "✦Invite",
       "✧Settings",
@@ -70,7 +72,7 @@ describe("ModuleSidebar", () => {
       // Drop the close button; keep the module rows.
       .filter((b) => b.getAttribute("aria-label") !== "Close modules")
       .map((b) => b.textContent);
-    expect(sheetLabels).toHaveLength(8);
+    expect(sheetLabels).toHaveLength(MODULE_NAV.length);
     expect(sheetLabels[0]).toContain("Overview");
     // Every module reachable in one screen — the point of replacing the strip.
     expect(sheetLabels.some((l) => l?.includes("Settings"))).toBe(true);

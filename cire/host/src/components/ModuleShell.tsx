@@ -38,9 +38,22 @@ const loadEventsEditor = () => import("./EventsEditor");
 const loadGuestsEditor = () => import("./GuestsEditor");
 const loadInviteBuilder = () => import("./InviteBuilder");
 
+/**
+ * The registry, split out for a different reason than the three above.
+ *
+ * It is a read view, so by the rule above it would stay eager. It doesn't,
+ * because it is the only module gated by an entitlement **no wedding holds**:
+ * every organiser today loads its tree, its money formatting and its two panels
+ * to be shown an upsell instead (REG-P-W4). Once the entitlement is granted the
+ * cost lands on the rail click that opens the module — one chunk, warmed by the
+ * hover on either sub-tab through `PANEL_LOADERS` below.
+ */
+const loadRegistry = () => import("./RegistryView");
+
 const EventsEditor = lazy(loadEventsEditor);
 const GuestsEditor = lazy(loadGuestsEditor);
 const InviteBuilder = lazy(loadInviteBuilder);
+const RegistryView = lazy(loadRegistry);
 
 /**
  * Which sub-tab hides which chunk, so pointing at one can start its fetch.
@@ -69,6 +82,8 @@ const PANEL_LOADERS: Partial<Record<`${Module}:${string}`, () => Promise<unknown
   "events:edit": loadEventsEditor,
   "guests:edit": loadGuestsEditor,
   "invite:design": loadInviteBuilder,
+  "registry:list": loadRegistry,
+  "registry:gifts": loadRegistry,
 };
 
 /** The map's keys, for the drift guard in `ModuleShell.test.tsx`. */
@@ -153,6 +168,10 @@ const MODULE_SUB_TABS: Partial<Record<Module, SubDef[]>> = {
     { id: "index", label: "My vendors" },
     { id: "browse", label: "Browse" },
     { id: "enquiries", label: "Enquiries" },
+  ],
+  registry: [
+    { id: "list", label: "Gift list" },
+    { id: "gifts", label: "Gifts received" },
   ],
   guests: [
     { id: "list", label: "Households" },
@@ -428,6 +447,33 @@ export default function ModuleShell(props: ModuleShellProps) {
                       canEdit={props.canEdit}
                     />
                   </Show>
+                </Show>
+              </Show>
+
+              {/* ── Registry: the gift list + the gifts received ─────────────── */}
+              <Show when={props.module === "registry"}>
+                <Show
+                  when={props.entitlements.includes("registry")}
+                  fallback={<UpsellPanel feature="registry" />}
+                >
+                  {/* One boundary for both subs: they are the same chunk, so a
+                  sub switch never re-suspends once it has landed. */}
+                  <Suspense fallback={<PanelLoading />}>
+                    <Show when={active() === "list"}>
+                      <RegistryView
+                        weddingId={props.weddingId}
+                        view="list"
+                        canEdit={props.canEdit}
+                      />
+                    </Show>
+                    <Show when={active() === "gifts"}>
+                      <RegistryView
+                        weddingId={props.weddingId}
+                        view="gifts"
+                        canEdit={props.canEdit}
+                      />
+                    </Show>
+                  </Suspense>
                 </Show>
               </Show>
 

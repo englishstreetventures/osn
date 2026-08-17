@@ -26,6 +26,7 @@ export const MODULE_NAV: ModuleDef[] = [
   { id: "checklist", label: "Checklist", glyph: "✓", hint: "Your planning tasks by lead time" },
   { id: "budget", label: "Budget", glyph: "$", hint: "Estimates, quotes, and payments" },
   { id: "vendors", label: "Vendors", glyph: "⬡", hint: "Track and book your suppliers" },
+  { id: "registry", label: "Registry", glyph: "⊞", hint: "Your gift list and what has arrived" },
   { id: "guests", label: "Guests", glyph: "✎", hint: "Households, invites, and RSVPs" },
   { id: "invite", label: "Invite", glyph: "✦", hint: "Photos, story, colours, and codes" },
   { id: "settings", label: "Settings", glyph: "✧", hint: "Profile, budget, and co-hosts" },

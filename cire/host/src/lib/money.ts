@@ -100,6 +100,41 @@ export function formatMinor(
 }
 
 /**
+ * Parse a major-unit amount typed into a price field ("12.50") into minor units.
+ *
+ * The inverse of {@link formatMinor}, and it exists for the same reason that one
+ * reads the exponent instead of dividing by 100: the portal's older price inputs
+ * multiply by a hardcoded 100, which is right for AUD and wrong by 100× the
+ * moment a wedding's primary currency is JPY. Reuses the memoised exponent, so
+ * parsing constructs no extra formatter.
+ *
+ * Returns `null` for empty, non-numeric or negative input, so a caller rejects
+ * rather than POSTing a `NaN` the schema would 400 on anyway.
+ */
+export function parseMinor(text: string, currency: string): number | null {
+  const trimmed = text.trim();
+  if (trimmed === "") return null;
+  const units = Number(trimmed);
+  if (!Number.isFinite(units) || units < 0) return null;
+  return Math.round(units * 10 ** exponentFor(currency));
+}
+
+/**
+ * Minor units back into the bare major-unit string a `<input type="number">`
+ * holds — "12.50", not "$12.50".
+ *
+ * The other half of {@link parseMinor}, and needed for the same reason: an edit
+ * form seeded with `minor / 100` is wrong by 100× in JPY the moment the host
+ * opens the row, and SAVES that wrong number if they touch anything else. No
+ * currency symbol and no grouping separators, because a number input rejects
+ * both and would silently come up empty.
+ */
+export function minorToInput(minor: number, currency: string): string {
+  const exponent = exponentFor(currency);
+  return (minor / 10 ** exponent).toFixed(exponent);
+}
+
+/**
  * Format a gift the way the host should read it: the amount **as given** first,
  * with its primary-currency equivalent underneath — and a single figure when the
  * gift already arrived in the wedding's primary currency.

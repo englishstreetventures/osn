@@ -1,7 +1,7 @@
 import type { Component } from "solid-js";
 
 interface UpsellPanelProps {
-  feature: "vendors";
+  feature: "vendors" | "registry";
 }
 
 const COPY: Record<UpsellPanelProps["feature"], { title: string; blurb: string }> = {
@@ -9,10 +9,14 @@ const COPY: Record<UpsellPanelProps["feature"], { title: string; blurb: string }
     title: "Vendors & directory",
     blurb: "Browse trusted wedding vendors and manage your shortlist in one place.",
   },
+  registry: {
+    title: "Gift registry",
+    blurb: "List the gifts you'd like, and see what guests have claimed and sent.",
+  },
 };
 
 /**
- * Upsell panel shown in place of a locked module (Phase 1: vendors only).
+ * Upsell panel shown in place of a locked module (Phase 1: vendors, registry).
  * Pricing and checkout are deferred to Phase 2 — the CTA is intentionally
  * inert (`disabled`) so no price copy or payment flow is wired here.
  */

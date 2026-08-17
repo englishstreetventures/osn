@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { __resetMoneyFormatters, formatMinor, formatMinorPair } from "./money";
+import {
+  __resetMoneyFormatters,
+  formatMinor,
+  formatMinorPair,
+  minorToInput,
+  parseMinor,
+} from "./money";
 
 /**
  * ENQ-P-W3. The behaviour these pin is mostly the memoisation, because that is
@@ -99,6 +105,56 @@ describe("formatMinor", () => {
     const ctor = countConstructions();
     for (let i = 0; i < 25; i += 1) formatMinor(i * 100, "JPY");
     expect(ctor).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("parseMinor", () => {
+  afterEach(() => {
+    __resetMoneyFormatters();
+    vi.restoreAllMocks();
+  });
+
+  it("round-trips a typed major-unit amount into minor units", () => {
+    expect(parseMinor("12.50", "AUD")).toBe(1250);
+    expect(parseMinor(" 12 ", "AUD")).toBe(1200);
+  });
+
+  it("uses the currency's exponent rather than a hardcoded 100", () => {
+    // The mistake this exists to prevent: ¥1000 typed into a price field became
+    // 100_000 minor units — ¥100,000 — under a fixed `× 100`.
+    expect(parseMinor("1000", "JPY")).toBe(1000);
+    expect(parseMinor("1", "KWD")).toBe(1000);
+  });
+
+  it("returns null for empty, non-numeric or negative input", () => {
+    expect(parseMinor("", "AUD")).toBeNull();
+    expect(parseMinor("   ", "AUD")).toBeNull();
+    expect(parseMinor("free", "AUD")).toBeNull();
+    expect(parseMinor("-5", "AUD")).toBeNull();
+  });
+});
+
+describe("minorToInput", () => {
+  afterEach(() => {
+    __resetMoneyFormatters();
+    vi.restoreAllMocks();
+  });
+
+  it("renders a bare number a number input will accept", () => {
+    // No symbol, no grouping separator: `<input type="number">` rejects both and
+    // comes up empty rather than complaining.
+    expect(minorToInput(1_234_56, "AUD")).toBe("1234.56");
+    expect(minorToInput(1000, "JPY")).toBe("1000");
+  });
+
+  it("round-trips with parseMinor", () => {
+    for (const [minor, currency] of [
+      [1250, "AUD"],
+      [1000, "JPY"],
+      [1000, "KWD"],
+    ] as const) {
+      expect(parseMinor(minorToInput(minor, currency), currency)).toBe(minor);
+    }
   });
 });
 

@@ -6,6 +6,7 @@ related:
   - "[[budget]]"
   - "[[platform-plan]]"
   - "[[consent]]"
+  - "[[drag-and-drop]]"
 last-reviewed: 2026-08-14
 ---
 
@@ -160,6 +161,26 @@ The parse also **rejects embedded credentials** (`https://evil.com@retailer.exam
 Registry images are **always our own copy in R2**, through the existing invite-assets pipeline. Never hotlink a retailer image: an off-origin `img-src` breaks the guest site's CSP and would need a vendor entry in the [[consent]] registry.
 
 **An `imageKey` must name this wedding's own upload.** Keys are `assets/<weddingId>/<name>`, so an editor on wedding A could otherwise set an item's image to `assets/<weddingB>/hero` and read a private photo out of a wedding they have no role on — an object-reference hole, not a validation nicety. Both `POST /registry/items` and `PATCH /registry/items/:itemId` compare the key's wedding segment against the route's `:weddingId` and answer **400 `image_key_not_in_wedding`** otherwise. The schema separately pins the key's *shape* (`assets/<segment>/<segment>`, no dots, no traversal), so a malformed key 400s before the ownership check ever runs — the two guards answer different questions and both are wanted.
+
+---
+
+## Organiser surface (`@cire/host`)
+
+The module lives at `cire/host/src/components/RegistryView.tsx`, wired into the rail by `lib/module-nav.ts`, into the route grammar by `lib/dashboard-route.ts` (`MODULE_SUBS.registry = ["list", "gifts"]`) and into the shell by `components/ModuleShell.tsx`. Both sub-tabs mount the **same** component with a `view` prop — one fetch, one cache, two renders.
+
+**The upsell is the normal state.** The shell wraps the module in `<Show when={entitlements.includes("registry")} fallback={<UpsellPanel feature="registry" />}>`, exactly as vendors does. No wedding holds the entitlement, so an organiser navigating to Registry today sees the panel, and the module below it is code nobody can reach without a comp grant.
+
+**No Overview card.** The obvious "gifts received" tile would fire a guaranteed-402 request on the most-loaded page in the portal, for every wedding, forever, to render nothing. It lands with the entitlement, not before.
+
+**`lib/registry-store.ts`** is the vendors snapshot cache in the same shape: one `GET /registry` per wedding, an inflight map so two mounts share a request, and `invalidateRegistry` on any write. Writes mutate the cached snapshot rather than refetching, which is what makes the reorder and the thank-you toggle feel instant.
+
+**Reorder is buttons, not drag.** ↑/↓ per row, optimistic splice, then `PATCH .../items/reorder` with the full `orderedIds`. See [[drag-and-drop]] — solid-dnd has no keyboard sensor, and a gift list only a mouse can reorder is not one everyone can reorder.
+
+**Money in the UI.** Prices are authored in `weddings.currency` and parsed by `parseMinor` (`lib/money.ts`), which rounds to the currency's own exponent; `minorToInput` is its inverse for seeding the edit form. Both price inputs use `step="any"` deliberately — `step="0.01"` makes a valid three-decimal KWD price a constraint violation the browser refuses before any handler runs. A foreign-currency gift renders **as given** as the headline with the snapshotted primary equivalent underneath, and `contributionsPrimaryMinor` is labelled approximate on screen, because it is a sum of per-day rates and reading it as an exact balance is the mistake worth pre-empting.
+
+**S-L3 — the gift log renders three guest-authored fields.** `note`, `displayName` and the household's `familyName` all come from people we do not control, and all three go through Solid's `{expr}` interpolation and nothing else: no `innerHTML`, no markdown renderer, no rich text anywhere on this path. If a future PR wants formatted notes, it needs a sanitiser and a review, not a renderer. Pinned by `renders a script-shaped note, display name and family name as literal text (S-L3)` in `RegistryView.test.tsx`, which asserts the payload appears as text *and* that no `script`, `img` or `b` element exists in the container.
+
+**Not built yet on this surface:** the settings form (publish toggle, shipping address, cash gifts), and any image field — the editor omits `imageKey` entirely rather than shipping an input with no picker and no serve path behind it.
 
 ---
 
