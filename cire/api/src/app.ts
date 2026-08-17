@@ -49,6 +49,11 @@ import {
   createRegistryReadRoutes,
   createRegistryWriteRoutes,
 } from "./routes/registry";
+import {
+  createRegistryGuestClaimRoutes,
+  createRegistryGuestMineRoutes,
+  createRegistryGuestRoutes,
+} from "./routes/registry-guest";
 import { createRsvpRoutes } from "./routes/rsvp";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
 import {
@@ -198,6 +203,22 @@ const defaultRegistryPreviewLimiter = createRateLimiter({ maxRequests: 10, windo
  * organiser has to preview before they can pick.
  */
 const defaultRegistryImageLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+/**
+ * Default per-IP limiter for the two GUEST registry writes (claim / release).
+ *
+ * Per-IP, not per-user: a guest has no user, only a household cookie — the same
+ * shape as `defaultClaimLimiter` and for the same reason. The budget is 20/min,
+ * sized like the account-link writes: a household picking gifts claims a few
+ * things, changes its mind about one, marks another purchased weeks later. It is
+ * deliberately looser than the 5/min claim-code budget (that one guards a
+ * guessable credential; this one sits BEHIND that credential) and tighter than
+ * the 60/min session probe (that one is a page load; these are writes).
+ *
+ * A NAT'd venue-wifi household shares an IP, hence 20 rather than 10 — still far
+ * below what it costs anyone else, since the conditional INSERT behind it is one
+ * indexed statement.
+ */
+const defaultRegistryGuestLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 /**
  * Default per-IP limiter for the pre-auth OIDC redirect legs (`/oidc/start`,
  * `/oidc/callback`). Tighter than the session probe below — these are the
@@ -408,6 +429,8 @@ export interface AppOptions {
   registryPreviewLimiter?: RateLimiterBackend;
   /** Override the registry image-save rate limiter (useful for testing). */
   registryImageLimiter?: RateLimiterBackend;
+  /** Override the guest registry claim/release rate limiter (useful for testing). */
+  registryGuestLimiter?: RateLimiterBackend;
   /**
    * Test seam: injectable `fetch` + DNS resolver for the registry link-preview
    * service, so its route tests reach no network. Production passes nothing and
@@ -476,6 +499,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
     enquiryLimiter = defaultEnquiryLimiter,
     registryPreviewLimiter = defaultRegistryPreviewLimiter,
     registryImageLimiter = defaultRegistryImageLimiter,
+    registryGuestLimiter = defaultRegistryGuestLimiter,
     registryLinkPreviewOptions,
     // Key-optional default: an inert provider that serves registry defaults with
     // no network, so an app built without GrowthBook config behaves exactly as
@@ -642,6 +666,19 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check
       // here is pure friction. Claim + organiser login keep the gate.
       .use(createRsvpRoutes(db))
+      // Guest gift registry, three sibling instances by gate class: the public
+      // reads take no auth at all, `/registry/mine` needs the household cookie,
+      // and the two writes need that cookie PLUS a per-IP limiter an Elysia
+      // guard would otherwise spread over the read. Same no-Turnstile argument
+      // as RSVP above — the cookie came from a Turnstile-gated `/api/claim`.
+      //
+      // Every route here is invisible without the `registry` entitlement, which
+      // NO wedding holds: they answer 404 `registry_not_found`, not 402, because
+      // an unauthenticated caller must not learn which weddings have bought
+      // which features.
+      .use(createRegistryGuestRoutes(db, { assets, images }))
+      .use(createRegistryGuestMineRoutes(db))
+      .use(createRegistryGuestClaimRoutes(db, { limiter: registryGuestLimiter }))
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
       .use(createOrganiserExportRoutes(db, osnAuthOptions, exportLimiter))
       .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))

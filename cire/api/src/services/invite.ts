@@ -78,6 +78,12 @@ export interface InviteTheme {
     story: SectionTone | null;
     details: SectionTone | null;
     welcome: SectionTone | null;
+    // Gift-registry section (migration 0057). Read-only for now: the theme WRITE
+    // body (`InviteThemeBody`) is total, so adding a key there would 400 every
+    // save the host portal already sends. The column exists and is emitted so
+    // the guest site can paint the section; the builder control that sets it is
+    // a separate change.
+    registry: SectionTone | null;
   };
 }
 
@@ -130,6 +136,18 @@ export interface InviteCustomisation {
   welcome: {
     message: string | null;
   };
+  // Gift-registry section copy (migration 0057). Same nullable-means-built-in-
+  // default contract as `details` / `story`, and public for the same reason:
+  // it is section furniture on the invite shell, not household-addressed prose
+  // like the closing note. Whether the section RENDERS at all is decided by the
+  // registry's own endpoint (entitlement + `published`), never by this copy —
+  // so a wedding that never opened a registry may still carry a heading here,
+  // and no guest ever sees it.
+  registry: {
+    eyebrow: string | null;
+    heading: string | null;
+    body: string | null;
+  };
   // Footer closing note (0049) + its optional image (0050) — a small centred
   // monogram / motif / signature above the note. Both `null` ⇒ the guest site
   // renders NEITHER; there is no built-in default here, unlike
@@ -160,7 +178,7 @@ const EMPTY_THEME: InviteTheme = {
   bodyStyle: null,
   palettePreset: null,
   palette: { ground: null, card: null, ink: null, gilt: null, bloom: null },
-  tones: { hero: null, story: null, details: null, welcome: null },
+  tones: { hero: null, story: null, details: null, welcome: null, registry: null },
 };
 
 // The defaults a wedding with no customisation row reports — identical to the
@@ -176,6 +194,7 @@ const EMPTY: InviteCustomisation = {
   story: { eyebrow: null, heading: null, body: null, imageUrl: null, imageCrop: null },
   details: { eyebrow: null, heading: null },
   welcome: { message: null },
+  registry: { eyebrow: null, heading: null, body: null },
   footer: { message: null, imageUrl: null, imageCrop: null },
   heroDisplay: DEFAULT_HERO_DISPLAY,
   theme: EMPTY_THEME,
@@ -242,6 +261,9 @@ function toCustomisation(
     detailsEyebrow: string | null;
     detailsHeading: string | null;
     welcomeMessage: string | null;
+    registryEyebrow: string | null;
+    registryHeading: string | null;
+    registryBody: string | null;
     footerMessage: string | null;
     heroImageKey: string | null;
     storyImageKey: string | null;
@@ -272,6 +294,7 @@ function toCustomisation(
     storyTone: string | null;
     detailsTone: string | null;
     welcomeTone: string | null;
+    registryTone: string | null;
     inviteMessage: string | null;
     // NOT NULL column, but a LEFT JOIN miss (no customisation row) yields null.
     designId: string | null;
@@ -305,6 +328,11 @@ function toCustomisation(
     },
     details: { eyebrow: c.detailsEyebrow, heading: c.detailsHeading },
     welcome: { message: c.welcomeMessage },
+    registry: {
+      eyebrow: c.registryEyebrow,
+      heading: c.registryHeading,
+      body: c.registryBody,
+    },
     footer: {
       message: c.footerMessage,
       imageUrl: c.footerImageKey ? imagePath(slug, "footer", version) : null,
@@ -343,6 +371,7 @@ function toCustomisation(
         story: c.storyTone as SectionTone | null,
         details: c.detailsTone as SectionTone | null,
         welcome: c.welcomeTone as SectionTone | null,
+        registry: c.registryTone as SectionTone | null,
       },
     },
     inviteMessage: c.inviteMessage,
@@ -402,6 +431,9 @@ export const inviteService = {
             detailsEyebrow: weddingInviteCustomisations.detailsEyebrow,
             detailsHeading: weddingInviteCustomisations.detailsHeading,
             welcomeMessage: weddingInviteCustomisations.welcomeMessage,
+            registryEyebrow: weddingInviteCustomisations.registryEyebrow,
+            registryHeading: weddingInviteCustomisations.registryHeading,
+            registryBody: weddingInviteCustomisations.registryBody,
             footerMessage: weddingInviteCustomisations.footerMessage,
             heroImageKey: weddingInviteCustomisations.heroImageKey,
             storyImageKey: weddingInviteCustomisations.storyImageKey,
@@ -430,6 +462,7 @@ export const inviteService = {
             storyTone: weddingInviteCustomisations.storyTone,
             detailsTone: weddingInviteCustomisations.detailsTone,
             welcomeTone: weddingInviteCustomisations.welcomeTone,
+            registryTone: weddingInviteCustomisations.registryTone,
             inviteMessage: weddingInviteCustomisations.inviteMessage,
             designId: weddingInviteCustomisations.designId,
             updatedAt: weddingInviteCustomisations.updatedAt,

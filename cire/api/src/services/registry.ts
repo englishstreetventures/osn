@@ -29,6 +29,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { commitGroupedBatches, DbService, dbQuery } from "../db";
+import { entitlementService } from "./entitlements";
 import { REGISTRY_IMAGE_NAME } from "./invite-assets";
 
 /** No item with this id under this wedding (missing or another wedding's). 404-class. */
@@ -51,6 +52,17 @@ export class RegistryItemLimitReached extends Data.TaggedError("RegistryItemLimi
  * throw, which surfaces as a 500 and says nothing useful.
  */
 export class InvalidQuantity extends Data.TaggedError("InvalidQuantity") {}
+/**
+ * No registry a guest may see at this slug. 404-class, and DELIBERATELY one error
+ * for four different causes: unknown slug, wedding without the `registry`
+ * entitlement, registry never opened, registry opened but unpublished.
+ *
+ * Telling them apart would tell an unauthenticated caller which weddings exist
+ * and which of them are drafting a gift list — so the guest surface answers all
+ * four the same way, the same posture the session-gated invite image slots take
+ * (404, not 401/403).
+ */
+export class RegistryNotVisible extends Data.TaggedError("RegistryNotVisible") {}
 
 /** One page of the gift log. A wedding's log is unbounded; a snapshot is not. */
 const GIFT_LOG_PAGE = 50;
@@ -1082,5 +1094,286 @@ export const registryService = {
       );
       return itemRows.length > 0 || contributionRows.length > 0;
     }).pipe(Effect.withSpan("cire.registry.hasRows"));
+  },
+};
+
+// ── Guest surface ─────────────────────────────────────────────────────────────
+//
+// Everything below serves the GUEST site, off a wedding slug rather than a
+// `:weddingId` path segment, behind no organiser role gate. It is a separate
+// export rather than more methods on `registryService` because the audience —
+// and therefore what may leave the process — is different: `registryService.get`
+// returns the gift log, Stripe account state and the shipping address to a
+// caller the route already proved owns the wedding, and none of that may reach a
+// guest. Two objects means the narrow DTOs cannot be widened by accident.
+
+/**
+ * One item as a guest sees it.
+ *
+ * `imageName` is the LAST SEGMENT of the R2 key, not the key — the guest image
+ * route rebuilds `assets/<weddingId>/<name>` server-side, so the payload has no
+ * reason to carry the wedding id, and a key shaped wrongly (or naming another
+ * wedding's object) resolves to null rather than a URL the serve route would
+ * refuse anyway.
+ *
+ * No `weddingId`, no `imageKey`, no timestamps: nothing a guest renders needs
+ * them, and every field here is public bytes the moment the registry publishes.
+ */
+export interface PublicRegistryItemDto {
+  id: string;
+  kind: RegistryItemKind;
+  title: string;
+  description: string | null;
+  imageName: string | null;
+  imageCrop: string | null;
+  externalUrl: string | null;
+  priceMinor: number | null;
+  quantityWanted: number;
+  /** Everyone's non-released claims, summed. An aggregate — never who claimed. */
+  quantityClaimed: number;
+  category: string | null;
+  sortOrder: number;
+}
+
+/**
+ * The published registry as a guest sees it: the couple's copy and the list.
+ *
+ * What is ABSENT is the point — no gift log, no Stripe identifiers, no
+ * `familyId`, no claimant name or note, no shipping address. A guest may learn
+ * that two of three pans are spoken for; never by whom.
+ */
+export interface PublicRegistryDto {
+  headline: string | null;
+  message: string | null;
+  cashGiftsEnabled: boolean;
+  /** The wedding's primary currency — what every `priceMinor` is denominated in. */
+  currency: string;
+  items: PublicRegistryItemDto[];
+}
+
+/** One of THIS household's live claims. */
+export interface HouseholdClaimDto {
+  itemId: string;
+  quantity: number;
+  status: Exclude<RegistryClaimStatus, "released">;
+  note: string | null;
+  displayName: string | null;
+}
+
+/**
+ * What a signed-in household may see beyond the public list.
+ *
+ * `shippingAddress` is OPTIONAL rather than nullable: absent means "you may not
+ * see it", and there is no second field saying why. A household that has claimed
+ * nothing, or one reading before the couple's embargo date, gets the same shape
+ * as a couple who set no address at all.
+ */
+export interface HouseholdRegistryDto {
+  claims: HouseholdClaimDto[];
+  shippingAddress?: string;
+}
+
+/** Today in the same `YYYY-MM-DD` shape `shipping_visible_from` is stored in. */
+const todayIso = (): string => new Date().toISOString().slice(0, 10);
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Has the couple's shipping-address embargo lifted?
+ *
+ * A NULL date means no embargo, and so does an unparseable one — the write
+ * schema validates the shape (S-M2), so a value that got past it is corruption,
+ * and failing open here matches what `schemas/registry.ts` documents. Comparing
+ * `YYYY-MM-DD` strings lexicographically IS a date comparison for that shape, and
+ * avoids inventing a timezone the couple never chose.
+ */
+function embargoLifted(visibleFrom: string | null): boolean {
+  if (!visibleFrom || !ISO_DATE.test(visibleFrom)) return true;
+  return visibleFrom <= todayIso();
+}
+
+const toPublicItemDto = (
+  weddingId: string,
+  r: ItemRow,
+  quantityClaimed: number,
+): PublicRegistryItemDto => ({
+  id: r.id,
+  kind: r.kind,
+  title: r.title,
+  description: r.description,
+  imageName:
+    r.imageKey && imageKeyBelongsTo(weddingId, r.imageKey)
+      ? (r.imageKey.split("/")[2] ?? null)
+      : null,
+  imageCrop: r.imageCrop,
+  externalUrl: r.externalUrl,
+  priceMinor: r.priceMinor,
+  quantityWanted: r.quantityWanted,
+  quantityClaimed,
+  category: r.category,
+  sortOrder: r.sortOrder,
+});
+
+/**
+ * Slug → wedding id, but ONLY when a guest may see this wedding's registry.
+ *
+ * Two independent gates, both of which must hold: the wedding carries the
+ * `registry` entitlement, and `registry_settings.published` is 1. Either one
+ * missing fails `RegistryNotVisible`, which every guest route turns into the
+ * same 404 — so an unentitled wedding, an unpublished one and a slug nobody
+ * registered are indistinguishable from outside.
+ *
+ * The settings row travels back with the id because every caller that needs the
+ * gate also needs the settings, and re-reading it per route would be a second
+ * round trip for a row already in hand.
+ */
+function resolveVisibleRegistry(
+  slug: string,
+): Effect.Effect<
+  { weddingId: string; settings: RegistrySettingsDto },
+  RegistryNotVisible,
+  DbService
+> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const [weddingRow] = yield* dbQuery(() =>
+      db.select({ id: weddings.id }).from(weddings).where(eq(weddings.slug, slug)).all(),
+    );
+    const weddingId = (weddingRow as { id: string } | undefined)?.id;
+    if (!weddingId) return yield* Effect.fail(new RegistryNotVisible());
+
+    // Both gates read together: neither answer depends on the other, and the
+    // common case (locked feature, no settings row) pays one round trip's
+    // latency rather than two.
+    const { entitled, settingsRows } = yield* Effect.all(
+      {
+        entitled: entitlementService.has(weddingId, "registry"),
+        settingsRows: dbQuery(() =>
+          db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).all(),
+        ),
+      },
+      { concurrency: "unbounded" },
+    );
+    const settings = settingsRows[0]
+      ? toSettingsDto(settingsRows[0] as SettingsRow)
+      : defaultSettings(weddingId);
+    if (!entitled || !settings.published) return yield* Effect.fail(new RegistryNotVisible());
+    return { weddingId, settings };
+  });
+}
+
+export const registryGuestService = {
+  /**
+   * The wedding a guest route may act on, or `RegistryNotVisible`.
+   *
+   * The write routes resolve the wedding from the SLUG and hand the id to
+   * `registryService.claim` / `releaseClaim`, so a `cire_session` cookie minted
+   * for wedding A carries no authority on wedding B's slug: the claim statement
+   * proves the household belongs to the wedding it names (S-H2) and fails
+   * `FamilyNotInWedding` when it does not.
+   */
+  visibleWeddingId(slug: string): Effect.Effect<string, RegistryNotVisible, DbService> {
+    return resolveVisibleRegistry(slug).pipe(
+      Effect.map((r) => r.weddingId),
+      Effect.withSpan("cire.registry.visibleWeddingId"),
+    );
+  },
+
+  /** The published list, with per-item claimed totals. No identities, ever. */
+  publicView(slug: string): Effect.Effect<PublicRegistryDto, RegistryNotVisible, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const { settings, weddingId } = yield* resolveVisibleRegistry(slug);
+      const { claimed, currency, itemRows } = yield* Effect.all(
+        {
+          itemRows: dbQuery(() =>
+            db
+              .select()
+              .from(registryItems)
+              .where(eq(registryItems.weddingId, weddingId))
+              .orderBy(asc(registryItems.sortOrder), asc(registryItems.id))
+              .all(),
+          ),
+          claimed: claimedByItem(weddingId),
+          currency: primaryCurrency(weddingId),
+        },
+        { concurrency: "unbounded" },
+      );
+      return {
+        headline: settings.headline,
+        message: settings.message,
+        cashGiftsEnabled: settings.cashGiftsEnabled,
+        currency,
+        items: (itemRows as ItemRow[]).map((r) =>
+          toPublicItemDto(weddingId, r, claimed.get(r.id) ?? 0),
+        ),
+      };
+    }).pipe(Effect.withSpan("cire.registry.publicView"));
+  },
+
+  /**
+   * This household's own claims, plus the shipping address when it has earned it.
+   *
+   * RELEASED claims are left out. The row survives release as a tombstone so a
+   * re-claim can reuse it (the unique `(item_id, family_id)` index), but to a
+   * guest a released claim means "you have not claimed this" — returning it would
+   * have the UI show a claim that is not one.
+   *
+   * The address ships only to a household with something live on the list, and
+   * only once the couple's date has passed. It is the one piece of the couple's
+   * own PII this surface hands out, so both conditions are checked here rather
+   * than in the route: every caller gets them.
+   */
+  householdView(input: {
+    slug: string;
+    familyId: string;
+  }): Effect.Effect<HouseholdRegistryDto, RegistryNotVisible, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const { settings, weddingId } = yield* resolveVisibleRegistry(input.slug);
+      const rows = yield* dbQuery(() =>
+        db
+          .select({
+            itemId: registryClaims.itemId,
+            quantity: registryClaims.quantity,
+            status: registryClaims.status,
+            note: registryClaims.note,
+            displayName: registryClaims.displayName,
+          })
+          .from(registryClaims)
+          .where(
+            and(
+              eq(registryClaims.weddingId, weddingId),
+              eq(registryClaims.familyId, input.familyId),
+              sql`${registryClaims.status} <> 'released'`,
+            ),
+          )
+          .orderBy(asc(registryClaims.itemId))
+          .all(),
+      );
+      const claims = (
+        rows as Array<{
+          itemId: string;
+          quantity: number;
+          status: Exclude<RegistryClaimStatus, "released">;
+          note: string | null;
+          displayName: string | null;
+        }>
+      ).map((r) => ({
+        itemId: r.itemId,
+        quantity: r.quantity,
+        status: r.status,
+        note: r.note,
+        displayName: r.displayName,
+      }));
+
+      const showAddress =
+        settings.shippingAddress !== null &&
+        claims.length > 0 &&
+        embargoLifted(settings.shippingVisibleFrom);
+      return showAddress
+        ? { claims, shippingAddress: settings.shippingAddress as string }
+        : { claims };
+    }).pipe(Effect.withSpan("cire.registry.householdView"));
   },
 };

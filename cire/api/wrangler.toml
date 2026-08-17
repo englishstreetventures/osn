@@ -132,6 +132,18 @@ type = "ratelimit"
 namespace_id = "1004"
 simple = { limit = 10, period = 60 }
 
+# The guest registry write limiter — claiming and releasing a gift. Its own
+# namespace because it belongs to a different population: the two above are the
+# organiser building a list, this one is every guest of every wedding, and a
+# guest party hitting the ceiling must not stop the couple editing. Wider at
+# 20/60 because claiming several gifts in one sitting is the honest path.
+# 20/60 mirrors `defaultRegistryGuestLimiter` in src/app.ts.
+[[unsafe.bindings]]
+name = "REGISTRY_GUEST_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1005"
+simple = { limit = 20, period = 60 }
+
 [[d1_databases]]
 binding = "DB"
 database_name = "cire-db"
@@ -260,6 +272,12 @@ type = "ratelimit"
 namespace_id = "1104"
 simple = { limit = 10, period = 60 }
 
+[[env.dev.unsafe.bindings]]
+name = "REGISTRY_GUEST_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1105"
+simple = { limit = 20, period = 60 }
+
 # Created 2026-08-13 (`wrangler d1 create cire-db-dev`, primary location OC to
 # match prod). Reset + re-migrated + re-seeded on every dev deploy, so each
 # deploy also replays the migration chain from zero — a free migration test.
@@ -377,6 +395,12 @@ name = "REGISTRY_IMAGE_RATE_LIMITER"
 type = "ratelimit"
 namespace_id = "1004"
 simple = { limit = 10, period = 60 }
+
+[[env.production.unsafe.bindings]]
+name = "REGISTRY_GUEST_RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1005"
+simple = { limit = 20, period = 60 }
 
 [[env.production.d1_databases]]
 binding = "DB"

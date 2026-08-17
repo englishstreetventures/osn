@@ -274,6 +274,59 @@ describe("PUT /invite/text (organiser)", () => {
     expect(body.welcome.message).toBeNull();
   });
 
+  /**
+   * The 0057 registry copy columns. Written straight to the row because no write
+   * path exists yet — `InviteTextBody` / `InviteThemeBody` have no field for
+   * them, and adding one would change what the host portal PUTs. This pins the
+   * READ half: the columns reach the guest payload, shaped like the other
+   * section copy, and are NOT redacted (the section header is invite furniture,
+   * same as details/story — the gift list itself lives behind its own gate).
+   */
+  it("surfaces the registry section copy + tone on the public read", async () => {
+    const { app, db } = buildApp();
+    db.insert(weddingInviteCustomisations)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        registryEyebrow: "Gifts",
+        registryHeading: "Our Registry",
+        registryBody: "Your presence is the present.",
+        registryTone: "card",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: weddingInviteCustomisations.weddingId,
+        set: {
+          registryEyebrow: "Gifts",
+          registryHeading: "Our Registry",
+          registryBody: "Your presence is the present.",
+          registryTone: "card",
+        },
+      })
+      .run();
+
+    const pub = await appRequest(app, `/api/invite/${SLUG}`);
+    const body = (await pub.json()) as {
+      registry: { eyebrow: string | null; heading: string | null; body: string | null };
+      theme: { tones: { registry: string | null } };
+    };
+    expect(body.registry).toEqual({
+      eyebrow: "Gifts",
+      heading: "Our Registry",
+      body: "Your presence is the present.",
+    });
+    expect(body.theme.tones.registry).toBe("card");
+  });
+
+  it("reports null registry copy for a wedding that never set it", async () => {
+    const { app } = buildApp();
+    const pub = await appRequest(app, `/api/invite/${SLUG}`);
+    const body = (await pub.json()) as {
+      registry: { eyebrow: string | null; heading: string | null; body: string | null };
+    };
+    expect(body.registry).toEqual({ eyebrow: null, heading: null, body: null });
+  });
+
   it("saves the footer note (trimmed) and surfaces it on the ORGANISER read", async () => {
     const { app } = buildApp();
     const put = await appRequest(app, `${orgBase}/text`, {
@@ -1313,6 +1366,7 @@ interface ThemeShape {
     story: string | null;
     details: string | null;
     welcome: string | null;
+    registry: string | null;
   };
 }
 
@@ -1386,6 +1440,10 @@ describe("PUT /invite/theme (organiser)", () => {
       story: "card",
       details: null,
       welcome: "raised",
+      // Not writable through `PUT /invite/theme` yet (0057's column has no
+      // field on the total `InviteThemeBody`), so it reads back null even
+      // after a full theme save.
+      registry: null,
     });
     // Typography option keys (0048) round-trip as keys — the guest site
     // resolves them to CSS values, the API never stores a raw value.
@@ -1415,6 +1473,7 @@ describe("PUT /invite/theme (organiser)", () => {
       story: null,
       details: null,
       welcome: null,
+      registry: null,
     });
     expect(body.theme.headingSize).toBeNull();
     expect(body.theme.headingWeight).toBeNull();
