@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { events, weddings, weddingInviteCustomisations } from "@cire/db";
+import { events, registryItems, weddings, weddingInviteCustomisations } from "@cire/db";
 import { Effect } from "effect";
 
 import { DbService } from "../db";
@@ -74,6 +74,7 @@ function seedReferenced(opts: {
   story?: string;
   footer?: string;
   eventKey?: string;
+  registryKey?: string;
 }): Effect.Effect<void, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
@@ -111,6 +112,18 @@ function seedReferenced(opts: {
           endAt: "2025-01-01T12:00:00+11:00",
           timezone: "Australia/Sydney",
           eventImageKey: opts.eventKey,
+        })
+        .run();
+    }
+    if (opts.registryKey) {
+      db.insert(registryItems)
+        .values({
+          id: `reg_${crypto.randomUUID()}`,
+          weddingId,
+          title: "Copper pan",
+          imageKey: opts.registryKey,
+          createdAt: now,
+          updatedAt: now,
         })
         .run();
     }
@@ -187,6 +200,32 @@ describe("assetReconcileService.reconcileOrphans", () => {
 
         expect(deleted).toBe(0);
         expect(bucket.remaining().length).toBe(1);
+      }),
+    ),
+  );
+
+  // Registry images share the `assets/` prefix with the invite images, so the
+  // sweep sees them. They are referenced from a DIFFERENT table, and a table
+  // missing from `loadReferencedKeys` reads as "nobody owns this" — the sweep
+  // would then delete every registry picture older than the grace window while
+  // the items still point at them.
+  it(
+    "NEVER deletes a key referenced by a registry item",
+    withDb(
+      Effect.gen(function* () {
+        yield* seedReferenced({ registryKey: "assets/wedR/registry-live" });
+        const bucket = createAssetsStub([
+          { key: "assets/wedR/registry-live", uploaded: OLD },
+          { key: "assets/wedR/registry-orphan", uploaded: OLD },
+        ]);
+
+        const deleted = yield* assetReconcileService.reconcileOrphans(bucket, NOW);
+
+        // The orphan still goes — the registry row is a reference, not a blanket
+        // exemption for the prefix.
+        expect(deleted).toBe(1);
+        expect(bucket.deleted.has("assets/wedR/registry-orphan")).toBe(true);
+        expect(bucket.remaining()).toEqual(["assets/wedR/registry-live"]);
       }),
     ),
   );

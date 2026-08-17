@@ -121,6 +121,14 @@ export const CIRE_METRICS = {
   // a metric attribute (those belong in spans + logs).
   registryItemWrite: "cire.registry.item.write",
   registryGift: "cire.registry.gift",
+  // Link preview — the one outbound fetch a user's input aims. The result
+  // attribute is how a spike in refused destinations becomes visible.
+  registryLinkPreview: "cire.registry.link_preview",
+  // Saving a registry item's picture into R2 — an upload from the organiser's
+  // machine, or a copy of an image they picked off a shop page. `source` keeps
+  // the two apart (only one of them spends our network on a user's URL) and
+  // `result` says how it ended. Neither is per-wedding.
+  registryImageSave: "cire.registry.image.save",
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -303,6 +311,31 @@ type RegistryItemWriteAttrs = { action: RegistryItemAction };
  *  different (and more suspicious) signal than thanking. */
 export type RegistryGiftAction = "thanked" | "unthanked";
 type RegistryGiftAttrs = { action: RegistryGiftAction };
+/** How a link-preview attempt ended. `blocked` is the SSRF guard refusing a
+ *  destination — a sustained rise in it is someone probing, not a shop being
+ *  slow, which is why it is its own value rather than folded into a failure. */
+export type RegistryLinkPreviewResult =
+  | "ok"
+  | "blocked"
+  | "fetch_failed"
+  | "unusable_content"
+  | "no_images";
+type RegistryLinkPreviewAttrs = { result: RegistryLinkPreviewResult };
+/** Where a saved registry picture came from. Two values, forever. */
+export type RegistryImageSource = "upload" | "url";
+/** How saving one ended. `blocked` is the SSRF guard refusing the picked URL;
+ *  `unsupported_type` is the magic-byte sniff refusing bytes that are not one of
+ *  the three image types (whatever the server claimed they were); `too_large` is
+ *  the byte cap. Same reasoning as the preview counter: a refusal is a different
+ *  signal from a failure, so it is its own value. */
+export type RegistryImageSaveResult =
+  | "ok"
+  | "blocked"
+  | "fetch_failed"
+  | "unsupported_type"
+  | "too_large"
+  | "error";
+type RegistryImageSaveAttrs = { source: RegistryImageSource; result: RegistryImageSaveResult };
 type ImportSimpleAttrs = { result: "ok" | "error" };
 type ImportRowsAttrs = { entity: ImportEntity };
 type ImportParseRejectedAttrs = { reason: ParseRejectReason };
@@ -448,6 +481,18 @@ const registryGift = createCounter<RegistryGiftAttrs>({
   name: CIRE_METRICS.registryGift,
   description: "Registry gift-log thank-you toggles, by direction",
   unit: "{gift}",
+});
+
+const registryLinkPreview = createCounter<RegistryLinkPreviewAttrs>({
+  name: CIRE_METRICS.registryLinkPreview,
+  description: "Registry link-preview attempts, by outcome",
+  unit: "{preview}",
+});
+
+const registryImageSave = createCounter<RegistryImageSaveAttrs>({
+  name: CIRE_METRICS.registryImageSave,
+  description: "Registry item image saves, by source + outcome",
+  unit: "{save}",
 });
 
 const rsvpBlocked = createCounter<RsvpBlockedAttrs>({
@@ -702,6 +747,14 @@ export const metricRegistryItemWrite = (action: RegistryItemAction): void =>
 
 export const metricRegistryGift = (action: RegistryGiftAction): void =>
   registryGift.inc({ action });
+
+export const metricRegistryLinkPreview = (result: RegistryLinkPreviewResult): void =>
+  registryLinkPreview.inc({ result });
+
+export const metricRegistryImageSave = (
+  source: RegistryImageSource,
+  result: RegistryImageSaveResult,
+): void => registryImageSave.inc({ source, result });
 
 export const metricRsvpBatchSize = (size: number): void => rsvpBatchSize.record(size, {});
 

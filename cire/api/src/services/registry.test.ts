@@ -677,7 +677,8 @@ describe("gift log paging", () => {
 });
 
 describe("registry ownership + range guards", () => {
-  const foreignKey = `assets/${OTHER}/hero.jpg`;
+  const foreignKey = `assets/${OTHER}/registry-abc`;
+  const ownKey = `assets/${BOOTSTRAP_WEDDING_ID}/registry-abc`;
 
   it("refuses an image key belonging to another wedding", async () => {
     const db = db0();
@@ -695,7 +696,7 @@ describe("registry ownership + range guards", () => {
       db,
       registryService.createItem({
         ...newItem(),
-        imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/hero.jpg`,
+        imageKey: ownKey,
       }),
     );
     const update = await run(
@@ -707,6 +708,40 @@ describe("registry ownership + range guards", () => {
       }),
     );
     expect(Exit.isFailure(update)).toBe(true);
+  });
+
+  it("refuses a key naming another SLOT of the same wedding", async () => {
+    // S-M1: the wedding matches, so ownership alone would wave it through. What
+    // an item may name is an object minted for the `registry` slot — anything
+    // else would let a delete reap an invite or event image.
+    const db = db0();
+    for (const name of ["hero-0000", "story-0000", "event-0000", "registry_0000"]) {
+      const exit = await run(
+        db,
+        registryService.createItem({
+          ...newItem(),
+          imageKey: `assets/${BOOTSTRAP_WEDDING_ID}/${name}`,
+        }),
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.toString()).toContain(new ImageKeyNotInWedding()._tag);
+      }
+    }
+  });
+
+  it("reports an image key as orphaned only when the deleted item was its last holder", async () => {
+    // S-M1: two items may carry the same key (duplicate an item, or paste the
+    // same picture twice). Reaping on the first delete would blank the survivor.
+    const db = db0();
+    const first = await ok(db, registryService.createItem({ ...newItem(), imageKey: ownKey }));
+    const second = await ok(db, registryService.createItem({ ...newItem(), imageKey: ownKey }));
+
+    const shared = await ok(db, registryService.removeItem(BOOTSTRAP_WEDDING_ID, first.id));
+    expect(shared).toEqual({ imageKey: ownKey, imageKeyOrphaned: false });
+
+    const last = await ok(db, registryService.removeItem(BOOTSTRAP_WEDDING_ID, second.id));
+    expect(last).toEqual({ imageKey: ownKey, imageKeyOrphaned: true });
   });
 
   it("refuses an out-of-range quantity on create, update and claim", async () => {

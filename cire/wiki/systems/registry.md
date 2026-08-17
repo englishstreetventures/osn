@@ -134,6 +134,9 @@ All organiser routes sit under `/api/organiser/weddings/:weddingId/registry`, ga
 | `PUT /registry/settings` | `weddingEditor` |
 | `POST /registry/items`, `PATCH /registry/items/reorder`, `PATCH \| DELETE /registry/items/:itemId` | `weddingEditor` |
 | `POST /registry/gifts/:kind/:giftId/thanked` | `weddingEditor` |
+| `POST /registry/link-preview` | `weddingEditor` + **its own** per-organiser limiter — see [Link preview](#link-preview) |
+| `POST /registry/image` (raw bytes), `POST /registry/image/from-url` | `weddingEditor` + **their own** 10-a-minute limiter — see [Picking one](#picking-one-we-copy-the-bytes-we-never-store-the-url) |
+| `GET /registry/image/:name` — serves our R2 copy, `private` | `weddingMember` |
 
 `/registry/items/reorder` is registered **before** `/registry/items/:itemId` so the literal wins over the param. `:kind` is decoded through the same Effect Schema a body field would be — an unknown value 400s rather than falling through to a table by coincidence.
 
@@ -158,9 +161,99 @@ The parse also **rejects embedded credentials** (`https://evil.com@retailer.exam
 
 ### Images
 
-Registry images are **always our own copy in R2**, through the existing invite-assets pipeline. Never hotlink a retailer image: an off-origin `img-src` breaks the guest site's CSP and would need a vendor entry in the [[consent]] registry.
+Registry images are **always our own copy in R2**, through the existing invite-assets pipeline. Never hotlink a retailer image: an off-origin `img-src` breaks the guest site's CSP and would need a vendor entry in the [[consent]] registry. How the bytes get there — upload or picked shop link — is [Picking one](#picking-one-we-copy-the-bytes-we-never-store-the-url) below.
 
-**An `imageKey` must name this wedding's own upload.** Keys are `assets/<weddingId>/<name>`, so an editor on wedding A could otherwise set an item's image to `assets/<weddingB>/hero` and read a private photo out of a wedding they have no role on — an object-reference hole, not a validation nicety. Both `POST /registry/items` and `PATCH /registry/items/:itemId` compare the key's wedding segment against the route's `:weddingId` and answer **400 `image_key_not_in_wedding`** otherwise. The schema separately pins the key's *shape* (`assets/<segment>/<segment>`, no dots, no traversal), so a malformed key 400s before the ownership check ever runs — the two guards answer different questions and both are wanted.
+**An `imageKey` must name this wedding's own upload.** Keys are `assets/<weddingId>/<name>`, so an editor on wedding A could otherwise set an item's image to `assets/<weddingB>/hero` and read a private photo out of a wedding they have no role on — an object-reference hole, not a validation nicety. Both `POST /registry/items` and `PATCH /registry/items/:itemId` compare the key's wedding segment against the route's `:weddingId` and answer **400 `image_key_not_in_wedding`** otherwise. The schema separately pins the key's *shape* — `assets/<segment>/registry-<name>`, no dots, no traversal — so a malformed key 400s before the ownership check ever runs; the two guards answer different questions and both are wanted.
+
+**The shape check also pins the `registry-` prefix, which is what keeps the wedding's own invite photos out of reach.** Without it, an editor could point a registry item at `assets/<thisWedding>/hero-<uuid>` — their own wedding, so the ownership check passes — and the item would serve the invite's hero through the registry route, which sits behind a different gate and answers `private` rather than the invite route's public cache. Worse, deleting the item would reap the hero out of R2. Only keys minted by `storeAsset` for a registry save carry the prefix, so the schema, `imageKeyBelongsTo` and the reap all agree on which objects this module owns. The pattern is defined **once**, beside the minting function in `services/invite-assets.ts` (`REGISTRY_IMAGE_NAME` / `REGISTRY_IMAGE_KEY`), and imported by the schema and the service — three hand-copied regexes were the first version and would have drifted.
+
+---
+
+## Link preview
+
+`POST /api/organiser/weddings/:weddingId/registry/link-preview` takes `{ url }` and answers `{ title, siteName, images: string[] }` — up to six candidate image URLs for the item picker. The organiser pastes a shop link; we fetch the page, read its tags, and hand back what they can choose from.
+
+**This is the most dangerous module in `cire/api`, and the only one of its kind.** Every other outbound fetch we make goes to a host *we* chose — the OSN issuer, Resend, Stripe, Pinterest. This one goes wherever a caller's URL points, which is the textbook definition of a server-side request forgery sink: the Worker sits in a network position the caller does not have, so "fetch this for me" is a request to borrow it. [[pinterest-resolve]]'s answer is a host **allowlist**, which is correct when there is exactly one destination and impossible when the destination is any shop on the internet. So the guard has a different shape.
+
+### Five layers
+
+Implemented in `cire/api/src/services/link-preview.ts`. All must pass, and the first three re-run on **every redirect hop**:
+
+1. **Scheme.** `https:` only. `http:`, `data:`, `file:`, `javascript:`, `ftp:` — refused before a socket exists. Embedded credentials refused too, same reasoning as `external_url` above. Checked twice: once at the HTTP boundary by reusing the `HttpsUrl` schema, and again inside the service, because a `Location` header never passes through a schema.
+2. **Destination address.** A literal-IP host is range-checked arithmetically with **no DNS round trip**. A named host is resolved over DNS-over-HTTPS (`cloudflare-dns.com/dns-query`, A + AAAA) and every answer is range-checked; **any** non-public answer rejects the whole URL, and a name that resolves to nothing is rejected too. Blocked ranges: `0.0.0.0/8`, `10/8`, `127/8`, `100.64/10` (CGNAT), `169.254/16` (cloud metadata), `172.16/12`, `192.168/16`, `224/4` and above, `::1`, `fc00::/7`, `fe80::/10`, `ff00::/8`. IPv4-mapped (`::ffff:a.b.c.d`), IPv4-compatible and NAT64 (`64:ff9b::/96`) addresses are **unwrapped and re-checked against the v4 rules** — otherwise every private range above is reachable by spelling it in IPv6. An address we cannot parse counts as blocked; the v4 parser is strict about leading zeros (`0177.0.0.1` is octal loopback to some resolvers and decimal to others — a parser differential).
+3. **Manual redirects.** `redirect: "manual"`, capped at 3 hops, layers 1 and 2 re-run on each hop's `Location` **before** the next fetch. Without this a benign first host can 302 us to `http://169.254.169.254/` and the platform's own redirect follower goes happily. Falling out of the cap is `too_many_redirects`, not a loop.
+4. **Caps.** One `AbortSignal.timeout` budget (5s) across *all* hops — three hosts each answering just inside a per-hop timeout must not add up to 15s of a Worker's wall clock. A 512 KB body cap read **off the stream**, cancelling the reader past it, because `Content-Length` is a claim by the same server that would lie about it. `Content-Type` must start with `text/html`.
+5. **The candidates we emit.** Absolute-ised against the **final** document URL (not the input URL — a shortener's redirect changes what a relative `src` means), `https:` only, each image host run through layer 2 as well. We do not fetch those URLs, the organiser's browser does — but a `javascript:` or `data:` src must never reach a picker that will put it in an `<img>`.
+
+### The known gap
+
+**The DoH check is TOCTOU-imperfect and cannot be made otherwise on this runtime.** We resolve the name, decide, then hand the **name** to `fetch`, which resolves it again; an attacker who controls the zone can answer differently the second time. Closing that needs a connect-time hook — resolve once, connect to the address we vetted — and workerd exposes none: no socket API under `fetch`, no `lookup` callback, no "pin this address" option. This stops every static private-IP target, every redirect into one, and every host that simply resolves inward. It does not stop a DNS-rebinding attacker. Tracked as **S-M1** in `wiki/todo/security.md`.
+
+### Rate limit
+
+Its own per-organiser limiter, **10 requests a minute**, keyed on `osnProfileId` — not the limiter the registry writes use. One authenticated request costs a full page fetch to a host the caller named, so it is an amplifier, and an Elysia guard applies to every route in its group. That is why it is a third route factory (`createRegistryLinkPreviewRoutes`) rather than another handler on the write group; same split, same reason, as `routes/organiser-enquiries.ts`. Gate order is the write routes' order with the limiter appended: `osnAuth` (401) → `weddingEditor` (403) → `weddingEntitlement` (402) → limiter (429). The limiter is **last** so a wedding without the entitlement is turned away before it can spend anyone's budget.
+
+### Parsing
+
+A commented regex scan, not `HTMLRewriter`. workerd has `HTMLRewriter`; Bun, where the tests run, does not — and a parser that only runs in production is a parser nothing tests. The scan reads `<meta>`, `<link rel="image_src">`, `<img>` and `<title>` only, executes nothing, and its output is untrusted text: a hostile page can at worst make us emit a URL, which layer 5 then re-checks. Ranking is `og:image`/`twitter:image` first, then `image_src`, then `<img>` in document order with anything declaring itself under 100px dropped (icons, sprites, trackers). No new dependency.
+
+**Every pattern in the scan excludes `<` and `>` inside the tag it matches.** A tag regex written the obvious way — `<meta\s[^>]*>` with a nested quoted-attribute alternation, or `<title.*?>` — backtracks quadratically on input that opens thousands of tags and closes none, which is a single 512 KB request away and would burn the whole 10ms CPU budget on a free-tier Worker. The exclusions make each match linear and self-terminating: the scan cannot run past the next `<`. The cost is that an attribute value containing a literal `<` ends the match early, which loses that one tag; the page is a stranger's HTML and the output is six candidate URLs, so losing a malformed tag is not a loss worth a backtracking hazard. Tests flood the scanner with each of the three shapes at the cap and assert wall-clock, so a "tidier" regex cannot quietly reintroduce it.
+
+**Rank-2 (`<img>`) collection stops at 32 candidates**, since only six are ever emitted and a catalogue page carries hundreds. Ordering is untouched by the cap — the sort is stable and the emit loop is unchanged.
+
+**Distinct candidate hosts are resolved at the same time, not one after another.** Layer 5 re-checks every emitted URL, so a page listing six images on six CDNs used to cost six sequential DoH round-trips inside the same 5s budget the page fetch already spent from. The hosts are deduped against the guard's memo, checked with one `Promise.all`, and only then does the ranked list get walked in its original order — the walk reads the memo, so what it emits and in what order is exactly what it emitted before. **Redirect hops stay sequential**: hop *n+1* is not known until hop *n* answers, and each one must be vetted before it is followed. The DoH lookups also carry the operation's own signal (`AbortSignal.any([signal, AbortSignal.timeout(2000)])`), so a lookup started near the end of the budget is cancelled with everything else rather than running past it.
+
+### Errors
+
+Tagged classes, mapped by the route. None is a 500 — every failure here is the caller's or the internet's problem:
+
+| Error | Status | Code |
+|---|---|---|
+| `LinkPreviewBlocked` | 400 | `blocked_url` |
+| `LinkPreviewFetchFailed` | 502 | `preview_fetch_failed` |
+| `LinkPreviewUnusableContent` | 415 | `unsupported_content_type` |
+| `LinkPreviewNoImages` | 422 | `no_images_found` |
+
+**`blocked_url` deliberately carries no reason.** It tells the organiser to check their link; telling them *which* rule fired would turn this endpoint into a network scanner with a clean oracle — `private_address` vs `unresolvable` maps internal ranges one query at a time. The reason goes to the log instead, where only we can read it: `private_address` at ERROR (someone pointed us inward), everything else at WARNING. Log annotations are bounded strings only — never the URL, never the resolved address, never anything the organiser typed.
+
+`counter cire.registry.link_preview` carries one attribute, `result` ∈ `ok | blocked | fetch_failed | unusable_content | no_images`.
+
+Both seams — `fetchImpl` and `resolveHost` — are injectable, so `services/link-preview.test.ts` and the route tests touch no network at all.
+
+### Picking one: we copy the bytes, we never store the URL
+
+Preview hands back candidate URLs. The moment an organiser picks one, `POST /api/organiser/weddings/:weddingId/registry/image/from-url` **downloads it and writes our own copy to R2**, and the item stores that R2 key. The shop's URL is not stored anywhere — not on the item, not in a column, not in the response.
+
+That is a deliberate refusal, and the reasons are ordered by how badly each one bites:
+
+- **The bytes can change after the organiser approved them.** They saw a stand mixer; the shop can serve anything at that URL a month later, on a page couples send to everyone they know. Nothing about the preview binds what was shown to what is served.
+- **It rots.** Retailer CDNs re-slug on every catalogue change, and a delisted product takes its image with it. A wedding page is read for months after it is built.
+- **It leaks the guest.** Every guest loading the list would make a request to the shop carrying their IP and our referrer — a third-party disclosure nobody consented to, and a vendor entry we would owe the [[consent]] registry.
+- **We vetted the host for its IP range and nothing else.** That is enough to refuse an SSRF target; it is not a claim that the host is trustworthy for the lifetime of the page.
+
+Two endpoints, both on the write group's gates (`osnAuth` 401 → `weddingEditor` 403 → `weddingEntitlement` 402) with their own 10-a-minute per-organiser limiter appended (`defaultRegistryImageLimiter` — a save costs an outbound fetch and an R2 write):
+
+| Route | Body | Answers |
+|---|---|---|
+| `POST .../registry/image` | raw image bytes | `{ imageKey, imageUrl, contentType, byteLength }` |
+| `POST .../registry/image/from-url` | `{ url }` | the same |
+
+`services/registry-image.ts` is what both call, and it treats the URL in that body as **fully untrusted even though we emitted it** — the request body is client-controlled, so a client can post any URL to this endpoint, and the emitted candidate has no standing at all. It reuses `link-preview.ts`'s guard — `createUrlGuard` + `checkUrl` + `guardedFetch` + `readCappedBytes`, the same functions the preview path runs — not a second copy of it: same scheme rule, same DoH range check, same manual redirects, same 5s budget. Then, on the bytes:
+
+1. `Content-Length`, if present, over 5 MB → refused before reading. A claim by the sender, so it is a shortcut, never the check.
+2. The **real** read length over 5 MB → refused mid-stream, reader cancelled.
+3. `detectImageType` on the leading bytes. **The `Content-Type` header is not consulted for the decision** — a server that answers `image/png` over an HTML page is the ordinary case here, not an exotic one, and the stored object's type is the sniffed one. Anything outside `image/jpeg`, `image/png`, `image/webp` is refused.
+4. `storeAsset` writes `assets/<weddingId>/registry-<uuid>` — the same pipeline, key shape and bucket as invite hero images, so `imageKeyBelongsTo` and the reconciler already understand it.
+
+Serving is the existing gated route, `GET .../registry/image/:name`, through the Cloudflare Images transform binding: the key is **rebuilt server-side** from the route's `:weddingId` (the client's `:name` is charset-pinned and never a path), the cache version comes from `versionFromKey`, not the client's `?v=`, and the response is `private` — unlike the public invite image route, because this one sits behind an organiser session. That is why the portal's thumbnail goes through `authFetch` into an object URL rather than a bare `<img src>`, and why it asks for `?variant=thumb` (320px) rather than the 800px `card` default — the field paints it at 80px.
+
+The transform caches through the Cloudflare Cache API under a synthetic key. A `private` response is not something the platform cache is obliged to store, so the copy handed to `cache.put` carries `public, max-age=31536000, immutable` and the copy returned to the browser is re-stamped with the route's own visibility on both the miss and the hit path — the synthetic key is unreachable from outside and the lookup happens after the gates, so `public` on the stored copy never reaches a client. This is unverified against a live Worker; see the open **P-W2** in `wiki/todo/perf.md`.
+
+Errors: `blocked_url` 400 (same opaque code, same no-reason rule as preview), `image_fetch_failed` 502, `unsupported_image_type` 415, `image_too_large` 413.
+
+**Nothing leaks on delete, and nothing is reaped out from under a second item.** Two items can hold the same key — an organiser duplicating a row, or two saves of the same picked picture — so the delete counts the remaining holders of that key **in the same step as the delete**, and only reaps when the count is zero. Counting later would race the next delete. The reap itself runs after the response, through `getWaitUntil(request)`, because R2 latency is not something the organiser should wait on; outside a Worker (unit tests, the Bun local entry) there is no `waitUntil`, so it falls back to an inline await and behaves identically, just slower. `asset-reconcile.ts` counts `registry_items.image_key` as a live reference, so a picture saved into an add form the organiser then abandoned — the form has no item id to hang it off, so the save happens first — is swept once it is past the grace window instead of sitting in the bucket forever.
+
+This is what closed **S-L2** in `wiki/todo/security.md`.
 
 ---
 
@@ -180,7 +273,11 @@ The module lives at `cire/host/src/components/RegistryView.tsx`, wired into the 
 
 **S-L3 — the gift log renders three guest-authored fields.** `note`, `displayName` and the household's `familyName` all come from people we do not control, and all three go through Solid's `{expr}` interpolation and nothing else: no `innerHTML`, no markdown renderer, no rich text anywhere on this path. If a future PR wants formatted notes, it needs a sanitiser and a review, not a renderer. Pinned by `renders a script-shaped note, display name and family name as literal text (S-L3)` in `RegistryView.test.tsx`, which asserts the payload appears as text *and* that no `script`, `img` or `b` element exists in the container.
 
-**Not built yet on this surface:** the settings form (publish toggle, shipping address, cash gifts), and any image field — the editor omits `imageKey` entirely rather than shipping an input with no picker and no serve path behind it.
+**The picture field** is `components/RegistryImageField.tsx`, mounted in both the add form and the inline editor, and it matches `invite/ImageField.tsx` in structure, error surface and accessibility handling. Two divergences, both forced: the thumbnail is `authFetch`ed into an object URL (the registry serve route is gated and `private`, so a bare `src` would 401), and the link path offers a **choice** rather than taking the first candidate — a radio group with roving tabindex, arrow/Home/End keys, and an accessible name built from the page's own title rather than "image 1". `ImageCropModal` is deliberately **not** reused: it is slot-typed to the invite's `CropSlot`s and reads `CROP_ASPECT[slot]`, and registry items have no crop slot.
+
+Candidates are filtered to `https:` **again in the browser** before any of them becomes an `<img src>`, and the pick is re-checked before it is posted. The API emits nothing else, but a render site that trusts its input because of what the server promised is one API change away from being wrong. "No pictures on that page" (422) is a normal outcome, not an error: it renders as a note that offers the upload path, not an alert.
+
+**Not built yet on this surface:** the settings form (publish toggle, shipping address, cash gifts).
 
 ---
 
@@ -200,6 +297,5 @@ Every handler runs `Effect.tapDefect` before its catch-all, so a defect is **log
 
 ## Still to land
 
-- Link preview + image picker (paste a product URL, choose from extracted images) — its own PR, with the hardened fetcher and its SSRF controls documented there
 - Guest surface: the invite section, the claim/release routes, the household read path
 - Stripe Connect (Express): onboarding, hosted Checkout, the webhook, and the balance-transaction FX capture described under [Money](#money)

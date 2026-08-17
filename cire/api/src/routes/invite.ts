@@ -7,8 +7,6 @@ import { Elysia } from "elysia";
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { parseSessionToken } from "../lib/cookie";
-import { getWaitUntil } from "../lib/execution-ctx";
-import { metricImageTransform } from "../metrics";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
@@ -25,177 +23,23 @@ import {
 import { entitlementService } from "../services/entitlements";
 import { eventImageService } from "../services/event-image";
 import { inviteService } from "../services/invite";
+import { AssetsR2Service, detectImageType, MAX_IMAGE_BYTES } from "../services/invite-assets";
+import type { AssetsBucket } from "../services/invite-assets";
 import {
-  AssetsR2Service,
-  detectImageType,
-  fetchAsset,
-  fetchAssetStream,
-  MAX_IMAGE_BYTES,
-} from "../services/invite-assets";
-import type { AssetR2Error, AssetsBucket, StoredAsset } from "../services/invite-assets";
-import {
-  buildTransformCacheKey,
   negotiateFormat,
   resolveVariant,
-  transformAsset,
+  serveTransformedImage,
 } from "../services/invite-image-transform";
-import type {
-  ImagesBindingLike,
-  ImageVariant,
-  OutputFormat,
-} from "../services/invite-image-transform";
+import type { ImagesBindingLike } from "../services/invite-image-transform";
 import { sessionService } from "../services/session";
 
 // Sentinel parse hook: stop Elysia consuming the body so handlers parse it by
 // hand (JSON for text, raw bytes for images) — matches the import route.
 const manualParse = { parse: () => ({}) };
 
-/** Shared immutable-image response headers for both the transformed + streamed-
- * original serve paths (the bytes are version-busted via the cache key / URL).
- *
- * `Vary: Accept, Origin` (CROP-S-L1): the app-level CORS plugin echoes a
- * per-request `Access-Control-Allow-Origin`, so a cached `no-cors` entry
- * served back to a `cors`-mode consumer fails the CORS check without a network
- * hit. Adding `Origin` to Vary ensures the browser caches CORS-mode and
- * no-cors-mode responses separately, preventing the mode-mixing that broke the
- * crop editor for any future cross-origin consumer. */
-function imageResponseHeaders(contentType: string, visibility: "public" | "private" = "public") {
-  return {
-    "Content-Type": contentType,
-    "X-Content-Type-Options": "nosniff",
-    // `private` for session-gated slots (the closing section's motif): the bytes
-    // are only for the household that claimed a code, so no shared cache — CDN,
-    // proxy or otherwise — may keep a copy it could hand to another visitor. The
-    // per-colo Workers Cache API is still used for them (see
-    // `serveTransformedImage`); that lookup happens AFTER the session check, so
-    // an unauthenticated request never reaches it.
-    "Cache-Control": `${visibility}, max-age=31536000, immutable`,
-    Vary: "Accept, Origin",
-  };
-}
-
 /** Slots whose bytes require a claimed guest session (see `getForSlug`). */
 function slotRequiresSession(slot: InviteImageSlot): boolean {
   return slot === "footer";
-}
-
-/**
- * Serve a transformed image given an already-resolved R2 key + server-derived
- * content version. Shared by the wedding-slot (`hero`/`story`) and the per-event
- * serve routes so both get the IDENTICAL Cache-API-short-circuit + Images-binding
- * transform + raw-original fallback pipeline. `cacheSlot` is the slot segment of
- * the Cache API key (e.g. `"hero"` or `"event:<eventId>"`) — every field that
- * changes the transformed bytes is folded into the key, and the version is ALWAYS
- * the server-derived one (NEVER the client `?v=`), preserving the no-arbitrary-
- * cache-minting invariant (S-M1). `blurOverride` is only ever passed for the
- * blurred `hero-bg` variant; event images render sharp (undefined).
- *
- * Returns a `Response`. Requires `DbService` provided by the caller's pipeline
- * (it doesn't read the DB itself, but stays inside the same Effect for span
- * threading) and `AssetsR2Service` for the R2 read. Fails with `AssetR2Error`
- * when the key is missing from R2 (caller maps to 404).
- */
-function serveTransformedImage(args: {
-  request: Request;
-  key: string;
-  version: string | undefined;
-  cacheSlot: string;
-  variant: ImageVariant;
-  format: OutputFormat;
-  blurOverride?: number;
-  images?: ImagesBindingLike;
-  /** `private` for session-gated slots — no shared cache may keep a copy. */
-  visibility?: "public" | "private";
-}): Effect.Effect<Response, AssetR2Error, AssetsR2Service> {
-  const {
-    request,
-    key,
-    version,
-    cacheSlot,
-    variant,
-    format,
-    blurOverride,
-    images,
-    visibility = "public",
-  } = args;
-  return Effect.gen(function* () {
-    // Cache API short-circuit. The Images binding bills per call with no
-    // per-unique dedupe, so a hit serves the transformed bytes WITHOUT touching
-    // the binding. `caches` is undefined in unit tests / non-Workers runtimes.
-    const cache = typeof caches !== "undefined" && caches.default ? caches.default : undefined;
-    const cacheKey = cache
-      ? buildTransformCacheKey({
-          slug: cacheSlot,
-          slot: cacheSlot,
-          variant,
-          format,
-          version,
-          blur: blurOverride,
-        })
-      : undefined;
-    if (cache && cacheKey) {
-      const hit = yield* Effect.promise(() => cache.match(cacheKey));
-      if (hit) {
-        metricImageTransform("cache_hit", variant, format);
-        return hit;
-      }
-    }
-
-    let response: Response;
-    if (images) {
-      // Transform path: the Images binding needs the original BUFFERED (it feeds
-      // the bytes through `input()`), so we keep `fetchAsset`. A transform failure
-      // falls back to serving those same already-buffered original bytes.
-      const original = yield* fetchAsset(key);
-      const served: StoredAsset = yield* transformAsset(
-        images,
-        original,
-        variant,
-        format,
-        blurOverride,
-      ).pipe(
-        Effect.tap(() => Effect.sync(() => metricImageTransform("transformed", variant, format))),
-        Effect.catchTag("ImageTransformError", (err) =>
-          Effect.gen(function* () {
-            yield* Effect.logWarning("invite image transform failed; serving original", {
-              cacheSlot,
-              variant,
-              format,
-              reason: err.reason,
-            });
-            metricImageTransform("original", variant, format);
-            return original;
-          }),
-        ),
-      );
-      response = new Response(served.bytes, {
-        headers: imageResponseHeaders(served.contentType, visibility),
-      });
-    } else {
-      // Original-serve path (no Images binding — local/dev/tests, or an account
-      // without the Images product): STREAM R2's body straight into the Response
-      // instead of buffering the whole (≤5 MB) image in Worker memory (IB-P-I2).
-      // `response.clone()` below tees the stream, so the Cache API `put` and the
-      // returned body each get an independent copy.
-      const streamed = yield* fetchAssetStream(key);
-      metricImageTransform("original", variant, format);
-      response = new Response(streamed.body, {
-        headers: imageResponseHeaders(streamed.contentType, visibility),
-      });
-    }
-
-    if (cache && cacheKey) {
-      const put = cache.put(cacheKey, response.clone());
-      const waitUntil = getWaitUntil(request);
-      if (waitUntil) {
-        waitUntil(put);
-      } else {
-        yield* Effect.promise(() => put);
-      }
-    }
-
-    return response;
-  });
 }
 
 /**

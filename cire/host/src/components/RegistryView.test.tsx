@@ -304,6 +304,77 @@ describe("RegistryView — the gift list", () => {
     expect(JSON.parse(init.body)).toMatchObject({ title: "Copper saucepan", priceMinor: 12_000 });
     expect(await screen.findByText("Copper saucepan")).toBeInTheDocument();
   });
+
+  it("carries a picture picked in the add form into the create body", async () => {
+    setCachedRegistry("wed_1", snapshot());
+    // Routed rather than queued: saving a picture makes the field fetch its own
+    // thumbnail back through the gated serve route, so the create call is not at
+    // a fixed position in the queue.
+    authFetch.mockImplementation((url: string | URL) => {
+      const u = String(url);
+      if (u.endsWith("/registry/image"))
+        return Promise.resolve(
+          new Response(JSON.stringify({ imageKey: "assets/wed_1/registry-a1", imageUrl: "/x" }), {
+            status: 200,
+          }),
+        );
+      if (u.includes("/registry/image/")) return Promise.resolve(new Response("bytes"));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            item: item({ id: "new_1", title: "Kettle", imageKey: "assets/wed_1/registry-a1" }),
+          }),
+          { status: 200 },
+        ),
+      );
+    });
+    render(() => <RegistryView weddingId="wed_1" view="list" canEdit={true} />);
+    fireEvent.input(await screen.findByPlaceholderText(/copper pan/i), {
+      target: { value: "Kettle" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Upload a photo" }));
+    const file = screen.getByLabelText("Photo to upload");
+    Object.defineProperty(file, "files", {
+      value: [new File(["png"], "kettle.png", { type: "image/png" })],
+      configurable: true,
+    });
+    fireEvent.change(file);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Remove picture" })).toBeTruthy(),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /add gift/i }));
+    const isCreate = (call: unknown[]) => String(call[0]).endsWith("/registry/items");
+    await waitFor(() => expect(authFetch.mock.calls.some(isCreate)).toBe(true));
+    const create = authFetch.mock.calls.find(isCreate)!;
+    expect(JSON.parse(create[1].body)).toMatchObject({
+      title: "Kettle",
+      imageKey: "assets/wed_1/registry-a1",
+    });
+  });
+
+  it("PATCHes imageKey back to null when the picture is removed in the edit form", async () => {
+    setCachedRegistry(
+      "wed_1",
+      snapshot({ items: [item({ id: "a", imageKey: "assets/wed_1/registry-old" })] }),
+    );
+    authFetch.mockImplementation((url: string | URL) => {
+      if (String(url).includes("/registry/image/")) return Promise.resolve(new Response("bytes"));
+      return Promise.resolve(
+        new Response(JSON.stringify({ item: item({ id: "a", imageKey: null }) }), { status: 200 }),
+      );
+    });
+    render(() => <RegistryView weddingId="wed_1" view="list" canEdit={true} />);
+    fireEvent.click(await screen.findByRole("button", { name: /edit copper pan/i }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove picture" }));
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() =>
+      expect(authFetch.mock.calls.some(([, i]) => i?.method === "PATCH")).toBe(true),
+    );
+    const patch = authFetch.mock.calls.find(([, i]) => i?.method === "PATCH")!;
+    expect(JSON.parse(patch[1].body)).toMatchObject({ imageKey: null });
+  });
 });
 
 describe("RegistryView — gifts received", () => {

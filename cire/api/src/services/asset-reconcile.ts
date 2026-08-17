@@ -1,4 +1,4 @@
-import { events, weddingInviteCustomisations } from "@cire/db";
+import { events, registryItems, weddingInviteCustomisations } from "@cire/db";
 import { isNotNull } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -24,8 +24,9 @@ import { reapR2Objects } from "./r2-cleanup";
  * wrong thing" impossible rather than merely unlikely. Read them before editing.
  *
  *  1. ABORT-ON-UNCERTAINTY — the live set is the union of every hero/story key
- *     in `wedding_invite_customisations` and every `event_image_key` in
- *     `events`, across ALL weddings. If that read FAILS, or returns an EMPTY set
+ *     in `wedding_invite_customisations`, every `event_image_key` in `events` and
+ *     every `image_key` in `registry_items`, across ALL weddings. If that read
+ *     FAILS, or returns an EMPTY set
  *     while the bucket is non-empty (a strong signal the DB read is wrong / a
  *     half-applied migration / wrong binding), we ABORT and delete NOTHING.
  *     We never delete unless we can POSITIVELY confirm what is live.
@@ -125,6 +126,18 @@ function loadReferencedKeys(): Effect.Effect<Set<string>, never, DbService> {
         .all(),
     );
 
+    // Registry item images (one optional per gift item). These are copies of
+    // shop-page pictures the organiser picked, stored here rather than hotlinked
+    // — so they are live objects like any other, and omitting them would make the
+    // sweep delete every registry image a week after it was saved.
+    const registryRows = yield* dbQuery(() =>
+      db
+        .select({ key: registryItems.imageKey })
+        .from(registryItems)
+        .where(isNotNull(registryItems.imageKey))
+        .all(),
+    );
+
     const referenced = new Set<string>();
     for (const r of custRows) {
       // Iterate the row's values rather than naming each slot again — one place
@@ -134,6 +147,9 @@ function loadReferencedKeys(): Effect.Effect<Set<string>, never, DbService> {
       }
     }
     for (const r of eventRows) {
+      if (r.key) referenced.add(r.key);
+    }
+    for (const r of registryRows) {
       if (r.key) referenced.add(r.key);
     }
     return referenced;

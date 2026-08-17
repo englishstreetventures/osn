@@ -1,5 +1,7 @@
 import { Schema } from "effect";
 
+import { REGISTRY_IMAGE_KEY } from "../services/invite-assets";
+
 const MAX_TITLE_CHARS = 200;
 const MAX_HEADLINE_CHARS = 200;
 const MAX_DESCRIPTION_CHARS = 2000;
@@ -101,14 +103,18 @@ const IsoDate = Schema.String.pipe(
  * `assets/<weddingId>/<slot>-<uuid>` and the client never names one — so this is
  * the first key a client gets to choose. A free-form string would let an editor
  * of wedding A point an item at wedding B's object, which the serve path would
- * then honour. The pattern pins the namespace and a safe charset (no `..`, no
- * slashes past the two segments); `registryService` additionally requires the
- * middle segment to be the caller's own `weddingId`.
+ * then honour. The pattern pins the namespace, the SLOT and a safe charset (no
+ * `..`, no slashes past the two segments); `registryService` additionally
+ * requires the middle segment to be the caller's own `weddingId`.
+ *
+ * The slot half matters as much as the wedding half (S-M1). Without it, an
+ * editor could name their own wedding's invite hero here and have deleting the
+ * item reap the hero's object — same wedding, so the ownership check passes.
+ * {@link REGISTRY_IMAGE_KEY} is the one definition of that shape, exported from
+ * the module that mints these keys, so the schema, the ownership check and the
+ * serve route cannot drift apart.
  */
-const ImageKey = Schema.String.pipe(
-  Schema.maxLength(512),
-  Schema.pattern(/^assets\/[A-Za-z0-9_-]{1,128}\/[A-Za-z0-9_-]{1,256}$/),
-);
+const ImageKey = Schema.String.pipe(Schema.maxLength(512), Schema.pattern(REGISTRY_IMAGE_KEY));
 
 const Minor = Schema.Number.pipe(
   Schema.int(),
@@ -164,6 +170,35 @@ export const UpdateRegistryItemBody = Schema.Struct({
   category: Schema.optional(Schema.NullOr(Category)),
 });
 export type UpdateRegistryItemBody = Schema.Schema.Type<typeof UpdateRegistryItemBody>;
+
+/**
+ * Link preview request — the URL of a shop page the organiser wants scraped.
+ *
+ * Reuses `HttpsUrl`, so the scheme and credential checks happen at the boundary
+ * before the service ever sees the string. That is the OUTER of two identical
+ * gates, not the only one: `services/link-preview.ts` re-checks the scheme on
+ * the input and on every redirect hop, because a `Location` header never passes
+ * through here.
+ */
+export const RegistryLinkPreviewBody = Schema.Struct({
+  url: HttpsUrl,
+});
+export type RegistryLinkPreviewBody = Schema.Schema.Type<typeof RegistryLinkPreviewBody>;
+
+/**
+ * Save-from-URL request — the ONE candidate the organiser picked out of the
+ * preview, whose bytes get copied into R2.
+ *
+ * Same `HttpsUrl` as the preview above, and for the same reason: this is the
+ * outer of two gates. It is tempting to treat this URL as already-vetted since
+ * we emitted it a moment ago, but it arrives in a request body — a client can
+ * post any URL here, in any order, without ever calling the preview — so the
+ * service re-runs the full SSRF guard on it regardless of what this schema says.
+ */
+export const RegistrySaveImageFromUrlBody = Schema.Struct({
+  url: HttpsUrl,
+});
+export type RegistrySaveImageFromUrlBody = Schema.Schema.Type<typeof RegistrySaveImageFromUrlBody>;
 
 /** Reorder: the new order of item ids across the whole wedding's list. */
 export const ReorderRegistryItemsBody = Schema.Struct({

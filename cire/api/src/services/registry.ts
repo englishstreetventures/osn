@@ -29,6 +29,7 @@ import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { commitGroupedBatches, DbService, dbQuery } from "../db";
+import { REGISTRY_IMAGE_NAME } from "./invite-assets";
 
 /** No item with this id under this wedding (missing or another wedding's). 404-class. */
 export class RegistryItemNotInWedding extends Data.TaggedError("RegistryItemNotInWedding") {}
@@ -354,16 +355,27 @@ function contributionsPrimaryTotal(weddingId: string): Effect.Effect<number, nev
 }
 
 /**
- * Does this R2 key name an object under this wedding? (S-H1)
+ * Does this R2 key name a REGISTRY object under this wedding? (S-H1, S-M1)
  *
- * `ImageKey` in the HTTP schema pins the SHAPE — `assets/<segment>/<segment>` —
+ * `ImageKey` in the HTTP schema pins the SHAPE — `assets/<wedding>/registry-…` —
  * but shape alone lets an editor of wedding A point an item at wedding B's
  * upload, which the guest site would then serve. The middle segment IS the
  * wedding id, so ownership is a string compare, not a query.
+ *
+ * The slot prefix is checked here too, not only in the schema, because deleting
+ * an item REAPS the object it names: a key of `assets/<own-wedding>/hero-<uuid>`
+ * owns the same wedding, so ownership alone would let an editor destroy their
+ * own invite hero through the registry. Both halves of the key have to be
+ * earned.
  */
 function imageKeyBelongsTo(weddingId: string, key: string): boolean {
   const parts = key.split("/");
-  return parts.length === 3 && parts[0] === "assets" && parts[1] === weddingId;
+  return (
+    parts.length === 3 &&
+    parts[0] === "assets" &&
+    parts[1] === weddingId &&
+    REGISTRY_IMAGE_NAME.test(parts[2] ?? "")
+  );
 }
 
 /** Integer in `[min, max]`? The guard behind the quantity CHECK constraints. */
@@ -783,10 +795,32 @@ export const registryService = {
     }).pipe(Effect.withSpan("cire.registry.updateItem"));
   },
 
+  /**
+   * Delete an item and report the R2 key it was holding, and whether that key
+   * is now unreferenced.
+   *
+   * The ROUTE reaps the object (best-effort, outside this Effect's requirements)
+   * — this service stays DB-only, exactly as `eventImageService` keeps its R2
+   * work in the module that owns the bucket. But whether the object may be
+   * reaped is a DB question, so it is answered here, right after the delete
+   * (S-M1): nothing stops two items naming the same key — duplicate an item,
+   * or paste the same shop link twice and save it once — and reaping on the
+   * first delete would blank the survivor's picture. Counting AFTER the delete
+   * and in the same step is what makes the answer true at reap time.
+   *
+   * The count is scoped to the wedding, which is complete rather than merely
+   * cheap: `imageKeyBelongsTo` refuses any key whose middle segment is another
+   * wedding, so no row outside this wedding can hold this key. It also lets the
+   * `wedding_id` index do the work.
+   */
   removeItem(
     weddingId: string,
     itemId: string,
-  ): Effect.Effect<void, RegistryItemNotInWedding, DbService> {
+  ): Effect.Effect<
+    { imageKey: string | null; imageKeyOrphaned: boolean },
+    RegistryItemNotInWedding,
+    DbService
+  > {
     return Effect.gen(function* () {
       const db = yield* DbService;
       // Claims cascade with the item; contributions do NOT — their `item_id` is
@@ -796,10 +830,21 @@ export const registryService = {
         db
           .delete(registryItems)
           .where(and(eq(registryItems.id, itemId), eq(registryItems.weddingId, weddingId)))
-          .returning({ id: registryItems.id })
+          .returning({ id: registryItems.id, imageKey: registryItems.imageKey })
           .all(),
       );
       if (!removed) return yield* Effect.fail(new RegistryItemNotInWedding());
+      const imageKey = (removed as { imageKey: string | null }).imageKey;
+      if (!imageKey) return { imageKey: null, imageKeyOrphaned: false };
+      const [row] = yield* dbQuery(() =>
+        db
+          .select({ total: sql<number>`count(*)` })
+          .from(registryItems)
+          .where(and(eq(registryItems.weddingId, weddingId), eq(registryItems.imageKey, imageKey)))
+          .all(),
+      );
+      const remaining = Number((row as { total: number } | undefined)?.total ?? 0) || 0;
+      return { imageKey, imageKeyOrphaned: remaining === 0 };
     }).pipe(Effect.withSpan("cire.registry.removeItem"));
   },
 

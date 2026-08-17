@@ -15,6 +15,7 @@ import {
   setCachedRegistry,
   stillWanted,
 } from "../lib/registry-store";
+import RegistryImageField from "./RegistryImageField";
 import Button from "./ui/Button";
 import Field, { Input, Textarea } from "./ui/Field";
 import Notice from "./ui/Notice";
@@ -72,6 +73,12 @@ export default function RegistryView(props: RegistryViewProps) {
   const [newPrice, setNewPrice] = createSignal("");
   const [newQuantity, setNewQuantity] = createSignal("1");
   const [newUrl, setNewUrl] = createSignal("");
+  // The picture, if the organiser gave one. Bytes are already in R2 by the time
+  // this holds a key — `RegistryImageField` saves them the moment one is picked,
+  // because the add form has no item id to hang an upload off. An abandoned form
+  // therefore leaves an unreferenced object, which the R2 reconciler sweeps once
+  // it is past the grace window (`services/asset-reconcile.ts`).
+  const [newImageKey, setNewImageKey] = createSignal<string | null>(null);
 
   // Inline edit state — the item being edited, plus its draft fields.
   const [editingId, setEditingId] = createSignal<string | null>(null);
@@ -81,6 +88,7 @@ export default function RegistryView(props: RegistryViewProps) {
   const [editQuantity, setEditQuantity] = createSignal("1");
   const [editCategory, setEditCategory] = createSignal("");
   const [editUrl, setEditUrl] = createSignal("");
+  const [editImageKey, setEditImageKey] = createSignal<string | null>(null);
 
   // Ids are percent-encoded at every interpolation, the way `enquiries-api.ts`
   // does it. Today's ids are nanoid-shaped and can't carry a `/` or `?`, so this
@@ -170,16 +178,18 @@ export default function RegistryView(props: RegistryViewProps) {
       return;
     }
     const externalUrl = newUrl().trim() || null;
+    const imageKey = newImageKey();
 
     setNewTitle("");
     setNewPrice("");
     setNewQuantity("1");
     setNewUrl("");
+    setNewImageKey(null);
     try {
       const res = await authFetch(itemsUrl(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title, priceMinor, quantityWanted, externalUrl }),
+        body: JSON.stringify({ title, priceMinor, quantityWanted, externalUrl, imageKey }),
       });
       if (res.status === 401) return redirectToLogin();
       if (res.status === 409) {
@@ -212,6 +222,7 @@ export default function RegistryView(props: RegistryViewProps) {
     setEditQuantity(String(item.quantityWanted));
     setEditCategory(item.category ?? "");
     setEditUrl(item.externalUrl ?? "");
+    setEditImageKey(item.imageKey);
   };
 
   const closeEdit = () => setEditingId(null);
@@ -247,6 +258,7 @@ export default function RegistryView(props: RegistryViewProps) {
       quantityWanted,
       category: editCategory().trim() || null,
       externalUrl: editUrl().trim() || null,
+      imageKey: editImageKey(),
     };
     closeEdit();
     try {
@@ -473,6 +485,14 @@ export default function RegistryView(props: RegistryViewProps) {
                 />
               )}
             </Field>
+            <div class="w-full">
+              <RegistryImageField
+                weddingId={props.weddingId}
+                imageKey={newImageKey()}
+                onChange={setNewImageKey}
+                idPrefix="registry-new"
+              />
+            </div>
             <Button type="submit" variant="primary">
               Add gift
             </Button>
@@ -650,6 +670,14 @@ export default function RegistryView(props: RegistryViewProps) {
                           />
                         )}
                       </Field>
+                      <div class="w-full">
+                        <RegistryImageField
+                          weddingId={props.weddingId}
+                          imageKey={editImageKey()}
+                          onChange={setEditImageKey}
+                          idPrefix={`registry-edit-${item.id}`}
+                        />
+                      </div>
                       <div class="flex items-end gap-2">
                         <Button type="submit" variant="primary" size="sm">
                           Save

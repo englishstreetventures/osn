@@ -1,8 +1,9 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, afterEach } from "bun:test";
 
 import { Effect, Exit } from "effect";
 
 import type { StoredAsset } from "./invite-assets";
+import { AssetsR2Service, createAssetsStub } from "./invite-assets";
 import {
   blurForVariant,
   buildTransformCacheKey,
@@ -10,6 +11,7 @@ import {
   IMAGE_VARIANTS,
   negotiateFormat,
   resolveVariant,
+  serveTransformedImage,
   transformAsset,
   VARIANT_BLUR,
   type ImagesBindingLike,
@@ -263,5 +265,98 @@ describe("transformAsset", () => {
       transformAsset(images, ORIGINAL, "card", "image/webp"),
     );
     expect(Exit.isFailure(exit)).toBe(true);
+  });
+});
+
+describe("serveTransformedImage — what the cache is handed vs what the client gets", () => {
+  const KEY = "assets/wed_1/registry-abc";
+
+  /** Minimal `caches.default`: one slot, and a record of what was put into it. */
+  function createCacheStub() {
+    const puts: Response[] = [];
+    let stored: Response | null = null;
+    return {
+      puts,
+      binding: {
+        default: {
+          match: (_key: Request) => Promise.resolve(stored ? stored.clone() : undefined),
+          put: (_key: Request, res: Response) => {
+            puts.push(res.clone());
+            stored = res;
+            return Promise.resolve();
+          },
+        },
+      },
+    };
+  }
+
+  afterEach(() => {
+    delete (globalThis as { caches?: unknown }).caches;
+  });
+
+  async function serve(visibility: "public" | "private") {
+    const assets = createAssetsStub();
+    await assets.put(KEY, new Uint8Array([1, 2, 3]).buffer, {
+      httpMetadata: { contentType: "image/png" },
+    });
+    return Effect.runPromise(
+      serveTransformedImage({
+        request: new Request("https://api.example/organiser/registry/image/registry-abc"),
+        key: KEY,
+        version: "1718000000",
+        cacheSlot: "registry:wed_1",
+        variant: "thumb",
+        format: "image/jpeg",
+        visibility,
+      }).pipe(Effect.provideService(AssetsR2Service, assets)),
+    );
+  }
+
+  it("stores a public copy of a private image while telling the client `private`", async () => {
+    // P-W2: Cloudflare's cache refuses to store a `private` response, so a gated
+    // slot was paying for the transform on every single request. The stored copy
+    // is storable; the served one is not, and the key it sits under is synthetic.
+    const cache = createCacheStub();
+    (globalThis as { caches?: unknown }).caches = cache.binding;
+
+    const res = await serve("private");
+    expect(res.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable");
+    expect(cache.puts).toHaveLength(1);
+    expect(cache.puts[0]!.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("leaves a public image saying `public` on both copies", async () => {
+    const cache = createCacheStub();
+    (globalThis as { caches?: unknown }).caches = cache.binding;
+
+    const res = await serve("public");
+    expect(res.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+    expect(cache.puts[0]!.headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+  });
+
+  it("re-stamps a cache HIT with the slot's real visibility", async () => {
+    // Otherwise the second request for a private image would tell the browser it
+    // was shareable, purely because the first one had been cached.
+    const cache = createCacheStub();
+    (globalThis as { caches?: unknown }).caches = cache.binding;
+
+    await serve("private");
+    const hit = await serve("private");
+    expect(hit.headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable");
+    // Served from the stored copy — the transform path was not re-entered.
+    expect(cache.puts).toHaveLength(1);
+  });
+
+  it("serves the image even when the cache refuses the put", async () => {
+    // A refused put is a missed cache, not a failed request — and it must not
+    // surface as an unhandled rejection either.
+    (globalThis as { caches?: unknown }).caches = {
+      default: {
+        match: () => Promise.resolve(undefined),
+        put: () => Promise.reject(new Error("Cache put: Response body is unbuffered")),
+      },
+    };
+    const res = await serve("private");
+    expect(res.status).toBe(200);
   });
 });
