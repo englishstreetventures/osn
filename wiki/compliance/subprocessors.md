@@ -8,7 +8,7 @@ related:
   - "[[soc2]]"
   - "[[data-map]]"
   - "[[cire]]"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-13
 ---
 
 # Subprocessor Register
@@ -39,6 +39,7 @@ that touches personal data adds a row before merge. The
 | Upstash, Inc. | Upstash Redis (REST/HTTP) — edge-compatible Redis backend for `@osn/api` on Cloudflare Workers (the P2 backend in `@shared/redis`). Holds rotated-session family ids, ceremony/step-up `jti` state, recovery-lockout counters, and rate-limit keys (which incorporate HMAC-peppered IP hashes + account-derived keys). All **pseudonymised** — hashes, opaque ids, short-lived ceremony state; **no raw PII**. | Pseudonymised auth/rate-limit state: hashed session-family ids, step-up/ceremony jti, recovery-lockout counters, HMAC-peppered IP-hash + account-derived rate-limit keys | **`ap-southeast-2` (Sydney, Australia).** Chosen for AU data locality + latency — co-located with the D1 databases (`oc`/Sydney) and the Australian edge traffic, minimising RSVP/auth-write round-trips. | **TODO — sign at Phase-6 wiring (C-H5)** | AU-hosted, so EU/UK guest data would transit to AU — covered by the same consent/notice basis as the rest of the guest data (see [[gdpr]] "International transfers" + [[retention]]); not a new transfer concern for a pseudonymised cache. | — | High — auth/rate-limit state. **Introduced by the P2 backend; becomes active only when the Phase-6 Workers entry is wired + deployed — not on any live path yet.** Pseudonymised only. Region now locked (`ap-southeast-2`); DPA still to sign under C-H5. |
 | Supabase Inc. (planned migration target) | Production Postgres | Everything | EU region selectable | **TODO — sign at migration time** | Adequacy if EU region | — | Critical — primary data store. |
 | Stripe (planned, Pulse ticketing) | Hosted checkout | Payment data (never touches OSN DB); customer email + name | US/IE | **TODO — Stripe DPA** | EU SCCs | — | Medium — financial. PCI-DSS SAQ-A scope. |
+| Stripe (planned, **cire gift registry** — Connect Express) | Hosted Checkout + Connect payouts so a wedding guest can send the couple a cash gift. Model is **direct charges on the couple's own connected account**: cire is the platform, never the merchant of record, and gift funds never enter a cire balance — which is what keeps the platform out of money transmission. cire stores only the Checkout Session / PaymentIntent references and the settled amounts (see the `registry_contributions` row in [[data-map]]) | Guest card data (**never touches cire's D1** — hosted Checkout only); guest name/email as entered at Stripe; amounts + payment references; the couple's KYC identity + bank details, collected by Stripe during Express onboarding | US/IE | **TODO — Stripe DPA + Connect platform agreement, before the Connect PR ships** | EU SCCs | — | Medium–high — financial, and the first cire flow with a payment processor. PCI-DSS SAQ-A scope (redirect to hosted Checkout, no card fields on our origin). **Not yet integrated**: the schema landed with migration 0057 but no Stripe code, keys or traffic exist, and the `registry` entitlement is granted to no wedding. Sign the DPA and re-review this row *before* the integration merges. |
 
 ### Link-outs (not processors)
 

@@ -12,6 +12,12 @@ interface EntitlementGateError {
   body: { error: string; entitlement: EntitlementKey };
 }
 
+/** What the role gate (weddingMember/weddingEditor) parks on the context. */
+interface RoleGated {
+  params?: Record<string, string | undefined>;
+  weddingGateError?: { status: number; body: { error: string } };
+}
+
 /**
  * Entitlement gate for /api/organiser/weddings/:weddingId/* routes whose feature
  * is a paid pack. Sits AFTER the role gate (weddingMember/weddingEditor) and
@@ -22,11 +28,22 @@ interface EntitlementGateError {
  *
  * Reads `params.weddingId` directly (the role gate has already validated it);
  * a missing weddingId degrades to 402 rather than throwing.
+ *
+ * S-L2: when the role gate has already parked an error, this derive returns
+ * without touching D1. The role gate's onBeforeHandle is registered first and so
+ * answers first, meaning that entitlement read could never change the response —
+ * it only spent a query telling an unauthenticated or wrong-role caller apart.
+ * Skipping it keeps the status ordering the routes are tested against (401, then
+ * 403 `read_only_role`, then 402 `payment_required`) and denies an anonymous
+ * caller a free D1 read on every request.
  */
 export function weddingEntitlement(db: Db, key: EntitlementKey) {
   return new Elysia()
     .derive({ as: "scoped" }, async (ctx) => {
-      const { params } = ctx as unknown as { params?: Record<string, string | undefined> };
+      const { params, weddingGateError } = ctx as unknown as RoleGated;
+      if (weddingGateError) {
+        return { entitlementGateError: undefined as EntitlementGateError | undefined };
+      }
       const weddingId = params?.weddingId;
       if (!weddingId) {
         return {

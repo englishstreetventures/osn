@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-07-24
+last-reviewed: 2026-08-14
 ---
 
 # DSAR Runbook
@@ -137,6 +137,20 @@ profile-id string with **no cross-DB FK**. Two consequences:
   right is the organiser's responsibility as **controller** (cire is
   processor — see [[data-map]]). Route guest requests to the organiser and
   assist as processor.
+- **Guest free text in the gift registry (migration 0057).** A guest's claim
+  can carry `registry_claims.note` + `display_name`, and a contribution can
+  carry `registry_contributions.message` + `display_name` — text the guest
+  wrote about themselves. A guest asking to erase *what they wrote* while
+  keeping the gift itself does **not** need the row deleted: null the free-text
+  columns and leave `quantity` / `status` / the amount, which are facts about
+  the gift rather than about the guest. Deleting a contribution row instead is
+  the wrong move — it destroys the couple's record of money actually sent, and
+  the registry's whole design keeps that record even when the listing goes
+  (`item_id` is `ON DELETE SET NULL`). Full erasure of the household still
+  works through the normal path: delete the `families` row and all three
+  registry tables cascade. **Inert today** — the `registry` entitlement is
+  granted to no wedding, so no such row exists in production. Tracked under
+  C-M1 alongside the rest of the missing cire ARC bridge.
 
 **Cross-DB deletion orphan — decision: orphan-tolerance (for now).** Nothing
 fans OSN-account deletion out into cire. `DELETE /account` and

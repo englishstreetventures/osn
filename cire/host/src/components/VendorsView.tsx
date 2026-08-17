@@ -7,6 +7,7 @@ import { haptic } from "../lib/haptics";
 // non-secure contexts and the copy haptic, neither of which a bare
 // `navigator.clipboard.writeText` gets.
 import { copyToClipboard } from "../lib/invite-message";
+import { formatMinor } from "../lib/money";
 import { categoryLabel, SERVICE_CATEGORIES, type ServiceCategory } from "../lib/service-categories";
 import {
   ensureVendorsLoaded,
@@ -42,17 +43,11 @@ interface VendorsViewProps {
   canManage?: boolean;
 }
 
-function fmtMinor(minor: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 0,
-    }).format(minor / 100);
-  } catch {
-    return (minor / 100).toFixed(0);
-  }
-}
+/** Compact quote line (no cents). Delegates to the shared `lib/money` formatter —
+ *  memoised `Intl` instead of one per `<For>` row, and the currency's real
+ *  minor-unit exponent rather than a fixed `/ 100`. */
+const fmtMinor = (minor: number, currency: string): string =>
+  formatMinor(minor, currency, { wholeUnits: true });
 
 export default function VendorsView(props: VendorsViewProps) {
   const { authFetch } = useAuth();

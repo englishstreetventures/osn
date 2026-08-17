@@ -3,8 +3,9 @@ title: Entitlements — per-wedding capability gates
 tags: [systems, cire, entitlements, phase1]
 related:
   - "[[vendors]]"
+  - "[[registry]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-07-23
+last-reviewed: 2026-08-14
 ---
 
 # Entitlements — per-wedding capability gates
@@ -32,7 +33,7 @@ Added by migration 0042.
 
 ## Entitlement keys
 
-Five opaque capability flags. The table stores keys as plain strings. How the application checks a key decides what it means.
+Six opaque capability flags. The table stores keys as plain strings. How the application checks a key decides what it means.
 
 | Key | What its presence enables |
 |---|---|
@@ -41,8 +42,9 @@ Five opaque capability flags. The table stores keys as plain strings. How the ap
 | `ai` | AI-assisted content generation features |
 | `capacity_500` | Guest import ceiling raised to 500 |
 | `capacity_1000` | Guest import ceiling raised to 1000 |
+| `registry` | Gift registry module — the organiser routes and, transitively, the guest-facing registry section |
 
-Boolean capability flags (`premium_templates`, `vendors`, `ai`) are presence-only: the row either exists or it doesn't. Capacity flags work differently — see below.
+Boolean capability flags (`premium_templates`, `vendors`, `ai`, `registry`) are presence-only: the row either exists or it doesn't. Capacity flags work differently — see below.
 
 ---
 
@@ -101,6 +103,8 @@ HTTP status `402`. The organiser portal reads the `entitlement` field to display
 
 A missing `weddingId` in `params` (should not occur after the role gate validates it) degrades to a `402` rather than throwing.
 
+**It does no D1 read when the role gate has already refused.** Both role gates park their refusal on the context as `weddingGateError`; the entitlement `derive` returns immediately when it finds one. Elysia runs every `derive` before any `onBeforeHandle`, so without that check a stranger's request still paid for an entitlement query whose answer could never change the response — a free, unauthenticated read on every request to every gated route. Skipping it leaves the status ordering untouched (401, then 403 `read_only_role`, then 402 `payment_required`), which route tests pin.
+
 ---
 
 ## Capacity enforcement in `applyImport`
@@ -142,4 +146,5 @@ wrangler d1 execute cire-db --remote --command "<printed SQL>"
 ## Related
 
 - [[vendors]] — Vendor CRM + Directory; both route groups gate on the `vendors` entitlement
+- [[registry]] — Gift registry; granted to NO wedding, which is how that module ships built but unreachable
 - [[cire-auth]] — role gate middleware; ordering of role vs entitlement vs rate-limit gates

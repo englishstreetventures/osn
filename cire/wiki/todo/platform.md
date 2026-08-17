@@ -56,4 +56,9 @@ PR slicing + dependency order in [[platform-plan]] §3.6 (PRs 0–2 parallel; IA
 - [ ] **Seating** — `seating_tables` + `seating_assignments` per event; drag-drop island; declined/no-response badges; CSV/print export
 - [ ] **Guest emails** — new columns + consent design (collection point decision in [[deferred]]); data-map/retention/DPIA delta
 - [ ] **Comms** — save-the-date / invite-live / RSVP-chaser emails via `@shared/email`; key-optional fail-soft (prod email currently degraded); comms log + suppression list
-- [ ] **Registry** — first candidate after Phase 2 (root-TODO "withjoy parity"); wishing-well payments stay deferred
+- [~] **Registry** — in flight, shipping **locked** behind the `registry` entitlement (granted to no wedding). Landed: schema + migration 0057, the entitlement key, `registryService` (atomic claim, gift log, thank-you toggle), the organiser read/write routes, and the dual-currency host formatter. See [[registry]].
+  - [x] Schema + entitlement + organiser API
+  - [ ] Host portal module (nav, `RegistryView`, gift log, upsell copy)
+  - [ ] Link preview + image picker (paste a URL → choose an image; hardened fetcher)
+  - [ ] Guest surface (invite section, claim/release routes)
+  - [ ] Stripe Connect (Express): onboarding, hosted Checkout, webhook, balance-transaction FX capture

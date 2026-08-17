@@ -185,7 +185,7 @@ INSERT OR IGNORE INTO wedding_hosts (id, wedding_id, osn_profile_id, added_by_os
   ('whost_d1f0c4a2-0000-4000-8000-000000000003', 'wed_bootstrap', 'usr_dev_cohost_viewer', 'usr_dev_bootstrap_owner', 'viewer', unixepoch());
 
 -- ────────────────────────────────────────────────────────────────────────────
--- Entitlements (4)
+-- Entitlements (5)
 -- ────────────────────────────────────────────────────────────────────────────
 
 -- All `comp`: no payment provider is wired up on a dev tier, and without
@@ -194,6 +194,7 @@ INSERT OR IGNORE INTO wedding_entitlements (wedding_id, entitlement, source, gra
   ('wed_bootstrap', 'ai', 'comp', unixepoch(), 'dev-seed', NULL),
   ('wed_bootstrap', 'capacity_1000', 'comp', unixepoch(), 'dev-seed', NULL),
   ('wed_bootstrap', 'premium_templates', 'comp', unixepoch(), 'dev-seed', NULL),
+  ('wed_bootstrap', 'registry', 'comp', unixepoch(), 'dev-seed', NULL),
   ('wed_bootstrap', 'vendors', 'comp', unixepoch(), 'dev-seed', NULL);
 
 -- ────────────────────────────────────────────────────────────────────────────

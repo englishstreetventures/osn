@@ -10,6 +10,11 @@ export const ENTITLEMENT_KEYS = [
   "ai",
   "capacity_500",
   "capacity_1000",
+  // Gift registry. Deliberately granted to NO wedding — the module ships built
+  // but locked, so every organiser sees the nav tab and an upsell panel, and
+  // every registry route answers 402. Grant it with scripts/grant-entitlement.ts
+  // to open the feature for one wedding.
+  "registry",
 ] as const;
 export type EntitlementKey = (typeof ENTITLEMENT_KEYS)[number];
 

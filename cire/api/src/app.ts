@@ -42,6 +42,7 @@ import {
   createOrganiserWeddingsRoutes,
 } from "./routes/organiser-weddings";
 import { createPaymentWebhookSkeleton } from "./routes/payment-webhook";
+import { createRegistryReadRoutes, createRegistryWriteRoutes } from "./routes/registry";
 import { createRsvpRoutes } from "./routes/rsvp";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
 import {
@@ -645,6 +646,15 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createTaskWriteRoutes(db, osnAuthOptions))
       .use(createBudgetReadRoutes(db, osnAuthOptions))
       .use(createBudgetWriteRoutes(db, osnAuthOptions))
+      // Gift registry (platform Phase 4). Same read/write gate split as the
+      // modules above, plus an entitlement gate: the `registry` key is granted to
+      // NO wedding, so every route here answers 402 `payment_required` today and
+      // the portal renders its upsell panel instead of the module. Mounting it
+      // unconditionally is deliberate — the lock is the entitlement, not the
+      // absence of a route, so turning the feature on for one wedding is a single
+      // row and needs no deploy.
+      .use(createRegistryReadRoutes(db, osnAuthOptions))
+      .use(createRegistryWriteRoutes(db, osnAuthOptions))
       // Vendor CRM (platform Phase 1). Reads admit any member role (weddingMember);
       // writes require editor or owner (weddingEditor; viewer gets 403
       // read_only_role). Split into sibling instances so the read gate never
