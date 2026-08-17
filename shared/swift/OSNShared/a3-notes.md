@@ -48,6 +48,19 @@
 - Every OSNAuth request runs through the shared `URLSession` /
   `SharedCookieJar` — no client constructs its own session or cookie
   storage.
+- `OSNSession` (new, `OSNAuth`) extracted as the app-agnostic sign-in owner;
+  `PulseFeature.PulseSession` now forwards to it (`state` is computed from
+  `auth.state`, never a synced stored copy — that would break `@Observable`
+  tracking). Covered by `OSNSessionTests`: a failing `TokenRefresher.refresh()`
+  during `restore()` lands on `.signedOut`, never `.failed`; `signOut()`
+  clears the Keychain access token; `ensureFreshAccessToken()` refreshes
+  when the stored token is missing or expires within 30s and is a no-op
+  (asserted via request count against `LoginMockURLProtocol`) when the
+  token is still fresh.
+- New `OSNAuthUI` target (`OSNAuth` + `OSNUI`) holds `PasskeySignInView`,
+  the app-name-parameterized, `OSNSession`-driven successor to
+  `PulseFeature`'s old `SignInView`. `PulseRootView` renders it against
+  `session.auth`; no other view changed.
 
 ## Not verified
 

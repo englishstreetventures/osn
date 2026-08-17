@@ -16,6 +16,7 @@ let package = Package(
         .library(name: "OSNKit", targets: ["OSNKit"]),
         .library(name: "OSNAuth", targets: ["OSNAuth"]),
         .library(name: "OSNUI", targets: ["OSNUI"]),
+        .library(name: "OSNAuthUI", targets: ["OSNAuthUI"]),
         .library(name: "OSNTesting", targets: ["OSNTesting"]),
         .library(name: "PulseAPI", targets: ["PulseAPI"]),
         .library(name: "PulseFeature", targets: ["PulseFeature"]),
@@ -30,6 +31,7 @@ let package = Package(
         .target(name: "OSNKit"),
         .target(name: "OSNAuth", dependencies: ["OSNKit"]),
         .target(name: "OSNUI"),
+        .target(name: "OSNAuthUI", dependencies: ["OSNAuth", "OSNUI"]),
         .target(name: "OSNTesting", dependencies: ["OSNKit"]),
         .testTarget(name: "OSNKitTests", dependencies: ["OSNKit", "OSNTesting"]),
         .testTarget(name: "OSNAuthTests", dependencies: ["OSNAuth", "OSNTesting"]),
@@ -44,7 +46,7 @@ let package = Package(
             plugins: [.plugin(name: "OpenAPIGenerator", package: "swift-openapi-generator")]
         ),
         .testTarget(name: "PulseAPITests", dependencies: ["PulseAPI", "OSNKit", "OSNTesting"]),
-        .target(name: "PulseFeature", dependencies: ["OSNKit", "OSNAuth", "OSNUI", "PulseAPI"]),
+        .target(name: "PulseFeature", dependencies: ["OSNKit", "OSNAuth", "OSNUI", "OSNAuthUI", "PulseAPI"]),
         .testTarget(name: "PulseFeatureTests", dependencies: ["PulseFeature", "OSNTesting"]),
     ]
 )

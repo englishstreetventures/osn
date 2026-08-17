@@ -1,4 +1,5 @@
 import OSNAuth
+import OSNAuthUI
 import OSNUI
 import SwiftUI
 
@@ -30,7 +31,7 @@ public struct PulseRootView: View {
         case .restoring:
             ProgressView()
         case .signedOut, .failed:
-            SignInView(session: session, anchorProvider: anchorProvider)
+            PasskeySignInView(appName: "Pulse", session: session.auth, anchorProvider: anchorProvider)
         case .signedIn:
             PulseTabView(session: session)
         }

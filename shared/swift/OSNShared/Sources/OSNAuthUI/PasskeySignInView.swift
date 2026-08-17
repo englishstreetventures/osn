@@ -6,22 +6,24 @@ import SwiftUI
 /// (`identifier: nil`) and a typed-identifier flow; never branches on
 /// whether the server recognised the identifier, since it deliberately
 /// fabricates `allowCredentials` for unknown ones.
-public struct SignInView: View {
-    private let session: PulseSession
+public struct PasskeySignInView: View {
+    private let appName: String
+    private let session: OSNSession
     private let anchorProvider: PresentationAnchorProvider
 
     @State private var identifier = ""
     @State private var isSigningIn = false
     @State private var errorMessage: String?
 
-    public init(session: PulseSession, anchorProvider: @escaping PresentationAnchorProvider) {
+    public init(appName: String, session: OSNSession, anchorProvider: @escaping PresentationAnchorProvider) {
+        self.appName = appName
         self.session = session
         self.anchorProvider = anchorProvider
     }
 
     public var body: some View {
         VStack(spacing: 24) {
-            Text("Pulse")
+            Text(appName)
                 .font(.osn(.display, size: 40))
 
             TextField("Handle or email", text: $identifier)
