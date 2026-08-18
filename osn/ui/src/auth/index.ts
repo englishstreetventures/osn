@@ -9,5 +9,5 @@ export { Register } from "./Register";
 export { SecurityEventsBanner } from "./SecurityEventsBanner";
 export { SessionsView } from "./SessionsView";
 export { SignIn } from "./SignIn";
-export { StepUpDialog } from "./StepUpDialog";
+export { StepUpDialog, type RunPasskeyCeremony, type RunPasskeyRegistration } from "./StepUpDialog";
 export { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";

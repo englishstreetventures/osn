@@ -16,8 +16,15 @@
  *
  * Returns a cancel function for the case where the component unmounts before
  * the callback runs.
+ *
+ * `load` is generic rather than `() => Promise<unknown>` so a call site keeps
+ * the type of what it warms: `TChunk` is inferred from the `import()` handed in
+ * (the chunk's own module namespace), never asserted here. Nothing in this file
+ * reads the resolved value — the warm-up only cares that the chunk landed — but
+ * an `unknown` in the signature would erase the module type on the way in, and
+ * a caller that later wants the module back would have no type to recover.
  */
-export function prefetchOnIdle(load: () => Promise<unknown>): () => void {
+export function prefetchOnIdle<TChunk>(load: () => Promise<TChunk>): () => void {
   // SSR / non-DOM (the packs' unit tests import this module too).
   if (typeof window === "undefined") return () => {};
 

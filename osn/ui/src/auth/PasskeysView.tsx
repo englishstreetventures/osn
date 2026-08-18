@@ -3,7 +3,7 @@ import { createResource, createSignal, For, Show } from "solid-js";
 
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { StepUpDialog } from "./StepUpDialog";
+import { StepUpDialog, type RunPasskeyCeremony, type RunPasskeyRegistration } from "./StepUpDialog";
 
 /**
  * Settings-panel surface for listing, renaming, and deleting the caller's
@@ -34,15 +34,14 @@ export interface PasskeysViewProps {
   profileId?: string;
   /**
    * Executes the browser-side WebAuthn assertion for the step-up ceremony.
-   * Kept caller-side so `@osn/ui` doesn't pull `@simplewebauthn/browser`.
+   * Kept caller-side so the host picks the WebAuthn wrapper.
    */
-  runPasskeyCeremony?: (options: unknown) => Promise<unknown>;
+  runPasskeyCeremony?: RunPasskeyCeremony;
   /**
    * Executes the browser-side WebAuthn attestation ceremony for adding a
-   * new passkey. Same caller-side pattern as `runPasskeyCeremony` so this
-   * package doesn't pull in `@simplewebauthn/browser`.
+   * new passkey. Same caller-side pattern as `runPasskeyCeremony`.
    */
-  runPasskeyRegistration?: (options: unknown) => Promise<unknown>;
+  runPasskeyRegistration?: RunPasskeyRegistration;
   /**
    * Force the step-up ceremony to use the passkey factor only, suppressing
    * the OTP ("email me a code") option. Set this in hosts where transactional

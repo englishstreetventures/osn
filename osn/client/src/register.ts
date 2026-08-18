@@ -123,12 +123,16 @@ export interface RegistrationClient {
    * Fetch WebAuthn options. `stepUpToken` is REQUIRED by the server when
    * the account already has ≥1 passkey (S-H1); the first-passkey
    * bootstrap flow from `completeRegistration` can omit it.
+   *
+   * Returns the server's creation options verbatim — feed them straight to
+   * `navigator.credentials.create` (or `startRegistration` from
+   * @simplewebauthn/browser, which takes the same JSON shape).
    */
   passkeyRegisterBegin(input: {
     profileId: string;
     accessToken: string;
     stepUpToken?: string;
-  }): Promise<unknown>;
+  }): Promise<PublicKeyCredentialCreationOptionsJSON>;
   passkeyRegisterComplete(input: {
     profileId: string;
     accessToken: string;
@@ -183,7 +187,7 @@ export function createRegistrationClient(config: RegistrationClientConfig): Regi
     accessToken: string;
     stepUpToken?: string;
   }) =>
-    postJson<unknown>(
+    postJson<PublicKeyCredentialCreationOptionsJSON>(
       `${base}/passkey/register/begin`,
       input.stepUpToken !== undefined
         ? { profileId: input.profileId, step_up_token: input.stepUpToken }

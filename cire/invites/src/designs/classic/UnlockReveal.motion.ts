@@ -62,13 +62,19 @@ export interface RevealHooks {
   onFormHidden?: () => void;
 }
 
-function tryAnimate(run: () => { finished: Promise<unknown> }): Promise<unknown> {
+/**
+ * Runs one animation step and resolves when it is over — settled, timed out or
+ * thrown. There is no value to hand back: `motion`'s `finished` resolves with
+ * nothing a caller can use, and every step here is awaited only for its timing.
+ * So the step is a `Promise<void>`, not an `unknown` for the caller to guess at.
+ */
+function tryAnimate(run: () => { finished: Promise<void> }): Promise<void> {
   try {
     const { finished } = run();
     // Race against a cap so a stalled animation can't wedge the sequence.
     return Promise.race([
       finished,
-      new Promise((resolve) => setTimeout(resolve, STEP_TIMEOUT_MS)),
+      new Promise<void>((resolve) => setTimeout(resolve, STEP_TIMEOUT_MS)),
     ]).catch(() => {});
   } catch {
     return Promise.resolve();

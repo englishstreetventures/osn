@@ -24,12 +24,32 @@
 
 import { Redis } from "@upstash/redis";
 
-import type { RedisClient } from "./client";
+import type { RedisClient, RedisReply } from "./client";
+
+/**
+ * Redis's reply to SET: the status string `"OK"`, or nil when a conditional
+ * SET (NX/XX) declined to write.
+ *
+ * Widened to `string` rather than the literal `"OK"` because `@upstash/redis`
+ * types `set` as `<TData>(key, value: TData, opts?) => Promise<"OK" | TData |
+ * null>` — with a `string` value that collapses to `string | null`, and pinning
+ * the literal here would stop a real `Redis` instance satisfying
+ * {@link UpstashLike}. {@link wrapUpstash} discards the value either way: the
+ * `RedisClient` contract makes `set` a `Promise<void>`.
+ */
+export type RedisSetReply = string | null;
 
 /**
  * Minimal structural view of the `@upstash/redis` client surface this adapter
  * depends on. Declared locally so callers can pass either a real `Redis`
  * instance or a fake in tests without coupling to the SDK's full type.
+ *
+ * The SDK types most of these as generic in their result (`get<TData>`,
+ * `eval<TArgs, TData>`), i.e. it will hand back whatever the caller claims. The
+ * claims are made once, here, and each is justified: `get` returns raw strings
+ * because the client is built with `automaticDeserialization: false`, and
+ * `eval` returns a {@link RedisReply} because that is the whole of what a Lua
+ * script can send back over RESP.
  */
 export interface UpstashLike {
   /**
@@ -38,10 +58,10 @@ export interface UpstashLike {
    * satisfy this interface without a cast. The `RedisClient` contract hands
    * `eval` readonly arrays, so {@link wrapUpstash} copies them on the way in.
    */
-  eval(script: string, keys: string[], args: (string | number)[]): Promise<unknown>;
+  eval(script: string, keys: string[], args: (string | number)[]): Promise<RedisReply>;
   ping(): Promise<string>;
   get(key: string): Promise<string | null>;
-  set(key: string, value: string, opts?: { px: number }): Promise<unknown>;
+  set(key: string, value: string, opts?: { px: number }): Promise<RedisSetReply>;
   del(...keys: string[]): Promise<number>;
 }
 

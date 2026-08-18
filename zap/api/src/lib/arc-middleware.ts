@@ -91,18 +91,42 @@ function extractToken(authorization: string | undefined): string | null {
   return m ? m[1] : null;
 }
 
-function decodeSegment(segment: string): unknown {
+/**
+ * The one header claim we read before the signature is checked: the key ID
+ * that tells us which registered public key to verify with.
+ */
+interface PeekedArcHeader {
+  readonly kid: string;
+}
+
+/**
+ * Decodes a base64url-encoded JWT segment to its JSON text. JWT segments use
+ * base64url (RFC 7515 §2) — `atob()` only handles standard base64, so we
+ * convert `-` → `+` and `_` → `/` first.
+ */
+function decodeJwtSegment(segment: string): string {
   const padded =
     segment.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (segment.length % 4)) % 4);
-  return JSON.parse(atob(padded));
+  return atob(padded);
+}
+
+/**
+ * Parses a JWT header segment. Returns null when the segment isn't a JSON
+ * object carrying a string `kid`. Throws on undecodable/non-JSON input —
+ * callers wrap this in the same try/catch that guards the decode.
+ */
+function parseArcHeader(segment: string): PeekedArcHeader | null {
+  const value: unknown = JSON.parse(decodeJwtSegment(segment));
+  if (typeof value !== "object" || value === null) return null;
+  if (!("kid" in value) || typeof value.kid !== "string") return null;
+  return { kid: value.kid };
 }
 
 function peekKid(token: string): string | null {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return null;
-    const header = decodeSegment(parts[0]) as { kid?: string };
-    return typeof header.kid === "string" ? header.kid : null;
+    return parseArcHeader(parts[0])?.kid ?? null;
   } catch {
     return null;
   }

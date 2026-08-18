@@ -1,4 +1,5 @@
 import type { RecoveryClient, StepUpClient } from "@osn/client";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
 // @vitest-environment happy-dom
 import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
 import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
@@ -53,6 +54,22 @@ function makeStepUpStub(): StepUpStub {
 const asClient = (s: ClientStub): RecoveryClient => s as unknown as RecoveryClient;
 const asStepUp = (s: StepUpStub): StepUpClient => s as unknown as StepUpClient;
 
+/**
+ * A minimal but well-formed WebAuthn assertion. The view forwards it to the
+ * step-up client untouched, so only the shape matters.
+ */
+const assertion: AuthenticationResponseJSON = {
+  id: "cred",
+  rawId: "cred",
+  response: {
+    clientDataJSON: "Y2xpZW50RGF0YQ",
+    authenticatorData: "YXV0aERhdGE",
+    signature: "c2ln",
+  },
+  clientExtensionResults: {},
+  type: "public-key",
+};
+
 const sampleCodes = [
   "abcd-1234-5678-ef00",
   "1111-2222-3333-4444",
@@ -76,7 +93,7 @@ function renderView(extra: Record<string, unknown> = {}) {
       client={asClient(stub)}
       stepUpClient={asStepUp(stepUp)}
       accessToken="acc_live"
-      runPasskeyCeremony={async () => ({ id: "assertion" })}
+      runPasskeyCeremony={async () => assertion}
       passkeyOnly
       {...extra}
     />

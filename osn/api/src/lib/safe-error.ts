@@ -16,12 +16,33 @@ import { Cause, Option, Runtime } from "effect";
 
 const GENERIC_MESSAGE = "Request failed";
 
-/** Unwrap a `FiberFailure` to its typed failure; pass anything else through. */
-function unwrapFailure(e: unknown): unknown {
-  if (Runtime.isFiberFailure(e)) {
-    return Option.getOrNull(Cause.failureOption(e[Runtime.FiberFailureCauseId]));
-  }
-  return e;
+/**
+ * A service failure carrying an Effect `Data.TaggedError` discriminator — the
+ * only shape this module can say anything about.
+ */
+interface TaggedServiceError extends Error {
+  readonly _tag: string;
+}
+
+function isTaggedServiceError(value: unknown): value is TaggedServiceError {
+  return (
+    value instanceof Error &&
+    "_tag" in value &&
+    typeof value._tag === "string" &&
+    typeof value.message === "string"
+  );
+}
+
+/**
+ * Unwrap a `FiberFailure` to its typed failure — or take the value as thrown —
+ * and narrow it to a tagged service error. `null` for a defect, a plain `Error`
+ * or any other value, none of which carries a message fit to return.
+ */
+function taggedFailure(e: unknown): TaggedServiceError | null {
+  const failure = Runtime.isFiberFailure(e)
+    ? Option.getOrNull(Cause.failureOption(e[Runtime.FiberFailureCauseId]))
+    : e;
+  return isTaggedServiceError(failure) ? failure : null;
 }
 
 /**
@@ -33,16 +54,7 @@ function unwrapFailure(e: unknown): unknown {
 export function makeSafeError(allowedTags: readonly string[]): (e: unknown) => string {
   const tags = new Set(allowedTags);
   return (e: unknown): string => {
-    const failure = unwrapFailure(e);
-    if (
-      failure instanceof Error &&
-      "_tag" in failure &&
-      typeof failure._tag === "string" &&
-      tags.has(failure._tag) &&
-      typeof failure.message === "string"
-    ) {
-      return failure.message;
-    }
-    return GENERIC_MESSAGE;
+    const failure = taggedFailure(e);
+    return failure && tags.has(failure._tag) ? failure.message : GENERIC_MESSAGE;
   };
 }

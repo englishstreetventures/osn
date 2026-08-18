@@ -12,6 +12,44 @@
 import { RATE_LIMIT_SCRIPT } from "./rate-limiter";
 
 /**
+ * The value a Lua script hands back through EVAL.
+ *
+ * Redis has no schema for this: a script returns whatever RESP value it
+ * returns, and only the script's owner knows which. RESP's value space maps
+ * onto exactly these JavaScript types — simple/bulk strings, integers, RESP3
+ * booleans, nil, and nested arrays of the same — so this is the honest shape of
+ * a reply nobody has interpreted yet. Every call site narrows it on the spot:
+ * `result === 1` for the rate-limit script, `Number(result)` for the counters,
+ * `result === 1 || result === "1"` for the step-up jti check.
+ */
+export type RedisReply = string | number | boolean | null | readonly RedisReply[];
+
+/**
+ * Narrow a driver's untyped EVAL result to a {@link RedisReply}.
+ *
+ * ioredis types every `eval`/`evalsha` result as `unknown`, so the check has to
+ * happen once, here, rather than being claimed with an assertion at each
+ * backend. Throws on anything RESP cannot carry (a plain object, a function, a
+ * symbol) — that means the script returned something its caller could not have
+ * read anyway, and every `eval` call site already treats a throw as backend
+ * failure.
+ */
+export function toRedisReply(value: unknown): RedisReply {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return value;
+  if (typeof value === "boolean") return value;
+  // ioredis surfaces very large integers as BigInt on some servers; the counter
+  // scripts only ever produce small ones, so narrowing loses nothing real.
+  if (typeof value === "bigint") return Number(value);
+  if (Array.isArray(value)) return value.map(toRedisReply);
+  throw new Error(
+    `Redis EVAL returned a ${typeof value}, which is not a RESP value. A Lua script must ` +
+      "return a string, integer, boolean, nil or an array of those.",
+  );
+}
+
+/**
  * Backend-agnostic Redis client contract. Node/Bun production uses ioredis via
  * `wrapIoRedis()`; Workers uses `wrapUpstash()`; dev/test uses
  * `createMemoryClient()`.
@@ -22,7 +60,7 @@ export interface RedisClient {
     script: string,
     keys: readonly string[],
     args: readonly (string | number)[],
-  ): Promise<unknown>;
+  ): Promise<RedisReply>;
   /** PING health check — returns "PONG". */
   ping(): Promise<string>;
   /** GET a string value by key. */

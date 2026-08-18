@@ -71,7 +71,13 @@ export const hostCodeService = {
       }
       const slug = wedding.slug;
 
-      const write = (op: string, run: () => unknown | Promise<unknown>) =>
+      // `run` is declared `void`: each caller hands over a Drizzle write (or a
+      // `commitBatch`) whose result nobody here reads — the write either landed
+      // or threw, and that is the whole contract. TypeScript's "return value is
+      // ignored" rule lets a builder returning a row/`D1Result`, a Promise, or
+      // nothing at all satisfy it, and `Promise.resolve(...)` below still awaits
+      // the async drivers properly.
+      const write = (op: string, run: () => void) =>
         Effect.tryPromise({
           try: () => Promise.resolve(run()),
           catch: (cause) => new HostCodeError({ reason: op, cause }),

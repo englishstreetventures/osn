@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../components/ui/dialog";
-import { StepUpDialog } from "./StepUpDialog";
+import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 
 /**
  * Settings-panel surface for generating and displaying recovery codes
@@ -46,9 +46,9 @@ export interface RecoveryCodesViewProps {
   accessToken: string;
   /**
    * Executes the browser-side WebAuthn assertion for the step-up ceremony.
-   * Kept caller-side so `@osn/ui` doesn't pull `@simplewebauthn/browser`.
+   * Kept caller-side so the host picks the WebAuthn wrapper.
    */
-  runPasskeyCeremony?: (options: unknown) => Promise<unknown>;
+  runPasskeyCeremony?: RunPasskeyCeremony;
   /**
    * Force the step-up ceremony to use the passkey factor only, suppressing
    * the OTP ("email me a code") option. Set this for accounts whose host has

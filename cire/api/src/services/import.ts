@@ -12,7 +12,7 @@ import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
-import type { Db } from "../db";
+import type { BatchableDb, BatchStatements, Db } from "../db";
 import { metricImportApplied } from "../metrics";
 import type {
   ChangeScope,
@@ -784,9 +784,7 @@ const MAX_STATEMENTS_PER_BATCH = 50;
  */
 async function commitWriteSet(db: Db, statements: BatchItem<"sqlite">[]): Promise<void> {
   if (statements.length === 0) return;
-  const batchable = db as {
-    batch?: (s: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]) => Promise<unknown>;
-  };
+  const batchable = db as BatchableDb;
   if (typeof batchable.batch === "function") {
     // INVARIANT (dependency ordering): `statements` is built in strict
     // FK-dependency order by applyImport (removes → event creates →
@@ -807,10 +805,7 @@ async function commitWriteSet(db: Db, statements: BatchItem<"sqlite">[]): Promis
     // + revert is the tradeoff. Chunks stay small + the whole import is well
     // under the 30s wall-clock, so the partial-apply window is narrow.
     for (let i = 0; i < statements.length; i += MAX_STATEMENTS_PER_BATCH) {
-      const chunk = statements.slice(i, i + MAX_STATEMENTS_PER_BATCH) as [
-        BatchItem<"sqlite">,
-        ...BatchItem<"sqlite">[],
-      ];
+      const chunk = statements.slice(i, i + MAX_STATEMENTS_PER_BATCH) as BatchStatements;
       // eslint-disable-next-line no-await-in-loop -- chunks are dependency-ordered; they MUST run serially
       await batchable.batch(chunk);
     }

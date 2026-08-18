@@ -2,7 +2,7 @@ import type { AccountClient, StepUpClient, StepUpToken } from "@osn/client";
 import { createSignal, Show } from "solid-js";
 
 import { Button } from "../components/ui/button";
-import { StepUpDialog } from "./StepUpDialog";
+import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 
 /**
  * Settings-panel surface for changing the account email. Two-phase:
@@ -22,7 +22,7 @@ export interface ChangeEmailFormProps {
   /** Fires after a successful email swap with the new address. */
   onChanged?: (newEmail: string) => void;
   /** Forwarded to the step-up dialog so passkeys work when available. */
-  runPasskeyCeremony?: (options: unknown) => Promise<unknown>;
+  runPasskeyCeremony?: RunPasskeyCeremony;
 }
 
 type Phase = "enter_email" | "enter_code" | "step_up" | "done";

@@ -44,6 +44,28 @@ export const dbQuery = <A>(run: () => A | Promise<A>): Effect.Effect<A> =>
   Effect.promise(() => Promise.resolve(run()));
 
 /**
+ * A non-empty statement list — the shape `batch()` demands (D1 rejects an empty
+ * batch), so callers filter out the empty case before building one.
+ */
+export type BatchStatements = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
+
+/**
+ * The `.batch()` half of a Drizzle handle, as an OPTIONAL member — only the D1
+ * driver has it, bun:sqlite does not, so every caller feature-detects it (see
+ * {@link commitBatch}). Kept here as one named type rather than re-declared at
+ * each of the three call sites (`commitBatch`, the importer's write-set commit,
+ * session rotation).
+ *
+ * The result is `Promise<void>`: D1 resolves one `D1Result` per statement, but
+ * no caller in this codebase reads them — what a batch guarantees is that every
+ * statement committed together, which you get by awaiting. TypeScript's
+ * "return value is ignored" rule keeps D1's real, richer signature assignable.
+ */
+export type BatchableDb = {
+  batch?: (statements: BatchStatements) => Promise<void>;
+};
+
+/**
  * Commit a list of Drizzle write statements as one atomic D1 batch (production)
  * or sequentially on bun:sqlite (tests/local). Feature-detects `.batch()` — the
  * same path the importer, retention sweep, and code-rotation services use. An
@@ -53,11 +75,9 @@ export const dbQuery = <A>(run: () => A | Promise<A>): Effect.Effect<A> =>
  */
 export async function commitBatch(db: Db, statements: BatchItem<"sqlite">[]): Promise<void> {
   if (statements.length === 0) return;
-  const batchable = db as {
-    batch?: (s: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]) => Promise<unknown>;
-  };
+  const batchable = db as BatchableDb;
   if (typeof batchable.batch === "function") {
-    await batchable.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+    await batchable.batch(statements as BatchStatements);
     return;
   }
   // eslint-disable-next-line no-await-in-loop

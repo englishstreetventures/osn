@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import type { StepUpClient } from "@osn/client";
+import type { AuthenticationResponseJSON } from "@simplewebauthn/browser";
 import { render, cleanup, screen, fireEvent, waitFor } from "@solidjs/testing-library";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
@@ -22,6 +23,23 @@ function makeStub(): ClientStub {
 }
 
 const asClient = (s: ClientStub): StepUpClient => s as unknown as StepUpClient;
+
+/**
+ * A minimal but well-formed WebAuthn assertion. The dialog never reads a
+ * field off it — it goes straight to `passkeyComplete` — so the values only
+ * need to satisfy the shape the browser really returns.
+ */
+const assertion: AuthenticationResponseJSON = {
+  id: "cred",
+  rawId: "cred",
+  response: {
+    clientDataJSON: "Y2xpZW50RGF0YQ",
+    authenticatorData: "YXV0aERhdGE",
+    signature: "c2ln",
+  },
+  clientExtensionResults: {},
+  type: "public-key",
+};
 
 let stub: ClientStub;
 
@@ -60,7 +78,7 @@ describe("StepUpDialog", () => {
   it("passkey path: runs caller-supplied ceremony and exchanges the assertion", async () => {
     stub.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
     stub.passkeyComplete.mockResolvedValue({ token: "eyJpk", expiresIn: 300 });
-    const runPasskey = vi.fn(async () => ({ id: "cred", signed: true }));
+    const runPasskey = vi.fn(async () => assertion);
 
     const onToken = vi.fn();
     render(() => (
@@ -105,7 +123,7 @@ describe("StepUpDialog", () => {
   it("passkeyOnly: hides the OTP option and auto-starts the passkey ceremony", async () => {
     stub.passkeyBegin.mockResolvedValue({ options: { challenge: "abc" } });
     stub.passkeyComplete.mockResolvedValue({ token: "eyJpk", expiresIn: 300 });
-    const runPasskey = vi.fn(async () => ({ id: "cred", signed: true }));
+    const runPasskey = vi.fn(async () => assertion);
     const onToken = vi.fn();
 
     render(() => (

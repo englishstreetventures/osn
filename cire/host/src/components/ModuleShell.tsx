@@ -1,4 +1,4 @@
-import { For, lazy, Show, Suspense } from "solid-js";
+import { type Component, For, lazy, Show, Suspense } from "solid-js";
 
 import { createAutoSize } from "../lib/auto-size";
 import { peekCachedBudget } from "../lib/budget-store";
@@ -78,7 +78,19 @@ const RegistryView = lazy(loadRegistry);
  * template-literal type catches half of it here; `ModuleShell.test.tsx` pins the
  * sub half, which types can't reach.
  */
-const PANEL_LOADERS: Partial<Record<`${Module}:${string}`, () => Promise<unknown>>> = {
+/**
+ * What one of those chunks resolves to: a panel, default-exported.
+ *
+ * The warm-up below never reads the module — it only wants the fetch started —
+ * but `unknown` here would let anything at all be listed as a panel loader, and
+ * a `lazy()` above and a warmer down here would then disagree about what the
+ * same chunk is. `Component<never>` accepts any props (a component's props are
+ * contravariant), so each panel keeps its own shape while the map still refuses
+ * a module that has no component to mount.
+ */
+type PanelModule = { readonly default: Component<never> };
+
+const PANEL_LOADERS: Partial<Record<`${Module}:${string}`, () => Promise<PanelModule>>> = {
   "events:edit": loadEventsEditor,
   "guests:edit": loadGuestsEditor,
   "invite:design": loadInviteBuilder,

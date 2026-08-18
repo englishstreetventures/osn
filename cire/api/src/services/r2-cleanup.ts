@@ -37,9 +37,14 @@ export type R2BucketLabel = "sheets" | "assets";
  * structurally and additionally accepts `string[]` for a single multi-key
  * delete; the in-memory test stubs implement only the single-key form. We
  * feature-detect the array form at call time so both work.
+ *
+ * The result is `void`: a delete either happened or threw, and nothing here
+ * reads what R2 (or a stub) resolves with. Declaring `void` says so, and keeps
+ * every backend assignable — the caller `Promise.resolve(...)`s the call, so an
+ * async binding is still awaited at runtime.
  */
 export interface DeletableBucket {
-  delete(keys: string | string[]): Promise<unknown> | unknown;
+  delete(keys: string | string[]): void;
 }
 
 /** Max keys per R2 multi-delete request — R2's documented cap is 1000. */

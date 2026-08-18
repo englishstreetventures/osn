@@ -31,14 +31,58 @@ function extractArcToken(authorization: string | undefined): string | null {
 }
 
 /**
- * Decodes a base64url-encoded JWT segment to a plain object.
+ * The one header claim we read before the signature is checked: the key ID
+ * that tells us which registered public key to resolve.
+ */
+interface PeekedArcHeader {
+  readonly kid: string;
+}
+
+/**
+ * The payload claims we read before the signature is checked. Unverified —
+ * `verifyArcToken` is the authoritative gate. `scope` is normalised to `null`
+ * when absent or not a string.
+ */
+interface PeekedArcPayload {
+  readonly iss: string;
+  readonly scope: string | null;
+}
+
+/**
+ * Decodes a base64url-encoded JWT segment to its JSON text.
  * JWT segments use base64url (RFC 7515 §2) — `atob()` only handles standard
  * base64, so we convert `-` → `+` and `_` → `/` first (S-M100).
  */
-function decodeJwtSegment(segment: string): unknown {
+function decodeJwtSegment(segment: string): string {
   const padded =
     segment.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (segment.length % 4)) % 4);
-  return JSON.parse(atob(padded));
+  return atob(padded);
+}
+
+/**
+ * Parses a JWT header segment. Returns null when the segment isn't a JSON
+ * object carrying a string `kid`. Throws on undecodable/non-JSON input —
+ * callers wrap this in the same try/catch that guards the decode.
+ */
+function parseArcHeader(segment: string): PeekedArcHeader | null {
+  const value: unknown = JSON.parse(decodeJwtSegment(segment));
+  if (typeof value !== "object" || value === null) return null;
+  if (!("kid" in value) || typeof value.kid !== "string") return null;
+  return { kid: value.kid };
+}
+
+/**
+ * Parses a JWT payload segment for the claims needed to resolve the issuer's
+ * key. Returns null when the segment isn't a JSON object carrying a string
+ * `iss`; a missing or non-string `scope` becomes `null` rather than a
+ * rejection, since the signed scope check happens in `verifyArcToken`.
+ */
+function parseArcPayload(segment: string): PeekedArcPayload | null {
+  const value: unknown = JSON.parse(decodeJwtSegment(segment));
+  if (typeof value !== "object" || value === null) return null;
+  if (!("iss" in value) || typeof value.iss !== "string") return null;
+  const scope = "scope" in value && typeof value.scope === "string" ? value.scope : null;
+  return { iss: value.iss, scope };
 }
 
 /**
@@ -54,17 +98,17 @@ function peekClaims(token: string): { kid: string; iss: string; scopes: string[]
     const parts = token.split(".");
     if (parts.length !== 3) return null;
     // Decode header first — fast-path rejection when `kid` is absent (P-W101).
-    const header = decodeJwtSegment(parts[0]) as { kid?: string };
-    if (typeof header.kid !== "string") return null;
-    const payload = decodeJwtSegment(parts[1]) as { iss?: string; scope?: string };
-    if (typeof payload.iss !== "string") return null;
+    const header = parseArcHeader(parts[0]);
+    if (!header) return null;
+    const payload = parseArcPayload(parts[1]);
+    if (!payload) return null;
     const scopes =
-      typeof payload.scope === "string"
-        ? payload.scope
+      payload.scope === null
+        ? []
+        : payload.scope
             .split(",")
             .map((s) => s.trim().toLowerCase())
-            .filter(Boolean)
-        : [];
+            .filter(Boolean);
     return { kid: header.kid, iss: payload.iss, scopes };
   } catch {
     return null;

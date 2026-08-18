@@ -244,6 +244,66 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
 );
 
 /**
+ * A scrubbed log payload — what {@link redact} hands back.
+ *
+ * The walk below is total, so this enumerates every shape that can come out of
+ * it rather than shrugging with `unknown`:
+ *
+ * - scalars and functions pass through untouched (`typeof !== "object"`),
+ * - `Date` is preserved by identity so serializers keep its fidelity,
+ * - arrays become arrays of scrubbed values,
+ * - everything else — plain objects and `Error`s alike — becomes a plain
+ *   record whose denied keys hold {@link REDACTION_PLACEHOLDER}.
+ *
+ * `RedactedFunction` is here because a function reaching a log annotation is
+ * returned as-is; it is not a shape worth encouraging, just one the walk does
+ * not alter.
+ */
+export type RedactedFunction = (...args: never[]) => void;
+
+export type RedactedValue =
+  | string
+  | number
+  | boolean
+  | bigint
+  | symbol
+  | null
+  | undefined
+  | Date
+  | RedactedFunction
+  | readonly RedactedValue[]
+  | { readonly [key: string]: RedactedValue };
+
+/**
+ * Narrow a non-object log value to the scalar half of {@link RedactedValue}.
+ *
+ * `typeof value !== "object"` leaves TypeScript holding `unknown`, so the
+ * branches have to be spelled out. Every `typeof` result is covered, so the
+ * final `return` is only reached for a value JavaScript has no type name for —
+ * i.e. never.
+ */
+const isFunction = (value: unknown): value is RedactedFunction => typeof value === "function";
+
+const asScalar = (value: unknown): RedactedValue => {
+  // A predicate rather than a `case "function"` arm: `typeof` narrows to the
+  // bare `Function` type, which carries no call signature to match on.
+  if (isFunction(value)) return value;
+  switch (typeof value) {
+    case "string":
+    case "number":
+    case "boolean":
+    case "bigint":
+    case "symbol":
+    case "undefined": {
+      return value;
+    }
+    default: {
+      return String(value);
+    }
+  }
+};
+
+/**
  * Returns a deep-copy of `value` with any keys matching the deny-list
  * replaced by `REDACTION_PLACEHOLDER`. Handles nested objects and arrays.
  * Primitives and non-object values pass through unchanged.
@@ -256,17 +316,19 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
  * per-metric) stay allocation-free for the common case of scalar
  * messages and annotations.
  */
-export const redact = (value: unknown): unknown => {
+export const redact = (value: unknown): RedactedValue => {
   // Primitive fast path — no allocation, no walk.
-  if (value === null || value === undefined) return value;
-  if (typeof value !== "object") return value;
+  if (value === null) return null;
+  if (value === undefined) return undefined;
+  if (typeof value !== "object") return asScalar(value);
   if (value instanceof Date) return value;
   return redactInner(value, new WeakSet());
 };
 
-const redactInner = (value: unknown, seen: WeakSet<object>): unknown => {
-  if (value === null || value === undefined) return value;
-  if (typeof value !== "object") return value;
+const redactInner = (value: unknown, seen: WeakSet<object>): RedactedValue => {
+  if (value === null) return null;
+  if (value === undefined) return undefined;
+  if (typeof value !== "object") return asScalar(value);
 
   if (seen.has(value as object)) {
     throw new Error("redact: cyclic value");
@@ -283,7 +345,7 @@ const redactInner = (value: unknown, seen: WeakSet<object>): unknown => {
   if (value instanceof Error) {
     // Errors get their `message` preserved but any custom fields are
     // redacted. This covers Effect tagged errors with { _tag, cause }.
-    const out: Record<string, unknown> = {
+    const out: Record<string, RedactedValue> = {
       name: value.name,
       message: value.message,
     };
@@ -300,7 +362,7 @@ const redactInner = (value: unknown, seen: WeakSet<object>): unknown => {
     return out;
   }
 
-  const out: Record<string, unknown> = {};
+  const out: Record<string, RedactedValue> = {};
   for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
     if (REDACT_KEYS.has(key.toLowerCase())) {
       out[key] = REDACTION_PLACEHOLDER;

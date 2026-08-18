@@ -14,7 +14,7 @@ import { createHash } from "node:crypto";
 import { Effect, Layer } from "effect";
 import IORedis from "ioredis";
 
-import type { RedisClient } from "./client";
+import { toRedisReply, type RedisClient } from "./client";
 import { RedisError } from "./errors";
 import type { RedisService } from "./service";
 import { Redis, sanitizeCause } from "./service";
@@ -46,16 +46,19 @@ export function wrapIoRedis(client: IORedis): RedisClient {
       const allArgs: (string | number)[] = [...keys, ...args];
       const sha = ensureSha(script);
 
-      // Always try EVALSHA first — avoids sending full script body (P-W2)
+      // Always try EVALSHA first — avoids sending full script body (P-W2).
+      // ioredis types both results as `unknown`; `toRedisReply` narrows them to
+      // the RESP value space at this boundary so the `RedisClient` contract can
+      // promise a `RedisReply`.
       try {
-        return await client.evalsha(sha, keys.length, ...allArgs);
+        return toRedisReply(await client.evalsha(sha, keys.length, ...allArgs));
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "";
         if (!msg.includes("NOSCRIPT")) throw err;
       }
 
       // NOSCRIPT fallback: full EVAL (first call or after Redis restart)
-      return await client.eval(script, keys.length, ...allArgs);
+      return toRedisReply(await client.eval(script, keys.length, ...allArgs));
     },
     async ping() {
       return client.ping();

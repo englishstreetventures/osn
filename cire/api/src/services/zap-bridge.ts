@@ -44,22 +44,111 @@ function toEpochMs(value: unknown): number {
 // Public interface
 // ---------------------------------------------------------------------------
 
+/** A chat zap-api has just provisioned for a vendor enquiry. */
+export interface ProvisionedChat {
+  chatId: string;
+}
+
+/** The receipt for one message this bridge posted, with `createdAt` in epoch ms. */
+export interface SentMessage {
+  messageId: string;
+  createdAt: number;
+}
+
+/** One message in a c2b chat, with `createdAt` already normalised to epoch ms. */
+export interface ChatMessage {
+  id: string;
+  senderProfileId: string;
+  body: string;
+  createdAt: number;
+}
+
+/** One page of c2b chat history. */
+export interface ChatMessagePage {
+  messages: ChatMessage[];
+}
+
 export interface ZapChatClient {
   provisionC2bChat(input: {
     memberProfileIds: string[];
     createdByProfileId: string;
     title?: string;
-  }): Promise<{ chatId: string }>;
+  }): Promise<ProvisionedChat>;
   sendC2bMessage(
     chatId: string,
     input: { senderProfileId: string; body: string },
-  ): Promise<{ messageId: string; createdAt: number }>;
+  ): Promise<SentMessage>;
   listC2bMessages(
     chatId: string,
     opts?: { limit?: number; before?: number },
-  ): Promise<{
-    messages: Array<{ id: string; senderProfileId: string; body: string; createdAt: number }>;
-  }>;
+  ): Promise<ChatMessagePage>;
+}
+
+// ---------------------------------------------------------------------------
+// Wire parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * zap-api's JSON is genuinely external input, so every response is parsed at
+ * this boundary into one of the domain types above rather than asserted into
+ * shape. A payload missing a field we depend on throws here — at the bridge,
+ * naming the endpoint — instead of surfacing as an `undefined` chat id three
+ * layers up in a route handler.
+ */
+function isObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null;
+}
+
+function malformed(endpoint: string, what: string): Error {
+  return new Error(`zap-api ${endpoint} response is malformed: ${what}`);
+}
+
+function parseProvisionedChat(raw: unknown): ProvisionedChat {
+  if (isObject(raw) && "chatId" in raw && typeof raw.chatId === "string") {
+    return { chatId: raw.chatId };
+  }
+  throw malformed("POST /internal/chats", "no string `chatId`");
+}
+
+function parseSentMessage(raw: unknown): SentMessage {
+  if (isObject(raw) && "messageId" in raw && typeof raw.messageId === "string") {
+    // `createdAt` is tolerated in either wire form (zap sends an ISO string; a
+    // numeric one is passed through) — `toEpochMs` owns that normalisation.
+    return {
+      messageId: raw.messageId,
+      createdAt: toEpochMs("createdAt" in raw ? raw.createdAt : undefined),
+    };
+  }
+  throw malformed("POST /internal/chats/:id/messages", "no string `messageId`");
+}
+
+function parseChatMessage(raw: unknown, endpoint: string): ChatMessage {
+  if (
+    isObject(raw) &&
+    "id" in raw &&
+    typeof raw.id === "string" &&
+    "senderProfileId" in raw &&
+    typeof raw.senderProfileId === "string" &&
+    "body" in raw &&
+    typeof raw.body === "string"
+  ) {
+    return {
+      id: raw.id,
+      senderProfileId: raw.senderProfileId,
+      body: raw.body,
+      createdAt: toEpochMs("createdAt" in raw ? raw.createdAt : undefined),
+    };
+  }
+  throw malformed(endpoint, "a message is missing `id`, `senderProfileId` or `body`");
+}
+
+function parseChatMessagePage(raw: unknown): ChatMessagePage {
+  const endpoint = "GET /internal/chats/:id/messages";
+  if (isObject(raw) && "messages" in raw && Array.isArray(raw.messages)) {
+    const wire: unknown[] = raw.messages;
+    return { messages: wire.map((entry) => parseChatMessage(entry, endpoint)) };
+  }
+  throw malformed(endpoint, "no `messages` array");
 }
 
 export interface ZapChatClientConfig {
@@ -94,7 +183,18 @@ export function createZapChatClient(config: ZapChatClientConfig): ZapChatClient 
     });
   }
 
-  async function send(method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> {
+  /**
+   * One S2S call, mint → fetch → parse. `parse` is what makes the return type
+   * real: the caller supplies the boundary parser for that endpoint, so `send`
+   * hands back a domain type (never a raw payload for the caller to assert
+   * into shape).
+   */
+  async function send<T>(
+    method: "GET" | "POST",
+    path: string,
+    parse: (raw: unknown) => T,
+    body?: unknown,
+  ): Promise<T> {
     const token = await mint();
     const res = await doFetch(`${base}${path}`, {
       method,
@@ -107,27 +207,28 @@ export function createZapChatClient(config: ZapChatClientConfig): ZapChatClient 
     if (!res.ok) {
       throw new Error(`zap-api ${method} ${path} returned ${res.status}`);
     }
-    return res.json();
+    const payload: unknown = await res.json();
+    return parse(payload);
   }
 
   return {
     async provisionC2bChat(input) {
-      const data = (await send("POST", "/internal/chats", {
+      return send("POST", "/internal/chats", parseProvisionedChat, {
         class: "c2b",
         memberProfileIds: input.memberProfileIds,
         createdByProfileId: input.createdByProfileId,
         ...(input.title === undefined ? {} : { title: input.title }),
-      })) as { chatId: string };
-      return { chatId: data.chatId };
+      });
     },
 
     async sendC2bMessage(chatId, input) {
-      // zap wires `createdAt` as an ISO string — normalize to epoch ms here.
-      const data = (await send("POST", `/internal/chats/${encodeURIComponent(chatId)}/messages`, {
-        senderProfileId: input.senderProfileId,
-        body: input.body,
-      })) as { messageId: string; createdAt: string | number };
-      return { messageId: data.messageId, createdAt: toEpochMs(data.createdAt) };
+      // zap wires `createdAt` as an ISO string — the parser normalizes it.
+      return send(
+        "POST",
+        `/internal/chats/${encodeURIComponent(chatId)}/messages`,
+        parseSentMessage,
+        { senderProfileId: input.senderProfileId, body: input.body },
+      );
     },
 
     async listC2bMessages(chatId, opts) {
@@ -136,23 +237,8 @@ export function createZapChatClient(config: ZapChatClientConfig): ZapChatClient 
       if (opts?.before !== undefined) params.set("before", String(opts.before));
       const qs = params.toString();
       const path = `/internal/chats/${encodeURIComponent(chatId)}/messages${qs ? `?${qs}` : ""}`;
-      // zap wires each `createdAt` as an ISO string — normalize to epoch ms here.
-      const data = (await send("GET", path)) as {
-        messages: Array<{
-          id: string;
-          senderProfileId: string;
-          body: string;
-          createdAt: string | number;
-        }>;
-      };
-      return {
-        messages: data.messages.map((m) => ({
-          id: m.id,
-          senderProfileId: m.senderProfileId,
-          body: m.body,
-          createdAt: toEpochMs(m.createdAt),
-        })),
-      };
+      // zap wires each `createdAt` as an ISO string — the parser normalizes it.
+      return send("GET", path, parseChatMessagePage);
     },
   };
 }

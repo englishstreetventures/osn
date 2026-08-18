@@ -2,10 +2,10 @@ import { sessions } from "@cire/db";
 import { generateToken, hashToken } from "@shared/crypto/tokens";
 import { rowsChanged } from "@shared/db-utils";
 import { eq, lte } from "drizzle-orm";
-import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
 
 import { DbService, dbQuery } from "../db";
+import type { BatchableDb } from "../db";
 import { metricSessionCreated, metricSessionSwept } from "../metrics";
 
 export class SessionInvalid extends Data.TaggedError("SessionInvalid")<{
@@ -134,9 +134,7 @@ export const sessionService = {
 
       yield* Effect.tryPromise({
         try: () => {
-          const batchable = db as {
-            batch?: (s: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]) => Promise<unknown>;
-          };
+          const batchable = db as BatchableDb;
           if (typeof batchable.batch === "function") {
             return batchable.batch([insertStmt, deleteStmt]);
           }

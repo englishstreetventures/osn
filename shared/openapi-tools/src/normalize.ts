@@ -17,21 +17,53 @@ type Doc = Record<string, unknown>;
 const isSchema = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
+/**
+ * One node of the OpenAPI document as it sits in memory: the JSON value space,
+ * plus `undefined` for a key `JSON.stringify` will drop on the way out.
+ *
+ * The document arrives from `JSON.parse` of the app's own `/openapi/json`, so
+ * nothing outside this set can be in it — which is what lets {@link sortKeys}
+ * promise a real type instead of handing `unknown` back to its caller.
+ */
+export type JsonNode =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | readonly JsonNode[]
+  | { readonly [key: string]: JsonNode };
+
+// The leaves of the walk. Spelled out rather than asserted, so a value JSON
+// cannot represent (a function, a Symbol, a Date the plugin somehow left in)
+// stops the generator here instead of silently serialising to `null` or
+// vanishing from the committed spec.
+function asJsonScalar(value: unknown): string | number | boolean | null | undefined {
+  if (value === null || value === undefined) return value;
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  throw new Error(
+    `OpenAPI document holds a ${typeof value}, which JSON cannot represent — ` +
+      "the plugin's output is expected to be plain parsed JSON.",
+  );
+}
+
 // Recursively sorts object keys so re-running the generator on an unchanged
 // route tree produces byte-identical output — required for the CI freshness
 // check (`git diff --exit-code`) to be meaningful rather than flaky.
-export function sortKeys(value: unknown): unknown {
+export function sortKeys(value: unknown): JsonNode {
   if (Array.isArray(value)) {
     return value.map(sortKeys);
   }
   if (value !== null && typeof value === "object") {
-    const sorted: Record<string, unknown> = {};
+    const sorted: Record<string, JsonNode> = {};
     for (const key of Object.keys(value as Record<string, unknown>).toSorted()) {
       sorted[key] = sortKeys((value as Record<string, unknown>)[key]);
     }
     return sorted;
   }
-  return value;
+  return asJsonScalar(value);
 }
 
 // `t.Void()` on a bodyless status (the 204s on DELETE /events/:id,

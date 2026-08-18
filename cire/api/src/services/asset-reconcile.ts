@@ -5,6 +5,7 @@ import { Data, Effect } from "effect";
 import { DbService, dbQuery } from "../db";
 import { metricR2ObjectsSwept } from "../metrics";
 import { reapR2Objects } from "./r2-cleanup";
+import type { DeletableBucket } from "./r2-cleanup";
 
 /**
  * `cire-assets` orphan reconciliation (IB-S-L2 — the open `cire-assets` half).
@@ -73,16 +74,16 @@ const LIST_PAGE_SIZE = 1000;
 /**
  * Minimal listable + deletable R2 surface. Cloudflare's `R2Bucket` satisfies
  * this structurally; the in-memory test stub implements just these. `list`
- * returns the cursor-paginated object listing; `delete` is fed to
- * {@link reapR2Objects} (which feature-detects the array form).
+ * returns the cursor-paginated object listing; the delete half is exactly
+ * {@link DeletableBucket}, reused rather than re-declared, because the bucket is
+ * fed straight to {@link reapR2Objects} (which feature-detects the array form).
  */
-export interface ReconcilableBucket {
+export interface ReconcilableBucket extends DeletableBucket {
   list(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<{
     objects: ReadonlyArray<{ key: string; uploaded: Date }>;
     truncated: boolean;
     cursor?: string;
   }>;
-  delete(keys: string | string[]): Promise<unknown> | unknown;
 }
 
 export class AssetReconcileError extends Data.TaggedError("AssetReconcileError")<{

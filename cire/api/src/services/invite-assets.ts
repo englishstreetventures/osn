@@ -35,14 +35,20 @@ export interface AssetObjectBody {
   readonly httpMetadata?: { contentType?: string };
 }
 
+// `put` / `delete` are declared `void` for the same reason as the CSV bucket's
+// (`r2-imports.ts`): the value a write resolves to is backend-specific (R2 hands
+// back the created `R2Object`, the stub hands back nothing) and no call site
+// reads it — awaiting is the whole contract. Declaring `void` states that and
+// keeps both R2 and the stub assignable; callers still `Promise.resolve(...)`
+// the call so an async backend is awaited at runtime.
 export interface AssetsBucket {
   put(
     key: string,
     value: ArrayBuffer | ArrayBufferView,
     options?: { httpMetadata?: { contentType?: string } },
-  ): Promise<unknown> | unknown;
+  ): void;
   get(key: string): Promise<AssetObjectBody | null> | AssetObjectBody | null;
-  delete(key: string): Promise<unknown> | unknown;
+  delete(key: string): void;
 }
 
 export class AssetsR2Service extends Context.Tag("AssetsR2Service")<

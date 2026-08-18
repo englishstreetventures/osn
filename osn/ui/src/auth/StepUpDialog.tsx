@@ -1,19 +1,40 @@
 import type { StepUpClient, StepUpPurpose, StepUpToken } from "@osn/client";
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from "@simplewebauthn/browser";
 import { createSignal, onMount, Show } from "solid-js";
 
 import { Button } from "../components/ui/button";
 
 /**
- * Modal that drives the step-up (sudo) ceremony and yields a short-lived
- * step-up token to the caller via `onToken`. Supports two factors:
- * passkey and OTP — the user picks whichever one is set up.
+ * Runs the browser-side WebAuthn assertion and resolves with the signed
+ * assertion — the exact JSON `@simplewebauthn/browser`'s `startAuthentication`
+ * produces, which the OSN API expects verbatim at
+ * `/step-up/passkey/complete`. Nothing in `@osn/ui` reads a field off it; it
+ * is forwarded whole.
  *
- * The WebAuthn browser ceremony is performed by the caller-supplied
- * `runPasskeyCeremony` callback so this component stays free of
- * `@simplewebauthn/browser`. Pass something like:
+ * The ceremony itself stays caller-side (this package imports the response
+ * types, not the runtime) so hosts can wire their own WebAuthn wrapper. Pass
+ * something like:
  *
  *   runPasskeyCeremony: (options) =>
  *     startAuthentication({ optionsJSON: options as PublicKeyCredentialRequestOptionsJSON })
+ *
+ * `options` stays `unknown` because it is whatever `StepUpClient.passkeyBegin`
+ * returned: the challenge is minted and parsed by the server and the caller's
+ * WebAuthn library respectively, never by this package.
+ */
+export type RunPasskeyCeremony = (options: unknown) => Promise<AuthenticationResponseJSON>;
+
+/**
+ * Enrolment counterpart of {@link RunPasskeyCeremony}: runs the WebAuthn
+ * attestation ceremony and resolves with the attestation JSON
+ * `startRegistration` produces, forwarded whole to `/passkeys/register/complete`.
+ */
+export type RunPasskeyRegistration = (options: unknown) => Promise<RegistrationResponseJSON>;
+
+/**
+ * Modal that drives the step-up (sudo) ceremony and yields a short-lived
+ * step-up token to the caller via `onToken`. Supports two factors:
+ * passkey and OTP — the user picks whichever one is set up.
  */
 export interface StepUpDialogProps {
   client: StepUpClient;
@@ -25,12 +46,8 @@ export interface StepUpDialogProps {
   onToken: (token: StepUpToken) => void;
   /** Called when the user cancels the ceremony without completing it. */
   onCancel: () => void;
-  /**
-   * Executes the browser-side WebAuthn assertion. Returns the signed
-   * assertion JSON (the shape `@simplewebauthn/browser`'s
-   * `startAuthentication` produces).
-   */
-  runPasskeyCeremony?: (options: unknown) => Promise<unknown>;
+  /** Executes the browser-side WebAuthn assertion. */
+  runPasskeyCeremony?: RunPasskeyCeremony;
   /**
    * Passkey-only mode: suppress the OTP ("email me a code") factor entirely
    * and drive the passkey ceremony directly. Set this for accounts whose host

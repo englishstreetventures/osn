@@ -3,14 +3,22 @@ import { Context, Data, Effect } from "effect";
 // Local R2 surface — narrow to the methods we touch. The Cloudflare Workers
 // `R2Bucket` type satisfies this structurally; the in-memory stub used in
 // tests implements just these three methods.
+//
+// `put` and `delete` are declared `void`: what the write CALL resolves to
+// differs per backend (R2 hands back the created `R2Object`, the in-memory stub
+// hands back nothing) and no call site here reads it — the guarantee callers
+// need is that the write happened, which they get by awaiting. A `void` return
+// says exactly that, and TypeScript's "return value is ignored" rule keeps both
+// backends assignable. Callers still wrap the result in `Promise.resolve(...)`
+// before awaiting, so an async backend is awaited properly at runtime.
 export interface R2Bucket {
-  put(key: string, value: string | ArrayBuffer | ArrayBufferView): Promise<unknown> | unknown;
+  put(key: string, value: string | ArrayBuffer | ArrayBufferView): void;
   get(
     key: string,
   ): Promise<{ text(): Promise<string> } | null> | { text(): Promise<string> } | null;
   // Cloudflare R2 accepts a single key or an array (multi-key delete); the
   // shared reaper (`r2-cleanup.ts`) prefers the array form and falls back.
-  delete(keys: string | string[]): Promise<unknown> | unknown;
+  delete(keys: string | string[]): void;
 }
 
 export class R2Service extends Context.Tag("R2Service")<R2Service, R2Bucket>() {}

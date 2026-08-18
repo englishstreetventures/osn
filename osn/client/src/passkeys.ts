@@ -53,12 +53,16 @@ export interface PasskeysClient {
    * bootstrap; `stepUpToken` is REQUIRED here (S-H1) because the account
    * already has ≥1 credential — a stolen access token alone must not
    * bind a new authenticator.
+   *
+   * Returns the server's WebAuthn creation options verbatim — feed them
+   * straight to `navigator.credentials.create` (or `startRegistration` from
+   * @simplewebauthn/browser, which takes the same JSON shape).
    */
   registerBegin(input: {
     accessToken: string;
     profileId: string;
     stepUpToken: string;
-  }): Promise<unknown>;
+  }): Promise<PublicKeyCredentialCreationOptionsJSON>;
   /** Submit the WebAuthn attestation produced by the browser ceremony. */
   registerComplete(input: {
     accessToken: string;
@@ -138,7 +142,12 @@ export function createPasskeysClient(config: PasskeysClientConfig): PasskeysClie
           step_up_token: input.stepUpToken,
         }),
       });
-      const json = (await res.json()) as { error?: string };
+      // T-U1: no shape check on the 2xx body — the options are forwarded
+      // exactly as the server sent them, and the browser is the thing that
+      // rejects malformed ones.
+      const json = (await res.json()) as PublicKeyCredentialCreationOptionsJSON & {
+        error?: string;
+      };
       if (!res.ok) {
         throw new PasskeysError(json.error ?? `Request failed: ${res.status}`);
       }

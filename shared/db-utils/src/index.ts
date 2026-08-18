@@ -125,7 +125,14 @@ export const dbQuery = <A>(run: () => A | Promise<A>): Effect.Effect<A> =>
  * by `cire/api`'s `commitWriteSet`.
  */
 type Batchable = {
-  batch: (s: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]) => Promise<unknown>;
+  /**
+   * D1 answers with one driver result per statement, in order. `commitBatch`
+   * wants the write committed, not the results — so the reply is typed `void`
+   * (which any return type satisfies) rather than handed on as `unknown` for a
+   * caller to guess at. A call site that needs the results should reach for the
+   * driver's own `batch`, which types them properly.
+   */
+  batch: (s: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]) => Promise<void>;
 };
 
 /**

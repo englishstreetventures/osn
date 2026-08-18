@@ -19,26 +19,29 @@
 import { Cause, Option, Runtime } from "effect";
 
 /**
- * Unwrap a `FiberFailure` to its typed failure; pass anything else through.
- * Route handlers run effects through `ManagedRuntime.runPromise`, which rejects
- * with a `FiberFailure` wrapping the failure — never the tagged error itself.
+ * A service failure carrying an Effect `Data.TaggedError` discriminator — the
+ * only shape this predicate can read an answer from.
  */
-function unwrapFailure(e: unknown): unknown {
-  if (Runtime.isFiberFailure(e)) {
-    return Option.getOrNull(Cause.failureOption(e[Runtime.FiberFailureCauseId]));
-  }
-  return e;
+interface TaggedServiceError extends Error {
+  readonly _tag: string;
 }
 
-function tagOf(failure: unknown): string | null {
-  if (
-    failure instanceof Error &&
-    "_tag" in failure &&
-    typeof (failure as { _tag: unknown })._tag === "string"
-  ) {
-    return (failure as { _tag: string })._tag;
-  }
-  return null;
+function isTaggedServiceError(value: unknown): value is TaggedServiceError {
+  return value instanceof Error && "_tag" in value && typeof value._tag === "string";
+}
+
+/**
+ * Unwrap a `FiberFailure` to its typed failure — or take the value as thrown —
+ * and narrow it to a tagged service error. Route handlers run effects through
+ * `ManagedRuntime.runPromise`, which rejects with a `FiberFailure` wrapping the
+ * failure, never the tagged error itself. `null` for a defect or any other
+ * value, which the caller reads as "no evidence".
+ */
+function taggedFailure(e: unknown): TaggedServiceError | null {
+  const failure = Runtime.isFiberFailure(e)
+    ? Option.getOrNull(Cause.failureOption(e[Runtime.FiberFailureCauseId]))
+    : e;
+  return isTaggedServiceError(failure) ? failure : null;
 }
 
 /**
@@ -51,12 +54,10 @@ function tagOf(failure: unknown): string | null {
  * pointless grant on every page load, which is the cost this branch removes.
  */
 export function sessionStatusUnknown(e: unknown): boolean {
-  const failure = unwrapFailure(e);
-  const tag = tagOf(failure);
-  if (tag === "DatabaseError") return true;
-  if (tag === "AuthError" && failure instanceof Error) {
-    return failure.message === ROTATION_RACE_MESSAGE;
-  }
+  const failure = taggedFailure(e);
+  if (!failure) return false;
+  if (failure._tag === "DatabaseError") return true;
+  if (failure._tag === "AuthError") return failure.message === ROTATION_RACE_MESSAGE;
   return false;
 }
 

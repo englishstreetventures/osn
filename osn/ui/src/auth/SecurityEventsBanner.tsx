@@ -2,7 +2,7 @@ import type { SecurityEventsClient, SecurityEventSummary, StepUpClient } from "@
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { Button } from "../components/ui/button";
-import { StepUpDialog } from "./StepUpDialog";
+import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 
 /**
  * Settings-panel banner for out-of-band security events (M-PK1b).
@@ -37,7 +37,7 @@ export interface SecurityEventsBannerProps {
    * `StepUpDialog.runPasskeyCeremony`. Pass undefined to hide the passkey
    * option in the step-up modal (OTP-only fallback).
    */
-  runPasskeyCeremony?: (options: unknown) => Promise<unknown>;
+  runPasskeyCeremony?: RunPasskeyCeremony;
 }
 
 function formatTs(ts: number): string {

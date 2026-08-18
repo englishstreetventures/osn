@@ -25,6 +25,7 @@ vi.mock("../lib/api", async () => {
 });
 
 import { __resetEventsCache } from "../lib/events-store";
+import type { DesiredStateWire } from "../lib/guest-event-draft";
 import { __resetGuestsCache } from "../lib/guests-store";
 import { __resetHouseholdsCache } from "../lib/households-store";
 import { confirmNavigation } from "../lib/unsaved-guard";
@@ -259,9 +260,19 @@ describe("GuestsEditor", () => {
       });
     }
 
+    /**
+     * The envelope the editor POSTs to `changes/preview`. The wire shape is
+     * already named in `guest-event-draft` — the assertions below read the
+     * real thing, so they should be checked against it rather than against an
+     * `unknown` each test re-describes for itself.
+     */
+    interface PreviewPost {
+      desiredState: DesiredStateWire;
+    }
+
     /** Swap in a preview stub that records the posted DesiredState. */
-    function capturePreview(): { body: () => unknown } {
-      let captured: unknown = null;
+    function capturePreview(): { body: () => PreviewPost | null } {
+      let captured: PreviewPost | null = null;
       authFetchMock.mockImplementation((url: string, init?: RequestInit) => {
         if (String(url).endsWith("/changes/preview")) {
           captured = JSON.parse(String(init?.body));
@@ -304,9 +315,7 @@ describe("GuestsEditor", () => {
       fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
       await waitFor(() => expect(preview.body()).not.toBeNull());
 
-      const posted = preview.body() as {
-        desiredState: { families: { guests: { id?: string }[] }[] };
-      };
+      const posted = preview.body()!;
       expect(posted.desiredState.families[0]!.guests.map((g) => g.id)).toEqual(["g_1"]);
     });
 
@@ -322,7 +331,7 @@ describe("GuestsEditor", () => {
       fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
       await waitFor(() => expect(preview.body()).not.toBeNull());
 
-      const posted = preview.body() as { desiredState: { families: unknown[] } };
+      const posted = preview.body()!;
       expect(posted.desiredState.families).toHaveLength(0);
     });
   });
