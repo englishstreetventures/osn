@@ -10,7 +10,7 @@ related:
   - "[[identity-model]]"
   - "[[cire]]"
   - "[[turnstile]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-18
 ---
 
 # Completed Features
@@ -20,6 +20,24 @@ Archived completed feature work. Open work lives in GitHub Issues:
 ```bash
 gh issue list --repo xchromo/osn --state open
 ```
+
+## anti-slop oxlint ratchet (2026-08-18)
+
+The [anti-slop](https://github.com/dmmulroy/anti-slop) rule set, vendored at commit `446268e` into `tools/oxlint/anti-slop` and wired into `oxlintrc.json` as a JS plugin, is now a permanent gate. Day one it reported **4686 diagnostics across 541 files**; today the repo lints clean.
+
+Adopted as a six-PR stack on top of the ratchet commit — #680 → #685 → #687 → #694 → #701 → #702 → #703 — each rung clearing one rule across the monorepo and then raising it from `warn` to `error`, so nothing already fixed can come back. Cleared this way: `no-chained-type-assertions`, `no-unknown-returns`, `no-unsafe-dictionary-type`, `no-conditional-empty-object-spread`, `no-known-value-widening`, on top of the seven rules that were clean from the start.
+
+**12 of the 15 rules are at `error`.** The other three are marked **not adopted**, not deferred — the measurement and the reasoning sit inline in `oxlintrc.json` so nobody re-litigates them from scratch. Counts are src / test:
+
+| Rule | src | test | Why not |
+|---|---:|---:|---|
+| `require-safety-comment-for-type-assertion` | 636 | 2158 | Mandates a comment justifying every `as`. 636 hand-written justifications are 636 comments nobody reads — the exact filler this rule set exists to catch. Deleting the assertions is worth doing; a comment mandate deletes none of them. |
+| `no-runtime-typeof` | 378 | 137 | `allowInTypeGuards: true` spares only 40 of the 378 — the exemption needs a `value is X` return annotation, and most `typeof` here is inline narrowing inside an ordinary function or an SSR capability probe (`typeof window === "undefined"`). Idiomatic TypeScript, not a modelling failure. |
+| `no-unknown-parameters` | 149 | 134 | Fires on a bare `unknown` parameter and exposes no options. The 149 are type-guard predicates — whose parameter *must* be `unknown`, since `value is X` on a narrower parameter guards nothing — plus wire parsers reading a JSON body straight off `fetch`, `catch` narrowing, and redaction walkers. Both ways to silence it are worse: a `type Unparsed = unknown` alias launders the rule while changing nothing, and a real `JsonValue` union converts ~149 lint hits into ~149 call-site assertions. |
+
+The one real finding the classification pass surfaced was the WebAuthn step-up chain: `StepUpClient.passkeyBegin` resolved with `{ options: unknown }`, so three `@osn/social` call sites carried a byte-identical assertion back to a usable type. Fixed in #703 on its own merits — `passkeyBegin` returns lib.dom's `PublicKeyCredentialRequestOptionsJSON`, and the two assertions that must survive (`@simplewebauthn/browser` re-declares both dictionaries with narrower members) live in one documented adapter, `osn/social/src/lib/webauthn.ts`.
+
+Two typecheck gaps the stack walked into are open issues, not fixed here: `xchromo/osn#705` (no `check` script anywhere in the cire stack) and `xchromo/osn#706` (`pulse/web` typechecks `src` only, never `tests/`).
 
 ## Cire co-host roles — editor / viewer (2026-07-12)
 

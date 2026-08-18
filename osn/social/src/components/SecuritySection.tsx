@@ -1,8 +1,8 @@
 import { PasskeysView } from "@osn/ui/auth/PasskeysView";
 import { RecoveryCodesView } from "@osn/ui/auth/RecoveryCodesView";
-import { startAuthentication, startRegistration } from "@simplewebauthn/browser";
 
 import { passkeysClient, recoveryClient, stepUpClient } from "../lib/authClients";
+import { runPasskeyCeremony, runPasskeyRegistration } from "../lib/webauthn";
 
 /**
  * Security section of the Settings page — passkey list / add / rename /
@@ -20,11 +20,6 @@ export interface SecuritySectionProps {
 }
 
 export default function SecuritySection(props: SecuritySectionProps) {
-  const runPasskeyCeremony = (options: unknown) =>
-    startAuthentication({
-      optionsJSON: options as Parameters<typeof startAuthentication>[0]["optionsJSON"],
-    });
-
   return (
     <div class="flex flex-col gap-8">
       <PasskeysView
@@ -33,11 +28,7 @@ export default function SecuritySection(props: SecuritySectionProps) {
         accessToken={props.accessToken}
         profileId={props.profileId}
         runPasskeyCeremony={runPasskeyCeremony}
-        runPasskeyRegistration={(options: unknown) =>
-          startRegistration({
-            optionsJSON: options as Parameters<typeof startRegistration>[0]["optionsJSON"],
-          })
-        }
+        runPasskeyRegistration={runPasskeyRegistration}
       />
 
       <section class="flex flex-col gap-4 border-t pt-8">

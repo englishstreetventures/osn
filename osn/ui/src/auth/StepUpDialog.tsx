@@ -12,24 +12,25 @@ import { Button } from "../components/ui/button";
  * is forwarded whole.
  *
  * The ceremony itself stays caller-side (this package imports the response
- * types, not the runtime) so hosts can wire their own WebAuthn wrapper. Pass
- * something like:
+ * types, not the runtime) so hosts can wire their own WebAuthn wrapper.
  *
- *   runPasskeyCeremony: (options) =>
- *     startAuthentication({ optionsJSON: options as PublicKeyCredentialRequestOptionsJSON })
- *
- * `options` stays `unknown` because it is whatever `StepUpClient.passkeyBegin`
- * returned: the challenge is minted and parsed by the server and the caller's
- * WebAuthn library respectively, never by this package.
+ * `options` is the standard lib.dom `PublicKeyCredentialRequestOptionsJSON`,
+ * exactly what `StepUpClient.passkeyBegin` resolves with. Nothing in `@osn/ui`
+ * reads a field off it — it is forwarded whole — but naming the shape keeps
+ * every host from asserting its way out of `unknown` at the call site.
  */
-export type RunPasskeyCeremony = (options: unknown) => Promise<AuthenticationResponseJSON>;
+export type RunPasskeyCeremony = (
+  options: PublicKeyCredentialRequestOptionsJSON,
+) => Promise<AuthenticationResponseJSON>;
 
 /**
  * Enrolment counterpart of {@link RunPasskeyCeremony}: runs the WebAuthn
  * attestation ceremony and resolves with the attestation JSON
  * `startRegistration` produces, forwarded whole to `/passkeys/register/complete`.
  */
-export type RunPasskeyRegistration = (options: unknown) => Promise<RegistrationResponseJSON>;
+export type RunPasskeyRegistration = (
+  options: PublicKeyCredentialCreationOptionsJSON,
+) => Promise<RegistrationResponseJSON>;
 
 /**
  * Modal that drives the step-up (sudo) ceremony and yields a short-lived

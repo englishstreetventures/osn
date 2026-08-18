@@ -1,7 +1,7 @@
 import { SecurityEventsBanner } from "@osn/ui/auth/SecurityEventsBanner";
-import { startAuthentication } from "@simplewebauthn/browser";
 
 import { securityEventsClient, stepUpClient } from "../lib/authClients";
+import { runPasskeyCeremony } from "../lib/webauthn";
 
 /**
  * Wires the shared `SecurityEventsBanner` to this app's clients. Split into its
@@ -14,11 +14,6 @@ import { securityEventsClient, stepUpClient } from "../lib/authClients";
  * path was live.
  */
 export default function SecurityEventsBannerMount(props: { accessToken: string }) {
-  const runPasskeyCeremony = (options: unknown) =>
-    startAuthentication({
-      optionsJSON: options as Parameters<typeof startAuthentication>[0]["optionsJSON"],
-    });
-
   return (
     <SecurityEventsBanner
       client={securityEventsClient}

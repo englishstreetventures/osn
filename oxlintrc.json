@@ -89,8 +89,11 @@
     //
     // Upstream ships all 15 at "error". Turning them all on here would have
     // meant 4686 diagnostics across 541 files on day one, so the severities
-    // below are a ratchet, not a verdict: counts measured 2026-08-17, each
-    // tier moves up as the debt is cleared.
+    // below were adopted as a ratchet: one clean-up pass per rule, each rule
+    // raised to "error" only once application source was clear of it.
+    //
+    // The ratchet is finished. 12 of the 15 are at "error"; the last three are
+    // deliberate non-adoptions with the evidence recorded against each.
 
     // Clean today (0 hits in app source) — hold the line.
     "anti-slop/no-reflect-apply": "error",
@@ -109,11 +112,34 @@
     "anti-slop/no-conditional-empty-object-spread": "error",
     "anti-slop/no-known-value-widening": "error",
 
-    // Too big to schedule yet. Each needs its own clean-up pass before it can
-    // be raised, or the warning stream drowns everything else.
-    "anti-slop/require-safety-comment-for-type-assertion": "off", // 2898
-    "anti-slop/no-runtime-typeof": "off", // 488, and still 464 with allowInTypeGuards
-    "anti-slop/no-unknown-parameters": "off" // 262
+    // Not adopted. These three were measured rather than deferred: the ratchet
+    // above finished at 12 of 15, and clearing the last three would cost more
+    // than it buys. Counts are src/test, re-measured 2026-08-18.
+    //
+    // 636 src / 2158 test. The rule wants a comment justifying every `as`.
+    // Writing 636 of them by hand produces 636 comments nobody reads and no
+    // reviewer trusts — the exact filler this ruleset exists to catch. The
+    // assertions themselves are worth deleting; a comment mandate does not
+    // delete one.
+    "anti-slop/require-safety-comment-for-type-assertion": "off",
+    // 378 src / 137 test. `allowInTypeGuards: true` only spares 40 of the 378,
+    // because the guard exemption needs a `value is X` return annotation and
+    // most `typeof` here is inline narrowing inside a normal function
+    // (`typeof x === "string" ? x : String(x)`) or a capability probe
+    // (`typeof window === "undefined"` for SSR). That is idiomatic TypeScript
+    // narrowing, not a modelling failure.
+    "anti-slop/no-runtime-typeof": "off",
+    // 149 src / 134 test. Fires on a bare `unknown` parameter — `unknown[]`,
+    // `Record<string, unknown>` and any named alias are exempt, and the only
+    // exemption is a parameter literally named `cause`. The rule exposes no
+    // options. Classifying the 149: type-guard predicates (whose parameter
+    // MUST be `unknown` — `value is X` on a narrower parameter guards
+    // nothing), wire parsers taking a JSON body straight off `fetch`, error
+    // narrowing in `catch`, and redaction/normalisation walkers. The two ways
+    // to silence it are both worse: a `type Unparsed = unknown` alias launders
+    // the rule while changing nothing, and a real `JsonValue` union converts
+    // ~149 lint hits into ~149 call-site assertions feeding the backlog above.
+    "anti-slop/no-unknown-parameters": "off"
   },
   "overrides": [
     {

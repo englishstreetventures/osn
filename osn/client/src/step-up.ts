@@ -54,8 +54,15 @@ export interface StepUpClient {
    * Fetch a WebAuthn assertion challenge scoped to the authenticated
    * account. The caller drives the browser ceremony with the returned
    * `options`, then calls `passkeyComplete`.
+   *
+   * Typed as the standard `PublicKeyCredentialRequestOptionsJSON` — the same
+   * lib.dom shape `PasskeysClient.registerBegin` already returns for the
+   * enrolment half of this flow — so callers get the real challenge shape
+   * instead of having to assert their way out of `unknown`.
    */
-  passkeyBegin(input: { accessToken: string }): Promise<{ options: unknown }>;
+  passkeyBegin(input: { accessToken: string }): Promise<{
+    options: PublicKeyCredentialRequestOptionsJSON;
+  }>;
   passkeyComplete(input: {
     accessToken: string;
     assertion: unknown;
@@ -100,7 +107,11 @@ export function createStepUpClient(config: StepUpClientConfig): StepUpClient {
 
   return {
     passkeyBegin: (input) =>
-      postJson<{ options: unknown }>(`${base}/step-up/passkey/begin`, input.accessToken, {}),
+      postJson<{ options: PublicKeyCredentialRequestOptionsJSON }>(
+        `${base}/step-up/passkey/begin`,
+        input.accessToken,
+        {},
+      ),
     passkeyComplete: async (input) =>
       toToken(
         await postJson<{ step_up_token: string; expires_in: number }>(
