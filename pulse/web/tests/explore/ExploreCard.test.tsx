@@ -4,22 +4,23 @@ import type { JSX } from "solid-js";
 import { describe, it, expect, afterEach, vi } from "vitest";
 
 import { ExploreCard } from "../../src/explore/ExploreCard";
+import { makeEvent } from "../helpers/events";
 import { wrapRouter } from "../helpers/router";
 
 const render: typeof _baseRender = ((factory: () => JSX.Element) =>
   _baseRender(wrapRouter(factory))) as unknown as typeof _baseRender;
 
-const baseEvent = {
+const baseEvent = makeEvent({
   id: "evt_1",
   title: "Rooftop Jazz Session",
-  status: "upcoming" as const,
+  status: "upcoming",
   startTime: "2030-06-01T19:30:00.000Z",
   category: "music",
   venue: "The Vessel",
   location: "East Village",
   createdByProfileId: "usr_host",
   createdByName: "Maya Chen",
-};
+});
 
 describe("ExploreCard", () => {
   afterEach(cleanup);
@@ -49,7 +50,7 @@ describe("ExploreCard", () => {
   });
 
   it("omits host row when createdByName is absent", () => {
-    const event = { ...baseEvent, createdByName: undefined };
+    const event = { ...baseEvent, createdByName: null };
     const { container } = render(() => <ExploreCard event={event} />);
     expect(container.textContent).not.toContain("Hosted by");
   });
@@ -192,7 +193,7 @@ describe("ExploreCard", () => {
   });
 
   it("omits separator dot when only venue or only location", () => {
-    const venueOnly = { ...baseEvent, location: undefined };
+    const venueOnly = { ...baseEvent, location: null };
     const { container } = render(() => <ExploreCard event={venueOnly} />);
     const dots = container.querySelectorAll(".rounded-full.bg-foreground\\/20");
     expect(dots.length).toBe(0);

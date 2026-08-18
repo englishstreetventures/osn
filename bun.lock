@@ -132,11 +132,13 @@
         "three": "^0.185.1",
       },
       "devDependencies": {
+        "@astrojs/check": "0.9.10",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@testing-library/jest-dom": "^6.10.0",
         "@types/three": "^0.185.1",
         "jsdom": "^29.1.1",
+        "typescript": "^6.0.3",
         "vite-plugin-solid": "^2.11.14",
         "vitest": "^4.1.10",
       },
@@ -175,7 +177,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.20.3",
+      "version": "3.20.4",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.15",
@@ -264,7 +266,7 @@
     },
     "osn/social": {
       "name": "@osn/social",
-      "version": "0.12.5",
+      "version": "0.12.6",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -316,7 +318,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.26.3",
+      "version": "0.26.4",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -387,7 +389,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.22.5",
+      "version": "0.22.6",
       "dependencies": {
         "@osn/ui": "workspace:*",
         "@pulse/api": "workspace:*",
@@ -417,7 +419,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.10.1",
+      "version": "0.10.2",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -448,7 +450,7 @@
     },
     "shared/email": {
       "name": "@shared/email",
-      "version": "0.4.6",
+      "version": "0.4.7",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "^3.22.0",
@@ -461,7 +463,7 @@
     },
     "shared/feature-flags": {
       "name": "@shared/feature-flags",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "dependencies": {
         "@growthbook/growthbook": "^1.6.5",
         "@shared/observability": "workspace:*",
@@ -473,7 +475,7 @@
     },
     "shared/observability": {
       "name": "@shared/observability",
-      "version": "0.13.2",
+      "version": "0.13.3",
       "dependencies": {
         "@effect/opentelemetry": "^0.64.0",
         "@effect/platform": "^0.97.0",
@@ -506,7 +508,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.4.1",
+      "version": "0.4.2",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "^6.2.4",
@@ -522,7 +524,7 @@
     },
     "shared/rate-limit": {
       "name": "@shared/rate-limit",
-      "version": "0.3.1",
+      "version": "0.3.2",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "vitest": "^4.1.10",
@@ -564,7 +566,7 @@
     },
     "shared/turnstile": {
       "name": "@shared/turnstile",
-      "version": "0.2.9",
+      "version": "0.2.10",
       "dependencies": {
         "@shared/observability": "workspace:*",
       },
@@ -579,7 +581,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.8.15",
+      "version": "0.8.16",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",

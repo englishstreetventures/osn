@@ -1,11 +1,13 @@
-import { vi } from "vitest";
+import { type Mock, vi } from "vitest";
 
-export const mockToastError = vi.fn();
-export const mockToastSuccess = vi.fn();
+export const mockToastError: Mock = vi.fn();
+export const mockToastSuccess: Mock = vi.fn();
+
+type ToastFn = Mock & { error: Mock; success: Mock };
 
 /** Factory for `vi.mock("solid-toast", async () => solidToastMock())` */
-export function solidToastMock() {
-  const toastFn = Object.assign(vi.fn(), {
+export function solidToastMock(): { default: ToastFn; toast: ToastFn } {
+  const toastFn: ToastFn = Object.assign(vi.fn(), {
     error: mockToastError,
     success: mockToastSuccess,
   });

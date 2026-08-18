@@ -57,6 +57,9 @@ export type EnvVars = {
   readonly OSN_PAIRWISE_SALT?: string;
   readonly INTERNAL_SERVICE_SECRET?: string;
   readonly TURNSTILE_SECRET_KEY?: string;
+  // Read by the dev sign-in gate below. Unset ⇒ the routes are never mounted.
+  readonly DEV_LOGIN_SECRET?: string;
+  readonly DEV_LOGIN_RETURN_ORIGINS?: string;
 };
 
 const isNonLocal = (env: EnvVars): boolean => !!env.OSN_ENV && env.OSN_ENV !== "local";
@@ -91,7 +94,7 @@ const servesOpenapiDocs = (env: EnvVars): boolean =>
  * `routes/auth/dev-login.ts` for why the route exists at all.
  */
 const DEV_LOGIN_TIERS = new Set<string | undefined>([undefined, "local", "dev", "development"]);
-const servesDevLogin = (env: EnvRecord): boolean => DEV_LOGIN_TIERS.has(env.OSN_ENV);
+const servesDevLogin = (env: EnvVars): boolean => DEV_LOGIN_TIERS.has(env.OSN_ENV);
 
 /**
  * `DEV_LOGIN_RETURN_ORIGINS` — comma-separated origins a dev-login `return_to`

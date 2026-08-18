@@ -52,7 +52,7 @@ vi.mock("../../src/components/RsvpSection", () => ({
 vi.mock("../../src/components/ShareEventButton", () => ({
   ShareEventButton: () => <div data-testid="share-stub" />,
 }));
-const mockRecordShareExposure = vi.fn(() => Promise.resolve());
+const mockRecordShareExposure = vi.fn((..._args: unknown[]) => Promise.resolve());
 vi.mock("../../src/lib/rsvps", () => ({
   apiBaseUrl: "http://localhost:3001",
   recordShareExposure: (...args: unknown[]) => mockRecordShareExposure(...args),

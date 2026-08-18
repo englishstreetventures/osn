@@ -7,7 +7,7 @@ import { VenueEventCarousel } from "../../src/components/VenueEventCarousel";
 import type { VenueEvent } from "../../src/lib/venues";
 import { wrapRouter } from "../helpers/router";
 
-const renderWithRouter = (factory: () => JSX.Element) => render(() => wrapRouter(factory));
+const renderWithRouter = (factory: () => JSX.Element) => render(wrapRouter(factory));
 
 const evt = (overrides: Partial<VenueEvent>): VenueEvent => ({
   id: "evt_1",

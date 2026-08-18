@@ -5,6 +5,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 
 import { ExploreMap } from "../../src/explore/ExploreMap";
 import type { VenueSummary } from "../../src/lib/venues";
+import { makeEvent } from "../helpers/events";
 import { wrapRouter } from "../helpers/router";
 
 const venueRow = (overrides: Partial<VenueSummary>): VenueSummary => ({
@@ -28,38 +29,38 @@ const venueRow = (overrides: Partial<VenueSummary>): VenueSummary => ({
   ...overrides,
 });
 
-const renderWithRouter = (factory: () => JSX.Element) => render(() => wrapRouter(factory));
+const renderWithRouter = (factory: () => JSX.Element) => render(wrapRouter(factory));
 
 const eventsWithGeo = [
-  {
+  makeEvent({
     id: "evt_1",
     title: "Jazz Night",
-    status: "upcoming" as const,
+    status: "upcoming",
     startTime: "2030-06-01T19:30:00.000Z",
     category: "music",
     venue: "The Vessel",
     latitude: 40.725,
     longitude: -73.985,
-  },
-  {
+  }),
+  makeEvent({
     id: "evt_2",
     title: "Ceramics Studio",
-    status: "upcoming" as const,
+    status: "upcoming",
     startTime: "2030-06-01T18:00:00.000Z",
     category: "art",
     venue: "Clayroom",
     latitude: 40.676,
     longitude: -73.988,
-  },
+  }),
 ];
 
-const eventNoGeo = {
+const eventNoGeo = makeEvent({
   id: "evt_3",
   title: "Online Talk",
-  status: "upcoming" as const,
+  status: "upcoming",
   startTime: "2030-06-01T20:00:00.000Z",
   category: "talks",
-};
+});
 
 describe("ExploreMap", () => {
   afterEach(cleanup);
@@ -197,17 +198,17 @@ describe("ExploreMap", () => {
       }),
     ];
     const events = [
-      {
+      makeEvent({
         id: "evt_at_venue",
         title: "Friday Residency",
-        status: "upcoming" as const,
+        status: "upcoming",
         startTime: "2030-06-07T22:00:00.000Z",
         category: "music",
         venue: "The Factory",
         venueId: "ven_dup",
         latitude: 40.705,
         longitude: -73.93,
-      },
+      }),
     ];
     const { container } = renderWithRouter(() => <ExploreMap events={events} venues={venues} />);
     // No standalone venue diamond — event pin owns the location.
@@ -225,17 +226,17 @@ describe("ExploreMap", () => {
       }),
     ];
     const events = [
-      {
+      makeEvent({
         id: "evt_at_venue",
         title: "Friday Residency",
-        status: "upcoming" as const,
+        status: "upcoming",
         startTime: "2030-06-07T22:00:00.000Z",
         category: "music",
         venue: "The Factory",
         venueId: "ven_dup",
         latitude: 40.705,
         longitude: -73.93,
-      },
+      }),
     ];
     const { container, findByText } = renderWithRouter(() => (
       <ExploreMap events={events} venues={venues} />
@@ -267,17 +268,17 @@ describe("ExploreMap", () => {
       }),
     ],
     events: [
-      {
+      makeEvent({
         id: "evt_at_venue",
         title: "Friday Residency",
-        status: "upcoming" as const,
+        status: "upcoming",
         startTime: "2030-06-07T22:00:00.000Z",
         category: "music",
         venue: "The Factory",
         venueId: "ven_dup",
         latitude: 40.705,
         longitude: -73.93,
-      },
+      }),
     ],
   });
 

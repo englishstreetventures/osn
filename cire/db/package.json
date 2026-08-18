@@ -7,6 +7,7 @@
     "./seed": "./seed/data/index.ts"
   },
   "scripts": {
+    "check": "tsc --noEmit",
     "test": "bun test",
     "seed:generate": "bun run seed/generate.ts",
     "assets:seed:dev": "bun run seed/assets.ts",

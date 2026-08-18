@@ -8,7 +8,7 @@ vi.mock("solid-toast", async () => {
 });
 import { mockToastSuccess } from "../helpers/toast";
 
-const mockRecordShareInvoked = vi.fn(() => Promise.resolve());
+const mockRecordShareInvoked = vi.fn((..._args: unknown[]) => Promise.resolve());
 vi.mock("../../src/lib/rsvps", () => ({
   recordShareInvoked: (...args: unknown[]) => mockRecordShareInvoked(...args),
 }));

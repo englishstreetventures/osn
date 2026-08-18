@@ -81,8 +81,9 @@ describe("typographyVars", () => {
       "--invite-body-weight": "300",
       "--invite-body-style": "italic",
     });
+    const knownKeys: readonly string[] = TYPOGRAPHY_VAR_KEYS;
     for (const key of Object.keys(vars)) {
-      expect(TYPOGRAPHY_VAR_KEYS).toContain(key);
+      expect(knownKeys).toContain(key);
     }
   });
 

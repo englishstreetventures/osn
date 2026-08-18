@@ -1,5 +1,5 @@
 import type { RpSession } from "@shared/rp-auth";
-import { vi } from "vitest";
+import { type Mock, vi } from "vitest";
 
 /**
  * Test double for `@shared/rp-auth/solid`.
@@ -24,7 +24,7 @@ export function fakeSession(overrides: Partial<RpSession> = {}): RpSession {
 /** Mutable: set in `beforeEach` to choose the viewer. `null` is signed out. */
 export const authState: { session: RpSession | null } = { session: null };
 
-export const mockSignIn = vi.fn();
+export const mockSignIn: Mock = vi.fn();
 export const mockLogout = vi.fn(() => Promise.resolve());
 export const mockRefresh = vi.fn(() => Promise.resolve(authState.session));
 

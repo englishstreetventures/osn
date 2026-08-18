@@ -629,8 +629,8 @@ describe("fonts", () => {
       expect(fontChoiceHasStack(choice), choice).toBe(true);
       if (choice !== "default") expect(fontStack(choice), choice).not.toBeNull();
     }
-    expect(FONT_CHOICES.filter((c) => c !== "default").toSorted()).toEqual(
-      Object.keys(FONT_STACKS).toSorted(),
+    expect(Object.keys(FONT_STACKS).toSorted()).toEqual(
+      FONT_CHOICES.filter((c) => c !== "default").toSorted(),
     );
   });
 

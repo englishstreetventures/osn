@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [solid()],
   test: {
     environment: "node",
+    setupFiles: ["./tests/setup.ts"],
     include: ["tests/**/*.test.{ts,tsx}"],
     // Allow async event handlers to throw unhandled rejections without failing
     // the suite — this mirrors real browser behaviour where onSubmit rejection

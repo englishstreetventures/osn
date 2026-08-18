@@ -4,6 +4,7 @@ import type { JSX } from "solid-js";
 import { vi, describe, it, expect, afterEach } from "vitest";
 
 import { EventCard } from "../../src/components/EventCard";
+import { makeEvent } from "../helpers/events";
 import { wrapRouter } from "../helpers/router";
 
 // EventCard now uses `<A>` from @solidjs/router, which requires a Router
@@ -12,12 +13,12 @@ import { wrapRouter } from "../helpers/router";
 const render: typeof _baseRender = ((factory: () => JSX.Element) =>
   _baseRender(wrapRouter(factory))) as unknown as typeof _baseRender;
 
-const mockEvent = {
+const mockEvent = makeEvent({
   id: "evt_1",
   title: "Test Event",
-  status: "upcoming" as const,
+  status: "upcoming",
   startTime: "2030-06-01T10:00:00.000Z",
-};
+});
 
 describe("EventCard", () => {
   afterEach(() => {

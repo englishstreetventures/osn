@@ -9,6 +9,7 @@ import {
   requestLocationPermission,
   requestNotificationPermission,
 } from "../../src/lib/onboarding";
+import type { CompleteOnboardingPayload } from "../../src/lib/onboarding";
 
 const mockMeOnboardingGet = vi.fn();
 const mockMeOnboardingCompletePost = vi.fn();
@@ -198,12 +199,12 @@ describe("fetchOnboardingStatus", () => {
 });
 
 describe("completeOnboarding", () => {
-  const validPayload = {
-    interests: ["music"] as const,
+  const validPayload: CompleteOnboardingPayload = {
+    interests: ["music"],
     notificationsOptIn: true,
     eventRemindersOptIn: false,
-    notificationsPerm: "granted" as const,
-    locationPerm: "granted" as const,
+    notificationsPerm: "granted",
+    locationPerm: "granted",
   };
 
   beforeEach(() => {

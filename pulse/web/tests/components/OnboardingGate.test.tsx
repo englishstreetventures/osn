@@ -15,7 +15,7 @@ vi.mock("@shared/rp-auth/solid", async () => {
 });
 
 const mockFetchStatus = vi.fn();
-const mockIsSkipped = vi.fn(() => false);
+const mockIsSkipped = vi.fn((..._a: unknown[]) => false);
 vi.mock("../../src/lib/onboarding", async () => {
   const actual = await vi.importActual<typeof import("../../src/lib/onboarding")>(
     "../../src/lib/onboarding",
