@@ -1,5 +1,132 @@
 # @shared/observability
 
+## 0.13.4
+
+### Patch Changes
+
+- d4553ed: Clear every `anti-slop/no-chained-type-assertions` hit in application source and
+  raise the rule from `warn` to `error`. A double assertion — `x as unknown as T` —
+  tells the compiler to stop checking, so each of the 32 sites was either a type
+  that could be stated honestly or a claim that was no longer true.
+
+  Most were the second kind. `buildAppDeps` and `selectEmailLayer` now name the
+  env vars they read instead of taking a loose string record, so the Workers `env`
+  binding passes structurally with no cast at all. `UpstashLike` mirrors the
+  `@upstash/redis` mutable array signature and the wrapper copies on the way in.
+  `FLAGS` is widened once on the way out of the registry, which removes three
+  casts and a `Widen` round-trip at every call site. `commitBatch` probes for
+  `.batch()` with a type guard rather than asserting the driver has one.
+
+  One was a live bug: `pulse/web`'s create-event form cast a `Date` to `string`
+  and relied on `JSON.stringify` to serialise it on the way out. It now calls
+  `toISOString()` where the conversion happens.
+
+  Test files still hold 161 hits — mostly a fixture cast to the shape under test —
+  so the rule stays off in the test override.
+
+- c87ea88: Clear every `anti-slop/no-known-value-widening` hit in application source and
+  raise the rule from `warn` to `error`. The rule fires when a value the compiler
+  already knows the shape of — an object literal, an arrow function, a `new` —
+  is annotated with something broad enough to throw that knowledge away:
+  `unknown`, `object`, an inline type literal, or any `Record<K, V>`.
+
+  Nearly all 116 hits were lookup tables annotated `Record<string, T>`. They split
+  two ways, and the split is the whole substance of this change:
+
+  **Closed-key tables** now carry a trailing `satisfies Record<ClosedUnion, T>`
+  instead of a leading annotation. The table keeps its literal type, so a missing
+  key is a compile error rather than a silent `undefined` at the read site — the
+  opposite of what the `Record` annotation gave.
+
+  **Genuinely open-key tables** — the ones read with a runtime string and a `??`
+  fallback — now declare a named `interface` with an index signature. This states
+  the real contract (any key may miss) where `Record<string, T>` claimed every key
+  is present. It also avoids the alternative the first pass reached for, a
+  `key as keyof typeof TABLE` assertion, which is unsound and would have added to
+  the `require-safety-comment-for-type-assertion` backlog.
+
+  Two of these were latent bugs. `selectAuthRateLimiters` assembled its bundle in
+  a `Record<string, RateLimiterBackend>` and cast the result to
+  `AuthRateLimiters`, so a missing limiter slot typechecked; it now builds into a
+  mapped type with the `readonly` stripped and returns without a cast. `Icon`'s
+  glyph table was annotated `Record<string, () => JSX.Element>`, which let a new
+  `IconName` be added to the union with no glyph behind it; the `satisfies` now
+  forces coverage while `name` stays a plain `string`, since an unrecognised name
+  rendering nothing is the documented behaviour its tests assert.
+
+  Return-type hits were handled by naming the shape. `satisfies` does not silence
+  those — the rule unwraps it — so `initObservability` and friends now return an
+  exported interface instead of an inline type literal.
+
+  Test files still hold 62 hits, nearly all a fixture table or a stub response
+  annotated `Record<string, …>` so the test can index it with a computed key, so
+  the rule stays off in the test override.
+
+- 9f1b272: Clear every `anti-slop/no-unknown-returns` hit in application source and raise
+  the rule from `warn` to `error`. A function returning `unknown` hands its caller
+  a value with no contract, so every site either had a shape worth naming or was
+  returning a value nobody read.
+
+  The three `arc-middleware.ts` copies (osn, pulse, zap) now decode a JWT segment
+  to text and parse it through `parseArcHeader` / `parseArcPayload`, which narrow
+  with `in` checks and contain no type assertions at all. `zap-bridge.ts` gains
+  four named response types and a parser per endpoint, so a malformed zap-api
+  reply throws at the bridge — naming the endpoint — instead of surfacing as an
+  `undefined` field several layers up. `safe-error.ts` and `grant-failure.ts`
+  share a `TaggedServiceError` guard in place of duck-typed shape checks.
+
+  `shared/redis` exports a recursive `RedisReply` and narrows ioredis's `unknown`
+  through `toRedisReply()` once, at the driver boundary. `shared/observability`'s
+  redactor returns a `RedactedValue` union, and `shared/openapi-tools` normalises
+  through a `JsonNode` union that throws on anything JSON cannot represent.
+  `@osn/ui` exports `RunPasskeyCeremony` and `RunPasskeyRegistration` so the four
+  step-up call sites name the ceremony callback instead of typing it
+  `(options: unknown) => Promise<unknown>`, and `@osn/client`'s two registration
+  begins return `PublicKeyCredentialCreationOptionsJSON`.
+
+  Test files still hold 18 hits, all in fetch/JSON helpers, so the rule stays off
+  in the test override.
+
+- 1ddf9bb: Clear every `anti-slop/no-unsafe-dictionary-type` hit in application source and
+  raise the rule from `warn` to `error`. `Record<string, unknown>` says only "an
+  object with string keys" — it accepts any key, guarantees no field, and hides
+  whichever shape the code actually meant. Each of the 67 hits was one of four
+  things, and each got a different fix.
+
+  **A shape that was always known.** `@shared/crypto` exports an `Es256Jwk`
+  interface and `validateEs256Jwk` asserts against it, so `importKeyFromJwk` takes
+  `unknown` and does the checking itself instead of trusting a caller's cast —
+  `@osn/api`'s boot path now hands it the raw string. `@osn/api`'s auth helpers
+  name the four claim sets it signs (`AccessTokenClaims`, `StepUpTokenClaims`,
+  `IdTokenClaims`, `OidcAccessTokenClaims`), and `verifyJwt` returns a
+  `VerifiedJwtClaims` whose every field stays `unknown` on purpose: one key signs
+  all four sets, so callers must still narrow on `aud`. `@pulse/api`'s account
+  export becomes a discriminated union on `section`, so a reader that switches on
+  the tag knows exactly which record fields it has.
+
+  **A drizzle update set.** `@osn/api`'s organisation update and both `@cire/api`
+  registry updates are typed `Partial<typeof table.$inferInsert>`, so a key that
+  isn't a column fails at the assignment rather than at the D1 boundary.
+  `@shared/db-utils` replaces seven `S extends Record<string, unknown>` schema
+  constraints with a real `DrizzleSchema`.
+
+  **An untrusted payload.** The CSP report normaliser, the osn-bridge org
+  decoder, the crop validator and the guest claim-response guard now name the
+  wire shape with every field left `unknown`, or narrow with `in` and drop the
+  stand-in type entirely. Nothing gains a guarantee the wire never made.
+
+  **A cast that was hiding a working type.** `@shared/feature-flags` uses
+  GrowthBook's own `FeatureDefinitions` / `SavedGroupsValues`, which removes the
+  `payload as never` at `initSync`. `@shared/observability`'s redactor and
+  `@shared/openapi-tools`' normaliser drop casts their narrowing had already
+  earned; `generate.ts` now throws on a non-object OpenAPI document instead of
+  asserting one. `@osn/api`'s public-error walker reads through
+  `Object.getOwnPropertyDescriptor` rather than indexing a widened object.
+
+  Test files still hold 102 hits — nearly all a stub request body or a drizzle row
+  the test then asserts on field by field — so the rule stays off in the test
+  override.
+
 ## 0.13.3
 
 ### Patch Changes

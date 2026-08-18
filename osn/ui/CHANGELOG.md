@@ -1,5 +1,93 @@
 # @osn/ui
 
+## 1.8.4
+
+### Patch Changes
+
+- d4553ed: Clear every `anti-slop/no-chained-type-assertions` hit in application source and
+  raise the rule from `warn` to `error`. A double assertion — `x as unknown as T` —
+  tells the compiler to stop checking, so each of the 32 sites was either a type
+  that could be stated honestly or a claim that was no longer true.
+
+  Most were the second kind. `buildAppDeps` and `selectEmailLayer` now name the
+  env vars they read instead of taking a loose string record, so the Workers `env`
+  binding passes structurally with no cast at all. `UpstashLike` mirrors the
+  `@upstash/redis` mutable array signature and the wrapper copies on the way in.
+  `FLAGS` is widened once on the way out of the registry, which removes three
+  casts and a `Widen` round-trip at every call site. `commitBatch` probes for
+  `.batch()` with a type guard rather than asserting the driver has one.
+
+  One was a live bug: `pulse/web`'s create-event form cast a `Date` to `string`
+  and relied on `JSON.stringify` to serialise it on the way out. It now calls
+  `toISOString()` where the conversion happens.
+
+  Test files still hold 161 hits — mostly a fixture cast to the shape under test —
+  so the rule stays off in the test override.
+
+- 9f1b272: Clear every `anti-slop/no-unknown-returns` hit in application source and raise
+  the rule from `warn` to `error`. A function returning `unknown` hands its caller
+  a value with no contract, so every site either had a shape worth naming or was
+  returning a value nobody read.
+
+  The three `arc-middleware.ts` copies (osn, pulse, zap) now decode a JWT segment
+  to text and parse it through `parseArcHeader` / `parseArcPayload`, which narrow
+  with `in` checks and contain no type assertions at all. `zap-bridge.ts` gains
+  four named response types and a parser per endpoint, so a malformed zap-api
+  reply throws at the bridge — naming the endpoint — instead of surfacing as an
+  `undefined` field several layers up. `safe-error.ts` and `grant-failure.ts`
+  share a `TaggedServiceError` guard in place of duck-typed shape checks.
+
+  `shared/redis` exports a recursive `RedisReply` and narrows ioredis's `unknown`
+  through `toRedisReply()` once, at the driver boundary. `shared/observability`'s
+  redactor returns a `RedactedValue` union, and `shared/openapi-tools` normalises
+  through a `JsonNode` union that throws on anything JSON cannot represent.
+  `@osn/ui` exports `RunPasskeyCeremony` and `RunPasskeyRegistration` so the four
+  step-up call sites name the ceremony callback instead of typing it
+  `(options: unknown) => Promise<unknown>`, and `@osn/client`'s two registration
+  begins return `PublicKeyCredentialCreationOptionsJSON`.
+
+  Test files still hold 18 hits, all in fetch/JSON helpers, so the rule stays off
+  in the test override.
+
+- 04df26e: Type the WebAuthn challenge options through the step-up chain, and close the
+  anti-slop ratchet at 12 of 15 rules.
+
+  `StepUpClient.passkeyBegin` resolved with `{ options: unknown }` and the
+  `@osn/ui` ceremony props took `unknown`, so every host had to assert its way
+  back to a usable type. Three `@osn/social` call sites carried a byte-identical
+  `options as Parameters<typeof startAuthentication>[0]["optionsJSON"]`, and the
+  `RunPasskeyCeremony` doc comment told callers to write it.
+
+  `passkeyBegin` now returns the standard lib.dom
+  `PublicKeyCredentialRequestOptionsJSON` — the same shape
+  `PasskeysClient.registerBegin` already returns for the enrolment half of the
+  same flow — and `RunPasskeyCeremony` / `RunPasskeyRegistration` take the
+  matching request/creation types.
+
+  One assertion per ceremony kind has to survive: `@simplewebauthn/browser`
+  re-declares both dictionaries with narrower members (`userVerification` as
+  `UserVerificationRequirement` rather than lib.dom's `string`, `hints` as
+  `PublicKeyCredentialHint[]` rather than `string[]`), so lib.dom is not
+  assignable to it. Both now live in one documented `@osn/social` adapter,
+  `src/lib/webauthn.ts`, imported by the two lazy Settings chunks — so
+  `@simplewebauthn/browser` still stays out of the main bundle (P-I1).
+
+  The three remaining anti-slop rules are marked non-adopted rather than
+  deferred, with measured src/test counts and a rationale each:
+  `require-safety-comment-for-type-assertion` (636/2158) would mandate 636
+  hand-written comments; `no-runtime-typeof` (378/137) fires on ordinary inline
+  narrowing and SSR capability probes, and its `allowInTypeGuards` option spares
+  only 40; `no-unknown-parameters` (149/134) fires on type-guard predicates,
+  whose parameter must be `unknown` to guard anything, and exposes no options to
+  say so.
+
+- Updated dependencies [587f561]
+- Updated dependencies [c87ea88]
+- Updated dependencies [9f1b272]
+- Updated dependencies [1ddf9bb]
+- Updated dependencies [04df26e]
+  - @osn/client@2.13.2
+
 ## 1.8.3
 
 ### Patch Changes

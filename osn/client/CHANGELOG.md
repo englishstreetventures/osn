@@ -1,5 +1,175 @@
 # @osn/client
 
+## 2.13.2
+
+### Patch Changes
+
+- 587f561: Clear every `anti-slop/no-conditional-empty-object-spread` hit in application
+  source and raise the rule from `warn` to `error`. A `...(cond ? { k: v } : {})`
+  inside an object literal hides an omitted property in the middle of a shape, so
+  the reader has to run the condition in their head to know what the object
+  actually holds. Each of the 56 sites is now a named binding built in statements,
+  with the optional field added after.
+
+  Most were option bags handed to a constructor: `cire/api/src/index.ts` and both
+  Pulse entrypoints (`index.ts`, `local.ts`) now build a typed `AppOptions` and
+  set the origin, limiter and login-URL fields conditionally, which also makes the
+  comment explaining each one sit next to the assignment instead of inside a
+  ternary. `shared/crypto/src/arc.ts` and `shared/osn-auth-client/src/verify.ts`
+  build a `JWTVerifyOptions` the same way, so the "unset issuer means jose does
+  not enforce `iss`" rule (X2) is a single readable line.
+
+  The rest are wire payloads and drizzle update sets. `pulse/api`'s series
+  instance update was thirteen consecutive conditional spreads; it is now thirteen
+  `if` statements over a `Partial<typeof events.$inferInsert>`, same thirteen keys.
+  `guest-event-draft.ts`, `spreadsheet.ts`, `import.ts` and `zap-bridge.ts` follow
+  the same shape. `organiser-hosts.ts` gains `HostPersonDto` and `HostSeatDto`, so
+  the co-host panel's response is a named type rather than an inline literal with
+  four conditional keys.
+
+  Two fixes in `osn/api/src/services/auth/step-up.ts` beyond the rule: the claims
+  object reuses the exported `StepUpTokenClaims` instead of redeclaring it, and it
+  is built inside the `Effect.tryPromise` thunk so a throw still maps to
+  `AuthError`.
+
+  Test files still hold 25 hits, all fixture builders folding an optional argument
+  into a request body, so the rule stays off in the test override.
+
+- c87ea88: Clear every `anti-slop/no-known-value-widening` hit in application source and
+  raise the rule from `warn` to `error`. The rule fires when a value the compiler
+  already knows the shape of — an object literal, an arrow function, a `new` —
+  is annotated with something broad enough to throw that knowledge away:
+  `unknown`, `object`, an inline type literal, or any `Record<K, V>`.
+
+  Nearly all 116 hits were lookup tables annotated `Record<string, T>`. They split
+  two ways, and the split is the whole substance of this change:
+
+  **Closed-key tables** now carry a trailing `satisfies Record<ClosedUnion, T>`
+  instead of a leading annotation. The table keeps its literal type, so a missing
+  key is a compile error rather than a silent `undefined` at the read site — the
+  opposite of what the `Record` annotation gave.
+
+  **Genuinely open-key tables** — the ones read with a runtime string and a `??`
+  fallback — now declare a named `interface` with an index signature. This states
+  the real contract (any key may miss) where `Record<string, T>` claimed every key
+  is present. It also avoids the alternative the first pass reached for, a
+  `key as keyof typeof TABLE` assertion, which is unsound and would have added to
+  the `require-safety-comment-for-type-assertion` backlog.
+
+  Two of these were latent bugs. `selectAuthRateLimiters` assembled its bundle in
+  a `Record<string, RateLimiterBackend>` and cast the result to
+  `AuthRateLimiters`, so a missing limiter slot typechecked; it now builds into a
+  mapped type with the `readonly` stripped and returns without a cast. `Icon`'s
+  glyph table was annotated `Record<string, () => JSX.Element>`, which let a new
+  `IconName` be added to the union with no glyph behind it; the `satisfies` now
+  forces coverage while `name` stays a plain `string`, since an unrecognised name
+  rendering nothing is the documented behaviour its tests assert.
+
+  Return-type hits were handled by naming the shape. `satisfies` does not silence
+  those — the rule unwraps it — so `initObservability` and friends now return an
+  exported interface instead of an inline type literal.
+
+  Test files still hold 62 hits, nearly all a fixture table or a stub response
+  annotated `Record<string, …>` so the test can index it with a computed key, so
+  the rule stays off in the test override.
+
+- 9f1b272: Clear every `anti-slop/no-unknown-returns` hit in application source and raise
+  the rule from `warn` to `error`. A function returning `unknown` hands its caller
+  a value with no contract, so every site either had a shape worth naming or was
+  returning a value nobody read.
+
+  The three `arc-middleware.ts` copies (osn, pulse, zap) now decode a JWT segment
+  to text and parse it through `parseArcHeader` / `parseArcPayload`, which narrow
+  with `in` checks and contain no type assertions at all. `zap-bridge.ts` gains
+  four named response types and a parser per endpoint, so a malformed zap-api
+  reply throws at the bridge — naming the endpoint — instead of surfacing as an
+  `undefined` field several layers up. `safe-error.ts` and `grant-failure.ts`
+  share a `TaggedServiceError` guard in place of duck-typed shape checks.
+
+  `shared/redis` exports a recursive `RedisReply` and narrows ioredis's `unknown`
+  through `toRedisReply()` once, at the driver boundary. `shared/observability`'s
+  redactor returns a `RedactedValue` union, and `shared/openapi-tools` normalises
+  through a `JsonNode` union that throws on anything JSON cannot represent.
+  `@osn/ui` exports `RunPasskeyCeremony` and `RunPasskeyRegistration` so the four
+  step-up call sites name the ceremony callback instead of typing it
+  `(options: unknown) => Promise<unknown>`, and `@osn/client`'s two registration
+  begins return `PublicKeyCredentialCreationOptionsJSON`.
+
+  Test files still hold 18 hits, all in fetch/JSON helpers, so the rule stays off
+  in the test override.
+
+- 1ddf9bb: Clear every `anti-slop/no-unsafe-dictionary-type` hit in application source and
+  raise the rule from `warn` to `error`. `Record<string, unknown>` says only "an
+  object with string keys" — it accepts any key, guarantees no field, and hides
+  whichever shape the code actually meant. Each of the 67 hits was one of four
+  things, and each got a different fix.
+
+  **A shape that was always known.** `@shared/crypto` exports an `Es256Jwk`
+  interface and `validateEs256Jwk` asserts against it, so `importKeyFromJwk` takes
+  `unknown` and does the checking itself instead of trusting a caller's cast —
+  `@osn/api`'s boot path now hands it the raw string. `@osn/api`'s auth helpers
+  name the four claim sets it signs (`AccessTokenClaims`, `StepUpTokenClaims`,
+  `IdTokenClaims`, `OidcAccessTokenClaims`), and `verifyJwt` returns a
+  `VerifiedJwtClaims` whose every field stays `unknown` on purpose: one key signs
+  all four sets, so callers must still narrow on `aud`. `@pulse/api`'s account
+  export becomes a discriminated union on `section`, so a reader that switches on
+  the tag knows exactly which record fields it has.
+
+  **A drizzle update set.** `@osn/api`'s organisation update and both `@cire/api`
+  registry updates are typed `Partial<typeof table.$inferInsert>`, so a key that
+  isn't a column fails at the assignment rather than at the D1 boundary.
+  `@shared/db-utils` replaces seven `S extends Record<string, unknown>` schema
+  constraints with a real `DrizzleSchema`.
+
+  **An untrusted payload.** The CSP report normaliser, the osn-bridge org
+  decoder, the crop validator and the guest claim-response guard now name the
+  wire shape with every field left `unknown`, or narrow with `in` and drop the
+  stand-in type entirely. Nothing gains a guarantee the wire never made.
+
+  **A cast that was hiding a working type.** `@shared/feature-flags` uses
+  GrowthBook's own `FeatureDefinitions` / `SavedGroupsValues`, which removes the
+  `payload as never` at `initSync`. `@shared/observability`'s redactor and
+  `@shared/openapi-tools`' normaliser drop casts their narrowing had already
+  earned; `generate.ts` now throws on a non-object OpenAPI document instead of
+  asserting one. `@osn/api`'s public-error walker reads through
+  `Object.getOwnPropertyDescriptor` rather than indexing a widened object.
+
+  Test files still hold 102 hits — nearly all a stub request body or a drizzle row
+  the test then asserts on field by field — so the rule stays off in the test
+  override.
+
+- 04df26e: Type the WebAuthn challenge options through the step-up chain, and close the
+  anti-slop ratchet at 12 of 15 rules.
+
+  `StepUpClient.passkeyBegin` resolved with `{ options: unknown }` and the
+  `@osn/ui` ceremony props took `unknown`, so every host had to assert its way
+  back to a usable type. Three `@osn/social` call sites carried a byte-identical
+  `options as Parameters<typeof startAuthentication>[0]["optionsJSON"]`, and the
+  `RunPasskeyCeremony` doc comment told callers to write it.
+
+  `passkeyBegin` now returns the standard lib.dom
+  `PublicKeyCredentialRequestOptionsJSON` — the same shape
+  `PasskeysClient.registerBegin` already returns for the enrolment half of the
+  same flow — and `RunPasskeyCeremony` / `RunPasskeyRegistration` take the
+  matching request/creation types.
+
+  One assertion per ceremony kind has to survive: `@simplewebauthn/browser`
+  re-declares both dictionaries with narrower members (`userVerification` as
+  `UserVerificationRequirement` rather than lib.dom's `string`, `hints` as
+  `PublicKeyCredentialHint[]` rather than `string[]`), so lib.dom is not
+  assignable to it. Both now live in one documented `@osn/social` adapter,
+  `src/lib/webauthn.ts`, imported by the two lazy Settings chunks — so
+  `@simplewebauthn/browser` still stays out of the main bundle (P-I1).
+
+  The three remaining anti-slop rules are marked non-adopted rather than
+  deferred, with measured src/test counts and a rationale each:
+  `require-safety-comment-for-type-assertion` (636/2158) would mandate 636
+  hand-written comments; `no-runtime-typeof` (378/137) fires on ordinary inline
+  narrowing and SSR capability probes, and its `allowInTypeGuards` option spares
+  only 40; `no-unknown-parameters` (149/134) fires on type-guard predicates,
+  whose parameter must be `unknown` to guard anything, and exposes no options to
+  say so.
+
 ## 2.13.1
 
 ### Patch Changes

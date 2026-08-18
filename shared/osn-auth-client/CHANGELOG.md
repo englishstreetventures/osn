@@ -1,5 +1,105 @@
 # @shared/osn-auth-client
 
+## 0.4.3
+
+### Patch Changes
+
+- d4553ed: Clear every `anti-slop/no-chained-type-assertions` hit in application source and
+  raise the rule from `warn` to `error`. A double assertion — `x as unknown as T` —
+  tells the compiler to stop checking, so each of the 32 sites was either a type
+  that could be stated honestly or a claim that was no longer true.
+
+  Most were the second kind. `buildAppDeps` and `selectEmailLayer` now name the
+  env vars they read instead of taking a loose string record, so the Workers `env`
+  binding passes structurally with no cast at all. `UpstashLike` mirrors the
+  `@upstash/redis` mutable array signature and the wrapper copies on the way in.
+  `FLAGS` is widened once on the way out of the registry, which removes three
+  casts and a `Widen` round-trip at every call site. `commitBatch` probes for
+  `.batch()` with a type guard rather than asserting the driver has one.
+
+  One was a live bug: `pulse/web`'s create-event form cast a `Date` to `string`
+  and relied on `JSON.stringify` to serialise it on the way out. It now calls
+  `toISOString()` where the conversion happens.
+
+  Test files still hold 161 hits — mostly a fixture cast to the shape under test —
+  so the rule stays off in the test override.
+
+- 587f561: Clear every `anti-slop/no-conditional-empty-object-spread` hit in application
+  source and raise the rule from `warn` to `error`. A `...(cond ? { k: v } : {})`
+  inside an object literal hides an omitted property in the middle of a shape, so
+  the reader has to run the condition in their head to know what the object
+  actually holds. Each of the 56 sites is now a named binding built in statements,
+  with the optional field added after.
+
+  Most were option bags handed to a constructor: `cire/api/src/index.ts` and both
+  Pulse entrypoints (`index.ts`, `local.ts`) now build a typed `AppOptions` and
+  set the origin, limiter and login-URL fields conditionally, which also makes the
+  comment explaining each one sit next to the assignment instead of inside a
+  ternary. `shared/crypto/src/arc.ts` and `shared/osn-auth-client/src/verify.ts`
+  build a `JWTVerifyOptions` the same way, so the "unset issuer means jose does
+  not enforce `iss`" rule (X2) is a single readable line.
+
+  The rest are wire payloads and drizzle update sets. `pulse/api`'s series
+  instance update was thirteen consecutive conditional spreads; it is now thirteen
+  `if` statements over a `Partial<typeof events.$inferInsert>`, same thirteen keys.
+  `guest-event-draft.ts`, `spreadsheet.ts`, `import.ts` and `zap-bridge.ts` follow
+  the same shape. `organiser-hosts.ts` gains `HostPersonDto` and `HostSeatDto`, so
+  the co-host panel's response is a named type rather than an inline literal with
+  four conditional keys.
+
+  Two fixes in `osn/api/src/services/auth/step-up.ts` beyond the rule: the claims
+  object reuses the exported `StepUpTokenClaims` instead of redeclaring it, and it
+  is built inside the `Effect.tryPromise` thunk so a throw still maps to
+  `AuthError`.
+
+  Test files still hold 25 hits, all fixture builders folding an optional argument
+  into a request body, so the rule stays off in the test override.
+
+- 1ddf9bb: Clear every `anti-slop/no-unsafe-dictionary-type` hit in application source and
+  raise the rule from `warn` to `error`. `Record<string, unknown>` says only "an
+  object with string keys" — it accepts any key, guarantees no field, and hides
+  whichever shape the code actually meant. Each of the 67 hits was one of four
+  things, and each got a different fix.
+
+  **A shape that was always known.** `@shared/crypto` exports an `Es256Jwk`
+  interface and `validateEs256Jwk` asserts against it, so `importKeyFromJwk` takes
+  `unknown` and does the checking itself instead of trusting a caller's cast —
+  `@osn/api`'s boot path now hands it the raw string. `@osn/api`'s auth helpers
+  name the four claim sets it signs (`AccessTokenClaims`, `StepUpTokenClaims`,
+  `IdTokenClaims`, `OidcAccessTokenClaims`), and `verifyJwt` returns a
+  `VerifiedJwtClaims` whose every field stays `unknown` on purpose: one key signs
+  all four sets, so callers must still narrow on `aud`. `@pulse/api`'s account
+  export becomes a discriminated union on `section`, so a reader that switches on
+  the tag knows exactly which record fields it has.
+
+  **A drizzle update set.** `@osn/api`'s organisation update and both `@cire/api`
+  registry updates are typed `Partial<typeof table.$inferInsert>`, so a key that
+  isn't a column fails at the assignment rather than at the D1 boundary.
+  `@shared/db-utils` replaces seven `S extends Record<string, unknown>` schema
+  constraints with a real `DrizzleSchema`.
+
+  **An untrusted payload.** The CSP report normaliser, the osn-bridge org
+  decoder, the crop validator and the guest claim-response guard now name the
+  wire shape with every field left `unknown`, or narrow with `in` and drop the
+  stand-in type entirely. Nothing gains a guarantee the wire never made.
+
+  **A cast that was hiding a working type.** `@shared/feature-flags` uses
+  GrowthBook's own `FeatureDefinitions` / `SavedGroupsValues`, which removes the
+  `payload as never` at `initSync`. `@shared/observability`'s redactor and
+  `@shared/openapi-tools`' normaliser drop casts their narrowing had already
+  earned; `generate.ts` now throws on a non-object OpenAPI document instead of
+  asserting one. `@osn/api`'s public-error walker reads through
+  `Object.getOwnPropertyDescriptor` rather than indexing a widened object.
+
+  Test files still hold 102 hits — nearly all a stub request body or a drizzle row
+  the test then asserts on field by field — so the rule stays off in the test
+  override.
+
+- Updated dependencies [587f561]
+- Updated dependencies [c87ea88]
+- Updated dependencies [1ddf9bb]
+  - @shared/crypto@0.10.3
+
 ## 0.4.2
 
 ### Patch Changes
