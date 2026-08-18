@@ -96,8 +96,11 @@ export function CreateEventForm(props: { onSuccess: () => void; onCancel: () => 
       // only credential the browser holds.
       const { error } = await api.events.post({
         title: title(),
-        startTime: new Date(startTime()) as unknown as string,
-        endTime: endTime() ? (new Date(endTime()) as unknown as string) : undefined,
+        // The inputs are `datetime-local`, so their value carries no offset and
+        // `new Date` reads it as the organiser's wall clock. `toISOString` is
+        // what pins that to a real instant for the API's `date-time` fields.
+        startTime: new Date(startTime()).toISOString(),
+        endTime: endTime() ? new Date(endTime()).toISOString() : undefined,
         location: location() || undefined,
         latitude: latitude(),
         longitude: longitude(),

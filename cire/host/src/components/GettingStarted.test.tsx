@@ -103,6 +103,16 @@ describe("GettingStarted", () => {
     expect(screen.getByText(/Everything's ready/i)).toBeTruthy();
   });
 
+  it("renders nothing when the snapshot fetch fails", async () => {
+    // Fail soft: the resource resolves to null and the panel hides itself, so a
+    // dead fetch never leaves a half-derived "0 / 4 done" on the dashboard.
+    authFetchMock.mockImplementation(() => Promise.reject(new Error("network down")));
+    const { container } = render(() => <GettingStarted weddingId="wed_1" onJump={() => {}} />);
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalled());
+    expect(container.textContent).toBe("");
+  });
+
   it("jumps to the matching tab when a step is clicked", async () => {
     mockSnapshot({ events: [], guests: [], invite: EMPTY_INVITE });
     const onJump = vi.fn();

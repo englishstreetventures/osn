@@ -1,6 +1,6 @@
 import { SignJWT, generateKeyPair } from "jose";
 
-import type { OidcConfig } from "../oidc-rp";
+import type { FetchLike, OidcConfig } from "../oidc-rp";
 
 /**
  * A fake OSN issuer for relying-party tests — shared so every product that
@@ -128,7 +128,7 @@ export interface TokenEndpointCall {
 
 export interface TokenEndpointStub {
   /** Drop-in for `OidcConfig._fetch`. */
-  fetch: typeof fetch;
+  fetch: FetchLike;
   /** Every exchange the RP attempted, in order. */
   calls: TokenEndpointCall[];
 }
@@ -138,7 +138,7 @@ export function stubTokenEndpoint(
   respond: (call: TokenEndpointCall) => Response | Promise<Response>,
 ): TokenEndpointStub {
   const calls: TokenEndpointCall[] = [];
-  const doFetch = async (input: unknown, init?: RequestInit): Promise<Response> => {
+  const doFetch: FetchLike = async (input, init) => {
     const url = input instanceof Request ? input.url : String(input);
     const body = init?.body;
     const params = new URLSearchParams(
@@ -148,7 +148,7 @@ export function stubTokenEndpoint(
     calls.push(call);
     return respond(call);
   };
-  return { fetch: doFetch as unknown as typeof fetch, calls };
+  return { fetch: doFetch, calls };
 }
 
 /** The shape a healthy token endpoint returns. */

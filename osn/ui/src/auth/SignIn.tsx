@@ -134,14 +134,12 @@ export function SignIn(props: SignInProps) {
    */
   async function startConditionalPasskey() {
     if (typeof window === "undefined") return;
+    // lib.dom declares `PublicKeyCredential` as always present. It is absent
+    // wherever WebAuthn is — older browsers, and the jsdom test env — so the
+    // local type keeps the member optional and the detection below real.
     const PKC: {
       isConditionalMediationAvailable?: () => Promise<boolean>;
-    } =
-      (
-        window as unknown as {
-          PublicKeyCredential?: { isConditionalMediationAvailable?: () => Promise<boolean> };
-        }
-      ).PublicKeyCredential ?? {};
+    } = window.PublicKeyCredential ?? {};
     if (typeof PKC.isConditionalMediationAvailable !== "function") return;
     try {
       const available = await PKC.isConditionalMediationAvailable();

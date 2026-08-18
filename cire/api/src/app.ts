@@ -10,6 +10,7 @@ import type { RateLimiterBackend } from "@shared/rate-limit";
 import type { TurnstileVerifier } from "@shared/turnstile";
 import { Effect, Layer } from "effect";
 import { Elysia } from "elysia";
+import type { AnyElysia } from "elysia";
 
 import type { Db } from "./db";
 import { originGuard } from "./lib/origin-guard";
@@ -845,12 +846,12 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // is never reachable unless a deployment opts in. This keeps Phase 1 safe
   // (no unverified endpoint is ever exposed by default).
   //
-  // `app` is widened to a bare `Elysia` (via `unknown`) before the final
-  // conditional mount: adding the vendor-enquiry routes above grew the fluent
-  // chain's inferred type to the point where threading it through one more
-  // `.use()` tips TS past its instantiation-depth limit (TS2589). Erasing the
+  // `app` is widened to Elysia's own `AnyElysia` before the final conditional
+  // mount: adding the vendor-enquiry routes above grew the fluent chain's
+  // inferred type to the point where threading it through one more `.use()`
+  // tips TS past its instantiation-depth limit (TS2589). Erasing the
   // accumulated route-type surface here caps the depth; it's runtime-inert
   // (`.use()` only needs an Elysia instance) and scoped to this final mount.
-  const rootApp = app as unknown as Elysia;
+  const rootApp: AnyElysia = app;
   return paymentWebhookEnabled ? rootApp.use(createPaymentWebhookSkeleton()) : rootApp;
 }

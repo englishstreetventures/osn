@@ -1,6 +1,7 @@
 import { Elysia } from "elysia";
 
 import type { OsnOrgMembershipResolver } from "../services/osn-bridge";
+import { readOsnProfileId } from "./upstream-context";
 
 interface GateError {
   status: number;
@@ -29,7 +30,7 @@ const pass = (role: "admin" | "member") => ({
 export function vendorOrgMember(orgId: string, orgMembership: OsnOrgMembershipResolver) {
   return new Elysia()
     .derive({ as: "scoped" }, async (ctx) => {
-      const { osnProfileId } = ctx as unknown as { osnProfileId?: string };
+      const osnProfileId = readOsnProfileId(ctx);
 
       if (!osnProfileId) return fail(401, "unauthorised");
 

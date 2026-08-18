@@ -43,8 +43,19 @@ import {
 } from "@shared/email";
 import { Effect, Layer } from "effect";
 
-/** Loose env view — both entries supply `process.env` / the Workers `env`. */
-type EmailEnv = Readonly<Record<string, string | undefined>>;
+/**
+ * The vars this selector reads, named. Both entries hand over their whole env —
+ * `process.env` on Bun, the Workers `env` binding on workerd — and both are
+ * supersets of this shape, so they pass structurally with no cast.
+ */
+type EmailEnv = {
+  readonly OSN_ENV?: string;
+  readonly OSN_EMAIL_FROM?: string;
+  readonly OSN_EMAIL_OPTIONAL?: string;
+  readonly RESEND_API_KEY?: string;
+  readonly CLOUDFLARE_ACCOUNT_ID?: string;
+  readonly CLOUDFLARE_EMAIL_API_TOKEN?: string;
+};
 
 const isNonLocal = (env: EmailEnv): boolean => !!env.OSN_ENV && env.OSN_ENV !== "local";
 

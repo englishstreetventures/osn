@@ -101,11 +101,14 @@
     "anti-slop/no-module-mocking": "error",
     "anti-slop/no-shape-in-symbol-names": "error",
 
+    // Cleared in application source — raised off the ratchet. The test
+    // override below still silences the test-side hits.
+    "anti-slop/no-chained-type-assertions": "error",
+
     // Real debt in app source, small enough to schedule. Counts are source
     // only where the test override below silences the test-side hits.
     "anti-slop/no-unknown-returns": "warn", // 55
     "anti-slop/no-conditional-empty-object-spread": "warn", // 81
-    "anti-slop/no-chained-type-assertions": "warn", // 32 src
     "anti-slop/no-unsafe-dictionary-type": "warn", // 67 src
     "anti-slop/no-known-value-widening": "warn", // 134 src
 
@@ -140,7 +143,9 @@
         "anti-slop/no-module-mocking": "off",
         // Fixture and stub names describe the shape on purpose.
         "anti-slop/no-shape-in-symbol-names": "off",
-        // Test-side debt only; kept on for source until it is cleared.
+        // Source is clean and the rule is an error there; 161 test-side hits
+        // remain. Most are a fixture cast to the shape under test, which is a
+        // different argument from a production `as` chain.
         "anti-slop/no-chained-type-assertions": "off",
         "anti-slop/no-unsafe-dictionary-type": "off",
         "anti-slop/no-known-value-widening": "off"

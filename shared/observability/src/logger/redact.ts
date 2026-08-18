@@ -283,16 +283,18 @@ const redactInner = (value: unknown, seen: WeakSet<object>): unknown => {
   if (value instanceof Error) {
     // Errors get their `message` preserved but any custom fields are
     // redacted. This covers Effect tagged errors with { _tag, cause }.
-    const asRecord = value as unknown as Record<string, unknown>;
     const out: Record<string, unknown> = {
       name: value.name,
       message: value.message,
     };
-    for (const k of Object.keys(asRecord)) {
+    // `Object.entries` reads the same own enumerable keys the old `Object.keys`
+    // + index-read did; `name`/`message`/`stack` are non-enumerable, so they
+    // stay out of the walk and only the two copied above survive.
+    for (const [k, v] of Object.entries(value)) {
       if (REDACT_KEYS.has(k.toLowerCase())) {
         out[k] = REDACTION_PLACEHOLDER;
       } else {
-        out[k] = redactInner(asRecord[k], seen);
+        out[k] = redactInner(v, seen);
       }
     }
     return out;

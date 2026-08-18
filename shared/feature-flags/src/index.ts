@@ -34,16 +34,11 @@ import { GrowthBook } from "@growthbook/growthbook";
 import { instrumentedFetch } from "@shared/observability/fetch";
 
 /**
- * The flag registry: every flag the code may read, mapped to the value it takes
- * when GrowthBook is unconfigured, unreachable, or has no rule for it. This is
- * the contract between code and the GrowthBook dashboard — a key here must match
- * a feature key there, and the default here is the fail-safe value.
- *
- * Keep keys namespaced by product (`cire.*`, `osn.*`) so one dashboard can serve
- * every Worker without collisions. Values may be boolean, string, or number;
- * the default's type is the flag's type for {@link FlagEvaluator.getValue}.
+ * The registry literal, defaults still at their literal types (`false`, not
+ * `boolean`). Kept private: {@link FLAGS} is the same object seen through the
+ * widened type, and that is what everything — this module included — reads.
  */
-export const FLAGS = {
+const REGISTRY = {
   /**
    * OSN ("Pulse") account linking on the guest invite — the "Link your Pulse
    * account" section (`cire/invites` `PulseAccountLink`, mounted in `InvitePage`).
@@ -56,16 +51,10 @@ export const FLAGS = {
   "cire.account-linking": false,
 } as const satisfies Record<string, boolean | string | number>;
 
-/** A valid flag key — the keys of {@link FLAGS}. Typo ⇒ compile error. */
-export type FlagKey = keyof typeof FLAGS;
-
 /**
- * Widen a registry literal to the flag's runtime value type. The registry is
- * `as const`, so a boolean flag's default reads as the literal `false`/`true` —
- * but at runtime a flag can take either boolean, so its value type is `boolean`
- * (likewise `string`/`number`). For a concrete key this reduces cleanly, so the
- * public `getValue` / `createStaticFlags` signatures stay exact; only the
- * internal generic-key evaluators need a cast.
+ * Widen a registry literal to the flag's runtime value type: a boolean flag's
+ * default reads as the literal `false`, but at runtime the flag can take either
+ * boolean, so its value type is `boolean` (likewise `string`/`number`).
  */
 type Widen<T> = T extends boolean
   ? boolean
@@ -75,8 +64,30 @@ type Widen<T> = T extends boolean
       ? string
       : T;
 
+/** {@link REGISTRY} with every default widened to the flag's value type. */
+type FlagRegistry = { readonly [K in keyof typeof REGISTRY]: Widen<(typeof REGISTRY)[K]> };
+
+/**
+ * The flag registry: every flag the code may read, mapped to the value it takes
+ * when GrowthBook is unconfigured, unreachable, or has no rule for it. This is
+ * the contract between code and the GrowthBook dashboard — a key here must match
+ * a feature key there, and the default here is the fail-safe value.
+ *
+ * Keep keys namespaced by product (`cire.*`, `osn.*`) so one dashboard can serve
+ * every Worker without collisions. Values may be boolean, string, or number;
+ * the default's type is the flag's type for {@link FlagEvaluator.getValue}.
+ *
+ * Widening happens once, here, on the way out of {@link REGISTRY} — so
+ * `FlagValue` is a plain lookup into this type and `FLAGS[key]` type-checks
+ * against it even for a generic key, with no cast anywhere below.
+ */
+export const FLAGS: FlagRegistry = REGISTRY;
+
+/** A valid flag key — the keys of {@link FLAGS}. Typo ⇒ compile error. */
+export type FlagKey = keyof typeof FLAGS;
+
 /** The value type of a given flag — its registry default's type, widened. */
-export type FlagValue<K extends FlagKey> = Widen<(typeof FLAGS)[K]>;
+export type FlagValue<K extends FlagKey> = (typeof FLAGS)[K];
 
 /**
  * Per-request targeting attributes handed to GrowthBook. `id` is the bucketing
@@ -338,13 +349,14 @@ function gbEvaluator(payload: SdkPayload, attributes: FlagAttributes | undefined
       }
     },
     getValue(key) {
-      // Generic-key index of the `as const` registry doesn't reduce against the
-      // widened return type, and GrowthBook's own widening differs — cast via
-      // `unknown`. Concrete-key callers still get the exact `FlagValue<K>`.
       try {
-        return gb.getFeatureValue(key, FLAGS[key]) as unknown as FlagValue<typeof key>;
+        // GrowthBook re-widens the fallback with its own `WidenPrimitives`,
+        // which won't reduce against a generic key. Registry defaults are
+        // already widened, so that conditional is the identity here: what comes
+        // back is our own fallback, or a payload value for the same flag.
+        return gb.getFeatureValue(key, FLAGS[key]) as FlagValue<typeof key>;
       } catch {
-        return FLAGS[key] as unknown as FlagValue<typeof key>;
+        return FLAGS[key];
       }
     },
   };
@@ -357,7 +369,7 @@ function defaultsEvaluator(): FlagEvaluator {
       return Boolean(FLAGS[key]);
     },
     getValue(key) {
-      return FLAGS[key] as unknown as FlagValue<typeof key>;
+      return FLAGS[key];
     },
   };
 }
@@ -374,8 +386,10 @@ function defaultsEvaluator(): FlagEvaluator {
 export function createStaticFlags(
   overrides: Partial<{ [K in FlagKey]: FlagValue<K> }> = {},
 ): FeatureFlags {
-  const pick = <K extends FlagKey>(key: K): FlagValue<K> =>
-    (key in overrides ? overrides[key] : FLAGS[key]) as unknown as FlagValue<K>;
+  // `??`, so an override written as an explicit `undefined` counts as absent and
+  // falls back to the registry default — `Partial` lets a caller write one, and
+  // handing back `undefined` would break the `FlagValue<K>` the callers rely on.
+  const pick = <K extends FlagKey>(key: K): FlagValue<K> => overrides[key] ?? FLAGS[key];
   const evaluator: FlagEvaluator = {
     isOn(key) {
       return Boolean(pick(key));

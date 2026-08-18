@@ -2,6 +2,7 @@ import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Elysia } from "elysia";
 
 import { getClientIp, isUnresolvedIp } from "../lib/client-ip";
+import { readOsnProfileId } from "./upstream-context";
 
 /**
  * Elysia plugin enforcing per-IP rate limiting via @shared/rate-limit.
@@ -50,7 +51,7 @@ export function rateLimitMiddleware(limiter: RateLimiterBackend) {
 export function rateLimitMiddlewareByUser(limiter: RateLimiterBackend) {
   return new Elysia().onBeforeHandle({ as: "scoped" }, async (ctx) => {
     const { set } = ctx;
-    const { osnProfileId } = ctx as unknown as { osnProfileId?: string };
+    const osnProfileId = readOsnProfileId(ctx);
 
     if (!osnProfileId) {
       // Fail-closed: absent osnProfileId means upstream osnAuth did not run

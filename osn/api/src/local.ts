@@ -54,9 +54,14 @@ export async function buildAppDeps_Bun(): Promise<
   //   - Local dev / tests → LogEmailLive records sends to an in-memory ring, so
   //     no OTP codes end up in logs.
   // -------------------------------------------------------------------------
-  const emailLayer = selectEmailLayer(process.env, observabilityLayer);
+  // Both take the vars they read by name, and Bun types `process.env` as an
+  // interface carrying only NODE_ENV/TZ — no name in common, which trips TS's
+  // weak-type check. It is a plain string map underneath, so hand it over as one.
+  const env: Readonly<Record<string, string | undefined>> = process.env;
 
-  const built = await buildAppDeps(process.env, {
+  const emailLayer = selectEmailLayer(env, observabilityLayer);
+
+  const built = await buildAppDeps(env, {
     redisClient,
     dbAndEmailLayer: Layer.merge(DbLive, emailLayer),
     observabilityLayer,

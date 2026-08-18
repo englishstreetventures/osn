@@ -6,16 +6,11 @@ import type { Db } from "../db";
 import { runCire } from "../observability";
 import { entitlementService } from "../services/entitlements";
 import type { EntitlementKey } from "../services/entitlements";
+import { hasWeddingGateError } from "./upstream-context";
 
 interface EntitlementGateError {
   status: number;
   body: { error: string; entitlement: EntitlementKey };
-}
-
-/** What the role gate (weddingMember/weddingEditor) parks on the context. */
-interface RoleGated {
-  params?: Record<string, string | undefined>;
-  weddingGateError?: { status: number; body: { error: string } };
 }
 
 /**
@@ -40,8 +35,8 @@ interface RoleGated {
 export function weddingEntitlement(db: Db, key: EntitlementKey) {
   return new Elysia()
     .derive({ as: "scoped" }, async (ctx) => {
-      const { params, weddingGateError } = ctx as unknown as RoleGated;
-      if (weddingGateError) {
+      const { params } = ctx;
+      if (hasWeddingGateError(ctx)) {
         return { entitlementGateError: undefined as EntitlementGateError | undefined };
       }
       const weddingId = params?.weddingId;

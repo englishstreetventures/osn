@@ -116,8 +116,7 @@ export function createVendorPortalRoutes(
       // orgId comes from the body — gate is applied inline.
       .post(
         "/claims/:token/consume",
-        async ({ params, request, set, ...ctx }) => {
-          const profileId = (ctx as unknown as { osnProfileId?: string }).osnProfileId;
+        async ({ params, request, set, osnProfileId: profileId }) => {
           if (!profileId) return unauthorisedSync(set);
 
           const raw: unknown = await request.json().catch(() => null);
@@ -158,16 +157,14 @@ export function createVendorPortalRoutes(
       // id from the verified session), so no extra gate applies. Fail-soft: an
       // ARC hiccup resolves to an empty list, which the portal renders as "no
       // organisations yet" rather than an error.
-      .get("/orgs", async ({ set, ...ctx }) => {
-        const profileId = (ctx as unknown as { osnProfileId?: string }).osnProfileId;
+      .get("/orgs", async ({ set, osnProfileId: profileId }) => {
         if (!profileId) return unauthorisedSync(set);
 
         const organisations = await profileOrgs(profileId);
         return { organisations };
       })
       // GET /api/vendor/orgs/:orgId/listing
-      .get("/orgs/:orgId/listing", async ({ params, set, ...ctx }) => {
-        const profileId = (ctx as unknown as { osnProfileId?: string }).osnProfileId;
+      .get("/orgs/:orgId/listing", async ({ params, set, osnProfileId: profileId }) => {
         if (!profileId) return unauthorisedSync(set);
 
         const role = await orgMembership(params.orgId, profileId);
@@ -184,8 +181,7 @@ export function createVendorPortalRoutes(
       // PUT /api/vendor/orgs/:orgId/listing
       .put(
         "/orgs/:orgId/listing",
-        async ({ params, request, set, ...ctx }) => {
-          const profileId = (ctx as unknown as { osnProfileId?: string }).osnProfileId;
+        async ({ params, request, set, osnProfileId: profileId }) => {
           if (!profileId) return unauthorisedSync(set);
 
           const role = await orgMembership(params.orgId, profileId);

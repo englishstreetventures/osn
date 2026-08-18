@@ -32,11 +32,13 @@ import type { RedisClient } from "./client";
  * instance or a fake in tests without coupling to the SDK's full type.
  */
 export interface UpstashLike {
-  eval(
-    script: string,
-    keys: readonly string[],
-    args: readonly (string | number)[],
-  ): Promise<unknown>;
+  /**
+   * `keys` / `args` are mutable arrays because that is how `@upstash/redis`
+   * types them, and mirroring the SDK is what lets a real `Redis` instance
+   * satisfy this interface without a cast. The `RedisClient` contract hands
+   * `eval` readonly arrays, so {@link wrapUpstash} copies them on the way in.
+   */
+  eval(script: string, keys: string[], args: (string | number)[]): Promise<unknown>;
   ping(): Promise<string>;
   get(key: string): Promise<string | null>;
   set(key: string, value: string, opts?: { px: number }): Promise<unknown>;
@@ -54,7 +56,9 @@ export interface UpstashLike {
 export function wrapUpstash(redis: UpstashLike): RedisClient {
   return {
     async eval(script, keys, args) {
-      return redis.eval(script, keys, args);
+      // Copied because the SDK takes mutable arrays; both are two elements
+      // long and the call behind them is an HTTP round-trip.
+      return redis.eval(script, [...keys], [...args]);
     },
     async ping() {
       return redis.ping();
@@ -96,5 +100,5 @@ export function createUpstashClient(config: UpstashClientConfig): RedisClient {
     token: config.token,
     automaticDeserialization: false,
   });
-  return wrapUpstash(redis as unknown as UpstashLike);
+  return wrapUpstash(redis);
 }

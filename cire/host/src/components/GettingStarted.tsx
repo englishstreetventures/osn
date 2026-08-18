@@ -104,7 +104,10 @@ export default function GettingStarted(props: {
     writeDismissed(props.weddingId, false);
   }
 
-  const [snapshot] = createResource<Snapshot>(async () => {
+  // Nullable on purpose: a failed fetch resolves to null and the panel hides
+  // itself (the `<Show when={snapshot()}>` below), rather than pretending to a
+  // snapshot it never got.
+  const [snapshot] = createResource<Snapshot | null>(async () => {
     try {
       const base = `/api/organiser/weddings/${props.weddingId}`;
       const [eventsRes, guestsRes, inviteRes] = await Promise.all([
@@ -143,7 +146,7 @@ export default function GettingStarted(props: {
       if (isAuthExpired(err)) redirectToLogin();
       // Fail soft: a failed snapshot just hides the guide rather than blocking
       // the dashboard. The tabs below are still fully usable.
-      return null as unknown as Snapshot;
+      return null;
     }
   });
 

@@ -162,8 +162,7 @@ export function createVendorEnquiriesRoutes(
       // full-table read, no per-org membership fan-out. Fail-closed: if the
       // profile-orgs resolver yields no orgs (absent ARC key / infra failure),
       // the list is empty — never an unscoped scan.
-      .get("/enquiries", async ({ set, ...ctx }) => {
-        const profileId = (ctx as unknown as { osnProfileId?: string }).osnProfileId;
+      .get("/enquiries", async ({ set, osnProfileId: profileId }) => {
         if (!profileId) return unauthorisedSync(set);
 
         return runCire(
@@ -217,8 +216,7 @@ export function createVendorEnquiriesRoutes(
         );
       })
       // GET /enquiries/:id/messages — thread (org-scoped).
-      .get("/enquiries/:id/messages", async ({ params, set, ...ctx }) => {
-        const profileId = (ctx as unknown as { osnProfileId?: string }).osnProfileId;
+      .get("/enquiries/:id/messages", async ({ params, set, osnProfileId: profileId }) => {
         if (!profileId) return unauthorisedSync(set);
 
         return runCire(
@@ -238,8 +236,7 @@ export function createVendorEnquiriesRoutes(
       .use(rateLimitMiddlewareByUser(limiter))
       .post(
         "/enquiries/:id/messages",
-        async ({ params, request, set, ...ctx }) => {
-          const profileId = (ctx as unknown as { osnProfileId?: string }).osnProfileId;
+        async ({ params, request, set, osnProfileId: profileId }) => {
           if (!profileId) return unauthorisedSync(set);
           const raw: unknown = await request.json().catch(() => null);
 
@@ -273,8 +270,7 @@ export function createVendorEnquiriesRoutes(
       )
       .post(
         "/enquiries/:id/quote",
-        async ({ params, request, set, ...ctx }) => {
-          const profileId = (ctx as unknown as { osnProfileId?: string }).osnProfileId;
+        async ({ params, request, set, osnProfileId: profileId }) => {
           if (!profileId) return unauthorisedSync(set);
           const raw: unknown = await request.json().catch(() => null);
 

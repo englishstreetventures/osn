@@ -5,6 +5,7 @@ import { DbService } from "../db";
 import type { Db } from "../db";
 import { runCire } from "../observability";
 import { hostsService } from "../services/hosts";
+import { readOsnProfileId } from "./upstream-context";
 import type { WeddingRole } from "./wedding-member";
 
 interface GateError {
@@ -53,10 +54,8 @@ const pass = (weddingId: string, role: WeddingRole, ownerOsnProfileId: string) =
 export function weddingEditor(db: Db) {
   return new Elysia()
     .derive({ as: "scoped" }, async (ctx) => {
-      const { params, osnProfileId } = ctx as unknown as {
-        params?: Record<string, string | undefined>;
-        osnProfileId?: string;
-      };
+      const { params } = ctx;
+      const osnProfileId = readOsnProfileId(ctx);
 
       const weddingId = params?.weddingId;
       if (!weddingId) return fail(400, "wedding_id_missing");

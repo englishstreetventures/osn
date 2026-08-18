@@ -66,6 +66,14 @@ export interface OsnIdentity {
   avatarUrl: string | null;
 }
 
+/**
+ * The one call shape the back-channel token exchange makes. Deliberately
+ * narrower than `typeof fetch`, which under bun-types also carries
+ * `fetch.preconnect` — a test stub is a plain function and could never satisfy
+ * that. The real global `fetch` still slots in.
+ */
+export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
 export interface OidcConfig {
   /** Issuer origin, e.g. `https://id.musubi.social`. No trailing slash. */
   issuer: string;
@@ -89,7 +97,7 @@ export interface OidcConfig {
   /** Test seam: skip the JWKS fetch and verify with this key. */
   _testKey?: CryptoKey;
   /** Test seam: injectable `fetch` for the back-channel token exchange. */
-  _fetch?: typeof fetch;
+  _fetch?: FetchLike;
 }
 
 /** What `/start` hands the route: where to send the browser, and what to remember. */

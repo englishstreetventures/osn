@@ -113,14 +113,19 @@ export const HOUR_WINDOW_IP_AUTH_LIMITERS: ReadonlySet<keyof AuthRateLimiters> =
 ]);
 
 /**
- * Collect the native rate-limit bindings off a runtime `env` record. Returns
+ * Collect the native rate-limit bindings off a runtime `env`. Returns
  * `undefined` when NONE are present (local `wrangler dev` without the bindings,
  * the Bun dev server, or any non-Workers runtime) so the caller keeps the Redis
  * path. When at least one is present we surface the partial map; the selector
  * only routes the slots whose tier binding actually exists.
+ *
+ * The parameter names the five tier slots and types them `unknown`, because
+ * that is exactly what a runtime env promises: the key may be absent, or hold
+ * something that isn't a limiter at all. The `limit`-is-a-function check below
+ * is what earns the binding type.
  */
 export function readOsnRateLimitBindings(
-  env: Readonly<Record<string, unknown>>,
+  env: Readonly<Partial<Record<TierName, unknown>>>,
 ): Partial<OsnRateLimitBindings> | undefined {
   const tiers: TierName[] = [
     "RL_AUTH_IP_5_60",

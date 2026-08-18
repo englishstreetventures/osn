@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 
 import type { Db } from "../db";
+import { readOsnProfileId } from "./upstream-context";
 
 interface GateError {
   status: number;
@@ -35,13 +36,11 @@ const pass = (weddingId: string) => ({
 export function weddingOwner(db: Db) {
   return new Elysia()
     .derive({ as: "scoped" }, async (ctx) => {
-      // params come from the enclosing /weddings/:weddingId group and
-      // osnProfileId from the upstream osnAuth() derive — a standalone plugin
-      // instance can't see either type, hence the cast.
-      const { params, osnProfileId } = ctx as unknown as {
-        params?: Record<string, string | undefined>;
-        osnProfileId?: string;
-      };
+      // params come from the enclosing /weddings/:weddingId group; osnProfileId
+      // from the upstream osnAuth() derive, which this standalone plugin
+      // instance can't see the type of — see `upstream-context.ts`.
+      const { params } = ctx;
+      const osnProfileId = readOsnProfileId(ctx);
 
       const weddingId = params?.weddingId;
       if (!weddingId) return fail(400, "wedding_id_missing");

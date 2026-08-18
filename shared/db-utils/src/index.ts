@@ -124,16 +124,28 @@ export const dbQuery = <A>(run: () => A | Promise<A>): Effect.Effect<A> =>
  * path — the same call site works on both. Mirrors the in-repo idiom first used
  * by `cire/api`'s `commitWriteSet`.
  */
+type Batchable = {
+  batch: (s: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]) => Promise<unknown>;
+};
+
+/**
+ * True when this handle is the D1 driver, which is the only one carrying
+ * `.batch()`. The broadened {@link Db} type doesn't declare it (bun:sqlite has
+ * no such method), so the check is a real property probe rather than a claim
+ * about the type.
+ */
+function supportsBatch<S extends Record<string, unknown>>(db: Db<S>): db is Db<S> & Batchable {
+  return "batch" in db && typeof db.batch === "function";
+}
+
 export async function commitBatch<S extends Record<string, unknown>>(
   db: Db<S>,
   statements: BatchItem<"sqlite">[],
 ): Promise<void> {
   if (statements.length === 0) return;
-  const batchable = db as unknown as {
-    batch?: (s: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]) => Promise<unknown>;
-  };
-  if (typeof batchable.batch === "function") {
-    await batchable.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
+  if (supportsBatch(db)) {
+    // Non-empty by the guard above; TS can't narrow an array's length.
+    await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
     return;
   }
   // Sequential FK order, in-process — bun:sqlite has no batch.

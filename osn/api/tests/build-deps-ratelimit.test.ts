@@ -4,7 +4,7 @@ import { createMemoryClient } from "@shared/redis";
 import { exportJWK } from "jose";
 import { describe, it, expect, beforeAll } from "vitest";
 
-import { buildAppDeps, type BuildParts, type EnvRecord } from "../src/build-deps";
+import { buildAppDeps, type BuildParts, type EnvVars } from "../src/build-deps";
 import { osnLoggerLayer } from "../src/observability";
 import { createTestLayer } from "./helpers/db";
 
@@ -25,7 +25,7 @@ beforeAll(async () => {
   pubB64 = b64(await exportJWK(publicKey));
 });
 
-function nonLocalEnv(over: Partial<Record<string, string>> = {}): EnvRecord {
+function nonLocalEnv(over: Partial<Record<string, string>> = {}): EnvVars {
   return {
     OSN_ENV: "production",
     OSN_ISSUER_URL: "https://id.musubi.social",

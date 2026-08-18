@@ -30,22 +30,15 @@ export function prefetchOnIdle(load: () => Promise<unknown>): () => void {
 
   // `requestIdleCallback` is unsupported on Safari < 17 — a large share of a
   // wedding invite's traffic — so the timeout fallback is the common path
-  // there, not a rare one.
-  const ric = (
-    window as unknown as {
-      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    }
-  ).requestIdleCallback;
-
-  if (typeof ric === "function") {
+  // there, not a rare one. lib.dom declares both idle methods as always
+  // present, which is why these look like checks against nothing; they are
+  // load-bearing on the browsers that actually ship without the API.
+  if (typeof window.requestIdleCallback === "function") {
     // The timeout bounds how long "idle" is allowed to never arrive; on a busy
     // page the callback then runs at the next opportunity anyway.
-    const handle = ric(run, { timeout: 3000 });
+    const handle = window.requestIdleCallback(run, { timeout: 3000 });
     return () => {
-      (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback?.(
-        handle,
-      );
+      if (typeof window.cancelIdleCallback === "function") window.cancelIdleCallback(handle);
     };
   }
 

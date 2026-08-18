@@ -26,18 +26,40 @@ import { createRedisJtiStore } from "./lib/step-up-jti-store";
 export const SERVICE_NAME = "osn-api";
 
 /**
- * Loose key/value view of every secret + var this composition root reads.
+ * Every secret + var this composition root reads, named. Nothing else on the
+ * caller's env is touched, so both entries can hand their whole env over: the
+ * Bun dev path passes `process.env`; the Cloudflare Workers `fetch`/`scheduled`
+ * handlers pass the request-scoped `env` binding (workerd surfaces wrangler
+ * `[vars]` + `wrangler secret put` values here — and secrets are reliably ONLY
+ * on `env`, never on `process.env`). Both are supersets of this shape, so they
+ * pass structurally with no cast. The factory never reaches for `process.env`
+ * itself, so it composes identically on either runtime.
  *
- * Both entries supply one of these: the Bun dev path passes `process.env`; the
- * Cloudflare Workers `fetch`/`scheduled` handlers pass the request-scoped `env`
- * binding (workerd surfaces wrangler `[vars]` + `wrangler secret put` values
- * here — and secrets are reliably ONLY on `env`, never on `process.env`). The
- * factory never reaches for `process.env` itself, so it composes identically on
- * either runtime.
+ * A type literal rather than an interface on purpose: that keeps it assignable
+ * to the loose `Record` views the small env helpers take (`CorsEnv`).
  */
-export type EnvRecord = Readonly<Record<string, string | undefined>>;
+export type EnvVars = {
+  readonly OSN_ENV?: string;
+  readonly OSN_RP_ID?: string;
+  readonly OSN_RP_NAME?: string;
+  readonly OSN_ORIGIN?: string;
+  readonly OSN_ISSUER_URL?: string;
+  // Read by `resolveCorsOrigins`, which this function hands the whole env to.
+  readonly OSN_CORS_ORIGIN?: string;
+  readonly OSN_COOKIE_DOMAIN?: string;
+  readonly OSN_ACCESS_TOKEN_TTL?: string;
+  readonly OSN_REFRESH_TOKEN_TTL?: string;
+  readonly OSN_AUTHORIZE_UI_URL?: string;
+  readonly TRUSTED_PROXY_COUNT?: string;
+  readonly OSN_JWT_PRIVATE_KEY?: string;
+  readonly OSN_JWT_PUBLIC_KEY?: string;
+  readonly OSN_SESSION_IP_PEPPER?: string;
+  readonly OSN_PAIRWISE_SALT?: string;
+  readonly INTERNAL_SERVICE_SECRET?: string;
+  readonly TURNSTILE_SECRET_KEY?: string;
+};
 
-const isNonLocal = (env: EnvRecord): boolean => !!env.OSN_ENV && env.OSN_ENV !== "local";
+const isNonLocal = (env: EnvVars): boolean => !!env.OSN_ENV && env.OSN_ENV !== "local";
 
 /**
  * Which tiers serve the OpenAPI docs (`/openapi` + `/openapi/json`): `local`
@@ -56,7 +78,7 @@ const isNonLocal = (env: EnvRecord): boolean => !!env.OSN_ENV && env.OSN_ENV !==
  * `parseDeploymentEnvironment` only answers `dev` for `dev`/`development`. A
  * typo is therefore off, not on.
  */
-const servesOpenapiDocs = (env: EnvRecord): boolean =>
+const servesOpenapiDocs = (env: EnvVars): boolean =>
   !isNonLocal(env) || parseDeploymentEnvironment(env.OSN_ENV) === "dev";
 
 /**
@@ -94,7 +116,7 @@ const parseDevLoginReturnOrigins = (raw: string | undefined): readonly string[] 
 // are invalidated on restart — acceptable for local development).
 // ---------------------------------------------------------------------------
 
-export async function loadJwtKeyPair(env: EnvRecord) {
+export async function loadJwtKeyPair(env: EnvVars) {
   const { exportJWK } = await import("jose");
   const rawPriv = env.OSN_JWT_PRIVATE_KEY;
   const rawPub = env.OSN_JWT_PUBLIC_KEY;
@@ -219,7 +241,7 @@ export interface BuildParts {
  * Async only because {@link loadJwtKeyPair} may dynamically import `jose`; all
  * other wiring is synchronous.
  */
-export async function buildAppDeps(env: EnvRecord, parts: BuildParts): Promise<BuiltDeps> {
+export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<BuiltDeps> {
   const {
     redisClient,
     dbAndEmailLayer,

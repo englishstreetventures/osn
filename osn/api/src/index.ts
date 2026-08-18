@@ -4,7 +4,7 @@ import type { WorkersRateLimitBinding } from "@shared/rate-limit";
 import { Effect, Layer } from "effect";
 
 import { createApp, type App } from "./app";
-import { buildAppDeps, type EnvRecord } from "./build-deps";
+import { buildAppDeps } from "./build-deps";
 import { selectEmailLayer } from "./lib/email-layer";
 import { readOsnRateLimitBindings } from "./lib/native-rate-limiters";
 import { registerOutboundKeysOnce } from "./lib/outbound-arc";
@@ -148,16 +148,16 @@ export async function buildAll(env: Env): Promise<App> {
   // Email transport — same selection as the Bun path, from `env`. Fail-closed by
   // default in non-local; boots with a no-op transport (loud warning) ONLY when
   // the operator has explicitly set OSN_EMAIL_OPTIONAL. See `lib/email-layer`.
-  const emailLayer = selectEmailLayer(env as unknown as EnvRecord, osnLoggerLayer);
+  const emailLayer = selectEmailLayer(env, osnLoggerLayer);
 
   // D1-backed DB layer for this isolate. `env.DB` presence is asserted in
   // `fetch` before `buildAll` runs.
   const dbAndEmailLayer = Layer.merge(makeDbD1Live(env.DB as D1Database), emailLayer);
 
-  // `buildAppDeps` reads only the string-valued vars/secrets; `env.DB` (a
-  // non-string binding) is consumed above for the D1 layer. Cast to the loose
-  // string record the factory expects.
-  const built = await buildAppDeps(env as unknown as EnvRecord, {
+  // `buildAppDeps` names the string-valued vars/secrets it reads, and `Env` is a
+  // superset of them, so it takes the whole binding as-is; `env.DB` (a non-string
+  // binding) is consumed above for the D1 layer.
+  const built = await buildAppDeps(env, {
     redisClient,
     dbAndEmailLayer,
     observabilityLayer: osnLoggerLayer,
@@ -174,7 +174,7 @@ export async function buildAll(env: Env): Promise<App> {
     trustCloudflare: isNonLocal(env),
     // Part 2: the native Workers rate-limit bindings, when declared. Absent on
     // local `wrangler dev` without the bindings ⇒ all limiters stay on Upstash.
-    rateLimitBindings: readOsnRateLimitBindings(env as unknown as Record<string, unknown>),
+    rateLimitBindings: readOsnRateLimitBindings(env),
   });
 
   return createApp(built.deps);
