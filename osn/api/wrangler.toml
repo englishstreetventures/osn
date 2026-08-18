@@ -48,6 +48,11 @@ OSN_RP_NAME = "OSN"
 OSN_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:5173,http://localhost:4326,http://localhost:4321"
 OSN_ISSUER_URL = "http://localhost:8787"
 OSN_CORS_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:4326,http://localhost:4321"
+# Where `GET /dev/login?return_to=…` may redirect. Its own list, NOT the CORS
+# one: a redirect target need not be an origin that fetches this Worker with
+# credentials, and adding it to OSN_CORS_ORIGIN would widen the CSRF origin
+# guard for every route. Unset ⇒ every `return_to` is a 400.
+DEV_LOGIN_RETURN_ORIGINS = "http://localhost:1422,http://localhost:4322,http://localhost:4326,http://localhost:4321"
 
 # Local `wrangler dev` D1 (miniflare). database_id is ignored locally but
 # required syntactically, so this names the little-used remote `osn-db`. It is
@@ -147,6 +152,11 @@ OSN_ISSUER_URL = "https://id.dev.musubi.social"
 # surface makes a credentialed fetch here. This list also feeds the CSRF origin
 # guard — add an origin only when a browser genuinely fetches this Worker from it.
 OSN_CORS_ORIGIN = "https://dev.musubi.social"
+# Dev-login redirect targets — see the note on the top-level var. These are the
+# dev-tier surfaces an operator lands on after a passkey-less sign-in; they are
+# deliberately absent from OSN_CORS_ORIGIN above, which stays at the one origin
+# that genuinely fetches this Worker from a browser.
+DEV_LOGIN_RETURN_ORIGINS = "https://dev.musubi.social,https://host.dev.cireweddings.com,https://vendor.dev.cireweddings.com,https://invite.dev.cireweddings.com"
 OSN_AUTHORIZE_UI_URL = "https://dev.musubi.social/authorize"
 # Scope of the readable `osn_has_session` marker. Must be the app's apex, not
 # this Worker's host: the issuer is `id.dev.musubi.social` and the app is

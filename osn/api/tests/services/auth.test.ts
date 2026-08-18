@@ -165,6 +165,17 @@ describe("checkHandle", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  // The dev sign-in provisions these two with `onConflictDoNothing`, so a
+  // registration that took either first would turn the insert into a silent
+  // no-op and the bypass would resolve nothing.
+  it.effect("returns available:false for the dev-login principal's handles", () =>
+    Effect.gen(function* () {
+      for (const handle of ["dev_bootstrap", "dev_bootstrap_org"]) {
+        expect((yield* auth.checkHandle(handle)).available).toBe(false);
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect("fails with ValidationError for invalid format", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(auth.checkHandle("INVALID!"));

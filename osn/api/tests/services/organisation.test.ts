@@ -69,6 +69,21 @@ describe("createOrganisation", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  it.effect("fails when handle is reserved", () =>
+    Effect.gen(function* () {
+      const alice = yield* registerProfile("alice@example.com", "alice");
+      // Org handles share the profile handle namespace (creation cross-checks
+      // both tables), so the reserved list has to hold on this side too —
+      // otherwise `admin` or the dev-login principal's own handle is takeable
+      // as an org.
+      for (const handle of ["admin", "dev_bootstrap", "dev_bootstrap_org"]) {
+        const error = yield* Effect.flip(org.createOrganisation(alice.id, handle, "Squat Org"));
+        expect(error._tag).toBe("OrgError");
+        expect(error.message).toContain("Handle unavailable");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect("fails when handle is already taken by another org", () =>
     Effect.gen(function* () {
       const alice = yield* registerProfile("alice@example.com", "alice");

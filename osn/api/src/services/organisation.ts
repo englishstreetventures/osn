@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { withOrgMemberOp, withOrgOp } from "../metrics";
+import { RESERVED_HANDLES } from "./auth/constants";
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -67,6 +68,15 @@ export function createOrganisationService() {
   ): Effect.Effect<typeof organisations.$inferSelect, OrgError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
+
+      // Org handles live in the same namespace as profile handles — creation
+      // cross-checks both tables below — so the reserved list applies here too.
+      // Without this, `admin`, `api` or the dev-login principal's handles are
+      // takeable as an organisation. Same generic message as a collision
+      // (S-H2): don't confirm which names exist.
+      if (RESERVED_HANDLES.has(handle)) {
+        return yield* Effect.fail(new OrgError({ message: "Handle unavailable" }));
+      }
 
       // P-W1: parallelise all pre-insert checks (handle profile, handle org, owner exists)
       const [existingProfile, existingOrg, ownerRows] = yield* Effect.tryPromise({

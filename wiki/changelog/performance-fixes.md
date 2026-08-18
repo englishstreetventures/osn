@@ -6,7 +6,7 @@ related:
   - "[[redis]]"
   - "[[arc-tokens]]"
   - "[[component-library]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-18
 ---
 
 # Performance Fixes — Completed
@@ -16,6 +16,13 @@ Archived completed performance findings. Finding IDs follow the [[review-finding
 ```bash
 gh issue list --repo xchromo/osn-tracker --state open --label performance
 ```
+
+## Passkey-less dev sign-in — provisioning writes (2026-08-18)
+
+Findings from the performance review of the dev-login branch; both fixed on it before merge. The dismissed session-row finding is recorded as informational in `xchromo/osn-tracker` (#438).
+
+- **P-W1 (dev-login-limiter-scope)** — the endpoint's rate limiter was module-scoped rather than per app instance, and callers with no resolvable IP shared one bucket. Fixed with S-L4 on the same branch; the write-up lives in [[security-fixes]].
+- **P-I1 / P-I2 (dev-login-provisioning-writes)** — provisioning ran four unconditional upserts on **every** sign-in: account, profile, organisation, membership. It now reads first and writes only on a miss, and the writes that remain go out as a single `commitBatch` instead of four round-trips. `osn-db-dev` is never reset, so provisioning has to survive being run on every sign-in and every deploy — making it a read in the common case keeps the rows-written off the shared free-tier budget. See [[database-environments]].
 
 ## Internal handle prefix search — index seek (2026-08-02)
 

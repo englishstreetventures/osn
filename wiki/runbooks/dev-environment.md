@@ -327,11 +327,12 @@ dashboard-only.
    > network-touching command prints nothing and exits 0. Use plain `bunx wrangler`
    > (node), notwithstanding the repo-wide `bunx --bun` rule.
 
-4. **Set the dev `OSN_PAIRWISE_SALT`** with the **Set OSN_PAIRWISE_SALT**
-   workflow, `tier: dev`. It generates 64 random bytes in-job, never prints them,
-   and **refuses to rotate** an existing value. ✅ done — but set by hand with
-   `wrangler secret put`, because `workflow_dispatch` resolves the workflow file
-   against `main` and the `tier` input does not exist there until this branch
+4. **Set the dev `OSN_PAIRWISE_SALT`** with the **Set an osn-api Worker
+   secret** workflow, `secret: OSN_PAIRWISE_SALT`, `tier: dev`. It generates 64
+   random bytes in-job, never prints them, and **refuses to rotate** an existing
+   value. ✅ done — but set by hand with `wrangler secret put`, because
+   `workflow_dispatch` resolves the workflow file against `main` and neither the
+   `tier` input nor the generalised workflow exists there until this branch
    merges. Same effect; from the next dev bootstrap on, use the workflow.
 
    > ⚠️ The dev salt must never be rotated either. Rotation changes every pairwise
@@ -476,6 +477,95 @@ commit that gives that env real https origins. `staging` and `production` do set
 it, which also switches on the cookie `Secure` flag, the plaintext-JWKS refusal
 and the fail-closed CORS check on those tiers — all three were silently off
 before, since the code keys them off the same var.
+
+### Passkey-less sign-in on local and dev
+
+A passkey is the only primary login factor, so a seeded account is unreachable:
+nobody can enrol a WebAuthn credential on behalf of a row a seed script wrote.
+`GET /dev/login` on `osn-api` mints a **real** OSN session for one fixed
+principal instead, so the OIDC chain, the organiser portal, the vendor portal and
+`@osn/social` all run untouched — there is no bypass anywhere else in the stack.
+
+The principal is fixed and provisioned on first use (idempotent, so it survives
+`osn-db-dev` never being reset):
+
+| Field | Value |
+|---|---|
+| Profile | `usr_dev_bootstrap_owner` — the id the cire seed writes as the **seeded wedding's owner**, so the organiser portal opens on real data |
+| Account | `acc_dev_bootstrap`, `dev@seed.osn.dev` |
+| Handle | `dev_bootstrap` — in `RESERVED_HANDLES`, so no real registration can take it first |
+| Org | `org_dev_bootstrap`, handle `dev_bootstrap_org`, membership `admin` |
+
+Both handles are in `RESERVED_HANDLES`, and organisation creation consults that
+set too — so neither a profile nor an organisation registration can occupy the
+row first.
+
+Two gates, both fail-closed, both in `buildAppDeps` (`osn/api/src/build-deps.ts`,
+`servesDevLogin`, which keeps **its own** tier list — deliberately not an alias
+of the docs gate above, so a later change to how docs are gated cannot quietly
+widen a credential bypass):
+
+- tier is `local` or `dev` — a typo'd `OSN_ENV` leaves it **off**;
+- `DEV_LOGIN_SECRET` is set.
+
+Fail either and the routes are **never mounted**, so the path answers 404 rather
+than a 401 that would admit the surface exists.
+
+```bash
+# local (bun run dev): put DEV_LOGIN_SECRET + DEV_LOGIN_RETURN_ORIGINS in osn/api/.env
+open "http://localhost:4000/dev/login?secret=$SECRET&return_to=http://localhost:4322/dashboard"
+
+# deployed dev — one-time. Park the value on the dev GitHub Environment, then
+# let the workflow put it on the Worker; neither step prints it.
+gh secret set DEV_LOGIN_SECRET --repo xchromo/osn --env dev --body "$SECRET"
+gh workflow run set-osn-api-secret.yml -f secret=DEV_LOGIN_SECRET -f tier=dev
+# then redeploy osn-api to cycle warm isolates — deps are built once per isolate
+open "https://id.dev.musubi.social/dev/login?secret=$SECRET&return_to=https://host.dev.cireweddings.com/dashboard"
+```
+
+`return_to` is optional; without it the response is the session JSON. With it the
+route 302s, after checking the target's origin against
+**`DEV_LOGIN_RETURN_ORIGINS`** — a comma-separated var of its own, already set in
+`wrangler.toml`'s `[env.dev.vars]` for the four dev browser hosts, and in
+`.env.example` for the local ports. An off-list `return_to` is a 400, never a
+redirect, so the endpoint can't be turned into an open redirect that leaks the
+session cookie. **Unset ⇒ every `return_to` is a 400** — closed by default, so
+each origin is an explicit decision.
+
+> [!note] Why not the CORS allowlist
+> `OSN_CORS_ORIGIN` also feeds the CSRF origin guard. Adding a redirect target
+> there would widen that guard for **every** route, and a redirect target need
+> not be an origin that fetches this API with credentials. The two lists overlap
+> today; they are not the same list.
+
+The origin check runs **before** the secret is compared, so a wrong secret
+redirects nowhere, and both verbs answer `Referrer-Policy: no-referrer` so the
+secret-bearing URL never reaches the target as a `Referer`.
+
+> [!warning] The URL is the credential
+> Anyone who can read a `/dev/login?secret=…` link can sign in as the dev
+> principal and hand a signed-in link to someone else. Treat it like a password:
+> never paste it into an issue, a PR, or a chat, and rotate `DEV_LOGIN_SECRET` if
+> it turns up in one. Production is unreachable this way — the tier gate keeps
+> the route unmounted and the production deploy job **fails** while
+> `DEV_LOGIN_SECRET` is set on `osn-api-production`. Tracked open as `S-L3` in
+> `xchromo/osn-tracker` (#437).
+
+> [!important] Why `GET`, and why no button
+> The origin guard rejects a POST without a matching `Origin` header, so GET is
+> what works from an address bar, `curl` and headless Chrome. More importantly it
+> keeps the secret **out of every public frontend bundle** — nothing but the
+> operator's URL carries it. Do not add a "sign in as dev" button to any app.
+
+The session is a normal one: it shows up in `/sessions`, rotates, and can be
+revoked like any other. No `security_events` row is written (the kind union is
+closed and this has no place in a real account-security UI) — the session row and
+an `Effect.logWarning` are the audit trail.
+
+> [!note] The vendor portal signs in but lists nothing
+> The dev principal has an org and a membership, not a `directory_vendors` row.
+> `vendor.dev` therefore authenticates fine and shows an empty directory listing
+> until that row is seeded.
 
 ---
 

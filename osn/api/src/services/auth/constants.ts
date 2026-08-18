@@ -49,6 +49,14 @@ export const RESERVED_HANDLES = new Set([
   "status",
   "null",
   "undefined",
+  // The dev sign-in principal (`routes/auth/dev-login.ts`). Reserved so a real
+  // registration on the dev tier cannot take the handle first — its
+  // provisioning insert would then be skipped as a conflict and the sign-in
+  // would resolve nothing.
+  "dev_bootstrap",
+  // Its organisation. Org creation consults this same set, so neither name can
+  // be squatted before provisioning runs.
+  "dev_bootstrap_org",
 ]);
 
 /**

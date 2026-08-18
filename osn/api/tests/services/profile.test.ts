@@ -45,6 +45,19 @@ describe("createProfile", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  // This service keeps its own copy of the reserved list, so the dev-login
+  // principal's two handles have to be blocked here as well as in
+  // `services/auth/constants.ts` — a second profile is another way to take them.
+  it.effect("rejects a reserved handle", () =>
+    Effect.gen(function* () {
+      const { accountId } = yield* setupAccount("reserve@test.com", "reserver");
+      for (const handle of ["admin", "dev_bootstrap", "dev_bootstrap_org"]) {
+        const error = yield* Effect.flip(profile.createProfile(accountId, handle));
+        expect(error._tag).toBe("AuthError");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect("creates profile without displayName", () =>
     Effect.gen(function* () {
       const { accountId } = yield* setupAccount("bob@test.com", "bob");

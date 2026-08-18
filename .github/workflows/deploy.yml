@@ -36,7 +36,7 @@ name: Deploy
 # resource filter (only R2 scopes per bucket). So CLOUDFLARE_API_TOKEN_DEV can
 # technically write production Workers too. The boundary here is the approval
 # gate and the separate credential, not a narrower grant. A real boundary means
-# a separate Cloudflare account; tracked in wiki/TODO.md.
+# a separate Cloudflare account; tracked as `S-M` in xchromo/osn-tracker (#190).
 #
 # The dev tier is fully isolated — own Workers, own D1, own R2, own OSN identity
 # origin — and its database is wiped and re-seeded on every deploy. See
@@ -821,7 +821,8 @@ jobs:
       # Same fail-closed secret preflight as prod (see that job for why). Dev
       # needs its OWN OSN_PAIRWISE_SALT — a dev value, and once set it must never
       # be rotated either, or every dev relying party sees its users as
-      # strangers. Set it with the `Set OSN_PAIRWISE_SALT` workflow (tier: dev).
+      # strangers. Set it with the `Set an osn-api Worker secret` workflow
+      # (secret: OSN_PAIRWISE_SALT, tier: dev).
       - name: Preflight — required dev secrets are set
         run: |
           set -euo pipefail
@@ -834,7 +835,7 @@ jobs:
             fi
           done
           if [ -n "$missing" ]; then
-            echo "::error::osn-api-dev is missing required secret(s):$missing — run the 'Set OSN_PAIRWISE_SALT' workflow with tier=dev. osn-api fails closed on these, so deploying now would 503 every route."
+            echo "::error::osn-api-dev is missing required secret(s):$missing — run the 'Set an osn-api Worker secret' workflow with secret=OSN_PAIRWISE_SALT, tier=dev. osn-api fails closed on these, so deploying now would 503 every route."
             exit 1
           fi
           echo "All required osn-api dev secrets are set."
@@ -904,7 +905,23 @@ jobs:
             echo "::error::osn-api is missing required prod secret(s):$missing — set them with 'wrangler secret put <NAME> --env production' before deploying. osn-api fails closed on these, so deploying now would 503 every route."
             exit 1
           fi
-          echo "All required osn-api prod secrets are set."
+          # Secrets that must NOT exist here. DEV_LOGIN_SECRET is the
+          # passkey-less sign-in; the tier gate in build-deps.ts already keeps
+          # the route unmounted on production, but a secret sitting on the
+          # production Worker is one edit away from a credential bypass on live
+          # weddings, so refuse the deploy until it is deleted (S-L2).
+          forbidden="DEV_LOGIN_SECRET"
+          present=""
+          for name in $forbidden; do
+            if printf '%s\n' "$set_names" | grep -qx "$name"; then
+              present="$present $name"
+            fi
+          done
+          if [ -n "$present" ]; then
+            echo "::error::osn-api has forbidden prod secret(s) set:$present — delete with 'wrangler secret delete <NAME> --env production'. These exist only for the local/dev tiers."
+            exit 1
+          fi
+          echo "All required osn-api prod secrets are set, and no forbidden ones."
         working-directory: osn/api
 
       - name: Deploy osn/api Worker

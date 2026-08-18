@@ -8,7 +8,7 @@ related:
   - "[[redis]]"
   - "[[identity-model]]"
   - "[[event-access]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-18
 ---
 
 # Security Fixes — Completed
@@ -18,6 +18,17 @@ Archived completed security findings. Finding IDs follow the [[review-findings]]
 ```bash
 gh issue list --repo xchromo/osn-tracker --state open --label security
 ```
+
+## Passkey-less dev sign-in — `GET|POST /dev/login` (2026-08-18)
+
+Findings from the security review of the dev-login branch. All six were **introduced by that branch and fixed on it before merge**; none reached `main`. The one residual is open as `S-L3` in `xchromo/osn-tracker` (#437).
+
+- [x] **S-M1 (dev-login-return-origins)** — **`return_to` borrowed the CORS allowlist.** **Issue:** the redirect-target check read `OSN_CORS_ORIGIN`. **Why:** that same list feeds the CSRF origin guard, so adding one redirect target would have widened that guard for **every** route in the API — and a redirect target need not be an origin that fetches this API with credentials. **Solution:** `DEV_LOGIN_RETURN_ORIGINS`, its own comma-separated var, set in `wrangler.toml` for both tiers and documented in `.env.example`; unset means every `return_to` is a 400. **Rationale:** closed by default, so each origin is an explicit operator decision, and the two lists can diverge without one silently editing the other.
+- [x] **S-M2 (dev-login-referrer)** — **the secret leaked in the `Referer`.** **Issue:** a redirect to `host.dev.cireweddings.com` carried the full `/dev/login?secret=…` URL along as `Referer`. **Why:** every request the landing page then made would have written the credential into another origin's logs. **Solution:** both verbs set `Referrer-Policy: no-referrer` before anything else runs. **Rationale:** header-level, so it holds on the error paths too, not only on the successful redirect.
+- [x] **S-L1 (dev-login-tier-gate)** — **the tier gate aliased the OpenAPI docs gate.** **Issue:** `servesDevLogin` reused `servesOpenapiDocs`. **Why:** the two cover the same tiers today, so a later widening of where docs are served would have quietly widened a credential bypass. **Solution:** its own explicit allowlist of raw `OSN_ENV` values — anything not on it, a typo or a new tier name, is off. **Rationale:** a docs gate and a bypass gate must be able to change independently; the comment says so at the definition.
+- [x] **S-L2 (dev-login-production-preflight)** — **nothing stopped the secret existing on production.** **Issue:** the tier gate keeps the route unmounted on production, but a `DEV_LOGIN_SECRET` sitting on `osn-api-production` would have been one edit away from a bypass on live weddings. **Solution:** the production preflight refuses the deploy while the secret is set, reusing the `wrangler secret list` output it already computes. **Rationale:** defence in depth against the gate itself being changed later.
+- [x] **S-L4 / P-W1 / T-U1 (dev-login-limiter-scope)** — **the limiter was module-scoped.** **Issue:** one limiter shared by every app instance in an isolate, and header-less callers collapsed into the same bucket as everyone else. **Solution:** created per app instance, keyed on the resolved IP, with a separate `UNRESOLVED_BUCKET`. **Rationale:** matches how the rest of the API keys its limiters; one caller with no resolvable IP can no longer exhaust everybody's budget. See [[rate-limiting]].
+- [x] **S-L5 (reserved-handles-organisations)** — **only the profile handle was reserved.** **Issue:** `dev_bootstrap` was in `RESERVED_HANDLES`, but the principal's organisation handle `dev_bootstrap_org` was not — and `createOrganisation` never consulted the set at all. **Solution:** both handles reserved, and organisation creation now checks `RESERVED_HANDLES`. **Rationale:** the second half closes a **pre-existing** gap unrelated to this branch — `admin`, `api` and friends were takeable as organisation handles. See [[identity-model]].
 
 ## Stale cached profile survived a shared-Keychain sign-in swap (2026-08-17)
 

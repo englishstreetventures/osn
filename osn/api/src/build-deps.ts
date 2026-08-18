@@ -59,6 +59,30 @@ const isNonLocal = (env: EnvRecord): boolean => !!env.OSN_ENV && env.OSN_ENV !==
 const servesOpenapiDocs = (env: EnvRecord): boolean =>
   !isNonLocal(env) || parseDeploymentEnvironment(env.OSN_ENV) === "dev";
 
+/**
+ * Which tiers may mount the passkey-less dev sign-in. An explicit allowlist of
+ * raw `OSN_ENV` values rather than a reuse of `servesOpenapiDocs`: the two
+ * gates happen to cover the same tiers today, and a later change to what the
+ * docs gate allows must not quietly widen a credential bypass. Anything not on
+ * this list — a typo, a new tier name, `staging`, `production` — is off.
+ * `undefined` is the documented local default (see `isNonLocal`). See
+ * `routes/auth/dev-login.ts` for why the route exists at all.
+ */
+const DEV_LOGIN_TIERS = new Set<string | undefined>([undefined, "local", "dev", "development"]);
+const servesDevLogin = (env: EnvRecord): boolean => DEV_LOGIN_TIERS.has(env.OSN_ENV);
+
+/**
+ * `DEV_LOGIN_RETURN_ORIGINS` — comma-separated origins a dev-login `return_to`
+ * may point at. Unset or empty ⇒ no redirect target is ever accepted, so the
+ * open-redirect surface is closed by default and each origin is an explicit
+ * operator decision.
+ */
+const parseDevLoginReturnOrigins = (raw: string | undefined): readonly string[] =>
+  (raw ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+
 // ---------------------------------------------------------------------------
 // JWT key pair — ES256 (ECDSA P-256)
 //
@@ -391,6 +415,19 @@ export async function buildAppDeps(env: EnvRecord, parts: BuildParts): Promise<B
     // fail-closed verifier enforces siteverify on those endpoints. The secret is
     // read here and never logged or placed in any other dep.
     turnstileVerifier: createTurnstileVerifier(env.TURNSTILE_SECRET_KEY),
+    // Passkey-less dev sign-in (KEY-OPTIONAL, tier-gated). Both gates must
+    // hold or this is `null` and the routes are never mounted — a 404, not a
+    // 401 that admits the surface exists. `return_to` origins come from their
+    // own var: the portals that want a redirect are not the origins that make
+    // credentialed fetches here, and reusing `OSN_CORS_ORIGIN` would mean
+    // widening the CSRF origin guard to add a redirect target.
+    devLogin:
+      servesDevLogin(env) && env.DEV_LOGIN_SECRET
+        ? {
+            secret: env.DEV_LOGIN_SECRET,
+            allowedReturnOrigins: parseDevLoginReturnOrigins(env.DEV_LOGIN_RETURN_ORIGINS),
+          }
+        : null,
     // AOT and the observability plugin co-vary by runtime: both ON for Bun,
     // both OFF for workerd (AOT's `new Function` is forbidden there). The
     // `includeObservabilityPlugin` flag is the single Bun-vs-Workers

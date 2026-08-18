@@ -21,6 +21,7 @@ import type { AppRuntime } from "../../lib/route-runtime";
 import type { AuthConfig } from "../../services/auth";
 import { createAuthRouteContext } from "./context";
 import { createCrossDeviceRoutes } from "./cross-device";
+import { createDevLoginRoutes, type DevLoginConfig } from "./dev-login";
 import { createEmailChangeRoutes } from "./email-change";
 import { createDefaultAuthRateLimiters, type AuthRateLimiters } from "./limiters";
 import { createPasskeyLoginRoutes } from "./login";
@@ -104,6 +105,18 @@ export function createAuthRoutes(
    *    leaves the server.
    */
   turnstileVerifier: TurnstileVerifier | null = null,
+  /**
+   * Passkey-less dev sign-in (`GET|POST /dev/login`). KEY-OPTIONAL and
+   * tier-gated in the composition root:
+   *
+   *  - `null` / omitted ⇒ the routes are NOT mounted, so the path answers 404
+   *    rather than a 401 that would confirm the surface exists. This is the
+   *    state on `staging` and `production` unconditionally, and on `local` /
+   *    `dev` whenever `DEV_LOGIN_SECRET` is unset.
+   *  - a config ⇒ the routes mint a real session for the fixed dev principal
+   *    on a constant-time secret match. See `./dev-login`.
+   */
+  devLogin: DevLoginConfig | null = null,
 ) {
   const ctx = createAuthRouteContext({
     authConfig,
@@ -116,7 +129,12 @@ export function createAuthRoutes(
     turnstileVerifier,
   });
 
+  // An empty plugin when `devLogin` is null: the group's paths are then never
+  // registered, so the surface is a 404 on every tier that doesn't opt in.
+  const devLoginPlugin = devLogin ? createDevLoginRoutes(ctx, devLogin) : new Elysia();
+
   return new Elysia({ prefix: "" })
+    .use(devLoginPlugin)
     .use(createRegistrationRoutes(ctx))
     .use(createTokenRoutes(ctx))
     .use(createPasskeyEnrollRoutes(ctx))

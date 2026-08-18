@@ -6,6 +6,7 @@ related:
   - "[[sessions]]"
   - "[[recovery-codes]]"
   - "[[step-up]]"
+  - "[[dev-environment]]"
 packages:
   - "@osn/api"
   - "@osn/client"
@@ -191,6 +192,42 @@ relaxation. A user who deleted their old passkey on another device before
 the recovery would technically hold an account backed by recovery codes
 alone. Because `deletePasskey` refuses
 to leave 0 passkeys, that state is unreachable in normal operation.
+
+## The one bypass, and where it can exist
+
+`GET|POST /dev/login` mints a real session for a single fixed principal without
+any ceremony, so a **seeded** account is reachable at all — a seed script cannot
+enrol a WebAuthn credential, which otherwise leaves every seeded row permanently
+locked out. It is not a general relaxation: one hard-coded profile id, no
+identifier parameter, nothing to enumerate.
+
+It exists only where both gates pass, and both fail closed: the tier is `local`
+or `dev`, and `DEV_LOGIN_SECRET` is set. Otherwise the routes are never mounted
+and the path is a 404. `staging` and `production` can never mount it whatever
+their secrets hold, and the production deploy job now **fails** while
+`DEV_LOGIN_SECRET` is set on `osn-api-production`, so the secret cannot sit there
+one edit away from a bypass. Both principal handles — `dev_bootstrap` and the
+organisation's `dev_bootstrap_org` — are in `RESERVED_HANDLES`, which
+organisation creation now consults as well, so no real registration can occupy
+either row first. Full operator notes in [[dev-environment]] §5.
+
+### The residual: the URL is a bearer credential (S-L3)
+
+The whole point of the route is that one URL signs you in, which means the URL
+**is** the credential. Anyone who reads it — a link pasted in chat, a shell
+history, a synced browser bar, a screen share — can sign in as the principal on
+the dev tier, and can hand a already-usable link to someone else: force-login and
+session fixation, by forwarding. Two things narrow it and neither closes it:
+`Referrer-Policy: no-referrer` on both verbs stops the secret leaving in a
+`Referer`, and `return_to` is restricted to `DEV_LOGIN_RETURN_ORIGINS` (checked
+*before* the secret compare, so a wrong secret redirects nowhere) so it cannot be
+turned into an open redirect. Nothing in code stops a human forwarding the link.
+
+So treat it like a password — never in an issue, a PR, or a chat, and rotate
+`DEV_LOGIN_SECRET` if it appears in one. This is acceptable **because of where it
+can exist**: the dev tier holds seeded weddings and no real guest data, and
+production cannot mount the route at all. Filed open as `S-L3` in
+`xchromo/osn-tracker` (#437); the four-field write-up is the issue body.
 
 ## Enumeration safety (S-M1)
 

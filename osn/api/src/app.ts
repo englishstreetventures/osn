@@ -21,6 +21,7 @@ import type { createRedisJtiStore } from "./lib/step-up-jti-store";
 import { createAccountErasureRoutes } from "./routes/account-erasure";
 import { createAccountExportRoutes } from "./routes/account-export";
 import { createAuthRoutes } from "./routes/auth";
+import type { DevLoginConfig } from "./routes/auth/dev-login";
 import { createGraphRoutes } from "./routes/graph";
 import { createInternalGraphRoutes } from "./routes/graph-internal";
 import { createInternalAccountRoutes } from "./routes/internal-account";
@@ -127,6 +128,12 @@ export interface AppDeps {
    */
   turnstileVerifier: TurnstileVerifier | null;
   /**
+   * Passkey-less dev sign-in config. `null` on every tier but `local` / `dev`,
+   * and `null` there too unless `DEV_LOGIN_SECRET` is set — in which case the
+   * routes are never mounted at all. See `routes/auth/dev-login.ts`.
+   */
+  devLogin: DevLoginConfig | null;
+  /**
    * Elysia ahead-of-time handler compilation. AOT uses `new Function(...)`,
    * which workerd forbids ("Code generation from strings disallowed"). The Bun
    * path leaves this `true` (default, faster); the Workers entry passes `false`.
@@ -166,6 +173,7 @@ export function createApp(deps: AppDeps) {
     clientIpConfig,
     internalServiceSecret,
     turnstileVerifier,
+    devLogin,
     aot,
   } = deps;
 
@@ -242,6 +250,7 @@ export function createApp(deps: AppDeps) {
         clientIpConfig,
         appRuntime,
         turnstileVerifier,
+        devLogin,
       ),
     )
     .use(createGraphRoutes(authConfig, DbLive, observabilityLayer, graphRateLimiter, appRuntime))
