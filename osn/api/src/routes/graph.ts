@@ -21,7 +21,7 @@ import {
 // Rate limiter — per-user fixed window (write operations only)
 //
 // Uses the shared `createRateLimiter` from lib/rate-limit so Phase 2 of the
-// Redis migration (TODO.md) swaps graph and auth rate limiters via the same
+// Redis migration swaps graph and auth rate limiters via the same
 // backend abstraction. Previous inline `rateLimitStore` + `checkRateLimit`
 // duplicated the logic AND never evicted expired entries (P-W1 / S-L18);
 // the shared limiter handles sweeping + maxEntries for us.

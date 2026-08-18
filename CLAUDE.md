@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-AI coding assistant ref. Full spec in README.md. Progress/decisions in `wiki/TODO.md`.
+AI coding assistant ref. Full spec in README.md. Work tracked in GitHub Issues — `xchromo/osn` for product work, the private `xchromo/osn-tracker` for findings.
 
 ## Quick Context
 
@@ -26,31 +26,33 @@ Phase 1 surfaces:
 - `README.md` → Project spec, vision, features, tech stack, contributing (human-readable)
 - `CLAUDE.md` → AI entry point: quick context, conventions, commands, wiki nav
 - `pulse/DESIGN.md` → Pulse visual design system: typography, color tokens, component catalog, layout patterns
-- `wiki/TODO.md` → Progress tracking, deferred decisions, task checklists
+- `wiki/TODO.md` → A pointer to GitHub Issues. No work is tracked in the wiki
 - `wiki/` → Obsidian knowledge graph: architecture, systems, observability, runbooks
   - Open in Obsidian for graph view; or navigate via `[[wiki links]]`
   - See `[[wiki/index]]` for full content map
 
-## TODO.md Structure + Maintenance
+## Where Work Is Tracked
 
-`wiki/TODO.md` organised into top-level sections — add new items to right place:
+GitHub Issues, not the wiki. Two repos:
 
-| Section | What goes here |
-|---------|---------------|
-| **Up Next** | ≤8 highest-priority items across all areas. Keep short — if everything priority, nothing is. Prune when done or promoted. |
-| **App sections** (Pulse, OSN Core, Zap, Landing) | Feature work per app. When done, move to `[[changelog/completed-features]]`. |
-| **Platform** (API, DB, Client, UI, Infra) | Shared package work + infra. Same check-off rule. |
-| **Security Backlog** | Open security findings only, sorted H → M → L. Fixed → move to `[[changelog/security-fixes]]`. |
-| **Performance Backlog** | Open perf findings only. Fixed → move to `[[changelog/performance-fixes]]`. |
-| **Compliance Backlog** | Open compliance findings only (`C-` prefix), sorted H → M → L. Each row links to `[[wiki/compliance/...]]`. Closed → move to `wiki/changelog/compliance-fixes.md` (created on first close). |
-| **Deferred Decisions** | Questions not answering yet. Add row; remove when decided. |
-| **Future** | Phase 2/3 items. Vague fine — detail added when phase starts. |
+| Repo | Holds | Visibility |
+|---|---|---|
+| `xchromo/osn` | Product work, ops, docs, schema | Public |
+| `xchromo/osn-tracker` | Every security, performance and compliance finding | Private |
 
-**When update TODO.md:**
-- After PR merge → move completed items to `[[changelog/]]`; add new findings; update Up Next
-- Security/performance review surfaces findings → add to relevant backlog with `[[wiki links]]` to affected system pages
-- New deferred decision → add row to table
-- Keep Up Next pruned to real next things — actionable at glance
+Route by *kind*, never by severity: an `S-`, `P-` or `C-` ID goes to the tracker however minor it looks. `xchromo/osn` is public, and a finding names an unpatched route.
+
+Every issue carries exactly one `product:` label — `osn-core`, `pulse`, `cire`, `zap`, `shared`, `landing` — and an org issue type: `Feature`, `Bug` or `Task`. An `area:` label is optional and only ever `security`, `performance`, `compliance`, `ops`, `docs` or `schema`; an issue with none is ordinary product work, which is what `Feature` already says. Findings also carry a `severity:`, taken from the tier letter in the ID. Epics are parents with sub-issues, so a phased piece of work is one issue plus its parts.
+
+```bash
+gh issue list --repo xchromo/osn --state open --label product:pulse
+gh issue list --repo xchromo/osn-tracker --state open --label severity:high
+gh issue create --repo xchromo/osn --type Feature --label product:cire --title "..."
+```
+
+`/new-feat` opens a well-formed issue; `/prep-pr` files findings at the end of a review. Label and type definitions, and the Project setup, are in `[[wiki/runbooks/github-issues-setup]]`; how a finding is filed is in `[[wiki/conventions/review-findings]]`.
+
+**Never delete an issue — close it.** The history matters.
 
 ## Wiki Navigation
 
@@ -76,9 +78,9 @@ Phase 1 surfaces:
 | Check free-tier limits / what breaks at a cap / Cloudflare hardening TODO | `[[wiki/runbooks/free-tier-limits]]` |
 | Move OSN identity to `musubi.social` (RP-ID change, credential bridge, cutover order) | `[[wiki/runbooks/musubi-identity-migration]]` |
 | Debug auth / ARC / rate-limit / event-visibility failure | `wiki/runbooks/` (`auth-failure`, `arc-token-debugging`, `rate-limit-incident`, `event-visibility-bug`) |
-| Check security or perf findings | `wiki/TODO.md` (Security Backlog / Performance Backlog sections) |
+| Check security or perf findings | `gh issue list --repo xchromo/osn-tracker --state open` — see `[[wiki/conventions/review-findings]]` |
 | Check which compliance standards apply, or add personal-data field/DSAR/breach/access-review work | `[[wiki/compliance/index]]` |
-| Track progress and priorities | `wiki/TODO.md` |
+| Track progress and priorities | GitHub Issues + the OSN Platform Project — see §Where Work Is Tracked |
 
 ### Searching the wiki
 
@@ -177,7 +179,7 @@ So: tables and mermaid for anything a reader might hit through GitHub; the Obsid
 - **Modify existing pattern** → update wiki page in same PR.
 - **Every wiki page must have YAML frontmatter** with `title`, `tags`, `related`, `last-reviewed`.
 - **Use `[[wiki links]]`** between wiki pages; never relative markdown links. The vault is `wiki/` alone, so a page in another tree — `cire/wiki/` — cannot be reached by a wikilink in any form: cite it as a backticked repo path (`` `cire/wiki/systems/vendors.md` ``). `[[vendors]]`, `[[systems/vendors]]` and `[[cire/wiki/systems/vendors]]` all render as broken links.
-- **Security/performance findings** in `wiki/TODO.md` include `[[wiki links]]` to affected system pages (e.g., `[[rate-limiting]]`, `[[arc-tokens]]`).
+- **Security/performance findings** are issues in `xchromo/osn-tracker`, and the body names the affected wiki page by path (e.g. `wiki/systems/rate-limiting.md`) — a wikilink does not resolve on GitHub.
 - **Update `last-reviewed`** in frontmatter of any wiki page you touch.
 
 ## Current State (summary)
@@ -230,7 +232,7 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | Area | Rule |
 |---|---|
 | Native apps (iOS) | Swift. One local SPM package at `shared/swift/OSNShared` with four library products — `OSNKit`, `OSNAuth`, `OSNUI`, `OSNTesting`; consumers depend on `.product(name: "OSNKit", package: "OSNShared")`. App targets are thin: all code lives in packages, `*.xcodeproj` is generated by XcodeGen from a committed `project.yml` and is gitignored. **Every target must compile against the macOS SDK too** — `platforms:` is package-level (SPM has no per-target platform) and `swift test` builds every target on the host, so a bare `import UIKit` anywhere in `OSNShared` fails CI. SwiftUI and Liquid Glass exist on macOS 26; genuinely UIKit-only code goes behind `#if canImport(UIKit)` or into the app target |
-| Functional core | Effect.ts trial in OSN/Pulse first, decision tracked in `wiki/TODO.md` Deferred Decisions |
+| Functional core | Effect.ts trial in OSN/Pulse first; the decision is an open issue in `xchromo/osn` |
 | Effect runtime | Build the layer graph **once** (shared `ManagedRuntime` at boot), never `Effect.provide(DbLive/observability)` inside a per-request `runPromise` — it rebuilds the layer (restarts the OTel SDK + opens a new DB conn) every call. `@osn/api` threads one runtime through route factories via `makeAppRunner`. See `[[wiki/architecture/backend-patterns]]` |
 | Messaging | `@zap/api` shared backend — Pulse consumes for event chats; users don't need Zap install |
 | Privacy | E2E encryption everywhere; all personalisation data user-accessible + resettable |

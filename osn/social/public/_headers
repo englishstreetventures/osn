@@ -14,7 +14,7 @@
 # No script-src/connect-src yet: the app fetches the OSN issuer, whose origin
 # differs per environment, and a wrong connect-src breaks sign-in outright. Those
 # two need a build-time policy generated from VITE_OSN_ISSUER_URL against the
-# emitted bundle — tracked as S-L3 in wiki/TODO.md.
+# emitted bundle — tracked as S-L3 in `xchromo/osn-tracker`.
 
 # Apple requires the App Site Association file to be served as JSON, and the
 # file has no extension, so Pages would otherwise guess and send it as

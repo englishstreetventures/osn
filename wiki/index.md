@@ -2,7 +2,7 @@
 title: OSN Wiki
 aliases: [home, map of content, MOC]
 tags: [index]
-last-reviewed: 2026-08-13
+last-reviewed: 2026-08-17
 ---
 
 # OSN Wiki
@@ -11,7 +11,8 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 
 ## Quick Links
 
-- [[TODO]] — progress tracking, backlogs, deferred decisions
+- [[TODO]] — a pointer to GitHub Issues, where the backlogs now live
+- [[deferred-decisions]] — open questions parked for later, and the ones already settled
 - [`../CLAUDE.md`](../CLAUDE.md) — slim repo-root entry point (lives outside the vault)
 
 ## Architecture

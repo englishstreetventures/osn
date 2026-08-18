@@ -21,7 +21,7 @@ export { createApp } from "./app";
  *
  * NOTE: the leave-app sweepers (`runHardDeleteSweep` /
  * `runEventCancellationSweep`) run on the long-lived `local` host (`local.ts`).
- * On Workers they belong on a Cron Trigger — tracked in wiki/TODO.md.
+ * On Workers they belong on a Cron Trigger — tracked as an open issue.
  */
 export interface Env {
   DB?: D1Database;
@@ -77,7 +77,7 @@ function resolveClientIpConfig(env: Env): Omit<ClientIpOptions, "socketIp"> {
 // Rate limiters use in-memory counters per isolate. The W4 limiters remain the
 // correct policy + call sites; a globally-shared throttle on Workers belongs on
 // a durable backing store (KV / Durable Object / Workers rate-limit binding) —
-// tracked in wiki/TODO.md. We never silently downgrade an explicitly-configured
+// tracked as an open issue. We never silently downgrade an explicitly-configured
 // distributed limiter because none is wired here yet.
 let cached: { app: App; dbBinding: D1Database } | undefined;
 

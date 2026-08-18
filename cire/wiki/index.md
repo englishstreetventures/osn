@@ -3,7 +3,7 @@ title: "Cire Wiki — Map of Content"
 tags: [index]
 aliases: [home, map of content, MOC]
 related: []
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-17
 ---
 
 # Cire Wiki
@@ -12,7 +12,7 @@ Map of Content for the Cire wedding invite project.
 
 ## Quick Links
 
-- [[TODO]] — progress tracking, backlogs, deferred decisions
+- [[TODO]] — a pointer to GitHub Issues, where cire work now lives
 
 ## Architecture
 

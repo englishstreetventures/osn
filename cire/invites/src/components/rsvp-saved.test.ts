@@ -24,7 +24,7 @@ describe("RSVP sheet dwell", () => {
     // The floor is sized by the sheet's `role="status"` region, not by the
     // "Saved" label — the region is destroyed on the same tick the dwell
     // expires, while focus returns to the Respond button (WCAG 2.2 SC 4.1.3;
-    // see the module doc and C-L1 in `wiki/todo/security.md`). Pinned
+    // see the module doc and C-L1 in `xchromo/osn-tracker`). Pinned
     // separately from the "long enough to read" bound above because the two
     // have different reasons and different magnitudes, and a future reader
     // lowering this for snappiness needs to fail on the right one.

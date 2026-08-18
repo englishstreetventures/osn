@@ -161,7 +161,7 @@ export const observabilityPlugin = (options: ObservabilityPluginOptions) => {
       //      AND the outbound `instrumentedFetch` wrapper injects
       //      `traceparent` into S2S calls.
       //   3. Same-process HTTP → service parent-child linkage is a
-      //      known limitation tracked in TODO.md.
+      //      known limitation tracked as an open issue.
       const ctx = trace.setSpan(inboundCtx ?? context.active(), span);
 
       REQUEST_STATE.set(request, {

@@ -11,7 +11,7 @@ packages:
   - "@osn/client"
   - "@osn/ui"
   - "@cire/host"
-last-reviewed: 2026-08-15
+last-reviewed: 2026-08-17
 ---
 
 # Passkey-Primary Login
@@ -49,7 +49,7 @@ holds from registration to deletion:
   server-side registration-incomplete state that gates `/authorize` and `/token`
   as well as app routes; a client-side `logout()` on the walk-away paths is a
   worthwhile partial, since `POST /logout` needs only the cookie. See
-  `wiki/TODO.md` for all three findings.
+  `xchromo/osn-tracker` for all three findings.
 - **Deletion.** `deletePasskey` refuses unconditionally if the delete would
   drop the account below 1 passkey (`osn/api/src/services/auth/passkey-management.ts`). Recovery
   codes are NOT a substitute credential — they are the "my device is gone"
@@ -102,14 +102,14 @@ UI surface (`@osn/ui/auth`):
     The cire organiser portal still sets it, but the reason no longer holds:
     it was set while osn-api ran with `OSN_EMAIL_OPTIONAL=true`, and osn-api
     has delivered mail through Resend since 2026-06-18 ([[email]]). Whether
-    to drop the prop there is an open decision — see `wiki/TODO.md`.
+    to drop the prop there is an open decision — see the open issues in `xchromo/osn`.
 
 ### Surfaces that mount `<PasskeysView>`
 
 | App | Mount point | Notes |
 |---|---|---|
 | `@osn/social` | lazy `SecuritySection` (Settings → Security) | OTP factor available. |
-| `@cire/host` | `SecurityPanel.tsx`, reached via the top-level **Security** nav item (`#security`) in `OrganiserApp` | `passkeyOnly` still forced on, from the pre-Resend degraded-email era — open decision, see `wiki/TODO.md`. Wires the WebAuthn ceremonies with `@simplewebauthn/browser`; reads `accessToken` + `activeProfileId` from `useAuth()`. |
+| `@cire/host` | `SecurityPanel.tsx`, reached via the top-level **Security** nav item (`#security`) in `OrganiserApp` | `passkeyOnly` still forced on, from the pre-Resend degraded-email era — open decision, tracked as an issue in `xchromo/osn`. Wires the WebAuthn ceremonies with `@simplewebauthn/browser`; reads `accessToken` + `activeProfileId` from `useAuth()`. |
 
 ## New-device onboarding
 

@@ -5,9 +5,8 @@ related:
   - "[[index]]"
   - "[[invite-builder]]"
   - "[[monorepo-structure]]"
-  - "[[platform]]"
   - "[[guest-event-editor]]"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-17
 pr4-shipped: 2026-07-15
 pr4-reversed: 2026-07-15
 ---
@@ -16,7 +15,7 @@ pr4-reversed: 2026-07-15
 
 This is the build plan for growing the cire organiser portal (`host.cireweddings.com`) from a digital-invite tool into a full wedding **management** platform: guest list, schedule, vendors (venues / photographers / decorators / caterers / …) with availability and location search, context-aware pricing estimates, budget, checklist, seating, and guest comms — with the digital invite becoming **one module among several** rather than the product itself.
 
-Actionable checklists live in the [[platform]] TODO shard. This page holds the architecture: current-state analysis, target domain model, schema sketches, API/UI shape, phasing rationale, and open decisions.
+Actionable work lives in GitHub Issues under `label:product:cire`. This page holds the architecture: current-state analysis, target domain model, schema sketches, API/UI shape, phasing rationale, and open decisions.
 
 ## 1. Where we are: an invite-first domain
 
@@ -29,7 +28,7 @@ Today every table serves the invite (see `cire/db/src/schema.ts`):
 - **`wedding_invite_customisations` is a clean presentational overlay** (1:1 with `weddings`, null = defaults) — already correctly separated.
 - **`weddings` has no planning context.** No wedding date, no canonical location, no guest-count estimate, no currency/budget. (Events have `startAt`/`address`, but the *wedding* — the thing vendors are booked for and estimates are priced against — has no profile.)
 - **Vendors, budget, tasks, timeline, seating: absent.** No tables, routes, services, or components. Greenfield.
-- Auth is ready to grow: `weddingOwner()` / `weddingMember()` gates exist, and `wedding_hosts.role` is an enum with only `'host'` today, explicitly reserved for `editor`/`viewer` (root `wiki/TODO.md` co-host-roles item).
+- Auth is ready to grow: `weddingOwner()` / `weddingMember()` gates exist, and `wedding_hosts.role` is an enum with only `'host'` today, explicitly reserved for `editor`/`viewer` (the co-host-roles issue in `xchromo/osn`).
 
 The refactor thesis: **promote Guests and Schedule to first-class, invite-independent modules; give the wedding a planning profile; then build the new modules (Vendors, Budget, Checklist, Seating, Comms) against those sources of truth.** RSVP data flows *up* from the invite into the same records the seating chart and caterer head-counts read from.
 
@@ -64,7 +63,7 @@ Add to `weddings`: `wedding_date` (nullable — engaged couples often don't have
 
 ~~**Shipped (PR 1, 2026-07-10) — with one revision: location is EVENT-scoped, not wedding-scoped.**~~ A wedding is not a place — its events are (a Sydney reception + Jaipur ceremonies is one wedding in two countries), so `location_lat`/`location_lng` + `pricing_region` landed on `events` (the venue text stays in `events.address`), edited per event on the Events tab (`EventLocationsPanel`, member-level like the import — `PUT .../events/:eventId/location`). **Retired by 0036** — an event's place is now just its free-text `address`. The wedding keeps ONE main `currency` + `budget_total_minor` — the currency the couple thinks in, whatever countries the events land in.
 
-Other (retired) implementation notes: `pricing_region` was **state-granular** (`au-nsw` … `au-nt`, `au-other`, `international`). The profile save is `PUT` with PATCH semantics (the app's CORS method list has no PATCH) — **this remains** for the surviving `currency`/`budget`/`wedding_date` fields. The **slug is read-only** in Settings — a rename frees the old slug for another organiser to claim while printed invite links still point at it (WP-S-M1 in [[security]]); renames stay unshipped until a slug-tombstone design exists. The Settings tab is visible to co-hosts read-only and the profile save is owner-only. (The geocode POST is gone.)
+Other (retired) implementation notes: `pricing_region` was **state-granular** (`au-nsw` … `au-nt`, `au-other`, `international`). The profile save is `PUT` with PATCH semantics (the app's CORS method list has no PATCH) — **this remains** for the surviving `currency`/`budget`/`wedding_date` fields. The **slug is read-only** in Settings — a rename frees the old slug for another organiser to claim while printed invite links still point at it (WP-S-M1 in `xchromo/osn-tracker`); renames stay unshipped until a slug-tombstone design exists. The Settings tab is visible to co-hosts read-only and the profile save is owner-only. (The geocode POST is gone.)
 
 ### 3.2 Households ≠ claim codes
 
@@ -107,7 +106,7 @@ The import stays (it's a strength) but stops being the only writer.
 | Codes (mint/regenerate/deactivate), hosts add/remove, settings, delete wedding | — | — | ✅ |
 | …except the **RSVP-by deadline** in Settings (2026-08-01) | — | ✅ | ✅ |
 
-Existing co-hosts map to `editor` (they already have import + invite-builder write via `weddingMember()` — see [[status]]). This closes the root-TODO co-host-roles item and matters doubly here: a hired *wedding planner* is exactly an `editor`. Cheap change: `wedding_hosts.role` has no DB CHECK constraint (`0013_wedding_hosts.sql` — enum is app-layer), so it's a data `UPDATE 'host' → 'editor'` + Drizzle enum widening + the new gate; no table rebuild.
+Existing co-hosts map to `editor` (they already have import + invite-builder write via `weddingMember()`). This closes the root-TODO co-host-roles item and matters doubly here: a hired *wedding planner* is exactly an `editor`. Cheap change: `wedding_hosts.role` has no DB CHECK constraint (`0013_wedding_hosts.sql` — enum is app-layer), so it's a data `UPDATE 'host' → 'editor'` + Drizzle enum widening + the new gate; no table rebuild.
 
 ### 3.6 Phase 0 PR slicing
 
@@ -244,12 +243,12 @@ Flag to the root compliance programme as each phase lands (root `wiki/compliance
 
 P1 and the vendor-CRM half of P2 are independent after P0 and can run in parallel branches (disjoint tables/routes). Directory v2 and pricing v2 take longest — both gated on real-world content (listings, quotes), not code. Ship order favours *an organiser gets planning value on day one* (checklist + budget + CRM) while the two-sided directory grows underneath.
 
-Per-phase checklists: [[platform]].
+Per-phase work: the phase epics under `label:product:cire`.
 
 ## 12. Agent pick-up guide
 
 How to pick up any phase of this plan in a fresh session. Read this section +
-the phase's checklist in [[platform]] + the phase's section above; skim the rest.
+the phase's epic in GitHub Issues + the phase's section above; skim the rest.
 
 ### Code map (all paths from the OSN repo root)
 
@@ -267,7 +266,7 @@ the phase's checklist in [[platform]] + the phase's section above; skim the rest
 
 ### Invariants (do not break)
 
-- **Tenant scoping**: every organiser read/write is scoped to `:weddingId` through the gates; tables without a `wedding_id` column (guests, guest_events, rsvps) scope via a `families`/`events` join — see the `diffAgainstDb` wedding-scoping entry in [[spreadsheet-import]] for why the join is load-bearing.
+- **Tenant scoping**: every organiser read/write is scoped to `:weddingId` through the gates; tables without a `wedding_id` column (guests, guest_events, rsvps) scope via a `families`/`events` join — see the `diffAgainstDb` wedding-scoping entry in [[guest-event-editor]] for why the join is load-bearing.
 - **No cross-DB FKs**: OSN identities are opaque `usr_*` strings; resolve via the ARC-gated `services/osn-bridge.ts` (key-optional, fail-soft). Never store OSN emails/handles.
 - **`events.end_at` `""` sentinel** = no stated end; anything aggregating or comparing event dates must use the effective end (`max(end_at, start_at)` — see `services/retention.ts`).
 - **Host preview families** (`families.kind = 'host'`) are synthetic and must stay invisible to imports, exports, RSVP counts, and (future) seating/comms.
@@ -278,7 +277,7 @@ the phase's checklist in [[platform]] + the phase's section above; skim the rest
 
 1. Code + co-located tests (route authz cases included: 401 unauth / 403 wrong-wedding / 404 unknown).
 2. Migration mirrored in all three DDL surfaces (if schema changed).
-3. Wiki: tick the [[platform]] shard item, update this page if the design changed, bump `last-reviewed`, note new decisions in [[deferred]].
+3. Close the issue, update this page if the design changed, bump `last-reviewed`, note new decisions in [[deferred]].
 4. Changeset (`bun run changeset`) — `@cire/*` exact workspace names, never mixed with versioned packages.
 5. `bun run --cwd cire/api test` + organiser/web suites + root `bun run check` green.
 

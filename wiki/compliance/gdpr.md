@@ -12,7 +12,7 @@ related:
   - "[[identity-model]]"
   - "[[dpia/cire-guest-data]]"
   - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-08-15
+last-reviewed: 2026-08-17
 ---
 
 # GDPR + UK GDPR
@@ -56,8 +56,8 @@ becomes the controller; we process on its instruction).
 
 ## Project changes required
 
-Tracked with `C-` IDs in the [[TODO]] Compliance Backlog. The high-impact
-ones, in priority order:
+Tracked with `C-` IDs in `xchromo/osn-tracker` under `label:compliance`. The
+high-impact ones, in priority order:
 
 1. **Account-level data export endpoint** — `GET /account/export` (auth + step-up gated). JSON bundle including: account row, all profiles, social-graph edges, blocks, RSVPs (via Pulse ARC fan-out), chat membership (via Zap ARC fan-out), security events, sessions metadata, recovery-code usage history. Streaming JSON (multi-MB plausible). Rate-limited 1/day/account. ID: **C-H1**. Owner: Identity team.
 

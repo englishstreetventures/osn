@@ -16,7 +16,7 @@ import { startKeyRotation } from "./services/graphBridge";
 // background jobs that only make sense on a long-lived host (ARC key rotation,
 // the deletion sweepers). The `dev` / `staging` / `prod` environments run the
 // Workers entry (`index.ts`) over D1; sweepers there move to a Cron trigger
-// (tracked in wiki/TODO.md).
+// (tracked as an open issue).
 const { layer: observabilityLayer } = initObservability({ serviceName: SERVICE_NAME });
 
 const nonLocal = process.env.OSN_ENV && process.env.OSN_ENV !== "local";

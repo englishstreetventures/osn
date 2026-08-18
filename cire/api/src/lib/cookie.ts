@@ -18,7 +18,7 @@ import type { SessionCookieOptions } from "@shared/osn-auth-client/cookie";
  * back only there. The organiser and guest sites are same-site with it, so
  * `Lax` costs nothing. Audited `feat/cire-assets-reconcile` — do NOT add
  * `Domain=` unless a subdomain genuinely needs to read one (none does today).
- * See `cire/wiki/todo/api.md`.
+ * Tracked as an open issue in `xchromo/osn` (`label:product:cire`).
  */
 
 const GUEST_COOKIE_NAME = "cire_session";

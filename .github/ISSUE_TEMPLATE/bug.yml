@@ -1,0 +1,63 @@
+name: Bug
+description: Something behaves wrong, and saying so in public is safe.
+type: Bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **This repo is public.** If the bug is exploitable — auth bypass, data leak, missing
+        authorization — do not file it here. It goes in the private tracker as a `S-*` finding.
+        See `wiki/conventions/review-findings.md`.
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What should happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual
+      description: What happens instead. Paste the error verbatim if there is one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Sign in as a host
+        2. Open the guest list
+        3. …
+    validations:
+      required: true
+
+  - type: dropdown
+    id: product
+    attributes:
+      label: Product
+      options:
+        - osn-core
+        - pulse
+        - cire
+        - zap
+        - shared
+        - landing
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - local
+        - dev
+        - staging
+        - prod
+    validations:
+      required: true

@@ -4,8 +4,7 @@ tags: [systems, platform, phase1, tasks]
 related:
   - "[[index]]"
   - "[[platform-plan]]"
-  - "[[platform]]"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-17
 ---
 
 # Checklist / Tasks

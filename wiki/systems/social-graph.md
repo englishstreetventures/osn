@@ -17,7 +17,7 @@ related:
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-17
 ---
 
 # Social Graph
@@ -135,12 +135,12 @@ The `:handle` route parameter uses TypeBox `HandleParam` with regex + length bou
 
 Each suggestion carries a `reason` (`mutual_connections` | `shared_organisation`) naming the strongest signal, plus `sharedOrganisation` as card context when there is one. `reason` is what the Discover card turns into "3 mutual connections" or "Also in Acme Inc".
 
-Current shape prioritises correctness + bounded cost over peak throughput. Next steps tracked in `wiki/TODO.md`:
+Current shape prioritises correctness + bounded cost over peak throughput. Next steps are open issues in `xchromo/osn`:
 
 - **P-W6** — short-lived per-caller cache (5-15 min) so a Discover-page visit doesn't re-run the pipeline.
 - **P-W7** — push aggregation to SQL (`GROUP BY … ORDER BY … LIMIT`) and add compound indexes `connections(status, requester_id)` / `connections(status, addressee_id)`.
 
-Privacy: the endpoint returns `mutualCount` alongside each suggestion. This leaks graph-inference signal — see `wiki/TODO.md` → S-L4 for the bucketing follow-up.
+Privacy: the endpoint returns `mutualCount` alongside each suggestion. This leaks graph-inference signal — see `S-L4` in `xchromo/osn-tracker` for the bucketing follow-up.
 
 Rate-limited at 20 req/user/min via `createRedisRecommendationRateLimiters().suggest` — see [[rate-limiting]].
 

@@ -13,7 +13,7 @@ related:
   - "[[social]]"
   - "[[recovery-codes]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-17
 ---
 
 # Migrating OSN identity to musubi.social
@@ -187,8 +187,8 @@ ladder did not move.
 > Next time, list the secrets as well as the files:
 > `bunx wrangler secret list --env production` in each service, and read the
 > values out of `osn-prod-secrets.env`. A deploy-time preflight that fails when
-> a required secret is absent or points at an unreachable host is tracked in
-> `[[TODO]]`.
+> a required secret is absent or points at an unreachable host is open as an
+> issue in `xchromo/osn`.
 
 Out-of-band, not in the repo:
 

@@ -28,7 +28,7 @@ import { Effect, Layer } from "effect";
  * Workerd-safe: the `/logger` and `/config` subpaths import only `effect` (no
  * `@opentelemetry/*` SDK), so adopting this does not drag the Node OTel SDK
  * into the Worker bundle. Metric/trace EXPORT on workerd remains deferred —
- * see `wiki/todo/deferred.md`; the spans + counters defined elsewhere are
+ * tracked as an open issue in `xchromo/osn`; the spans + counters defined elsewhere are
  * no-ops until an exporter is attached, but the recording call-sites are
  * correct and type-checked today.
  */

@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-17
 ---
 
 # Compliance Scope Matrix
@@ -82,7 +82,7 @@ Privacy because they are the criteria customers ask about.
 | CC2 — Communication | This wiki, CLAUDE.md, README.md, weekly review cadence | Public security.txt, vuln-disclosure policy |
 | CC3 — Risk Assessment | Per-PR `/review-security` + `/review-performance` skills | Annual risk-assessment doc |
 | CC4 — Monitoring | Grafana Cloud dashboards, OTel everywhere, security_events table | Alert routing doc, on-call rotation |
-| CC5 — Control Activities | This page, the Security/Performance/Compliance backlogs in TODO.md | Quarterly access review record |
+| CC5 — Control Activities | This page, the open findings in `xchromo/osn-tracker` | Quarterly access review record |
 | CC6 — Logical Access | Passkey-primary login, step-up tokens, ARC tokens for S2S, role-gated org admin (M3) | Prod access control matrix ([[access-control]]); least-privilege review record |
 | CC7 — System Operations | OTel, structured logs, Effect tracing, Redis health checks, /health + /ready endpoints | Capacity planning doc, vulnerability scan cadence |
 | CC8 — Change Management | Changesets per PR, branch-protected main, CI required checks | Documented release procedure, rollback runbook |

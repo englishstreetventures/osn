@@ -72,4 +72,4 @@ PULSE_LOGIN_URL = "https://pulse.example.com/"
 
 # The leave-app deletion sweepers run on the long-lived `local` host today. On
 # Workers they belong on a Cron Trigger — add a [triggers] crons entry + a
-# scheduled() handler when wiring production sweeps (tracked in wiki/TODO.md).
+# scheduled() handler when wiring production sweeps (tracked as an open issue).

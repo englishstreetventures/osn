@@ -261,7 +261,7 @@ export default function InviteHeader(props: InviteHeaderProps) {
               The panel colour is the theme surface (emitted only when the organiser
               set a validated colour) else a dark scrim, applied at the chosen
               opacity. TODO(future): auto contrast-check the title colour vs the
-              image and auto-tune the panel — see cire/wiki/todo/future.md. */}
+              image and auto-tune the panel — tracked as an open issue. */}
             <div
               class="flex max-w-full flex-col items-center gap-4"
               classList={{

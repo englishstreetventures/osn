@@ -7,7 +7,7 @@
  *
  * The `RateLimiterBackend` interface is backend-agnostic so routes can be
  * wired to a future Redis backend without any call-site changes (Phase 2 of
- * the Redis migration plan in TODO.md). `check()` returns `boolean | Promise<boolean>`
+ * the Redis migration, an open issue). `check()` returns `boolean | Promise<boolean>`
  * so consumers `await` the result — sync backends resolve immediately, async
  * backends (Redis INCR+EXPIRE via Lua) return a real promise.
  */

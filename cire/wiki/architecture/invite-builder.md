@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[invite-templates]]"
-last-reviewed: 2026-08-08
+last-reviewed: 2026-08-17
 ---
 
 # Invite Builder
@@ -114,7 +114,7 @@ carries no captured source dims (three hand-kept copies; the two inside
 pair by convention). `cropAspectRatio` also gained a `[0.05, 20]` clamp in both
 mirrors: `natW`/`natH` are validated only as positive and finite, and a ratio
 that stringifies to exponential notation is a value CSS drops outright, which
-would render the band as a zero-height box (`[[security]]` S-L1).
+would render the band as a zero-height box (S-L1 in `xchromo/osn-tracker`).
 
 **It is behind the claim gate — enforced at the API, not in the render tree.**
 The first cut gated it only with `<Show when={claimResult()}>`, which controls
@@ -740,7 +740,7 @@ and let the fresh `/api/invite/:slug` response override the per-request snapshot
     panel whose background is the theme **surface** colour (`--invite-surface`)
     when set, else a dark `oklch(0% 0 0 / 0.45)` scrim panel — so the title reads
     over any busy/sharp photo. (Future: auto contrast-check the title colour vs the
-    image and auto-enable the panel — see `[[todo/future]]`.)
+    image and auto-enable the panel — see [[future]].)
   - **Visible-or-gone load lifecycle (the "invisible hero" SSR fix)**: the backdrop
     fades in on `load`; on a failed load (`onError` — e.g. a 404'd image) it
     **unmounts** so the base gradient shows through (replacing an `onLoad`-only gate
@@ -954,14 +954,14 @@ into the first form control of the active section, which sits *behind* the
 opaque overlay the open menu paints across the top of that section, with Escape
 bound to the tabs and the trigger rather than to the field. WCAG 2.2 SC 2.4.11
 *Focus Not Obscured*, and the "reveal without advancing focus" exception does
-not apply (**SM-C-M1** in `[[security]]`).
+not apply (**SM-C-M1** in `xchromo/osn-tracker`).
 
 A fifth closer is not a dismissal at all: the `ResizeObserver` that already
 picks the preview layer also collapses the menu once the container crosses
 `SECTION_MENU_REM` (48rem), because the trigger is the signal's only other
 writer — left alone, a menu opened narrow stays "open" for the rest of the
 session after a rotate or resize, and `selectSection` then focuses a
-`display: none` trigger on every wide tab click (**SM-P-I1** in `[[perf]]`).
+`display: none` trigger on every wide tab click (**SM-P-I1** in `xchromo/osn-tracker`).
 
 **Arrow keys follow the geometry, not the DOM order.** `ArrowLeft`/`ArrowRight`
 step one, always. `ArrowDown`/`ArrowUp` are handled **only while the menu is
@@ -1017,7 +1017,7 @@ resolved once in the `previewTokens` memo — and shared into `PaletteField`
 via its `tokens`/`adjustments` props, so the whole builder derives exactly
 once per colour-drag frame). Both layers stay permanently mounted with a
 CSS-only container-query switch — a deliberate trade (one markup source, no
-`ResizeObserver`) accepted as `P-I1` in `wiki/todo/perf.md` (cire wiki). The
+`ResizeObserver`) accepted as `P-I1` in `xchromo/osn-tracker`. The
 `url("…")` sink both layers' crop rendering shares (`cropBackgroundStyle`,
 lockstep organiser + guest copies) escapes its URL argument at the sink
 (S-L1). The hero preview is **crop-aware** (saved rectangles render via the
@@ -1196,7 +1196,7 @@ failures live there. Copy fields enforce the server caps client-side
 (`maxlength` + live counters from `COPY_CAPS`, kept in lockstep with
 `InviteTextBody`), so the 300-char closing-note limit is a counter, not a 400.
 A true draft→publish model that would unify the two persistence models needs
-API/schema support — tracked in `wiki/todo/deferred.md` (cire wiki), along
+API/schema support — tracked as an open issue in `xchromo/osn`, along
 with an `updatedAt` concurrent-edit guard (the GET payload doesn't expose a
 row version yet).
 
@@ -1312,4 +1312,4 @@ redacting logger, and metrics:
 
 Uploaded images are personal data (wedding photos) and inherit the existing cire
 retention gap. Tracked alongside the other cire entries — see
-`wiki/todo/db.md` / `wiki/todo/api.md`.
+`gh issue list --repo xchromo/osn --label product:cire`.

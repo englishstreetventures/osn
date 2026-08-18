@@ -196,7 +196,7 @@ const pkCacheKey = (issuer: string, kid: string): string => `${issuer}\n${kid}`;
  * the key keep serving it until their own entry expires — at most this TTL.
  * Overridable via `ARC_PUBLIC_KEY_CACHE_TTL_SECONDS`; defaults to 300 (5 min).
  * A finite, conservative default is the trade-off for not yet having a Redis
- * pub/sub fan-out eviction (backlogged in `wiki/TODO.md`).
+ * pub/sub fan-out eviction (an open issue in `xchromo/osn`).
  */
 const PUBLIC_KEY_CACHE_TTL_SECONDS = (() => {
   const raw = Number(process.env.ARC_PUBLIC_KEY_CACHE_TTL_SECONDS);

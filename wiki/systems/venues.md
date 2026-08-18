@@ -16,7 +16,7 @@ packages:
   - "@pulse/db"
   - "@pulse/api"
   - "@pulse/web"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-17
 ---
 
 # Venues & Event Lineups
@@ -62,7 +62,7 @@ Services are Effect-based with `pulse.venue.*` spans. Metrics (`pulse.venue.deta
 
 ## Deferred / known follow-ups
 
-- **P-W28** — replace `GET /venues` (and `listEvents`) with a shared bbox query contract `(minLat, maxLat, minLng, maxLng, limit)`; indexes already exist. See `wiki/TODO.md` Performance Backlog.
+- **P-W28** — replace `GET /venues` (and `listEvents`) with a shared bbox query contract `(minLat, maxLat, minLng, maxLng, limit)`; indexes already exist. Open as `P-W28` in `xchromo/osn-tracker`.
 - Discovery routes linking *into* venue pages beyond the Explore map (search, event page → venue link) are intentionally deferred.
 - Venue CRUD/admin is out of scope — rows are seed-only until organiser tooling lands. **Prerequisites for org self-service venue editing** (C-L1): DSA notice-and-action path (`POST /reports` coverage + `moderation_actions` rows) for venue descriptions/images, and server-side http(s) scheme validation on `website_url`/`hero_image_url` (the client already validates at render time — S-M2).
 - Artist → profile linking would be a join table, not a restructure of `event_lineup`.

@@ -30,7 +30,7 @@ import { cancelErasure, getDeletionStatus, requestErasure } from "./services/acc
 //
 // NOTE: this proves the OSN *DB layer* runs on D1. Full Workers *hosting* of
 // osn-api additionally needs a Workers-compatible Redis (the current ioredis
-// rate-limiters / session stores don't run on Workers) — tracked in wiki/TODO.md.
+// rate-limiters / session stores don't run on Workers) — tracked as an open issue.
 
 /* eslint-disable no-await-in-loop */
 

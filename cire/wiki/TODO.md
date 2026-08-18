@@ -1,48 +1,40 @@
 ---
-title: "Cire TODO — index"
-tags: [todo, index]
+title: "Cire TODO — a pointer to GitHub Issues"
+tags: [todo, pointer]
 related:
   - "[[index]]"
-  - "[[monorepo-structure]]"
-  - "[[overview]]"
   - "[[contributing]]"
-last-reviewed: 2026-08-07
+  - "[[deferred]]"
+  - "[[future]]"
+last-reviewed: 2026-08-17
 ---
 
 # Cire TODO
 
-This file is a thin index. **All tracked items live in per-area shards under `wiki/todo/`** so feature PRs only edit the shard relevant to their work and never collide on this file.
+Cire work is tracked in GitHub Issues under `label:product:cire`. Nothing is tracked here.
 
-## Shards
-
-| Shard                            | What it tracks                                           |
-| -------------------------------- | -------------------------------------------------------- |
-| [[wiki/todo/status]]             | Current Status paragraph + Up Next priority list         |
-| [[wiki/todo/web]]                | `cire/invites` frontend feature work                         |
-| [[wiki/todo/api]]                | `cire/api` backend feature work                          |
-| [[wiki/todo/db]]                 | `cire/db` schema + migrations                            |
-| [[wiki/todo/spreadsheet-import]] | Organiser spreadsheet upload (parser + diff + endpoints) |
-| [[wiki/todo/security]]           | H/M/L security findings                                  |
-| [[wiki/todo/perf]]               | Performance concerns                                     |
-| [[wiki/todo/deferred]]           | Open architectural decisions + Resolved log              |
-| [[wiki/todo/platform]]           | Wedding-management platform build-out (phased checklist) |
-| [[wiki/todo/future]]             | Vague post-MVP ideas                                     |
-
-## How to update
-
-When a feature PR lands, edit **only the shards your diff actually touches**. The `prep-pr` skill picks the right shard automatically — never write to this index file from a feature branch (only structural changes — adding a new shard — should touch this file).
-
-Convention: every shard has YAML frontmatter (`title`, `tags`, `related`, `last-reviewed`). Bump `last-reviewed` to today when you edit a shard.
-
-## CLI helpers
+| What | Where |
+|---|---|
+| Guest site, organiser portal, API, schema, platform build-out | [xchromo/osn](https://github.com/xchromo/osn/issues) — public |
+| Security, performance and compliance findings | `xchromo/osn-tracker` — private |
 
 ```bash
-# All open TODOs across shards
-rg "- \[ \]" wiki/todo/
-
-# Items tagged with a topic
-rg "tags:.*security" wiki/todo/
-
-# Find which shard mentions a thing
-rg "rate-limit" wiki/todo/
+gh issue list --repo xchromo/osn --state open --label product:cire
+gh issue list --repo xchromo/osn-tracker --state open --label product:cire
+gh issue create --repo xchromo/osn --type Feature --label product:cire --title "..."
 ```
+
+Every finding goes to the tracker whatever its severity — `xchromo/osn` is public and a
+finding names an unpatched route. Full label and type rules are in the root `CLAUDE.md`.
+
+## Where the shards went
+
+The per-area shards under `wiki/todo/` — `status`, `web`, `api`, `db`,
+`spreadsheet-import`, `security`, `perf`, `platform` — were retired in the 2026-08-15
+migration. Every open item in them is an issue; every completed item is in
+[changelog/](changelog/).
+
+Two of them were never checklists and survive as pages in their own right:
+
+- [[deferred]] — open architectural decisions, and the log of resolved ones.
+- [[future]] — post-MVP ideas, too vague to be issues yet.

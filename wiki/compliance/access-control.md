@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[cire-auth]]"
   - "[[cire]]"
-last-reviewed: 2026-08-01
+last-reviewed: 2026-08-17
 ---
 
 # Access Control
@@ -157,7 +157,7 @@ grant in the matrix above. Expectations:
   truncate; and each row records `added_by_osn_profile_id`, surfaced in the
   panel, so an owner can see which seats they did not create. **Residual, and
   accepted rather than solved:** a new seat is live immediately and the owner is
-  not notified — tracked as `S-M2` in `[[cire/wiki/todo/security]]`. See the
+  not notified — tracked as `S-M2` in `xchromo/osn-tracker`. See the
   roles capability matrix in [[cire-auth]].
 
 ## Project changes required

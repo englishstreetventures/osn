@@ -4,12 +4,12 @@ description: Tagging system for security, performance, and test review findings
 tags: [convention, review]
 related:
   - "[[contributing]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-15
 ---
 
 # Review Finding IDs
 
-All review skills (`/review-security`, `/review-performance`, `/review-tests`) tag findings with short IDs, so you can refer to them precisely in discussions, PR comments, and TODO.md backlogs.
+All review skills (`/review-security`, `/review-performance`, `/review-tests`) tag findings with short IDs, so you can refer to them precisely in discussions, PR comments, and issue titles.
 
 ## Prefix Table
 
@@ -53,23 +53,38 @@ Each finding uses a four-field format:
 | **Solution** | Concrete fix or mitigation |
 | **Rationale** | Why this solution is the right approach |
 
-## Adding to TODO.md
+## Filing a finding
 
-When you add findings to the Security or Performance backlogs in TODO.md, use the finding ID as the item label:
+Findings live in **`xchromo/osn-tracker`**, a private repo. `xchromo/osn` is public, and a finding names an unpatched route -- filing one there publishes an attack map. Route by *kind*, never by severity: an `S-`, `P-`, or `C-` ID goes to the tracker however minor it looks.
 
-```markdown
-- [ ] S-M3 -- No rate limit on /foo endpoint
-- [x] P-W1 -- N+1 in listEvents (fixed: inArray batch fetch)
-- [ ] S-H12 -- New route bypassing loadVisibleEvent
-- [x] S-L20 -- Environment not classified correctly (fixed: added env validation)
+One issue per finding, with the ID leading the title and the four fields as the body:
+
+```bash
+gh issue create --repo xchromo/osn-tracker \
+  --title "S-M3 -- No rate limit on /foo endpoint" \
+  --type Bug \
+  --label "area:security" --label "severity:medium" --label "product:cire"
 ```
+
+`--type` is the org-level issue type, which the Project groups on. `S-*` and `P-*` findings are `Bug`: something already built behaves wrongly. `C-*` compliance items are `Task`, and so is anything filed at `severity:info` -- it records an observation and asks for no fix.
+
+Labels, exactly one of each:
+
+| Label | Value |
+|-------|-------|
+| `area:` | `security` for `S-*`, `performance` for `P-*`, `compliance` for `C-*` |
+| `severity:` | from the tier letter -- `C` -> `critical`, `H`/`W` -> `high`, `M` -> `medium`, `L` -> `low`, `I` -> `info` |
+| `product:` | `osn-core`, `pulse`, `cire`, `zap`, `shared`, `landing` |
 
 Rules:
 
-- Mark completed items with `[x]` plus a short note about the fix
-- **Never delete** findings from the backlog -- the history matters
-- Sort within each section by severity (H -> M -> L for security, C -> W -> I for performance)
-- Add new findings from PR reviews immediately
+- **Close a finding, never delete it** -- the history matters, and a closed issue keeps the body, the fix commit, and the discussion. Deleting an issue is out of bounds for every script and command in this repo.
+- A finding fixed on the branch that found it gets no issue of its own: put `Closes xchromo/osn-tracker#<n>` in the PR body, or if no issue existed, open one and close it with a comment naming the PR.
+- Reference tracker issues from a public PR by number and finding ID only -- never the title, the file:line, or the body.
+- Sorting is a filter now, not a file convention: `gh issue list --repo xchromo/osn-tracker --label severity:high --state open`.
+- File new findings from PR reviews immediately, in `/prep-pr` Step 7.
+
+`T-*` test findings are not filed. They are coverage gaps, not defects -- `/prep-pr` Step 4 raises them and they get closed in the branch or waved through.
 
 ## Usage in PR Comments
 
@@ -77,10 +92,16 @@ Finding IDs make PR discussions precise:
 
 - "Fix S-H1 before merging"
 - "P-C2 still open -- needs the batch query"
-- "S-M34 is a known limitation, tracked in TODO.md"
+- "S-M34 is a known limitation, tracked in osn-tracker#412"
 - "T-U3 -- this export has no test coverage"
+
+Because the ID leads the title, the ID is also how you find the issue again:
+
+```bash
+gh issue list --repo xchromo/osn-tracker --search "S-M34 in:title" --state all
+```
 
 ## Related
 
 - [[contributing]] -- PR workflow and conventions
-- TODO.md -- where findings are tracked in the Security and Performance backlogs
+- `xchromo/osn-tracker` -- the private repo holding every security, performance, and compliance finding

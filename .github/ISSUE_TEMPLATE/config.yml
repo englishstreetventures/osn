@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security, performance, or compliance finding
+    url: https://github.com/xchromo/osn/blob/main/wiki/conventions/review-findings.md
+    about: This repo is public. Findings go to the private tracker, never here — read the convention first.

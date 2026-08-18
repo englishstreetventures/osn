@@ -40,7 +40,7 @@ README.md'
 run_case "agent instructions only" skip \
   '.claude/commands/prep-pr.md
 .claude/skills/obsidian/SKILL.md
-CLAUDE.md'
+.claude/settings.json'
 
 run_case "agent instructions plus one source file" required \
   '.claude/commands/prep-pr.md

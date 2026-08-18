@@ -75,7 +75,7 @@ export function parseVenueHours(raw: string | null): VenueHours | null {
  *
  * TODO(venue-bbox-search): swap for a viewport-scoped fetch (pass
  * minLat/maxLat/minLng/maxLng) once the API supports it — tracked in
- * wiki/TODO.md → Performance Backlog P-W28.
+ * `P-W28` in `xchromo/osn-tracker`.
  */
 export async function fetchAllVenues(): Promise<VenueSummary[]> {
   const res = await fetch(`${BASE_URL}/venues`);

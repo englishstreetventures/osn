@@ -31,7 +31,8 @@ import type { ConsentCategory } from "./categories";
  *    mid-visit (a jarring, consent-triggered redesign) or leave the prerendered
  *    legal pages inconsistent with the SSR'd invite. The right fix is to remove
  *    the vendor rather than gate it — self-host the two woff2 families and
- *    Google drops out of this table entirely. Tracked in `wiki/todo/web.md`.
+ *    Google drops out of this table entirely. Tracked as an open issue in
+ *    `xchromo/osn` (`label:product:cire`).
  *
  * The preferences dialog surfaces this distinction rather than hiding it: an
  * `"always"` vendor is listed with a plain "loads on every visit" note instead

@@ -1,0 +1,96 @@
+name: Review finding
+description: A security, performance, or compliance finding from a review.
+# Most findings are defects. Change a C-* compliance item, or anything filed at
+# severity:info, to Task after opening it.
+type: Bug
+title: "<ID> — "
+body:
+  - type: input
+    id: finding-id
+    attributes:
+      label: Finding ID
+      description: The ID from the review report. Put it at the front of the title too — it is how the issue is found again.
+      placeholder: S-M3
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: Issue
+      description: What is wrong or missing. Name the file and line.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: Why it matters — risk, impact, or the correctness concern.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solution
+      description: The concrete fix or mitigation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Rationale
+      description: Why that fix is the right one, and what was rejected.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: From the ID prefix — S is security, P is performance, C is compliance.
+      options:
+        - security
+        - performance
+        - compliance
+    validations:
+      required: true
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: From the tier letter — C critical, H/W high, M medium, L low, I info.
+      options:
+        - critical
+        - high
+        - medium
+        - low
+        - info
+    validations:
+      required: true
+
+  - type: dropdown
+    id: product
+    attributes:
+      label: Product
+      options:
+        - osn-core
+        - pulse
+        - cire
+        - zap
+        - shared
+        - landing
+    validations:
+      required: true
+
+  - type: input
+    id: found-in
+    attributes:
+      label: Found in
+      description: The branch or PR the review ran against.
+      placeholder: feat/guest-list-filtering
+    validations:
+      required: false

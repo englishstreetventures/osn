@@ -100,7 +100,7 @@ function initKeys(): Promise<KeyInit> {
  * prep-pr review 2026-07-05). Both call sites therefore register the same
  * union; keep them in lockstep with `lib/outbound-arc.ts` `ALLOWED_SCOPES`.
  * Per-key scope storage (which would restore real least-privilege between the
- * two keys) is tracked in wiki/TODO.md.
+ * two keys) is tracked in `xchromo/osn-tracker`.
  *
  * Tokens are still minted with the MINIMAL scope per call (`arcAuthHeader`
  * below defaults to `graph:read`); the union applies only to the registration.

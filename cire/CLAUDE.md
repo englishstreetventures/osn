@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-AI coding assistant reference. For full spec see README.md. For progress/decisions see `wiki/todo/` (the per-area shards) — `wiki/TODO.md` is now a thin index.
+AI coding assistant reference. For full spec see README.md. Work is tracked in GitHub Issues under `label:product:cire` — product work in `xchromo/osn`, findings in the private `xchromo/osn-tracker`.
 
 ## Quick Context
 
@@ -12,28 +12,20 @@ Auth is a **two-system model** (see `[[wiki/systems/cire-auth]]` in the OSN wiki
 
 - `README.md` → Human-readable spec, architecture, stack
 - `CLAUDE.md` → AI reference — patterns, conventions, commands
-- `wiki/TODO.md` → Thin index of per-area TODO shards (no tracked items live here)
-- `wiki/todo/<area>.md` → Per-area progress + backlog (status, web, api, db, spreadsheet-import, security, perf, deferred, future)
+- `wiki/TODO.md` → A pointer to GitHub Issues. Nothing is tracked in the wiki
 - `wiki/` → Obsidian knowledge graph — architecture docs, conventions, observability, changelogs, runbooks
 
-## wiki/todo/ Shards + Maintenance
+## Where Cire Work Is Tracked
 
-Each shard tracks one area. Edit only the shard your diff touches — keeps PRs from conflicting on a single TODO file.
+GitHub Issues, filtered to `label:product:cire`. The per-area `wiki/todo/` shards were retired in the 2026-08-15 migration; every open item from them is an issue.
 
-| Shard                             | What goes here                                           |
-| --------------------------------- | -------------------------------------------------------- |
-| `wiki/todo/status.md`             | Current Status paragraph + Up Next priority list         |
-| `wiki/todo/web.md`                | `cire/invites` frontend feature work                         |
-| `wiki/todo/api.md`                | `cire/api` backend feature work                          |
-| `wiki/todo/db.md`                 | `cire/db` schema + migrations                            |
-| `wiki/todo/spreadsheet-import.md` | Organiser spreadsheet upload (parser + diff + endpoints) |
-| `wiki/todo/security.md`           | H/M/L security findings                                  |
-| `wiki/todo/perf.md`               | Performance concerns                                     |
-| `wiki/todo/deferred.md`           | Open architectural decisions + Resolved log              |
-| `wiki/todo/platform.md`           | Wedding-management platform build-out (phased checklist) |
-| `wiki/todo/future.md`             | Vague post-MVP ideas                                     |
+```bash
+gh issue list --repo xchromo/osn --state open --label product:cire
+gh issue list --repo xchromo/osn-tracker --state open --label product:cire
+gh issue create --repo xchromo/osn --type Feature --label product:cire --title "..."
+```
 
-Update the relevant shard when: a task is completed, a new concern is discovered, a deferred decision is resolved, or priorities shift. Bump that shard's `last-reviewed` to today. Do **not** add tracked items to `wiki/TODO.md` — it's an index only.
+Product work — guest site, organiser portal, API, schema, the platform build-out — goes to the public `xchromo/osn`. Every security, performance and compliance finding goes to the private `xchromo/osn-tracker`, whatever its severity: `xchromo/osn` is public and a finding names an unpatched route. Full label and type rules are in the root `CLAUDE.md` §Where Work Is Tracked.
 
 ## Wiki Navigation
 
@@ -47,8 +39,8 @@ Update the relevant shard when: a task is completed, a new concern is discovered
 | Understand observability rules  | `[[wiki/observability/overview]]`             |
 | Look up review finding IDs      | `[[wiki/conventions/review-findings]]`        |
 | Debug a production issue        | Browse `wiki/runbooks/`                       |
-| Check security or perf findings | `wiki/todo/security.md` / `wiki/todo/perf.md` |
-| Track progress and priorities   | `wiki/todo/status.md` (status + Up Next)      |
+| Check security or perf findings | `gh issue list --repo xchromo/osn-tracker --label product:cire`  |
+| Track progress and priorities   | `gh issue list --repo xchromo/osn --label product:cire`         |
 
 ### Querying the Wiki
 
@@ -63,11 +55,11 @@ rg "tags:.*security" wiki/ --glob "*.md"
 # Find all pages linking to a topic
 rg "\[\[contributing\]\]" wiki/
 
-# List open TODOs across all shards
-rg "- \[ \]" wiki/todo/
+# Open work (issues, not files)
+gh issue list --repo xchromo/osn --state open --label product:cire
 
-# Open TODOs in one area
-rg "- \[ \]" wiki/todo/security.md
+# Open findings
+gh issue list --repo xchromo/osn-tracker --state open --label product:cire
 ```
 
 ### Wiki Maintenance Rules
@@ -161,7 +153,7 @@ describe("POST /api/claim", () => {
 - **`*.browser.test.tsx` runs in a real Chromium**, not jsdom — for anything needing computed CSS, layout, paint/stacking order, sticky behaviour or media emulation. Opt-in (`bun run --cwd {cire/invites,cire/host} test:browser`), its own CI step. **`@cire/host` has one too** (added 2026-08-06) — its ink tokens are translucent and it ships two ramps, so what a token measures as authored and what it measures as painted are different numbers. jsdom parses no stylesheet and reports zeroed rects, so a class-contract assertion in the fast tier and a measurement in the browser tier are complements, not duplicates. See `[[wiki/conventions/browser-tests]]`
 - Run tests: `bun run test` (all workspaces, turbo) or `bun run --cwd cire/api test`
 - Integration tests use a local D1 instance via `wrangler dev` — do not mock the database
-- Note: platform convention elsewhere in the monorepo is `it.effect` + `createTestLayer()` — cire alignment is tracked in root `wiki/TODO.md` (Deferred Decisions)
+- Note: platform convention elsewhere in the monorepo is `it.effect` + `createTestLayer()` — cire alignment is tracked as an open issue in `xchromo/osn`
 
 ## Key Patterns
 

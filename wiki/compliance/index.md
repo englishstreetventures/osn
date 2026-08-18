@@ -14,7 +14,7 @@ related:
   - "[[subprocessors]]"
   - "[[cire]]"
   - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-17
 ---
 
 # Compliance
@@ -90,5 +90,5 @@ compliance" surface looks like.
   — DSAR coverage, retention windows, log redaction of PII, lawful basis
   for new collection, etc.
 - **Triaging a finding?** Compliance findings use the `C-` prefix (see
-  `[[review-findings]]`); track in the Compliance Backlog section of
-  `[[TODO]]`.
+  `[[review-findings]]`) and are filed in the private `xchromo/osn-tracker`
+  under `label:compliance` — never in the public `xchromo/osn`.

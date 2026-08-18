@@ -1,0 +1,49 @@
+name: Feature
+description: Planned work — a new capability, a change to an existing one, or a chore.
+type: Feature
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What
+      description: The change, in a couple of sentences. Write it as the outcome, not the implementation.
+      placeholder: Hosts can filter the guest list by RSVP status.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: What this unblocks, or what is painful without it.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: product
+    attributes:
+      label: Product
+      description: Exactly one. Add the matching `product:` label after filing.
+      options:
+        - osn-core
+        - pulse
+        - cire
+        - zap
+        - shared
+        - landing
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Links to wiki pages, prior issues, or PRs. Anything that saves the implementer a search.
+    validations:
+      required: false
+
+  - type: markdown
+    attributes:
+      value: |
+        Security, performance, and compliance findings do **not** belong here — this repo is
+        public. File them in the private tracker. See `wiki/conventions/review-findings.md`.

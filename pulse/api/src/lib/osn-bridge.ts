@@ -67,7 +67,7 @@ export const verifyStepUp = (
  * intent was already proved by the matching verifyStepUp call earlier
  * in the request lifecycle.
  *
- * Residual risk (S-M follow-up — see wiki/TODO.md S-M25): a compromised
+ * Residual risk (S-M follow-up — `S-M25` in `xchromo/osn-tracker`): a compromised
  * Pulse instance can call this with arbitrary accountIds. Mitigations:
  * the ARC key's bounded TTL (5 min), per-kid rate limits at the ARC
  * middleware (S-M24 — backlogged), and audit logs.

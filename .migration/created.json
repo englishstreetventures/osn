@@ -1,0 +1,7338 @@
+{
+  "epic:public:cire/api": {
+    "number": 450,
+    "id": "5159311503"
+  },
+  "epic:public:cire/db": {
+    "number": 451,
+    "id": "5159311918"
+  },
+  "epic:public:Phase 0 — core-domain refactor (invite decoupling)": {
+    "number": 452,
+    "id": "5159312358"
+  },
+  "epic:public:Phase 2 — vendors & services": {
+    "number": 453,
+    "id": "5159312766"
+  },
+  "epic:public:Phase 3 — pricing estimates": {
+    "number": 454,
+    "id": "5159313211"
+  },
+  "epic:public:Phase 4 — seating, comms, registry": {
+    "number": 455,
+    "id": "5159313657"
+  },
+  "epic:public:Spreadsheet ingestion (cire/api)": {
+    "number": 456,
+    "id": "5159314116"
+  },
+  "epic:public:Organiser portal (cire/host + cire/api)": {
+    "number": 457,
+    "id": "5159314555"
+  },
+  "epic:public:Up Next": {
+    "number": 458,
+    "id": "5159314956"
+  },
+  "epic:public:Open": {
+    "number": 459,
+    "id": "5159315351"
+  },
+  "epic:public:Pulse (pulse/web + pulse/api + pulse/db)": {
+    "number": 460,
+    "id": "5159315785"
+  },
+  "epic:public:OSN Core (osn/api)": {
+    "number": 461,
+    "id": "5159316193"
+  },
+  "epic:public:Cire (cire/invites + cire/host + cire/api + cire/db)": {
+    "number": 462,
+    "id": "5159316593"
+  },
+  "epic:public:Cire Landing (cire/landing)": {
+    "number": 463,
+    "id": "5159317051"
+  },
+  "epic:public:Cire Landing (cire/landing) — Platform roadmap (withjoy parity)": {
+    "number": 464,
+    "id": "5159317484"
+  },
+  "epic:public:Landing (osn/landing + pulse/landing)": {
+    "number": 465,
+    "id": "5159317924"
+  },
+  "cire/wiki/todo/api.md:38": {
+    "number": 466,
+    "id": "5159318345"
+  },
+  "cire/wiki/todo/api.md:44": {
+    "number": 467,
+    "id": "5159318791"
+  },
+  "cire/wiki/todo/api.md:45": {
+    "number": 468,
+    "id": "5159335253"
+  },
+  "cire/wiki/todo/db.md:61": {
+    "number": 469,
+    "id": "5159335733"
+  },
+  "cire/wiki/todo/db.md:65": {
+    "number": 470,
+    "id": "5159336159"
+  },
+  "cire/wiki/todo/platform.md:26": {
+    "number": 471,
+    "id": "5159336604"
+  },
+  "cire/wiki/todo/platform.md:29": {
+    "number": 472,
+    "id": "5159337055"
+  },
+  "cire/wiki/todo/platform.md:43": {
+    "number": 473,
+    "id": "5159337490"
+  },
+  "cire/wiki/todo/platform.md:44": {
+    "number": 474,
+    "id": "5159337939"
+  },
+  "cire/wiki/todo/platform.md:45": {
+    "number": 475,
+    "id": "5159338368"
+  },
+  "cire/wiki/todo/platform.md:46": {
+    "number": 476,
+    "id": "5159338818"
+  },
+  "cire/wiki/todo/platform.md:51": {
+    "number": 477,
+    "id": "5159339298"
+  },
+  "cire/wiki/todo/platform.md:52": {
+    "number": 478,
+    "id": "5159339741"
+  },
+  "cire/wiki/todo/platform.md:56": {
+    "number": 479,
+    "id": "5159340202"
+  },
+  "cire/wiki/todo/platform.md:57": {
+    "number": 480,
+    "id": "5159340700"
+  },
+  "cire/wiki/todo/platform.md:58": {
+    "number": 481,
+    "id": "5159341138"
+  },
+  "cire/wiki/todo/platform.md:59": {
+    "number": 482,
+    "id": "5159341603"
+  },
+  "cire/wiki/todo/spreadsheet-import.md:42": {
+    "number": 483,
+    "id": "5159342036"
+  },
+  "cire/wiki/todo/spreadsheet-import.md:57": {
+    "number": 484,
+    "id": "5159342488"
+  },
+  "cire/wiki/todo/status.md:42": {
+    "number": 485,
+    "id": "5159342906"
+  },
+  "cire/wiki/todo/status.md:43": {
+    "number": 486,
+    "id": "5159343299"
+  },
+  "cire/wiki/todo/web.md:84": {
+    "number": 487,
+    "id": "5159343853"
+  },
+  "cire/wiki/todo/web.md:88": {
+    "number": 488,
+    "id": "5159344335"
+  },
+  "cire/wiki/todo/web.md:90": {
+    "number": 489,
+    "id": "5159344764"
+  },
+  "cire/wiki/todo/web.md:115": {
+    "number": 490,
+    "id": "5159345168"
+  },
+  "cire/wiki/todo/web.md:121": {
+    "number": 491,
+    "id": "5159345603"
+  },
+  "cire/wiki/todo/web.md:122": {
+    "number": 492,
+    "id": "5159346093"
+  },
+  "cire/wiki/todo/web.md:123": {
+    "number": 493,
+    "id": "5159346552"
+  },
+  "wiki/TODO.md:9": {
+    "number": 494,
+    "id": "5159347021"
+  },
+  "wiki/TODO.md:17": {
+    "number": 495,
+    "id": "5159347472"
+  },
+  "wiki/TODO.md:18": {
+    "number": 496,
+    "id": "5159347889"
+  },
+  "wiki/TODO.md:19": {
+    "number": 497,
+    "id": "5159348307"
+  },
+  "wiki/TODO.md:28": {
+    "number": 498,
+    "id": "5159348729"
+  },
+  "wiki/TODO.md:29": {
+    "number": 499,
+    "id": "5159349171"
+  },
+  "wiki/TODO.md:30": {
+    "number": 500,
+    "id": "5159349652"
+  },
+  "wiki/TODO.md:31": {
+    "number": 501,
+    "id": "5159350136"
+  },
+  "wiki/TODO.md:111": {
+    "number": 502,
+    "id": "5159350610"
+  },
+  "wiki/TODO.md:112": {
+    "number": 503,
+    "id": "5159351132"
+  },
+  "wiki/TODO.md:113": {
+    "number": 504,
+    "id": "5159351533"
+  },
+  "wiki/TODO.md:115": {
+    "number": 505,
+    "id": "5159351981"
+  },
+  "wiki/TODO.md:116": {
+    "number": 506,
+    "id": "5159352431"
+  },
+  "wiki/TODO.md:119": {
+    "number": 507,
+    "id": "5159352893"
+  },
+  "wiki/TODO.md:120": {
+    "number": 508,
+    "id": "5159353294"
+  },
+  "wiki/TODO.md:121": {
+    "number": 509,
+    "id": "5159353740"
+  },
+  "wiki/TODO.md:122": {
+    "number": 510,
+    "id": "5159354175"
+  },
+  "wiki/TODO.md:125": {
+    "number": 511,
+    "id": "5159354581"
+  },
+  "wiki/TODO.md:127": {
+    "number": 512,
+    "id": "5159355027"
+  },
+  "wiki/TODO.md:138": {
+    "number": 513,
+    "id": "5159355452"
+  },
+  "wiki/TODO.md:139": {
+    "number": 514,
+    "id": "5159355900"
+  },
+  "wiki/TODO.md:149": {
+    "number": 515,
+    "id": "5159356356"
+  },
+  "wiki/TODO.md:150": {
+    "number": 516,
+    "id": "5159356854"
+  },
+  "wiki/TODO.md:151": {
+    "number": 517,
+    "id": "5159357272"
+  },
+  "wiki/TODO.md:154": {
+    "number": 518,
+    "id": "5159357683"
+  },
+  "wiki/TODO.md:162": {
+    "number": 519,
+    "id": "5159358109"
+  },
+  "wiki/TODO.md:163": {
+    "number": 520,
+    "id": "5159358540"
+  },
+  "wiki/TODO.md:166": {
+    "number": 521,
+    "id": "5159358925"
+  },
+  "wiki/TODO.md:167": {
+    "number": 522,
+    "id": "5159359325"
+  },
+  "wiki/TODO.md:248": {
+    "number": 523,
+    "id": "5159359755"
+  },
+  "wiki/TODO.md:250": {
+    "number": 524,
+    "id": "5159360167"
+  },
+  "wiki/TODO.md:266": {
+    "number": 525,
+    "id": "5159360589"
+  },
+  "wiki/TODO.md:267": {
+    "number": 526,
+    "id": "5159361022"
+  },
+  "wiki/TODO.md:268": {
+    "number": 527,
+    "id": "5159361469"
+  },
+  "wiki/TODO.md:269": {
+    "number": 528,
+    "id": "5159361899"
+  },
+  "wiki/TODO.md:273": {
+    "number": 529,
+    "id": "5159362326"
+  },
+  "wiki/TODO.md:274": {
+    "number": 530,
+    "id": "5159362794"
+  },
+  "wiki/TODO.md:275": {
+    "number": 531,
+    "id": "5159363238"
+  },
+  "wiki/TODO.md:284": {
+    "number": 532,
+    "id": "5159363720"
+  },
+  "wiki/TODO.md:285": {
+    "number": 533,
+    "id": "5159364208"
+  },
+  "wiki/TODO.md:286": {
+    "number": 534,
+    "id": "5159364613"
+  },
+  "link:cire/wiki/todo/api.md:38": {
+    "number": 466,
+    "id": "5159318345"
+  },
+  "link:cire/wiki/todo/api.md:44": {
+    "number": 467,
+    "id": "5159318791"
+  },
+  "link:cire/wiki/todo/api.md:45": {
+    "number": 468,
+    "id": "5159335253"
+  },
+  "link:cire/wiki/todo/db.md:61": {
+    "number": 469,
+    "id": "5159335733"
+  },
+  "link:cire/wiki/todo/db.md:65": {
+    "number": 470,
+    "id": "5159336159"
+  },
+  "link:cire/wiki/todo/platform.md:26": {
+    "number": 471,
+    "id": "5159336604"
+  },
+  "link:cire/wiki/todo/platform.md:29": {
+    "number": 472,
+    "id": "5159337055"
+  },
+  "link:cire/wiki/todo/platform.md:43": {
+    "number": 473,
+    "id": "5159337490"
+  },
+  "link:cire/wiki/todo/platform.md:44": {
+    "number": 474,
+    "id": "5159337939"
+  },
+  "link:cire/wiki/todo/platform.md:45": {
+    "number": 475,
+    "id": "5159338368"
+  },
+  "link:cire/wiki/todo/platform.md:46": {
+    "number": 476,
+    "id": "5159338818"
+  },
+  "link:cire/wiki/todo/platform.md:51": {
+    "number": 477,
+    "id": "5159339298"
+  },
+  "link:cire/wiki/todo/platform.md:52": {
+    "number": 478,
+    "id": "5159339741"
+  },
+  "link:cire/wiki/todo/platform.md:56": {
+    "number": 479,
+    "id": "5159340202"
+  },
+  "link:cire/wiki/todo/platform.md:57": {
+    "number": 480,
+    "id": "5159340700"
+  },
+  "link:cire/wiki/todo/platform.md:58": {
+    "number": 481,
+    "id": "5159341138"
+  },
+  "link:cire/wiki/todo/platform.md:59": {
+    "number": 482,
+    "id": "5159341603"
+  },
+  "link:cire/wiki/todo/spreadsheet-import.md:42": {
+    "number": 483,
+    "id": "5159342036"
+  },
+  "link:cire/wiki/todo/spreadsheet-import.md:57": {
+    "number": 484,
+    "id": "5159342488"
+  },
+  "link:cire/wiki/todo/status.md:42": {
+    "number": 485,
+    "id": "5159342906"
+  },
+  "link:cire/wiki/todo/status.md:43": {
+    "number": 486,
+    "id": "5159343299"
+  },
+  "link:cire/wiki/todo/web.md:84": {
+    "number": 487,
+    "id": "5159343853"
+  },
+  "link:cire/wiki/todo/web.md:88": {
+    "number": 488,
+    "id": "5159344335"
+  },
+  "link:cire/wiki/todo/web.md:90": {
+    "number": 489,
+    "id": "5159344764"
+  },
+  "link:cire/wiki/todo/web.md:115": {
+    "number": 490,
+    "id": "5159345168"
+  },
+  "link:cire/wiki/todo/web.md:121": {
+    "number": 491,
+    "id": "5159345603"
+  },
+  "link:cire/wiki/todo/web.md:122": {
+    "number": 492,
+    "id": "5159346093"
+  },
+  "link:cire/wiki/todo/web.md:123": {
+    "number": 493,
+    "id": "5159346552"
+  },
+  "link:wiki/TODO.md:9": {
+    "number": 494,
+    "id": "5159347021"
+  },
+  "link:wiki/TODO.md:17": {
+    "number": 495,
+    "id": "5159347472"
+  },
+  "link:wiki/TODO.md:18": {
+    "number": 496,
+    "id": "5159347889"
+  },
+  "link:wiki/TODO.md:19": {
+    "number": 497,
+    "id": "5159348307"
+  },
+  "link:wiki/TODO.md:28": {
+    "number": 498,
+    "id": "5159348729"
+  },
+  "link:wiki/TODO.md:29": {
+    "number": 499,
+    "id": "5159349171"
+  },
+  "link:wiki/TODO.md:30": {
+    "number": 500,
+    "id": "5159349652"
+  },
+  "link:wiki/TODO.md:31": {
+    "number": 501,
+    "id": "5159350136"
+  },
+  "link:wiki/TODO.md:111": {
+    "number": 502,
+    "id": "5159350610"
+  },
+  "link:wiki/TODO.md:112": {
+    "number": 503,
+    "id": "5159351132"
+  },
+  "link:wiki/TODO.md:113": {
+    "number": 504,
+    "id": "5159351533"
+  },
+  "link:wiki/TODO.md:115": {
+    "number": 505,
+    "id": "5159351981"
+  },
+  "link:wiki/TODO.md:116": {
+    "number": 506,
+    "id": "5159352431"
+  },
+  "link:wiki/TODO.md:119": {
+    "number": 507,
+    "id": "5159352893"
+  },
+  "link:wiki/TODO.md:120": {
+    "number": 508,
+    "id": "5159353294"
+  },
+  "link:wiki/TODO.md:121": {
+    "number": 509,
+    "id": "5159353740"
+  },
+  "link:wiki/TODO.md:122": {
+    "number": 510,
+    "id": "5159354175"
+  },
+  "link:wiki/TODO.md:125": {
+    "number": 511,
+    "id": "5159354581"
+  },
+  "link:wiki/TODO.md:127": {
+    "number": 512,
+    "id": "5159355027"
+  },
+  "link:wiki/TODO.md:138": {
+    "number": 513,
+    "id": "5159355452"
+  },
+  "link:wiki/TODO.md:139": {
+    "number": 514,
+    "id": "5159355900"
+  },
+  "link:wiki/TODO.md:149": {
+    "number": 515,
+    "id": "5159356356"
+  },
+  "link:wiki/TODO.md:150": {
+    "number": 516,
+    "id": "5159356854"
+  },
+  "link:wiki/TODO.md:151": {
+    "number": 517,
+    "id": "5159357272"
+  },
+  "link:wiki/TODO.md:154": {
+    "number": 518,
+    "id": "5159357683"
+  },
+  "link:wiki/TODO.md:162": {
+    "number": 519,
+    "id": "5159358109"
+  },
+  "link:wiki/TODO.md:163": {
+    "number": 520,
+    "id": "5159358540"
+  },
+  "link:wiki/TODO.md:166": {
+    "number": 521,
+    "id": "5159358925"
+  },
+  "link:wiki/TODO.md:167": {
+    "number": 522,
+    "id": "5159359325"
+  },
+  "link:wiki/TODO.md:248": {
+    "number": 523,
+    "id": "5159359755"
+  },
+  "link:wiki/TODO.md:250": {
+    "number": 524,
+    "id": "5159360167"
+  },
+  "link:wiki/TODO.md:266": {
+    "number": 525,
+    "id": "5159360589"
+  },
+  "link:wiki/TODO.md:267": {
+    "number": 526,
+    "id": "5159361022"
+  },
+  "link:wiki/TODO.md:268": {
+    "number": 527,
+    "id": "5159361469"
+  },
+  "link:wiki/TODO.md:269": {
+    "number": 528,
+    "id": "5159361899"
+  },
+  "link:wiki/TODO.md:273": {
+    "number": 529,
+    "id": "5159362326"
+  },
+  "link:wiki/TODO.md:274": {
+    "number": 530,
+    "id": "5159362794"
+  },
+  "link:wiki/TODO.md:275": {
+    "number": 531,
+    "id": "5159363238"
+  },
+  "link:wiki/TODO.md:284": {
+    "number": 532,
+    "id": "5159363720"
+  },
+  "link:wiki/TODO.md:285": {
+    "number": 533,
+    "id": "5159364208"
+  },
+  "link:wiki/TODO.md:286": {
+    "number": 534,
+    "id": "5159364613"
+  },
+  "epic:public:Zap (zap/app + zap/api + zap/db) — M0 — Scaffold (remaining)": {
+    "number": 536,
+    "id": "5159426961"
+  },
+  "epic:public:Zap (zap/app + zap/api + zap/db) — M1 — 1:1 DMs (E2E)": {
+    "number": 537,
+    "id": "5159427731"
+  },
+  "epic:public:Zap (zap/app + zap/api + zap/db) — M2 — Group chats": {
+    "number": 538,
+    "id": "5159428336"
+  },
+  "epic:public:Zap (zap/app + zap/api + zap/db) — M3 — Organisation chats (the differentiator)": {
+    "number": 539,
+    "id": "5159428985"
+  },
+  "epic:public:Zap (zap/app + zap/api + zap/db) — M4 — Locality / government channels": {
+    "number": 540,
+    "id": "5159429592"
+  },
+  "epic:public:Zap (zap/app + zap/api + zap/db) — M5 — Polish + AI view + native": {
+    "number": 541,
+    "id": "5159430172"
+  },
+  "epic:public:Zap (zap/app + zap/api + zap/db) — Cross-cutting / open questions": {
+    "number": 542,
+    "id": "5159430768"
+  },
+  "epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M0 — Foundations (no provider yet)": {
+    "number": 543,
+    "id": "5159431378"
+  },
+  "epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M1 — Facial age estimation": {
+    "number": 544,
+    "id": "5159431971"
+  },
+  "epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M2 — AU document verification (DVS + selfie +…": {
+    "number": 545,
+    "id": "5159432513"
+  },
+  "epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M3 — mDL acceptance (ISO 18013-5 / 18013-7)": {
+    "number": 546,
+    "id": "5159432931"
+  },
+  "epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M4 — Relying-party API (Pulse, Zap,…": {
+    "number": 547,
+    "id": "5159433397"
+  },
+  "epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M5 — myID / AGDIS": {
+    "number": 548,
+    "id": "5159433891"
+  },
+  "epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M6 — Other countries": {
+    "number": 549,
+    "id": "5159434299"
+  },
+  "epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — Cross-cutting / open questions": {
+    "number": 550,
+    "id": "5159434745"
+  },
+  "epic:public:Platform — Pulse events API (pulse/api)": {
+    "number": 551,
+    "id": "5159435146"
+  },
+  "epic:public:Platform — Database (osn/db, pulse/db)": {
+    "number": 552,
+    "id": "5159435578"
+  },
+  "epic:public:Platform — Four-environment DB story (local / dev / staging / prod) — see database-environments": {
+    "number": 553,
+    "id": "5159436016"
+  },
+  "epic:public:Platform — Crypto (osn/crypto)": {
+    "number": 554,
+    "id": "5159436438"
+  },
+  "epic:public:Platform — UI Components (osn/ui)": {
+    "number": 555,
+    "id": "5159436907"
+  },
+  "epic:public:Platform — Redis Migration Phase 4 — see redis": {
+    "number": 556,
+    "id": "5159437343"
+  },
+  "epic:public:Auth Improvements (Copenhagen Book Audit) — Phase 4 — Hardening (Medium)": {
+    "number": 557,
+    "id": "5159437791"
+  },
+  "epic:public:Auth Improvements (Copenhagen Book Audit) — Phase 5 — Passkey-primary (Next)": {
+    "number": 558,
+    "id": "5159438187"
+  },
+  "epic:public:Future — Phase 2: Polish": {
+    "number": 559,
+    "id": "5159438654"
+  },
+  "epic:public:Future — Phase 3: Expansion": {
+    "number": 560,
+    "id": "5159439096"
+  },
+  "wiki/TODO.md:177": {
+    "number": 561,
+    "id": "5159439534"
+  },
+  "wiki/TODO.md:178": {
+    "number": 562,
+    "id": "5159439946"
+  },
+  "wiki/TODO.md:182": {
+    "number": 563,
+    "id": "5159440358"
+  },
+  "wiki/TODO.md:183": {
+    "number": 564,
+    "id": "5159440803"
+  },
+  "wiki/TODO.md:184": {
+    "number": 565,
+    "id": "5159441219"
+  },
+  "wiki/TODO.md:185": {
+    "number": 566,
+    "id": "5159441695"
+  },
+  "wiki/TODO.md:186": {
+    "number": 567,
+    "id": "5159442146"
+  },
+  "wiki/TODO.md:187": {
+    "number": 568,
+    "id": "5159442606"
+  },
+  "wiki/TODO.md:188": {
+    "number": 569,
+    "id": "5159443045"
+  },
+  "wiki/TODO.md:192": {
+    "number": 570,
+    "id": "5159443461"
+  },
+  "wiki/TODO.md:193": {
+    "number": 571,
+    "id": "5159443964"
+  },
+  "wiki/TODO.md:194": {
+    "number": 572,
+    "id": "5159444371"
+  },
+  "wiki/TODO.md:195": {
+    "number": 573,
+    "id": "5159444819"
+  },
+  "wiki/TODO.md:196": {
+    "number": 574,
+    "id": "5159445238"
+  },
+  "wiki/TODO.md:197": {
+    "number": 575,
+    "id": "5159445662"
+  },
+  "wiki/TODO.md:201": {
+    "number": 576,
+    "id": "5159446102"
+  },
+  "wiki/TODO.md:202": {
+    "number": 577,
+    "id": "5159446550"
+  },
+  "wiki/TODO.md:203": {
+    "number": 578,
+    "id": "5159447018"
+  },
+  "wiki/TODO.md:204": {
+    "number": 579,
+    "id": "5159447446"
+  },
+  "wiki/TODO.md:205": {
+    "number": 580,
+    "id": "5159447889"
+  },
+  "wiki/TODO.md:206": {
+    "number": 581,
+    "id": "5159448480"
+  },
+  "wiki/TODO.md:210": {
+    "number": 582,
+    "id": "5159448914"
+  },
+  "wiki/TODO.md:211": {
+    "number": 583,
+    "id": "5159449379"
+  },
+  "wiki/TODO.md:212": {
+    "number": 584,
+    "id": "5159449926"
+  },
+  "wiki/TODO.md:213": {
+    "number": 585,
+    "id": "5159450377"
+  },
+  "wiki/TODO.md:214": {
+    "number": 586,
+    "id": "5159450802"
+  },
+  "wiki/TODO.md:215": {
+    "number": 587,
+    "id": "5159451221"
+  },
+  "wiki/TODO.md:219": {
+    "number": 588,
+    "id": "5159451662"
+  },
+  "wiki/TODO.md:220": {
+    "number": 589,
+    "id": "5159452108"
+  },
+  "wiki/TODO.md:221": {
+    "number": 590,
+    "id": "5159452541"
+  },
+  "wiki/TODO.md:222": {
+    "number": 591,
+    "id": "5159452990"
+  },
+  "wiki/TODO.md:223": {
+    "number": 592,
+    "id": "5159453476"
+  },
+  "wiki/TODO.md:224": {
+    "number": 593,
+    "id": "5159453927"
+  },
+  "wiki/TODO.md:225": {
+    "number": 594,
+    "id": "5159454359"
+  },
+  "wiki/TODO.md:226": {
+    "number": 595,
+    "id": "5159454805"
+  },
+  "wiki/TODO.md:230": {
+    "number": 596,
+    "id": "5159455174"
+  },
+  "wiki/TODO.md:231": {
+    "number": 597,
+    "id": "5159455586"
+  },
+  "wiki/TODO.md:232": {
+    "number": 598,
+    "id": "5159456037"
+  },
+  "wiki/TODO.md:233": {
+    "number": 599,
+    "id": "5159456461"
+  },
+  "wiki/TODO.md:306": {
+    "number": 600,
+    "id": "5159456879"
+  },
+  "wiki/TODO.md:312": {
+    "number": 601,
+    "id": "5159457308"
+  },
+  "wiki/TODO.md:316": {
+    "number": 602,
+    "id": "5159457701"
+  },
+  "wiki/TODO.md:320": {
+    "number": 603,
+    "id": "5159458176"
+  },
+  "wiki/TODO.md:324": {
+    "number": 604,
+    "id": "5159458596"
+  },
+  "wiki/TODO.md:326": {
+    "number": 605,
+    "id": "5159458967"
+  },
+  "wiki/TODO.md:336": {
+    "number": 606,
+    "id": "5159459384"
+  },
+  "wiki/TODO.md:339": {
+    "number": 607,
+    "id": "5159459824"
+  },
+  "wiki/TODO.md:344": {
+    "number": 608,
+    "id": "5159460249"
+  },
+  "wiki/TODO.md:352": {
+    "number": 609,
+    "id": "5159460664"
+  },
+  "wiki/TODO.md:354": {
+    "number": 610,
+    "id": "5159461055"
+  },
+  "wiki/TODO.md:357": {
+    "number": 611,
+    "id": "5159461483"
+  },
+  "wiki/TODO.md:362": {
+    "number": 612,
+    "id": "5159461909"
+  },
+  "wiki/TODO.md:365": {
+    "number": 613,
+    "id": "5159462383"
+  },
+  "wiki/TODO.md:368": {
+    "number": 614,
+    "id": "5159462806"
+  },
+  "wiki/TODO.md:371": {
+    "number": 615,
+    "id": "5159463263"
+  },
+  "wiki/TODO.md:377": {
+    "number": 616,
+    "id": "5159463698"
+  },
+  "wiki/TODO.md:380": {
+    "number": 617,
+    "id": "5159464177"
+  },
+  "wiki/TODO.md:386": {
+    "number": 618,
+    "id": "5159464607"
+  },
+  "wiki/TODO.md:389": {
+    "number": 619,
+    "id": "5159465066"
+  },
+  "wiki/TODO.md:392": {
+    "number": 620,
+    "id": "5159465540"
+  },
+  "wiki/TODO.md:397": {
+    "number": 621,
+    "id": "5159465972"
+  },
+  "wiki/TODO.md:400": {
+    "number": 622,
+    "id": "5159466402"
+  },
+  "wiki/TODO.md:403": {
+    "number": 623,
+    "id": "5159466836"
+  },
+  "wiki/TODO.md:405": {
+    "number": 624,
+    "id": "5159467278"
+  },
+  "wiki/TODO.md:407": {
+    "number": 625,
+    "id": "5159467749"
+  },
+  "wiki/TODO.md:410": {
+    "number": 626,
+    "id": "5159468179"
+  },
+  "wiki/TODO.md:418": {
+    "number": 627,
+    "id": "5159468629"
+  },
+  "wiki/TODO.md:419": {
+    "number": 628,
+    "id": "5159469033"
+  },
+  "wiki/TODO.md:422": {
+    "number": 629,
+    "id": "5159469492"
+  },
+  "wiki/TODO.md:426": {
+    "number": 630,
+    "id": "5159469924"
+  },
+  "wiki/TODO.md:428": {
+    "number": 631,
+    "id": "5159470379"
+  },
+  "wiki/TODO.md:430": {
+    "number": 632,
+    "id": "5159470812"
+  },
+  "wiki/TODO.md:436": {
+    "number": 633,
+    "id": "5159471268"
+  },
+  "wiki/TODO.md:439": {
+    "number": 634,
+    "id": "5159471641"
+  },
+  "wiki/TODO.md:442": {
+    "number": 635,
+    "id": "5159472081"
+  },
+  "wiki/TODO.md:447": {
+    "number": 636,
+    "id": "5159472483"
+  },
+  "wiki/TODO.md:464": {
+    "number": 637,
+    "id": "5159472964"
+  },
+  "wiki/TODO.md:467": {
+    "number": 638,
+    "id": "5159473391"
+  },
+  "wiki/TODO.md:468": {
+    "number": 639,
+    "id": "5159473789"
+  },
+  "wiki/TODO.md:469": {
+    "number": 640,
+    "id": "5159474247"
+  },
+  "wiki/TODO.md:480": {
+    "number": 641,
+    "id": "5159474670"
+  },
+  "wiki/TODO.md:481": {
+    "number": 642,
+    "id": "5159475088"
+  },
+  "wiki/TODO.md:492": {
+    "number": 643,
+    "id": "5159475581"
+  },
+  "wiki/TODO.md:497": {
+    "number": 644,
+    "id": "5159476082"
+  },
+  "wiki/TODO.md:513": {
+    "number": 645,
+    "id": "5159476565"
+  },
+  "wiki/TODO.md:517": {
+    "number": 646,
+    "id": "5159476996"
+  },
+  "wiki/TODO.md:518": {
+    "number": 647,
+    "id": "5159477474"
+  },
+  "wiki/TODO.md:519": {
+    "number": 648,
+    "id": "5159477913"
+  },
+  "wiki/TODO.md:520": {
+    "number": 649,
+    "id": "5159478400"
+  },
+  "wiki/TODO.md:521": {
+    "number": 650,
+    "id": "5159478893"
+  },
+  "wiki/TODO.md:526": {
+    "number": 651,
+    "id": "5159479313"
+  },
+  "wiki/TODO.md:534": {
+    "number": 652,
+    "id": "5159479755"
+  },
+  "wiki/TODO.md:535": {
+    "number": 653,
+    "id": "5159480231"
+  },
+  "wiki/TODO.md:536": {
+    "number": 654,
+    "id": "5159480709"
+  },
+  "wiki/TODO.md:537": {
+    "number": 655,
+    "id": "5159481170"
+  },
+  "wiki/TODO.md:538": {
+    "number": 656,
+    "id": "5159481631"
+  },
+  "wiki/TODO.md:545": {
+    "number": 657,
+    "id": "5159482055"
+  },
+  "wiki/TODO.md:546": {
+    "number": 658,
+    "id": "5159482527"
+  },
+  "wiki/TODO.md:548": {
+    "number": 659,
+    "id": "5159483028"
+  },
+  "wiki/TODO.md:554": {
+    "number": 660,
+    "id": "5159483504"
+  },
+  "wiki/TODO.md:555": {
+    "number": 661,
+    "id": "5159483935"
+  },
+  "wiki/TODO.md:556": {
+    "number": 662,
+    "id": "5159484423"
+  },
+  "wiki/TODO.md:557": {
+    "number": 663,
+    "id": "5159484872"
+  },
+  "wiki/TODO.md:997": {
+    "number": 664,
+    "id": "5159485340"
+  },
+  "wiki/TODO.md:1002": {
+    "number": 665,
+    "id": "5159485842"
+  },
+  "wiki/TODO.md:1056": {
+    "number": 666,
+    "id": "5159486361"
+  },
+  "wiki/TODO.md:1057": {
+    "number": 667,
+    "id": "5159486833"
+  },
+  "wiki/TODO.md:1058": {
+    "number": 668,
+    "id": "5159487310"
+  },
+  "wiki/TODO.md:1059": {
+    "number": 669,
+    "id": "5159487796"
+  },
+  "wiki/TODO.md:1060": {
+    "number": 670,
+    "id": "5159488254"
+  },
+  "wiki/TODO.md:1063": {
+    "number": 671,
+    "id": "5159488720"
+  },
+  "wiki/TODO.md:1064": {
+    "number": 672,
+    "id": "5159489144"
+  },
+  "wiki/TODO.md:1065": {
+    "number": 673,
+    "id": "5159489596"
+  },
+  "wiki/TODO.md:1066": {
+    "number": 674,
+    "id": "5159490253"
+  },
+  "wiki/TODO.md:1067": {
+    "number": 675,
+    "id": "5159491033"
+  },
+  "wiki/TODO.md:1068": {
+    "number": 676,
+    "id": "5159491505"
+  },
+  "link:wiki/TODO.md:177": {
+    "number": 561,
+    "id": "5159439534"
+  },
+  "link:wiki/TODO.md:178": {
+    "number": 562,
+    "id": "5159439946"
+  },
+  "link:wiki/TODO.md:182": {
+    "number": 563,
+    "id": "5159440358"
+  },
+  "link:wiki/TODO.md:183": {
+    "number": 564,
+    "id": "5159440803"
+  },
+  "link:wiki/TODO.md:184": {
+    "number": 565,
+    "id": "5159441219"
+  },
+  "link:wiki/TODO.md:185": {
+    "number": 566,
+    "id": "5159441695"
+  },
+  "link:wiki/TODO.md:186": {
+    "number": 567,
+    "id": "5159442146"
+  },
+  "link:wiki/TODO.md:187": {
+    "number": 568,
+    "id": "5159442606"
+  },
+  "link:wiki/TODO.md:188": {
+    "number": 569,
+    "id": "5159443045"
+  },
+  "link:wiki/TODO.md:192": {
+    "number": 570,
+    "id": "5159443461"
+  },
+  "link:wiki/TODO.md:193": {
+    "number": 571,
+    "id": "5159443964"
+  },
+  "link:wiki/TODO.md:194": {
+    "number": 572,
+    "id": "5159444371"
+  },
+  "link:wiki/TODO.md:195": {
+    "number": 573,
+    "id": "5159444819"
+  },
+  "link:wiki/TODO.md:196": {
+    "number": 574,
+    "id": "5159445238"
+  },
+  "link:wiki/TODO.md:197": {
+    "number": 575,
+    "id": "5159445662"
+  },
+  "link:wiki/TODO.md:201": {
+    "number": 576,
+    "id": "5159446102"
+  },
+  "link:wiki/TODO.md:202": {
+    "number": 577,
+    "id": "5159446550"
+  },
+  "link:wiki/TODO.md:203": {
+    "number": 578,
+    "id": "5159447018"
+  },
+  "link:wiki/TODO.md:204": {
+    "number": 579,
+    "id": "5159447446"
+  },
+  "link:wiki/TODO.md:205": {
+    "number": 580,
+    "id": "5159447889"
+  },
+  "link:wiki/TODO.md:206": {
+    "number": 581,
+    "id": "5159448480"
+  },
+  "link:wiki/TODO.md:210": {
+    "number": 582,
+    "id": "5159448914"
+  },
+  "link:wiki/TODO.md:211": {
+    "number": 583,
+    "id": "5159449379"
+  },
+  "link:wiki/TODO.md:212": {
+    "number": 584,
+    "id": "5159449926"
+  },
+  "link:wiki/TODO.md:213": {
+    "number": 585,
+    "id": "5159450377"
+  },
+  "link:wiki/TODO.md:214": {
+    "number": 586,
+    "id": "5159450802"
+  },
+  "link:wiki/TODO.md:215": {
+    "number": 587,
+    "id": "5159451221"
+  },
+  "link:wiki/TODO.md:219": {
+    "number": 588,
+    "id": "5159451662"
+  },
+  "link:wiki/TODO.md:220": {
+    "number": 589,
+    "id": "5159452108"
+  },
+  "link:wiki/TODO.md:221": {
+    "number": 590,
+    "id": "5159452541"
+  },
+  "link:wiki/TODO.md:222": {
+    "number": 591,
+    "id": "5159452990"
+  },
+  "link:wiki/TODO.md:223": {
+    "number": 592,
+    "id": "5159453476"
+  },
+  "link:wiki/TODO.md:224": {
+    "number": 593,
+    "id": "5159453927"
+  },
+  "link:wiki/TODO.md:225": {
+    "number": 594,
+    "id": "5159454359"
+  },
+  "link:wiki/TODO.md:226": {
+    "number": 595,
+    "id": "5159454805"
+  },
+  "link:wiki/TODO.md:230": {
+    "number": 596,
+    "id": "5159455174"
+  },
+  "link:wiki/TODO.md:231": {
+    "number": 597,
+    "id": "5159455586"
+  },
+  "link:wiki/TODO.md:232": {
+    "number": 598,
+    "id": "5159456037"
+  },
+  "link:wiki/TODO.md:233": {
+    "number": 599,
+    "id": "5159456461"
+  },
+  "link:wiki/TODO.md:306": {
+    "number": 600,
+    "id": "5159456879"
+  },
+  "link:wiki/TODO.md:312": {
+    "number": 601,
+    "id": "5159457308"
+  },
+  "link:wiki/TODO.md:316": {
+    "number": 602,
+    "id": "5159457701"
+  },
+  "link:wiki/TODO.md:320": {
+    "number": 603,
+    "id": "5159458176"
+  },
+  "link:wiki/TODO.md:324": {
+    "number": 604,
+    "id": "5159458596"
+  },
+  "link:wiki/TODO.md:326": {
+    "number": 605,
+    "id": "5159458967"
+  },
+  "link:wiki/TODO.md:336": {
+    "number": 606,
+    "id": "5159459384"
+  },
+  "link:wiki/TODO.md:339": {
+    "number": 607,
+    "id": "5159459824"
+  },
+  "link:wiki/TODO.md:344": {
+    "number": 608,
+    "id": "5159460249"
+  },
+  "link:wiki/TODO.md:352": {
+    "number": 609,
+    "id": "5159460664"
+  },
+  "link:wiki/TODO.md:354": {
+    "number": 610,
+    "id": "5159461055"
+  },
+  "link:wiki/TODO.md:357": {
+    "number": 611,
+    "id": "5159461483"
+  },
+  "link:wiki/TODO.md:362": {
+    "number": 612,
+    "id": "5159461909"
+  },
+  "link:wiki/TODO.md:365": {
+    "number": 613,
+    "id": "5159462383"
+  },
+  "link:wiki/TODO.md:368": {
+    "number": 614,
+    "id": "5159462806"
+  },
+  "link:wiki/TODO.md:371": {
+    "number": 615,
+    "id": "5159463263"
+  },
+  "link:wiki/TODO.md:377": {
+    "number": 616,
+    "id": "5159463698"
+  },
+  "link:wiki/TODO.md:380": {
+    "number": 617,
+    "id": "5159464177"
+  },
+  "link:wiki/TODO.md:386": {
+    "number": 618,
+    "id": "5159464607"
+  },
+  "link:wiki/TODO.md:389": {
+    "number": 619,
+    "id": "5159465066"
+  },
+  "link:wiki/TODO.md:392": {
+    "number": 620,
+    "id": "5159465540"
+  },
+  "link:wiki/TODO.md:397": {
+    "number": 621,
+    "id": "5159465972"
+  },
+  "link:wiki/TODO.md:400": {
+    "number": 622,
+    "id": "5159466402"
+  },
+  "link:wiki/TODO.md:403": {
+    "number": 623,
+    "id": "5159466836"
+  },
+  "link:wiki/TODO.md:405": {
+    "number": 624,
+    "id": "5159467278"
+  },
+  "link:wiki/TODO.md:407": {
+    "number": 625,
+    "id": "5159467749"
+  },
+  "link:wiki/TODO.md:410": {
+    "number": 626,
+    "id": "5159468179"
+  },
+  "link:wiki/TODO.md:418": {
+    "number": 627,
+    "id": "5159468629"
+  },
+  "link:wiki/TODO.md:419": {
+    "number": 628,
+    "id": "5159469033"
+  },
+  "link:wiki/TODO.md:422": {
+    "number": 629,
+    "id": "5159469492"
+  },
+  "link:wiki/TODO.md:426": {
+    "number": 630,
+    "id": "5159469924"
+  },
+  "link:wiki/TODO.md:428": {
+    "number": 631,
+    "id": "5159470379"
+  },
+  "link:wiki/TODO.md:430": {
+    "number": 632,
+    "id": "5159470812"
+  },
+  "link:wiki/TODO.md:436": {
+    "number": 633,
+    "id": "5159471268"
+  },
+  "link:wiki/TODO.md:439": {
+    "number": 634,
+    "id": "5159471641"
+  },
+  "link:wiki/TODO.md:442": {
+    "number": 635,
+    "id": "5159472081"
+  },
+  "link:wiki/TODO.md:447": {
+    "number": 636,
+    "id": "5159472483"
+  },
+  "link:wiki/TODO.md:464": {
+    "number": 637,
+    "id": "5159472964"
+  },
+  "link:wiki/TODO.md:467": {
+    "number": 638,
+    "id": "5159473391"
+  },
+  "link:wiki/TODO.md:468": {
+    "number": 639,
+    "id": "5159473789"
+  },
+  "link:wiki/TODO.md:469": {
+    "number": 640,
+    "id": "5159474247"
+  },
+  "link:wiki/TODO.md:480": {
+    "number": 641,
+    "id": "5159474670"
+  },
+  "link:wiki/TODO.md:481": {
+    "number": 642,
+    "id": "5159475088"
+  },
+  "link:wiki/TODO.md:492": {
+    "number": 643,
+    "id": "5159475581"
+  },
+  "link:wiki/TODO.md:497": {
+    "number": 644,
+    "id": "5159476082"
+  },
+  "link:wiki/TODO.md:513": {
+    "number": 645,
+    "id": "5159476565"
+  },
+  "link:wiki/TODO.md:517": {
+    "number": 646,
+    "id": "5159476996"
+  },
+  "link:wiki/TODO.md:518": {
+    "number": 647,
+    "id": "5159477474"
+  },
+  "link:wiki/TODO.md:519": {
+    "number": 648,
+    "id": "5159477913"
+  },
+  "link:wiki/TODO.md:520": {
+    "number": 649,
+    "id": "5159478400"
+  },
+  "link:wiki/TODO.md:521": {
+    "number": 650,
+    "id": "5159478893"
+  },
+  "link:wiki/TODO.md:526": {
+    "number": 651,
+    "id": "5159479313"
+  },
+  "link:wiki/TODO.md:534": {
+    "number": 652,
+    "id": "5159479755"
+  },
+  "link:wiki/TODO.md:535": {
+    "number": 653,
+    "id": "5159480231"
+  },
+  "link:wiki/TODO.md:536": {
+    "number": 654,
+    "id": "5159480709"
+  },
+  "link:wiki/TODO.md:537": {
+    "number": 655,
+    "id": "5159481170"
+  },
+  "link:wiki/TODO.md:538": {
+    "number": 656,
+    "id": "5159481631"
+  },
+  "link:wiki/TODO.md:545": {
+    "number": 657,
+    "id": "5159482055"
+  },
+  "link:wiki/TODO.md:546": {
+    "number": 658,
+    "id": "5159482527"
+  },
+  "link:wiki/TODO.md:548": {
+    "number": 659,
+    "id": "5159483028"
+  },
+  "link:wiki/TODO.md:554": {
+    "number": 660,
+    "id": "5159483504"
+  },
+  "link:wiki/TODO.md:555": {
+    "number": 661,
+    "id": "5159483935"
+  },
+  "link:wiki/TODO.md:556": {
+    "number": 662,
+    "id": "5159484423"
+  },
+  "link:wiki/TODO.md:557": {
+    "number": 663,
+    "id": "5159484872"
+  },
+  "link:wiki/TODO.md:997": {
+    "number": 664,
+    "id": "5159485340"
+  },
+  "link:wiki/TODO.md:1002": {
+    "number": 665,
+    "id": "5159485842"
+  },
+  "link:wiki/TODO.md:1056": {
+    "number": 666,
+    "id": "5159486361"
+  },
+  "link:wiki/TODO.md:1057": {
+    "number": 667,
+    "id": "5159486833"
+  },
+  "link:wiki/TODO.md:1058": {
+    "number": 668,
+    "id": "5159487310"
+  },
+  "link:wiki/TODO.md:1059": {
+    "number": 669,
+    "id": "5159487796"
+  },
+  "link:wiki/TODO.md:1060": {
+    "number": 670,
+    "id": "5159488254"
+  },
+  "link:wiki/TODO.md:1063": {
+    "number": 671,
+    "id": "5159488720"
+  },
+  "link:wiki/TODO.md:1064": {
+    "number": 672,
+    "id": "5159489144"
+  },
+  "link:wiki/TODO.md:1065": {
+    "number": 673,
+    "id": "5159489596"
+  },
+  "link:wiki/TODO.md:1066": {
+    "number": 674,
+    "id": "5159490253"
+  },
+  "link:wiki/TODO.md:1067": {
+    "number": 675,
+    "id": "5159491033"
+  },
+  "link:wiki/TODO.md:1068": {
+    "number": 676,
+    "id": "5159491505"
+  },
+  "epic:private:Performance Backlog — Guest sign-out control (claude/cire-invites-claim-code-button-sn5br8, 2026-08-08)": {
+    "number": 1,
+    "id": "5159568098"
+  },
+  "epic:private:Performance Backlog — RSVP save latency (claude/rsvp-modal-close-delay-d8sqnd, 2026-08-08)": {
+    "number": 2,
+    "id": "5159568580"
+  },
+  "epic:private:Performance Backlog — RSVP confirmation timing + mobile invite preview (claude/pr388-deploy-mobile-invite-jlz8in,…": {
+    "number": 3,
+    "id": "5159569029"
+  },
+  "epic:private:Performance Backlog — CSV import into each module's Edit mode (claude/cire-csv-import-reorganize-y1vbnk, 2026-08-06)": {
+    "number": 4,
+    "id": "5159569532"
+  },
+  "epic:private:Performance Backlog — Claim-field contrast + reveal ownership (claude/cire-invites-claim-input-bug-8q0ev8, 2026-08-05)": {
+    "number": 5,
+    "id": "5159570010"
+  },
+  "epic:private:Performance Backlog — Guests-editor review — household rename fix (claude/cire-web-editor-household-name-qcfkb4,…": {
+    "number": 6,
+    "id": "5159570505"
+  },
+  "epic:private:Performance Backlog — Bare domain → marketing site (claude/live-cire-wedding-rename-x3y623, 2026-08-02)": {
+    "number": 7,
+    "id": "5159570973"
+  },
+  "epic:private:Performance Backlog — Invite open path — restore, preconnect, prefetch (claude/invite-code-gating-hints-g8nw0o,…": {
+    "number": 8,
+    "id": "5159571448"
+  },
+  "epic:private:Performance Backlog — Guest-deletion fix — row identity + the households read (claude/cire-guest-deletion-bug-ve85ng,…": {
+    "number": 9,
+    "id": "5159571912"
+  },
+  "epic:private:Performance Backlog — RSVP CSV per-event dietary + editor co-host add (claude/rsvp-notice-contrast-fix-m5px1l,…": {
+    "number": 10,
+    "id": "5159572355"
+  },
+  "epic:private:Performance Backlog — RSVP-by editable by a co-host — review findings (claude/cire-rsvp-date-cohost-edit-va8w9i,…": {
+    "number": 11,
+    "id": "5159572850"
+  },
+  "epic:private:Performance Backlog — Single-sheet CSV uploads — review findings (claude/cire-dashboard-csv-uploads-zk5rt0, 2026-07-31)": {
+    "number": 12,
+    "id": "5159573280"
+  },
+  "epic:private:Performance Backlog — Host portal fluid layout — review findings (claude/host-portal-responsive-ui-zdy9ri, 2026-07-30)": {
+    "number": 13,
+    "id": "5159573713"
+  },
+  "epic:private:Performance Backlog — Closing hero band — review findings (claude/closing-hero-image-j40coh, 2026-07-31)": {
+    "number": 14,
+    "id": "5159574231"
+  },
+  "epic:private:Performance Backlog — Data-layer review fixes — pre-merge review findings (claude/cire-data-layer-review-s7d6gt,…": {
+    "number": 15,
+    "id": "5159574645"
+  },
+  "epic:private:Performance Backlog — Invite builder UX pass — review findings (claude/invite-builder-structure-review-ali18d,…": {
+    "number": 16,
+    "id": "5159575139"
+  },
+  "epic:private:Performance Backlog — Closing section — review findings (claude/cire-footer-customisation-xkc09y, 2026-07-29)": {
+    "number": 17,
+    "id": "5159575573"
+  },
+  "epic:private:Performance Backlog — Hero phone crop — review findings (claude/hero-image-responsive-crop-b6b74u, 2026-07-23)": {
+    "number": 18,
+    "id": "5159576040"
+  },
+  "epic:private:Performance Backlog — Guest invite taste pass — review findings (fix/cire-invite-taste-pass, 2026-07-22)": {
+    "number": 19,
+    "id": "5159576475"
+  },
+  "epic:private:Performance Backlog — Host dashboard redesign — review findings (feat/cire-host-dashboard-redesign, 2026-07-22)": {
+    "number": 20,
+    "id": "5159576959"
+  },
+  "epic:private:Performance Backlog — Invite customisation + builder restructure — review findings (cire-invite-customization branch)": {
+    "number": 21,
+    "id": "5159577456"
+  },
+  "epic:private:Performance Backlog — Optional End/Location CSV spec — review findings (wedding-management-platform branch)": {
+    "number": 22,
+    "id": "5159577949"
+  },
+  "epic:private:Performance Backlog — Crop editor + colour picker fixes — review findings (cire-color-upload-bugs branch)": {
+    "number": 23,
+    "id": "5159578425"
+  },
+  "epic:private:Performance Backlog — Observability instrumentation — review notes (Info, no action)": {
+    "number": 24,
+    "id": "5159578900"
+  },
+  "epic:private:Performance Backlog — Vendors PR B — vendor portal review notes (feat/cire-vendor-portal)": {
+    "number": 25,
+    "id": "5159579355"
+  },
+  "epic:private:Performance Backlog — Vendors S3 (directory browse) — /prep-pr perf review notes (feat/cire-vendors-directory-browse)": {
+    "number": 26,
+    "id": "5159579853"
+  },
+  "epic:private:Performance Backlog — Vendors S4 PR B — enquiry backend perf review notes (feat/cire-vendors-enquiries)": {
+    "number": 27,
+    "id": "5159580331"
+  },
+  "epic:private:Performance Backlog — Platform tiering Phase 1 (entitlement foundation) — /prep-pr perf review notes…": {
+    "number": 28,
+    "id": "5159580827"
+  },
+  "epic:private:Security Backlog — RSVP sheet close delay (claude/rsvp-modal-close-delay-d8sqnd, 2026-08-08)": {
+    "number": 29,
+    "id": "5159581387"
+  },
+  "epic:private:Security Backlog — RSVP partial saves + persistent confirmation fill (claude/fog-bloom-sweep-fill-issues-lwdamh,…": {
+    "number": 30,
+    "id": "5159581855"
+  },
+  "epic:private:Security Backlog — Host-portal date picker + event timezones + design-aware preview…": {
+    "number": 31,
+    "id": "5159582320"
+  },
+  "epic:private:Security Backlog — Household-rename fix — familyUpdates op (claude/cire-web-editor-household-name-qcfkb4, 2026-08-02)": {
+    "number": 32,
+    "id": "5159582793"
+  },
+  "epic:private:Security Backlog — Guest-deletion fix — row identity in the reconcile diff (claude/cire-guest-deletion-bug-ve85ng,…": {
+    "number": 33,
+    "id": "5159583298"
+  },
+  "epic:private:Security Backlog — Guest session restore (claude/invite-code-gating-hints-g8nw0o, 2026-08-02)": {
+    "number": 34,
+    "id": "5159583759"
+  },
+  "epic:private:Security Backlog — Invite styling + contrast warnings + hex picker (claude/cire-invite-styling-picker-87ni7b,…": {
+    "number": 35,
+    "id": "5159584244"
+  },
+  "epic:private:Security Backlog — RSVP-by editable by a co-host — review findings (claude/cire-rsvp-date-cohost-edit-va8w9i,…": {
+    "number": 36,
+    "id": "5159584768"
+  },
+  "epic:private:Security Backlog — Closing hero band — review findings (claude/closing-hero-image-j40coh, 2026-07-31)": {
+    "number": 37,
+    "id": "5159585219"
+  },
+  "epic:private:Security Backlog — Single-sheet CSV uploads + import error reporting — review findings…": {
+    "number": 38,
+    "id": "5159585707"
+  },
+  "epic:private:Security Backlog — Closing section — review findings (claude/cire-footer-customisation-xkc09y, 2026-07-29)": {
+    "number": 39,
+    "id": "5159586192"
+  },
+  "epic:private:High": {
+    "number": 40,
+    "id": "5159586632"
+  },
+  "epic:private:Low": {
+    "number": 41,
+    "id": "5159587079"
+  },
+  "epic:private:Low — Vendors S4 PR B — enquiry backend review notes (feat/cire-vendors-enquiries)": {
+    "number": 42,
+    "id": "5159587561"
+  },
+  "epic:private:Low — Vendors PR B — vendor portal review notes (feat/cire-vendor-portal)": {
+    "number": 43,
+    "id": "5159588037"
+  },
+  "epic:private:Low — Vendors S3 (directory browse) — /prep-pr review notes (feat/cire-vendors-directory-browse)": {
+    "number": 44,
+    "id": "5159588514"
+  },
+  "epic:private:Low — Site-wide consent framework (claude/site-wide-consent-framework-jys0q2)": {
+    "number": 45,
+    "id": "5159589047"
+  },
+  "epic:private:Up Next": {
+    "number": 46,
+    "id": "5159589611"
+  },
+  "epic:private:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M0 — Foundations (no provider yet)": {
+    "number": 47,
+    "id": "5159590080"
+  },
+  "epic:private:Platform — Four-environment DB story (local / dev / staging / prod) — see database-environments": {
+    "number": 48,
+    "id": "5159590567"
+  },
+  "epic:private:Platform — Crypto (osn/crypto)": {
+    "number": 49,
+    "id": "5160924678"
+  },
+  "epic:private:Platform — Redis Migration Phase 4 — see redis": {
+    "number": 50,
+    "id": "5160925112"
+  },
+  "epic:private:Security Backlog — Medium": {
+    "number": 51,
+    "id": "5160925605"
+  },
+  "epic:private:Security Backlog — Auth PR review (#315–#324) — remaining open": {
+    "number": 52,
+    "id": "5160926024"
+  },
+  "epic:private:Security Backlog — Low": {
+    "number": 53,
+    "id": "5161045494"
+  },
+  "epic:private:Performance Backlog": {
+    "number": 54,
+    "id": "5161045526"
+  },
+  "epic:private:Performance Backlog — Warning": {
+    "number": 55,
+    "id": "5168648225"
+  },
+  "epic:private:Performance Backlog — Info": {
+    "number": 56,
+    "id": "5168648882"
+  },
+  "epic:private:Compliance Backlog — High": {
+    "number": 57,
+    "id": "5168649602"
+  },
+  "epic:private:Compliance Backlog — Medium": {
+    "number": 58,
+    "id": "5168650302"
+  },
+  "epic:private:Compliance Backlog — Low": {
+    "number": 59,
+    "id": "5168651026"
+  },
+  "epic:private:Auth Improvements (Copenhagen Book Audit) — Phase 3 — Defense-in-Depth (High)": {
+    "number": 60,
+    "id": "5168651723"
+  },
+  "cire/wiki/todo/perf.md:17": {
+    "number": 61,
+    "id": "5168652486"
+  },
+  "cire/wiki/todo/perf.md:18": {
+    "number": 62,
+    "id": "5168653162"
+  },
+  "cire/wiki/todo/perf.md:26": {
+    "number": 63,
+    "id": "5168653882"
+  },
+  "cire/wiki/todo/perf.md:33": {
+    "number": 64,
+    "id": "5168654647"
+  },
+  "cire/wiki/todo/perf.md:39": {
+    "number": 65,
+    "id": "5168655380"
+  },
+  "cire/wiki/todo/perf.md:48": {
+    "number": 66,
+    "id": "5168656153"
+  },
+  "cire/wiki/todo/perf.md:49": {
+    "number": 67,
+    "id": "5168656859"
+  },
+  "cire/wiki/todo/perf.md:50": {
+    "number": 68,
+    "id": "5168657614"
+  },
+  "cire/wiki/todo/perf.md:90": {
+    "number": 69,
+    "id": "5168658398"
+  },
+  "cire/wiki/todo/perf.md:97": {
+    "number": 70,
+    "id": "5168659143"
+  },
+  "cire/wiki/todo/perf.md:103": {
+    "number": 71,
+    "id": "5168659889"
+  },
+  "cire/wiki/todo/perf.md:113": {
+    "number": 72,
+    "id": "5168660663"
+  },
+  "cire/wiki/todo/perf.md:114": {
+    "number": 73,
+    "id": "5168661368"
+  },
+  "cire/wiki/todo/perf.md:115": {
+    "number": 74,
+    "id": "5168662102"
+  },
+  "cire/wiki/todo/perf.md:116": {
+    "number": 75,
+    "id": "5168662826"
+  },
+  "cire/wiki/todo/perf.md:123": {
+    "number": 76,
+    "id": "5168663570"
+  },
+  "cire/wiki/todo/perf.md:124": {
+    "number": 77,
+    "id": "5168664240"
+  },
+  "cire/wiki/todo/perf.md:130": {
+    "number": 78,
+    "id": "5168664955"
+  },
+  "cire/wiki/todo/perf.md:143": {
+    "number": 79,
+    "id": "5168665614"
+  },
+  "cire/wiki/todo/perf.md:145": {
+    "number": 80,
+    "id": "5168666240"
+  },
+  "cire/wiki/todo/perf.md:155": {
+    "number": 81,
+    "id": "5168666875"
+  },
+  "cire/wiki/todo/perf.md:180": {
+    "number": 82,
+    "id": "5168667569"
+  },
+  "cire/wiki/todo/perf.md:182": {
+    "number": 83,
+    "id": "5168668237"
+  },
+  "cire/wiki/todo/perf.md:183": {
+    "number": 84,
+    "id": "5168668913"
+  },
+  "cire/wiki/todo/perf.md:184": {
+    "number": 85,
+    "id": "5168669669"
+  },
+  "cire/wiki/todo/perf.md:185": {
+    "number": 86,
+    "id": "5168670368"
+  },
+  "cire/wiki/todo/perf.md:194": {
+    "number": 87,
+    "id": "5168670986"
+  },
+  "cire/wiki/todo/perf.md:195": {
+    "number": 88,
+    "id": "5168671623"
+  },
+  "cire/wiki/todo/perf.md:196": {
+    "number": 89,
+    "id": "5168672309"
+  },
+  "cire/wiki/todo/perf.md:198": {
+    "number": 90,
+    "id": "5168672967"
+  },
+  "cire/wiki/todo/perf.md:199": {
+    "number": 91,
+    "id": "5168673640"
+  },
+  "cire/wiki/todo/perf.md:207": {
+    "number": 92,
+    "id": "5168674325"
+  },
+  "cire/wiki/todo/perf.md:208": {
+    "number": 93,
+    "id": "5168674934"
+  },
+  "cire/wiki/todo/perf.md:217": {
+    "number": 94,
+    "id": "5168675592"
+  },
+  "cire/wiki/todo/perf.md:233": {
+    "number": 95,
+    "id": "5168676215"
+  },
+  "cire/wiki/todo/perf.md:234": {
+    "number": 96,
+    "id": "5168676872"
+  },
+  "cire/wiki/todo/perf.md:240": {
+    "number": 97,
+    "id": "5168677535"
+  },
+  "cire/wiki/todo/perf.md:249": {
+    "number": 98,
+    "id": "5168678155"
+  },
+  "cire/wiki/todo/perf.md:250": {
+    "number": 99,
+    "id": "5168678827"
+  },
+  "cire/wiki/todo/perf.md:251": {
+    "number": 100,
+    "id": "5168679483"
+  },
+  "cire/wiki/todo/perf.md:261": {
+    "number": 101,
+    "id": "5168680107"
+  },
+  "cire/wiki/todo/perf.md:272": {
+    "number": 102,
+    "id": "5168680729"
+  },
+  "cire/wiki/todo/perf.md:277": {
+    "number": 103,
+    "id": "5168681357"
+  },
+  "cire/wiki/todo/perf.md:296": {
+    "number": 104,
+    "id": "5168682002"
+  },
+  "cire/wiki/todo/perf.md:331": {
+    "number": 105,
+    "id": "5168682667"
+  },
+  "cire/wiki/todo/perf.md:335": {
+    "number": 106,
+    "id": "5168683397"
+  },
+  "cire/wiki/todo/perf.md:342": {
+    "number": 107,
+    "id": "5168684075"
+  },
+  "cire/wiki/todo/perf.md:361": {
+    "number": 108,
+    "id": "5168684693"
+  },
+  "cire/wiki/todo/perf.md:371": {
+    "number": 109,
+    "id": "5168685293"
+  },
+  "cire/wiki/todo/perf.md:372": {
+    "number": 110,
+    "id": "5168685894"
+  },
+  "cire/wiki/todo/perf.md:373": {
+    "number": 111,
+    "id": "5168686550"
+  },
+  "cire/wiki/todo/perf.md:380": {
+    "number": 112,
+    "id": "5168687193"
+  },
+  "cire/wiki/todo/perf.md:381": {
+    "number": 113,
+    "id": "5168687798"
+  },
+  "cire/wiki/todo/perf.md:382": {
+    "number": 114,
+    "id": "5168688421"
+  },
+  "cire/wiki/todo/perf.md:383": {
+    "number": 115,
+    "id": "5168689107"
+  },
+  "cire/wiki/todo/perf.md:389": {
+    "number": 116,
+    "id": "5168689723"
+  },
+  "cire/wiki/todo/perf.md:390": {
+    "number": 117,
+    "id": "5168690375"
+  },
+  "cire/wiki/todo/perf.md:391": {
+    "number": 118,
+    "id": "5168691040"
+  },
+  "cire/wiki/todo/perf.md:392": {
+    "number": 119,
+    "id": "5168691660"
+  },
+  "cire/wiki/todo/perf.md:393": {
+    "number": 120,
+    "id": "5168692345"
+  },
+  "cire/wiki/todo/perf.md:398": {
+    "number": 121,
+    "id": "5168693011"
+  },
+  "cire/wiki/todo/perf.md:400": {
+    "number": 122,
+    "id": "5168693665"
+  },
+  "cire/wiki/todo/perf.md:410": {
+    "number": 123,
+    "id": "5168694323"
+  },
+  "cire/wiki/todo/perf.md:411": {
+    "number": 124,
+    "id": "5168695036"
+  },
+  "cire/wiki/todo/perf.md:412": {
+    "number": 125,
+    "id": "5168695711"
+  },
+  "cire/wiki/todo/perf.md:427": {
+    "number": 126,
+    "id": "5168696359"
+  },
+  "cire/wiki/todo/perf.md:441": {
+    "number": 127,
+    "id": "5168696991"
+  },
+  "cire/wiki/todo/perf.md:524": {
+    "number": 128,
+    "id": "5168697622"
+  },
+  "cire/wiki/todo/perf.md:536": {
+    "number": 129,
+    "id": "5168698280"
+  },
+  "cire/wiki/todo/perf.md:544": {
+    "number": 130,
+    "id": "5168698987"
+  },
+  "cire/wiki/todo/perf.md:555": {
+    "number": 131,
+    "id": "5168699656"
+  },
+  "cire/wiki/todo/perf.md:561": {
+    "number": 132,
+    "id": "5168700349"
+  },
+  "cire/wiki/todo/security.md:19": {
+    "number": 133,
+    "id": "5168701037"
+  },
+  "cire/wiki/todo/security.md:25": {
+    "number": 134,
+    "id": "5168701759"
+  },
+  "cire/wiki/todo/security.md:43": {
+    "number": 135,
+    "id": "5168702545"
+  },
+  "cire/wiki/todo/security.md:55": {
+    "number": 136,
+    "id": "5168703268"
+  },
+  "cire/wiki/todo/security.md:73": {
+    "number": 137,
+    "id": "5168703975"
+  },
+  "cire/wiki/todo/security.md:82": {
+    "number": 138,
+    "id": "5168704642"
+  },
+  "cire/wiki/todo/security.md:83": {
+    "number": 139,
+    "id": "5168705365"
+  },
+  "cire/wiki/todo/security.md:84": {
+    "number": 140,
+    "id": "5168706089"
+  },
+  "cire/wiki/todo/security.md:102": {
+    "number": 141,
+    "id": "5168706790"
+  },
+  "cire/wiki/todo/security.md:103": {
+    "number": 142,
+    "id": "5168707574"
+  },
+  "cire/wiki/todo/security.md:107": {
+    "number": 143,
+    "id": "5168708358"
+  },
+  "cire/wiki/todo/security.md:117": {
+    "number": 144,
+    "id": "5168709059"
+  },
+  "cire/wiki/todo/security.md:124": {
+    "number": 145,
+    "id": "5168709812"
+  },
+  "cire/wiki/todo/security.md:125": {
+    "number": 146,
+    "id": "5168710470"
+  },
+  "cire/wiki/todo/security.md:129": {
+    "number": 147,
+    "id": "5168711132"
+  },
+  "cire/wiki/todo/security.md:141": {
+    "number": 148,
+    "id": "5168711826"
+  },
+  "cire/wiki/todo/security.md:142": {
+    "number": 149,
+    "id": "5168712417"
+  },
+  "cire/wiki/todo/security.md:143": {
+    "number": 150,
+    "id": "5168713140"
+  },
+  "cire/wiki/todo/security.md:171": {
+    "number": 151,
+    "id": "5168713778"
+  },
+  "cire/wiki/todo/security.md:172": {
+    "number": 152,
+    "id": "5168714453"
+  },
+  "cire/wiki/todo/security.md:215": {
+    "number": 153,
+    "id": "5168715194"
+  },
+  "cire/wiki/todo/security.md:225": {
+    "number": 154,
+    "id": "5168715878"
+  },
+  "cire/wiki/todo/security.md:231": {
+    "number": 155,
+    "id": "5168716510"
+  },
+  "cire/wiki/todo/security.md:232": {
+    "number": 156,
+    "id": "5168717209"
+  },
+  "cire/wiki/todo/security.md:240": {
+    "number": 157,
+    "id": "5168717855"
+  },
+  "cire/wiki/todo/security.md:242": {
+    "number": 158,
+    "id": "5168718517"
+  },
+  "cire/wiki/todo/security.md:243": {
+    "number": 159,
+    "id": "5168719181"
+  },
+  "cire/wiki/todo/security.md:257": {
+    "number": 160,
+    "id": "5168719871"
+  },
+  "cire/wiki/todo/security.md:258": {
+    "number": 161,
+    "id": "5168720524"
+  },
+  "cire/wiki/todo/security.md:277": {
+    "number": 162,
+    "id": "5168721487"
+  },
+  "cire/wiki/todo/security.md:278": {
+    "number": 163,
+    "id": "5168722308"
+  },
+  "cire/wiki/todo/security.md:289": {
+    "number": 164,
+    "id": "5168723073"
+  },
+  "cire/wiki/todo/security.md:317": {
+    "number": 165,
+    "id": "5168723973"
+  },
+  "cire/wiki/todo/security.md:417": {
+    "number": 166,
+    "id": "5168724778"
+  },
+  "cire/wiki/todo/security.md:441": {
+    "number": 167,
+    "id": "5168725563"
+  },
+  "wiki/TODO.md:15": {
+    "number": 168,
+    "id": "5168726485"
+  },
+  "wiki/TODO.md:27": {
+    "number": 169,
+    "id": "5168727277"
+  },
+  "wiki/TODO.md:302": {
+    "number": 170,
+    "id": "5168728038"
+  },
+  "wiki/TODO.md:502": {
+    "number": 171,
+    "id": "5168728798"
+  },
+  "wiki/TODO.md:503": {
+    "number": 172,
+    "id": "5168729695"
+  },
+  "wiki/TODO.md:504": {
+    "number": 173,
+    "id": "5168730509"
+  },
+  "wiki/TODO.md:514": {
+    "number": 174,
+    "id": "5168731261"
+  },
+  "wiki/TODO.md:515": {
+    "number": 175,
+    "id": "5168732049"
+  },
+  "wiki/TODO.md:516": {
+    "number": 176,
+    "id": "5168732967"
+  },
+  "wiki/TODO.md:528": {
+    "number": 177,
+    "id": "5168733767"
+  },
+  "wiki/TODO.md:551": {
+    "number": 178,
+    "id": "5168734502"
+  },
+  "wiki/TODO.md:577": {
+    "number": 179,
+    "id": "5168735114"
+  },
+  "wiki/TODO.md:578": {
+    "number": 180,
+    "id": "5168735769"
+  },
+  "wiki/TODO.md:579": {
+    "number": 181,
+    "id": "5168736459"
+  },
+  "wiki/TODO.md:586": {
+    "number": 182,
+    "id": "5168737138"
+  },
+  "wiki/TODO.md:587": {
+    "number": 183,
+    "id": "5168737833"
+  },
+  "wiki/TODO.md:588": {
+    "number": 184,
+    "id": "5168738469"
+  },
+  "wiki/TODO.md:589": {
+    "number": 185,
+    "id": "5168739120"
+  },
+  "wiki/TODO.md:591": {
+    "number": 186,
+    "id": "5168739754"
+  },
+  "wiki/TODO.md:592": {
+    "number": 187,
+    "id": "5168740471"
+  },
+  "wiki/TODO.md:593": {
+    "number": 188,
+    "id": "5168741112"
+  },
+  "wiki/TODO.md:594": {
+    "number": 189,
+    "id": "5168741761"
+  },
+  "wiki/TODO.md:595": {
+    "number": 190,
+    "id": "5168742418"
+  },
+  "wiki/TODO.md:596": {
+    "number": 191,
+    "id": "5168743096"
+  },
+  "wiki/TODO.md:597": {
+    "number": 192,
+    "id": "5168743805"
+  },
+  "wiki/TODO.md:598": {
+    "number": 193,
+    "id": "5168744474"
+  },
+  "wiki/TODO.md:600": {
+    "number": 194,
+    "id": "5168745232"
+  },
+  "wiki/TODO.md:601": {
+    "number": 195,
+    "id": "5168745944"
+  },
+  "wiki/TODO.md:603": {
+    "number": 196,
+    "id": "5168746669"
+  },
+  "wiki/TODO.md:604": {
+    "number": 197,
+    "id": "5168747325"
+  },
+  "wiki/TODO.md:605": {
+    "number": 198,
+    "id": "5168748021"
+  },
+  "wiki/TODO.md:606": {
+    "number": 199,
+    "id": "5168748707"
+  },
+  "wiki/TODO.md:608": {
+    "number": 200,
+    "id": "5168749405"
+  },
+  "wiki/TODO.md:609": {
+    "number": 201,
+    "id": "5168749990"
+  },
+  "wiki/TODO.md:610": {
+    "number": 202,
+    "id": "5168750651"
+  },
+  "wiki/TODO.md:611": {
+    "number": 203,
+    "id": "5168751318"
+  },
+  "wiki/TODO.md:612": {
+    "number": 204,
+    "id": "5168751966"
+  },
+  "wiki/TODO.md:614": {
+    "number": 205,
+    "id": "5168752616"
+  },
+  "wiki/TODO.md:615": {
+    "number": 206,
+    "id": "5168753248"
+  },
+  "wiki/TODO.md:624": {
+    "number": 207,
+    "id": "5168753874"
+  },
+  "wiki/TODO.md:625": {
+    "number": 208,
+    "id": "5168754463"
+  },
+  "wiki/TODO.md:626": {
+    "number": 209,
+    "id": "5168755173"
+  },
+  "wiki/TODO.md:627": {
+    "number": 210,
+    "id": "5168755878"
+  },
+  "wiki/TODO.md:632": {
+    "number": 211,
+    "id": "5168756586"
+  },
+  "wiki/TODO.md:633": {
+    "number": 212,
+    "id": "5168757285"
+  },
+  "wiki/TODO.md:634": {
+    "number": 213,
+    "id": "5168758039"
+  },
+  "wiki/TODO.md:635": {
+    "number": 214,
+    "id": "5168758802"
+  },
+  "wiki/TODO.md:640": {
+    "number": 215,
+    "id": "5168759483"
+  },
+  "wiki/TODO.md:641": {
+    "number": 216,
+    "id": "5168760225"
+  },
+  "wiki/TODO.md:642": {
+    "number": 217,
+    "id": "5168760936"
+  },
+  "wiki/TODO.md:643": {
+    "number": 218,
+    "id": "5168761900"
+  },
+  "wiki/TODO.md:644": {
+    "number": 219,
+    "id": "5168762373"
+  },
+  "wiki/TODO.md:645": {
+    "number": 220,
+    "id": "5168763142"
+  },
+  "wiki/TODO.md:646": {
+    "number": 221,
+    "id": "5168763876"
+  },
+  "wiki/TODO.md:647": {
+    "number": 222,
+    "id": "5168764753"
+  },
+  "wiki/TODO.md:652": {
+    "number": 223,
+    "id": "5168765319"
+  },
+  "wiki/TODO.md:653": {
+    "number": 224,
+    "id": "5168766007"
+  },
+  "wiki/TODO.md:665": {
+    "number": 225,
+    "id": "5168766702"
+  },
+  "wiki/TODO.md:667": {
+    "number": 226,
+    "id": "5168767487"
+  },
+  "wiki/TODO.md:668": {
+    "number": 227,
+    "id": "5168768189"
+  },
+  "wiki/TODO.md:669": {
+    "number": 228,
+    "id": "5168768883"
+  },
+  "wiki/TODO.md:670": {
+    "number": 229,
+    "id": "5168769622"
+  },
+  "wiki/TODO.md:673": {
+    "number": 230,
+    "id": "5168770291"
+  },
+  "wiki/TODO.md:674": {
+    "number": 231,
+    "id": "5168770939"
+  },
+  "wiki/TODO.md:676": {
+    "number": 232,
+    "id": "5168771609"
+  },
+  "wiki/TODO.md:677": {
+    "number": 233,
+    "id": "5168772296"
+  },
+  "wiki/TODO.md:678": {
+    "number": 234,
+    "id": "5168772947"
+  },
+  "wiki/TODO.md:679": {
+    "number": 235,
+    "id": "5168773607"
+  },
+  "wiki/TODO.md:681": {
+    "number": 236,
+    "id": "5168774278"
+  },
+  "wiki/TODO.md:682": {
+    "number": 237,
+    "id": "5168774966"
+  },
+  "wiki/TODO.md:683": {
+    "number": 238,
+    "id": "5168775668"
+  },
+  "wiki/TODO.md:686": {
+    "number": 239,
+    "id": "5168776285"
+  },
+  "wiki/TODO.md:687": {
+    "number": 240,
+    "id": "5168776969"
+  },
+  "wiki/TODO.md:688": {
+    "number": 241,
+    "id": "5168777626"
+  },
+  "wiki/TODO.md:689": {
+    "number": 242,
+    "id": "5168778290"
+  },
+  "wiki/TODO.md:690": {
+    "number": 243,
+    "id": "5168779000"
+  },
+  "wiki/TODO.md:692": {
+    "number": 244,
+    "id": "5168779687"
+  },
+  "wiki/TODO.md:693": {
+    "number": 245,
+    "id": "5168780391"
+  },
+  "wiki/TODO.md:701": {
+    "number": 246,
+    "id": "5168781049"
+  },
+  "wiki/TODO.md:702": {
+    "number": 247,
+    "id": "5168781706"
+  },
+  "wiki/TODO.md:707": {
+    "number": 248,
+    "id": "5168782476"
+  },
+  "wiki/TODO.md:708": {
+    "number": 249,
+    "id": "5168783231"
+  },
+  "wiki/TODO.md:715": {
+    "number": 250,
+    "id": "5168783984"
+  },
+  "wiki/TODO.md:716": {
+    "number": 251,
+    "id": "5168784762"
+  },
+  "wiki/TODO.md:718": {
+    "number": 252,
+    "id": "5168785531"
+  },
+  "wiki/TODO.md:728": {
+    "number": 253,
+    "id": "5168786306"
+  },
+  "wiki/TODO.md:729": {
+    "number": 254,
+    "id": "5168787010"
+  },
+  "wiki/TODO.md:730": {
+    "number": 255,
+    "id": "5168787747"
+  },
+  "wiki/TODO.md:731": {
+    "number": 256,
+    "id": "5168788435"
+  },
+  "wiki/TODO.md:732": {
+    "number": 257,
+    "id": "5168789125"
+  },
+  "wiki/TODO.md:733": {
+    "number": 258,
+    "id": "5168789808"
+  },
+  "wiki/TODO.md:734": {
+    "number": 259,
+    "id": "5168790461"
+  },
+  "wiki/TODO.md:735": {
+    "number": 260,
+    "id": "5168791125"
+  },
+  "wiki/TODO.md:736": {
+    "number": 261,
+    "id": "5168791813"
+  },
+  "wiki/TODO.md:737": {
+    "number": 262,
+    "id": "5168792516"
+  },
+  "wiki/TODO.md:738": {
+    "number": 263,
+    "id": "5168793292"
+  },
+  "wiki/TODO.md:740": {
+    "number": 264,
+    "id": "5168793988"
+  },
+  "wiki/TODO.md:741": {
+    "number": 265,
+    "id": "5168794685"
+  },
+  "wiki/TODO.md:742": {
+    "number": 266,
+    "id": "5168795345"
+  },
+  "wiki/TODO.md:743": {
+    "number": 267,
+    "id": "5168796122"
+  },
+  "wiki/TODO.md:745": {
+    "number": 268,
+    "id": "5168796798"
+  },
+  "wiki/TODO.md:746": {
+    "number": 269,
+    "id": "5168797506"
+  },
+  "wiki/TODO.md:747": {
+    "number": 270,
+    "id": "5168798251"
+  },
+  "wiki/TODO.md:749": {
+    "number": 271,
+    "id": "5168799008"
+  },
+  "wiki/TODO.md:750": {
+    "number": 272,
+    "id": "5168799800"
+  },
+  "wiki/TODO.md:753": {
+    "number": 273,
+    "id": "5168800561"
+  },
+  "wiki/TODO.md:754": {
+    "number": 274,
+    "id": "5168801309"
+  },
+  "wiki/TODO.md:755": {
+    "number": 275,
+    "id": "5168802070"
+  },
+  "wiki/TODO.md:771": {
+    "number": 276,
+    "id": "5168802861"
+  },
+  "wiki/TODO.md:772": {
+    "number": 277,
+    "id": "5168803586"
+  },
+  "wiki/TODO.md:774": {
+    "number": 278,
+    "id": "5168804300"
+  },
+  "wiki/TODO.md:775": {
+    "number": 279,
+    "id": "5168805050"
+  },
+  "wiki/TODO.md:780": {
+    "number": 280,
+    "id": "5168805815"
+  },
+  "wiki/TODO.md:781": {
+    "number": 281,
+    "id": "5168806568"
+  },
+  "wiki/TODO.md:782": {
+    "number": 282,
+    "id": "5168807355"
+  },
+  "wiki/TODO.md:783": {
+    "number": 283,
+    "id": "5168808264"
+  },
+  "wiki/TODO.md:784": {
+    "number": 284,
+    "id": "5168809101"
+  },
+  "wiki/TODO.md:785": {
+    "number": 285,
+    "id": "5168809886"
+  },
+  "wiki/TODO.md:786": {
+    "number": 286,
+    "id": "5168810615"
+  },
+  "wiki/TODO.md:787": {
+    "number": 287,
+    "id": "5168811389"
+  },
+  "wiki/TODO.md:788": {
+    "number": 288,
+    "id": "5168812209"
+  },
+  "wiki/TODO.md:789": {
+    "number": 289,
+    "id": "5168812922"
+  },
+  "wiki/TODO.md:790": {
+    "number": 290,
+    "id": "5168813749"
+  },
+  "wiki/TODO.md:791": {
+    "number": 291,
+    "id": "5168814532"
+  },
+  "wiki/TODO.md:792": {
+    "number": 292,
+    "id": "5168815299"
+  },
+  "wiki/TODO.md:793": {
+    "number": 293,
+    "id": "5168816098"
+  },
+  "wiki/TODO.md:794": {
+    "number": 294,
+    "id": "5168816923"
+  },
+  "wiki/TODO.md:798": {
+    "number": 295,
+    "id": "5168817705"
+  },
+  "wiki/TODO.md:799": {
+    "number": 296,
+    "id": "5168818523"
+  },
+  "wiki/TODO.md:800": {
+    "number": 297,
+    "id": "5168819339"
+  },
+  "wiki/TODO.md:801": {
+    "number": 298,
+    "id": "5168820162"
+  },
+  "wiki/TODO.md:802": {
+    "number": 299,
+    "id": "5168821043"
+  },
+  "wiki/TODO.md:803": {
+    "number": 300,
+    "id": "5168821846"
+  },
+  "wiki/TODO.md:804": {
+    "number": 301,
+    "id": "5168822672"
+  },
+  "wiki/TODO.md:810": {
+    "number": 302,
+    "id": "5168823469"
+  },
+  "wiki/TODO.md:811": {
+    "number": 303,
+    "id": "5168824333"
+  },
+  "wiki/TODO.md:812": {
+    "number": 304,
+    "id": "5168825132"
+  },
+  "wiki/TODO.md:813": {
+    "number": 305,
+    "id": "5168825917"
+  },
+  "wiki/TODO.md:818": {
+    "number": 306,
+    "id": "5168826673"
+  },
+  "wiki/TODO.md:819": {
+    "number": 307,
+    "id": "5168827753"
+  },
+  "wiki/TODO.md:826": {
+    "number": 308,
+    "id": "5168828787"
+  },
+  "wiki/TODO.md:827": {
+    "number": 309,
+    "id": "5168829653"
+  },
+  "wiki/TODO.md:828": {
+    "number": 310,
+    "id": "5168830472"
+  },
+  "wiki/TODO.md:830": {
+    "number": 311,
+    "id": "5168831314"
+  },
+  "wiki/TODO.md:831": {
+    "number": 312,
+    "id": "5168832145"
+  },
+  "wiki/TODO.md:832": {
+    "number": 313,
+    "id": "5168832947"
+  },
+  "wiki/TODO.md:833": {
+    "number": 314,
+    "id": "5168833678"
+  },
+  "wiki/TODO.md:840": {
+    "number": 315,
+    "id": "5168834564"
+  },
+  "wiki/TODO.md:841": {
+    "number": 316,
+    "id": "5168835371"
+  },
+  "wiki/TODO.md:842": {
+    "number": 317,
+    "id": "5168836191"
+  },
+  "wiki/TODO.md:843": {
+    "number": 318,
+    "id": "5168836994"
+  },
+  "wiki/TODO.md:847": {
+    "number": 319,
+    "id": "5168837839"
+  },
+  "wiki/TODO.md:848": {
+    "number": 320,
+    "id": "5168838704"
+  },
+  "wiki/TODO.md:849": {
+    "number": 321,
+    "id": "5168839510"
+  },
+  "wiki/TODO.md:850": {
+    "number": 322,
+    "id": "5168840459"
+  },
+  "wiki/TODO.md:851": {
+    "number": 323,
+    "id": "5168841389"
+  },
+  "wiki/TODO.md:854": {
+    "number": 324,
+    "id": "5168842292"
+  },
+  "wiki/TODO.md:858": {
+    "number": 325,
+    "id": "5168843141"
+  },
+  "wiki/TODO.md:859": {
+    "number": 326,
+    "id": "5168844030"
+  },
+  "wiki/TODO.md:860": {
+    "number": 327,
+    "id": "5168844777"
+  },
+  "wiki/TODO.md:861": {
+    "number": 328,
+    "id": "5168845650"
+  },
+  "wiki/TODO.md:862": {
+    "number": 329,
+    "id": "5168846578"
+  },
+  "wiki/TODO.md:863": {
+    "number": 330,
+    "id": "5168847384"
+  },
+  "wiki/TODO.md:864": {
+    "number": 331,
+    "id": "5168848399"
+  },
+  "wiki/TODO.md:865": {
+    "number": 332,
+    "id": "5168849213"
+  },
+  "wiki/TODO.md:866": {
+    "number": 333,
+    "id": "5168850153"
+  },
+  "wiki/TODO.md:867": {
+    "number": 334,
+    "id": "5168851060"
+  },
+  "wiki/TODO.md:868": {
+    "number": 335,
+    "id": "5168852000"
+  },
+  "wiki/TODO.md:869": {
+    "number": 336,
+    "id": "5168852850"
+  },
+  "wiki/TODO.md:870": {
+    "number": 337,
+    "id": "5168853654"
+  },
+  "wiki/TODO.md:871": {
+    "number": 338,
+    "id": "5168854492"
+  },
+  "wiki/TODO.md:872": {
+    "number": 339,
+    "id": "5168855395"
+  },
+  "wiki/TODO.md:873": {
+    "number": 340,
+    "id": "5168856290"
+  },
+  "wiki/TODO.md:874": {
+    "number": 341,
+    "id": "5168857180"
+  },
+  "wiki/TODO.md:875": {
+    "number": 342,
+    "id": "5168858048"
+  },
+  "wiki/TODO.md:876": {
+    "number": 343,
+    "id": "5168858896"
+  },
+  "wiki/TODO.md:877": {
+    "number": 344,
+    "id": "5168859721"
+  },
+  "wiki/TODO.md:878": {
+    "number": 345,
+    "id": "5168860524"
+  },
+  "wiki/TODO.md:879": {
+    "number": 346,
+    "id": "5168861357"
+  },
+  "wiki/TODO.md:881": {
+    "number": 347,
+    "id": "5168862163"
+  },
+  "wiki/TODO.md:882": {
+    "number": 348,
+    "id": "5168862987"
+  },
+  "wiki/TODO.md:883": {
+    "number": 349,
+    "id": "5168863906"
+  },
+  "wiki/TODO.md:884": {
+    "number": 350,
+    "id": "5168864739"
+  },
+  "wiki/TODO.md:885": {
+    "number": 351,
+    "id": "5168865601"
+  },
+  "wiki/TODO.md:895": {
+    "number": 352,
+    "id": "5168866515"
+  },
+  "wiki/TODO.md:898": {
+    "number": 353,
+    "id": "5168867377"
+  },
+  "wiki/TODO.md:900": {
+    "number": 354,
+    "id": "5168868256"
+  },
+  "wiki/TODO.md:901": {
+    "number": 355,
+    "id": "5168869098"
+  },
+  "wiki/TODO.md:902": {
+    "number": 356,
+    "id": "5168869911"
+  },
+  "wiki/TODO.md:904": {
+    "number": 357,
+    "id": "5168870865"
+  },
+  "wiki/TODO.md:905": {
+    "number": 358,
+    "id": "5168871723"
+  },
+  "wiki/TODO.md:906": {
+    "number": 359,
+    "id": "5168872599"
+  },
+  "wiki/TODO.md:911": {
+    "number": 360,
+    "id": "5168873452"
+  },
+  "wiki/TODO.md:912": {
+    "number": 361,
+    "id": "5168874460"
+  },
+  "wiki/TODO.md:913": {
+    "number": 362,
+    "id": "5168875349"
+  },
+  "wiki/TODO.md:914": {
+    "number": 363,
+    "id": "5168876235"
+  },
+  "wiki/TODO.md:915": {
+    "number": 364,
+    "id": "5168877093"
+  },
+  "wiki/TODO.md:916": {
+    "number": 365,
+    "id": "5168877940"
+  },
+  "wiki/TODO.md:917": {
+    "number": 366,
+    "id": "5168878793"
+  },
+  "wiki/TODO.md:918": {
+    "number": 367,
+    "id": "5168879662"
+  },
+  "wiki/TODO.md:919": {
+    "number": 368,
+    "id": "5168880533"
+  },
+  "wiki/TODO.md:920": {
+    "number": 369,
+    "id": "5168881497"
+  },
+  "wiki/TODO.md:921": {
+    "number": 370,
+    "id": "5168882428"
+  },
+  "wiki/TODO.md:922": {
+    "number": 371,
+    "id": "5168883387"
+  },
+  "wiki/TODO.md:923": {
+    "number": 372,
+    "id": "5168884321"
+  },
+  "wiki/TODO.md:924": {
+    "number": 373,
+    "id": "5168885221"
+  },
+  "wiki/TODO.md:925": {
+    "number": 374,
+    "id": "5168886075"
+  },
+  "wiki/TODO.md:926": {
+    "number": 375,
+    "id": "5168886977"
+  },
+  "wiki/TODO.md:927": {
+    "number": 376,
+    "id": "5168887887"
+  },
+  "wiki/TODO.md:928": {
+    "number": 377,
+    "id": "5168888799"
+  },
+  "wiki/TODO.md:929": {
+    "number": 378,
+    "id": "5168889785"
+  },
+  "wiki/TODO.md:930": {
+    "number": 379,
+    "id": "5168890637"
+  },
+  "wiki/TODO.md:931": {
+    "number": 380,
+    "id": "5168891494"
+  },
+  "wiki/TODO.md:936": {
+    "number": 381,
+    "id": "5168892403"
+  },
+  "wiki/TODO.md:937": {
+    "number": 382,
+    "id": "5168893294"
+  },
+  "wiki/TODO.md:938": {
+    "number": 383,
+    "id": "5168894204"
+  },
+  "wiki/TODO.md:939": {
+    "number": 384,
+    "id": "5168895132"
+  },
+  "wiki/TODO.md:940": {
+    "number": 385,
+    "id": "5168895988"
+  },
+  "wiki/TODO.md:941": {
+    "number": 386,
+    "id": "5168896858"
+  },
+  "wiki/TODO.md:942": {
+    "number": 387,
+    "id": "5168897732"
+  },
+  "wiki/TODO.md:943": {
+    "number": 388,
+    "id": "5168898722"
+  },
+  "wiki/TODO.md:944": {
+    "number": 389,
+    "id": "5168899597"
+  },
+  "wiki/TODO.md:945": {
+    "number": 390,
+    "id": "5168900387"
+  },
+  "wiki/TODO.md:946": {
+    "number": 391,
+    "id": "5168901344"
+  },
+  "wiki/TODO.md:947": {
+    "number": 392,
+    "id": "5168902234"
+  },
+  "wiki/TODO.md:949": {
+    "number": 393,
+    "id": "5168903096"
+  },
+  "wiki/TODO.md:950": {
+    "number": 394,
+    "id": "5168904002"
+  },
+  "wiki/TODO.md:951": {
+    "number": 395,
+    "id": "5168905007"
+  },
+  "wiki/TODO.md:952": {
+    "number": 396,
+    "id": "5168906114"
+  },
+  "wiki/TODO.md:953": {
+    "number": 397,
+    "id": "5168907148"
+  },
+  "wiki/TODO.md:954": {
+    "number": 398,
+    "id": "5168908119"
+  },
+  "wiki/TODO.md:955": {
+    "number": 399,
+    "id": "5168909063"
+  },
+  "wiki/TODO.md:956": {
+    "number": 400,
+    "id": "5168909954"
+  },
+  "wiki/TODO.md:957": {
+    "number": 401,
+    "id": "5168910811"
+  },
+  "wiki/TODO.md:958": {
+    "number": 402,
+    "id": "5168911628"
+  },
+  "wiki/TODO.md:959": {
+    "number": 403,
+    "id": "5168912531"
+  },
+  "wiki/TODO.md:960": {
+    "number": 404,
+    "id": "5168913370"
+  },
+  "wiki/TODO.md:961": {
+    "number": 405,
+    "id": "5168914372"
+  },
+  "wiki/TODO.md:962": {
+    "number": 406,
+    "id": "5168915335"
+  },
+  "wiki/TODO.md:963": {
+    "number": 407,
+    "id": "5168916266"
+  },
+  "wiki/TODO.md:964": {
+    "number": 408,
+    "id": "5168917212"
+  },
+  "wiki/TODO.md:965": {
+    "number": 409,
+    "id": "5168918216"
+  },
+  "wiki/TODO.md:966": {
+    "number": 410,
+    "id": "5168919095"
+  },
+  "wiki/TODO.md:967": {
+    "number": 411,
+    "id": "5168920013"
+  },
+  "wiki/TODO.md:968": {
+    "number": 412,
+    "id": "5168921058"
+  },
+  "wiki/TODO.md:969": {
+    "number": 413,
+    "id": "5168922125"
+  },
+  "wiki/TODO.md:970": {
+    "number": 414,
+    "id": "5168923114"
+  },
+  "wiki/TODO.md:972": {
+    "number": 415,
+    "id": "5168924135"
+  },
+  "wiki/TODO.md:992": {
+    "number": 416,
+    "id": "5168925108"
+  },
+  "link:cire/wiki/todo/perf.md:17": {
+    "number": 61,
+    "id": "5168652486"
+  },
+  "link:cire/wiki/todo/perf.md:18": {
+    "number": 62,
+    "id": "5168653162"
+  },
+  "link:cire/wiki/todo/perf.md:26": {
+    "number": 63,
+    "id": "5168653882"
+  },
+  "link:cire/wiki/todo/perf.md:33": {
+    "number": 64,
+    "id": "5168654647"
+  },
+  "link:cire/wiki/todo/perf.md:39": {
+    "number": 65,
+    "id": "5168655380"
+  },
+  "link:cire/wiki/todo/perf.md:48": {
+    "number": 66,
+    "id": "5168656153"
+  },
+  "link:cire/wiki/todo/perf.md:49": {
+    "number": 67,
+    "id": "5168656859"
+  },
+  "link:cire/wiki/todo/perf.md:50": {
+    "number": 68,
+    "id": "5168657614"
+  },
+  "link:cire/wiki/todo/perf.md:90": {
+    "number": 69,
+    "id": "5168658398"
+  },
+  "link:cire/wiki/todo/perf.md:97": {
+    "number": 70,
+    "id": "5168659143"
+  },
+  "link:cire/wiki/todo/perf.md:103": {
+    "number": 71,
+    "id": "5168659889"
+  },
+  "link:cire/wiki/todo/perf.md:113": {
+    "number": 72,
+    "id": "5168660663"
+  },
+  "link:cire/wiki/todo/perf.md:114": {
+    "number": 73,
+    "id": "5168661368"
+  },
+  "link:cire/wiki/todo/perf.md:115": {
+    "number": 74,
+    "id": "5168662102"
+  },
+  "link:cire/wiki/todo/perf.md:116": {
+    "number": 75,
+    "id": "5168662826"
+  },
+  "link:cire/wiki/todo/perf.md:123": {
+    "number": 76,
+    "id": "5168663570"
+  },
+  "link:cire/wiki/todo/perf.md:124": {
+    "number": 77,
+    "id": "5168664240"
+  },
+  "link:cire/wiki/todo/perf.md:130": {
+    "number": 78,
+    "id": "5168664955"
+  },
+  "link:cire/wiki/todo/perf.md:143": {
+    "number": 79,
+    "id": "5168665614"
+  },
+  "link:cire/wiki/todo/perf.md:145": {
+    "number": 80,
+    "id": "5168666240"
+  },
+  "link:cire/wiki/todo/perf.md:155": {
+    "number": 81,
+    "id": "5168666875"
+  },
+  "link:cire/wiki/todo/perf.md:180": {
+    "number": 82,
+    "id": "5168667569"
+  },
+  "link:cire/wiki/todo/perf.md:182": {
+    "number": 83,
+    "id": "5168668237"
+  },
+  "link:cire/wiki/todo/perf.md:183": {
+    "number": 84,
+    "id": "5168668913"
+  },
+  "link:cire/wiki/todo/perf.md:184": {
+    "number": 85,
+    "id": "5168669669"
+  },
+  "link:cire/wiki/todo/perf.md:185": {
+    "number": 86,
+    "id": "5168670368"
+  },
+  "link:cire/wiki/todo/perf.md:194": {
+    "number": 87,
+    "id": "5168670986"
+  },
+  "link:cire/wiki/todo/perf.md:195": {
+    "number": 88,
+    "id": "5168671623"
+  },
+  "link:cire/wiki/todo/perf.md:196": {
+    "number": 89,
+    "id": "5168672309"
+  },
+  "link:cire/wiki/todo/perf.md:198": {
+    "number": 90,
+    "id": "5168672967"
+  },
+  "link:cire/wiki/todo/perf.md:199": {
+    "number": 91,
+    "id": "5168673640"
+  },
+  "link:cire/wiki/todo/perf.md:207": {
+    "number": 92,
+    "id": "5168674325"
+  },
+  "link:cire/wiki/todo/perf.md:208": {
+    "number": 93,
+    "id": "5168674934"
+  },
+  "link:cire/wiki/todo/perf.md:217": {
+    "number": 94,
+    "id": "5168675592"
+  },
+  "link:cire/wiki/todo/perf.md:233": {
+    "number": 95,
+    "id": "5168676215"
+  },
+  "link:cire/wiki/todo/perf.md:234": {
+    "number": 96,
+    "id": "5168676872"
+  },
+  "link:cire/wiki/todo/perf.md:240": {
+    "number": 97,
+    "id": "5168677535"
+  },
+  "link:cire/wiki/todo/perf.md:249": {
+    "number": 98,
+    "id": "5168678155"
+  },
+  "link:cire/wiki/todo/perf.md:250": {
+    "number": 99,
+    "id": "5168678827"
+  },
+  "link:cire/wiki/todo/perf.md:251": {
+    "number": 100,
+    "id": "5168679483"
+  },
+  "link:cire/wiki/todo/perf.md:261": {
+    "number": 101,
+    "id": "5168680107"
+  },
+  "link:cire/wiki/todo/perf.md:272": {
+    "number": 102,
+    "id": "5168680729"
+  },
+  "link:cire/wiki/todo/perf.md:277": {
+    "number": 103,
+    "id": "5168681357"
+  },
+  "link:cire/wiki/todo/perf.md:296": {
+    "number": 104,
+    "id": "5168682002"
+  },
+  "link:cire/wiki/todo/perf.md:331": {
+    "number": 105,
+    "id": "5168682667"
+  },
+  "link:cire/wiki/todo/perf.md:335": {
+    "number": 106,
+    "id": "5168683397"
+  },
+  "link:cire/wiki/todo/perf.md:342": {
+    "number": 107,
+    "id": "5168684075"
+  },
+  "link:cire/wiki/todo/perf.md:361": {
+    "number": 108,
+    "id": "5168684693"
+  },
+  "link:cire/wiki/todo/perf.md:371": {
+    "number": 109,
+    "id": "5168685293"
+  },
+  "link:cire/wiki/todo/perf.md:372": {
+    "number": 110,
+    "id": "5168685894"
+  },
+  "link:cire/wiki/todo/perf.md:373": {
+    "number": 111,
+    "id": "5168686550"
+  },
+  "link:cire/wiki/todo/perf.md:380": {
+    "number": 112,
+    "id": "5168687193"
+  },
+  "link:cire/wiki/todo/perf.md:381": {
+    "number": 113,
+    "id": "5168687798"
+  },
+  "link:cire/wiki/todo/perf.md:382": {
+    "number": 114,
+    "id": "5168688421"
+  },
+  "link:cire/wiki/todo/perf.md:383": {
+    "number": 115,
+    "id": "5168689107"
+  },
+  "link:cire/wiki/todo/perf.md:389": {
+    "number": 116,
+    "id": "5168689723"
+  },
+  "link:cire/wiki/todo/perf.md:390": {
+    "number": 117,
+    "id": "5168690375"
+  },
+  "link:cire/wiki/todo/perf.md:391": {
+    "number": 118,
+    "id": "5168691040"
+  },
+  "link:cire/wiki/todo/perf.md:392": {
+    "number": 119,
+    "id": "5168691660"
+  },
+  "link:cire/wiki/todo/perf.md:393": {
+    "number": 120,
+    "id": "5168692345"
+  },
+  "link:cire/wiki/todo/perf.md:398": {
+    "number": 121,
+    "id": "5168693011"
+  },
+  "link:cire/wiki/todo/perf.md:400": {
+    "number": 122,
+    "id": "5168693665"
+  },
+  "link:cire/wiki/todo/perf.md:410": {
+    "number": 123,
+    "id": "5168694323"
+  },
+  "link:cire/wiki/todo/perf.md:411": {
+    "number": 124,
+    "id": "5168695036"
+  },
+  "link:cire/wiki/todo/perf.md:412": {
+    "number": 125,
+    "id": "5168695711"
+  },
+  "link:cire/wiki/todo/perf.md:427": {
+    "number": 126,
+    "id": "5168696359"
+  },
+  "link:cire/wiki/todo/perf.md:441": {
+    "number": 127,
+    "id": "5168696991"
+  },
+  "link:cire/wiki/todo/perf.md:524": {
+    "number": 128,
+    "id": "5168697622"
+  },
+  "link:cire/wiki/todo/perf.md:536": {
+    "number": 129,
+    "id": "5168698280"
+  },
+  "link:cire/wiki/todo/perf.md:544": {
+    "number": 130,
+    "id": "5168698987"
+  },
+  "link:cire/wiki/todo/perf.md:555": {
+    "number": 131,
+    "id": "5168699656"
+  },
+  "link:cire/wiki/todo/perf.md:561": {
+    "number": 132,
+    "id": "5168700349"
+  },
+  "link:cire/wiki/todo/security.md:19": {
+    "number": 133,
+    "id": "5168701037"
+  },
+  "link:cire/wiki/todo/security.md:25": {
+    "number": 134,
+    "id": "5168701759"
+  },
+  "link:cire/wiki/todo/security.md:43": {
+    "number": 135,
+    "id": "5168702545"
+  },
+  "link:cire/wiki/todo/security.md:55": {
+    "number": 136,
+    "id": "5168703268"
+  },
+  "link:cire/wiki/todo/security.md:73": {
+    "number": 137,
+    "id": "5168703975"
+  },
+  "link:cire/wiki/todo/security.md:82": {
+    "number": 138,
+    "id": "5168704642"
+  },
+  "link:cire/wiki/todo/security.md:83": {
+    "number": 139,
+    "id": "5168705365"
+  },
+  "link:cire/wiki/todo/security.md:84": {
+    "number": 140,
+    "id": "5168706089"
+  },
+  "link:cire/wiki/todo/security.md:102": {
+    "number": 141,
+    "id": "5168706790"
+  },
+  "link:cire/wiki/todo/security.md:103": {
+    "number": 142,
+    "id": "5168707574"
+  },
+  "link:cire/wiki/todo/security.md:107": {
+    "number": 143,
+    "id": "5168708358"
+  },
+  "link:cire/wiki/todo/security.md:117": {
+    "number": 144,
+    "id": "5168709059"
+  },
+  "link:cire/wiki/todo/security.md:124": {
+    "number": 145,
+    "id": "5168709812"
+  },
+  "link:cire/wiki/todo/security.md:125": {
+    "number": 146,
+    "id": "5168710470"
+  },
+  "link:cire/wiki/todo/security.md:129": {
+    "number": 147,
+    "id": "5168711132"
+  },
+  "link:cire/wiki/todo/security.md:141": {
+    "number": 148,
+    "id": "5168711826"
+  },
+  "link:cire/wiki/todo/security.md:142": {
+    "number": 149,
+    "id": "5168712417"
+  },
+  "link:cire/wiki/todo/security.md:143": {
+    "number": 150,
+    "id": "5168713140"
+  },
+  "link:cire/wiki/todo/security.md:171": {
+    "number": 151,
+    "id": "5168713778"
+  },
+  "link:cire/wiki/todo/security.md:172": {
+    "number": 152,
+    "id": "5168714453"
+  },
+  "link:cire/wiki/todo/security.md:215": {
+    "number": 153,
+    "id": "5168715194"
+  },
+  "link:cire/wiki/todo/security.md:225": {
+    "number": 154,
+    "id": "5168715878"
+  },
+  "link:cire/wiki/todo/security.md:231": {
+    "number": 155,
+    "id": "5168716510"
+  },
+  "link:cire/wiki/todo/security.md:232": {
+    "number": 156,
+    "id": "5168717209"
+  },
+  "link:cire/wiki/todo/security.md:240": {
+    "number": 157,
+    "id": "5168717855"
+  },
+  "link:cire/wiki/todo/security.md:242": {
+    "number": 158,
+    "id": "5168718517"
+  },
+  "link:cire/wiki/todo/security.md:243": {
+    "number": 159,
+    "id": "5168719181"
+  },
+  "link:cire/wiki/todo/security.md:257": {
+    "number": 160,
+    "id": "5168719871"
+  },
+  "link:cire/wiki/todo/security.md:258": {
+    "number": 161,
+    "id": "5168720524"
+  },
+  "link:cire/wiki/todo/security.md:277": {
+    "number": 162,
+    "id": "5168721487"
+  },
+  "link:cire/wiki/todo/security.md:278": {
+    "number": 163,
+    "id": "5168722308"
+  },
+  "link:cire/wiki/todo/security.md:289": {
+    "number": 164,
+    "id": "5168723073"
+  },
+  "link:cire/wiki/todo/security.md:317": {
+    "number": 165,
+    "id": "5168723973"
+  },
+  "link:cire/wiki/todo/security.md:417": {
+    "number": 166,
+    "id": "5168724778"
+  },
+  "link:cire/wiki/todo/security.md:441": {
+    "number": 167,
+    "id": "5168725563"
+  },
+  "link:wiki/TODO.md:15": {
+    "number": 168,
+    "id": "5168726485"
+  },
+  "link:wiki/TODO.md:27": {
+    "number": 169,
+    "id": "5168727277"
+  },
+  "link:wiki/TODO.md:302": {
+    "number": 170,
+    "id": "5168728038"
+  },
+  "link:wiki/TODO.md:502": {
+    "number": 171,
+    "id": "5168728798"
+  },
+  "link:wiki/TODO.md:503": {
+    "number": 172,
+    "id": "5168729695"
+  },
+  "link:wiki/TODO.md:504": {
+    "number": 173,
+    "id": "5168730509"
+  },
+  "link:wiki/TODO.md:514": {
+    "number": 174,
+    "id": "5168731261"
+  },
+  "link:wiki/TODO.md:515": {
+    "number": 175,
+    "id": "5168732049"
+  },
+  "link:wiki/TODO.md:516": {
+    "number": 176,
+    "id": "5168732967"
+  },
+  "link:wiki/TODO.md:528": {
+    "number": 177,
+    "id": "5168733767"
+  },
+  "link:wiki/TODO.md:551": {
+    "number": 178,
+    "id": "5168734502"
+  },
+  "link:wiki/TODO.md:577": {
+    "number": 179,
+    "id": "5168735114"
+  },
+  "link:wiki/TODO.md:578": {
+    "number": 180,
+    "id": "5168735769"
+  },
+  "link:wiki/TODO.md:579": {
+    "number": 181,
+    "id": "5168736459"
+  },
+  "link:wiki/TODO.md:586": {
+    "number": 182,
+    "id": "5168737138"
+  },
+  "link:wiki/TODO.md:587": {
+    "number": 183,
+    "id": "5168737833"
+  },
+  "link:wiki/TODO.md:588": {
+    "number": 184,
+    "id": "5168738469"
+  },
+  "link:wiki/TODO.md:589": {
+    "number": 185,
+    "id": "5168739120"
+  },
+  "link:wiki/TODO.md:591": {
+    "number": 186,
+    "id": "5168739754"
+  },
+  "link:wiki/TODO.md:592": {
+    "number": 187,
+    "id": "5168740471"
+  },
+  "link:wiki/TODO.md:593": {
+    "number": 188,
+    "id": "5168741112"
+  },
+  "link:wiki/TODO.md:594": {
+    "number": 189,
+    "id": "5168741761"
+  },
+  "link:wiki/TODO.md:595": {
+    "number": 190,
+    "id": "5168742418"
+  },
+  "link:wiki/TODO.md:596": {
+    "number": 191,
+    "id": "5168743096"
+  },
+  "link:wiki/TODO.md:597": {
+    "number": 192,
+    "id": "5168743805"
+  },
+  "link:wiki/TODO.md:598": {
+    "number": 193,
+    "id": "5168744474"
+  },
+  "link:wiki/TODO.md:600": {
+    "number": 194,
+    "id": "5168745232"
+  },
+  "link:wiki/TODO.md:601": {
+    "number": 195,
+    "id": "5168745944"
+  },
+  "link:wiki/TODO.md:603": {
+    "number": 196,
+    "id": "5168746669"
+  },
+  "link:wiki/TODO.md:604": {
+    "number": 197,
+    "id": "5168747325"
+  },
+  "link:wiki/TODO.md:605": {
+    "number": 198,
+    "id": "5168748021"
+  },
+  "link:wiki/TODO.md:606": {
+    "number": 199,
+    "id": "5168748707"
+  },
+  "link:wiki/TODO.md:608": {
+    "number": 200,
+    "id": "5168749405"
+  },
+  "link:wiki/TODO.md:609": {
+    "number": 201,
+    "id": "5168749990"
+  },
+  "link:wiki/TODO.md:610": {
+    "number": 202,
+    "id": "5168750651"
+  },
+  "link:wiki/TODO.md:611": {
+    "number": 203,
+    "id": "5168751318"
+  },
+  "link:wiki/TODO.md:612": {
+    "number": 204,
+    "id": "5168751966"
+  },
+  "link:wiki/TODO.md:614": {
+    "number": 205,
+    "id": "5168752616"
+  },
+  "link:wiki/TODO.md:615": {
+    "number": 206,
+    "id": "5168753248"
+  },
+  "link:wiki/TODO.md:624": {
+    "number": 207,
+    "id": "5168753874"
+  },
+  "link:wiki/TODO.md:625": {
+    "number": 208,
+    "id": "5168754463"
+  },
+  "link:wiki/TODO.md:626": {
+    "number": 209,
+    "id": "5168755173"
+  },
+  "link:wiki/TODO.md:627": {
+    "number": 210,
+    "id": "5168755878"
+  },
+  "link:wiki/TODO.md:632": {
+    "number": 211,
+    "id": "5168756586"
+  },
+  "link:wiki/TODO.md:633": {
+    "number": 212,
+    "id": "5168757285"
+  },
+  "link:wiki/TODO.md:634": {
+    "number": 213,
+    "id": "5168758039"
+  },
+  "link:wiki/TODO.md:635": {
+    "number": 214,
+    "id": "5168758802"
+  },
+  "link:wiki/TODO.md:640": {
+    "number": 215,
+    "id": "5168759483"
+  },
+  "link:wiki/TODO.md:641": {
+    "number": 216,
+    "id": "5168760225"
+  },
+  "link:wiki/TODO.md:642": {
+    "number": 217,
+    "id": "5168760936"
+  },
+  "link:wiki/TODO.md:643": {
+    "number": 218,
+    "id": "5168761900"
+  },
+  "link:wiki/TODO.md:644": {
+    "number": 219,
+    "id": "5168762373"
+  },
+  "link:wiki/TODO.md:645": {
+    "number": 220,
+    "id": "5168763142"
+  },
+  "link:wiki/TODO.md:646": {
+    "number": 221,
+    "id": "5168763876"
+  },
+  "link:wiki/TODO.md:647": {
+    "number": 222,
+    "id": "5168764753"
+  },
+  "link:wiki/TODO.md:652": {
+    "number": 223,
+    "id": "5168765319"
+  },
+  "link:wiki/TODO.md:653": {
+    "number": 224,
+    "id": "5168766007"
+  },
+  "link:wiki/TODO.md:665": {
+    "number": 225,
+    "id": "5168766702"
+  },
+  "link:wiki/TODO.md:667": {
+    "number": 226,
+    "id": "5168767487"
+  },
+  "link:wiki/TODO.md:668": {
+    "number": 227,
+    "id": "5168768189"
+  },
+  "link:wiki/TODO.md:669": {
+    "number": 228,
+    "id": "5168768883"
+  },
+  "link:wiki/TODO.md:670": {
+    "number": 229,
+    "id": "5168769622"
+  },
+  "link:wiki/TODO.md:673": {
+    "number": 230,
+    "id": "5168770291"
+  },
+  "link:wiki/TODO.md:674": {
+    "number": 231,
+    "id": "5168770939"
+  },
+  "link:wiki/TODO.md:676": {
+    "number": 232,
+    "id": "5168771609"
+  },
+  "link:wiki/TODO.md:677": {
+    "number": 233,
+    "id": "5168772296"
+  },
+  "link:wiki/TODO.md:678": {
+    "number": 234,
+    "id": "5168772947"
+  },
+  "link:wiki/TODO.md:679": {
+    "number": 235,
+    "id": "5168773607"
+  },
+  "link:wiki/TODO.md:681": {
+    "number": 236,
+    "id": "5168774278"
+  },
+  "link:wiki/TODO.md:682": {
+    "number": 237,
+    "id": "5168774966"
+  },
+  "link:wiki/TODO.md:683": {
+    "number": 238,
+    "id": "5168775668"
+  },
+  "link:wiki/TODO.md:686": {
+    "number": 239,
+    "id": "5168776285"
+  },
+  "link:wiki/TODO.md:687": {
+    "number": 240,
+    "id": "5168776969"
+  },
+  "link:wiki/TODO.md:688": {
+    "number": 241,
+    "id": "5168777626"
+  },
+  "link:wiki/TODO.md:689": {
+    "number": 242,
+    "id": "5168778290"
+  },
+  "link:wiki/TODO.md:690": {
+    "number": 243,
+    "id": "5168779000"
+  },
+  "link:wiki/TODO.md:692": {
+    "number": 244,
+    "id": "5168779687"
+  },
+  "link:wiki/TODO.md:693": {
+    "number": 245,
+    "id": "5168780391"
+  },
+  "link:wiki/TODO.md:701": {
+    "number": 246,
+    "id": "5168781049"
+  },
+  "link:wiki/TODO.md:702": {
+    "number": 247,
+    "id": "5168781706"
+  },
+  "link:wiki/TODO.md:707": {
+    "number": 248,
+    "id": "5168782476"
+  },
+  "link:wiki/TODO.md:708": {
+    "number": 249,
+    "id": "5168783231"
+  },
+  "link:wiki/TODO.md:715": {
+    "number": 250,
+    "id": "5168783984"
+  },
+  "link:wiki/TODO.md:716": {
+    "number": 251,
+    "id": "5168784762"
+  },
+  "link:wiki/TODO.md:718": {
+    "number": 252,
+    "id": "5168785531"
+  },
+  "link:wiki/TODO.md:728": {
+    "number": 253,
+    "id": "5168786306"
+  },
+  "link:wiki/TODO.md:729": {
+    "number": 254,
+    "id": "5168787010"
+  },
+  "link:wiki/TODO.md:730": {
+    "number": 255,
+    "id": "5168787747"
+  },
+  "link:wiki/TODO.md:731": {
+    "number": 256,
+    "id": "5168788435"
+  },
+  "link:wiki/TODO.md:732": {
+    "number": 257,
+    "id": "5168789125"
+  },
+  "link:wiki/TODO.md:733": {
+    "number": 258,
+    "id": "5168789808"
+  },
+  "link:wiki/TODO.md:734": {
+    "number": 259,
+    "id": "5168790461"
+  },
+  "link:wiki/TODO.md:735": {
+    "number": 260,
+    "id": "5168791125"
+  },
+  "link:wiki/TODO.md:736": {
+    "number": 261,
+    "id": "5168791813"
+  },
+  "link:wiki/TODO.md:737": {
+    "number": 262,
+    "id": "5168792516"
+  },
+  "link:wiki/TODO.md:738": {
+    "number": 263,
+    "id": "5168793292"
+  },
+  "link:wiki/TODO.md:740": {
+    "number": 264,
+    "id": "5168793988"
+  },
+  "link:wiki/TODO.md:741": {
+    "number": 265,
+    "id": "5168794685"
+  },
+  "link:wiki/TODO.md:742": {
+    "number": 266,
+    "id": "5168795345"
+  },
+  "link:wiki/TODO.md:743": {
+    "number": 267,
+    "id": "5168796122"
+  },
+  "link:wiki/TODO.md:745": {
+    "number": 268,
+    "id": "5168796798"
+  },
+  "link:wiki/TODO.md:746": {
+    "number": 269,
+    "id": "5168797506"
+  },
+  "link:wiki/TODO.md:747": {
+    "number": 270,
+    "id": "5168798251"
+  },
+  "link:wiki/TODO.md:749": {
+    "number": 271,
+    "id": "5168799008"
+  },
+  "link:wiki/TODO.md:750": {
+    "number": 272,
+    "id": "5168799800"
+  },
+  "link:wiki/TODO.md:753": {
+    "number": 273,
+    "id": "5168800561"
+  },
+  "link:wiki/TODO.md:754": {
+    "number": 274,
+    "id": "5168801309"
+  },
+  "link:wiki/TODO.md:755": {
+    "number": 275,
+    "id": "5168802070"
+  },
+  "link:wiki/TODO.md:771": {
+    "number": 276,
+    "id": "5168802861"
+  },
+  "link:wiki/TODO.md:772": {
+    "number": 277,
+    "id": "5168803586"
+  },
+  "link:wiki/TODO.md:774": {
+    "number": 278,
+    "id": "5168804300"
+  },
+  "link:wiki/TODO.md:775": {
+    "number": 279,
+    "id": "5168805050"
+  },
+  "link:wiki/TODO.md:780": {
+    "number": 280,
+    "id": "5168805815"
+  },
+  "link:wiki/TODO.md:781": {
+    "number": 281,
+    "id": "5168806568"
+  },
+  "link:wiki/TODO.md:782": {
+    "number": 282,
+    "id": "5168807355"
+  },
+  "link:wiki/TODO.md:783": {
+    "number": 283,
+    "id": "5168808264"
+  },
+  "link:wiki/TODO.md:784": {
+    "number": 284,
+    "id": "5168809101"
+  },
+  "link:wiki/TODO.md:785": {
+    "number": 285,
+    "id": "5168809886"
+  },
+  "link:wiki/TODO.md:786": {
+    "number": 286,
+    "id": "5168810615"
+  },
+  "link:wiki/TODO.md:787": {
+    "number": 287,
+    "id": "5168811389"
+  },
+  "link:wiki/TODO.md:788": {
+    "number": 288,
+    "id": "5168812209"
+  },
+  "link:wiki/TODO.md:789": {
+    "number": 289,
+    "id": "5168812922"
+  },
+  "link:wiki/TODO.md:790": {
+    "number": 290,
+    "id": "5168813749"
+  },
+  "link:wiki/TODO.md:791": {
+    "number": 291,
+    "id": "5168814532"
+  },
+  "link:wiki/TODO.md:792": {
+    "number": 292,
+    "id": "5168815299"
+  },
+  "link:wiki/TODO.md:793": {
+    "number": 293,
+    "id": "5168816098"
+  },
+  "link:wiki/TODO.md:794": {
+    "number": 294,
+    "id": "5168816923"
+  },
+  "link:wiki/TODO.md:798": {
+    "number": 295,
+    "id": "5168817705"
+  },
+  "link:wiki/TODO.md:799": {
+    "number": 296,
+    "id": "5168818523"
+  },
+  "link:wiki/TODO.md:800": {
+    "number": 297,
+    "id": "5168819339"
+  },
+  "link:wiki/TODO.md:801": {
+    "number": 298,
+    "id": "5168820162"
+  },
+  "link:wiki/TODO.md:802": {
+    "number": 299,
+    "id": "5168821043"
+  },
+  "link:wiki/TODO.md:803": {
+    "number": 300,
+    "id": "5168821846"
+  },
+  "link:wiki/TODO.md:804": {
+    "number": 301,
+    "id": "5168822672"
+  },
+  "link:wiki/TODO.md:810": {
+    "number": 302,
+    "id": "5168823469"
+  },
+  "link:wiki/TODO.md:811": {
+    "number": 303,
+    "id": "5168824333"
+  },
+  "link:wiki/TODO.md:812": {
+    "number": 304,
+    "id": "5168825132"
+  },
+  "link:wiki/TODO.md:813": {
+    "number": 305,
+    "id": "5168825917"
+  },
+  "link:wiki/TODO.md:818": {
+    "number": 306,
+    "id": "5168826673"
+  },
+  "link:wiki/TODO.md:819": {
+    "number": 307,
+    "id": "5168827753"
+  },
+  "link:wiki/TODO.md:826": {
+    "number": 308,
+    "id": "5168828787"
+  },
+  "link:wiki/TODO.md:827": {
+    "number": 309,
+    "id": "5168829653"
+  },
+  "link:wiki/TODO.md:828": {
+    "number": 310,
+    "id": "5168830472"
+  },
+  "link:wiki/TODO.md:830": {
+    "number": 311,
+    "id": "5168831314"
+  },
+  "link:wiki/TODO.md:831": {
+    "number": 312,
+    "id": "5168832145"
+  },
+  "link:wiki/TODO.md:832": {
+    "number": 313,
+    "id": "5168832947"
+  },
+  "link:wiki/TODO.md:833": {
+    "number": 314,
+    "id": "5168833678"
+  },
+  "link:wiki/TODO.md:840": {
+    "number": 315,
+    "id": "5168834564"
+  },
+  "link:wiki/TODO.md:841": {
+    "number": 316,
+    "id": "5168835371"
+  },
+  "link:wiki/TODO.md:842": {
+    "number": 317,
+    "id": "5168836191"
+  },
+  "link:wiki/TODO.md:843": {
+    "number": 318,
+    "id": "5168836994"
+  },
+  "link:wiki/TODO.md:847": {
+    "number": 319,
+    "id": "5168837839"
+  },
+  "link:wiki/TODO.md:848": {
+    "number": 320,
+    "id": "5168838704"
+  },
+  "link:wiki/TODO.md:849": {
+    "number": 321,
+    "id": "5168839510"
+  },
+  "link:wiki/TODO.md:850": {
+    "number": 322,
+    "id": "5168840459"
+  },
+  "link:wiki/TODO.md:851": {
+    "number": 323,
+    "id": "5168841389"
+  },
+  "link:wiki/TODO.md:854": {
+    "number": 324,
+    "id": "5168842292"
+  },
+  "link:wiki/TODO.md:858": {
+    "number": 325,
+    "id": "5168843141"
+  },
+  "link:wiki/TODO.md:859": {
+    "number": 326,
+    "id": "5168844030"
+  },
+  "link:wiki/TODO.md:860": {
+    "number": 327,
+    "id": "5168844777"
+  },
+  "link:wiki/TODO.md:861": {
+    "number": 328,
+    "id": "5168845650"
+  },
+  "link:wiki/TODO.md:862": {
+    "number": 329,
+    "id": "5168846578"
+  },
+  "link:wiki/TODO.md:863": {
+    "number": 330,
+    "id": "5168847384"
+  },
+  "link:wiki/TODO.md:864": {
+    "number": 331,
+    "id": "5168848399"
+  },
+  "link:wiki/TODO.md:865": {
+    "number": 332,
+    "id": "5168849213"
+  },
+  "link:wiki/TODO.md:866": {
+    "number": 333,
+    "id": "5168850153"
+  },
+  "link:wiki/TODO.md:867": {
+    "number": 334,
+    "id": "5168851060"
+  },
+  "link:wiki/TODO.md:868": {
+    "number": 335,
+    "id": "5168852000"
+  },
+  "link:wiki/TODO.md:869": {
+    "number": 336,
+    "id": "5168852850"
+  },
+  "link:wiki/TODO.md:870": {
+    "number": 337,
+    "id": "5168853654"
+  },
+  "link:wiki/TODO.md:871": {
+    "number": 338,
+    "id": "5168854492"
+  },
+  "link:wiki/TODO.md:872": {
+    "number": 339,
+    "id": "5168855395"
+  },
+  "link:wiki/TODO.md:873": {
+    "number": 340,
+    "id": "5168856290"
+  },
+  "link:wiki/TODO.md:874": {
+    "number": 341,
+    "id": "5168857180"
+  },
+  "link:wiki/TODO.md:875": {
+    "number": 342,
+    "id": "5168858048"
+  },
+  "link:wiki/TODO.md:876": {
+    "number": 343,
+    "id": "5168858896"
+  },
+  "link:wiki/TODO.md:877": {
+    "number": 344,
+    "id": "5168859721"
+  },
+  "link:wiki/TODO.md:878": {
+    "number": 345,
+    "id": "5168860524"
+  },
+  "link:wiki/TODO.md:879": {
+    "number": 346,
+    "id": "5168861357"
+  },
+  "link:wiki/TODO.md:881": {
+    "number": 347,
+    "id": "5168862163"
+  },
+  "link:wiki/TODO.md:882": {
+    "number": 348,
+    "id": "5168862987"
+  },
+  "link:wiki/TODO.md:883": {
+    "number": 349,
+    "id": "5168863906"
+  },
+  "link:wiki/TODO.md:884": {
+    "number": 350,
+    "id": "5168864739"
+  },
+  "link:wiki/TODO.md:885": {
+    "number": 351,
+    "id": "5168865601"
+  },
+  "link:wiki/TODO.md:895": {
+    "number": 352,
+    "id": "5168866515"
+  },
+  "link:wiki/TODO.md:898": {
+    "number": 353,
+    "id": "5168867377"
+  },
+  "link:wiki/TODO.md:900": {
+    "number": 354,
+    "id": "5168868256"
+  },
+  "link:wiki/TODO.md:901": {
+    "number": 355,
+    "id": "5168869098"
+  },
+  "link:wiki/TODO.md:902": {
+    "number": 356,
+    "id": "5168869911"
+  },
+  "link:wiki/TODO.md:904": {
+    "number": 357,
+    "id": "5168870865"
+  },
+  "link:wiki/TODO.md:905": {
+    "number": 358,
+    "id": "5168871723"
+  },
+  "link:wiki/TODO.md:906": {
+    "number": 359,
+    "id": "5168872599"
+  },
+  "link:wiki/TODO.md:911": {
+    "number": 360,
+    "id": "5168873452"
+  },
+  "link:wiki/TODO.md:912": {
+    "number": 361,
+    "id": "5168874460"
+  },
+  "link:wiki/TODO.md:913": {
+    "number": 362,
+    "id": "5168875349"
+  },
+  "link:wiki/TODO.md:914": {
+    "number": 363,
+    "id": "5168876235"
+  },
+  "link:wiki/TODO.md:915": {
+    "number": 364,
+    "id": "5168877093"
+  },
+  "link:wiki/TODO.md:916": {
+    "number": 365,
+    "id": "5168877940"
+  },
+  "link:wiki/TODO.md:917": {
+    "number": 366,
+    "id": "5168878793"
+  },
+  "link:wiki/TODO.md:918": {
+    "number": 367,
+    "id": "5168879662"
+  },
+  "link:wiki/TODO.md:919": {
+    "number": 368,
+    "id": "5168880533"
+  },
+  "link:wiki/TODO.md:920": {
+    "number": 369,
+    "id": "5168881497"
+  },
+  "link:wiki/TODO.md:921": {
+    "number": 370,
+    "id": "5168882428"
+  },
+  "link:wiki/TODO.md:922": {
+    "number": 371,
+    "id": "5168883387"
+  },
+  "link:wiki/TODO.md:923": {
+    "number": 372,
+    "id": "5168884321"
+  },
+  "link:wiki/TODO.md:924": {
+    "number": 373,
+    "id": "5168885221"
+  },
+  "link:wiki/TODO.md:925": {
+    "number": 374,
+    "id": "5168886075"
+  },
+  "link:wiki/TODO.md:926": {
+    "number": 375,
+    "id": "5168886977"
+  },
+  "link:wiki/TODO.md:927": {
+    "number": 376,
+    "id": "5168887887"
+  },
+  "link:wiki/TODO.md:928": {
+    "number": 377,
+    "id": "5168888799"
+  },
+  "link:wiki/TODO.md:929": {
+    "number": 378,
+    "id": "5168889785"
+  },
+  "link:wiki/TODO.md:930": {
+    "number": 379,
+    "id": "5168890637"
+  },
+  "link:wiki/TODO.md:931": {
+    "number": 380,
+    "id": "5168891494"
+  },
+  "link:wiki/TODO.md:936": {
+    "number": 381,
+    "id": "5168892403"
+  },
+  "link:wiki/TODO.md:937": {
+    "number": 382,
+    "id": "5168893294"
+  },
+  "link:wiki/TODO.md:938": {
+    "number": 383,
+    "id": "5168894204"
+  },
+  "link:wiki/TODO.md:939": {
+    "number": 384,
+    "id": "5168895132"
+  },
+  "link:wiki/TODO.md:940": {
+    "number": 385,
+    "id": "5168895988"
+  },
+  "link:wiki/TODO.md:941": {
+    "number": 386,
+    "id": "5168896858"
+  },
+  "link:wiki/TODO.md:942": {
+    "number": 387,
+    "id": "5168897732"
+  },
+  "link:wiki/TODO.md:943": {
+    "number": 388,
+    "id": "5168898722"
+  },
+  "link:wiki/TODO.md:944": {
+    "number": 389,
+    "id": "5168899597"
+  },
+  "link:wiki/TODO.md:945": {
+    "number": 390,
+    "id": "5168900387"
+  },
+  "link:wiki/TODO.md:946": {
+    "number": 391,
+    "id": "5168901344"
+  },
+  "link:wiki/TODO.md:947": {
+    "number": 392,
+    "id": "5168902234"
+  },
+  "link:wiki/TODO.md:949": {
+    "number": 393,
+    "id": "5168903096"
+  },
+  "link:wiki/TODO.md:950": {
+    "number": 394,
+    "id": "5168904002"
+  },
+  "link:wiki/TODO.md:951": {
+    "number": 395,
+    "id": "5168905007"
+  },
+  "link:wiki/TODO.md:952": {
+    "number": 396,
+    "id": "5168906114"
+  },
+  "link:wiki/TODO.md:953": {
+    "number": 397,
+    "id": "5168907148"
+  },
+  "link:wiki/TODO.md:954": {
+    "number": 398,
+    "id": "5168908119"
+  },
+  "link:wiki/TODO.md:955": {
+    "number": 399,
+    "id": "5168909063"
+  },
+  "link:wiki/TODO.md:956": {
+    "number": 400,
+    "id": "5168909954"
+  },
+  "link:wiki/TODO.md:957": {
+    "number": 401,
+    "id": "5168910811"
+  },
+  "link:wiki/TODO.md:958": {
+    "number": 402,
+    "id": "5168911628"
+  },
+  "link:wiki/TODO.md:959": {
+    "number": 403,
+    "id": "5168912531"
+  },
+  "link:wiki/TODO.md:960": {
+    "number": 404,
+    "id": "5168913370"
+  },
+  "link:wiki/TODO.md:961": {
+    "number": 405,
+    "id": "5168914372"
+  },
+  "link:wiki/TODO.md:962": {
+    "number": 406,
+    "id": "5168915335"
+  },
+  "link:wiki/TODO.md:963": {
+    "number": 407,
+    "id": "5168916266"
+  },
+  "link:wiki/TODO.md:964": {
+    "number": 408,
+    "id": "5168917212"
+  },
+  "link:wiki/TODO.md:965": {
+    "number": 409,
+    "id": "5168918216"
+  },
+  "link:wiki/TODO.md:966": {
+    "number": 410,
+    "id": "5168919095"
+  },
+  "link:wiki/TODO.md:967": {
+    "number": 411,
+    "id": "5168920013"
+  },
+  "link:wiki/TODO.md:968": {
+    "number": 412,
+    "id": "5168921058"
+  },
+  "link:wiki/TODO.md:969": {
+    "number": 413,
+    "id": "5168922125"
+  },
+  "link:wiki/TODO.md:970": {
+    "number": 414,
+    "id": "5168923114"
+  },
+  "link:wiki/TODO.md:972": {
+    "number": 415,
+    "id": "5168924135"
+  },
+  "link:wiki/TODO.md:992": {
+    "number": 416,
+    "id": "5168925108"
+  },
+  "type:cire/wiki/todo/api.md:38": {
+    "number": 466,
+    "id": "Feature"
+  },
+  "type:epic:public:cire/api": {
+    "number": 450,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/api.md:44": {
+    "number": 467,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/api.md:45": {
+    "number": 468,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/db.md:61": {
+    "number": 469,
+    "id": "Task"
+  },
+  "type:epic:public:cire/db": {
+    "number": 451,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/db.md:65": {
+    "number": 470,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:17": {
+    "number": 61,
+    "id": "Task"
+  },
+  "type:epic:private:Performance Backlog — Guest sign-out control (claude/cire-invites-claim-code-button-sn5br8, 2026-08-08)": {
+    "number": 1,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:18": {
+    "number": 62,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:26": {
+    "number": 63,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — RSVP save latency (claude/rsvp-modal-close-delay-d8sqnd, 2026-08-08)": {
+    "number": 2,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:33": {
+    "number": 64,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:39": {
+    "number": 65,
+    "id": "Task"
+  },
+  "type:epic:private:Performance Backlog — RSVP confirmation timing + mobile invite preview (claude/pr388-deploy-mobile-invite-jlz8in,…": {
+    "number": 3,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:48": {
+    "number": 66,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — CSV import into each module's Edit mode (claude/cire-csv-import-reorganize-y1vbnk, 2026-08-06)": {
+    "number": 4,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:49": {
+    "number": 67,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:50": {
+    "number": 68,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:90": {
+    "number": 69,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Claim-field contrast + reveal ownership (claude/cire-invites-claim-input-bug-8q0ev8, 2026-08-05)": {
+    "number": 5,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:97": {
+    "number": 70,
+    "id": "Task"
+  },
+  "type:epic:private:Performance Backlog — Guests-editor review — household rename fix (claude/cire-web-editor-household-name-qcfkb4,…": {
+    "number": 6,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:103": {
+    "number": 71,
+    "id": "Task"
+  },
+  "type:epic:private:Performance Backlog — Bare domain → marketing site (claude/live-cire-wedding-rename-x3y623, 2026-08-02)": {
+    "number": 7,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:113": {
+    "number": 72,
+    "id": "Task"
+  },
+  "type:epic:private:Performance Backlog — Invite open path — restore, preconnect, prefetch (claude/invite-code-gating-hints-g8nw0o,…": {
+    "number": 8,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:114": {
+    "number": 73,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:115": {
+    "number": 74,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:116": {
+    "number": 75,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:123": {
+    "number": 76,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Guest-deletion fix — row identity + the households read (claude/cire-guest-deletion-bug-ve85ng,…": {
+    "number": 9,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:124": {
+    "number": 77,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:130": {
+    "number": 78,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — RSVP CSV per-event dietary + editor co-host add (claude/rsvp-notice-contrast-fix-m5px1l,…": {
+    "number": 10,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:143": {
+    "number": 79,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — RSVP-by editable by a co-host — review findings (claude/cire-rsvp-date-cohost-edit-va8w9i,…": {
+    "number": 11,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:145": {
+    "number": 80,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:155": {
+    "number": 81,
+    "id": "Task"
+  },
+  "type:epic:private:Performance Backlog — Single-sheet CSV uploads — review findings (claude/cire-dashboard-csv-uploads-zk5rt0, 2026-07-31)": {
+    "number": 12,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:180": {
+    "number": 82,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Host portal fluid layout — review findings (claude/host-portal-responsive-ui-zdy9ri, 2026-07-30)": {
+    "number": 13,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:182": {
+    "number": 83,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:183": {
+    "number": 84,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:184": {
+    "number": 85,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:185": {
+    "number": 86,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:194": {
+    "number": 87,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Closing hero band — review findings (claude/closing-hero-image-j40coh, 2026-07-31)": {
+    "number": 14,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:195": {
+    "number": 88,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:196": {
+    "number": 89,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:198": {
+    "number": 90,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:199": {
+    "number": 91,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:207": {
+    "number": 92,
+    "id": "Task"
+  },
+  "type:epic:private:Performance Backlog — Data-layer review fixes — pre-merge review findings (claude/cire-data-layer-review-s7d6gt,…": {
+    "number": 15,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:208": {
+    "number": 93,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:217": {
+    "number": 94,
+    "id": "Task"
+  },
+  "type:epic:private:Performance Backlog — Invite builder UX pass — review findings (claude/invite-builder-structure-review-ali18d,…": {
+    "number": 16,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:233": {
+    "number": 95,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Closing section — review findings (claude/cire-footer-customisation-xkc09y, 2026-07-29)": {
+    "number": 17,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:234": {
+    "number": 96,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:240": {
+    "number": 97,
+    "id": "Task"
+  },
+  "type:epic:private:Performance Backlog — Hero phone crop — review findings (claude/hero-image-responsive-crop-b6b74u, 2026-07-23)": {
+    "number": 18,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:249": {
+    "number": 98,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Guest invite taste pass — review findings (fix/cire-invite-taste-pass, 2026-07-22)": {
+    "number": 19,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:250": {
+    "number": 99,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:251": {
+    "number": 100,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:261": {
+    "number": 101,
+    "id": "Task"
+  },
+  "type:epic:private:Performance Backlog — Host dashboard redesign — review findings (feat/cire-host-dashboard-redesign, 2026-07-22)": {
+    "number": 20,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:272": {
+    "number": 102,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Invite customisation + builder restructure — review findings (cire-invite-customization branch)": {
+    "number": 21,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:277": {
+    "number": 103,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Optional End/Location CSV spec — review findings (wedding-management-platform branch)": {
+    "number": 22,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:296": {
+    "number": 104,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Crop editor + colour picker fixes — review findings (cire-color-upload-bugs branch)": {
+    "number": 23,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:331": {
+    "number": 105,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Observability instrumentation — review notes (Info, no action)": {
+    "number": 24,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:335": {
+    "number": 106,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:342": {
+    "number": 107,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:361": {
+    "number": 108,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Vendors PR B — vendor portal review notes (feat/cire-vendor-portal)": {
+    "number": 25,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:371": {
+    "number": 109,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Vendors S3 (directory browse) — /prep-pr perf review notes (feat/cire-vendors-directory-browse)": {
+    "number": 26,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:372": {
+    "number": 110,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:373": {
+    "number": 111,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:380": {
+    "number": 112,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Vendors S4 PR B — enquiry backend perf review notes (feat/cire-vendors-enquiries)": {
+    "number": 27,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:381": {
+    "number": 113,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:382": {
+    "number": 114,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:383": {
+    "number": 115,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:389": {
+    "number": 116,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Platform tiering Phase 1 (entitlement foundation) — /prep-pr perf review notes…": {
+    "number": 28,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:390": {
+    "number": 117,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:391": {
+    "number": 118,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:392": {
+    "number": 119,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:393": {
+    "number": 120,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:398": {
+    "number": 121,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:400": {
+    "number": 122,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/perf.md:410": {
+    "number": 123,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:411": {
+    "number": 124,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:412": {
+    "number": 125,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:427": {
+    "number": 126,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:441": {
+    "number": 127,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:524": {
+    "number": 128,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:536": {
+    "number": 129,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:544": {
+    "number": 130,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:555": {
+    "number": 131,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/perf.md:561": {
+    "number": 132,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/platform.md:26": {
+    "number": 471,
+    "id": "Feature"
+  },
+  "type:epic:public:Phase 0 — core-domain refactor (invite decoupling)": {
+    "number": 452,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/platform.md:29": {
+    "number": 472,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/platform.md:43": {
+    "number": 473,
+    "id": "Task"
+  },
+  "type:epic:public:Phase 2 — vendors & services": {
+    "number": 453,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/platform.md:44": {
+    "number": 474,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/platform.md:45": {
+    "number": 475,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/platform.md:46": {
+    "number": 476,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/platform.md:51": {
+    "number": 477,
+    "id": "Feature"
+  },
+  "type:epic:public:Phase 3 — pricing estimates": {
+    "number": 454,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/platform.md:52": {
+    "number": 478,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/platform.md:56": {
+    "number": 479,
+    "id": "Feature"
+  },
+  "type:epic:public:Phase 4 — seating, comms, registry": {
+    "number": 455,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/platform.md:57": {
+    "number": 480,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/platform.md:58": {
+    "number": 481,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/platform.md:59": {
+    "number": 482,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/security.md:19": {
+    "number": 133,
+    "id": "Task"
+  },
+  "type:epic:private:Security Backlog — RSVP sheet close delay (claude/rsvp-modal-close-delay-d8sqnd, 2026-08-08)": {
+    "number": 29,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:25": {
+    "number": 134,
+    "id": "Bug"
+  },
+  "type:epic:private:Security Backlog — RSVP partial saves + persistent confirmation fill (claude/fog-bloom-sweep-fill-issues-lwdamh,…": {
+    "number": 30,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:43": {
+    "number": 135,
+    "id": "Bug"
+  },
+  "type:epic:private:Security Backlog — Host-portal date picker + event timezones + design-aware preview…": {
+    "number": 31,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:55": {
+    "number": 136,
+    "id": "Bug"
+  },
+  "type:epic:private:Security Backlog — Household-rename fix — familyUpdates op (claude/cire-web-editor-household-name-qcfkb4, 2026-08-02)": {
+    "number": 32,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:73": {
+    "number": 137,
+    "id": "Task"
+  },
+  "type:epic:private:Security Backlog — Guest-deletion fix — row identity in the reconcile diff (claude/cire-guest-deletion-bug-ve85ng,…": {
+    "number": 33,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:82": {
+    "number": 138,
+    "id": "Bug"
+  },
+  "type:epic:private:Security Backlog — Guest session restore (claude/invite-code-gating-hints-g8nw0o, 2026-08-02)": {
+    "number": 34,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:83": {
+    "number": 139,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:84": {
+    "number": 140,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:102": {
+    "number": 141,
+    "id": "Bug"
+  },
+  "type:epic:private:Security Backlog — Invite styling + contrast warnings + hex picker (claude/cire-invite-styling-picker-87ni7b,…": {
+    "number": 35,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:103": {
+    "number": 142,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:107": {
+    "number": 143,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:117": {
+    "number": 144,
+    "id": "Bug"
+  },
+  "type:epic:private:Security Backlog — RSVP-by editable by a co-host — review findings (claude/cire-rsvp-date-cohost-edit-va8w9i,…": {
+    "number": 36,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:124": {
+    "number": 145,
+    "id": "Bug"
+  },
+  "type:epic:private:Security Backlog — Closing hero band — review findings (claude/closing-hero-image-j40coh, 2026-07-31)": {
+    "number": 37,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:125": {
+    "number": 146,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:129": {
+    "number": 147,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:141": {
+    "number": 148,
+    "id": "Bug"
+  },
+  "type:epic:private:Security Backlog — Single-sheet CSV uploads + import error reporting — review findings…": {
+    "number": 38,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:142": {
+    "number": 149,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:143": {
+    "number": 150,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:171": {
+    "number": 151,
+    "id": "Bug"
+  },
+  "type:epic:private:Security Backlog — Closing section — review findings (claude/cire-footer-customisation-xkc09y, 2026-07-29)": {
+    "number": 39,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:172": {
+    "number": 152,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:215": {
+    "number": 153,
+    "id": "Bug"
+  },
+  "type:epic:private:High": {
+    "number": 40,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:225": {
+    "number": 154,
+    "id": "Bug"
+  },
+  "type:epic:private:Low": {
+    "number": 41,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:231": {
+    "number": 155,
+    "id": "Bug"
+  },
+  "type:epic:private:Low — Vendors S4 PR B — enquiry backend review notes (feat/cire-vendors-enquiries)": {
+    "number": 42,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:232": {
+    "number": 156,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:240": {
+    "number": 157,
+    "id": "Bug"
+  },
+  "type:epic:private:Low — Vendors PR B — vendor portal review notes (feat/cire-vendor-portal)": {
+    "number": 43,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:242": {
+    "number": 158,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:243": {
+    "number": 159,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:257": {
+    "number": 160,
+    "id": "Bug"
+  },
+  "type:epic:private:Low — Vendors S3 (directory browse) — /prep-pr review notes (feat/cire-vendors-directory-browse)": {
+    "number": 44,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:258": {
+    "number": 161,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:277": {
+    "number": 162,
+    "id": "Bug"
+  },
+  "type:epic:private:Low — Site-wide consent framework (claude/site-wide-consent-framework-jys0q2)": {
+    "number": 45,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/security.md:278": {
+    "number": 163,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:289": {
+    "number": 164,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:317": {
+    "number": 165,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:417": {
+    "number": 166,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/security.md:441": {
+    "number": 167,
+    "id": "Bug"
+  },
+  "type:cire/wiki/todo/spreadsheet-import.md:42": {
+    "number": 483,
+    "id": "Feature"
+  },
+  "type:epic:public:Spreadsheet ingestion (cire/api)": {
+    "number": 456,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/spreadsheet-import.md:57": {
+    "number": 484,
+    "id": "Feature"
+  },
+  "type:epic:public:Organiser portal (cire/host + cire/api)": {
+    "number": 457,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/status.md:42": {
+    "number": 485,
+    "id": "Task"
+  },
+  "type:epic:public:Up Next": {
+    "number": 458,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/status.md:43": {
+    "number": 486,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/web.md:84": {
+    "number": 487,
+    "id": "Feature"
+  },
+  "type:epic:public:Open": {
+    "number": 459,
+    "id": "Task"
+  },
+  "type:cire/wiki/todo/web.md:88": {
+    "number": 488,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/web.md:90": {
+    "number": 489,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/web.md:115": {
+    "number": 490,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/web.md:121": {
+    "number": 491,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/web.md:122": {
+    "number": 492,
+    "id": "Feature"
+  },
+  "type:cire/wiki/todo/web.md:123": {
+    "number": 493,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:9": {
+    "number": 494,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:15": {
+    "number": 168,
+    "id": "Bug"
+  },
+  "type:epic:private:Up Next": {
+    "number": 46,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:17": {
+    "number": 495,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:18": {
+    "number": 496,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:19": {
+    "number": 497,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:27": {
+    "number": 169,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:28": {
+    "number": 498,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:29": {
+    "number": 499,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:30": {
+    "number": 500,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:31": {
+    "number": 501,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:111": {
+    "number": 502,
+    "id": "Feature"
+  },
+  "type:epic:public:Pulse (pulse/web + pulse/api + pulse/db)": {
+    "number": 460,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:112": {
+    "number": 503,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:113": {
+    "number": 504,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:115": {
+    "number": 505,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:116": {
+    "number": 506,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:119": {
+    "number": 507,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:120": {
+    "number": 508,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:121": {
+    "number": 509,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:122": {
+    "number": 510,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:125": {
+    "number": 511,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:127": {
+    "number": 512,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:138": {
+    "number": 513,
+    "id": "Feature"
+  },
+  "type:epic:public:OSN Core (osn/api)": {
+    "number": 461,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:139": {
+    "number": 514,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:149": {
+    "number": 515,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:150": {
+    "number": 516,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:151": {
+    "number": 517,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:154": {
+    "number": 518,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:162": {
+    "number": 519,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:163": {
+    "number": 520,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:166": {
+    "number": 521,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:167": {
+    "number": 522,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:177": {
+    "number": 561,
+    "id": "Feature"
+  },
+  "type:epic:public:Zap (zap/app + zap/api + zap/db) — M0 — Scaffold (remaining)": {
+    "number": 536,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:178": {
+    "number": 562,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:182": {
+    "number": 563,
+    "id": "Feature"
+  },
+  "type:epic:public:Zap (zap/app + zap/api + zap/db) — M1 — 1:1 DMs (E2E)": {
+    "number": 537,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:183": {
+    "number": 564,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:184": {
+    "number": 565,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:185": {
+    "number": 566,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:186": {
+    "number": 567,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:187": {
+    "number": 568,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:188": {
+    "number": 569,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:192": {
+    "number": 570,
+    "id": "Feature"
+  },
+  "type:epic:public:Zap (zap/app + zap/api + zap/db) — M2 — Group chats": {
+    "number": 538,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:193": {
+    "number": 571,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:194": {
+    "number": 572,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:195": {
+    "number": 573,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:196": {
+    "number": 574,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:197": {
+    "number": 575,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:201": {
+    "number": 576,
+    "id": "Feature"
+  },
+  "type:epic:public:Zap (zap/app + zap/api + zap/db) — M3 — Organisation chats (the differentiator)": {
+    "number": 539,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:202": {
+    "number": 577,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:203": {
+    "number": 578,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:204": {
+    "number": 579,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:205": {
+    "number": 580,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:206": {
+    "number": 581,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:210": {
+    "number": 582,
+    "id": "Feature"
+  },
+  "type:epic:public:Zap (zap/app + zap/api + zap/db) — M4 — Locality / government channels": {
+    "number": 540,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:211": {
+    "number": 583,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:212": {
+    "number": 584,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:213": {
+    "number": 585,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:214": {
+    "number": 586,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:215": {
+    "number": 587,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:219": {
+    "number": 588,
+    "id": "Feature"
+  },
+  "type:epic:public:Zap (zap/app + zap/api + zap/db) — M5 — Polish + AI view + native": {
+    "number": 541,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:220": {
+    "number": 589,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:221": {
+    "number": 590,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:222": {
+    "number": 591,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:223": {
+    "number": 592,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:224": {
+    "number": 593,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:225": {
+    "number": 594,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:226": {
+    "number": 595,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:230": {
+    "number": 596,
+    "id": "Feature"
+  },
+  "type:epic:public:Zap (zap/app + zap/api + zap/db) — Cross-cutting / open questions": {
+    "number": 542,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:231": {
+    "number": 597,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:232": {
+    "number": 598,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:233": {
+    "number": 599,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:248": {
+    "number": 523,
+    "id": "Feature"
+  },
+  "type:epic:public:Cire (cire/invites + cire/host + cire/api + cire/db)": {
+    "number": 462,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:250": {
+    "number": 524,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:266": {
+    "number": 525,
+    "id": "Feature"
+  },
+  "type:epic:public:Cire Landing (cire/landing)": {
+    "number": 463,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:267": {
+    "number": 526,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:268": {
+    "number": 527,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:269": {
+    "number": 528,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:273": {
+    "number": 529,
+    "id": "Feature"
+  },
+  "type:epic:public:Cire Landing (cire/landing) — Platform roadmap (withjoy parity)": {
+    "number": 464,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:274": {
+    "number": 530,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:275": {
+    "number": 531,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:284": {
+    "number": 532,
+    "id": "Feature"
+  },
+  "type:epic:public:Landing (osn/landing + pulse/landing)": {
+    "number": 465,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:285": {
+    "number": 533,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:286": {
+    "number": 534,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:302": {
+    "number": 170,
+    "id": "Task"
+  },
+  "type:epic:private:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M0 — Foundations (no provider yet)": {
+    "number": 47,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:306": {
+    "number": 600,
+    "id": "Feature"
+  },
+  "type:epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M0 — Foundations (no provider yet)": {
+    "number": 543,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:312": {
+    "number": 601,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:316": {
+    "number": 602,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:320": {
+    "number": 603,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:324": {
+    "number": 604,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:326": {
+    "number": 605,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:336": {
+    "number": 606,
+    "id": "Feature"
+  },
+  "type:epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M1 — Facial age estimation": {
+    "number": 544,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:339": {
+    "number": 607,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:344": {
+    "number": 608,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:352": {
+    "number": 609,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:354": {
+    "number": 610,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:357": {
+    "number": 611,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:362": {
+    "number": 612,
+    "id": "Feature"
+  },
+  "type:epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M2 — AU document verification (DVS + selfie +…": {
+    "number": 545,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:365": {
+    "number": 613,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:368": {
+    "number": 614,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:371": {
+    "number": 615,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:377": {
+    "number": 616,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:380": {
+    "number": 617,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:386": {
+    "number": 618,
+    "id": "Feature"
+  },
+  "type:epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M3 — mDL acceptance (ISO 18013-5 / 18013-7)": {
+    "number": 546,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:389": {
+    "number": 619,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:392": {
+    "number": 620,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:397": {
+    "number": 621,
+    "id": "Feature"
+  },
+  "type:epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M4 — Relying-party API (Pulse, Zap,…": {
+    "number": 547,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:400": {
+    "number": 622,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:403": {
+    "number": 623,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:405": {
+    "number": 624,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:407": {
+    "number": 625,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:410": {
+    "number": 626,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:418": {
+    "number": 627,
+    "id": "Feature"
+  },
+  "type:epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M5 — myID / AGDIS": {
+    "number": 548,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:419": {
+    "number": 628,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:422": {
+    "number": 629,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:426": {
+    "number": 630,
+    "id": "Feature"
+  },
+  "type:epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — V-M6 — Other countries": {
+    "number": 549,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:428": {
+    "number": 631,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:430": {
+    "number": 632,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:436": {
+    "number": 633,
+    "id": "Feature"
+  },
+  "type:epic:public:Verified Identity (@osn/api + @osn/db + @shared/crypto + @osn/social) — Cross-cutting / open questions": {
+    "number": 550,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:439": {
+    "number": 634,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:442": {
+    "number": 635,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:447": {
+    "number": 636,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:464": {
+    "number": 637,
+    "id": "Feature"
+  },
+  "type:epic:public:Platform — Pulse events API (pulse/api)": {
+    "number": 551,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:467": {
+    "number": 638,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:468": {
+    "number": 639,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:469": {
+    "number": 640,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:480": {
+    "number": 641,
+    "id": "Feature"
+  },
+  "type:epic:public:Platform — Database (osn/db, pulse/db)": {
+    "number": 552,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:481": {
+    "number": 642,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:492": {
+    "number": 643,
+    "id": "Feature"
+  },
+  "type:epic:public:Platform — Four-environment DB story (local / dev / staging / prod) — see database-environments": {
+    "number": 553,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:497": {
+    "number": 644,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:502": {
+    "number": 171,
+    "id": "Bug"
+  },
+  "type:epic:private:Platform — Four-environment DB story (local / dev / staging / prod) — see database-environments": {
+    "number": 48,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:503": {
+    "number": 172,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:504": {
+    "number": 173,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:513": {
+    "number": 645,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:514": {
+    "number": 174,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:515": {
+    "number": 175,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:516": {
+    "number": 176,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:517": {
+    "number": 646,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:518": {
+    "number": 647,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:519": {
+    "number": 648,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:520": {
+    "number": 649,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:521": {
+    "number": 650,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:526": {
+    "number": 651,
+    "id": "Feature"
+  },
+  "type:epic:public:Platform — Crypto (osn/crypto)": {
+    "number": 554,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:528": {
+    "number": 177,
+    "id": "Bug"
+  },
+  "type:epic:private:Platform — Crypto (osn/crypto)": {
+    "number": 49,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:534": {
+    "number": 652,
+    "id": "Feature"
+  },
+  "type:epic:public:Platform — UI Components (osn/ui)": {
+    "number": 555,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:535": {
+    "number": 653,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:536": {
+    "number": 654,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:537": {
+    "number": 655,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:538": {
+    "number": 656,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:545": {
+    "number": 657,
+    "id": "Feature"
+  },
+  "type:epic:public:Platform — Redis Migration Phase 4 — see redis": {
+    "number": 556,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:546": {
+    "number": 658,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:548": {
+    "number": 659,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:551": {
+    "number": 178,
+    "id": "Bug"
+  },
+  "type:epic:private:Platform — Redis Migration Phase 4 — see redis": {
+    "number": 50,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:554": {
+    "number": 660,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:555": {
+    "number": 661,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:556": {
+    "number": 662,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:557": {
+    "number": 663,
+    "id": "Feature"
+  },
+  "type:wiki/TODO.md:577": {
+    "number": 179,
+    "id": "Bug"
+  },
+  "type:epic:private:Security Backlog — Medium": {
+    "number": 51,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:578": {
+    "number": 180,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:579": {
+    "number": 181,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:586": {
+    "number": 182,
+    "id": "Bug"
+  },
+  "type:epic:private:Security Backlog — Auth PR review (#315–#324) — remaining open": {
+    "number": 52,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:587": {
+    "number": 183,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:588": {
+    "number": 184,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:589": {
+    "number": 185,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:591": {
+    "number": 186,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:592": {
+    "number": 187,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:593": {
+    "number": 188,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:594": {
+    "number": 189,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:595": {
+    "number": 190,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:596": {
+    "number": 191,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:597": {
+    "number": 192,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:598": {
+    "number": 193,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:600": {
+    "number": 194,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:601": {
+    "number": 195,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:603": {
+    "number": 196,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:604": {
+    "number": 197,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:605": {
+    "number": 198,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:606": {
+    "number": 199,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:608": {
+    "number": 200,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:609": {
+    "number": 201,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:610": {
+    "number": 202,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:611": {
+    "number": 203,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:612": {
+    "number": 204,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:614": {
+    "number": 205,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:615": {
+    "number": 206,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:624": {
+    "number": 207,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:625": {
+    "number": 208,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:626": {
+    "number": 209,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:627": {
+    "number": 210,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:632": {
+    "number": 211,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:633": {
+    "number": 212,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:634": {
+    "number": 213,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:635": {
+    "number": 214,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:640": {
+    "number": 215,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:641": {
+    "number": 216,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:642": {
+    "number": 217,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:643": {
+    "number": 218,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:644": {
+    "number": 219,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:645": {
+    "number": 220,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:646": {
+    "number": 221,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:647": {
+    "number": 222,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:652": {
+    "number": 223,
+    "id": "Bug"
+  },
+  "type:epic:private:Security Backlog — Low": {
+    "number": 53,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:653": {
+    "number": 224,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:665": {
+    "number": 225,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:667": {
+    "number": 226,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:668": {
+    "number": 227,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:669": {
+    "number": 228,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:670": {
+    "number": 229,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:673": {
+    "number": 230,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:674": {
+    "number": 231,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:676": {
+    "number": 232,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:677": {
+    "number": 233,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:678": {
+    "number": 234,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:679": {
+    "number": 235,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:681": {
+    "number": 236,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:682": {
+    "number": 237,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:683": {
+    "number": 238,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:686": {
+    "number": 239,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:687": {
+    "number": 240,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:688": {
+    "number": 241,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:689": {
+    "number": 242,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:690": {
+    "number": 243,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:692": {
+    "number": 244,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:693": {
+    "number": 245,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:701": {
+    "number": 246,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:702": {
+    "number": 247,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:707": {
+    "number": 248,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:708": {
+    "number": 249,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:715": {
+    "number": 250,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:716": {
+    "number": 251,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:718": {
+    "number": 252,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:728": {
+    "number": 253,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:729": {
+    "number": 254,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:730": {
+    "number": 255,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:731": {
+    "number": 256,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:732": {
+    "number": 257,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:733": {
+    "number": 258,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:734": {
+    "number": 259,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:735": {
+    "number": 260,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:736": {
+    "number": 261,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:737": {
+    "number": 262,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:738": {
+    "number": 263,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:740": {
+    "number": 264,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:741": {
+    "number": 265,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:742": {
+    "number": 266,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:743": {
+    "number": 267,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:745": {
+    "number": 268,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:746": {
+    "number": 269,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:747": {
+    "number": 270,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:749": {
+    "number": 271,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:750": {
+    "number": 272,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:753": {
+    "number": 273,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:754": {
+    "number": 274,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:755": {
+    "number": 275,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:771": {
+    "number": 276,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog": {
+    "number": 54,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:772": {
+    "number": 277,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:774": {
+    "number": 278,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:775": {
+    "number": 279,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:780": {
+    "number": 280,
+    "id": "Bug"
+  },
+  "type:epic:private:Performance Backlog — Warning": {
+    "number": 55,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:781": {
+    "number": 281,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:782": {
+    "number": 282,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:783": {
+    "number": 283,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:784": {
+    "number": 284,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:785": {
+    "number": 285,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:786": {
+    "number": 286,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:787": {
+    "number": 287,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:788": {
+    "number": 288,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:789": {
+    "number": 289,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:790": {
+    "number": 290,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:791": {
+    "number": 291,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:792": {
+    "number": 292,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:793": {
+    "number": 293,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:794": {
+    "number": 294,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:798": {
+    "number": 295,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:799": {
+    "number": 296,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:800": {
+    "number": 297,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:801": {
+    "number": 298,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:802": {
+    "number": 299,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:803": {
+    "number": 300,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:804": {
+    "number": 301,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:810": {
+    "number": 302,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:811": {
+    "number": 303,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:812": {
+    "number": 304,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:813": {
+    "number": 305,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:818": {
+    "number": 306,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:819": {
+    "number": 307,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:826": {
+    "number": 308,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:827": {
+    "number": 309,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:828": {
+    "number": 310,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:830": {
+    "number": 311,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:831": {
+    "number": 312,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:832": {
+    "number": 313,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:833": {
+    "number": 314,
+    "id": "Bug"
+  },
+  "type:wiki/TODO.md:840": {
+    "number": 315,
+    "id": "Task"
+  },
+  "type:epic:private:Performance Backlog — Info": {
+    "number": 56,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:841": {
+    "number": 316,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:842": {
+    "number": 317,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:843": {
+    "number": 318,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:847": {
+    "number": 319,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:848": {
+    "number": 320,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:849": {
+    "number": 321,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:850": {
+    "number": 322,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:851": {
+    "number": 323,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:854": {
+    "number": 324,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:858": {
+    "number": 325,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:859": {
+    "number": 326,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:860": {
+    "number": 327,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:861": {
+    "number": 328,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:862": {
+    "number": 329,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:863": {
+    "number": 330,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:864": {
+    "number": 331,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:865": {
+    "number": 332,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:866": {
+    "number": 333,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:867": {
+    "number": 334,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:868": {
+    "number": 335,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:869": {
+    "number": 336,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:870": {
+    "number": 337,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:871": {
+    "number": 338,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:872": {
+    "number": 339,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:873": {
+    "number": 340,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:874": {
+    "number": 341,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:875": {
+    "number": 342,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:876": {
+    "number": 343,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:877": {
+    "number": 344,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:878": {
+    "number": 345,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:879": {
+    "number": 346,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:881": {
+    "number": 347,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:882": {
+    "number": 348,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:883": {
+    "number": 349,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:884": {
+    "number": 350,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:885": {
+    "number": 351,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:895": {
+    "number": 352,
+    "id": "Task"
+  },
+  "type:epic:private:Compliance Backlog — High": {
+    "number": 57,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:898": {
+    "number": 353,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:900": {
+    "number": 354,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:901": {
+    "number": 355,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:902": {
+    "number": 356,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:904": {
+    "number": 357,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:905": {
+    "number": 358,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:906": {
+    "number": 359,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:911": {
+    "number": 360,
+    "id": "Task"
+  },
+  "type:epic:private:Compliance Backlog — Medium": {
+    "number": 58,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:912": {
+    "number": 361,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:913": {
+    "number": 362,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:914": {
+    "number": 363,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:915": {
+    "number": 364,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:916": {
+    "number": 365,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:917": {
+    "number": 366,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:918": {
+    "number": 367,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:919": {
+    "number": 368,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:920": {
+    "number": 369,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:921": {
+    "number": 370,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:922": {
+    "number": 371,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:923": {
+    "number": 372,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:924": {
+    "number": 373,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:925": {
+    "number": 374,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:926": {
+    "number": 375,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:927": {
+    "number": 376,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:928": {
+    "number": 377,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:929": {
+    "number": 378,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:930": {
+    "number": 379,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:931": {
+    "number": 380,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:936": {
+    "number": 381,
+    "id": "Task"
+  },
+  "type:epic:private:Compliance Backlog — Low": {
+    "number": 59,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:937": {
+    "number": 382,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:938": {
+    "number": 383,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:939": {
+    "number": 384,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:940": {
+    "number": 385,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:941": {
+    "number": 386,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:942": {
+    "number": 387,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:943": {
+    "number": 388,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:944": {
+    "number": 389,
+    "id": "Task"
+  },
+  "type:wiki/TODO.md:945": {
+    "number": 390,
+    "id": "Task"
+  },
+  "gap:private:cire/wiki/todo/perf.md:21": {
+    "number": 420,
+    "id": "5178324674"
+  },
+  "gap:private:cire/wiki/todo/perf.md:22": {
+    "number": 421,
+    "id": "5178325565"
+  },
+  "gap:private:cire/wiki/todo/perf.md:27": {
+    "number": 422,
+    "id": "5178326488"
+  },
+  "gap:private:cire/wiki/todo/perf.md:40": {
+    "number": 423,
+    "id": "5178327440"
+  },
+  "gap:private:cire/wiki/todo/perf.md:45": {
+    "number": 424,
+    "id": "5178328182"
+  },
+  "gap:private:cire/wiki/todo/security.md:19": {
+    "number": 425,
+    "id": "5178328908"
+  },
+  "gap:private:cire/wiki/todo/security.md:27": {
+    "number": 426,
+    "id": "5178329569"
+  },
+  "gap:private:cire/wiki/todo/security.md:33": {
+    "number": 427,
+    "id": "5178330278"
+  },
+  "gap:private:cire/wiki/todo/security.md:44": {
+    "number": 428,
+    "id": "5178331095"
+  },
+  "gap:private:cire/wiki/todo/security.md:45": {
+    "number": 429,
+    "id": "5178331771"
+  },
+  "gap:private:cire/wiki/todo/security.md:46": {
+    "number": 430,
+    "id": "5178332523"
+  },
+  "gap:public:cire/wiki/todo/web.md:17": {
+    "number": 689,
+    "id": "5178333276"
+  },
+  "gap:public:wiki/TODO.md:250": {
+    "number": 690,
+    "id": "5178333980"
+  },
+  "gap:public:wiki/TODO.md:303": {
+    "number": 691,
+    "id": "5178334702"
+  },
+  "gap:public:wiki/TODO.md:529": {
+    "number": 692,
+    "id": "5178335400"
+  },
+  "gap:public:wiki/TODO.md:552": {
+    "number": 693,
+    "id": "5178336140"
+  },
+  "gap:public:wiki/TODO.md:993": {
+    "number": 695,
+    "id": "5178336814"
+  },
+  "epic:private:Performance Backlog — Host RSVP search + status filter (fix/cire-rsvp-filter-review, 2026-08-15)": {
+    "number": 431,
+    "id": "5178342939"
+  },
+  "type:epic:private:Performance Backlog — Host RSVP search + status filter (fix/cire-rsvp-filter-review, 2026-08-15)": {
+    "number": 431,
+    "id": "Task"
+  },
+  "epic:private:Performance Backlog — Registry item pictures — link preview + R2 copy (feat/cire-registry-preview, 2026-08-14)": {
+    "number": 432,
+    "id": "5178343617"
+  },
+  "type:epic:private:Performance Backlog — Registry item pictures — link preview + R2 copy (feat/cire-registry-preview, 2026-08-14)": {
+    "number": 432,
+    "id": "Task"
+  },
+  "epic:private:Performance Backlog — Registry module, organiser portal (feat/cire-registry-host, 2026-08-13)": {
+    "number": 433,
+    "id": "5178344373"
+  },
+  "type:epic:private:Performance Backlog — Registry module, organiser portal (feat/cire-registry-host, 2026-08-13)": {
+    "number": 433,
+    "id": "Task"
+  },
+  "epic:private:Security Backlog — Host RSVP search + status filter (fix/cire-rsvp-filter-review, 2026-08-15)": {
+    "number": 434,
+    "id": "5178345021"
+  },
+  "type:epic:private:Security Backlog — Host RSVP search + status filter (fix/cire-rsvp-filter-review, 2026-08-15)": {
+    "number": 434,
+    "id": "Task"
+  },
+  "epic:private:Security Backlog — Registry link preview (feat/cire-registry-preview, 2026-08-14)": {
+    "number": 435,
+    "id": "5178345715"
+  },
+  "type:epic:private:Security Backlog — Registry link preview (feat/cire-registry-preview, 2026-08-14)": {
+    "number": 435,
+    "id": "Task"
+  },
+  "epic:private:Security Backlog — Registry module, organiser portal (feat/cire-registry-host, 2026-08-13)": {
+    "number": 436,
+    "id": "5178346523"
+  },
+  "type:epic:private:Security Backlog — Registry module, organiser portal (feat/cire-registry-host, 2026-08-13)": {
+    "number": 436,
+    "id": "Task"
+  },
+  "epic:public:cire/invites": {
+    "number": 696,
+    "id": "5178347536"
+  },
+  "type:epic:public:cire/invites": {
+    "number": 696,
+    "id": "Task"
+  },
+  "epic:public:Auth Improvements (Copenhagen Book Audit) — Phase 3 — Defense-in-Depth (High)": {
+    "number": 697,
+    "id": "5178348485"
+  },
+  "type:epic:public:Auth Improvements (Copenhagen Book Audit) — Phase 3 — Defense-in-Depth (High)": {
+    "number": 697,
+    "id": "Task"
+  },
+  "gap:private:cire/wiki/todo/perf.md:21:linked": {
+    "number": 431,
+    "id": "5178342939"
+  },
+  "gap:private:cire/wiki/todo/perf.md:22:linked": {
+    "number": 431,
+    "id": "5178342939"
+  },
+  "gap:private:cire/wiki/todo/perf.md:27:linked": {
+    "number": 432,
+    "id": "5178343617"
+  },
+  "gap:private:cire/wiki/todo/perf.md:40:linked": {
+    "number": 433,
+    "id": "5178344373"
+  },
+  "gap:private:cire/wiki/todo/perf.md:45:linked": {
+    "number": 433,
+    "id": "5178344373"
+  },
+  "gap:private:cire/wiki/todo/security.md:19:linked": {
+    "number": 434,
+    "id": "5178345021"
+  },
+  "gap:private:cire/wiki/todo/security.md:27:linked": {
+    "number": 435,
+    "id": "5178345715"
+  },
+  "gap:private:cire/wiki/todo/security.md:33:linked": {
+    "number": 435,
+    "id": "5178345715"
+  },
+  "gap:private:cire/wiki/todo/security.md:44:linked": {
+    "number": 436,
+    "id": "5178346523"
+  },
+  "gap:private:cire/wiki/todo/security.md:45:linked": {
+    "number": 436,
+    "id": "5178346523"
+  },
+  "gap:private:cire/wiki/todo/security.md:46:linked": {
+    "number": 436,
+    "id": "5178346523"
+  },
+  "gap:public:cire/wiki/todo/web.md:17:linked": {
+    "number": 696,
+    "id": "5178347536"
+  },
+  "gap:public:wiki/TODO.md:250:linked": {
+    "number": 462,
+    "id": "5159316593"
+  },
+  "gap:public:wiki/TODO.md:303:linked": {
+    "number": 543,
+    "id": "5159431378"
+  },
+  "gap:public:wiki/TODO.md:529:linked": {
+    "number": 554,
+    "id": "5159436438"
+  },
+  "gap:public:wiki/TODO.md:552:linked": {
+    "number": 556,
+    "id": "5159437343"
+  },
+  "gap:public:wiki/TODO.md:993:linked": {
+    "number": 697,
+    "id": "5178348485"
+  },
+  "cire/wiki/todo/platform.md:62": {
+    "number": 698,
+    "id": "5178425311"
+  },
+  "cire/wiki/todo/platform.md:64": {
+    "number": 699,
+    "id": "5178426226"
+  },
+  "cire/wiki/todo/spreadsheet-import.md:67": {
+    "number": 700,
+    "id": "5178427173"
+  }
+}

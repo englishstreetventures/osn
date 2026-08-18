@@ -14,7 +14,7 @@
  * Export caveat (workerd): cire/api runs on Cloudflare Workers, which has no
  * long-lived process to flush a `PeriodicExportingMetricReader`. Until a
  * workerd metric reader is attached (otel-cf-workers / Analytics Engine — see
- * `wiki/todo/deferred.md`), the `.inc()` / `.record()` calls resolve to a
+ * an open issue in `xchromo/osn`), the `.inc()` / `.record()` calls resolve to a
  * no-op meter and cost ~nothing. Defining them now pins the naming +
  * cardinality contract and makes the call-sites permanent.
  */

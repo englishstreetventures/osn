@@ -34,7 +34,7 @@ workers_dev = false
 #   bun run --cwd osn/db db:migrate:local     # miniflare local D1
 #   bun run --cwd osn/db db:migrate:dev       # remote dev D1
 #
-# Tracked in wiki/TODO.md (Four-environment DB story).
+# Tracked as an open issue (the four-environment DB story).
 
 # ── Top-level (local `wrangler dev`) ─────────────────────────────────────────
 # These apply to `wrangler dev` with no `--env`. OSN_ENV is unset/"local" here,

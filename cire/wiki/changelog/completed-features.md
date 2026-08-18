@@ -2,12 +2,16 @@
 title: "Completed Features"
 tags: [changelog]
 related: [[TODO]], [[index]]
-last-reviewed: 2026-07-30
+last-reviewed: 2026-08-17
 ---
 
 # Completed Features
 
-Archive of completed feature work, moved here from [[TODO]] (and the per-area `wiki/todo/` shards) as PRs merge.
+Archive of completed feature work, moved here as PRs merge. Open work is in GitHub Issues:
+
+```bash
+gh issue list --repo xchromo/osn --state open --label product:cire
+```
 
 ### The typography fallbacks are single-sourced (`claude/cire-typography-preview-nf1gm5`)
 

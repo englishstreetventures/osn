@@ -73,7 +73,7 @@
  * heard. The way to get it back is NOT to lower it: it is to stop the
  * announcement's lifetime depending on the dwell at all, by hoisting the live
  * region to the page root beside the `<Toaster>` (which was relocated there for
- * a structurally identical reason). Filed as C-L1 in `wiki/todo/security.md`;
+ * a structurally identical reason). Filed as C-L1 in `xchromo/osn-tracker`;
  * once that lands the floor answers only to the label swap and can drop.
  *
  * Nothing downstream is timed against these numbers: the Respond-button

@@ -47,7 +47,7 @@ packages:
   - "@shared/redis"
   - "@shared/turnstile"
   - "@shared/typescript-config"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-17
 ---
 
 # Monorepo Structure
@@ -81,7 +81,7 @@ pulse/
   db/                  # @pulse/db — Drizzle + SQLite (events, RSVPs)
   landing/             # @pulse/landing — Astro + Solid marketing site (port 4325)
 zap/
-  api/                 # @zap/api — Elysia messaging server (port 3002) — M0 scaffolded; M1+ in flight (see TODO.md)
+  api/                 # @zap/api — Elysia messaging server (port 3002) — M0 scaffolded; M1+ in flight (see the `product:zap` issues)
   db/                  # @zap/db — Drizzle schema (chats, messages, group state)
                        # @zap/app — planned (SolidJS messaging client)
 cire/
@@ -130,7 +130,7 @@ Cross-domain access (e.g. Pulse reading OSN's social graph) goes through a bridg
 
 ## Tech Stack
 
-Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite locally and Cloudflare D1 in the deployed tiers (a Supabase Postgres migration is deferred — see `wiki/TODO.md`), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest.
+Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite locally and Cloudflare D1 in the deployed tiers (a Supabase Postgres migration is deferred — an open decision issue in `xchromo/osn`), Eden+REST, WebSockets, Signal Protocol (planned), SolidJS, Astro, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest.
 
 ## Source Files
 

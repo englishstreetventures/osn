@@ -228,3 +228,10 @@ wiki/business/
 .build/
 DerivedData/
 .swiftpm/
+
+# Regenerate with `bun run migrate:plan`. The sibling created.json is NOT ignored:
+# it maps source lines to the issues already created, and `bun run clean` would
+# take it out with everything else ignored here.
+.migration/manifest.json
+# Shards handed to the disclosure audit, regenerated from the manifest.
+.migration/audit/

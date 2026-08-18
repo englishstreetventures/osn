@@ -292,7 +292,7 @@ const LEXICAL_SCORE = {
  * connection list, so a mutual-connection boost would make result *ordering* an
  * oracle for "is this arbitrary handle a friend-of-a-friend?" — the same
  * disclosure that keeps `mutualCount` out of the search payload (see
- * `wiki/TODO.md` S-L4). Ordering leaks as readily as a field does.
+ * `S-L4` in `xchromo/osn-tracker`). Ordering leaks as readily as a field does.
  *
  * [fb]: https://engineering.fb.com/2010/05/17/web/the-life-of-a-typeahead-query/
  */

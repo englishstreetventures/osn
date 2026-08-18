@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-08-15
+last-reviewed: 2026-08-17
 ---
 
 # DPIA — Cire guest data
@@ -34,8 +34,8 @@ evidences the condition. The lawful-processing blocker is therefore **closed**;
 final sign-off now turns only on the residual retention gaps (C-H1) below.
 
 > **Label note.** This finding is labelled **C-H2 (cire dietary)** to
-> disambiguate it from the root Compliance Backlog **C-H2** (OSN account-erasure
-> endpoint), which is a separate finding tracked in `[[TODO]]`.
+> disambiguate it from the root **C-H2** (OSN account-erasure endpoint), which
+> is a separate finding in `xchromo/osn-tracker`.
 
 ## 1. Description of the processing
 
@@ -86,7 +86,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   silently truncate, and each row records who created it. **Residual:** a new
   seat is live immediately with no notification to the owner, so "the owner can
   always revoke it" depends on them noticing. Tracked as `S-M2` in
-  `[[cire/wiki/todo/security]]`; the mitigation is an owner notification on a
+  `xchromo/osn-tracker`; the mitigation is an owner notification on a
   seat created by someone else.
 - **Granularity (2026-08-01).** The field is stored per **(guest, event)** — a
   guest answers once per event they are invited to — and `GET …/rsvps.csv` now
@@ -202,7 +202,7 @@ household. Art. 36 prior consultation is not triggered.
 - Deactivating a family still deletes its sessions in the same commit, and the
   restore re-checks `deactivated_at` independently.
 
-**Outstanding mitigation — required, tracked as S-M2 in `cire/wiki/todo/security.md`.**
+**Outstanding mitigation — required, tracked as S-M2 in `xchromo/osn-tracker`.**
 There is no guest sign-out: `sessionService.revoke` exists but is wired to no
 guest-facing route, and the guest site offers no session control at all. A
 credential that auto-exercises itself needs a user-controlled way to stop it.

@@ -20,7 +20,7 @@ export class VenueNotFound extends Data.TaggedError("VenueNotFound")<{
  * unbounded scan is fine while the catalogue is tiny but will break
  * once we ingest real venue data. Same applies to events — both
  * surfaces want the same `(minLat, maxLat, minLng, maxLng)` filter.
- * Tracked in wiki/TODO.md → Performance Backlog.
+ * Open as `P-W28` in `xchromo/osn-tracker`.
  */
 export const listAllVenues = (): Effect.Effect<Venue[], DatabaseError, Db> =>
   Effect.gen(function* () {

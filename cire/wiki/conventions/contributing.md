@@ -2,7 +2,7 @@
 title: "Contributing Conventions"
 tags: [convention]
 related: [[review-findings]], [[monorepo-structure]], [[overview]]
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-17
 ---
 
 # Contributing Conventions
@@ -22,7 +22,7 @@ Cire follows the **OSN monorepo conventions** since the merge (2026-06) — the 
 
 ## Changesets
 
-Every PR includes a changeset (`bun run changeset`) — CI fails without one (osn convention; replaces the standalone-era "no changesets" rule). Package names must match the workspace `name` field exactly (e.g. `"@cire/api"`, not `"cire"`). Progress is tracked in [[TODO]].
+Every PR includes a changeset (`bun run changeset`) — CI fails without one (osn convention; replaces the standalone-era "no changesets" rule). Package names must match the workspace `name` field exactly (e.g. `"@cire/api"`, not `"cire"`). Progress is tracked in GitHub Issues under `label:product:cire`.
 
 ## Hooks
 

@@ -2,12 +2,16 @@
 title: "Security Fixes"
 tags: [changelog]
 related: [[TODO]], [[index]]
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-17
 ---
 
 # Security Fixes
 
-Archive of completed security findings, moved here from the Security Backlog in [[TODO]] (and the `wiki/todo/security.md` shard).
+Archive of completed security findings. Open ones live in the private tracker:
+
+```bash
+gh issue list --repo xchromo/osn-tracker --state open --label security --label product:cire
+```
 
 ### RSVP success confirmation — review findings (fixed on `claude/cire-rsvp-success-feedback-phnf60`, 2026-08-06)
 

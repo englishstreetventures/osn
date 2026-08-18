@@ -4,9 +4,7 @@ tags: [architecture, privacy, compliance, web]
 related:
   - "[[index]]"
   - "[[invite-builder]]"
-  - "[[web]]"
-  - "[[security]]"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-17
 ---
 
 # Site-wide consent framework
@@ -146,8 +144,8 @@ voice.
 - `"always"` — loads regardless. **Google Fonts only**, because the font
   `<link>` sits in the `<head>` of the server-rendered document. The right fix
   is to delete the vendor (self-host the two woff2 families), not to put the
-  site's typography behind a switch and swap the typeface mid-visit. Tracked in
-  `[[web]]`. Until then the dialog and `/privacy` both say "loads on every
+  site's typography behind a switch and swap the typeface mid-visit. Tracked as
+  an issue under `label:product:cire`. Until then the dialog and `/privacy` both say "loads on every
   visit" rather than implying the toggle covers it.
 
 ## Storage

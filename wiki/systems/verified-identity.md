@@ -17,7 +17,7 @@ packages:
   - "@osn/ui"
   - "@osn/social"
   - "@shared/crypto"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-17
 status: design — not yet implemented
 ---
 
@@ -32,8 +32,11 @@ account, and any OSN app or third-party relying party can later request
 country = AU) without seeing the source document.
 
 This page captures **what we are building, why, and the staged plan**.
-Nothing here has shipped yet — see the **Verified Identity (V)** section
-of `[[TODO]]` for live work.
+Nothing here has shipped yet. Live work is in GitHub Issues:
+
+```bash
+gh issue list --repo xchromo/osn --state open --search "Verified Identity"
+```
 
 ## Why
 
@@ -226,7 +229,7 @@ This system creates **Special Category Personal Data** under GDPR Art.
 Hard requirements:
 
 - **DPIA** before M1 ships. Add to `[[compliance/gdpr]]` and link from
-  `[[TODO]]` C-M3.
+  C-M3 in `xchromo/osn-tracker`.
 - **Data map** updates: new processor (KYC vendor), new categories
   (biometric template hashes, document numbers via hash), new
   retention rule (verified_attributes default 24 months from
@@ -265,10 +268,10 @@ idvPacific or Equifax for DVS, decided after a vendor RFP that
 includes pricing, AU support, and DPA terms. **M3**: MATTR/GBG for
 mDL acceptance.
 
-## Phased plan (links into `[[TODO]]`)
+## Phased plan
 
-The Verified Identity (V) section in `[[TODO]]` carries the live
-checklist. Summary:
+The `Verified Identity` epics in `xchromo/osn` carry the live work — one per
+milestone, each with its own sub-issues. Summary:
 
 - **V-M0 — Foundations**: vendor + DPIA + schema + SD-JWT VC issuance
   helper (no UI, no provider yet).

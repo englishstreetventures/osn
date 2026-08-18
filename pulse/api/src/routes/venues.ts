@@ -171,7 +171,7 @@ export const createVenuesRoutes = (
         "/",
         async () => {
           // TODO(venue-bbox-search): swap for bbox-filtered query — see
-          // wiki/TODO.md → Performance Backlog P-W28 (explore).
+          // `P-W28` in `xchromo/osn-tracker` (explore).
           const venues = await runtime.runPromise(listAllVenues());
           return { venues: venues.map(serializeVenue) };
         },

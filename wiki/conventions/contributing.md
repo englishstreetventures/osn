@@ -6,7 +6,7 @@ related:
   - "[[commands]]"
   - "[[review-findings]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-17
 ---
 
 # Contributing
@@ -15,7 +15,7 @@ last-reviewed: 2026-08-06
 
 ### Technology Choices
 
-- **Effect.ts**: trial with OSN/Pulse first, then decide on broader adoption (see Deferred Decisions in TODO.md)
+- **Effect.ts**: trial with OSN/Pulse first, then decide on broader adoption (an open decision issue in `xchromo/osn`)
 - **E2E encryption everywhere**: encrypt all user-to-user communication end-to-end
 - **Personalisation data**: show it to the user, and let the user reset it
 

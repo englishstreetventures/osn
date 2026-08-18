@@ -12,7 +12,7 @@ import { instrumentedFetch } from "@shared/observability";
  * race / rotation (S-H1, prep-pr review 2026-07-05). Keep `ALLOWED_SCOPES`
  * in lockstep with `services/graphBridge.ts` `REGISTERED_SCOPES`. Per-key
  * scope storage (restoring the key-compromise blast-radius separation this
- * file originally claimed) is tracked in wiki/TODO.md.
+ * file originally claimed) is tracked in `xchromo/osn-tracker`.
  *
  * Tokens minted here still carry only the minimal per-call scope
  * (`arcAuthHeader(audience, scope)`).

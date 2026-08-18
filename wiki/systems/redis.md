@@ -23,7 +23,7 @@ finding-ids:
 packages:
   - "@shared/redis"
   - "@osn/api"
-last-reviewed: 2026-08-02
+last-reviewed: 2026-08-17
 ---
 
 # Redis Migration
@@ -124,4 +124,4 @@ traffic for low latency (C-M18; see [[compliance/subprocessors]], [[production-d
 - [osn/api/src/lib/rotated-session-store.ts](../../osn/api/src/lib/rotated-session-store.ts) — `RotatedSessionStore` (in-memory + Redis impls)
 - [osn/api/src/lib/step-up-jti-store.ts](../../osn/api/src/lib/step-up-jti-store.ts) — `StepUpJtiStore` (in-memory + Redis impls)
 - [osn/api/src/index.ts](../../osn/api/src/index.ts) — composition root: env-driven Redis client + limiter / store wiring
-- [TODO.md](../TODO.md) — "Redis Migration" section
+- [Redis migration issues](https://github.com/xchromo/osn/issues?q=is%3Aopen+redis) — the remaining migration work

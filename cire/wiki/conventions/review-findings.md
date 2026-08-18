@@ -2,7 +2,7 @@
 title: "Review Findings Format"
 tags: [convention, review]
 related: [[contributing]], [[TODO]], [[index]]
-last-reviewed: 2026-05-05
+last-reviewed: 2026-08-17
 ---
 
 # Review Findings Format
@@ -59,11 +59,20 @@ Every finding uses this structure:
 - Increment within each tier: S-C-1, S-C-2, S-H-1, S-M-1, etc.
 - Never reuse a number, even after a finding is resolved.
 
-## TODO.md Backlog Rules
+## Filing a finding
 
-Findings flow into the Security Backlog and Performance Backlog sections of [[TODO]]:
+Findings are issues in the **private** `xchromo/osn-tracker`, never in the public `xchromo/osn` -- a finding names an unpatched route, and route is by *kind*, not by severity.
 
-1. **Never delete** a finding from the backlog — mark it `[x]` with a fix note when resolved.
-2. **Sort by severity** — Critical first, then High, Medium, Low.
-3. **Mark `[x]` with fix note** when the fix is merged: `- [x] S-C-1: Unauthenticated organiser endpoint — fixed in feat/organiser-auth`.
-4. **Move to changelog** when the fix is released — transfer the resolved item to [[completed-features]], [[security-fixes]], or [[performance-fixes]] as appropriate.
+```bash
+gh issue create --repo xchromo/osn-tracker \
+  --title "S-M3 -- No rate limit on /api/claim" \
+  --type Bug \
+  --label "area:security" --label "severity:medium" --label "product:cire"
+```
+
+1. **Never delete a finding -- close it.** The history matters, and a closed issue keeps the body, the fix commit and the discussion.
+2. The ID leads the title, so the ID is how you find the issue again: `gh issue list --repo xchromo/osn-tracker --search "S-M3 in:title" --state all`.
+3. Severity is a label taken from the tier letter, not a sort order in a file: `--label severity:high`.
+4. A finding fixed on the branch that found it needs no issue of its own -- put `Closes xchromo/osn-tracker#<n>` in the PR body, or open one and close it with a comment naming the PR.
+
+The full rules, including the label and type table, are in the root wiki's `[[wiki/conventions/review-findings]]`.

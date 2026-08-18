@@ -8,7 +8,7 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
-last-reviewed: 2026-08-15
+last-reviewed: 2026-08-17
 ---
 
 # Dev environment (cire + OSN identity)
@@ -280,7 +280,7 @@ dashboard-only.
    account-scoped with no per-script or per-database filter (only R2 scopes per bucket),
    so a token named `…_DEV` can still write production Workers. The boundary that makes
    the name real is a **separate Cloudflare account**, tracked as S-M
-   (`dev-token-not-resource-scoped`) in [[TODO]]. Set `CLOUDFLARE_API_TOKEN_DEV` on the
+   (`dev-token-not-resource-scoped`) in `xchromo/osn-tracker`. Set `CLOUDFLARE_API_TOKEN_DEV` on the
    `dev` Environment the day that account exists — no workflow change needed, the
    fallback picks it up.
 

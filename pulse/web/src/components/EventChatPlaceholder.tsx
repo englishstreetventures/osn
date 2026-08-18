@@ -3,8 +3,8 @@ import { Card } from "@osn/ui/ui/card";
 /**
  * Placeholder for the event chat. Zap — OSN's messaging app — has its
  * name and workspace layout pinned (`@zap/app` / `@zap/api` / `@zap/db`)
- * but no code yet; the event-chat integration lands in Zap M2 per
- * TODO.md. When Zap M2 ships, swap this for the real chat component.
+ * but no code yet; the event-chat integration lands in Zap M2, which is
+ * tracked as an open issue. When Zap M2 ships, swap this for the real chat component.
  *
  * Kept as a dedicated component so the swap is localised and the page
  * layout doesn't need to change.

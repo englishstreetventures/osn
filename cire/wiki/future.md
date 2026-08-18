@@ -5,14 +5,14 @@ related:
   - "[[index]]"
   - "[[invite-builder]]"
   - "[[platform-plan]]"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-17
 ---
 
 # Future
 
 Vague post-MVP ideas. Promote into a sibling shard (`web`, `api`, `db`, etc.) when an idea graduates to actionable work.
 
-> **Promoted 2026-07-08:** "Platformise as multi-tenant SaaS" and "General wedding planning — guest list management, seating charts" graduated into the wedding-management platform build-out — architecture in [[platform-plan]], phased checklist in [[platform]]. Wishing well, guest photos, and Wallet passes stay here (referenced by the plan's Phase 4 as later work).
+> **Promoted 2026-07-08:** "Platformise as multi-tenant SaaS" and "General wedding planning — guest list management, seating charts" graduated into the wedding-management platform build-out — architecture in [[platform-plan]], phased work in GitHub Issues. Wishing well, guest photos, and Wallet passes stay here (referenced by the plan's Phase 4 as later work).
 
 - Astro → Solid Start migration for the guest-facing app (post-platformisation, only if SaaS path is taken)
 - Apple Wallet pass generation for each event

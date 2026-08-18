@@ -10,12 +10,12 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-17
 ---
 
 # Zap
 
-Zap is OSN's end-to-end encrypted messaging app. The backend (`@zap/api`, `@zap/db`) is scaffolded and runs on **port 3002**. The `@zap/app` client has not been started yet — see `wiki/TODO.md` for milestone status.
+Zap is OSN's end-to-end encrypted messaging app. The backend (`@zap/api`, `@zap/db`) is scaffolded and runs on **port 3002**. The `@zap/app` client has not been started yet — see the open `product:zap` issues for milestone status.
 
 ## Status by package
 
@@ -55,7 +55,7 @@ The Signal Protocol implementation lives in `@shared/crypto` (alongside ARC toke
 | Media handling | Direct upload, CDN, P2P | Encrypted media blobs need a delivery mechanism |
 | Spam / abuse | Content moderation on ciphertext? | E2E rules out server-side moderation; need client-side reporting |
 
-Tracked in the Deferred Decisions section of `wiki/TODO.md`.
+Tracked as an open decision issue in `xchromo/osn`.
 
 ## c2b (consumer-to-business) chats
 

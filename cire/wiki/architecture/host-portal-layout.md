@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[invite-builder]]"
   - "[[systems/overview]]"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-17
 ---
 
 # Host Portal Layout System
@@ -218,7 +218,7 @@ component was previously reading a container it did not live in.
      `invalidateEnquiries` + `ensureEnquiriesLoaded`. Invalidation is
      `cache.delete(...)`, which mints a new signal; the always-mounted inbox
      keeps reading the orphan, so the round-trip is paid and nothing updates.
-     The store-level fix for all four caches is **P-W2** in [[perf]].
+     The store-level fix for all four caches is **P-W2**, filed in `xchromo/osn-tracker`.
 - **Event cards** (`EventTable`) — cards flow in an `auto-grid`; each card is its
   own `@container/card` and its details grid switches at `@md/card`.
 

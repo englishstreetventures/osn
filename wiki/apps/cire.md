@@ -17,7 +17,7 @@ related:
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-17
 ---
 
 # Cire
@@ -51,7 +51,7 @@ Two separate systems by design — full contract in [[cire-auth]]:
 - **Per-section invite theming (#152)** — organisers theme each invite section with a bounded set of fonts + colours (migration `0014`). The allowlist is CSS-injection-safe: only known font keys and validated colour values reach the rendered styles, so a malicious value can't break out into arbitrary CSS. The colour validator's single source of truth is the zero-dependency `@cire/theme` package (`isSafeCssColor`) — `cire/api` validates at write time and `cire/invites` re-checks at render time from the same definition (IB-S-L1, fixed 2026-07-03). A shared **scoped token bridge** (`sectionTokenBridge`, 2026-07-09) re-points the guest site's Tailwind tokens at the validated `--invite-*` vars per section, so the theme reaches every descendant (event-card buttons, hover states, the RSVP/details modals). This fixed the reported "details theme only changed the header" bug. Migration `0028` made the last hardcoded guest-facing copy editable (events-section eyebrow/heading + the post-claim welcome greeting), and the guest tab `<title>` follows the couple's hero title. Full contract in `cire/wiki/architecture/invite-builder.md`.
 - **Google Maps Embed preview (#146)** — venue/location previews use the Maps Embed API, key-optional with a CSS-card fallback when no key is set (same graceful-degradation pattern as Turnstile and the optional email).
 - **Turnstile bot protection (#154)** — guest claim + RSVP (and the organiser-portal OSN register/login) are gated by Cloudflare Turnstile, key-optional + fail-closed; **inert until a widget is created**. See [[turnstile]].
-- **Organiser Security / Devices section (#155)** — the portal's `SecurityPanel` mounts `@osn/ui`'s `PasskeysView` to list / add / rename / remove passkeys, with passkey-only step-up (the `passkeyOnly` flag on `StepUpDialog`). The flag is still forced on, but its original reason has expired: it was set because the deployed osn-api ran with email degraded, and osn-api has delivered through Resend since 2026-06-18 ([[email]]). Whether to re-enable the OTP factor is an open decision (see [[TODO]]); the code comment in `cire/host/src/components/SecurityPanel.tsx` still cites the degraded-email reason. New-device help points at synced/backed-up passkeys, the cross-device QR ceremony, or a recovery code. See [[passkey-primary]], [[sessions]].
+- **Organiser Security / Devices section (#155)** — the portal's `SecurityPanel` mounts `@osn/ui`'s `PasskeysView` to list / add / rename / remove passkeys, with passkey-only step-up (the `passkeyOnly` flag on `StepUpDialog`). The flag is still forced on, but its original reason has expired: it was set because the deployed osn-api ran with email degraded, and osn-api has delivered through Resend since 2026-06-18 ([[email]]). Whether to re-enable the OTP factor is an open decision, tracked as an issue in `xchromo/osn`; the code comment in `cire/host/src/components/SecurityPanel.tsx` still cites the degraded-email reason. New-device help points at synced/backed-up passkeys, the cross-device QR ceremony, or a recovery code. See [[passkey-primary]], [[sessions]].
 
 ## Data model
 
@@ -125,7 +125,7 @@ one-time Turnstile widget step, and post-deploy smoke checks live in the
 
 ## Cire-internal docs
 
-Cire keeps its own knowledge graph: `cire/CLAUDE.md` is the AI entry point and `cire/wiki/` is the Obsidian vault (architecture, conventions, observability, per-area TODO shards under `cire/wiki/todo/`). This page and [[cire-auth]] cover the OSN-facing integration surface only.
+Cire keeps its own knowledge graph: `cire/CLAUDE.md` is the AI entry point and `cire/wiki/` is the Obsidian vault (architecture, conventions, observability). This page and [[cire-auth]] cover the OSN-facing integration surface only.
 
 ## Marketing site + platform roadmap
 
@@ -142,13 +142,12 @@ discovery with availability + location search, context-aware pricing estimates,
 budget, checklist, seating, and guest comms. The multi-tenant `weddings` root
 means this is a product build-out, not a migration. **A phased build plan now
 exists**: architecture + schema sketches in
-`cire/wiki/architecture/platform-plan.md`, actionable checklist in
-`cire/wiki/todo/platform.md`; also tracked under the Cire + Landing sections of
-`wiki/TODO.md`.
+`cire/wiki/architecture/platform-plan.md`, actionable items as open issues
+(`gh issue list --repo xchromo/osn --label product:cire`).
 
 ## Future integrations
 
-- **Pulse event feed** — surface cire weddings in Pulse's event feed. Mechanism undecided: ARC-token pull from `cire/api` vs push-on-publish into `pulse/db` (Deferred Decisions in `wiki/TODO.md`).
+- **Pulse event feed** — surface cire weddings in Pulse's event feed. Mechanism undecided: ARC-token pull from `cire/api` vs push-on-publish into `pulse/db` (an open decision issue in `xchromo/osn`).
 - **Roles for co-hosts** — co-host *membership* shipped (#148, `wedding_hosts` + `weddingMember()`); co-hosts currently get read-only dashboard access. A future role column (`owner`/`editor`/`viewer`) would let a co-host be granted write access short of full ownership.
 - **Guest account-linking frontend** — backend shipped (see [[cire-auth]]); the guest-site "link my Pulse account" affordance is the remaining piece. Once invitees are linked, the Pulse event-feed integration above can surface their invitations.
 

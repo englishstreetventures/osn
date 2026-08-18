@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[observability/overview]]"
   - "[[cire]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-17
 ---
 
 # SOC 2
@@ -153,7 +153,7 @@ obligations; SOC 2 asks "do you do this and can you prove it?".
 
 ## Project changes required
 
-Tracked with `C-` IDs in [[TODO]] Compliance Backlog:
+Tracked with `C-` IDs in `xchromo/osn-tracker` under `label:compliance`:
 
 1. **Continuous-control monitoring tool** — pick Vanta / Drata / Secureframe before Type I prep. Cost is $7–15k/year and saves months of evidence collection. ID: **C-M4**.
 2. **Production access control matrix** — [[access-control]]. ID: **C-M5**.

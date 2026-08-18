@@ -176,7 +176,8 @@ export default function ImportPanel(props: { weddingId: string; kind: ImportKind
   // (the CSV body shape `{eventsCsv, guestsCsv}`), same pipeline the editor uses.
   // The legacy `/import/*` alias still serves identically for one release; the
   // portal is now fully on `changes/*` so that alias can be deleted next release
-  // (see cire wiki/todo/api.md). The preview response echoes `importId`=changeId,
+  // (tracked as an open issue in `xchromo/osn`). The preview response echoes
+  // `importId`=changeId,
   // so the existing preview/apply reads below are unchanged.
   const importUrl = (op: string) =>
     apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/${op}`);

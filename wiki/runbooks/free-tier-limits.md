@@ -12,7 +12,7 @@ related:
   - "[[observability-setup]]"
   - "[[cire-auth]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-08-14
+last-reviewed: 2026-08-17
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -384,8 +384,8 @@ guard, auth middleware).
    confirm it wasn't disabled).
 
 > When these are done, tick them off here and note the date. Until then they are
-> open hardening items — track in `wiki/TODO.md` (Security Backlog) if they
-> should be visible there.
+> open hardening items — file them in `xchromo/osn-tracker` under
+> `label:security` if they should be visible there.
 
 ## Related
 

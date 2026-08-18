@@ -22,7 +22,7 @@ related:
 packages:
   - "@shared/email"
   - "@osn/api"
-last-reviewed: 2026-07-30
+last-reviewed: 2026-08-17
 ---
 
 # Email Transport
@@ -315,7 +315,7 @@ exactly as before this transport landed):
 
 ## Deferred decisions
 
-These live in `wiki/TODO.md > Deferred Decisions`; the defaults here
+These are open decision issues in `xchromo/osn`; the defaults here
 are the current code path, not a commitment.
 
 - **Per-recipient rate limit** — defence in depth against OSN bugs

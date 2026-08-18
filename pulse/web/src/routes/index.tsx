@@ -150,7 +150,7 @@ export function ExplorePage() {
 
   // Free-text search stays client-side for now — it runs over the page
   // returned by the server, not the whole catalogue. Server-side search
-  // is a separate TODO (see wiki/TODO.md → Pulse).
+  // is a separate open issue (`label:product:pulse`).
   const filtered = createMemo(() => {
     const list = discovery()?.events ?? [];
     const q = searchQuery().toLowerCase().trim();
