@@ -109,6 +109,18 @@ public struct PasskeyProfile: Sendable, Equatable, Decodable {
     public let email: String
     public let displayName: String?
     public let avatarUrl: String?
+
+    /// Decodable's synthesized init is memberwise but internal (this type has
+    /// no other explicit initializer, so Swift still generates one — just not
+    /// a public one). `reconciledProfile(cached:claims:)` needs to build a
+    /// `PasskeyProfile` from JWT claims rather than a decoded response body.
+    public init(id: String, handle: String, email: String, displayName: String?, avatarUrl: String?) {
+        self.id = id
+        self.handle = handle
+        self.email = email
+        self.displayName = displayName
+        self.avatarUrl = avatarUrl
+    }
 }
 
 /// `osn/api/src/routes/auth/context.ts:34` success body of

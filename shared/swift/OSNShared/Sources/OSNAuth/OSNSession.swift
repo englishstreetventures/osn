@@ -2,6 +2,37 @@ import Foundation
 import Observation
 import OSNKit
 
+/// Reconciliation between a cached profile and the claims of the access
+/// token actually in the Keychain right now (S-H1: two apps share one
+/// cookie jar and one Keychain slot but each keeps its own `OSNSession`,
+/// so a stale cached profile can silently belong to a different signed-in
+/// user than the live token). The token is the truth; the cache is only
+/// trusted when it still names the same subject.
+///
+/// Pure, no Keychain access, no state — the testable seam for this fix,
+/// same spirit as `MusubiFeature.shouldRestore(_:)`.
+///
+/// - `claims == nil` → `nil`. Fail closed: no decodable token means no
+///   identity to show, never guess.
+/// - `claims != nil` and `cached?.id == claims.sub` → `cached` unchanged,
+///   which keeps `avatarUrl` (a field claims cannot supply).
+/// - otherwise → a fresh `PasskeyProfile` built from the claims, with
+///   `avatarUrl: nil` — the token now names someone the cache doesn't
+///   already know.
+func reconciledProfile(cached: PasskeyProfile?, claims: AccessTokenClaims?) -> PasskeyProfile? {
+    guard let claims else { return nil }
+    if let cached, cached.id == claims.sub {
+        return cached
+    }
+    return PasskeyProfile(
+        id: claims.sub,
+        handle: claims.handle,
+        email: claims.email,
+        displayName: claims.displayName,
+        avatarUrl: nil
+    )
+}
+
 /// Owns the app-agnostic half of passkey sign-in — restore, sign in, sign
 /// out — shared across every OSN app. Builds the shared cookie-jar-backed
 /// `URLSession`/`TokenRefresher` once and exposes both so an app-specific
@@ -17,7 +48,9 @@ public final class OSNSession {
     /// profile" (`PasskeyManagementClient` only lists/renames/deletes
     /// passkeys). So a restored session starts as `.signedIn(nil)`; an
     /// interactive `signIn(...)` populates the profile from
-    /// `PasskeyLoginCompleteResponse.profile`.
+    /// `PasskeyLoginCompleteResponse.profile`, and `reconcileIdentity()`
+    /// fills it in afterward from the access token's own claims (S-H1) —
+    /// see `reconciledProfile(cached:claims:)`.
     public enum SessionState: Equatable, Sendable {
         case restoring
         case signedOut
@@ -66,12 +99,16 @@ public final class OSNSession {
 
     /// Silent restore on launch. A throw from `TokenRefresher.refresh()`
     /// (no session cookie, expired session, etc. — see `OSNKitError`) means
-    /// "signed out", not an error banner, per the brief.
+    /// "signed out", not an error banner, per the brief. `reconcileIdentity()`
+    /// immediately supplies the profile the freshly refreshed token names
+    /// (S-H1) — `.signedIn(nil)` is a transient inner state, not the
+    /// steady-state result.
     public func restore() async {
         state = .restoring
         do {
             try await tokenRefresher.refresh()
             state = .signedIn(nil)
+            reconcileIdentity()
         } catch {
             state = .signedOut
         }
@@ -140,8 +177,61 @@ public final class OSNSession {
     public func ensureFreshAccessToken() async throws {
         let stored = try KeychainAccessTokenStore.load()
         let isFresh = stored.map { $0.expiresAt.timeIntervalSinceNow > 30 } ?? false
-        guard !isFresh else { return }
+        guard !isFresh else {
+            reconcileIdentity()
+            return
+        }
         try await tokenRefresher.refresh()
+        reconcileIdentity()
+    }
+
+    /// S-H1: every authenticated call goes through `ensureFreshAccessToken()`,
+    /// so reconciling here on both the already-fresh and just-refreshed paths
+    /// closes the hole — a sibling app rotating the shared Keychain token to a
+    /// different user's is caught on the very next call this app makes, not
+    /// just at launch.
+    ///
+    /// Loads whatever access token is in the Keychain right now, decodes its
+    /// claims (`AccessTokenClaims`, not signature-verified — see its doc),
+    /// and — only when `state` is already `.signedIn` — replaces the profile
+    /// with `reconciledProfile(cached:claims:)`'s result. Never touches
+    /// `.signedOut`/`.restoring`/`.failed`. A `Keychain` read failure is
+    /// treated the same as "no token": `reconciledProfile` then returns `nil`,
+    /// which is the fail-closed behaviour the brief asks for. Skips the write
+    /// when the reconciled profile equals the cached one, so `@Observable`
+    /// doesn't churn on every call.
+    private func reconcileIdentity() {
+        guard case .signedIn(let cached) = state else { return }
+        let stored = try? KeychainAccessTokenStore.load()
+        let claims = stored.flatMap { AccessTokenClaims(jwt: $0.token) }
+        let reconciled = reconciledProfile(cached: cached, claims: claims)
+        guard reconciled != cached else { return }
+        state = .signedIn(reconciled)
+    }
+
+    /// Foreground entry point (S-H1): call when the app becomes active so a
+    /// profile cached while backgrounded is checked against whatever token a
+    /// sibling app (same cookie jar, same Keychain slot) may have rotated in
+    /// while this app was away.
+    ///
+    /// No-ops outside `.signedIn` — reviving a signed-out session because a
+    /// sibling app is signed in is out of scope here (that is `restore()`'s
+    /// job, run at launch, not at every foreground).
+    public func revalidate() async {
+        guard case .signedIn = state else { return }
+        do {
+            try await ensureFreshAccessToken()
+        } catch OSNKitError.refreshSessionInvalid {
+            // The shared session is genuinely dead — this is not a case
+            // `reconcileIdentity()` can paper over with a different profile.
+            state = .signedOut
+        } catch {
+            // Network hiccup, malformed response, etc. Leave the sign-in
+            // state alone, but still reconcile against whatever token is
+            // already in the Keychain — a wrong name must never linger on
+            // screen just because a refresh attempt failed.
+            reconcileIdentity()
+        }
     }
 
     #if os(iOS)

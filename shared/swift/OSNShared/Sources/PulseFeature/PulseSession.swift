@@ -42,6 +42,14 @@ public final class PulseSession {
         await auth.restore()
     }
 
+    /// S-H1 foreground hook — forwarded to `OSNSession.revalidate()` so a
+    /// profile cached while backgrounded is checked against whatever token a
+    /// sibling app (Musubi; same cookie jar, same Keychain slot) may have
+    /// rotated in while Pulse was away.
+    public func revalidate() async {
+        await auth.revalidate()
+    }
+
     public func signIn(
         identifier: String?,
         anchorProvider: @escaping PresentationAnchorProvider

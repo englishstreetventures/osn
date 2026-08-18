@@ -176,3 +176,82 @@ which now names `FV59Y8RSUH.social.musubi.pulse`. iOS reads that file through
 Apple's CDN and caches it up to ~24h; during development append
 `?mode=developer` to the entitlement and turn on Settings → Developer →
 Associated Domains Development to skip the cache. Strip it before TestFlight.
+
+## S-H1 — cached `PasskeyProfile` outliving the Keychain token it was read from (2026-08-17)
+
+Pulse and Musubi share one cookie jar (App Group `group.social.musubi.session`)
+and one Keychain access-token slot, but each holds its own `OSNSession` with
+its own cached `PasskeyProfile`. Sign into Musubi as A, switch Pulse to B,
+come back to Musubi: the cached profile still named A while `loadPasskeys()`
+— which authenticates with the now-refreshed, now-B token — listed B's
+passkeys, and "Sign out" would have ended B's session under A's label. The
+token was always the truth; the cached profile was the only thing that could
+lie.
+
+- `AccessTokenClaims` (`Sources/OSNAuth/AccessTokenClaims.swift`) decodes the
+  four claims `issueAccessToken` (`osn/api/src/services/auth/tokens.ts`)
+  actually mints that this package cares about — `sub`, `email`, `handle`,
+  `displayName?` — off whatever JWT is in the Keychain right now, via
+  `Base64URL.decode(_:)`. It does not verify the signature and says so in its
+  own doc: it exists only to notice *whose* token this is, not to authorize
+  anything. A forged token still gets rejected server-side on the next call
+  that needs one.
+- `reconciledProfile(cached:claims:)` (file-scope in `OSNSession.swift`, not
+  a method — it has to be callable as a bare identifier from tests, and a
+  function declared inside a Swift class body isn't reachable that way even
+  under `@testable import`) is the pure decision: no claims → `nil` (fail
+  closed, never guess an identity); `cached.id == claims.sub` → keep `cached`
+  verbatim, which is the only way `avatarUrl` survives (claims can't supply
+  it); otherwise → a fresh `PasskeyProfile` from the claims with
+  `avatarUrl: nil`, because the token now names someone the cache doesn't
+  already know.
+- `OSNSession.reconcileIdentity()` is `private`, runs only when `state` is
+  already `.signedIn`, loads the Keychain token, and calls the above.
+  `restore()` calls it right after a successful silent refresh; the public
+  `ensureFreshAccessToken()` — the seam every authenticated call already goes
+  through — calls it on **both** the already-fresh and the just-refreshed
+  path, so a sibling app rotating the shared slot to a different user is
+  caught on this app's very next authenticated call, not just at the next
+  launch. `revalidate()` is the new public foreground entry point:
+  no-op outside `.signedIn`; on `OSNKitError.refreshSessionInvalid` the
+  shared session really is dead, so it drops to `.signedOut`; on any other
+  error (network hiccup, malformed response) it leaves the sign-in state
+  alone but still reconciles against whatever token is already sitting in
+  the Keychain, so a failed refresh attempt can never let a wrong name linger
+  on screen. `PulseSession.revalidate()` forwards to it. `MusubiRootView` and
+  `PulseRootView` both call it from `.onChange(of: scenePhase)` on
+  `.active`.
+- The `restore()` doc comment now explains why `.signedIn(nil)` is a real
+  (if transient) state rather than a bug: a silent restore only round-trips
+  `TokenRefresher.refresh()`, which returns a `TokenGrant`, never a profile,
+  and no OSNAuth endpoint exposes "fetch current profile". `reconcileIdentity()`
+  fills the profile in immediately afterward from the token's own claims —
+  the gap between the two calls is not externally observable.
+- Tests: `AccessTokenClaimsTests` (8 cases — valid decode, missing optional
+  claim, unknown-claims-ignored, 2-segment string, non-base64url segment,
+  base64url-but-not-JSON segment, JSON missing `sub`, empty string — all nil
+  or fully decoded, nothing in between). `ReconciledProfileTests` (4 cases,
+  one per branch of the pure function). `OSNSessionTests` gained two
+  end-to-end cases driven entirely through the public API (`state` is
+  `private(set)`, so even `@testable import` can't set it directly):
+  `ensureFreshAccessTokenReflectsKeychainTokenSwapToADifferentUser` signs in
+  as A via `restore()`, swaps the Keychain token to a B JWT directly (no
+  `signIn`/`signOut`/`restore` call), then asserts `ensureFreshAccessToken()`
+  alone flips the visible profile to B. The sibling case,
+  `ensureFreshAccessTokenDropsToNilProfileWhenKeychainTokenIsNotAJWT`, swaps
+  in a non-JWT string and asserts the state drops to `.signedIn(nil)` rather
+  than keep showing A.
+- Not exercised anywhere in this branch: the real two-app ceremony — Pulse
+  and Musubi actually installed side by side, sharing the real App Group
+  Keychain slot, one switching users while the other is foregrounded. Every
+  test above drives the same code path through a mocked `URLSession` and a
+  directly-written Keychain entry, which is the honest ceiling of what
+  `swift test` on a single package can do; nothing here has been checked
+  against two real app processes touching one physical Keychain.
+- Deliberately out of scope, left for their own findings: `kSecAttrAccessGroup`
+  itself (S-M1 — whether the Keychain entry is even scoped to the shared
+  App Group correctly is a separate question from what this app does with
+  whatever it reads), per-app request attribution (S-L1), the 30s-skew
+  literal and 401-retry behaviour (P-W2), the hard-coded `Environment.local`
+  in the test helpers above, and moving the mock `URLProtocol` into
+  `OSNTesting`.

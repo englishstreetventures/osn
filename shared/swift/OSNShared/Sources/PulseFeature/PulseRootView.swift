@@ -10,6 +10,7 @@ import SwiftUI
 public struct PulseRootView: View {
     private let session: PulseSession
     private let anchorProvider: PresentationAnchorProvider
+    @Environment(\.scenePhase) private var scenePhase
 
     public init(session: PulseSession, anchorProvider: @escaping PresentationAnchorProvider) {
         self.session = session
@@ -21,6 +22,15 @@ public struct PulseRootView: View {
             .task {
                 if session.state == .restoring {
                     await session.restore()
+                }
+            }
+            // S-H1: Pulse and Musubi share one cookie jar and one Keychain
+            // slot, so coming back to the foreground is the moment a sibling
+            // app's sign-in swap needs to be noticed — `revalidate()` is a
+            // no-op unless `session.state` is already `.signedIn`.
+            .onChange(of: scenePhase) { _, newPhase in
+                if newPhase == .active {
+                    Task { await session.revalidate() }
                 }
             }
     }
