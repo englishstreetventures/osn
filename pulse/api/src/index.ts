@@ -4,7 +4,7 @@ import { parseDeploymentEnvironment } from "@shared/observability/config";
 import type { ClientIpOptions } from "@shared/rate-limit";
 import { Effect } from "effect";
 
-import { createApp, type App } from "./app";
+import { createApp, type App, type AppOptions } from "./app";
 import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
 import { buildPulseOidcConfig } from "./lib/oidc";
 import { makeMemoryRateLimiters, type PulseRateLimiters } from "./redis";
@@ -118,7 +118,7 @@ function buildApp(env: Env): App {
     ).catch(() => undefined);
   }
 
-  return createApp({
+  const options: AppOptions = {
     dbLayer: makeDbD1Live(env.DB as D1Database),
     jwksUrl,
     rateLimiters,
@@ -134,8 +134,10 @@ function buildApp(env: Env): App {
     // `local` as deployed, and the parser answers `dev` only for
     // `dev`/`development`, so an unrecognised tier string is off, not on.
     includeOpenapi: !secure || parseDeploymentEnvironment(env.OSN_ENV) === "dev",
-    ...(env.PULSE_LOGIN_URL ? { loginFallbackUrl: env.PULSE_LOGIN_URL } : {}),
-  });
+  };
+  if (env.PULSE_LOGIN_URL) options.loginFallbackUrl = env.PULSE_LOGIN_URL;
+
+  return createApp(options);
 }
 
 export default {

@@ -263,10 +263,10 @@ const safeErrorSummary = (err: unknown): SafeErrorSummary => {
   if (!err || typeof err !== "object") return { error: String(err) };
   const tag = (err as { _tag?: unknown })._tag;
   const msg = (err as { message?: unknown }).message;
-  return {
-    ...(typeof tag === "string" ? { _tag: tag } : {}),
-    ...(typeof msg === "string" ? { message: msg } : {}),
-  };
+  const summary: SafeErrorSummary = {};
+  if (typeof tag === "string") summary._tag = tag;
+  if (typeof msg === "string") summary.message = msg;
+  return summary;
 };
 
 /**

@@ -1,4 +1,4 @@
-import { Effect, Data } from "effect";
+import { Effect, Data, type Types } from "effect";
 
 import { isKnownTimeZone, parseWallTime, stampEventOffset } from "../lib/event-time";
 import {
@@ -544,8 +544,7 @@ export function parseEventsCsv(
       const id =
         idxEventId === -1 ? undefined : (nullableString(row[idxEventId] ?? "") ?? undefined);
 
-      out.push({
-        ...(id === undefined ? {} : { id }),
+      const event: Types.Mutable<ParsedEvent> = {
         name,
         // The sheet states LOCAL time; the offset the stored timestamp carries
         // is derived from the Timezone column, never read out of the cell (see
@@ -563,7 +562,9 @@ export function parseEventsCsv(
         pinterestUrl,
         mapsUrl,
         sortOrder: out.length,
-      });
+      };
+      if (id !== undefined) event.id = id;
+      out.push(event);
     }
 
     return out;
@@ -736,22 +737,23 @@ export function parseGuestsCsv(
       const publicId =
         idxFamilyCode === -1 ? undefined : (nullableString(row[idxFamilyCode] ?? "") ?? undefined);
 
-      const guest: ParsedGuest = {
-        ...(guestId === undefined ? {} : { id: guestId }),
+      const guest: Types.Mutable<ParsedGuest> = {
         firstName,
         lastName,
         nickname,
         eventNames,
       };
+      if (guestId !== undefined) guest.id = guestId;
       const norm = normaliseName(familyName);
       let family = familyByNorm.get(norm);
       if (!family) {
-        family = {
-          ...(familyId === undefined ? {} : { id: familyId }),
-          ...(publicId === undefined ? {} : { publicId }),
+        const created: Types.Mutable<ParsedFamily> = {
           familyName,
           guests: [guest],
         };
+        if (familyId !== undefined) created.id = familyId;
+        if (publicId !== undefined) created.publicId = publicId;
+        family = created;
         familyByNorm.set(norm, family);
         families.push(family);
       } else {

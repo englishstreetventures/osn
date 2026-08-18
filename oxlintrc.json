@@ -106,10 +106,10 @@
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
+    "anti-slop/no-conditional-empty-object-spread": "error",
 
     // Real debt in app source, small enough to schedule. Counts are source
     // only where the test override below silences the test-side hits.
-    "anti-slop/no-conditional-empty-object-spread": "warn", // 81
     "anti-slop/no-known-value-widening": "warn", // 134 src
 
     // Too big to schedule yet. Each needs its own clean-up pass before it can
@@ -156,6 +156,10 @@
         // request body or a drizzle row the test then asserts on field by
         // field.
         "anti-slop/no-unsafe-dictionary-type": "off",
+        // Source is clean and the rule is an error there; 25 test-side hits
+        // remain, every one of them a request-body or options helper that
+        // folds an optional argument into a fixture.
+        "anti-slop/no-conditional-empty-object-spread": "off",
         "anti-slop/no-known-value-widening": "off"
       }
     }

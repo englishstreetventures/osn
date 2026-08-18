@@ -37,7 +37,14 @@ import {
 import { CHALLENGE_TTL_MS, MAX_OTP_ATTEMPTS, PASSKEY_LAST_USED_COALESCE_MS } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, DatabaseError } from "./errors";
-import { genOtpCode, hashSessionToken, logDevOtp, signJwt, verifyJwt } from "./helpers";
+import {
+  genOtpCode,
+  hashSessionToken,
+  logDevOtp,
+  signJwt,
+  type StepUpTokenClaims,
+  verifyJwt,
+} from "./helpers";
 
 export function createStepUpModule(ctx: AuthContext) {
   const {
@@ -68,20 +75,22 @@ export function createStepUpModule(ctx: AuthContext) {
       // Map the ceremony factor onto RFC 8176 "amr" values the verifier reads.
       const amr = factor === "passkey" ? "webauthn" : factor === "otp" ? "otp" : "recovery";
       const token = yield* Effect.tryPromise({
-        try: () =>
-          signJwt(
-            {
-              sub: accountId,
-              aud: STEP_UP_AUDIENCE,
-              amr: [amr],
-              jti: crypto.randomUUID(),
-              ...(purpose ? { purpose } : {}),
-            },
+        try: () => {
+          const claims: StepUpTokenClaims = {
+            sub: accountId,
+            aud: STEP_UP_AUDIENCE,
+            amr: [amr],
+            jti: crypto.randomUUID(),
+          };
+          if (purpose) claims.purpose = purpose;
+          return signJwt(
+            claims,
             config.jwtPrivateKey,
             config.jwtKid,
             stepUpTokenTtl,
             config.issuerUrl,
-          ),
+          );
+        },
         catch: (cause) => new AuthError({ message: String(cause) }),
       });
       metricStepUpIssued(factor);

@@ -1,4 +1,4 @@
-import { decodeProtectedHeader, errors, jwtVerify } from "jose";
+import { decodeProtectedHeader, errors, jwtVerify, type JWTVerifyOptions } from "jose";
 
 import { resolvePublicKeyForKid, refreshPublicKeyForKid } from "./jwks-cache";
 
@@ -83,13 +83,14 @@ async function verifyTokenWithKey(
   issuer: string | undefined,
 ): Promise<VerifyOutcome> {
   try {
-    const { payload } = await jwtVerify(token, key, {
+    const verifyOptions: JWTVerifyOptions = {
       algorithms: ["ES256"],
       audience,
-      // Unset issuer ⇒ omit the option ⇒ jose does not enforce `iss` (X2).
-      ...(issuer ? { issuer } : {}),
       clockTolerance: CLOCK_TOLERANCE_SECONDS,
-    });
+    };
+    // Unset issuer ⇒ omit the option ⇒ jose does not enforce `iss` (X2).
+    if (issuer) verifyOptions.issuer = issuer;
+    const { payload } = await jwtVerify(token, key, verifyOptions);
     const profileId = typeof payload.sub === "string" ? payload.sub : null;
     if (!profileId) return { kind: "terminal" };
     return {

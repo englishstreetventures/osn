@@ -481,9 +481,9 @@ export const createSeries = (
       createdByProfileId: creator.createdByProfileId,
       createdByName: creator.createdByName,
       createdByAvatar: creator.createdByAvatar,
-      ...(commsChannels ? { commsChannels: JSON.stringify(commsChannels) } : {}),
       until: parsed.until,
     };
+    if (commsChannels) row.commsChannels = JSON.stringify(commsChannels);
 
     yield* Effect.tryPromise({
       try: () => db.insert(eventSeries).values(row),
@@ -599,8 +599,8 @@ export const updateSeries = (
     const templateUpdate: Partial<NewEventSeries> = {
       ...templateRest,
       updatedAt: now,
-      ...(commsChannels ? { commsChannels: JSON.stringify(commsChannels) } : {}),
     };
+    if (commsChannels) templateUpdate.commsChannels = JSON.stringify(commsChannels);
 
     yield* Effect.tryPromise({
       try: () => db.update(eventSeries).set(templateUpdate).where(eq(eventSeries.id, id)),
@@ -625,25 +625,26 @@ export const updateSeries = (
     // whereas on the series it's active/ended/cancelled — NOT compatible,
     // so we don't propagate status here. Cancellations go through
     // `cancelSeries`.
-    const instanceUpdate: Partial<typeof events.$inferInsert> = {
-      ...(templateRest.title !== undefined ? { title: templateRest.title } : {}),
-      ...(templateRest.description !== undefined ? { description: templateRest.description } : {}),
-      ...(templateRest.location !== undefined ? { location: templateRest.location } : {}),
-      ...(templateRest.venue !== undefined ? { venue: templateRest.venue } : {}),
-      ...(templateRest.latitude !== undefined ? { latitude: templateRest.latitude } : {}),
-      ...(templateRest.longitude !== undefined ? { longitude: templateRest.longitude } : {}),
-      ...(templateRest.category !== undefined ? { category: templateRest.category } : {}),
-      ...(templateRest.imageUrl !== undefined ? { imageUrl: templateRest.imageUrl } : {}),
-      ...(templateRest.visibility !== undefined ? { visibility: templateRest.visibility } : {}),
-      ...(templateRest.guestListVisibility !== undefined
-        ? { guestListVisibility: templateRest.guestListVisibility }
-        : {}),
-      ...(templateRest.joinPolicy !== undefined ? { joinPolicy: templateRest.joinPolicy } : {}),
-      ...(templateRest.allowInterested !== undefined
-        ? { allowInterested: templateRest.allowInterested }
-        : {}),
-      ...(commsChannels ? { commsChannels: JSON.stringify(commsChannels) } : {}),
-    };
+    const instanceUpdate: Partial<typeof events.$inferInsert> = {};
+    if (templateRest.title !== undefined) instanceUpdate.title = templateRest.title;
+    if (templateRest.description !== undefined) {
+      instanceUpdate.description = templateRest.description;
+    }
+    if (templateRest.location !== undefined) instanceUpdate.location = templateRest.location;
+    if (templateRest.venue !== undefined) instanceUpdate.venue = templateRest.venue;
+    if (templateRest.latitude !== undefined) instanceUpdate.latitude = templateRest.latitude;
+    if (templateRest.longitude !== undefined) instanceUpdate.longitude = templateRest.longitude;
+    if (templateRest.category !== undefined) instanceUpdate.category = templateRest.category;
+    if (templateRest.imageUrl !== undefined) instanceUpdate.imageUrl = templateRest.imageUrl;
+    if (templateRest.visibility !== undefined) instanceUpdate.visibility = templateRest.visibility;
+    if (templateRest.guestListVisibility !== undefined) {
+      instanceUpdate.guestListVisibility = templateRest.guestListVisibility;
+    }
+    if (templateRest.joinPolicy !== undefined) instanceUpdate.joinPolicy = templateRest.joinPolicy;
+    if (templateRest.allowInterested !== undefined) {
+      instanceUpdate.allowInterested = templateRest.allowInterested;
+    }
+    if (commsChannels) instanceUpdate.commsChannels = JSON.stringify(commsChannels);
 
     // P-W2: single conditional UPDATE … RETURNING instead of
     // SELECT-then-UPDATE. The `instanceOverride = false` predicate is

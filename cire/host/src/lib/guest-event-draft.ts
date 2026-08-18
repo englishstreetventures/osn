@@ -245,37 +245,46 @@ function buildDraft(
 export function toDesiredState(draft: DraftState): DesiredStateWire {
   const eventNameByKey = new Map(draft.events.map((e) => [e.key, e.name]));
 
-  const events: WireEvent[] = draft.events.map((e) => ({
-    ...(e.id ? { id: e.id } : {}),
-    name: e.name,
-    startAt: e.startAt,
-    endAt: e.endAt,
-    timezone: e.timezone,
-    // The draft doesn't carry the venue-name fallback separately; `address` is
-    // authoritative (the reconcile writes `address ?? location`).
-    location: null,
-    address: e.address,
-    dressCodeDescription: e.dressCodeDescription,
-    dressCodePalette: e.dressCodePalette.map((s) => ({ name: s.name, color: s.color })),
-    pinterestUrl: e.pinterestUrl,
-    mapsUrl: e.mapsUrl,
-    sortOrder: e.sortOrder,
-  }));
+  const events: WireEvent[] = draft.events.map((e) => {
+    const wire: WireEvent = {
+      name: e.name,
+      startAt: e.startAt,
+      endAt: e.endAt,
+      timezone: e.timezone,
+      // The draft doesn't carry the venue-name fallback separately; `address` is
+      // authoritative (the reconcile writes `address ?? location`).
+      location: null,
+      address: e.address,
+      dressCodeDescription: e.dressCodeDescription,
+      dressCodePalette: e.dressCodePalette.map((s) => ({ name: s.name, color: s.color })),
+      pinterestUrl: e.pinterestUrl,
+      mapsUrl: e.mapsUrl,
+      sortOrder: e.sortOrder,
+    };
+    if (e.id) wire.id = e.id;
+    return wire;
+  });
 
-  const families: WireFamily[] = draft.families.map((f) => ({
-    ...(f.id ? { id: f.id } : {}),
-    ...(f.publicId ? { publicId: f.publicId } : {}),
-    familyName: f.familyName,
-    guests: f.guests.map((g) => ({
-      ...(g.id ? { id: g.id } : {}),
-      firstName: g.firstName,
-      lastName: g.lastName,
-      nickname: g.nickname && g.nickname.trim().length > 0 ? g.nickname.trim() : null,
-      eventNames: g.eventKeys
-        .map((k) => eventNameByKey.get(k))
-        .filter((n): n is string => Boolean(n)),
-    })),
-  }));
+  const families: WireFamily[] = draft.families.map((f) => {
+    const wire: WireFamily = {
+      familyName: f.familyName,
+      guests: f.guests.map((g) => {
+        const guest: WireGuest = {
+          firstName: g.firstName,
+          lastName: g.lastName,
+          nickname: g.nickname && g.nickname.trim().length > 0 ? g.nickname.trim() : null,
+          eventNames: g.eventKeys
+            .map((k) => eventNameByKey.get(k))
+            .filter((n): n is string => Boolean(n)),
+        };
+        if (g.id) guest.id = g.id;
+        return guest;
+      }),
+    };
+    if (f.id) wire.id = f.id;
+    if (f.publicId) wire.publicId = f.publicId;
+    return wire;
+  });
 
   return { events, families };
 }

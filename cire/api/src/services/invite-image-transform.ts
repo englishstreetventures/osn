@@ -161,8 +161,14 @@ export interface ImageOutput {
   contentType(): string;
 }
 
+/** Options one `transform()` step accepts — both are omitted when not applicable. */
+export interface ImageTransformOptions {
+  width?: number;
+  blur?: number;
+}
+
 export interface ImageTransformHandle {
-  transform(t: { width?: number; blur?: number }): ImageTransformHandle;
+  transform(t: ImageTransformOptions): ImageTransformHandle;
   output(o: { format: OutputFormat; quality?: number }): Promise<ImageOutput>;
 }
 
@@ -217,9 +223,11 @@ export function transformAsset(
           : blurOverride !== undefined
             ? blurOverride
             : variantDefault;
+      const options: ImageTransformOptions = { width: IMAGE_VARIANTS[variant] };
+      if (blur) options.blur = blur;
       const out = await images
         .input(stream)
-        .transform({ width: IMAGE_VARIANTS[variant], ...(blur ? { blur } : {}) })
+        .transform(options)
         .output({ format, quality: OUTPUT_QUALITY });
       const bytes = await out.response().arrayBuffer();
       return { bytes, contentType: out.contentType() };

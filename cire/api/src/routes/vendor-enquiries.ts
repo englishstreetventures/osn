@@ -10,7 +10,7 @@ import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { runCire } from "../observability";
-import type { createEnquiryService, EnquiryRow } from "../services/enquiries";
+import type { createEnquiryService, EnquiryRow, QuoteEnquiryInput } from "../services/enquiries";
 import type { OsnOrgMembershipResolver, OsnProfileOrgsResolver } from "../services/osn-bridge";
 
 // Sentinel parse hook: stops Elysia consuming the body so the handler parses it
@@ -299,16 +299,17 @@ export function createVendorEnquiriesRoutes(
                   .all(),
               );
               const currency = (weddingRow as { currency: string } | undefined)?.currency ?? "AUD";
-              const enquiryDto = yield* enquiryService.quote({
+              const quoteInput: QuoteEnquiryInput = {
                 enquiry,
                 senderProfileId: profileId,
                 amountMinor: body.amountMinor,
-                ...(body.note !== undefined ? { note: body.note } : {}),
                 // Recipient resolution deferred; null suppresses the notify.
                 coupleEmail: null,
                 vendorName,
                 currency,
-              });
+              };
+              if (body.note !== undefined) quoteInput.note = body.note;
+              const enquiryDto = yield* enquiryService.quote(quoteInput);
               set.status = 201;
               return { enquiry: enquiryDto };
             }).pipe(

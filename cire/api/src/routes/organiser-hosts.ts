@@ -19,9 +19,29 @@ import { weddingOwner } from "../middleware/wedding-owner";
 import { runCire } from "../observability";
 import { AddHostBody, UpdateHostRoleBody } from "../schemas/host";
 import { hostsService } from "../services/hosts";
+import type { HostRole } from "../services/hosts";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../services/osn-bridge";
 
 const PREFIX = "/api/organiser";
+
+/**
+ * A person on the co-host panel. `handle` and `displayName` are absent — not
+ * null — when the OSN display lookup couldn't resolve them, and the portal
+ * falls back to the profile id.
+ */
+interface HostPersonDto {
+  osnProfileId: string;
+  handle?: string;
+  displayName?: string;
+}
+
+/** A co-host row: a {@link HostPersonDto} plus their seat and its attribution. */
+interface HostSeatDto extends HostPersonDto {
+  role: HostRole;
+  createdAt: number;
+  addedByOsnProfileId: string;
+  addedByHandle?: string;
+}
 
 /** Transport failure resolving the OSN handle over ARC (osn-api down / 5xx). */
 class OsnHandleLookupError extends Data.TaggedError("OsnHandleLookupError")<{
@@ -71,33 +91,33 @@ export const createOrganiserHostsReadRoutes = (
                     }).pipe(Effect.orElseSucceed(() => null))
                   : null;
                 const ownerDisplay = displays?.get(weddingOwnerOsnProfileId);
+                // The owner is never rowed into `wedding_hosts` (see
+                // services/hosts.ts), so without this the co-host panel had
+                // no way to show who owns the wedding at all — surfaced
+                // separately from `hosts`, which stays co-hosts only.
+                const owner: HostPersonDto = { osnProfileId: weddingOwnerOsnProfileId };
+                if (ownerDisplay) owner.handle = ownerDisplay.handle;
+                if (ownerDisplay?.displayName) owner.displayName = ownerDisplay.displayName;
                 return {
-                  // The owner is never rowed into `wedding_hosts` (see
-                  // services/hosts.ts), so without this the co-host panel had
-                  // no way to show who owns the wedding at all — surfaced
-                  // separately from `hosts`, which stays co-hosts only.
-                  owner: {
-                    osnProfileId: weddingOwnerOsnProfileId,
-                    ...(ownerDisplay ? { handle: ownerDisplay.handle } : {}),
-                    ...(ownerDisplay?.displayName ? { displayName: ownerDisplay.displayName } : {}),
-                  },
+                  owner,
                   hosts: hosts.map((h) => {
                     const display = displays?.get(h.osnProfileId);
                     const addedBy = displays?.get(h.addedByOsnProfileId);
-                    return {
+                    const row: HostSeatDto = {
                       osnProfileId: h.osnProfileId,
-                      // Handle is the display value; profileId stays as the
-                      // last-resort fallback when the lookup couldn't resolve it.
-                      ...(display ? { handle: display.handle } : {}),
-                      ...(display?.displayName ? { displayName: display.displayName } : {}),
                       role: h.role,
                       createdAt: h.createdAt.getTime(),
                       // Attribution: `POST /hosts` is open to editors, so a seat
                       // the owner didn't create is a thing they need to be able
-                      // to see. Same handle-then-id fallback as above.
+                      // to see. Same handle-then-id fallback as below.
                       addedByOsnProfileId: h.addedByOsnProfileId,
-                      ...(addedBy ? { addedByHandle: addedBy.handle } : {}),
                     };
+                    // Handle is the display value; profileId stays as the
+                    // last-resort fallback when the lookup couldn't resolve it.
+                    if (display) row.handle = display.handle;
+                    if (display?.displayName) row.displayName = display.displayName;
+                    if (addedBy) row.addedByHandle = addedBy.handle;
+                    return row;
                   }),
                   // True row count, so a truncated list can never look complete.
                   total,

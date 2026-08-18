@@ -9,7 +9,7 @@ import {
 } from "@cire/db";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
-import { Effect, Data } from "effect";
+import { Effect, Data, type Types } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import type { BatchableDb, BatchStatements, Db } from "../db";
@@ -533,13 +533,14 @@ export function diffAgainstDb(
             existing.nickname !== parsedGuest.nickname ||
             existing.sortOrder !== sortOrder
           ) {
-            guestUpdates.push({
+            const update: Types.Mutable<GuestUpdate> = {
               id: existing.id,
-              ...(firstNameChanged ? { firstName: parsedGuest.firstName } : {}),
               lastName: parsedGuest.lastName,
               nickname: parsedGuest.nickname,
               sortOrder,
-            });
+            };
+            if (firstNameChanged) update.firstName = parsedGuest.firstName;
+            guestUpdates.push(update);
           }
         } else {
           const id = crypto.randomUUID();
@@ -1005,18 +1006,14 @@ export function applyImport(
     // (the field is absent otherwise), so a no-id import writes exactly the same
     // columns as before.
     for (const gu of plan.guestUpdates) {
-      statements.push(
-        db
-          .update(guests)
-          .set({
-            ...(gu.firstName === undefined ? {} : { firstName: gu.firstName }),
-            lastName: gu.lastName,
-            nickname: gu.nickname,
-            sortOrder: gu.sortOrder,
-            updatedAt: now,
-          })
-          .where(eq(guests.id, gu.id)),
-      );
+      const set: Partial<typeof guests.$inferInsert> = {
+        lastName: gu.lastName,
+        nickname: gu.nickname,
+        sortOrder: gu.sortOrder,
+        updatedAt: now,
+      };
+      if (gu.firstName !== undefined) set.firstName = gu.firstName;
+      statements.push(db.update(guests).set(set).where(eq(guests.id, gu.id)));
     }
 
     // 9. guest_events: per-pair removes then creates. The diff already emitted

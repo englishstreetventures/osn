@@ -6,7 +6,7 @@ import type { WorkersRateLimitBinding } from "@shared/rate-limit";
 import { createTurnstileVerifier } from "@shared/turnstile";
 import { Effect, Layer } from "effect";
 
-import { createApp } from "./app";
+import { type AppOptions, createApp } from "./app";
 import { createD1Db, DbService } from "./db";
 import { setExecutionCtx } from "./lib/execution-ctx";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
@@ -391,58 +391,58 @@ const handler: ExportedHandler<Env> = {
           }),
         );
       }
+      const appOptions: AppOptions = {
+        webOrigin: origins[0],
+        allowedOrigins: origins,
+        claimLimiter: edgeLimiter,
+        accountLinkLimiter: edgeLimiter,
+        inviteLimiter: edgeLimiter,
+        r2: env.SHEETS,
+        assets: env.ASSETS,
+        images: env.IMAGES,
+        osnJwksUrl: env.OSN_JWKS_URL,
+        osnAudience: env.OSN_AUDIENCE,
+        oidc,
+        // Back-channel revoke endpoint: enabled only when the shared secret is
+        // set (else it answers 503). No new rate limiter wired here — the
+        // in-memory default in createApp is generous enough for the
+        // infrequent revoke/delete calls.
+        internalRevokeSecret: env.CIRE_INTERNAL_REVOKE_SECRET ?? null,
+        resolveOsnAccountId,
+        resolveOsnProfileByHandle,
+        resolveOsnProfileDisplays,
+        resolveOsnHandleSearch,
+        resolveOsnConnectionSearch,
+        turnstileVerifier,
+        flags,
+        orgMembership,
+        profileOrgs,
+        emailLayer,
+        // Vendor-enquiry deps (Vendors S4). The zap client degrades to 503 for
+        // open/reply when null; the enquiry email layer reuses the shared
+        // transport (Resend in deployed tiers, LogEmailLive locally). The
+        // per-user write limiter (spam control §96) uses createApp's default
+        // (20/min); index.ts passes only the client + email layer.
+        enquiryZapClient,
+        enquiryEmailLayer: emailLayer,
+      };
+      // WEB_ORIGIN is a comma-list: [guest invite, organiser host, vendor
+      // portal]. Enquiry thread links live on the organiser origin; vendor
+      // claim links on the vendor portal. Fall back to createApp's prod
+      // defaults if a tier only configures the guest origin.
+      if (origins[1]) appOptions.organiserOrigin = origins[1];
+      if (origins[2]) appOptions.vendorPortalOrigin = origins[2];
+      // Its own edge limiter, NOT `edgeLimiter` — that one is bound to
+      // CLAIM_RATE_LIMITER (5/min), the exact budget this route was split
+      // away from. Absent binding ⇒ createApp's in-memory 60/min default.
+      if (sessionEdgeLimiter) appOptions.claimSessionLimiter = sessionEdgeLimiter;
+      if (registryPreviewEdgeLimiter)
+        appOptions.registryPreviewLimiter = registryPreviewEdgeLimiter;
+      if (registryImageEdgeLimiter) appOptions.registryImageLimiter = registryImageEdgeLimiter;
+      if (registryGuestEdgeLimiter) appOptions.registryGuestLimiter = registryGuestEdgeLimiter;
       cached = {
         dbBinding: env.DB,
-        app: createApp(db, {
-          webOrigin: origins[0],
-          // WEB_ORIGIN is a comma-list: [guest invite, organiser host, vendor
-          // portal]. Enquiry thread links live on the organiser origin; vendor
-          // claim links on the vendor portal. Fall back to createApp's prod
-          // defaults if a tier only configures the guest origin.
-          ...(origins[1] ? { organiserOrigin: origins[1] } : {}),
-          ...(origins[2] ? { vendorPortalOrigin: origins[2] } : {}),
-          allowedOrigins: origins,
-          claimLimiter: edgeLimiter,
-          accountLinkLimiter: edgeLimiter,
-          inviteLimiter: edgeLimiter,
-          // Its own edge limiter, NOT `edgeLimiter` — that one is bound to
-          // CLAIM_RATE_LIMITER (5/min), the exact budget this route was split
-          // away from. Absent binding ⇒ createApp's in-memory 60/min default.
-          ...(sessionEdgeLimiter ? { claimSessionLimiter: sessionEdgeLimiter } : {}),
-          ...(registryPreviewEdgeLimiter
-            ? { registryPreviewLimiter: registryPreviewEdgeLimiter }
-            : {}),
-          ...(registryImageEdgeLimiter ? { registryImageLimiter: registryImageEdgeLimiter } : {}),
-          ...(registryGuestEdgeLimiter ? { registryGuestLimiter: registryGuestEdgeLimiter } : {}),
-          r2: env.SHEETS,
-          assets: env.ASSETS,
-          images: env.IMAGES,
-          osnJwksUrl: env.OSN_JWKS_URL,
-          osnAudience: env.OSN_AUDIENCE,
-          oidc,
-          // Back-channel revoke endpoint: enabled only when the shared secret is
-          // set (else it answers 503). No new rate limiter wired here — the
-          // in-memory default in createApp is generous enough for the
-          // infrequent revoke/delete calls.
-          internalRevokeSecret: env.CIRE_INTERNAL_REVOKE_SECRET ?? null,
-          resolveOsnAccountId,
-          resolveOsnProfileByHandle,
-          resolveOsnProfileDisplays,
-          resolveOsnHandleSearch,
-          resolveOsnConnectionSearch,
-          turnstileVerifier,
-          flags,
-          orgMembership,
-          profileOrgs,
-          emailLayer,
-          // Vendor-enquiry deps (Vendors S4). The zap client degrades to 503 for
-          // open/reply when null; the enquiry email layer reuses the shared
-          // transport (Resend in deployed tiers, LogEmailLive locally). The
-          // per-user write limiter (spam control §96) uses createApp's default
-          // (20/min); index.ts passes only the client + email layer.
-          enquiryZapClient,
-          enquiryEmailLayer: emailLayer,
-        }),
+        app: createApp(db, appOptions),
       };
     }
 

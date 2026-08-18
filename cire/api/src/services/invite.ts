@@ -650,7 +650,7 @@ export const inviteService = {
       );
       const heroBlurChanged = !existing || existing.heroBlur !== fields.heroBlur;
 
-      const values = {
+      const themeValues = {
         themeHeadingFont: fields.headingFont,
         themeBodyFont: fields.bodyFont,
         // Typography option keys (0048) — pure CSS, never bump the image version.
@@ -673,9 +673,10 @@ export const inviteService = {
         heroBlur: fields.heroBlur,
         heroTitleBackdropOpacity: fields.titleBackdropOpacity,
         heroTitleBackdropBlur: fields.titleBackdropBlur,
-        // Conditional image-version bump — see heroBlurChanged above.
-        ...(heroBlurChanged ? { imagesUpdatedAt: new Date() } : {}),
       };
+      // Conditional image-version bump — see heroBlurChanged above.
+      const values: typeof themeValues & { imagesUpdatedAt?: Date } = themeValues;
+      if (heroBlurChanged) values.imagesUpdatedAt = new Date();
       yield* dbQuery(() =>
         db
           .insert(weddingInviteCustomisations)

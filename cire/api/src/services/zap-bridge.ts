@@ -68,6 +68,14 @@ export interface ChatMessagePage {
   messages: ChatMessage[];
 }
 
+/** Request body for `POST /internal/chats` — `title` is sent only when given. */
+interface ProvisionC2bChatRequest {
+  class: "c2b";
+  memberProfileIds: string[];
+  createdByProfileId: string;
+  title?: string;
+}
+
 export interface ZapChatClient {
   provisionC2bChat(input: {
     memberProfileIds: string[];
@@ -196,12 +204,11 @@ export function createZapChatClient(config: ZapChatClientConfig): ZapChatClient 
     body?: unknown,
   ): Promise<T> {
     const token = await mint();
+    const headers = new Headers({ authorization: `ARC ${token}` });
+    if (body !== undefined) headers.set("content-type", "application/json");
     const res = await doFetch(`${base}${path}`, {
       method,
-      headers: {
-        authorization: `ARC ${token}`,
-        ...(body === undefined ? {} : { "content-type": "application/json" }),
-      },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     if (!res.ok) {
@@ -213,12 +220,13 @@ export function createZapChatClient(config: ZapChatClientConfig): ZapChatClient 
 
   return {
     async provisionC2bChat(input) {
-      return send("POST", "/internal/chats", parseProvisionedChat, {
+      const body: ProvisionC2bChatRequest = {
         class: "c2b",
         memberProfileIds: input.memberProfileIds,
         createdByProfileId: input.createdByProfileId,
-        ...(input.title === undefined ? {} : { title: input.title }),
-      });
+      };
+      if (input.title !== undefined) body.title = input.title;
+      return send("POST", "/internal/chats", parseProvisionedChat, body);
     },
 
     async sendC2bMessage(chatId, input) {

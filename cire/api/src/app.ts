@@ -607,12 +607,12 @@ export function createApp(db: Db, options: AppOptions = {}) {
           typeof error === "object" && error !== null && "_tag" in error
             ? String((error as { _tag: unknown })._tag)
             : undefined;
+        const errorFields = { code, name: errorName };
         runCireSync(
-          Effect.logError("unhandled request error", {
-            code,
-            name: errorName,
-            ...(errorTag ? { tag: errorTag } : {}),
-          }),
+          Effect.logError(
+            "unhandled request error",
+            errorTag ? { ...errorFields, tag: errorTag } : errorFields,
+          ),
         );
         set.status = 500;
         return { error: "Internal error" };

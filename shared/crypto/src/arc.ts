@@ -2,7 +2,7 @@ import { serviceAccounts, serviceAccountKeys } from "@osn/db";
 import { Db } from "@osn/db/service";
 import { and, eq, isNull, gt, or } from "drizzle-orm";
 import { Effect } from "effect";
-import { jwtVerify } from "jose";
+import { jwtVerify, type JWTVerifyOptions } from "jose";
 
 import {
   classifyArcVerifyError,
@@ -110,7 +110,7 @@ export async function verifyArcToken(
   // we label with "unknown" so the counter still increments.
   let issForMetric = "unknown";
   try {
-    const { payload } = await jwtVerify(token, publicKey, {
+    const verifyOptions: JWTVerifyOptions = {
       algorithms: [ARC_ALG],
       audience: expectedAudience,
       // Defense-in-depth: require the temporal + identity claims to be present
@@ -120,10 +120,11 @@ export async function verifyArcToken(
       // services, so a tolerance window would only widen a stolen token's life
       // for no real drift benefit.
       requiredClaims: ["exp", "iat", "iss", "aud"],
-      // X1: when expectedIssuer is set, jose enforces `iss` matches —
-      // cryptographically binding the signed issuer to the kid→issuer DB row.
-      ...(expectedIssuer ? { issuer: expectedIssuer } : {}),
-    }).catch((cause) => {
+    };
+    // X1: when expectedIssuer is set, jose enforces `iss` matches —
+    // cryptographically binding the signed issuer to the kid→issuer DB row.
+    if (expectedIssuer) verifyOptions.issuer = expectedIssuer;
+    const { payload } = await jwtVerify(token, publicKey, verifyOptions).catch((cause) => {
       throw new ArcTokenError({ message: "ARC token verification failed", cause });
     });
 

@@ -66,11 +66,9 @@ function formatterFor(currency: string, wholeUnits: boolean): Intl.NumberFormat 
 
   let built: Intl.NumberFormat | null = null;
   try {
-    built = new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency,
-      ...(wholeUnits ? { maximumFractionDigits: 0 } : {}),
-    });
+    const options: Intl.NumberFormatOptions = { style: "currency", currency };
+    if (wholeUnits) options.maximumFractionDigits = 0;
+    built = new Intl.NumberFormat(undefined, options);
   } catch {
     // Unknown/malformed currency code — the caller falls back to a bare number.
     built = null;

@@ -24,9 +24,9 @@
  */
 
 import { directoryVendors, vendorEnquiries, vendors } from "@cire/db";
-import type { SendEmailInput } from "@shared/email";
+import type { EmailTemplateData, SendEmailInput } from "@shared/email";
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { Data, Effect } from "effect";
+import { Data, Effect, type Types } from "effect";
 
 import { commitBatch, DbService, dbQuery } from "../db";
 import type { ServiceCategory } from "../lib/service-categories";
@@ -338,18 +338,15 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
         const unclaimed = !claimedBy;
         const url = threadUrl(deps.threadBaseUrl, row.id);
         if (input.vendorEmail) {
-          yield* deps.sendEmail({
-            template: "enquiry-new",
-            to: input.vendorEmail,
-            data: {
-              vendorName: (listing as { name: string }).name,
-              weddingName: input.weddingName,
-              message: input.message,
-              threadUrl: url,
-              unclaimed,
-              ...(unclaimed ? { claimUrl: input.claimUrl } : {}),
-            },
-          });
+          const data: Types.Mutable<EmailTemplateData<"enquiry-new">> = {
+            vendorName: (listing as { name: string }).name,
+            weddingName: input.weddingName,
+            message: input.message,
+            threadUrl: url,
+            unclaimed,
+          };
+          if (unclaimed) data.claimUrl = input.claimUrl;
+          yield* deps.sendEmail({ template: "enquiry-new", to: input.vendorEmail, data });
         }
         if (unclaimed && input.leadForwardEmail) {
           yield* deps.sendEmail({
@@ -525,16 +522,13 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
         );
 
         if (input.coupleEmail) {
-          yield* deps.sendEmail({
-            template: "enquiry-quote",
-            to: input.coupleEmail,
-            data: {
-              vendorName: input.vendorName,
-              amountFormatted,
-              ...(input.note ? { note: input.note } : {}),
-              threadUrl: threadUrl(deps.threadBaseUrl, enquiry.id),
-            },
-          });
+          const data: Types.Mutable<EmailTemplateData<"enquiry-quote">> = {
+            vendorName: input.vendorName,
+            amountFormatted,
+            threadUrl: threadUrl(deps.threadBaseUrl, enquiry.id),
+          };
+          if (input.note) data.note = input.note;
+          yield* deps.sendEmail({ template: "enquiry-quote", to: input.coupleEmail, data });
         }
 
         // Re-read for the fresh DTO.

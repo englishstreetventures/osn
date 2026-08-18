@@ -40,6 +40,9 @@ export interface LoginResult {
   profile: LoginProfile;
 }
 
+/** Request body of `POST /login/passkey/begin`; both fields are optional. */
+type PasskeyBeginBody = { identifier?: string; turnstileToken?: string };
+
 // `sessionFetch`, not `fetch`: `/login/passkey/complete` is where the server
 // sets the refresh cookie, and on iOS the webview cannot store it. The other
 // login routes carry no cookie and pass straight through — see
@@ -90,11 +93,15 @@ export function createLoginClient(config: LoginClientConfig): LoginClient {
   });
 
   return {
-    passkeyBegin: (identifier, turnstileToken) =>
-      postJson<{ options: unknown; challengeId?: string }>(`${base}/login/passkey/begin`, {
-        ...(identifier === undefined ? {} : { identifier }),
-        ...(turnstileToken ? { turnstileToken } : {}),
-      }),
+    passkeyBegin: (identifier, turnstileToken) => {
+      const body: PasskeyBeginBody = {};
+      if (identifier !== undefined) body.identifier = identifier;
+      if (turnstileToken) body.turnstileToken = turnstileToken;
+      return postJson<{ options: unknown; challengeId?: string }>(
+        `${base}/login/passkey/begin`,
+        body,
+      );
+    },
 
     passkeyComplete: async (input) => {
       const raw = await postJson<{ session: unknown; profile: LoginProfile }>(

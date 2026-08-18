@@ -607,15 +607,15 @@ export const createEvent = (
         : priceAmount === null && priceCurrency === null
           ? { priceAmount: null, priceCurrency: null }
           : {};
-    const row = {
+    const row: typeof events.$inferInsert = {
       ...rest,
       ...creator,
       id,
       createdAt: now,
       updatedAt: now,
-      ...(commsChannels ? { commsChannels: JSON.stringify(commsChannels) } : {}),
       ...priceFields,
     };
+    if (commsChannels) row.commsChannels = JSON.stringify(commsChannels);
 
     // P-I7: RETURNING * gives back the full row (incl. column defaults)
     // in the same round-trip, replacing the previous INSERT + getEvent
@@ -678,13 +678,13 @@ export const updateEvent = (
     // If this event is part of a series, flag it as a single-instance
     // divergence so subsequent series-level bulk updates skip it.
     const overrideFlag = existing.seriesId ? { instanceOverride: true as const } : {};
-    const update = {
+    const update: Partial<typeof events.$inferInsert> = {
       ...rest,
       ...overrideFlag,
       updatedAt: now,
-      ...(commsChannels ? { commsChannels: JSON.stringify(commsChannels) } : {}),
       ...priceFields,
     };
+    if (commsChannels) update.commsChannels = JSON.stringify(commsChannels);
     yield* Effect.tryPromise({
       try: () => db.update(events).set(update).where(eq(events.id, id)),
       catch: (cause) => new DatabaseError({ cause }),

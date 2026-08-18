@@ -3,7 +3,7 @@ import { initObservability } from "@shared/observability";
 import type { ClientIpOptions } from "@shared/rate-limit";
 import { Effect, Logger } from "effect";
 
-import { createApp, SERVICE_NAME } from "./app";
+import { createApp, SERVICE_NAME, type AppOptions } from "./app";
 import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
 import { buildPulseOidcConfig } from "./lib/oidc";
 import { registerLeaveAppKeyWithOsnApi } from "./lib/outbound-arc";
@@ -90,15 +90,17 @@ if (nonLocal && !oidc) {
   ).catch(() => undefined);
 }
 
-const app = createApp({
+const appOptions: AppOptions = {
   jwksUrl,
   rateLimiters,
   clientIpConfig,
   corsOrigins,
   oidc,
   secureCookies: !!nonLocal,
-  ...(process.env.PULSE_LOGIN_URL ? { loginFallbackUrl: process.env.PULSE_LOGIN_URL } : {}),
-});
+};
+if (process.env.PULSE_LOGIN_URL) appOptions.loginFallbackUrl = process.env.PULSE_LOGIN_URL;
+
+const app = createApp(appOptions);
 
 const port = process.env.PORT || 3001;
 
