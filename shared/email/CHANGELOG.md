@@ -1,5 +1,12 @@
 # @shared/email
 
+## 0.4.7
+
+### Patch Changes
+
+- Updated dependencies [d50c68e]
+  - @shared/observability@0.13.3
+
 ## 0.4.6
 
 ### Patch Changes

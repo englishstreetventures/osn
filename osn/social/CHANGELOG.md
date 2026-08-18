@@ -1,5 +1,13 @@
 # @osn/social
 
+## 0.12.6
+
+### Patch Changes
+
+- d50c68e: Comments only: repoint every "tracked in wiki/TODO.md" reference at GitHub
+  Issues. Findings keep their IDs and now name the private `xchromo/osn-tracker`;
+  planned work points at open issues in `xchromo/osn`. No behaviour change.
+
 ## 0.12.5
 
 ### Patch Changes

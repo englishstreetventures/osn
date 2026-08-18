@@ -1,5 +1,19 @@
 # @osn/osn
 
+## 3.20.4
+
+### Patch Changes
+
+- d50c68e: Comments only: repoint every "tracked in wiki/TODO.md" reference at GitHub
+  Issues. Findings keep their IDs and now name the private `xchromo/osn-tracker`;
+  planned work points at open issues in `xchromo/osn`. No behaviour change.
+- Updated dependencies [d50c68e]
+  - @shared/crypto@0.10.2
+  - @shared/observability@0.13.3
+  - @shared/rate-limit@0.3.2
+  - @shared/email@0.4.7
+  - @shared/turnstile@0.2.10
+
 ## 3.20.3
 
 ### Patch Changes
