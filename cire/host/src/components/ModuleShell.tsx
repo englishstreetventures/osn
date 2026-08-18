@@ -90,7 +90,14 @@ const RegistryView = lazy(loadRegistry);
  */
 type PanelModule = { readonly default: Component<never> };
 
-const PANEL_LOADERS: Partial<Record<`${Module}:${string}`, () => Promise<PanelModule>>> = {
+/** The warm-up table's shape. Keyed `module:sub`, and the sub half is an open
+ *  string, so the key set is open — a pair with no lazy panel simply has no
+ *  loader. */
+interface PanelLoaders {
+  readonly [key: `${Module}:${string}`]: (() => Promise<PanelModule>) | undefined;
+}
+
+const PANEL_LOADERS: PanelLoaders = {
   "events:edit": loadEventsEditor,
   "guests:edit": loadGuestsEditor,
   "invite:design": loadInviteBuilder,
@@ -171,7 +178,12 @@ interface SubDef {
   edit?: boolean;
 }
 
-const MODULE_SUB_TABS: Partial<Record<Module, SubDef[]>> = {
+/** The sub-tab table's shape. Every key is a {@link Module} and every module is
+ *  optional — the ones with a single view (Overview, Checklist) are absent, and
+ *  a lookup for them yields `undefined`. */
+interface ModuleSubTabs extends Partial<Record<Module, SubDef[]>> {}
+
+const MODULE_SUB_TABS: ModuleSubTabs = {
   events: [
     { id: "list", label: "List" },
     { id: "edit", label: "Edit", edit: true },

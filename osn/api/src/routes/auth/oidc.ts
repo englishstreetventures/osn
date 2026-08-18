@@ -85,16 +85,21 @@ const redirectHost = (redirectUri: string): string => {
  * never any relying-party-supplied value (client_id, redirect_uri, state),
  * which would make this a reflected-content sink.
  */
-const AUTHORIZE_ERROR_COPY: Record<string, string> = {
+const AUTHORIZE_ERROR_COPY = {
   invalid_client:
     "We don't recognise the app that sent you here, so we can't continue the sign-in.",
   invalid_request:
     "This sign-in link is malformed or has expired. Return to the app and try again.",
   rate_limited: "Too many sign-in attempts. Please wait a moment and try again.",
-};
+} satisfies Record<string, string>;
+
+const hasAuthorizeErrorCopy = (code: string): code is keyof typeof AUTHORIZE_ERROR_COPY =>
+  code in AUTHORIZE_ERROR_COPY;
 
 const renderAuthorizeErrorPage = (code: string): string => {
-  const message = AUTHORIZE_ERROR_COPY[code] ?? AUTHORIZE_ERROR_COPY["invalid_request"]!;
+  const message = hasAuthorizeErrorCopy(code)
+    ? AUTHORIZE_ERROR_COPY[code]
+    : AUTHORIZE_ERROR_COPY.invalid_request;
   // `code` is one of our own enum values; escape defensively anyway.
   const safeCode = code.replace(/[^a-z_]/g, "");
   return `<!doctype html>

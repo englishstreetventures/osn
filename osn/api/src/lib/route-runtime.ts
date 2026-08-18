@@ -26,6 +26,16 @@ export type AppServices = Db | EmailService;
 export type AppRuntime = ManagedRuntime.ManagedRuntime<AppServices, never>;
 
 /**
+ * What a route factory gets back from {@link makeAppRunner}: the runtime it
+ * should keep (shared or freshly wrapped) and the per-request `run` helper
+ * bound to it.
+ */
+export type AppRunner<R extends AppServices> = {
+  runtime: ManagedRuntime.ManagedRuntime<R, never>;
+  run: <A, E>(eff: Effect.Effect<A, E, R>) => Promise<A>;
+};
+
+/**
  * Build the per-request `run` helper a route factory uses to execute service
  * effects.
  *
@@ -48,10 +58,7 @@ export type AppRuntime = ManagedRuntime.ManagedRuntime<AppServices, never>;
 export function makeAppRunner<R extends AppServices>(
   injectedRuntime: AppRuntime | undefined,
   fallbackLayer: Layer.Layer<R, never, never>,
-): {
-  runtime: ManagedRuntime.ManagedRuntime<R, never>;
-  run: <A, E>(eff: Effect.Effect<A, E, R>) => Promise<A>;
-} {
+): AppRunner<R> {
   const runtime = injectedRuntime ?? ManagedRuntime.make(fallbackLayer);
   return { runtime, run: (eff) => runtime.runPromise(eff) };
 }

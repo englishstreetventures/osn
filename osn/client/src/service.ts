@@ -697,8 +697,9 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             );
           }
 
-          const body: Record<string, string> = { handle };
-          if (displayName !== undefined) body.display_name = displayName;
+          const body = (
+            displayName === undefined ? { handle } : { handle, display_name: displayName }
+          ) satisfies Record<string, string>;
 
           // S-M4: Validate response schema
           const res = yield* Effect.tryPromise({

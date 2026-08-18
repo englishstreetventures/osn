@@ -4,7 +4,14 @@
  * (conditional-UI) flow and the shared assertion verifier.
  */
 
-import { accounts, passkeys, securityEvents, sessions, users } from "@osn/db/schema";
+import {
+  accounts,
+  type NewPasskey,
+  passkeys,
+  securityEvents,
+  sessions,
+  users,
+} from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { commitBatch } from "@shared/db-utils";
 import { EmailService } from "@shared/email";
@@ -611,7 +618,7 @@ export function createPasskeysModule(
       const nowSec = Math.floor(Date.now() / 1000);
       const shouldTouchLastUsed =
         !pk.lastUsedAt || Date.now() - pk.lastUsedAt * 1000 >= PASSKEY_LAST_USED_COALESCE_MS;
-      const updates: Record<string, number | boolean> = {
+      const updates: Partial<Pick<NewPasskey, "counter" | "lastUsedAt" | "updatedAt">> = {
         counter: verification.authenticationInfo.newCounter,
       };
       if (shouldTouchLastUsed) {

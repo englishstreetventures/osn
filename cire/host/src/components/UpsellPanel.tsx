@@ -4,7 +4,7 @@ interface UpsellPanelProps {
   feature: "vendors" | "registry";
 }
 
-const COPY: Record<UpsellPanelProps["feature"], { title: string; blurb: string }> = {
+const COPY = {
   vendors: {
     title: "Vendors & directory",
     blurb: "Browse trusted wedding vendors and manage your shortlist in one place.",
@@ -13,7 +13,7 @@ const COPY: Record<UpsellPanelProps["feature"], { title: string; blurb: string }
     title: "Gift registry",
     blurb: "List the gifts you'd like, and see what guests have claimed and sent.",
   },
-};
+} satisfies Record<UpsellPanelProps["feature"], { title: string; blurb: string }>;
 
 /**
  * Upsell panel shown in place of a locked module (Phase 1: vendors, registry).

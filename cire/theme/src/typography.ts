@@ -24,10 +24,10 @@
 export const HEADING_SIZE_CHOICES = ["default", "small", "large"] as const;
 export type HeadingSizeChoice = (typeof HEADING_SIZE_CHOICES)[number];
 
-const HEADING_SIZE_SCALES: Record<string, string> = {
+const HEADING_SIZE_SCALES = {
   small: "0.85",
   large: "1.15",
-};
+} satisfies Record<string, string>;
 
 /**
  * Weight, shared by the heading and body selects. The numeric values are
@@ -40,11 +40,11 @@ const HEADING_SIZE_SCALES: Record<string, string> = {
 export const FONT_WEIGHT_CHOICES = ["default", "light", "regular", "bold"] as const;
 export type FontWeightChoice = (typeof FONT_WEIGHT_CHOICES)[number];
 
-const FONT_WEIGHT_VALUES: Record<string, string> = {
+const FONT_WEIGHT_VALUES = {
   light: "300",
   regular: "400",
   bold: "700",
-};
+} satisfies Record<string, string>;
 
 /**
  * Style, shared by the heading and body selects. `"normal"` is kept distinct
@@ -55,10 +55,10 @@ const FONT_WEIGHT_VALUES: Record<string, string> = {
 export const FONT_STYLE_CHOICES = ["default", "normal", "italic"] as const;
 export type FontStyleChoice = (typeof FONT_STYLE_CHOICES)[number];
 
-const FONT_STYLE_VALUES: Record<string, string> = {
+const FONT_STYLE_VALUES = {
   normal: "normal",
   italic: "italic",
-};
+} satisfies Record<string, string>;
 
 // ── Resolution ────────────────────────────────────────────────────────────────
 
@@ -181,9 +181,7 @@ export const TYPOGRAPHY_VAR_KEYS = Object.values(
  * pair is applied to the page content wrapper and cascades by inheritance,
  * with headings' explicit declarations overriding it.
  */
-export function typographyVars(
-  settings: Partial<TypographySettings> | null | undefined,
-): Record<string, string> {
+export function typographyVars(settings: Partial<TypographySettings> | null | undefined) {
   const vars: Record<string, string> = {};
   if (!settings) return vars;
   // Property names come from TYPOGRAPHY_VAR_NAMES, so the emitter, the guest's

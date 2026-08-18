@@ -37,12 +37,12 @@ const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 export type CodeStyle = "simple" | "secure";
 
 /** Hash length (Crockford chars) per tier. */
-const HASH_LEN: Record<CodeStyle, number> = {
+const HASH_LEN = {
   // 6 chars × 5 bits = 30 bits.
   simple: 6,
   // 10 chars × 5 bits = 50 bits.
   secure: 10,
-};
+} satisfies Record<CodeStyle, number>;
 
 /**
  * Draw a uniformly-random integer in `[0, max)` from the CSPRNG without modulo

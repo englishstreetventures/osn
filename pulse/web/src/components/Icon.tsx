@@ -8,10 +8,36 @@ const common = {
   "stroke-linejoin": "round" as const,
 };
 
+/** Every glyph the set draws — the keys of the `icons` table below. */
+export type IconName =
+  | "bell"
+  | "chevron-right"
+  | "clock"
+  | "filter"
+  | "globe"
+  | "heart"
+  | "instagram"
+  | "layers"
+  | "map-pin"
+  | "plus"
+  | "repeat"
+  | "search"
+  | "zap";
+
+/**
+ * The lookup the component indexes. Open-keyed on purpose: `name` is a plain
+ * string at the call site, and an unrecognised one renders nothing rather than
+ * failing. The `satisfies` below is what still forces the table to carry every
+ * {@link IconName}.
+ */
+interface IconGlyphs {
+  readonly [name: string]: (() => JSX.Element) | undefined;
+}
+
 export function Icon(props: { name: string; size?: number }) {
   const s = () => ({ width: props.size ?? 16, height: props.size ?? 16 });
 
-  const icons: Record<string, () => JSX.Element> = {
+  const icons: IconGlyphs = {
     search: () => (
       <svg {...s()} viewBox="0 0 24 24" {...common}>
         <circle cx="11" cy="11" r="7" />
@@ -89,7 +115,7 @@ export function Icon(props: { name: string; size?: number }) {
         <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
       </svg>
     ),
-  };
+  } satisfies Record<IconName, () => JSX.Element>;
 
   return <>{icons[props.name]?.() ?? null}</>;
 }

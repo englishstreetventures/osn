@@ -38,13 +38,13 @@ const ROLES: { key: keyof PaletteSeeds; label: string; hint: string }[] = [
 ];
 
 /** Human names for the curated schemes. */
-const PRESET_LABELS: Record<PalettePresetKey, string> = {
+const PRESET_LABELS = {
   evergreen: "Evergreen",
   jewel: "Jewel",
   fog: "Fog",
   chapel: "Chapel",
   garden: "Garden",
-};
+} satisfies Record<PalettePresetKey, string>;
 
 /**
  * The seeds a scheme currently resolves to — the organiser's picks over their

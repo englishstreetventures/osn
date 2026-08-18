@@ -163,20 +163,20 @@ export function isSectionTone(value: string): value is SectionTone {
 }
 
 /** The derived token each tone points a section's background at. */
-const TONE_TOKEN: Record<SectionTone, string> = {
+const TONE_TOKEN = {
   ground: "var(--color-bg)",
   card: "var(--color-surface)",
   raised: "var(--color-surface-raised)",
-};
+} satisfies Record<SectionTone, string>;
 
 /**
  * The style map a section wrapper applies for its tone. One variable — the
  * section paints `background-color: var(--invite-section-bg)` and inherits
  * every other token from the palette root.
  */
-export function sectionToneVars(tone: SectionTone | null | undefined): Record<string, string> {
+export function sectionToneVars(tone: SectionTone | null | undefined) {
   const key = tone && isSectionTone(tone) ? tone : DEFAULT_SECTION_TONE;
-  return { "--invite-section-bg": TONE_TOKEN[key] };
+  return { "--invite-section-bg": TONE_TOKEN[key] } satisfies Record<string, string>;
 }
 
 // ── Fonts ─────────────────────────────────────────────────────────────────────
@@ -228,7 +228,7 @@ export function fontStack(choice: string | null | undefined): string | null {
   // Object.hasOwn so prototype-chain keys ("constructor", …) stay unknown
   // rather than leaking an inherited function through the closed map (S-L1).
   return Object.hasOwn(FONT_STACKS, choice)
-    ? (FONT_STACKS as Record<string, string>)[choice]
+    ? FONT_STACKS[choice as keyof typeof FONT_STACKS]
     : null;
 }
 
@@ -372,7 +372,7 @@ function semantic(hue: number, chroma: number, card: Oklch, darkStart = 0.72): s
 export function derivePalette(
   seeds: Partial<PaletteSeeds> | null | undefined,
   preset?: string | null,
-): Record<string, string> {
+) {
   const base = basePreset(preset);
   const ground = seed(seeds?.ground, "ground", base);
   const card = seed(seeds?.card, "card", base);
@@ -483,7 +483,7 @@ export function derivePalette(
     "--invite-card-edge": formatOklch(withAlpha(gilt, 0.4)),
     // Focus ring — must clear 3:1 against the page or it is not an indicator.
     "--invite-focus": formatOklch(ensureContrast(gilt, ground, WCAG_UI_MIN)),
-  };
+  } satisfies Record<DerivedToken, string>;
 }
 
 /**

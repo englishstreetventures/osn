@@ -3,14 +3,14 @@ import { HashMap, Layer, Logger, LogLevel } from "effect";
 import type { LogLevel as ConfigLogLevel, ObservabilityConfig } from "../config";
 import { redact } from "./redact";
 
-const LOG_LEVEL_MAP: Record<ConfigLogLevel, LogLevel.LogLevel> = {
+const LOG_LEVEL_MAP = {
   trace: LogLevel.Trace,
   debug: LogLevel.Debug,
   info: LogLevel.Info,
   warn: LogLevel.Warning,
   error: LogLevel.Error,
   fatal: LogLevel.Fatal,
-};
+} satisfies Record<ConfigLogLevel, LogLevel.LogLevel>;
 
 /**
  * Wrap a base logger so every emitted entry has its `message` and

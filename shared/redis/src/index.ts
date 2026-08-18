@@ -9,6 +9,7 @@ export {
 export { Redis, type RedisService, RedisMemoryLive, sanitizeCause } from "./service";
 export {
   createRedisRateLimiter,
+  type RedisRateLimiter,
   type RedisRateLimiterConfig,
   RATE_LIMIT_SCRIPT,
 } from "./rate-limiter";

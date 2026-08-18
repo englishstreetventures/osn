@@ -16,12 +16,12 @@ interface AddToCalendarProps {
   variant?: "outline" | "primary";
 }
 
-const TRIGGER_CLASS: Record<NonNullable<AddToCalendarProps["variant"]>, string> = {
+const TRIGGER_CLASS = {
   outline:
     "border-border font-body text-text-muted hover:border-gold hover:text-gold-ink rounded-sm border bg-transparent px-5 py-2.5 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200",
   primary:
     "border-gold bg-gold text-bg font-body hover:bg-transparent hover:text-gold-ink inline-flex items-center gap-2 rounded-sm border px-5 py-2.5 text-[0.82rem] tracking-[0.12em] uppercase transition-colors duration-200",
-};
+} satisfies Record<NonNullable<AddToCalendarProps["variant"]>, string>;
 
 interface PopoverPosition {
   top: number;

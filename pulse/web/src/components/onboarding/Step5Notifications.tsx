@@ -15,7 +15,7 @@ export interface Step5NotificationsProps {
   onSkip: () => void;
 }
 
-const STATUS_COPY: Record<PermOutcome, { className: string; text: string }> = {
+const STATUS_COPY = {
   prompt: {
     className: "",
     text: "We'll only send you what matters: invites, RSVPs, and reminders you opt into.",
@@ -29,7 +29,7 @@ const STATUS_COPY: Record<PermOutcome, { className: string; text: string }> = {
     className: "is-denied",
     text: "Notifications aren't supported on this device.",
   },
-};
+} satisfies Record<PermOutcome, { className: string; text: string }>;
 
 export function Step5Notifications(props: Step5NotificationsProps) {
   const status = () => STATUS_COPY[props.perm];

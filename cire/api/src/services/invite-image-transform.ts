@@ -54,13 +54,22 @@ export const DEFAULT_VARIANT: ImageVariant = "card";
  * this constant), NEVER request input — an attacker still can't sweep blur values
  * to mint unbounded transforms. Variants absent from this map are served sharp.
  */
-export const VARIANT_BLUR: Partial<Record<ImageVariant, number>> = {
+export const VARIANT_BLUR = {
   "hero-bg": 28,
-} as const;
+} as const satisfies Partial<Record<ImageVariant, number>>;
+
+/**
+ * The read side of {@link VARIANT_BLUR}. Named so the lookup can be open —
+ * most variants are absent from the table and render sharp.
+ */
+interface VariantBlurTable {
+  readonly [variant: string]: number | undefined;
+}
 
 /** The default blur radius for a variant, or `undefined` when it renders sharp. */
 export function blurForVariant(variant: ImageVariant): number | undefined {
-  return VARIANT_BLUR[variant];
+  const table: VariantBlurTable = VARIANT_BLUR;
+  return table[variant];
 }
 
 /**

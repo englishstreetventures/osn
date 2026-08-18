@@ -52,18 +52,18 @@ interface ListResponse {
   nextCursor: number | null;
 }
 
-const STATUS_LABEL: Record<ChangeStatus, string> = {
+const STATUS_LABEL = {
   preview: "Preview only",
   applied: "Applied",
   reverted: "Reverted",
-};
+} satisfies Record<ChangeStatus, string>;
 
 /** The change kind, labelled for the organiser — "Spreadsheet import" vs
  *  "In-app edit" (§8). */
-const KIND_LABEL: Record<ChangeKind, string> = {
+const KIND_LABEL = {
   import: "Spreadsheet import",
   editor: "In-app edit",
-};
+} satisfies Record<ChangeKind, string>;
 
 function formatDate(ms: number): string {
   try {

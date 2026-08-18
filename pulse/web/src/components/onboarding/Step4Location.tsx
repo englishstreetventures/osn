@@ -13,7 +13,7 @@ export interface Step4LocationProps {
   onSkip: () => void;
 }
 
-const STATUS_COPY: Record<PermOutcome, { className: string; text: string }> = {
+const STATUS_COPY = {
   prompt: { className: "", text: "We'll show you what's happening near you." },
   granted: { className: "is-granted", text: "Location enabled — events nearby ready." },
   denied: {
@@ -24,7 +24,7 @@ const STATUS_COPY: Record<PermOutcome, { className: string; text: string }> = {
     className: "is-denied",
     text: "Location isn't available on this device. You can still browse all events.",
   },
-};
+} satisfies Record<PermOutcome, { className: string; text: string }>;
 
 export function Step4Location(props: Step4LocationProps) {
   const status = () => STATUS_COPY[props.perm];

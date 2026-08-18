@@ -30,7 +30,10 @@ function summariseRRule(rrule: string): string {
   if (freq === "WEEKLY") {
     base = interval === 1 ? "Every week" : `Every ${interval} weeks`;
     if (byday && byday.length > 0) {
-      const names: Record<string, string> = {
+      interface WeekdayNames {
+        readonly [code: string]: string;
+      }
+      const names: WeekdayNames = {
         SU: "Sunday",
         MO: "Monday",
         TU: "Tuesday",

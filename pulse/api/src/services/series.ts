@@ -45,7 +45,13 @@ export class SeriesRRuleInvalid extends Data.TaggedError("SeriesRRuleInvalid")<{
 // Reduced-grammar RRULE parser + expander
 // ---------------------------------------------------------------------------
 
-const WEEKDAY_INDEX: Record<string, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+// Keyed by a value that is open at runtime (see the `??` fallback at the
+// read site), so the contract is an index signature, not a closed union.
+interface WeekdayIndex {
+  readonly [code: string]: number;
+}
+
+const WEEKDAY_INDEX: WeekdayIndex = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
 
 export interface ParsedRRule {
   freq: "WEEKLY" | "MONTHLY";

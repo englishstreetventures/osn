@@ -101,13 +101,21 @@ export async function submitQuote(
 }
 
 /** Friendly error codes specific to enquiries, with fallback to the shared friendlyError. */
-const ENQUIRY_FRIENDLY: Record<string, string> = {
+// The key is an arbitrary server-supplied marker, so the contract is an
+// index signature and the `??` below is the real miss handler.
+interface EnquiryFriendlyMessages {
+  readonly [marker: string]: string;
+}
+
+const ENQUIRY_FRIENDLY: EnquiryFriendlyMessages = {
   enquiry_closed: "This enquiry is closed and can no longer receive messages.",
   enquiry_not_found: "This enquiry could not be found.",
   quote_already_submitted: "A quote has already been submitted for this enquiry.",
-};
+} satisfies Record<string, string>;
 
 export function friendlyEnquiryError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
+  // The table is closed; the message is not. Probing it with an arbitrary
+  // string is the point, and the `??` covers the miss.
   return ENQUIRY_FRIENDLY[msg] ?? friendlyError(err);
 }

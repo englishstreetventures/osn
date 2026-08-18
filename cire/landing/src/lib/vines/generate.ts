@@ -143,8 +143,14 @@ function tendril(r: Rng, origin: Vec, tangent: number, dir: -1 | 1): Vec[] {
   return pts;
 }
 
+/** Position plus unit tangent at one point along a polyline. */
+interface ArcFrame {
+  pos: Vec;
+  tan: number;
+}
+
 /** Cumulative-arc-length frame (position + unit tangent) at fraction `s`. */
-function arcFrame(pts: Vec[], s: number): { pos: Vec; tan: number } {
+function arcFrame(pts: Vec[], s: number): ArcFrame {
   const cum = [0];
   for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1]! + vlen(sub(pts[i]!, pts[i - 1]!)));
   const total = cum[cum.length - 1]!;

@@ -15,7 +15,13 @@ function proj(lat: number, lng: number, w: number, h: number): [number, number] 
 }
 
 // Category → pin color
-const PIN_COLORS: Record<string, string> = {
+// Keyed by a value that is open at runtime (see the `??` fallback at the
+// read site), so the contract is an index signature, not a closed union.
+interface CategoryTable {
+  readonly [category: string]: string;
+}
+
+const PIN_COLORS: CategoryTable = {
   music: "oklch(0.68 0.18 38)",
   art: "oklch(0.62 0.16 280)",
   food: "oklch(0.68 0.17 60)",
@@ -25,7 +31,7 @@ const PIN_COLORS: Record<string, string> = {
   late: "oklch(0.55 0.18 320)",
 };
 
-const CATEGORY_GLYPH: Record<string, string> = {
+const CATEGORY_GLYPH: CategoryTable = {
   music: "\u263C",
   art: "\u25A3",
   outdoor: "\u25B3",

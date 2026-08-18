@@ -211,16 +211,14 @@ export function createAuthorizeClient(config: AuthorizeClientConfig): AuthorizeC
       // a server that flushes headers and then stalls mid-body free to hang for
       // the browser's own multi-minute timeout — reintroducing exactly the
       // indefinite spinner this deadline exists to bound.
-      let json: unknown;
       try {
-        json = await res.json();
+        return { res, json: await res.json() };
       } catch (cause) {
         // A malformed/empty body is not a failure — the status still classifies
         // the response. An ABORT mid-body is, so let that one through.
         if (controller.signal.aborted) throw cause;
-        json = {};
+        return { res, json: {} };
       }
-      return { res, json };
     } catch (cause) {
       if (caller?.aborted) throw cause;
       if (timedOut) {

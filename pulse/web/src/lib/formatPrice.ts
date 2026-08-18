@@ -9,7 +9,13 @@
  * to the SUPPORTED_CURRENCIES allowlist, but this helper accepts any
  * string so legacy / future codes don't crash the UI.
  */
-const EXPONENT: Record<string, number> = {
+// Keyed by a value that is open at runtime (see the `??` fallback at the
+// read site), so the contract is an index signature, not a closed union.
+interface CurrencyExponents {
+  readonly [currency: string]: number;
+}
+
+const EXPONENT: CurrencyExponents = {
   USD: 2,
   EUR: 2,
   GBP: 2,

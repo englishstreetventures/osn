@@ -86,7 +86,7 @@ const HEADER_KEY_RE = /^[A-Za-z0-9-]+$/;
 // and JWT-like strings as auth headers; this range covers all of them.
 const HEADER_VALUE_RE = /^[\x20-\x7E]+$/;
 
-const parseHeaders = (value: string | undefined): Record<string, string> => {
+const parseHeaders = (value: string | undefined) => {
   if (!value) return {};
   const out: Record<string, string> = {};
   for (const pair of value.split(",")) {

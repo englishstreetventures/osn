@@ -74,13 +74,13 @@ export interface RsvpExport {
 }
 
 /** Human-facing label for each cell state (the value written into the CSV). */
-const CELL_LABEL: Record<EventCell, string> = {
+const CELL_LABEL = {
   not_invited: "",
   no_response: "No response",
   attending: "Attending",
   not_attending: "Not attending",
   maybe: "Maybe",
-};
+} satisfies Record<EventCell, string>;
 
 function mapStatus(status: "attending" | "declined" | "maybe"): EventCell {
   if (status === "attending") return "attending";
@@ -515,11 +515,11 @@ export const rsvpExportService = {
 // ---------------------------------------------------------------------------
 
 /** Human-facing "Recorded By" cell (migration 0037 writer provenance). */
-const RECORDED_BY_LABEL: Record<RsvpExportRow["recordedBy"], string> = {
+const RECORDED_BY_LABEL = {
   "": "",
   guest: "Guest",
   organiser: "Organiser",
-};
+} satisfies Record<RsvpExportRow["recordedBy"], string>;
 
 /**
  * Fixed leading columns, then a PAIR per event — the status and that event's

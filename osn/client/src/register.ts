@@ -51,13 +51,22 @@ export class RegistrationError extends Error {
   }
 }
 
+/**
+ * Request headers as `fetch` wants them. Named rather than `Record<string,
+ * string>` so the optional `Authorization` can be assigned after the fact
+ * without the literal losing its evidence.
+ */
+interface JsonHeaders {
+  [name: string]: string;
+}
+
 async function postJson<T>(
   url: string,
   body: unknown,
   options: { bearer?: string } = {},
 ): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (options.bearer) headers["Authorization"] = `Bearer ${options.bearer}`;
+  const headers: JsonHeaders = { "Content-Type": "application/json" };
+  if (options.bearer) headers.Authorization = `Bearer ${options.bearer}`;
   // `sessionFetch` because `/register/complete` sets the refresh cookie; see
   // `./session-fetch.ts` for why iOS cannot take it through the webview.
   //

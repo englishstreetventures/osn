@@ -11,17 +11,17 @@ function shortDate(ms: number): string {
   return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-const STATUS_CHIP: Record<EnquiryListItem["status"], string> = {
+const STATUS_CHIP = {
   open: "Open",
   quoted: "Quoted",
   closed: "Closed",
-};
+} satisfies Record<EnquiryListItem["status"], string>;
 
-const STATUS_CHIP_CLASS: Record<EnquiryListItem["status"], string> = {
+const STATUS_CHIP_CLASS = {
   open: "bg-surface/60 text-text-muted",
   quoted: "bg-gold/10 text-gold-dim",
   closed: "bg-surface/60 text-text-muted opacity-60",
-};
+} satisfies Record<EnquiryListItem["status"], string>;
 
 interface EnquiryInboxProps {
   items: EnquiryListItem[];

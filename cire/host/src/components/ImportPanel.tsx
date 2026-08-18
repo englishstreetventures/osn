@@ -82,24 +82,7 @@ interface ApplyResponse {
  * one-sheet upload is only safe to reach for if it's obvious the other half
  * survives it.
  */
-const KIND: Record<
-  ImportKind,
-  {
-    eyebrow: string;
-    title: string;
-    description: string;
-    /** The file name organisers are told to upload, and the label on the input. */
-    fileName: string;
-    templateFile: string;
-    buildTemplate: () => string;
-    templateLabel: string;
-    exportLabel: string;
-    exportHint: string;
-    scopeHint: string;
-    /** The JSON key the CSV body is posted under. */
-    bodyKey: "eventsCsv" | "guestsCsv";
-  }
-> = {
+const KIND = {
   events: {
     eyebrow: "Events",
     title: "Import your events from a spreadsheet",
@@ -132,7 +115,24 @@ const KIND: Record<
       "Guests only — your guest list and who's invited to what will be updated to match this file. Your events won't be touched.",
     bodyKey: "guestsCsv",
   },
-};
+} satisfies Record<
+  ImportKind,
+  {
+    eyebrow: string;
+    title: string;
+    description: string;
+    /** The file name organisers are told to upload, and the label on the input. */
+    fileName: string;
+    templateFile: string;
+    buildTemplate: () => string;
+    templateLabel: string;
+    exportLabel: string;
+    exportHint: string;
+    scopeHint: string;
+    /** The JSON key the CSV body is posted under. */
+    bodyKey: "eventsCsv" | "guestsCsv";
+  }
+>;
 
 /** The API's per-import payload cap (`cire/api/src/routes/organiser-changes.ts`).
  *  Mirrored so the panel can refuse before reading; the server stays the

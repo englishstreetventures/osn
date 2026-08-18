@@ -9,14 +9,14 @@ import WeddingSwitcher from "./WeddingSwitcher";
 /** Role chips. The label is what the badge says; the title is why it matters,
  *  which is the part a co-host who has just been told "you can't edit that"
  *  actually needs. */
-const ROLE_BADGE: Record<string, { label: string; title: string }> = {
+const ROLE_BADGE = {
   owner: { label: "Owner", title: "You created this wedding and manage who hosts it" },
   editor: { label: "Editor", title: "You can view and edit this wedding" },
   viewer: {
     label: "Viewer",
     title: "You can view this wedding — ask the owner for editor access to make changes",
   },
-};
+} satisfies Record<string, { label: string; title: string }>;
 
 /**
  * The portal's only chrome.

@@ -4,10 +4,18 @@ import { For } from "solid-js";
 
 import { isNavActive, NAV_ITEMS } from "./nav";
 
-const GRID_COLS: Record<number, string> = {
+// `NAV_ITEMS.length` is a plain `number`, so the key is open at runtime and
+// the contract is an index signature rather than a closed union.
+interface GridColumnClasses {
+  readonly [count: number]: string;
+}
+
+const GRID_COLS: GridColumnClasses = {
   4: "grid-cols-4",
   5: "grid-cols-5",
 };
+
+const gridCols = (count: number): string => (count in GRID_COLS ? GRID_COLS[count] : "grid-cols-4");
 
 /**
  * The mobile shell's primary navigation: a fixed bottom tab bar, rendered
@@ -26,7 +34,7 @@ export function MobileNav() {
       {/* Column count is derived, not hardcoded, but Tailwind only sees static
           class names — so the map below is the allow-list of supported widths.
           Adding a sixth NAV_ITEM means adding `grid-cols-6` here. */}
-      <div class={clsx("grid h-14", GRID_COLS[NAV_ITEMS.length] ?? "grid-cols-4")}>
+      <div class={clsx("grid h-14", gridCols(NAV_ITEMS.length))}>
         <For each={NAV_ITEMS}>
           {(item) => (
             <A

@@ -111,7 +111,7 @@ export function RsvpModal(props: RsvpModalProps) {
    */
   const priorRsvps = props.existingRsvps ?? [];
 
-  function initialResponses(): Record<string, MemberState> {
+  function initialResponses() {
     const map: Record<string, MemberState> = {};
     const prior = priorRsvps;
     for (const m of eventMembers()) {

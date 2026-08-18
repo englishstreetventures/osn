@@ -35,7 +35,7 @@ export function captureDeclaredStyles() {
 
   return {
     /** Every property this element declares, runtime-applied ones included. */
-    of(element: HTMLElement): Record<string, string> {
+    of(element: HTMLElement) {
       const declared: Record<string, string> = {};
 
       // Compiled into the template's attribute (the literal-valued entries).

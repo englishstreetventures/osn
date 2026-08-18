@@ -78,7 +78,7 @@ export function formatDayLabel(date: Date, now: Date = new Date()): string {
 }
 
 /** Rail marker parts: month abbreviation, day-of-month, weekday abbreviation. */
-export function formatRailDate(date: Date): { month: string; day: number; weekday: string } {
+export function formatRailDate(date: Date) {
   return {
     month: date.toLocaleDateString("en-US", { month: "short" }).toUpperCase(),
     day: date.getDate(),

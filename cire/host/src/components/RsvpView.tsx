@@ -40,12 +40,12 @@ interface RsvpViewEvent extends RsvpFilterEvent {
 /** Human label + badge styling per row status. "No reply" is deliberately the
  *  quiet one: it is the most common state early on, and a loud badge on every
  *  second row would drown the answers that did come in. */
-const STATUS_META: Record<RsvpRowStatus, { label: string; class: string }> = {
+const STATUS_META = {
   attending: { label: "Attending", class: "bg-gold text-bg" },
   declined: { label: "Declined", class: "border-error/40 text-error border" },
   maybe: { label: "Maybe", class: "border-gold/40 text-gold border" },
   none: { label: "No reply", class: "border-border text-text-muted border" },
-};
+} satisfies Record<RsvpRowStatus, { label: string; class: string }>;
 
 const CHIP_CLASS =
   "border-border hover:border-gold focus-visible:border-gold focus-visible:ring-gold/40 " +

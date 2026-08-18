@@ -148,6 +148,14 @@ export function readOsnRateLimitBindings(
 }
 
 /**
+ * `AuthRateLimiters` with the `readonly` stripped — the bundle is assembled
+ * slot by slot below before it is handed out as the immutable public type.
+ */
+type MutableAuthRateLimiters = {
+  -readonly [K in keyof AuthRateLimiters]: AuthRateLimiters[K];
+};
+
+/**
  * Return an {@link AuthRateLimiters} bundle where every 60s-window per-IP slot is
  * backed by its native binding tier (key = `"<endpoint_ns>:" + ip`), and every
  * 1-hour-window slot is left on the supplied Redis `fallback` unchanged.
@@ -175,7 +183,7 @@ export function selectAuthRateLimiters(
     return backend;
   };
 
-  const out: Record<string, RateLimiterBackend> = { ...fallback };
+  const out: MutableAuthRateLimiters = { ...fallback };
   for (const [endpoint, { tier, ns }] of Object.entries(NATIVE_BINDING_FOR_AUTH_LIMITER) as [
     keyof AuthRateLimiters,
     { tier: TierName; ns: string },
@@ -186,5 +194,5 @@ export function selectAuthRateLimiters(
       check: (ip: string) => backend.check(`${ns}:${ip}`),
     };
   }
-  return out as AuthRateLimiters;
+  return out;
 }

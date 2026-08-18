@@ -36,17 +36,20 @@ export interface RecordedEmail {
 
 const MAX_RECORD = 256;
 
+/** An isolated `LogEmailLive` layer plus the recorder that backs it. */
+export interface LogEmailTransport {
+  readonly layer: Layer.Layer<EmailService>;
+  readonly recorded: () => readonly RecordedEmail[];
+  readonly reset: () => void;
+}
+
 /**
  * Creates a fresh `LogEmailLive` layer with its own in-memory recorder.
  * Each call returns an isolated `{ layer, recorded, reset }` — use a new
  * one per test so captured payloads from one test don't bleed into the
  * next.
  */
-export function makeLogEmailLive(): {
-  readonly layer: Layer.Layer<EmailService>;
-  readonly recorded: () => readonly RecordedEmail[];
-  readonly reset: () => void;
-} {
+export function makeLogEmailLive(): LogEmailTransport {
   const ring: RecordedEmail[] = [];
 
   const layer = Layer.succeed(EmailService, {

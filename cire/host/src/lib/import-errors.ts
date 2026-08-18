@@ -37,10 +37,10 @@ export interface ImportErrorBody {
   current?: number;
 }
 
-const SHEET_LABEL: Record<SheetKind, string> = {
+const SHEET_LABEL = {
   events: "your events sheet",
   guests: "your guests sheet",
-};
+} satisfies Record<SheetKind, string>;
 
 /**
  * Explicit two-value check rather than `SHEET_LABEL[sheet]`. The body is cast

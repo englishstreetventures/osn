@@ -72,7 +72,7 @@ export interface ConsentCategoryMeta {
   readonly defaultGranted: boolean;
 }
 
-export const CATEGORY_META: Record<ConsentCategory, ConsentCategoryMeta> = {
+export const CATEGORY_META = {
   necessary: {
     id: "necessary",
     title: "Strictly necessary",
@@ -112,7 +112,7 @@ export const CATEGORY_META: Record<ConsentCategory, ConsentCategoryMeta> = {
     // about. See the module doc.
     defaultGranted: false,
   },
-};
+} satisfies Record<ConsentCategory, ConsentCategoryMeta>;
 
 /** Ordered metadata list — what the preferences dialog iterates over. */
 export const CATEGORY_LIST: readonly ConsentCategoryMeta[] = CONSENT_CATEGORIES.map(

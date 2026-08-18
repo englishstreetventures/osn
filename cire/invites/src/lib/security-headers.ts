@@ -102,7 +102,7 @@ export const REPORTING_ENDPOINT_NAME = "csp-endpoint" as const;
  * header-only; it is ignored inside a `<meta>` CSP, another reason the policy
  * lives in the response header), `object-src 'none'`, `base-uri 'self'`.
  */
-export const CSP_DIRECTIVES: Record<string, readonly string[]> = {
+export const CSP_DIRECTIVES = {
   "default-src": ["'self'"],
   // Astro island hydration inline scripts + the font-link onload handler need
   // 'unsafe-inline'; hosts are still tightly allowlisted (no wildcard).
@@ -146,7 +146,7 @@ export const CSP_DIRECTIVES: Record<string, readonly string[]> = {
   // (`CSP_REPORT_ENDPOINT`) — no third-party service.
   "report-uri": [CSP_REPORT_ENDPOINT],
   "report-to": [REPORTING_ENDPOINT_NAME],
-} as const;
+} as const satisfies Record<string, readonly string[]>;
 
 /** Serialise the directive map into a single CSP header value. */
 export function buildCsp(directives: Record<string, readonly string[]> = CSP_DIRECTIVES): string {
@@ -191,7 +191,7 @@ export function reportingEndpointsHeader(): string {
  * its doc. The non-CSP headers are always enforced (they carry no breakage
  * risk).
  */
-export function securityHeaders(): Record<string, string> {
+export function securityHeaders() {
   return {
     [cspHeaderName()]: buildCsp(),
     // Resolves the CSP `report-to csp-endpoint` group to the first-party
@@ -201,7 +201,7 @@ export function securityHeaders(): Record<string, string> {
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "X-Frame-Options": "DENY",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-  };
+  } satisfies Record<string, string>;
 }
 
 /**

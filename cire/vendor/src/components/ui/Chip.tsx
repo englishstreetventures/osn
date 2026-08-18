@@ -32,7 +32,7 @@ const BASE =
   "font-body inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 " +
   "text-[0.68rem] tracking-[0.12em] whitespace-nowrap uppercase";
 
-const TONE: Readonly<Record<ChipTone, string>> = {
+const TONE = {
   /** Nothing has happened yet: a draft listing, a closed enquiry. */
   neutral: "bg-surface/60 text-text-muted",
   /** Published and visible to couples. */
@@ -41,7 +41,7 @@ const TONE: Readonly<Record<ChipTone, string>> = {
   active: "bg-gold/12 text-gold-ink",
   /** The vendor has answered with a number. */
   quoted: "bg-brand-wash text-brand-ink",
-};
+} satisfies Readonly<Record<ChipTone, string>>;
 
 export default function Chip(props: { tone?: ChipTone; children: JSX.Element }) {
   return <span class={`${BASE} ${TONE[props.tone ?? "neutral"]}`}>{props.children}</span>;

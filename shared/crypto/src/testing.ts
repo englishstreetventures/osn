@@ -57,7 +57,8 @@ export async function makeAccessTokenSigner(): Promise<AccessTokenSigner> {
     privateKey,
     publicKey,
     async sign(profileId, claims = {}) {
-      const payload: Record<string, string> = { sub: profileId };
+      const payload: Record<string, string> = {};
+      payload.sub = profileId;
       if (claims.email !== undefined) payload.email = claims.email;
 
       let jwt = new SignJWT(payload)

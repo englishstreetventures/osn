@@ -29,12 +29,20 @@ export function redirectToLogin(): void {
  * Known server codes → specific copy; everything else → generic fallback.
  * This maps at the display boundary only — the store still throws raw errors.
  */
-const FRIENDLY: Record<string, string> = {
+// The key is an arbitrary server-supplied marker, so the contract is an
+// index signature and the `??` below is the real miss handler.
+interface FriendlyMessages {
+  readonly [marker: string]: string;
+}
+
+const FRIENDLY: FriendlyMessages = {
   not_org_member: "You don't have access to that organisation.",
   claim_invalid: "This invite link is no longer valid.",
-};
+} satisfies Record<string, string>;
 
 export function friendlyError(err: unknown): string {
   const msg = err instanceof Error ? err.message : String(err);
+  // The table is closed; the message is not. Probing it with an arbitrary
+  // string is the point, and the `??` covers the miss.
   return FRIENDLY[msg] ?? "Something went wrong. Please try again.";
 }

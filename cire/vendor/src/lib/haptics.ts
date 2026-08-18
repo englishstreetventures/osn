@@ -38,11 +38,11 @@ export type Haptic =
   | "dismiss";
 
 /** Semantic name → the library's preset. The only place a waveform is chosen. */
-const PRESET: Readonly<Record<Haptic, string>> = {
+const PRESET = {
   commit: "success",
   reject: "error",
   dismiss: "soft",
-};
+} satisfies Readonly<Record<Haptic, string>>;
 
 let engine: WebHaptics | undefined;
 

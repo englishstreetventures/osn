@@ -46,11 +46,13 @@ const AuthorizeSignIn = lazy(() =>
   import("../components/AuthorizeSignIn").then((m) => ({ default: m.AuthorizeSignIn })),
 );
 
+type ScopeCopy = { label: string; detail?: string };
+
 /**
  * The only user-facing strings with security weight. One map, so a reviewer
  * can read every claim the user is agreeing to hand over in one place.
  */
-const SCOPE_COPY: Record<string, { label: string; detail?: string }> = {
+const SCOPE_COPY = {
   openid: { label: "Confirm who you are" },
   profile: { label: "See your profile", detail: "Name, handle and picture." },
   email: {
@@ -58,10 +60,16 @@ const SCOPE_COPY: Record<string, { label: string; detail?: string }> = {
     detail:
       "Your email belongs to your account, not this profile — every app you allow sees the same one.",
   },
-};
+} satisfies Record<string, ScopeCopy>;
 
-const scopeLabel = (scope: string) => SCOPE_COPY[scope]?.label ?? scope;
-const scopeDetail = (scope: string) => SCOPE_COPY[scope]?.detail ?? null;
+/** A scope the map has copy for — anything else is shown as its raw name. */
+const isKnownScope = (scope: string): scope is keyof typeof SCOPE_COPY => scope in SCOPE_COPY;
+
+const scopeCopy = (scope: string): ScopeCopy | undefined =>
+  isKnownScope(scope) ? SCOPE_COPY[scope] : undefined;
+
+const scopeLabel = (scope: string) => scopeCopy(scope)?.label ?? scope;
+const scopeDetail = (scope: string) => scopeCopy(scope)?.detail ?? null;
 
 /** The one place the page leaves for the relying party. */
 export function navigateTo(url: string) {
@@ -81,7 +89,7 @@ type Screen = "loading" | "signedOut" | "picker" | "consent" | "redirecting" | "
  * hear anyway. "error" stays out of it — that screen already carries a
  * `role="alert"`, and announcing both talks over the message twice.
  */
-const SCREEN_ANNOUNCEMENT: Record<Screen, string | null> = {
+const SCREEN_ANNOUNCEMENT = {
   loading: "Checking this request.",
   signedOut: "Sign in to continue.",
   picker: "Choose a profile.",
@@ -89,7 +97,7 @@ const SCREEN_ANNOUNCEMENT: Record<Screen, string | null> = {
   redirecting: "Taking you back to the app.",
   dead: "This sign-in request cannot continue.",
   error: null,
-};
+} satisfies Record<Screen, string | null>;
 
 const sameProfileSet = (before: ReadonlySet<string>, after: readonly PublicProfile[]) =>
   after.length === before.size && after.every((p) => before.has(p.id));

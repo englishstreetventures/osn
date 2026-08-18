@@ -53,7 +53,7 @@ export function isModule(value: string): value is Module {
  * renders. (There is no `guests/import` sub: the CSV import lives INSIDE each
  * module's `edit` sub, not on a route of its own.)
  */
-export const MODULE_SUBS: Record<Module, readonly string[]> = {
+export const MODULE_SUBS = {
   overview: ["index"],
   // Events gains an `edit` sub in E6 (the events editor) alongside the
   // read-only `list` view. `edit` is editor-only.
@@ -70,7 +70,7 @@ export const MODULE_SUBS: Record<Module, readonly string[]> = {
   guests: ["list", "edit", "rsvps"],
   invite: ["design", "codes"],
   settings: ["wedding", "hosts"],
-};
+} satisfies Record<Module, readonly string[]>;
 
 export function defaultSub(module: Module): string {
   return MODULE_SUBS[module][0]!;
@@ -98,12 +98,19 @@ export const LIST_ROUTE: DashboardRoute = {
   sub: defaultSub(DEFAULT_MODULE),
 };
 
+/** The alias table's shape. Keyed by the raw tab segment off the URL hash, so
+ *  the key set is open by construction — an unrecognised segment simply has no
+ *  alias. */
+interface LegacyTabAliases {
+  readonly [tab: string]: { module: Module; sub: string };
+}
+
 /**
  * The pre-IA flat tabs (`events | guests | rsvps | invite | codes | hosts |
  * settings`), mapped to their new (module, sub) home. Kept so an old bookmark —
  * `#/weddings/<id>/rsvps` — still opens to the right place for one release.
  */
-const LEGACY_TAB_ALIAS: Record<string, { module: Module; sub: string }> = {
+const LEGACY_TAB_ALIAS: LegacyTabAliases = {
   events: { module: "events", sub: "list" },
   guests: { module: "guests", sub: "list" },
   rsvps: { module: "guests", sub: "rsvps" },

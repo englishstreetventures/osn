@@ -57,10 +57,16 @@ export interface FanOutUrls {
   zapApiUrl?: string;
 }
 
+/** The two resolved bridge bases, after defaults and env fallbacks are applied. */
+interface FanOutBaseUrls {
+  pulse: string;
+  zap: string;
+}
+
 const DEFAULT_PULSE_API_URL = "http://localhost:3001";
 const DEFAULT_ZAP_API_URL = "http://localhost:3002";
 
-const resolveFanOutUrls = (urls: FanOutUrls = {}): { pulse: string; zap: string } => ({
+const resolveFanOutUrls = (urls: FanOutUrls = {}): FanOutBaseUrls => ({
   pulse: urls.pulseApiUrl ?? process.env.PULSE_API_URL ?? DEFAULT_PULSE_API_URL,
   zap: urls.zapApiUrl ?? process.env.ZAP_API_URL ?? DEFAULT_ZAP_API_URL,
 });

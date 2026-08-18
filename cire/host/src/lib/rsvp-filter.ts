@@ -145,14 +145,14 @@ export function filterRows(rows: RsvpRow[], query: string, filter: RsvpFilterKey
  * a merge it already holds; re-merging here would do the same work twice on
  * every load.
  */
-export function statusCounts(rowGroups: Iterable<RsvpRow[]>): Record<RsvpFilterKey, number> {
-  const counts: Record<RsvpFilterKey, number> = {
+export function statusCounts(rowGroups: Iterable<RsvpRow[]>) {
+  const counts = {
     all: 0,
     attending: 0,
     declined: 0,
     maybe: 0,
     none: 0,
-  };
+  } satisfies Record<RsvpFilterKey, number>;
   for (const rows of rowGroups) {
     for (const row of rows) {
       counts.all += 1;

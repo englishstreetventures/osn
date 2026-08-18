@@ -45,7 +45,7 @@ export interface AgendaInput {
   limit: number;
 }
 
-const KIND_ORDER: Record<AgendaKind, number> = { event: 0, payment: 1, task: 2 };
+const KIND_ORDER = { event: 0, payment: 1, task: 2 } satisfies Record<AgendaKind, number>;
 
 /** Normalise an ISO datetime, a `YYYY-MM-DD` string, or an ms-epoch number to a
  *  local `YYYY-MM-DD` key (or null if unparseable). A bare date string is read

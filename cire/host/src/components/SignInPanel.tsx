@@ -11,7 +11,14 @@ import { CIRE_API_URL } from "../lib/osn";
 
 const authConfig: RpAuthConfig = { apiBase: CIRE_API_URL };
 
-const ERROR_COPY: Record<string, string> = {
+/** Copy for each `?error=` marker the sign-in redirect can hand back. The key is
+ *  the raw marker off the URL, so the key set is open by construction — an
+ *  unknown marker falls back to the generic line at the call site. */
+interface SignInErrorCopy {
+  readonly [marker: string]: string;
+}
+
+const ERROR_COPY: SignInErrorCopy = {
   sign_in_declined: "Sign-in was cancelled. Nothing was shared with Cire.",
   sign_in_failed: "Sign-in did not go through. Try again.",
   sign_in_unavailable: "Sign-in is temporarily unavailable. Please try again shortly.",

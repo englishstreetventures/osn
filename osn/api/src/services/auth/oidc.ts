@@ -349,7 +349,7 @@ function hasDeceptiveNameChar(name: string): boolean {
  * first), because Unicode normalisation never crosses scripts: "Мusubi" with a
  * Cyrillic М would otherwise survive NFKC unchanged and slip through.
  */
-const CONFUSABLE_FOLD: Record<string, string> = {
+const CONFUSABLE_FOLD = {
   // Digits / symbols
   "0": "o",
   "1": "l",
@@ -398,7 +398,10 @@ const CONFUSABLE_FOLD: Record<string, string> = {
   υ: "u",
   χ: "x",
   ω: "w",
-};
+} satisfies Record<string, string>;
+
+/** Is this character one the fold table knows how to rewrite? */
+const isConfusable = (ch: string): ch is keyof typeof CONFUSABLE_FOLD => ch in CONFUSABLE_FOLD;
 
 /**
  * Folds a name to a confusable skeleton for impersonation checks: NFKC,
@@ -411,7 +414,7 @@ const CONFUSABLE_FOLD: Record<string, string> = {
 export function clientNameSkeleton(name: string): string {
   const base = name.normalize("NFKC").toLowerCase().normalize("NFKD").replace(/\p{M}/gu, "");
   return [...base]
-    .map((ch) => CONFUSABLE_FOLD[ch] ?? ch)
+    .map((ch) => (isConfusable(ch) ? CONFUSABLE_FOLD[ch] : ch))
     .join("")
     .replace(/[^a-z]/g, "");
 }

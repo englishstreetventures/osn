@@ -7,7 +7,7 @@
  * injected {@link StepUpJtiStore}.
  */
 
-import { accounts, passkeys } from "@osn/db/schema";
+import { accounts, type NewPasskey, passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { type EmailError, EmailService } from "@shared/email";
@@ -293,7 +293,7 @@ export function createStepUpModule(ctx: AuthContext) {
       const nowSec = Math.floor(Date.now() / 1000);
       const shouldTouchLastUsed =
         !pk.lastUsedAt || Date.now() - pk.lastUsedAt * 1000 >= PASSKEY_LAST_USED_COALESCE_MS;
-      const updates: Record<string, number | boolean> = {
+      const updates: Partial<Pick<NewPasskey, "counter" | "lastUsedAt" | "updatedAt">> = {
         counter: verification.authenticationInfo.newCounter,
       };
       if (shouldTouchLastUsed) {

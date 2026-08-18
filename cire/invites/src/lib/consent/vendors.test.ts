@@ -12,7 +12,7 @@ import {
 } from "./vendors";
 
 /** Every origin named anywhere in the CSP, flattened. */
-const cspOrigins = new Set(Object.values(CSP_DIRECTIVES).flat());
+const cspOrigins = new Set<string>(Object.values(CSP_DIRECTIVES).flat());
 
 describe("vendor registry ↔ CSP consistency", () => {
   it.each(CONSENT_VENDORS.filter((vendor) => vendor.origins.length > 0))(

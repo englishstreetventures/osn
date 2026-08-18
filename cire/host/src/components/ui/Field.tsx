@@ -55,10 +55,10 @@ const CONTROL_BASE =
   "focus:border-gold placeholder:opacity-40 disabled:opacity-40 " +
   "aria-[invalid=true]:border-error/60";
 
-const CONTROL_SIZE: Readonly<Record<ControlSize, string>> = {
+const CONTROL_SIZE = {
   sm: "px-2 py-1 text-[0.82rem]",
   md: "px-3 py-2 text-[0.95rem]",
-};
+} satisfies Readonly<Record<ControlSize, string>>;
 
 function controlClass(size: ControlSize | undefined, extra: string | undefined): string {
   return `${CONTROL_BASE} ${CONTROL_SIZE[size ?? "md"]}${extra ? ` ${extra}` : ""}`;

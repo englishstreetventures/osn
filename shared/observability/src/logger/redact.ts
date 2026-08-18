@@ -345,10 +345,9 @@ const redactInner = (value: unknown, seen: WeakSet<object>): RedactedValue => {
   if (value instanceof Error) {
     // Errors get their `message` preserved but any custom fields are
     // redacted. This covers Effect tagged errors with { _tag, cause }.
-    const out: Record<string, RedactedValue> = {
-      name: value.name,
-      message: value.message,
-    };
+    const out: Record<string, RedactedValue> = {};
+    out.name = value.name;
+    out.message = value.message;
     // `Object.entries` reads the same own enumerable keys the old `Object.keys`
     // + index-read did; `name`/`message`/`stack` are non-enumerable, so they
     // stay out of the walk and only the two copied above survive.

@@ -28,14 +28,14 @@ export type ImageSlot = "hero" | "story" | "footer";
  * allow-list in `@cire/theme`, so this can no longer drift from what the API
  * accepts or the guest site can render — only the labels live here.
  */
-const FONT_LABELS: Record<string, string> = {
+const FONT_LABELS = {
   default: "Default",
   cormorant: "Cormorant (serif)",
   lato: "Lato (sans)",
   georgia: "Georgia (serif)",
   "system-sans": "System sans",
   "system-mono": "System mono",
-};
+} satisfies Record<string, string>;
 export const FONT_OPTIONS = FONT_CHOICES.map((value) => ({
   value,
   label: FONT_LABELS[value] ?? value,
@@ -175,11 +175,11 @@ export const COPY_CAPS = {
 } as const;
 
 /** Human-readable slot names for the upload toasts + remove confirms. */
-export const SLOT_LABELS: Record<ImageSlot, string> = {
+export const SLOT_LABELS = {
   hero: "Hero",
   story: "Story",
   footer: "Closing",
-};
+} satisfies Record<ImageSlot, string>;
 
 /** Trimmed live copy (or the default when blank), truncated to fit a preview card. */
 export function sampleCopy(value: string, fallback: string, max = 90): string {

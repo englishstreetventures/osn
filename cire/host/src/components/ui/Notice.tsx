@@ -33,12 +33,12 @@ export type NoticeTone = "error" | "warn" | "success" | "info";
 const BASE =
   "font-body flex items-start gap-2.5 rounded-sm border p-4 text-[0.88rem] leading-relaxed";
 
-const TONE: Readonly<Record<NoticeTone, string>> = {
+const TONE = {
   error: "border-error/20 bg-error/5 text-error",
   warn: "border-warn/20 bg-warn/5 text-warn",
   success: "border-success/20 bg-success/5 text-success",
   info: "border-border bg-surface/30 text-text-muted",
-};
+} satisfies Readonly<Record<NoticeTone, string>>;
 
 interface Mark {
   /** Seen, never read. */
@@ -47,12 +47,12 @@ interface Mark {
   word: string;
 }
 
-const MARK: Readonly<Record<NoticeTone, Mark | undefined>> = {
+const MARK = {
   error: { glyph: "✕", word: "Error" },
   warn: { glyph: "!", word: "Warning" },
   success: { glyph: "✓", word: "Success" },
   info: undefined,
-};
+} satisfies Readonly<Record<NoticeTone, Mark | undefined>>;
 
 export type NoticeProps = SafeProps<"div"> & {
   tone?: NoticeTone;

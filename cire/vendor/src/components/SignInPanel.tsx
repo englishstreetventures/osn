@@ -13,10 +13,16 @@ import Notice from "./ui/Notice";
 
 const authConfig: RpAuthConfig = { apiBase: CIRE_API_URL };
 
-const ERROR_COPY: Record<string, string> = {
+// The key is an arbitrary server-supplied marker, so the contract is an
+// index signature and the `??` below is the real miss handler.
+interface SignInErrorCopy {
+  readonly [marker: string]: string;
+}
+
+const ERROR_COPY: SignInErrorCopy = {
   sign_in_declined: "Sign-in was cancelled. Nothing was shared with Cire.",
   sign_in_failed: "Sign-in did not go through. Try again.",
-};
+} satisfies Record<string, string>;
 
 /**
  * Login page island. The portal no longer runs the passkey ceremony itself:
@@ -52,7 +58,8 @@ export default function SignInPanel() {
   onMount(() => {
     const marker = readAuthError();
     if (marker) {
-      setError(ERROR_COPY[marker] ?? ERROR_COPY.sign_in_failed!);
+      // The table is closed; the marker is not — the `??` covers a miss.
+      setError(ERROR_COPY[marker] ?? ERROR_COPY.sign_in_failed);
       // Drop the marker so a reload does not re-show it.
       clearAuthError();
     }

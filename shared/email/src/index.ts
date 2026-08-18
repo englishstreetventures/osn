@@ -4,7 +4,7 @@ export { makeCloudflareEmailLive, type CloudflareEmailConfig } from "./cloudflar
 
 export { makeResendEmailLive, type ResendEmailConfig } from "./resend";
 
-export { makeLogEmailLive, type RecordedEmail } from "./log";
+export { makeLogEmailLive, type LogEmailTransport, type RecordedEmail } from "./log";
 
 export { makeNoopEmailLive } from "./noop";
 

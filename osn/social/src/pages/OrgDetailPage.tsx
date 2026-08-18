@@ -14,7 +14,10 @@ import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { orgClient } from "../lib/api";
 import { safeAvatarUrl } from "../lib/utils";
 
-function parseKey(key: string): { token: string; id: string } {
+/** The two halves packed into the memoised `"<token>|<id>"` resource key. */
+type OrgResourceKey = { token: string; id: string };
+
+function parseKey(key: string): OrgResourceKey {
   const sep = key.indexOf("|");
   return { token: key.slice(0, sep), id: key.slice(sep + 1) };
 }

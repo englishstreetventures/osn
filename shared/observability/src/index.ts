@@ -79,15 +79,19 @@ export { instrumentedFetch } from "./fetch";
 export const makeObservabilityLayer = (config: ObservabilityConfig): Layer.Layer<never> =>
   Layer.mergeAll(makeLoggerLayer(config), makeTracingLayer(config));
 
+/** The config + layer pair handed back by {@link initObservability}. */
+export interface ObservabilityBootstrap {
+  readonly config: ObservabilityConfig;
+  readonly layer: Layer.Layer<never>;
+}
+
 /**
  * One-shot bootstrap: load config from env, build the combined layer,
  * and return both. Call at service start:
  *
  *   const { config, layer } = initObservability({ serviceName: "pulse-api" });
  */
-export const initObservability = (
-  overrides: ConfigOverrides = {},
-): { config: ObservabilityConfig; layer: Layer.Layer<never> } => {
+export const initObservability = (overrides: ConfigOverrides = {}): ObservabilityBootstrap => {
   const config = loadConfig(overrides);
   const layer = makeObservabilityLayer(config);
   return { config, layer };

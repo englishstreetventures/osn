@@ -1,5 +1,14 @@
 import type { RedisClient } from "./client";
 
+/**
+ * The fixed-window limiter handed back by {@link createRedisRateLimiter} —
+ * structurally compatible with `RateLimiterBackend` in
+ * `shared/rate-limit/src/index.ts`.
+ */
+export interface RedisRateLimiter {
+  check(key: string): Promise<boolean>;
+}
+
 export interface RedisRateLimiterConfig {
   /** Key namespace — used in Redis key prefix: `rl:{namespace}:{key}`. */
   readonly namespace: string;
@@ -45,7 +54,7 @@ return 0
  *
  * Returns an object whose `check(key): Promise<boolean>` method is
  * structurally compatible with `RateLimiterBackend` from
- * `osn/core/src/lib/rate-limit.ts`. Fail-closed: if the Redis command
+ * `shared/rate-limit/src/index.ts`. Fail-closed: if the Redis command
  * rejects, the request is denied (returns `false`) per S-M36 posture.
  *
  * Throws at construction time if `namespace` contains invalid characters
@@ -54,7 +63,7 @@ return 0
 export function createRedisRateLimiter(
   client: RedisClient,
   config: RedisRateLimiterConfig,
-): { check(key: string): Promise<boolean> } {
+): RedisRateLimiter {
   const { namespace, maxRequests, windowMs } = config;
 
   if (!NAMESPACE_RE.test(namespace)) {

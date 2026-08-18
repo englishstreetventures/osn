@@ -1468,11 +1468,11 @@ export default function InviteBuilder(props: InviteBuilderProps) {
 }
 
 /** Plain-English names for the three surfaces a section can sit on. */
-const TONE_LABELS: Record<SectionTone, string> = {
+const TONE_LABELS = {
   ground: "Page",
   card: "Card",
   raised: "Raised",
-};
+} satisfies Record<SectionTone, string>;
 
 /**
  * Which surface this section sits on — the whole of a section's colour choice
@@ -1491,11 +1491,11 @@ function ToneField(props: {
   onChange: (v: SectionTone | null) => void;
 }) {
   const current = () => props.value ?? "ground";
-  const surfaceFor: Record<SectionTone, string> = {
+  const surfaceFor = {
     ground: "var(--color-bg)",
     card: "var(--color-surface)",
     raised: "var(--color-surface-raised)",
-  };
+  } satisfies Record<SectionTone, string>;
   return (
     <div class="flex flex-col gap-1.5">
       <span class="font-body text-text-muted text-[0.8rem]">Section background</span>

@@ -56,6 +56,13 @@ function isDressSwatch(value: unknown): value is DressSwatch {
   );
 }
 
+/** The result of {@link decodePalette}: the swatches, plus whether the stored
+ * JSON was unusable (so the caller can log the offending event id). */
+export interface DecodedPalette {
+  palette: readonly DressSwatch[] | null;
+  malformed: boolean;
+}
+
 /**
  * Decode the JSON-encoded `dress_code_palette` column. Returns `palette: null`
  * + `malformed: true` so the caller can emit a structured log line referencing
@@ -63,10 +70,7 @@ function isDressSwatch(value: unknown): value is DressSwatch {
  * and avoid threading Effect through every call site). Exported for the events
  * CSV export, which renders the same swatches as text.
  */
-export function decodePalette(raw: string | null): {
-  palette: readonly DressSwatch[] | null;
-  malformed: boolean;
-} {
+export function decodePalette(raw: string | null): DecodedPalette {
   if (!raw) return { palette: null, malformed: false };
   let parsed: unknown;
   try {

@@ -14,14 +14,14 @@ export const SUPPORTED_CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"] a
 
 export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number];
 
-const CURRENCY_EXPONENT: Record<SupportedCurrency, number> = {
+const CURRENCY_EXPONENT = {
   USD: 2,
   EUR: 2,
   GBP: 2,
   CAD: 2,
   AUD: 2,
   JPY: 0,
-};
+} satisfies Record<SupportedCurrency, number>;
 
 /** Max displayable price in major units — shared cap across all currencies. */
 export const MAX_PRICE_MAJOR = 99999.99;

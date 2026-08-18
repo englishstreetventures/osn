@@ -1,5 +1,11 @@
 import { Effect, Layer } from "effect";
 
+/** The wire shape every route error collapses to: a status plus an opaque body. */
+export interface PublicErrorResponse {
+  status: number;
+  body: { error: string; message?: string };
+}
+
 /**
  * Maps a thrown Effect-tagged error (or anything else) to a stable, public,
  * non-leaky error payload. The full cause is logged server-side for diagnosis,
@@ -8,7 +14,7 @@ import { Effect, Layer } from "effect";
 export function publicError(
   e: unknown,
   loggerLayer: Layer.Layer<never> = Layer.empty,
-): { status: number; body: { error: string; message?: string } } {
+): PublicErrorResponse {
   // Effect's own Cause nodes carry `_tag`s ("Fail", "Die", …) that would
   // otherwise shadow the domain error's tag — skip them and keep descending
   // into `.error` / children.

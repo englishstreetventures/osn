@@ -96,7 +96,7 @@ export function CategoryGlyph(props: CategoryGlyphProps) {
   );
 }
 
-export const CATEGORY_LABELS: Record<InterestCategory, string> = {
+export const CATEGORY_LABELS = {
   music: "Music",
   food: "Food",
   sports: "Sports",
@@ -108,4 +108,4 @@ export const CATEGORY_LABELS: Record<InterestCategory, string> = {
   nightlife: "Nightlife",
   outdoor: "Outdoor",
   family: "Family",
-};
+} satisfies Record<InterestCategory, string>;

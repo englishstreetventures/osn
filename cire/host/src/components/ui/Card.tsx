@@ -21,10 +21,10 @@ export type CardTone = "default" | "accent";
 
 const CARD_BASE = "flex flex-col gap-3 rounded-sm border p-5";
 
-const TONE: Readonly<Record<CardTone, string>> = {
+const TONE = {
   default: "border-border bg-surface/30",
   accent: "border-gold/30 bg-surface/30",
-};
+} satisfies Readonly<Record<CardTone, string>>;
 
 /** Added when the whole card is the control. */
 const INTERACTIVE =

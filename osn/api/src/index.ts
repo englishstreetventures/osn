@@ -204,10 +204,12 @@ export function resolveRequestId(request: Request): string {
  * passes a superset at call time, so this is sound. `scheduled` uses the real
  * workers types since it touches no DOM Request/Response.
  */
-export const handler: {
+export interface OsnWorkerHandler {
   fetch(request: Request, env: Env): Promise<Response>;
   scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void>;
-} = {
+}
+
+export const handler: OsnWorkerHandler = {
   async fetch(request, env) {
     // Tell the auth helpers which tier this is, from the binding rather than
     // `process.env`. The dev-OTP log line is gated on it, and a `process.env`

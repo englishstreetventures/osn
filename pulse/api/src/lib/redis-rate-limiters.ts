@@ -28,7 +28,7 @@ const ONE_MINUTE_MS = 60_000;
  */
 export type PulseWriteRateLimiters = Readonly<Record<PulseWriteEndpoint, RateLimiterBackend>>;
 
-export function createRedisWriteRateLimiters(client: RedisClient): PulseWriteRateLimiters {
+export function createRedisWriteRateLimiters(client: RedisClient) {
   const build = (endpoint: PulseWriteEndpoint): RateLimiterBackend =>
     createRedisRateLimiter(client, {
       namespace: `pulse:write:${endpoint}`,
@@ -44,7 +44,7 @@ export function createRedisWriteRateLimiters(client: RedisClient): PulseWriteRat
     series_create: build("series_create"),
     series_update: build("series_update"),
     close_friend_mutate: build("close_friend_mutate"),
-  };
+  } satisfies PulseWriteRateLimiters;
 }
 
 /**

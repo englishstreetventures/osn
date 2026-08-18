@@ -136,7 +136,13 @@ export function venueMapsUrl(v: VenueSummary): string | null {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(addr)}`;
 }
 
-const WEEKDAY_FROM_SHORT: Record<string, string> = {
+// Keyed by a value that is open at runtime (see the `??` fallback at the
+// read site), so the contract is an index signature, not a closed union.
+interface WeekdayLookup {
+  readonly [key: string]: string;
+}
+
+const WEEKDAY_FROM_SHORT: WeekdayLookup = {
   Mon: "1",
   Tue: "2",
   Wed: "3",
@@ -146,7 +152,7 @@ const WEEKDAY_FROM_SHORT: Record<string, string> = {
   Sun: "7",
 };
 
-const WEEKDAY_SHORT_FROM_ISO: Record<string, string> = {
+const WEEKDAY_SHORT_FROM_ISO: WeekdayLookup = {
   "1": "Mon",
   "2": "Tue",
   "3": "Wed",
@@ -165,7 +171,7 @@ function prevIsoDay(iso: string): string {
   return String(((Number(iso) - 2 + 7) % 7) + 1);
 }
 
-function venueLocalNow(now: Date, tz: string): { weekday: string; minutes: number } {
+function venueLocalNow(now: Date, tz: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: tz,
     weekday: "short",

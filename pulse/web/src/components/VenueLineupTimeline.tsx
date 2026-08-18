@@ -11,13 +11,13 @@ interface Props {
   heading?: string;
 }
 
-const ROLE_LABEL: Record<LineupRole, string> = {
+const ROLE_LABEL = {
   headliner: "Headliner",
   support: "Support",
   resident: "Resident",
   opener: "Opener",
   guest: "Guest",
-};
+} satisfies Record<LineupRole, string>;
 
 /**
  * Format an ISO timestamp as "HH:MM" in the venue's local timezone.

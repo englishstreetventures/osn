@@ -107,10 +107,7 @@
     "anti-slop/no-unknown-returns": "error",
     "anti-slop/no-unsafe-dictionary-type": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",
-
-    // Real debt in app source, small enough to schedule. Counts are source
-    // only where the test override below silences the test-side hits.
-    "anti-slop/no-known-value-widening": "warn", // 134 src
+    "anti-slop/no-known-value-widening": "error",
 
     // Too big to schedule yet. Each needs its own clean-up pass before it can
     // be raised, or the warning stream drowns everything else.
@@ -160,6 +157,9 @@
         // remain, every one of them a request-body or options helper that
         // folds an optional argument into a fixture.
         "anti-slop/no-conditional-empty-object-spread": "off",
+        // Source is clean and the rule is an error there; 62 test-side hits
+        // remain, nearly all a fixture table or a stub response annotated
+        // `Record<string, …>` so the test can index it with a computed key.
         "anti-slop/no-known-value-widening": "off"
       }
     }

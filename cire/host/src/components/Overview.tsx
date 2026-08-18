@@ -106,11 +106,11 @@ function fmtBudget(minor: number, currency: string): string {
  *  sends you to carry the same mark, so the two read as one system. (They were
  *  emoji, which rendered in a different colour and weight on every platform and
  *  matched nothing else on the page.) */
-const AGENDA_ICON: Record<AgendaItem["kind"], string> = {
+const AGENDA_ICON = {
   event: "◇",
   payment: "$",
   task: "✓",
-};
+} satisfies Record<AgendaItem["kind"], string>;
 
 /** "Aug 3" style pill label from a `YYYY-MM-DD` key. */
 function fmtAgendaDate(dateKey: string): string {

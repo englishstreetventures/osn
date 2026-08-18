@@ -191,12 +191,20 @@ export function grantCategory(category: ConsentCategory): void {
 const [dialogHostId, setDialogHostId] = createSignal<number | null>(null);
 let nextDialogHostId = 0;
 
+/** What {@link claimConsentDialogHost} hands back to the claiming component. */
+export interface ConsentDialogHostClaim {
+  /** True only for the component that currently owns the dialog. */
+  owns: () => boolean;
+  /** Release the claim on unmount, so a later island can take it. */
+  release: () => void;
+}
+
 /**
  * Claim the right to render the preferences dialog. Returns an accessor that is
  * true only for the owning caller. Callers must invoke the returned `release`
  * on cleanup.
  */
-export function claimConsentDialogHost(): { owns: () => boolean; release: () => void } {
+export function claimConsentDialogHost(): ConsentDialogHostClaim {
   const id = ++nextDialogHostId;
   if (dialogHostId() === null) setDialogHostId(id);
 

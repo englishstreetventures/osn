@@ -43,10 +43,10 @@ export interface DesignPreviewLayout {
   readonly eventsRule: boolean;
 }
 
-export const LAYOUTS: Record<DesignId, DesignPreviewLayout> = {
+export const LAYOUTS = {
   classic: { heroAnchor: "center", align: "center", welcome: "band", eventsRule: false },
   gala: { heroAnchor: "bottom-left", align: "left", welcome: "panel", eventsRule: true },
-};
+} satisfies Record<DesignId, DesignPreviewLayout>;
 
 /** The layout for a design id. An unknown id (a wedding on a pack this build
  *  doesn't carry, mid-deploy) previews as the default pack — the same fallback

@@ -18,7 +18,7 @@ import {
 
 import "../venue.css";
 
-const WEEKDAY_LABEL: Record<string, string> = {
+const WEEKDAY_LABEL = {
   "1": "Mon",
   "2": "Tue",
   "3": "Wed",
@@ -26,7 +26,7 @@ const WEEKDAY_LABEL: Record<string, string> = {
   "5": "Fri",
   "6": "Sat",
   "7": "Sun",
-};
+} satisfies Record<string, string>;
 
 const WEEKDAY_ORDER = ["1", "2", "3", "4", "5", "6", "7"] as const;
 

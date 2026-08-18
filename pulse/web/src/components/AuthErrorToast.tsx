@@ -10,7 +10,13 @@ import { toast } from "solid-toast";
  * was heading for. This sits in the root layout and reads it wherever it
  * lands, then strips it from the URL so a reload doesn't repeat the toast.
  */
-const ERROR_COPY: Record<string, string> = {
+// Keyed by a value that is open at runtime (see the `??` fallback at the
+// read site), so the contract is an index signature, not a closed union.
+interface ErrorCopyTable {
+  readonly [code: string]: string;
+}
+
+const ERROR_COPY: ErrorCopyTable = {
   sign_in_declined: "Sign-in was cancelled. Nothing was shared with Pulse.",
   sign_in_failed: "Sign-in did not go through. Try again.",
   sign_in_unavailable: "Sign-in is temporarily unavailable. Please try again shortly.",

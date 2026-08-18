@@ -6,7 +6,13 @@ import { Icon } from "../components/Icon";
 import type { EventItem } from "../lib/types";
 
 /** Gradient class for events without an image — keyed by category. */
-const CATEGORY_PH: Record<string, string> = {
+// Keyed by a value that is open at runtime (see the `??` fallback at the
+// read site), so the contract is an index signature, not a closed union.
+interface CategoryTable {
+  readonly [category: string]: string;
+}
+
+const CATEGORY_PH: CategoryTable = {
   music: "ph-1",
   art: "ph-2",
   outdoor: "ph-7",
@@ -16,7 +22,7 @@ const CATEGORY_PH: Record<string, string> = {
   late: "ph-6",
 };
 
-const CATEGORY_GLYPH: Record<string, string> = {
+const CATEGORY_GLYPH: CategoryTable = {
   music: "\u263C",
   art: "\u25A3",
   outdoor: "\u25B3",

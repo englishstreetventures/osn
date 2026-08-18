@@ -36,19 +36,19 @@ const BASE =
   "uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) " +
   "disabled:pointer-events-none disabled:opacity-40";
 
-const VARIANT: Readonly<Record<ButtonVariant, string>> = {
+const VARIANT = {
   primary: "border-gold bg-gold text-bg hover:bg-gold-dim",
   outline: "border-gold/40 text-gold hover:border-gold hover:bg-gold/10",
   quiet: "border-border text-text-muted hover:border-gold hover:text-gold",
   danger: "border-error/40 text-error hover:border-error hover:bg-error/10",
-};
+} satisfies Readonly<Record<ButtonVariant, string>>;
 
-const SIZE: Readonly<Record<ButtonSize, string>> = {
+const SIZE = {
   sm: "px-3 py-1.5 text-[0.72rem] tracking-[0.1em]",
   md: "px-4 py-2 text-[0.82rem] tracking-[0.1em]",
   // Square, for a single glyph. No tracking — there is nothing to track.
   icon: "h-8 w-8 shrink-0 p-0 text-[0.9rem]",
-};
+} satisfies Readonly<Record<ButtonSize, string>>;
 
 export type ButtonProps = SafeProps<"button"> & {
   variant?: ButtonVariant;

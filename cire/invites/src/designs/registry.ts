@@ -17,7 +17,7 @@ export interface DesignEntry {
  * NOTE: imports `.astro`, so vitest must never import this module — pure logic
  * belongs in `resolve.ts`.
  */
-export const registry: Record<DesignId, DesignEntry> = {
+export const registry = {
   classic: { Document: ClassicDocument },
   gala: { Document: GalaDocument },
-};
+} satisfies Record<DesignId, DesignEntry>;
