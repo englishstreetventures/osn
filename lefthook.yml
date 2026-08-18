@@ -6,6 +6,10 @@ pre-commit:
       run: bunx --bun oxlint -c oxlintrc.json {staged_files}
     format:
       glob: "*.{js,jsx,ts,tsx}"
+      # Vendored upstream source is left byte-identical so re-vendoring a newer
+      # anti-slop is a plain copy, not a copy plus a reformat diff.
+      exclude:
+        - "tools/oxlint/anti-slop/**"
       run: bunx --bun oxfmt {staged_files}
       stage_fixed: true
 

@@ -80,7 +80,40 @@
 
     "no-unassigned-vars": "off",
 
-    "node/no-process-env": "off"
+    "node/no-process-env": "off",
+
+    // anti-slop — vendored from github.com/dmmulroy/anti-slop at 446268e into
+    // tools/oxlint/anti-slop. Rules that catch the type-system escape hatches
+    // (`as`, `unknown`, `object`, runtime `typeof`) that generated code reaches
+    // for instead of modelling the domain.
+    //
+    // Upstream ships all 15 at "error". Turning them all on here would have
+    // meant 4686 diagnostics across 541 files on day one, so the severities
+    // below are a ratchet, not a verdict: counts measured 2026-08-17, each
+    // tier moves up as the debt is cleared.
+
+    // Clean today (0 hits in app source) — hold the line.
+    "anti-slop/no-reflect-apply": "error",
+    "anti-slop/no-unknown-type-aliases": "error",
+    "anti-slop/no-widen-then-assert": "error",
+    "anti-slop/no-reflect-get": "error",
+    "anti-slop/no-object-parameters": "error",
+    "anti-slop/no-module-mocking": "error",
+    "anti-slop/no-shape-in-symbol-names": "error",
+
+    // Real debt in app source, small enough to schedule. Counts are source
+    // only where the test override below silences the test-side hits.
+    "anti-slop/no-unknown-returns": "warn", // 55
+    "anti-slop/no-conditional-empty-object-spread": "warn", // 81
+    "anti-slop/no-chained-type-assertions": "warn", // 32 src
+    "anti-slop/no-unsafe-dictionary-type": "warn", // 67 src
+    "anti-slop/no-known-value-widening": "warn", // 134 src
+
+    // Too big to schedule yet. Each needs its own clean-up pass before it can
+    // be raised, or the warning stream drowns everything else.
+    "anti-slop/require-safety-comment-for-type-assertion": "off", // 2898
+    "anti-slop/no-runtime-typeof": "off", // 488, and still 464 with allowInTypeGuards
+    "anti-slop/no-unknown-parameters": "off" // 262
   },
   "overrides": [
     {
@@ -90,7 +123,38 @@
       "rules": {
         "no-await-in-loop": "off"
       }
+    },
+    {
+      "files": ["**/*.test.*", "**/*.spec.*", "**/tests/**", "**/__tests__/**"],
+      "rules": {
+        // `Reflect.get(target, prop, receiver)` inside a Proxy `get` trap is
+        // the correct idiom — plain `target[prop]` drops receiver forwarding
+        // and breaks getters. Every hit we have is a drizzle-stubbing trap.
+        "anti-slop/no-reflect-get": "off",
+        // Request helpers forward arbitrary JSON bodies; `body: object` is the
+        // honest type there, and narrowing it would only move the complaint to
+        // no-unsafe-dictionary-type.
+        "anti-slop/no-object-parameters": "off",
+        // `vi.mock` is how this suite isolates modules. Replacing it means
+        // reshaping the code under test, which is a separate argument.
+        "anti-slop/no-module-mocking": "off",
+        // Fixture and stub names describe the shape on purpose.
+        "anti-slop/no-shape-in-symbol-names": "off",
+        // Test-side debt only; kept on for source until it is cleared.
+        "anti-slop/no-chained-type-assertions": "off",
+        "anti-slop/no-unsafe-dictionary-type": "off",
+        "anti-slop/no-known-value-widening": "off"
+      }
     }
   ],
-  "ignorePatterns": ["node_modules", "dist", ".turbo", "*.gen.ts", "*.astro"]
+  "jsPlugins": [{ "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" }],
+  "ignorePatterns": [
+    "node_modules",
+    "dist",
+    ".turbo",
+    "*.gen.ts",
+    "*.astro",
+    // Vendored upstream source — linted by its own repo, not ours.
+    "tools/oxlint/anti-slop"
+  ]
 }
