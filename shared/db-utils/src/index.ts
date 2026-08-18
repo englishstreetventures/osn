@@ -1,9 +1,23 @@
 import type { D1Database } from "@cloudflare/workers-types";
+import type { Relations } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
+import type { BaseSQLiteDatabase, SQLiteTable, SQLiteView } from "drizzle-orm/sqlite-core";
 import { Effect, Layer, type Context } from "effect";
+
+/**
+ * A Drizzle schema — the `import * as schema from "./schema"` namespace each DB
+ * package (`@osn/db`, `@pulse/db`, `@zap/db`) hands to the constructors below.
+ * Its runtime exports are tables, views and relations blocks; the
+ * `$inferSelect` / `$inferInsert` aliases sitting beside them are types and
+ * disappear at runtime, so they never reach this map.
+ *
+ * Drizzle's own constraint on the schema generic is `Record<string, unknown>`,
+ * which promises a caller nothing. Naming the three things a schema can hold
+ * keeps the constraint assignable to Drizzle's while still saying what belongs.
+ */
+export type DrizzleSchema = Record<string, SQLiteTable | SQLiteView | Relations>;
 
 /**
  * The Drizzle handle threaded through every service, broadened over both SQLite
@@ -19,11 +33,7 @@ import { Effect, Layer, type Context } from "effect";
  * is a harmless no-op; D1 returns a real Promise. `unknown` for the run-result
  * type covers bun's `void` and D1's `D1Result`.
  */
-export type Db<S extends Record<string, unknown>> = BaseSQLiteDatabase<
-  "sync" | "async",
-  unknown,
-  S
->;
+export type Db<S extends DrizzleSchema> = BaseSQLiteDatabase<"sync" | "async", unknown, S>;
 
 /**
  * Construct a bun:sqlite-backed Drizzle client. Used by the `local` environment
@@ -38,7 +48,7 @@ export type Db<S extends Record<string, unknown>> = BaseSQLiteDatabase<
  * happens on Workers. wrangler/esbuild cannot resolve `bun:sqlite`, so a static
  * import here would break every Worker build.
  */
-export async function createDrizzleClient<S extends Record<string, unknown>>(
+export async function createDrizzleClient<S extends DrizzleSchema>(
   dbPath: string,
   schema: S,
 ): Promise<BunSQLiteDatabase<S>> {
@@ -55,7 +65,7 @@ export async function createDrizzleClient<S extends Record<string, unknown>>(
   return drizzle(sqlite, { schema });
 }
 
-export function makeDbLive<S extends Record<string, unknown>, A extends { readonly db: Db<S> }>(
+export function makeDbLive<S extends DrizzleSchema, A extends { readonly db: Db<S> }>(
   tag: Context.Tag<any, A>,
   // Accepts a thunk so a caller whose path derivation is Bun-only (e.g.
   // `fileURLToPath(import.meta.url)`, which throws on workerd where
@@ -82,7 +92,7 @@ export function makeDbLive<S extends Record<string, unknown>, A extends { readon
  * only exists on `env` inside `fetch`. Drives the `dev` / `staging` / `prod`
  * environments.
  */
-export function createD1Db<S extends Record<string, unknown>>(d1: D1Database, schema: S): Db<S> {
+export function createD1Db<S extends DrizzleSchema>(d1: D1Database, schema: S): Db<S> {
   return drizzleD1(d1, { schema });
 }
 
@@ -91,7 +101,7 @@ export function createD1Db<S extends Record<string, unknown>>(d1: D1Database, sc
  * of {@link makeDbLive} so Workers entry points can swap drivers with a one-line
  * change (`makeDbLive(...)` → `makeD1DbLive(...)`).
  */
-export function makeD1DbLive<S extends Record<string, unknown>>(
+export function makeD1DbLive<S extends DrizzleSchema>(
   tag: Context.Tag<any, { readonly db: Db<S> }>,
   d1: D1Database,
   schema: S,
@@ -141,11 +151,11 @@ type Batchable = {
  * no such method), so the check is a real property probe rather than a claim
  * about the type.
  */
-function supportsBatch<S extends Record<string, unknown>>(db: Db<S>): db is Db<S> & Batchable {
+function supportsBatch<S extends DrizzleSchema>(db: Db<S>): db is Db<S> & Batchable {
   return "batch" in db && typeof db.batch === "function";
 }
 
-export async function commitBatch<S extends Record<string, unknown>>(
+export async function commitBatch<S extends DrizzleSchema>(
   db: Db<S>,
   statements: BatchItem<"sqlite">[],
 ): Promise<void> {

@@ -31,6 +31,7 @@ import {
   signJwt,
   verifyJwt,
 } from "./helpers";
+import type { AccessTokenClaims } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import type { SessionMeta, TokenSet } from "./types";
 
@@ -75,7 +76,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         // the same account. S-H2 is solved server-to-server instead —
         // `/internal/step-up/verify` re-issues the verified accountId
         // back to the calling service over an ARC-authenticated channel.
-        const payload: Record<string, unknown> = {
+        const payload: AccessTokenClaims = {
           sub: profileId,
           aud: ACCESS_TOKEN_AUDIENCE,
           email,

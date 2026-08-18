@@ -233,7 +233,10 @@ export function createOrganisationService() {
       }
 
       const ts = now();
-      const setClause: Record<string, unknown> = { updatedAt: ts };
+      // The columns an update may touch, taken from the table's own insert
+      // model: a renamed or retyped column breaks here rather than silently
+      // writing a no-op set clause.
+      const setClause: Partial<typeof organisations.$inferInsert> = { updatedAt: ts };
       if (updates.name !== undefined) setClause.name = updates.name;
       if (updates.description !== undefined) setClause.description = updates.description;
 

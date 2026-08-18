@@ -41,6 +41,23 @@ interface WeddingProfile {
 const labelClass = "font-body text-text-muted text-[0.72rem] tracking-[0.1em] uppercase";
 const hintClass = "font-body text-text-muted text-[0.75rem] leading-snug";
 
+/** The RSVP-by half of the settings PUT body — on its own it is the whole patch
+ *  an editor co-host may send. */
+interface RsvpDeadlinePatch {
+  rsvpDeadline: string | null;
+  rsvpDeadlineTimezone: string | null;
+}
+
+/** The owner's patch: the profile fields plus the deadline half. Mirrors the
+ *  writable subset of {@link WeddingProfile} — `id` and `slug` are not
+ *  settable here. */
+interface WeddingSettingsPatch extends RsvpDeadlinePatch {
+  displayName: string;
+  weddingDate: string | null;
+  guestCountEstimate: number | null;
+  currency: string;
+}
+
 interface SettingsPanelProps {
   weddingId: string;
   /** Owner of this wedding? The profile fields are owner-only — co-hosts see
@@ -141,7 +158,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
   /** The RSVP-by half of the body — the whole patch for an editor co-host, and
    *  part of the owner's. Sending the zone as null alongside a cleared date
    *  keeps the two ends in step (the server pairs them too). */
-  function rsvpDeadlineFields(): Record<string, unknown> {
+  function rsvpDeadlineFields(): RsvpDeadlinePatch {
     return {
       rsvpDeadline: rsvpDeadline() || null,
       rsvpDeadlineTimezone: rsvpDeadline() ? rsvpDeadlineTimezone() : null,
@@ -171,7 +188,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
 
   /** Parse the form into the PUT body, or return a human error. Mirrors the
    *  server's validation so the common mistakes never round-trip. */
-  function buildBody(): { body: Record<string, unknown> } | { error: string } {
+  function buildBody(): { body: WeddingSettingsPatch | RsvpDeadlinePatch } | { error: string } {
     if (deadlineMovedIntoPast()) {
       return {
         error:

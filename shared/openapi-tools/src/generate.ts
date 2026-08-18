@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { excludePaths, normalizeOpenApiDocument } from "./normalize";
+import type { Doc } from "./normalize";
 
 export interface GenerateOptions {
   /**
@@ -26,6 +27,16 @@ export interface GenerateOptions {
 }
 
 /**
+ * The one place the document crosses in from outside the type system. Every fix
+ * downstream reads the parsed body as an object of JSON nodes, so that belief is
+ * checked here rather than asserted: a body that isn't a JSON object (an error
+ * page served with a 200, a plugin that starts emitting an array) fails with the
+ * route named instead of surfacing as a confusing failure inside a fix.
+ */
+const isDocument = (payload: unknown): payload is Doc =>
+  payload !== null && typeof payload === "object" && !Array.isArray(payload);
+
+/**
  * Fetches the app's own OpenAPI document, normalises it for
  * swift-openapi-generator, and writes it to `outputPath`. Returns the bytes it
  * wrote so a caller can diff instead of write.
@@ -44,7 +55,10 @@ export async function generateOpenApiDocument(options: GenerateOptions): Promise
   if (!response.ok) {
     throw new Error(`GET ${documentPath} returned ${response.status}`);
   }
-  const doc = (await response.json()) as Record<string, unknown>;
+  const doc = await response.json();
+  if (!isDocument(doc)) {
+    throw new Error(`GET ${documentPath} did not return a JSON object`);
+  }
 
   excludePaths(doc, pathsToExclude);
   const { output, unhandledNullUnions } = normalizeOpenApiDocument(doc);

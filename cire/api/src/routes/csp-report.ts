@@ -56,6 +56,71 @@ export interface NormalisedCspViolation {
   disposition: string;
 }
 
+/*
+ * THE TWO WIRE SHAPES, NAMED.
+ *
+ * Both are documented formats with a fixed field list, so the normaliser reads
+ * declared keys rather than indexing an open dictionary. Every field stays
+ * `unknown`: this is an untrusted browser payload, and a real browser is only
+ * one of the things that can POST here. The `reduce*` / `pick*` helpers below
+ * (whose parameters take `unknown` on purpose) do all the type checking — the
+ * types here say which keys we read, not what a caller may assume about them.
+ */
+
+/** Reporting API (`report-to`, `application/reports+json`) — one array entry. */
+interface ReportingApiEntry {
+  /** Report type; a `report-to` group can be shared with other report kinds. */
+  type?: unknown;
+  /** The report payload — a {@link CspViolationBody} for a CSP violation. */
+  body?: unknown;
+}
+
+/** Reporting API — the `body` of a `csp-violation` entry (camelCase fields). */
+interface CspViolationBody {
+  documentURL?: unknown;
+  effectiveDirective?: unknown;
+  violatedDirective?: unknown;
+  blockedURL?: unknown;
+  disposition?: unknown;
+}
+
+/** Legacy `report-uri` (`application/csp-report`) — the wrapper document. */
+interface LegacyCspReportDocument {
+  "csp-report"?: unknown;
+}
+
+/** Legacy `report-uri` — the inner report (hyphenated fields). */
+interface LegacyCspReport {
+  "document-uri"?: unknown;
+  "violated-directive"?: unknown;
+  "effective-directive"?: unknown;
+  "blocked-uri"?: unknown;
+  disposition?: unknown;
+}
+
+/*
+ * One guard per shape. Each only asserts "this is a non-null object" — which is
+ * all the wire tells us — and hands the field-level checking to the reducers.
+ */
+
+const isJsonObject = (value: unknown): boolean => typeof value === "object" && value !== null;
+
+function isReportingApiEntry(value: unknown): value is ReportingApiEntry {
+  return isJsonObject(value);
+}
+
+function isCspViolationBody(value: unknown): value is CspViolationBody {
+  return isJsonObject(value);
+}
+
+function isLegacyCspReportDocument(value: unknown): value is LegacyCspReportDocument {
+  return isJsonObject(value);
+}
+
+function isLegacyCspReport(value: unknown): value is LegacyCspReport {
+  return isJsonObject(value);
+}
+
 /**
  * Reduce a blocked-URI to a safe-to-log value: its `scheme://host[:port]` origin
  * when it parses as an absolute URL, otherwise the raw token TRUNCATED to
@@ -119,11 +184,10 @@ export function normaliseCspReports(body: unknown): NormalisedCspViolation[] {
   if (Array.isArray(body)) {
     const out: NormalisedCspViolation[] = [];
     for (const entry of body) {
-      if (!entry || typeof entry !== "object") continue;
-      const rec = entry as Record<string, unknown>;
+      if (!entry || !isReportingApiEntry(entry)) continue;
       // Only CSP-violation reports — a `report-to` group can be shared.
-      if (rec.type !== undefined && rec.type !== "csp-violation") continue;
-      const inner = (rec.body ?? {}) as Record<string, unknown>;
+      if (entry.type !== undefined && entry.type !== "csp-violation") continue;
+      const inner: CspViolationBody = isCspViolationBody(entry.body) ? entry.body : {};
       out.push({
         effectiveDirective: pickDirective(inner.effectiveDirective, inner.violatedDirective),
         blockedUri: reduceBlockedUri(inner.blockedURL),
@@ -135,16 +199,18 @@ export function normaliseCspReports(body: unknown): NormalisedCspViolation[] {
   }
 
   // Legacy report-uri: a single `{ "csp-report": { … } }` object.
-  if (body && typeof body === "object") {
-    const inner = (body as Record<string, unknown>)["csp-report"];
-    if (inner && typeof inner === "object") {
-      const rec = inner as Record<string, unknown>;
+  if (body && isLegacyCspReportDocument(body)) {
+    const inner = body["csp-report"];
+    if (inner && isLegacyCspReport(inner)) {
       return [
         {
-          effectiveDirective: pickDirective(rec["effective-directive"], rec["violated-directive"]),
-          blockedUri: reduceBlockedUri(rec["blocked-uri"]),
-          documentPath: reduceDocumentPath(rec["document-uri"]),
-          disposition: reduceDisposition(rec.disposition),
+          effectiveDirective: pickDirective(
+            inner["effective-directive"],
+            inner["violated-directive"],
+          ),
+          blockedUri: reduceBlockedUri(inner["blocked-uri"]),
+          documentPath: reduceDocumentPath(inner["document-uri"]),
+          disposition: reduceDisposition(inner.disposition),
         },
       ];
     }

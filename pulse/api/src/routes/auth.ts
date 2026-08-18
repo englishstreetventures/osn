@@ -58,9 +58,20 @@ const PREFIX = "/api/auth";
  * spelling swift-openapi-generator keeps (see `scripts/generate-openapi.ts`).
  * The cast in `docSchema` is what lets a 3.1 schema be written here.
  */
-const docSchema = (schema: Record<string, unknown>) => schema as never;
+/**
+ * The slice of OpenAPI 3.1 schema syntax the hand-written responses below use.
+ * `type` takes an array for the nullable spelling (`["string", "null"]`).
+ */
+interface OpenApiSchemaNode {
+  readonly type: string | readonly string[];
+  readonly format?: string;
+  readonly properties?: { readonly [property: string]: OpenApiSchemaNode };
+  readonly required?: readonly string[];
+}
 
-const jsonResponse = (description: string, schema: Record<string, unknown>) => ({
+const docSchema = (schema: OpenApiSchemaNode) => schema as never;
+
+const jsonResponse = (description: string, schema: OpenApiSchemaNode) => ({
   description,
   content: { "application/json": { schema: docSchema(schema) } },
 });

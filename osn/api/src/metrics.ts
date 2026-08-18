@@ -241,12 +241,25 @@ const profileCrudDuration = createHistogram<ProfileCrudAttrs>({
 // ---------------------------------------------------------------------------
 
 /**
+ * The three annotation keys {@link safeErrorSummary} may emit. `_tag` and
+ * `message` come off an error object; `error` is the stringified value when
+ * the thrown thing isn't an object at all. Exactly one of the two groups is
+ * populated per call — the type stays flat because the caller spreads it into
+ * a log-annotation record either way.
+ */
+type SafeErrorSummary = {
+  _tag?: string;
+  message?: string;
+  error?: string;
+};
+
+/**
  * Extract a log-safe summary from an error. Avoids serialising raw `cause`
  * payloads (which may contain internal schema details) into structured log
  * annotations. Only `_tag` and `message` are kept — both are hardcoded
  * strings in the codebase, never user input.
  */
-const safeErrorSummary = (err: unknown): Record<string, unknown> => {
+const safeErrorSummary = (err: unknown): SafeErrorSummary => {
   if (!err || typeof err !== "object") return { error: String(err) };
   const tag = (err as { _tag?: unknown })._tag;
   const msg = (err as { message?: unknown }).message;

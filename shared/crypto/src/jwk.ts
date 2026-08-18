@@ -49,21 +49,49 @@ export async function exportKeyToJwk(key: CryptoKey): Promise<string> {
 }
 
 /**
+ * An ES256 (EC P-256) JWK, as this module accepts one. `d` is the private
+ * scalar — present on a private key, absent on a public one. A JWKS entry may
+ * carry further registry members (`use`, `key_ops`, `x5c`, …); they are not
+ * read here and pass through to `importJWK` untouched.
+ */
+export interface Es256Jwk {
+  readonly kty: "EC";
+  readonly crv: "P-256";
+  /** Base64url x coordinate. */
+  readonly x: string;
+  /** Base64url y coordinate. */
+  readonly y: string;
+  /** Base64url private scalar — private keys only. */
+  readonly d?: string;
+  /** Key ID, when the publisher set one (JWKS entries carry one). */
+  readonly kid?: string;
+  readonly alg?: string;
+  readonly use?: string;
+}
+
+/**
  * Validates that a parsed JWK has the expected ES256 (EC P-256) structure.
  * Prevents algorithm confusion attacks from malicious JWK material.
  */
-function validateEs256Jwk(jwk: Record<string, unknown>): void {
-  if (jwk.kty !== "EC") {
+function validateEs256Jwk(jwk: unknown): asserts jwk is Es256Jwk {
+  if (typeof jwk !== "object" || jwk === null) {
+    throw new ArcTokenError({ message: `Invalid JWK: expected an object, got "${typeof jwk}"` });
+  }
+  const kty = "kty" in jwk ? jwk.kty : undefined;
+  if (kty !== "EC") {
     throw new ArcTokenError({
-      message: `Invalid JWK: expected kty "EC", got "${String(jwk.kty)}"`,
+      message: `Invalid JWK: expected kty "EC", got "${String(kty)}"`,
     });
   }
-  if (jwk.crv !== "P-256") {
+  const crv = "crv" in jwk ? jwk.crv : undefined;
+  if (crv !== "P-256") {
     throw new ArcTokenError({
-      message: `Invalid JWK: expected crv "P-256", got "${String(jwk.crv)}"`,
+      message: `Invalid JWK: expected crv "P-256", got "${String(crv)}"`,
     });
   }
-  if (typeof jwk.x !== "string" || typeof jwk.y !== "string") {
+  const x = "x" in jwk ? jwk.x : undefined;
+  const y = "y" in jwk ? jwk.y : undefined;
+  if (typeof x !== "string" || typeof y !== "string") {
     throw new ArcTokenError({ message: "Invalid JWK: missing x or y coordinates" });
   }
 }
@@ -78,11 +106,14 @@ export async function thumbprintKid(publicKey: CryptoKey): Promise<string> {
 }
 
 /**
- * Imports a JWK (JSON string or object) to a CryptoKey.
- * Validates that the JWK is an ES256 (EC P-256) key before importing.
+ * Imports a JWK (JSON string or already-parsed value) to a CryptoKey.
+ *
+ * The input is untrusted — DB rows, env vars and fetched JWKS documents all
+ * land here — so it is parsed and validated into an `Es256Jwk` first. Anything
+ * that is not an ES256 (EC P-256) key throws `ArcTokenError`.
  */
-export async function importKeyFromJwk(jwk: string | Record<string, unknown>): Promise<CryptoKey> {
-  const parsed = typeof jwk === "string" ? (JSON.parse(jwk) as Record<string, unknown>) : jwk;
+export async function importKeyFromJwk(jwk: unknown): Promise<CryptoKey> {
+  const parsed: unknown = typeof jwk === "string" ? JSON.parse(jwk) : jwk;
   validateEs256Jwk(parsed);
   return importJWK(parsed, ARC_ALG) as Promise<CryptoKey>;
 }

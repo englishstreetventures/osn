@@ -35,8 +35,108 @@ export function now(): Date {
   return new Date();
 }
 
+// ---------------------------------------------------------------------------
+// JWT claim sets
+//
+// Every token this service mints goes through `signJwt`, so the claim sets are
+// named here rather than at each mint site: the union below is the complete
+// list of token kinds the OSN signing key ever produces. `iss`, `iat` and
+// `exp` are stamped by `signJwt` itself and so appear on none of them.
+// ---------------------------------------------------------------------------
+
+/**
+ * A user access token (`aud: "osn-access"`). P6 invariant: `accountId` is
+ * deliberately NOT a claim — see `issueAccessToken` in `tokens.ts` for why.
+ * `displayName` is absent when the profile has none; `osn_sid` (S-L3) is
+ * absent when the token is minted outside a session.
+ */
+export type AccessTokenClaims = {
+  sub: string;
+  aud: string;
+  email: string;
+  handle: string;
+  scope: string;
+  displayName?: string;
+  osn_sid?: string;
+};
+
+/**
+ * A step-up (sudo) token (`aud: "osn-step-up"`). `sub` is the ACCOUNT id here,
+ * not a profile id — step-up authorises account-level operations. `jti` backs
+ * the single-use guard; `purpose` is absent on tokens minted for the verifiers
+ * that don't require one.
+ */
+export type StepUpTokenClaims = {
+  sub: string;
+  aud: string;
+  amr: string[];
+  jti: string;
+  purpose?: string;
+};
+
+/**
+ * An OIDC ID token. `sub` is the pairwise subject, `aud` the relying party's
+ * client id. Everything past `auth_time` depends on what the authorization
+ * carried: `nonce` on request, `osn_profile_id` for first-party clients only,
+ * the profile claims under the `profile` scope, the email pair under `email`.
+ */
+export type IdTokenClaims = {
+  sub: string;
+  aud: string;
+  auth_time: number;
+  nonce?: string;
+  osn_profile_id?: string;
+  preferred_username?: string;
+  name?: string;
+  picture?: string;
+  email?: string;
+  email_verified?: boolean;
+};
+
+/**
+ * The OIDC access token issued alongside an ID token (RFC 9068, `typ:
+ * "at+jwt"`). It names the granted scope and nothing else — it is not an
+ * `osn-access` token and never authenticates a first-party route.
+ */
+export type OidcAccessTokenClaims = {
+  sub: string;
+  aud: string;
+  scope: string;
+};
+
+/** Every claim set {@link signJwt} accepts. */
+export type SignedJwtClaims =
+  | AccessTokenClaims
+  | StepUpTokenClaims
+  | IdTokenClaims
+  | OidcAccessTokenClaims;
+
+/**
+ * What a token carries once its signature, issuer and expiry check out.
+ *
+ * Signature-verified is not shape-verified: one key signs all four claim sets
+ * above, plus whatever older deploys minted, so each value stays `unknown` and
+ * every caller narrows the claims it needs — starting with `aud`, which is
+ * what separates the token kinds (S-M2).
+ */
+export type VerifiedJwtClaims = {
+  readonly iss?: unknown;
+  readonly sub?: unknown;
+  readonly aud?: unknown;
+  readonly iat?: unknown;
+  readonly exp?: unknown;
+  readonly jti?: unknown;
+  readonly amr?: unknown;
+  readonly purpose?: unknown;
+  readonly email?: unknown;
+  readonly handle?: unknown;
+  readonly scope?: unknown;
+  readonly displayName?: unknown;
+  readonly osn_sid?: unknown;
+};
+
 export async function signJwt(
-  payload: Record<string, unknown>,
+  payload: SignedJwtClaims,
   privateKey: CryptoKey,
   kid: string,
   ttl: number,
@@ -73,13 +173,13 @@ export async function verifyJwt(
   token: string,
   publicKey: CryptoKey,
   issuer: string,
-): Promise<Record<string, unknown>> {
+): Promise<VerifiedJwtClaims> {
   const { payload } = await jwtVerify(token, publicKey, {
     algorithms: ["ES256"],
     issuer,
     clockTolerance: 30,
   });
-  return payload as Record<string, unknown>;
+  return payload;
 }
 
 /**

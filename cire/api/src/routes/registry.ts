@@ -117,6 +117,21 @@ function reapAfterResponse(
   return Effect.sync(() => waitUntil(Effect.runPromise(reap)));
 }
 
+/**
+ * The one query knob the registry read route takes. Elysia hands the handler an
+ * untyped query bag on this factory (no query schema), so the shape is named
+ * here — `giftsOffset` stays `unknown` because a repeated `?giftsOffset=` gives
+ * an array, and {@link parseGiftsOffset} is what turns any of it into a number.
+ */
+interface RegistryReadQuery {
+  giftsOffset?: unknown;
+}
+
+/** Says only "an object" — the parse below does the checking. */
+function isRegistryReadQuery(value: unknown): value is RegistryReadQuery {
+  return typeof value === "object" && value !== null;
+}
+
 /** `?giftsOffset=` → a non-negative integer. Anything unparseable reads as 0. */
 function parseGiftsOffset(raw: unknown): number {
   if (typeof raw !== "string") return 0;
@@ -149,7 +164,9 @@ export const createRegistryReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions)
           if (!weddingId) return internalSync(set);
           // The gift log is paged; the offset is the only knob the client gets.
           // The service clamps it — this only has to turn a string into a number.
-          const giftsOffset = parseGiftsOffset((query as Record<string, unknown>)?.giftsOffset);
+          const giftsOffset = parseGiftsOffset(
+            isRegistryReadQuery(query) ? query.giftsOffset : undefined,
+          );
           return runCire(
             registryService.get(weddingId, { giftsOffset }).pipe(
               Effect.provideService(DbService, db),

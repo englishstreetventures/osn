@@ -119,13 +119,14 @@ export const HOUR_WINDOW_IP_AUTH_LIMITERS: ReadonlySet<keyof AuthRateLimiters> =
  * path. When at least one is present we surface the partial map; the selector
  * only routes the slots whose tier binding actually exists.
  *
- * The parameter names the five tier slots and types them `unknown`, because
- * that is exactly what a runtime env promises: the key may be absent, or hold
- * something that isn't a limiter at all. The `limit`-is-a-function check below
- * is what earns the binding type.
+ * The parameter names the five tier slots and makes every one optional, which
+ * is all a runtime env promises: a key may simply be absent (no binding
+ * declared for this environment). The `limit`-is-a-function check below is
+ * still what earns a slot a place in the returned map — a declared binding
+ * that workerd handed us as something else never reaches the selector.
  */
 export function readOsnRateLimitBindings(
-  env: Readonly<Partial<Record<TierName, unknown>>>,
+  env: Readonly<Partial<OsnRateLimitBindings>>,
 ): Partial<OsnRateLimitBindings> | undefined {
   const tiers: TierName[] = [
     "RL_AUTH_IP_5_60",
@@ -138,8 +139,8 @@ export function readOsnRateLimitBindings(
   let any = false;
   for (const tier of tiers) {
     const binding = env[tier];
-    if (binding && typeof (binding as WorkersRateLimitBinding).limit === "function") {
-      present[tier] = binding as WorkersRateLimitBinding;
+    if (binding && typeof binding.limit === "function") {
+      present[tier] = binding;
       any = true;
     }
   }

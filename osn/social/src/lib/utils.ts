@@ -16,9 +16,22 @@ export function safeAvatarUrl(url: string | null | undefined): string | null {
   return url.startsWith("https://") || url.startsWith("http://") ? url : null;
 }
 
-function decodeJwtPayload(accessToken: string): Record<string, unknown> | null {
+/**
+ * The claims this app reads out of an access token. Each stays `unknown`
+ * because the token is decoded here without verifying its signature — the
+ * `typeof` checks in `getTokenClaims` are what turn a claim into a value.
+ */
+interface AccessTokenPayload {
+  sub?: unknown;
+  email?: unknown;
+  handle?: unknown;
+  displayName?: unknown;
+}
+
+function decodeJwtPayload(accessToken: string): AccessTokenPayload | null {
   try {
-    return JSON.parse(atob(accessToken.split(".")[1]!)) as Record<string, unknown>;
+    const payload: AccessTokenPayload = JSON.parse(atob(accessToken.split(".")[1]!));
+    return payload;
   } catch {
     return null;
   }

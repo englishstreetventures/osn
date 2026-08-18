@@ -47,6 +47,7 @@ import {
 import type { AuthContext } from "./context";
 import { DatabaseError, OidcError, type OidcErrorCode } from "./errors";
 import { genId, signJwt } from "./helpers";
+import type { IdTokenClaims } from "./helpers";
 import type { ProfilesModule } from "./profiles";
 import type { PendingAuthorizeRequest } from "./stores";
 
@@ -1127,7 +1128,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       const sub = pairwiseSub(client, profile.id);
       const scopes = new Set(parseScope(row.scope));
 
-      const claims: Record<string, unknown> = {
+      const claims: IdTokenClaims = {
         sub,
         aud: client.clientId,
         auth_time: row.authTime,

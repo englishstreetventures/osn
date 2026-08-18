@@ -42,6 +42,14 @@ export class OrgClientError extends Error {
 // Internal fetch helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * A failed response body. The API sends `{ error }` on every failure path and
+ * this client reads nothing else off it.
+ */
+interface ErrorResponseBody {
+  error?: string;
+}
+
 /** Parse response body as JSON, returning null if the body isn't JSON (S-L2). */
 async function safeJson<T>(res: Response): Promise<(T & { error?: string }) | null> {
   try {
@@ -115,7 +123,7 @@ async function authDelete(url: string, token: string): Promise<void> {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) {
-    const json = await safeJson<Record<string, unknown>>(res);
+    const json = await safeJson<ErrorResponseBody>(res);
     throw new OrgClientError(safeErrorMessage(json?.error, res.status));
   }
 }

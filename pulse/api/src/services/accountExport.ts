@@ -1,4 +1,4 @@
-import { events, eventRsvps, pulseCloseFriends } from "@pulse/db/schema";
+import { events, eventRsvps, pulseCloseFriends, type EventRsvp } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { inArray } from "drizzle-orm";
 import { Data, Effect } from "effect";
@@ -25,10 +25,37 @@ export class PulseExportDbError extends Data.TaggedError("PulseExportDbError")<{
   readonly cause: unknown;
 }> {}
 
-export interface ExportLine {
-  readonly section: string;
-  readonly record: Record<string, unknown>;
+/** One RSVP the account made (`pulse.rsvps`). */
+export interface RsvpExportRecord {
+  readonly eventId: string;
+  readonly status: EventRsvp["status"];
+  readonly createdAt: Date;
+  /** Omitted entirely when the arrival carried no share source. */
+  readonly shareSourceFirst?: string;
 }
+
+/** One event the account created (`pulse.events_hosted`). */
+export interface HostedEventExportRecord {
+  readonly id: string;
+  readonly title: string;
+  readonly startTime: Date;
+  readonly createdAt: Date;
+}
+
+/** One close-friends edge the account owns (`pulse.close_friends`). */
+export interface CloseFriendExportRecord {
+  readonly friendId: string;
+  readonly createdAt: Date;
+}
+
+/**
+ * A single NDJSON data line. The section tag fixes the record shape, so a
+ * reader that switches on `section` knows exactly which fields it has.
+ */
+export type ExportLine =
+  | { readonly section: "pulse.rsvps"; readonly record: RsvpExportRecord }
+  | { readonly section: "pulse.events_hosted"; readonly record: HostedEventExportRecord }
+  | { readonly section: "pulse.close_friends"; readonly record: CloseFriendExportRecord };
 
 /**
  * Collect every export line for the given profile IDs. Empty `profileIds`
@@ -83,13 +110,10 @@ export const collectExport = (
 
     const lines: ExportLine[] = [];
     for (const r of rsvps) {
-      const record: Record<string, unknown> = {
-        eventId: r.eventId,
-        status: r.status,
-        createdAt: r.createdAt,
-      };
+      const base = { eventId: r.eventId, status: r.status, createdAt: r.createdAt };
       // `share_source_first` is only present for sourced arrivals.
-      if (r.shareSourceFirst != null) record.shareSourceFirst = r.shareSourceFirst;
+      const record: RsvpExportRecord =
+        r.shareSourceFirst == null ? base : { ...base, shareSourceFirst: r.shareSourceFirst };
       lines.push({ section: "pulse.rsvps", record });
     }
     for (const e of hosted) {

@@ -109,6 +109,19 @@ export type UpdateSettingsBody = Schema.Schema.Type<typeof UpdateSettingsBody>;
  */
 const EDITOR_WRITABLE_SETTINGS = new Set<string>(["rsvpDeadline", "rsvpDeadlineTimezone"]);
 
+/** A field name of the settings body — the only key {@link ownerOnlySettingsIn} reads. */
+type SettingsKey = keyof UpdateSettingsBody;
+
+/**
+ * Ties a raw key from the struct's field list back to the body TYPE, so the
+ * patch is read through its own declared fields instead of an open dictionary.
+ * True for every key `Object.keys(UpdateSettingsBody.fields)` yields — the two
+ * come from the same struct — and the check is on the FIELD LIST, never on the
+ * patch, which is still read through the prototype chain (see below).
+ */
+const isSettingsKey = (key: string): key is SettingsKey =>
+  Object.hasOwn(UpdateSettingsBody.fields, key);
+
 /**
  * The owner-only keys a patch actually carries — empty for a patch an editor
  * co-host may apply as-is. Keys whose value is `undefined` are ignored: PATCH
@@ -133,6 +146,5 @@ const EDITOR_WRITABLE_SETTINGS = new Set<string>(["rsvpDeadline", "rsvpDeadlineT
  */
 export const ownerOnlySettingsIn = (patch: UpdateSettingsBody): string[] =>
   Object.keys(UpdateSettingsBody.fields).filter(
-    (key) =>
-      !EDITOR_WRITABLE_SETTINGS.has(key) && (patch as Record<string, unknown>)[key] !== undefined,
+    (key) => isSettingsKey(key) && !EDITOR_WRITABLE_SETTINGS.has(key) && patch[key] !== undefined,
   );

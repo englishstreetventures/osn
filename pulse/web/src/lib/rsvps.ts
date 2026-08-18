@@ -71,12 +71,18 @@ export async function fetchRsvpCounts(eventId: string): Promise<RsvpCounts> {
   return body.counts ?? { going: 0, maybe: 0, not_going: 0, invited: 0 };
 }
 
+/** Request body for `POST /events/:id/rsvps`. `shareSource` is omitted when unknown. */
+interface RsvpUpsertBody {
+  status: "going" | "maybe" | "not_going";
+  shareSource?: ShareSource;
+}
+
 export async function upsertMyRsvp(
   eventId: string,
   status: "going" | "maybe" | "not_going",
   shareSource?: ShareSource | null,
 ): Promise<{ ok: boolean; error?: string }> {
-  const body: Record<string, unknown> = { status };
+  const body: RsvpUpsertBody = { status };
   if (shareSource) body.shareSource = shareSource;
   try {
     const res = await authFetch(`${BASE_URL}/events/${eventId}/rsvps`, {

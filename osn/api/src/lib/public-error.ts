@@ -35,9 +35,15 @@ export function publicError(
       // `Object.values` never reaches — so the real `_tag` would otherwise be
       // invisible and every Effect failure would fall through to the default.
       for (const key of Reflect.ownKeys(node)) {
+        // Read through the descriptor rather than the property: a data
+        // property hands back its `value` without running anything, and an
+        // accessor is invoked explicitly (bound to `node`, as a plain read
+        // would) inside the try.
         let v: unknown;
         try {
-          v = (node as Record<PropertyKey, unknown>)[key];
+          const descriptor = Object.getOwnPropertyDescriptor(node, key);
+          if (!descriptor) continue;
+          v = "value" in descriptor ? descriptor.value : descriptor.get?.call(node);
         } catch {
           continue; // a throwing getter is not a tag carrier
         }

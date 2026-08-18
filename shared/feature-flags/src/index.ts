@@ -30,7 +30,11 @@
  * has a safe, reviewed default.
  */
 
-import { GrowthBook } from "@growthbook/growthbook";
+import {
+  GrowthBook,
+  type FeatureDefinitions,
+  type SavedGroupsValues,
+} from "@growthbook/growthbook";
 import { instrumentedFetch } from "@shared/observability/fetch";
 
 /**
@@ -179,10 +183,18 @@ export const DEFAULT_TTL_SECONDS = 60;
 /** KV key the payload is cached under. */
 const KV_PAYLOAD_KEY = "gb:payload";
 
-/** The subset of GrowthBook's SDK payload we pass to `initSync`. */
+/**
+ * The subset of GrowthBook's SDK payload we pass to `initSync`, typed with the
+ * SDK's own value types: `FeatureDefinitions` is `Record<string,
+ * FeatureDefinition>` (a `defaultValue` plus targeting `rules` per feature key)
+ * and `SavedGroupsValues` is `Record<string, (string | number)[]>`. We never
+ * read inside either — the SDK does — but naming them keeps the payload a
+ * GrowthBook payload rather than an anonymous bag, and lets `initSync` take it
+ * without a cast.
+ */
 interface SdkPayload {
-  features?: Record<string, unknown>;
-  savedGroups?: Record<string, unknown>;
+  features?: FeatureDefinitions;
+  savedGroups?: SavedGroupsValues;
 }
 
 /** A payload plus the epoch-ms it was fetched, for TTL checks. */
@@ -321,10 +333,7 @@ async function fetchPayload(
       signal: AbortSignal.timeout(5_000),
     });
     if (!res.ok) return null;
-    const data = (await res.json()) as {
-      features?: Record<string, unknown>;
-      savedGroups?: Record<string, unknown>;
-    };
+    const data = (await res.json()) as SdkPayload;
     return {
       payload: { features: data.features ?? {}, savedGroups: data.savedGroups ?? {} },
       fetchedAt: now,
@@ -338,7 +347,7 @@ async function fetchPayload(
 function gbEvaluator(payload: SdkPayload, attributes: FlagAttributes | undefined): FlagEvaluator {
   const gb = new GrowthBook({ attributes: attributes ?? {} });
   // Synchronous, no I/O — safe on the Workers runtime.
-  gb.initSync({ payload: payload as never });
+  gb.initSync({ payload });
 
   return {
     isOn(key) {

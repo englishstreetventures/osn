@@ -41,6 +41,22 @@ export function safeHttpUrl(raw: string | null): string | null {
 }
 
 /**
+ * One entry of a decoded `dress_code_palette` array. The column is JSON we
+ * wrote, but it is still parsed input — the guard names the two fields a swatch
+ * must carry and checks them, so nothing else in the stored blob is read.
+ */
+function isDressSwatch(value: unknown): value is DressSwatch {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "name" in value &&
+    typeof value.name === "string" &&
+    "color" in value &&
+    typeof value.color === "string"
+  );
+}
+
+/**
  * Decode the JSON-encoded `dress_code_palette` column. Returns `palette: null`
  * + `malformed: true` so the caller can emit a structured log line referencing
  * the offending event id (kept out of this pure helper to preserve testability
@@ -61,15 +77,9 @@ export function decodePalette(raw: string | null): {
   if (!Array.isArray(parsed)) return { palette: null, malformed: true };
   const out: DressSwatch[] = [];
   for (const item of parsed) {
-    if (
-      typeof item === "object" &&
-      item !== null &&
-      typeof (item as Record<string, unknown>).name === "string" &&
-      typeof (item as Record<string, unknown>).color === "string"
-    ) {
-      const t = item as { name: string; color: string };
-      out.push({ name: t.name, color: t.color });
-    }
+    // Copied field by field, never pushed whole: an extra key in the stored
+    // JSON must not ride out to the guest.
+    if (isDressSwatch(item)) out.push({ name: item.name, color: item.color });
   }
   return { palette: out, malformed: false };
 }

@@ -62,6 +62,25 @@ export interface ImageCrop {
   natH?: number;
 }
 
+/**
+ * A crop as it arrives — the six fields {@link isValidCrop} reads, each still
+ * `unknown` because the value comes off the wire or out of a stored JSON blob.
+ * Nothing may treat one of these as a number before that gate has run.
+ */
+interface CropCandidate {
+  x?: unknown;
+  y?: unknown;
+  w?: unknown;
+  h?: unknown;
+  natW?: unknown;
+  natH?: unknown;
+}
+
+/** The shape says only "an object"; {@link isValidCrop} checks every field. */
+function isCropCandidate(value: unknown): value is CropCandidate {
+  return typeof value === "object" && value !== null;
+}
+
 /** A finite, strictly-positive number (used to validate the optional dims). */
 function isPositiveFinite(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n) && n > 0;
@@ -81,9 +100,8 @@ function isPositiveFinite(n: unknown): n is number {
  * computation can never divide by zero or go non-finite.
  */
 export function isValidCrop(value: unknown): value is ImageCrop {
-  if (typeof value !== "object" || value === null) return false;
-  const c = value as Record<string, unknown>;
-  const { x, y, w, h, natW, natH } = c;
+  if (!isCropCandidate(value)) return false;
+  const { x, y, w, h, natW, natH } = value;
   if (
     typeof x !== "number" ||
     typeof y !== "number" ||

@@ -109,7 +109,12 @@ export function normaliseGrants(input: unknown): ConsentGrants {
   const grants = defaultGrants();
   if (typeof input !== "object" || input === null) return grants;
 
-  for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+  // Read as key/value pairs rather than as a dictionary: nothing here claims the
+  // stored object is a grant map, only that whatever key/value pairs it carries
+  // get checked one at a time against the category list.
+  const entries: readonly (readonly [string, unknown])[] = Object.entries(input);
+
+  for (const [key, value] of entries) {
     if (!isConsentCategory(key)) continue;
     if (isRequiredCategory(key)) continue; // already true; not the caller's call
     grants[key] = value === true;

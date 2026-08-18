@@ -131,7 +131,10 @@ export async function loadJwtKeyPair(env: EnvVars) {
   }
 
   if (rawPriv && rawPub) {
-    const privateKey = await importKeyFromJwk(JSON.parse(atob(rawPriv)) as Record<string, unknown>);
+    // `importKeyFromJwk` parses a JSON string itself and validates the result
+    // as an ES256 JWK, so the base64 payload goes in unparsed — the shape check
+    // belongs to the importer, not to this loader.
+    const privateKey = await importKeyFromJwk(atob(rawPriv));
     // S-M4: a JWK without the private scalar (e.g. the PUBLIC key pasted into
     // the private slot) imports fine but with verify-only usages — every token
     // mint would then fail at request time. Catch the misconfiguration at boot.
@@ -140,7 +143,7 @@ export async function loadJwtKeyPair(env: EnvVars) {
         'OSN_JWT_PRIVATE_KEY does not import as a signing key (missing "sign" usage — is it the public JWK?)',
       );
     }
-    const publicKey = await importKeyFromJwk(JSON.parse(atob(rawPub)) as Record<string, unknown>);
+    const publicKey = await importKeyFromJwk(atob(rawPub));
     const kid = await thumbprintKid(publicKey);
     const jwtPublicKeyJwk = await exportJWK(publicKey);
     return { privateKey, publicKey, kid, jwtPublicKeyJwk };

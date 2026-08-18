@@ -651,7 +651,10 @@ export const registryService = {
         }
       }
 
-      const set: Record<string, unknown> = { updatedAt: now };
+      // The columns the conflict branch writes, typed off the table itself — a
+      // partial insert IS an update set, so a key that isn't a column (or a
+      // value the column can't hold) fails here rather than at the D1 boundary.
+      const set: Partial<typeof registrySettings.$inferInsert> = { updatedAt: now };
       if (patch.published !== undefined) set.published = patch.published;
       if (patch.headline !== undefined) set.headline = patch.headline;
       if (patch.message !== undefined) set.message = patch.message;
@@ -765,7 +768,8 @@ export const registryService = {
         }
       }
 
-      const set: Record<string, unknown> = { updatedAt: new Date() };
+      // Typed off the table, as in `updateSettings` above.
+      const set: Partial<typeof registryItems.$inferInsert> = { updatedAt: new Date() };
       if (patch.title !== undefined) set.title = patch.title;
       if (patch.description !== undefined) set.description = patch.description;
       if (patch.imageKey !== undefined) set.imageKey = patch.imageKey;

@@ -535,26 +535,50 @@ export type OsnProfileOrgsResolver = (profileId: string) => Promise<OsnOrgSummar
  * `org:read` in `allowedScopes` for this call to succeed.
  */
 /**
+ * One org as it arrives from osn-api. The keys are the ones {@link toOrgSummary}
+ * reads; every value stays `unknown` because the payload is never trusted as
+ * typed — the checks below turn it into an {@link OsnOrgSummary} or nothing.
+ */
+interface OsnOrgWire {
+  id?: unknown;
+  handle?: unknown;
+  name?: unknown;
+  description?: unknown;
+  avatarUrl?: unknown;
+  ownerId?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+}
+
+/** The wire says only "an object"; the field checks do the rest. */
+function isOsnOrgWire(value: unknown): value is OsnOrgWire {
+  return typeof value === "object" && value !== null;
+}
+
+/**
  * Normalises one wire entry into an {@link OsnOrgSummary}, or `null` when the
  * identifying fields are missing — the payload is never trusted as typed. The
  * optional display fields fall back rather than dropping the whole org.
  */
 function toOrgSummary(value: unknown): OsnOrgSummary | null {
-  if (typeof value !== "object" || value === null) return null;
-  const o = value as Record<string, unknown>;
-  if (typeof o.id !== "string" || typeof o.handle !== "string" || typeof o.name !== "string") {
+  if (!isOsnOrgWire(value)) return null;
+  if (
+    typeof value.id !== "string" ||
+    typeof value.handle !== "string" ||
+    typeof value.name !== "string"
+  ) {
     return null;
   }
   const str = (v: unknown) => (typeof v === "string" ? v : null);
   return {
-    id: o.id,
-    handle: o.handle,
-    name: o.name,
-    description: str(o.description),
-    avatarUrl: str(o.avatarUrl),
-    ownerId: str(o.ownerId) ?? "",
-    createdAt: str(o.createdAt) ?? "",
-    updatedAt: str(o.updatedAt) ?? "",
+    id: value.id,
+    handle: value.handle,
+    name: value.name,
+    description: str(value.description),
+    avatarUrl: str(value.avatarUrl),
+    ownerId: str(value.ownerId) ?? "",
+    createdAt: str(value.createdAt) ?? "",
+    updatedAt: str(value.updatedAt) ?? "",
   };
 }
 

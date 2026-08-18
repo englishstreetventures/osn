@@ -363,7 +363,10 @@ const redactInner = (value: unknown, seen: WeakSet<object>): RedactedValue => {
   }
 
   const out: Record<string, RedactedValue> = {};
-  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+  // Same own-enumerable-keys walk as the `Error` branch above, and read the
+  // same way: `value` is already narrowed to a non-null, non-array object here,
+  // so `Object.entries` needs nothing asserted about it.
+  for (const [key, val] of Object.entries(value)) {
     if (REDACT_KEYS.has(key.toLowerCase())) {
       out[key] = REDACTION_PLACEHOLDER;
     } else {

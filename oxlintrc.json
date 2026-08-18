@@ -105,11 +105,11 @@
     // override below still silences the test-side hits.
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-unknown-returns": "error",
+    "anti-slop/no-unsafe-dictionary-type": "error",
 
     // Real debt in app source, small enough to schedule. Counts are source
     // only where the test override below silences the test-side hits.
     "anti-slop/no-conditional-empty-object-spread": "warn", // 81
-    "anti-slop/no-unsafe-dictionary-type": "warn", // 67 src
     "anti-slop/no-known-value-widening": "warn", // 134 src
 
     // Too big to schedule yet. Each needs its own clean-up pass before it can
@@ -151,6 +151,10 @@
         // remain, all of them a fetch/JSON helper a single test file uses to
         // poke at a response it then asserts on by hand.
         "anti-slop/no-unknown-returns": "off",
+        // Source is clean and the rule is an error there; 102 test-side hits
+        // remain. Nearly all are a `Record<string, unknown>` stub for a
+        // request body or a drizzle row the test then asserts on field by
+        // field.
         "anti-slop/no-unsafe-dictionary-type": "off",
         "anti-slop/no-known-value-widening": "off"
       }

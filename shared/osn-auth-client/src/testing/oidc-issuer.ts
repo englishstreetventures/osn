@@ -47,6 +47,23 @@ export interface IdTokenOverrides {
   expiresIn?: string;
 }
 
+/**
+ * The claim set this fake issuer mints. The registered claims (`sub`, `iss`,
+ * `aud`, `iat`, `exp`) are set on the `SignJWT` builder instead, so only the
+ * profile claims live here. The three optional ones are omitted rather than
+ * nulled when a test doesn't ask for them — that is what a real token looks
+ * like.
+ */
+type IdTokenClaims = {
+  email: string | null;
+  preferred_username: string | null;
+  name: string | null;
+  picture: string | null;
+  osn_profile_id?: string;
+  nonce?: string;
+  auth_time?: number;
+};
+
 export interface OidcTestIssuer {
   /** Public verifying key — goes on the config as `_testKey`. */
   publicKey: CryptoKey;
@@ -75,7 +92,7 @@ export async function makeOidcTestIssuer(
     publicKey,
 
     signIdToken(overrides: IdTokenOverrides = {}): Promise<string> {
-      const claims: Record<string, unknown> = {
+      const claims: IdTokenClaims = {
         email: overrides.email === undefined ? "person@example.test" : overrides.email,
         preferred_username: overrides.handle === undefined ? "person" : overrides.handle,
         name: overrides.displayName === undefined ? "Test Person" : overrides.displayName,
@@ -89,9 +106,9 @@ export async function makeOidcTestIssuer(
       // looks like.
       const profileId =
         overrides.osnProfileId === undefined ? TEST_PROFILE_ID : overrides.osnProfileId;
-      if (profileId !== null) claims["osn_profile_id"] = profileId;
-      if (overrides.nonce !== undefined) claims["nonce"] = overrides.nonce;
-      if (overrides.authTime !== undefined) claims["auth_time"] = overrides.authTime;
+      if (profileId !== null) claims.osn_profile_id = profileId;
+      if (overrides.nonce !== undefined) claims.nonce = overrides.nonce;
+      if (overrides.authTime !== undefined) claims.auth_time = overrides.authTime;
 
       return new SignJWT(claims)
         .setProtectedHeader({ alg: "ES256", kid: "test-oidc-kid" })

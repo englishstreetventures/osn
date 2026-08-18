@@ -25,7 +25,11 @@ import { R2Service, fetchUpload, storeUpload } from "../services/r2-imports";
 import type { R2Bucket } from "../services/r2-imports";
 import { revertImport } from "../services/revert";
 import { parseEventsCsv, parseGuestsCsv } from "../services/spreadsheet";
-import type { SpreadsheetParseError } from "../services/spreadsheet";
+import type {
+  MalformedSpreadsheetReason,
+  SheetKind,
+  SpreadsheetParseError,
+} from "../services/spreadsheet";
 
 const ONE_MB = 1 * 1024 * 1024;
 
@@ -61,7 +65,26 @@ const MAX_REFLECTED_LABEL = 64;
 function truncateLabel(s: string): string {
   return s.length > MAX_REFLECTED_LABEL ? `${s.slice(0, MAX_REFLECTED_LABEL)}…` : s;
 }
-function parseErrorBody(e: SpreadsheetParseError): Record<string, unknown> {
+/**
+ * The wire body itself — the union of what the four branches below emit, named
+ * so the contract above is a type rather than a comment. `reason` is only on a
+ * `MalformedSpreadsheet`; `row`/`column` are absent on the two column errors;
+ * `sheet` is always present (null when the parser didn't stamp one).
+ */
+interface ParseErrorBody {
+  /** Static, organiser-facing headline for the tag. Never cell content. */
+  error: string;
+  /** Static literal from a closed union — `MalformedSpreadsheet` only. */
+  reason?: MalformedSpreadsheetReason;
+  /** 1-indexed row we computed, `null` for a whole-file failure. */
+  row?: number | null;
+  /** 1-indexed column number, or the (truncated) header text for a column error. */
+  column?: number | string | null;
+  /** Which uploaded sheet it came from, `null` when unstamped. */
+  sheet: SheetKind | null;
+}
+
+function parseErrorBody(e: SpreadsheetParseError): ParseErrorBody {
   const sheet = e.sheet ?? null;
   switch (e._tag) {
     case "MalformedSpreadsheet":

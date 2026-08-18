@@ -12,11 +12,6 @@
  * committed spec can never drift from what the app serves.
  */
 
-type Doc = Record<string, unknown>;
-
-const isSchema = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
-
 /**
  * One node of the OpenAPI document as it sits in memory: the JSON value space,
  * plus `undefined` for a key `JSON.stringify` will drop on the way out.
@@ -33,6 +28,16 @@ export type JsonNode =
   | undefined
   | readonly JsonNode[]
   | { readonly [key: string]: JsonNode };
+
+/**
+ * An object node of that same document, spelled mutably: every fix below
+ * rewrites the parsed document in place rather than rebuilding it, so they all
+ * take the writable twin of {@link JsonNode}'s object member.
+ */
+export type Doc = { [key: string]: JsonNode };
+
+const isSchema = (value: unknown): value is Doc =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
 
 // The leaves of the walk. Spelled out rather than asserted, so a value JSON
 // cannot represent (a function, a Symbol, a Date the plugin somehow left in)
@@ -58,8 +63,8 @@ export function sortKeys(value: unknown): JsonNode {
   }
   if (value !== null && typeof value === "object") {
     const sorted: Record<string, JsonNode> = {};
-    for (const key of Object.keys(value as Record<string, unknown>).toSorted()) {
-      sorted[key] = sortKeys((value as Record<string, unknown>)[key]);
+    for (const key of Object.keys(value as Doc).toSorted()) {
+      sorted[key] = sortKeys((value as Doc)[key]);
     }
     return sorted;
   }

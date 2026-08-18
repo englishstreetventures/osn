@@ -52,6 +52,21 @@ interface CachedKey {
   fetchedAt: number;
 }
 
+/**
+ * A JWKS entry, narrowed to the one member this cache reads: the `kid` it is
+ * looked up by. The key material itself is never inspected here — the matched
+ * entry goes to `importKeyFromJwk`, which validates the ES256 (EC P-256) shape
+ * and rejects anything else.
+ */
+interface JwksEntry {
+  readonly kid: string;
+}
+
+/** True when `value` is a JWKS entry published under `kid`. */
+function hasKid(value: unknown, kid: string): value is JwksEntry {
+  return typeof value === "object" && value !== null && "kid" in value && value.kid === kid;
+}
+
 const cache = new Map<string, CachedKey>();
 /** Last-access timestamps for LRU eviction (same pattern as @shared/crypto). */
 const lastAccess = new Map<string, number>();
@@ -129,10 +144,7 @@ async function fetchPublicKey(kid: string, jwksUrl: string): Promise<CryptoKey |
     return null;
   }
 
-  const jwk = keys.find(
-    (k): k is Record<string, unknown> =>
-      typeof k === "object" && k !== null && (k as Record<string, unknown>)["kid"] === kid,
-  );
+  const jwk = keys.find((k): k is JwksEntry => hasKid(k, kid));
 
   if (!jwk) {
     recordNegative(cacheKey(kid, jwksUrl));
