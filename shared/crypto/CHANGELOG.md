@@ -1,5 +1,12 @@
 # @osn/crypto
 
+## 0.10.4
+
+### Patch Changes
+
+- Updated dependencies [60e9c51]
+  - @shared/observability@0.13.5
+
 ## 0.10.3
 
 ### Patch Changes
