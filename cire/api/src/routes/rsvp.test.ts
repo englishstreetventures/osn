@@ -226,6 +226,47 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
+    "returns 403 (not-invited, not not-owned) for a guest with zero guest_events rows (P-W1 LEFT JOIN null case)",
+    eff(
+      Effect.gen(function* () {
+        // Ownership and invitation used to come off two separate queries;
+        // folding them into one LEFT JOIN must not drop a guest who has no
+        // guest_events rows at all. Insert a guest into Ada's family with no
+        // invitations, then confirm the ownership gate still passes for them
+        // — the request must fail on the INVITATION gate (403 "not invited"),
+        // not the OWNERSHIP gate (403 "do not belong to this family").
+        const noInviteGuestId = yield* Effect.sync(() => crypto.randomUUID());
+        yield* Effect.sync(() => {
+          const [ada] = db
+            .select({ familyId: guests.familyId })
+            .from(guests)
+            .where(eq(guests.id, sharmaGuestId))
+            .all();
+          db.insert(guests)
+            .values({
+              id: noInviteGuestId,
+              familyId: ada!.familyId,
+              firstName: "NoInvite",
+              lastName: "Testfamily",
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .run();
+        });
+
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* post(
+          { rsvps: [{ guestId: noInviteGuestId, eventId: HINDU_ID, status: "attending" }] },
+          cookie,
+        );
+        expect(res.status).toBe(403);
+        const data = yield* Effect.promise(() => res.json<{ error: string }>());
+        expect(data.error).toBe("One or more guests are not invited to that event");
+      }),
+    ),
+  );
+
+  it(
     "returns 403 when RSVPing to another wedding's event UUID (S-M1)",
     eff(
       Effect.gen(function* () {

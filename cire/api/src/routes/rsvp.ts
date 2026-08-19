@@ -1,6 +1,6 @@
 import { families, guests, guestEvents, weddings } from "@cire/db";
 import type { TurnstileVerifier } from "@shared/turnstile";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
 
@@ -68,21 +68,53 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
 
             const dbService = yield* DbService;
 
-            // The household's own row plus its wedding's RSVP deadline — one
-            // join rather than two round-trips, since both gates below run on
-            // every submit. The FK guarantees the wedding row exists, so an
-            // inner join can only miss if the family itself is gone.
-            const [family] = yield* dbQuery(() =>
-              dbService
-                .select({
-                  kind: families.kind,
-                  rsvpDeadline: weddings.rsvpDeadline,
-                  rsvpDeadlineTimezone: weddings.rsvpDeadlineTimezone,
-                })
-                .from(families)
-                .innerJoin(weddings, eq(weddings.id, families.weddingId))
-                .where(eq(families.id, familyId))
-                .all(),
+            // P-W1: the deadline join and the guest/invitation join are both
+            // keyed ONLY on the authenticated familyId, both are reads, and
+            // neither result is returned to the caller before the gates below
+            // run — so it's safe to fire them concurrently instead of paying
+            // for two serialised round-trips. `Effect.all` is sequential by
+            // default; the concurrency option is what actually parallelises
+            // this. The trade: the guest/invitation read now runs even on a
+            // request a later gate rejects (host preview, closed deadline),
+            // where it used to be skipped. One extra index-served read on the
+            // reject path buys one fewer round-trip on every accept path. Both sides are already index-served: guests_family_id_sort_idx
+            // covers the family/guest join's WHERE, and guest_events' primary key
+            // (guest_id, event_id) covers the LEFT JOIN probe.
+            const [[family], familyGuestEvents] = yield* Effect.all(
+              [
+                // The household's own row plus its wedding's RSVP deadline — one
+                // join rather than two round-trips, since both gates below run on
+                // every submit. The FK guarantees the wedding row exists, so an
+                // inner join can only miss if the family itself is gone.
+                dbQuery(() =>
+                  dbService
+                    .select({
+                      kind: families.kind,
+                      rsvpDeadline: weddings.rsvpDeadline,
+                      rsvpDeadlineTimezone: weddings.rsvpDeadlineTimezone,
+                    })
+                    .from(families)
+                    .innerJoin(weddings, eq(weddings.id, families.weddingId))
+                    .where(eq(families.id, familyId))
+                    .all(),
+                ),
+                // Every guest owned by this family, LEFT JOINed to their event
+                // invitations (a guest with zero guest_events rows still belongs
+                // to the family — the join must not drop them). This is read 2
+                // and read 3 from before folded into one query; ownership and
+                // invitation sets are both derived from it below. Deliberately
+                // keyed on familyId alone, never on body-supplied guest/event
+                // ids — those are only validated AFTER ownership is established.
+                dbQuery(() =>
+                  dbService
+                    .select({ guestId: guests.id, eventId: guestEvents.eventId })
+                    .from(guests)
+                    .leftJoin(guestEvents, eq(guestEvents.guestId, guests.id))
+                    .where(eq(guests.familyId, familyId))
+                    .all(),
+                ),
+              ],
+              { concurrency: "unbounded" },
             );
 
             // Fail CLOSED on a missing row (S-L1). Both gates below read this
@@ -119,15 +151,10 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
               return { error: "rsvp_closed" };
             }
 
-            // Guest IDs that belong to the session's family.
-            const familyGuests = yield* dbQuery(() =>
-              dbService
-                .select({ id: guests.id })
-                .from(guests)
-                .where(eq(guests.familyId, familyId))
-                .all(),
-            );
-            const familyGuestIds = new Set(familyGuests.map((g) => g.id));
+            // Guest IDs that belong to the session's family — every distinct
+            // guestId in the joined rows, including rows whose eventId is null
+            // (a guest with no invitations still belongs to the family).
+            const familyGuestIds = new Set(familyGuestEvents.map((row) => row.guestId));
 
             // Validate every requested guestId is owned by the session's family.
             for (const rsvp of body.rsvps) {
@@ -140,18 +167,13 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
             // S-M1: every (guestId, eventId) pair must correspond to a real
             // invitation. Without this a guest could RSVP to an event they aren't
             // invited to — including another wedding's event if they learn its UUID.
-            // One scoped query over guest_events covers the whole batch; we only
-            // fetch links for THIS family's guests (already validated above), so a
-            // foreign wedding's links can never satisfy a pair.
-            const guestIds = [...new Set(body.rsvps.map((r) => r.guestId))];
-            const invitations = yield* dbQuery(() =>
-              dbService
-                .select({ guestId: guestEvents.guestId, eventId: guestEvents.eventId })
-                .from(guestEvents)
-                .where(inArray(guestEvents.guestId, guestIds))
-                .all(),
+            // Derived from the same LEFT JOIN as the ownership set above; a null
+            // eventId (no invitation) must never enter this set.
+            const invitedSet = new Set(
+              familyGuestEvents
+                .filter((row) => row.eventId !== null)
+                .map((row) => `${row.guestId}::${row.eventId}`),
             );
-            const invitedSet = new Set(invitations.map((i) => `${i.guestId}::${i.eventId}`));
             for (const rsvp of body.rsvps) {
               if (!invitedSet.has(`${rsvp.guestId}::${rsvp.eventId}`)) {
                 set.status = 403;
