@@ -280,6 +280,44 @@ describe("cire/api over real D1 (Miniflare)", () => {
     expect(await db.select().from(families).where(eq(families.id, "fam_y"))).toHaveLength(0);
   });
 
+  it("submitRsvps commits a 51-pair batch over D1's per-batch ceiling (P-W2)", async () => {
+    // MAX_STATEMENTS_PER_BATCH is 50; a 51-statement submit must be chunked by
+    // commitGroupedBatches rather than sent as one over-ceiling db.batch() call
+    // (which D1 rejects outright). bun:sqlite cannot exercise this: commitBatch
+    // feature-detects `.batch()` and falls back to a sequential loop there, so
+    // only the real (Miniflare-backed) D1 driver proves the fix.
+    const eventIds = Array.from({ length: 51 }, (_, i) => `evt_bulk_${i}`);
+    // One insert per event, not a single 51-row bulk insert — the bulk form
+    // trips D1's own bound-parameter ceiling on a single statement, a
+    // different limit than the per-batch statement ceiling this test targets.
+    for (const [i, id] of eventIds.entries()) {
+      await db.insert(events).values({
+        id,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        slug: `bulk-${i}`,
+        name: `Bulk ${i}`,
+        description: "",
+        startAt: "",
+        endAt: "",
+        timezone: "",
+        sortOrder: 10 + i,
+      });
+    }
+
+    const inputs = eventIds.map((eventId) => ({
+      guestId: GUEST_1,
+      eventId,
+      status: "attending" as const,
+      dietary: "",
+      dietaryConsent: false,
+    }));
+
+    await run(rsvpService.submitRsvps(inputs));
+
+    const rows = await db.select().from(rsvps).where(eq(rsvps.guestId, GUEST_1));
+    expect(rows).toHaveLength(51);
+  });
+
   it("tasks.reorder commits its per-row updates over the D1 batch path", async () => {
     // Regression guard: reorder used to run through db.transaction(), which the
     // D1 driver implements as literal BEGIN/COMMIT (rejected by D1) with

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect } from "effect";
 
-import { DbService, dbQuery, commitBatch } from "../db";
+import { DbService, dbQuery, commitGroupedBatches } from "../db";
 import { metricRsvpUpserted } from "../metrics";
 import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import type { RsvpRecord } from "../schemas/rsvp";
@@ -48,23 +48,29 @@ export const rsvpService = {
   },
 
   /**
-   * Upsert a batch of RSVPs (one per guest×event pair) in a SINGLE D1 round-trip
-   * (P-W1). Caller MUST have validated every `guestId` belongs to the claimed
-   * family AND every (guestId, eventId) is a real invitation before invoking —
-   * this method does not re-check (the route validates the whole batch up front).
+   * Upsert a batch of RSVPs (one per guest×event pair) in as few D1 round-trips
+   * as the ceiling allows (P-W1, chunked per P-W2). Caller MUST have validated
+   * every `guestId` belongs to the claimed family AND every (guestId, eventId)
+   * is a real invitation before invoking — this method does not re-check (the
+   * route validates the whole batch up front).
    *
-   * Each pair becomes its own `INSERT … ON CONFLICT DO UPDATE`, collected into one
-   * `db.batch([...])` via {@link commitBatch} — mirroring `applyImport`'s write set
-   * and respecting the sync/async bridge:
-   *  - D1 (production): one atomic Workers↔D1 round-trip for the whole batch
-   *    (was N sequential round-trips on the guest hot path).
-   *  - bun:sqlite (tests/local, no `.batch()`): `commitBatch` awaits the statements
-   *    sequentially in-process — same per-pair upserts, no network cost.
+   * Each pair becomes its own `INSERT … ON CONFLICT DO UPDATE`, passed to
+   * {@link commitGroupedBatches} as a singleton group per statement — mirroring
+   * `applyImport`'s write set and respecting the sync/async bridge:
+   *  - D1 (production): chunked into batches of at most `MAX_STATEMENTS_PER_BATCH`
+   *    (was N sequential round-trips pre-P-W1, then one over-ceiling batch that
+   *    could 500 above 50 statements pre-P-W2).
+   *  - bun:sqlite (tests/local, no `.batch()`): statements run sequentially
+   *    in-process — same per-pair upserts, no network cost.
    * Either way the per-pair upsert semantics + dietary-consent stamping are
    * unchanged. An empty batch is a no-op (no statements, no metrics). Per-pair
    * `metricRsvpUpserted` is preserved so the observability shape is identical to
    * N single submits. The whole batch shares one `now` (a single submit always
-   * did too); a re-submit that clears dietary still nulls the consent record.
+   * did too, and it's captured before chunking so every chunk stamps the same
+   * `createdAt` / dietary-consent evidence); a re-submit that clears dietary
+   * still nulls the consent record. Whole-set atomicity is deliberately given
+   * up beyond `MAX_STATEMENTS_PER_BATCH` (each pair is an idempotent upsert on
+   * `(guestId, eventId)`, safe to re-apply on retry).
    */
   submitRsvps(inputs: readonly RsvpInput[]): Effect.Effect<void, never, DbService> {
     return Effect.gen(function* () {
@@ -104,7 +110,12 @@ export const rsvpService = {
           });
       });
 
-      yield* dbQuery(() => commitBatch(db, statements));
+      yield* dbQuery(() =>
+        commitGroupedBatches(
+          db,
+          statements.map((s) => [s]),
+        ),
+      );
       for (const input of inputs) {
         const writer = (input.consentSource ?? "guest") === "guest" ? "guest" : "organiser";
         yield* Effect.sync(() => metricRsvpUpserted(input.status, writer, "ok"));
