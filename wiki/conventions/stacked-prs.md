@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[review-findings]]"
   - "[[commands]]"
-last-reviewed: 2026-08-19
+last-reviewed: 2026-08-20
 ---
 
 # Stacked PRs
@@ -52,7 +52,18 @@ It pushes any branch that is not on the remote, opens a PR for any branch that h
 
 Run it once the second PR of a stack exists, and again with the new PR appended each time the stack grows.
 
-Everything else the extension offers — `gh stack init/add/submit/sync/rebase`, the navigation verbs — assumes local stack tracking in one checkout. Reach for them only in a single-checkout clone. `gh stack view` reports the current branch's stack and is safe anywhere.
+Everything else the extension offers — `gh stack init/add/submit/sync/rebase`, the navigation verbs — assumes local stack tracking in one checkout. Reach for them only in a single-checkout clone.
+
+`gh stack view` is in that group too, which is easy to miss: `link` registers the stack on GitHub and writes **no local state**, so `view` reports `current branch "<name>" is not part of a stack` on a stack that exists and renders fine on GitHub. It is not a failure. To read the stack locally, import the tracking first — `gh stack checkout <stack-number>` (the number `link` printed) is a no-op on the branch you are already on, and prints the chain:
+
+```
+$ gh stack link 713 716
+✓ Created stack with 2 PRs (stack #717)
+
+$ gh stack checkout 717
+✓ Imported stack with 2 branches from GitHub (stack #717)
+Stack: (main) <- fix/cire-rsvp-batch-ceiling <- perf/cire-rsvp-roundtrips
+```
 
 ## The base branch
 
@@ -93,10 +104,12 @@ Never assume. Two checks, one per half:
 
 ```bash
 gh pr list --repo xchromo/osn --state open --json number,headRefName,baseRefName
-gh stack view                    # from any branch in the stack
+gh stack checkout <stack-number> # then: gh stack view, from any branch in it
 ```
 
-Every PR but the bottom one must show its parent's branch in `baseRefName`. A PR showing `main` is not stacked. And if `gh stack view` says the branch is not part of a stack, the chain exists in base branches only — GitHub will render no stack. Run `gh stack link`.
+Every PR but the bottom one must show its parent's branch in `baseRefName`. A PR showing `main` is not stacked — fix the base.
+
+For the other half, check the number `gh stack link` printed. `gh stack view` alone is not the check: it reads local tracking, which `link` never writes, so it says "not part of a stack" whether the stack is missing or merely unimported. Run `gh stack checkout <stack-number>` first — it fails loudly on a stack that does not exist, and prints the chain on one that does.
 
 ## Merge order
 
