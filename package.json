@@ -44,7 +44,7 @@
   },
   "overrides": {
     "@babel/core": "^7.29.7",
-    "@opentelemetry/core": "^2.9.0",
+    "@opentelemetry/core": "^2.10.0",
     "devalue": "^5.8.1",
     "esbuild": "^0.28.1",
     "fast-uri": "^3.1.5",
