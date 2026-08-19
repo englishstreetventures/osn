@@ -23,7 +23,7 @@
  * enquiry with no re-provision and no second email.
  */
 
-import { directoryVendors, vendorEnquiries, vendors } from "@cire/db";
+import { vendorEnquiries, vendors } from "@cire/db";
 import type { EmailTemplateData, SendEmailInput } from "@shared/email";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { Data, Effect, type Types } from "effect";
@@ -31,6 +31,7 @@ import { Data, Effect, type Types } from "effect";
 import { commitBatch, DbService, dbQuery } from "../db";
 import type { ServiceCategory } from "../lib/service-categories";
 import { budgetService } from "./budget";
+import type { DirectoryVendorRow } from "./directory";
 import { vendorsService } from "./vendors";
 import type { ZapChatClient } from "./zap-bridge";
 
@@ -131,8 +132,7 @@ export interface OpenEnquiryInput {
   category: string;
   message: string;
   createdBy: string;
-  vendorEmail: string | null;
-  leadForwardEmail: string | null;
+  listing: DirectoryVendorRow | null;
   claimUrl: string;
 }
 
@@ -244,19 +244,9 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
       return Effect.gen(function* () {
         const db = yield* DbService;
 
-        // Resolve the listing (name/email/phone for the CRM row + its claim state).
-        const [listing] = yield* dbQuery(() =>
-          db
-            .select({
-              name: directoryVendors.name,
-              email: directoryVendors.email,
-              phone: directoryVendors.phone,
-              claimedByProfileId: directoryVendors.claimedByProfileId,
-            })
-            .from(directoryVendors)
-            .where(eq(directoryVendors.id, input.directoryVendorId))
-            .all(),
-        );
+        // Listing (name/email/phone for the CRM row + its claim state) is
+        // resolved once by the caller and passed down.
+        const listing = input.listing;
         if (!listing) return yield* Effect.fail(new EnquiryNotFound());
 
         // (2) Idempotency: an existing thread for (wedding, listing) is returned
@@ -281,14 +271,14 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
         // vendors row, no enquiry INSERT), so nothing is orphaned; the route
         // surfaces it as 503 and the couple retries. Only genuinely UNCLAIMED
         // listings buffer.
-        const claimedBy = (listing as { claimedByProfileId: string | null }).claimedByProfileId;
+        const claimedBy = listing.claimedByProfileId;
         if (claimedBy && !deps.zap) return yield* Effect.fail(new ZapUnavailable());
 
         // (1) Create-if-missing the CRM vendor row.
         const vendorId = yield* ensureVendorRow(
           input.weddingId,
           input.directoryVendorId,
-          listing as { name: string; email: string | null; phone: string | null },
+          listing,
           input.category,
         );
 
@@ -337,23 +327,23 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
         // copy to the lead-forward address if set.
         const unclaimed = !claimedBy;
         const url = threadUrl(deps.threadBaseUrl, row.id);
-        if (input.vendorEmail) {
+        if (listing.email) {
           const data: Types.Mutable<EmailTemplateData<"enquiry-new">> = {
-            vendorName: (listing as { name: string }).name,
+            vendorName: listing.name,
             weddingName: input.weddingName,
             message: input.message,
             threadUrl: url,
             unclaimed,
           };
           if (unclaimed) data.claimUrl = input.claimUrl;
-          yield* deps.sendEmail({ template: "enquiry-new", to: input.vendorEmail, data });
+          yield* deps.sendEmail({ template: "enquiry-new", to: listing.email, data });
         }
-        if (unclaimed && input.leadForwardEmail) {
+        if (unclaimed && listing.leadForwardEmail) {
           yield* deps.sendEmail({
             template: "enquiry-new",
-            to: input.leadForwardEmail,
+            to: listing.leadForwardEmail,
             data: {
-              vendorName: (listing as { name: string }).name,
+              vendorName: listing.name,
               weddingName: input.weddingName,
               message: input.message,
               threadUrl: url,
@@ -531,11 +521,15 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
           yield* deps.sendEmail({ template: "enquiry-quote", to: input.coupleEmail, data });
         }
 
-        // Re-read for the fresh DTO.
-        const [updated] = yield* dbQuery(() =>
-          db.select().from(vendorEnquiries).where(eq(vendorEnquiries.id, enquiry.id)).all(),
-        );
-        return toDto(updated as EnquiryRow);
+        // Build the DTO from known values rather than re-reading.
+        const updated: EnquiryRow = {
+          ...enquiry,
+          quotedMinor: input.amountMinor,
+          status: "quoted",
+          lastMessageAt: now,
+          updatedAt: now,
+        };
+        return toDto(updated);
       }).pipe(Effect.withSpan("cire.enquiries.quote"));
     },
 

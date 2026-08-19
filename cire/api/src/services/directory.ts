@@ -43,6 +43,21 @@ const CLAIM_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Union projection of the `directory_vendors` columns needed across the
+ * enquiry-creation path (route claim-mint gate + service open() + claim
+ * minting) — read once at the route and passed down.
+ */
+export interface DirectoryVendorRow {
+  id: string;
+  ownerOrgId: string | null;
+  email: string | null;
+  name: string;
+  phone: string | null;
+  claimedByProfileId: string | null;
+  leadForwardEmail: string | null;
+}
+
 export interface ListingDto {
   id: string;
   ownerOrgId: string | null;
@@ -471,27 +486,13 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
      * mechanism, not a new subsystem.
      */
     issueClaimForListing(
-      directoryVendorId: string,
+      dv: DirectoryVendorRow | null,
     ): Effect.Effect<{ claimToken: string; claimUrl: string } | null, never, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
 
-        const [dv] = yield* dbQuery(() =>
-          db
-            .select({
-              id: directoryVendors.id,
-              ownerOrgId: directoryVendors.ownerOrgId,
-              email: directoryVendors.email,
-            })
-            .from(directoryVendors)
-            .where(eq(directoryVendors.id, directoryVendorId))
-            .all(),
-        );
-        const dvRow = dv as
-          | { id: string; ownerOrgId: string | null; email: string | null }
-          | undefined;
         // Unknown or already-claimed listing → no claim CTA needed.
-        if (!dvRow || dvRow.ownerOrgId !== null) return null;
+        if (!dv || dv.ownerOrgId !== null) return null;
 
         const now = new Date();
         const token = generateToken();
@@ -504,9 +505,9 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
             .insert(vendorClaims)
             .values({
               id: claimId,
-              directoryVendorId,
+              directoryVendorId: dv.id,
               tokenHash,
-              email: dvRow.email ?? "",
+              email: dv.email ?? "",
               createdAt: now,
               expiresAt,
               consumedAt: null,

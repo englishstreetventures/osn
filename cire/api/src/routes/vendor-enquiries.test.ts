@@ -539,7 +539,17 @@ describe("claim-flush wiring (POST /api/vendor/claims/:token/consume)", () => {
     const { DbService } = await import("../db");
     const svc = createDirectoryService();
     const claim = await Effect.runPromise(
-      svc.issueClaimForListing(dvId).pipe(Effect.provideService(DbService, db)),
+      svc
+        .issueClaimForListing({
+          id: dvId,
+          ownerOrgId: null,
+          email: "toclaim@vendor.test",
+          name: "To Claim Florals",
+          phone: null,
+          claimedByProfileId: null,
+          leadForwardEmail: null,
+        })
+        .pipe(Effect.provideService(DbService, db)),
     );
     expect(claim).not.toBeNull();
 

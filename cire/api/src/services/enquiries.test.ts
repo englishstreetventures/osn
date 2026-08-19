@@ -15,6 +15,7 @@ import { Effect, Exit } from "effect";
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
+import type { DirectoryVendorRow } from "./directory";
 import {
   createEnquiryService,
   EnquiryAwaitingVendor,
@@ -128,20 +129,46 @@ function fakeEmail() {
 
 const THREAD_BASE = "https://host.cireweddings.test/enquiries";
 
+// Mirrors the two directory_vendors rows db0() seeds, keyed by id, so
+// openInput()'s default `listing` always matches whichever directoryVendorId
+// is in effect (default or overridden) rather than going stale.
+const LISTING_BY_VENDOR_ID: Record<string, DirectoryVendorRow> = {
+  [CLAIMED_VENDOR_ID]: {
+    id: CLAIMED_VENDOR_ID,
+    ownerOrgId: null,
+    email: "claimed@vendor.test",
+    name: "Bloom & Co",
+    phone: "0400000001",
+    claimedByProfileId: VENDOR_PROFILE_ID,
+    leadForwardEmail: null,
+  },
+  [UNCLAIMED_VENDOR_ID]: {
+    id: UNCLAIMED_VENDOR_ID,
+    ownerOrgId: null,
+    email: "unclaimed@vendor.test",
+    name: "Wildflower Studio",
+    phone: "0400000002",
+    claimedByProfileId: null,
+    leadForwardEmail: "leads@wildflower.test",
+  },
+};
+
 const openInput = (
   over: Partial<Parameters<ReturnType<typeof createEnquiryService>["open"]>[0]> = {},
-) => ({
-  weddingId: BOOTSTRAP_WEDDING_ID,
-  weddingName: "Alex & Sam",
-  directoryVendorId: CLAIMED_VENDOR_ID,
-  category: "florist",
-  message: "Are you free on our date?",
-  createdBy: ORGANISER_PROFILE_ID,
-  vendorEmail: "claimed@vendor.test",
-  leadForwardEmail: null,
-  claimUrl: "https://claim.test/abc",
-  ...over,
-});
+) => {
+  const directoryVendorId = over.directoryVendorId ?? CLAIMED_VENDOR_ID;
+  return {
+    weddingId: BOOTSTRAP_WEDDING_ID,
+    weddingName: "Alex & Sam",
+    directoryVendorId,
+    category: "florist",
+    message: "Are you free on our date?",
+    createdBy: ORGANISER_PROFILE_ID,
+    listing: LISTING_BY_VENDOR_ID[directoryVendorId] ?? null,
+    claimUrl: "https://claim.test/abc",
+    ...over,
+  };
+};
 
 // Read an enquiry row straight from the DB, cast to EnquiryRow for reuse.
 function readEnquiry(db: Db, id: string): EnquiryRow {
@@ -213,16 +240,7 @@ describe("enquiryService.open", () => {
       threadBaseUrl: THREAD_BASE,
     });
 
-    const res = await run(
-      db,
-      svc.open(
-        openInput({
-          directoryVendorId: UNCLAIMED_VENDOR_ID,
-          vendorEmail: "unclaimed@vendor.test",
-          leadForwardEmail: "leads@wildflower.test",
-        }),
-      ),
-    );
+    const res = await run(db, svc.open(openInput({ directoryVendorId: UNCLAIMED_VENDOR_ID })));
     if (!Exit.isSuccess(res)) throw new Error("open failed");
 
     // No provision on an unclaimed listing.

@@ -136,6 +136,64 @@ describe("directoryService.upsertListingForOrg", () => {
   });
 });
 
+describe("directoryService.issueClaimForListing", () => {
+  it("returns null for a listing with ownerOrgId already set (no claim minted)", async () => {
+    const db = db0();
+    const dvId = `dv_${crypto.randomUUID()}`;
+    db.insert(directoryVendors)
+      .values({
+        id: dvId,
+        ownerOrgId: "org_owner",
+        name: "Owned Listing",
+        description: null,
+        email: "owned@vendor.com",
+        phone: null,
+        website: null,
+        instagram: null,
+        locationText: null,
+        priceBand: null,
+        priceMinMinor: null,
+        priceMaxMinor: null,
+        listed: "live",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .run();
+
+    const res = await run(
+      db,
+      directoryService.issueClaimForListing({
+        id: dvId,
+        ownerOrgId: "org_owner",
+        email: "owned@vendor.com",
+        name: "Owned Listing",
+        phone: null,
+        claimedByProfileId: null,
+        leadForwardEmail: null,
+      }),
+    );
+    expect(Exit.isSuccess(res)).toBe(true);
+    if (!Exit.isSuccess(res)) throw new Error("failed");
+    expect(res.value).toBeNull();
+
+    // No claim row was inserted for this listing.
+    const claimRows = db
+      .select()
+      .from(vendorClaims)
+      .where(eq(vendorClaims.directoryVendorId, dvId))
+      .all();
+    expect(claimRows.length).toBe(0);
+  });
+
+  it("returns null for a null row (no listing found)", async () => {
+    const db = db0();
+    const res = await run(db, directoryService.issueClaimForListing(null));
+    expect(Exit.isSuccess(res)).toBe(true);
+    if (!Exit.isSuccess(res)) throw new Error("failed");
+    expect(res.value).toBeNull();
+  });
+});
+
 describe("directoryService.getListingByOrg", () => {
   it("returns null for a non-existent org", async () => {
     const db = db0();

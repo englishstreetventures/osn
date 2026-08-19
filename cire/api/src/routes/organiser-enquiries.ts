@@ -14,7 +14,7 @@ import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
 import { weddingEditor } from "../middleware/wedding-editor";
 import { weddingMember } from "../middleware/wedding-member";
 import { runCire } from "../observability";
-import type { createDirectoryService } from "../services/directory";
+import type { createDirectoryService, DirectoryVendorRow } from "../services/directory";
 import type { createEnquiryService, EnquiryRow } from "../services/enquiries";
 
 // Sentinel parse hook: stops Elysia from consuming the body so the handler can
@@ -166,18 +166,27 @@ export const createOrganiserEnquiriesRoutes = (
               return runCire(
                 Effect.gen(function* () {
                   const body = yield* Schema.decodeUnknown(OpenBody)(raw);
-                  // Route supplies the email fields + claim URL from the listing.
+                  // Single read of the listing — the union of what the claim
+                  // gate, enquiry-open, and the email fields each need. The row
+                  // is passed down; the claim-mint gate (ownerOrgId !== null)
+                  // stays inside issueClaimForListing, not decided here.
                   const db_ = yield* DbService;
-                  const [listing] = yield* dbQuery(() =>
+                  const [dv] = yield* dbQuery(() =>
                     db_
                       .select({
+                        id: directoryVendors.id,
+                        ownerOrgId: directoryVendors.ownerOrgId,
                         email: directoryVendors.email,
+                        name: directoryVendors.name,
+                        phone: directoryVendors.phone,
+                        claimedByProfileId: directoryVendors.claimedByProfileId,
                         leadForwardEmail: directoryVendors.leadForwardEmail,
                       })
                       .from(directoryVendors)
                       .where(eq(directoryVendors.id, body.directoryVendorId))
                       .all(),
                   );
+                  const dvRow = (dv as DirectoryVendorRow | undefined) ?? null;
                   const [wedding] = yield* dbQuery(() =>
                     db_
                       .select({ displayName: weddings.displayName })
@@ -185,18 +194,13 @@ export const createOrganiserEnquiriesRoutes = (
                       .where(eq(weddings.id, weddingId))
                       .all(),
                   );
-                  const listingRow = listing as
-                    | { email: string | null; leadForwardEmail: string | null }
-                    | undefined;
                   // Claim CTA: mint a single-use token on the listing via the
                   // canonical directory flow → `${vendorPortalOrigin}/claim?token=…`,
                   // consumable by `POST /api/vendor/claims/:token/consume`. Returns
                   // null for an already-claimed (or unknown) listing, in which case
                   // the enquiry-new email omits the CTA anyway (open() only sends it
                   // when unclaimed). Never hand-roll a `?listing=` URL.
-                  const claim = yield* directoryService.issueClaimForListing(
-                    body.directoryVendorId,
-                  );
+                  const claim = yield* directoryService.issueClaimForListing(dvRow);
                   const enquiry = yield* enquiryService.open({
                     weddingId,
                     weddingName:
@@ -205,8 +209,7 @@ export const createOrganiserEnquiriesRoutes = (
                     category: body.category,
                     message: body.message,
                     createdBy: osnProfileId,
-                    vendorEmail: listingRow?.email ?? null,
-                    leadForwardEmail: listingRow?.leadForwardEmail ?? null,
+                    listing: dvRow,
                     claimUrl: claim?.claimUrl ?? "",
                   });
                   set.status = 201;
