@@ -4,7 +4,7 @@ tags: [architecture, plan, organiser, guests, events, spreadsheet]
 related:
   - "[[platform-plan]]"
   - "[[invite-builder]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-19
 updated: 2026-08-06 (E9 — the UTC offset leaves the organiser-facing surface: editor rows, drawer hint, CSV schema, exports)
 ---
 
@@ -21,7 +21,7 @@ Build plan for an interactive events + guests UI in the organiser portal that co
 
 - **Import pipeline** (`cire/api/src/services/{spreadsheet,import,revert,r2-imports}.ts`, routes in `routes/organiser-import.ts`): parse (RFC 4180, formula-injection guard, required columns, per-cell rules with row/column-scoped errors) → `diffAgainstDb` (name-matched reconcile, wedding-scoped through the families join, RSVP-loss warnings) → preview row in `imports` + R2 snapshot of the **uploaded** sheets → `applyImport` (FK-ordered write set, ≤50-statement D1 batches) → `revertImport` (re-applies the *previous applied import's* sheets).
 - **Read surfaces**: `EventTable` / `GuestTable` (read-only rows + code management), `ChangeHistory` (list + revert).
-- **Write surfaces**: each module's **Edit** sub-tab is a choice between two ways in, held by `EditWorkspace.tsx` — the on-page editor (`EventsEditor` / `GuestsEditor`) or `ImportPanel`, one mounted at a time, a switch guarded by `confirmNavigation()`. `ImportPanel` is **per-sheet** (`kind: "events" | "guests"`) and posts only its own CSV key, so a module's import can never reconcile the other module's half (2026-08-06, see [[completed-features]]). Before that it sat above the guest list on the Guests read tab carrying both sheets. The `schedule` module is now `events`.
+- **Write surfaces**: each module's **Edit** sub-tab is a choice between two ways in, held by `EditWorkspace.tsx` — the on-page editor (`EventsEditor` / `GuestsEditor`) or `ImportPanel`, one mounted at a time, a switch guarded by `confirmNavigation()`. `ImportPanel` is **per-sheet** (`kind: "events" | "guests"`) and posts only its own CSV key, so a module's import can never reconcile the other module's half (2026-08-06). Before that it sat above the guest list on the Guests read tab carrying both sheets. The `schedule` module is now `events`.
 - **Reporting exports**: `guests.csv` / `events.csv` / `rsvps.csv` (`services/table-export.ts`, `rsvp-export.ts`) — dashboard-shaped headers, **not** re-importable.
 - **Decided in [[platform-plan]]** (2026-07-08): direct CRUD lands (PR 5a); `source: 'import' | 'manual'` provenance on `families`/`guests`; un-invite state-loss confirm; import keeps auto-minting codes.
 

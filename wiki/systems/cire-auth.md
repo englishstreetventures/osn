@@ -11,7 +11,7 @@ related:
   - "[[arc-tokens]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-08-15
+last-reviewed: 2026-08-19
 ---
 
 # Cire auth model
@@ -151,7 +151,7 @@ Four routes make up the surface, plus the middleware:
 - **`weddingEditor()`** — **owner OR `editor` co-host**, for the module WRITE surface (`cire/api/src/middleware/wedding-editor.ts`): the **spreadsheet import** routes (`/import/preview`, `/apply`, `/revert`, `/list` — the whole subtree is write-shaped, even preview persists an import row), the **invite-builder writes** (`PUT /invite/text`, `PUT /invite/theme`, image upload/delete/crop, event images), the per-event **location** write (`PUT /events/:eventId/location`) and its **geocode** helper (`POST /settings/geocode` — billed upstream call). It also fronts **`PUT /settings`**, which is not a whole-route decision: the middleware says who may reach the handler, and the handler then rejects a NON-OWNER patch touching anything but the RSVP-by deadline with **403 `owner_only_fields`** (naming the offending keys). Shape is decoded first, so a co-host's malformed date is still a 400; the refusal is whole, never a partial write, and never a silent filter. A `viewer` co-host gets **403 `read_only_role`** (a distinct error string so the portal can say "ask the owner for editor access"); non-members get the member gate's 404/403 semantics unchanged.
 - **`weddingMember()`** — **owner OR any co-host (editor AND viewer)**, for the read surface: the dashboard reads (`/guests`, `/events`, `/rsvps`), the CSV exports, `GET /settings`, the co-host read route (`GET /hosts`), the invite read (`GET /invite`), and `preview-code` (previewing is the read experience — see above). Resolves authorisation in one round-trip via `hostsService.authorize()` (owner-id lookup + host-row probe incl. the seat's role), so it both admits the caller and exposes `weddingIsOwner` + `weddingRole` for any route that wants to keep a higher-privilege affordance inside a member-gated tree. Same 404/403 semantics; **fails closed** if the host/ARC lookup is unavailable. Sets `c.var.weddingId` + `c.var.weddingIsOwner` + `c.var.weddingRole`.
 
-**Roles capability matrix** (platform-plan §3.5, shipped Phase 0 PR 2). `wedding_hosts.role` is `editor | viewer` (app-layer enum — no DB CHECK; migration `0031` rewrote the legacy `'host'` rows to `'editor'`, and readers normalise any stray `'host'` — still the column's DDL DEFAULT, unchangeable without a rebuild — to `editor`, while any OTHER unknown/corrupted value degrades to `viewer` so the gate chain never fails open — S-L1, see [[changelog/security-fixes]]):
+**Roles capability matrix** (platform-plan §3.5, shipped Phase 0 PR 2). `wedding_hosts.role` is `editor | viewer` (app-layer enum — no DB CHECK; migration `0031` rewrote the legacy `'host'` rows to `'editor'`, and readers normalise any stray `'host'` — still the column's DDL DEFAULT, unchangeable without a rebuild — to `editor`, while any OTHER unknown/corrupted value degrades to `viewer` so the gate chain never fails open — S-L1):
 
 | Action | Owner | Editor | Viewer | Gate |
 |---|---|---|---|---|

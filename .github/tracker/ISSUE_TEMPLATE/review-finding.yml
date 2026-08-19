@@ -5,6 +5,14 @@ description: A security, performance, or compliance finding from a review.
 type: Bug
 title: "<ID> — "
 body:
+  - type: markdown
+    attributes:
+      value: |
+        The body has to stand alone. Name the file and line, state the concrete fix, spell out
+        the acronyms. A body that only points at a wiki page or a TODO is a bookmark, not a
+        finding — those pages move and get deleted. Where a page adds real context, name it by
+        repo path (`wiki/systems/rate-limiting.md`) and restate the fact here anyway.
+
   - type: input
     id: finding-id
     attributes:
@@ -18,7 +26,7 @@ body:
     id: issue
     attributes:
       label: Issue
-      description: What is wrong or missing. Name the file and line.
+      description: What is wrong or missing. Name the file and line — "missing rate limit" is not a location.
     validations:
       required: true
 
@@ -34,7 +42,7 @@ body:
     id: solution
     attributes:
       label: Solution
-      description: The concrete fix or mitigation.
+      description: The concrete fix or mitigation — the function to call, the column to add, the header to set. Not "add a limit".
     validations:
       required: true
 

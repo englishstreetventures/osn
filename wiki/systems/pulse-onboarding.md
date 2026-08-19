@@ -6,7 +6,7 @@ related:
   - "[[identity-model]]"
   - "[[arc-tokens]]"
   - "[[component-library]]"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-19
 ---
 
 # Pulse Onboarding
@@ -70,7 +70,7 @@ Migration: `pulse/db/drizzle/0004_pulse_onboarding.sql`.
 
 `GET /graph/internal/profile-account?profileId=` → `{ accountId }` or 404.
 
-ARC-protected with the **dedicated `graph:resolve-account` scope** (audience `osn-api`) — NOT the generic `graph:read` used by the sibling internal-graph endpoints. A leak of the profileId → accountId mapping breaks the multi-account privacy invariant, so only services that key state by account get the scope: pulse-api (this onboarding flow — the bridge registers `graph:read,graph:resolve-account` at boot and requests the resolve scope per call) and cire-api (account linking). A `graph:read`-only token gets 401 (S-M1 pulse-onboarding, fixed 2026-07-05 — see [[changelog/security-fixes]]). Defined in `osn/api/src/routes/graph-internal.ts`.
+ARC-protected with the **dedicated `graph:resolve-account` scope** (audience `osn-api`) — NOT the generic `graph:read` used by the sibling internal-graph endpoints. A leak of the profileId → accountId mapping breaks the multi-account privacy invariant, so only services that key state by account get the scope: pulse-api (this onboarding flow — the bridge registers `graph:read,graph:resolve-account` at boot and requests the resolve scope per call) and cire-api (account linking). A `graph:read`-only token gets 401 (S-M1 pulse-onboarding, fixed 2026-07-05). Defined in `osn/api/src/routes/graph-internal.ts`.
 
 ## Pulse endpoints
 

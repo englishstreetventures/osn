@@ -9,6 +9,9 @@ body:
         authorization — do not file it here. It goes in the private tracker as a `S-*` finding.
         See `wiki/conventions/review-findings.md`.
 
+        Fill this in so it stands alone — file paths, versions, the error verbatim. Nobody
+        reading it later has your terminal open.
+
   - type: textarea
     id: expected
     attributes:

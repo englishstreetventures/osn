@@ -4,7 +4,8 @@ description: Tagging system for security, performance, and test review findings
 tags: [convention, review]
 related:
   - "[[contributing]]"
-last-reviewed: 2026-08-15
+  - "[[stacked-prs]]"
+last-reviewed: 2026-08-19
 ---
 
 # Review Finding IDs
@@ -57,6 +58,16 @@ Each finding uses a four-field format:
 
 Findings live in **`xchromo/osn-tracker`**, a private repo. `xchromo/osn` is public, and a finding names an unpatched route -- filing one there publishes an attack map. Route by *kind*, never by severity: an `S-`, `P-`, or `C-` ID goes to the tracker however minor it looks.
 
+### The body has to stand alone
+
+An issue is read once, months later, by someone with no branch checked out and no wiki open. It carries its own evidence or it carries nothing.
+
+- **Name the file and line** in **Issue**. "Missing rate limit" is not a location.
+- **State the fix** in **Solution** — the function to call, the column to add, the header to set. Not "add a limit".
+- **No pointer-only bodies.** "See `wiki/todo/api.md`", "tracked in the TODO", "migrated from <file>" is a bookmark, not an issue. The page it points at moves, gets rewritten, or is deleted — the migration of 2026-08-15 deleted every one of them.
+- **Wiki links are context, never the content.** Where a page genuinely helps, name it by repo path (`wiki/systems/rate-limiting.md`) and still put the fact in the issue. A `[[wikilink]]` does not resolve on GitHub.
+- **Spell out the acronyms and IDs** the body leans on the first time they appear. The ID in the title is a handle, not an explanation.
+
 One issue per finding, with the ID leading the title and the four fields as the body:
 
 ```bash
@@ -83,6 +94,7 @@ Rules:
 - Reference tracker issues from a public PR by number and finding ID only -- never the title, the file:line, or the body.
 - Sorting is a filter now, not a file convention: `gh issue list --repo xchromo/osn-tracker --label severity:high --state open`.
 - File new findings from PR reviews immediately, in `/prep-pr` Step 7.
+- Several findings from one piece of work go on **stacked PRs**, one fix per PR, base of each set to the one below it -- see [[stacked-prs]].
 
 `T-*` test findings are not filed. They are coverage gaps, not defects -- `/prep-pr` Step 4 raises them and they get closed in the branch or waved through.
 
@@ -104,4 +116,5 @@ gh issue list --repo xchromo/osn-tracker --search "S-M34 in:title" --state all
 ## Related
 
 - [[contributing]] -- PR workflow and conventions
+- [[stacked-prs]] -- opening a PR on top of another PR
 - `xchromo/osn-tracker` -- the private repo holding every security, performance, and compliance finding

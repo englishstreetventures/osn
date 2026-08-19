@@ -30,7 +30,7 @@ packages:
   - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/redis"
-last-reviewed: 2026-08-02
+last-reviewed: 2026-08-19
 ---
 
 # Rate Limiting
@@ -227,8 +227,7 @@ The limiter evicts expired entries on every `check()` call when at least one win
 > with the `isUnresolvedIp` → 429 deny, matching the auth + profile routes.
 > No deprecated no-args `getClientIp(headers)` call remains in `osn/api`
 > (`pulse/api`'s public venue/discover limiters still use it — their own
-> Redis/Workers limiter migration is tracked separately). See
-> [[changelog/security-fixes]].
+> Redis/Workers limiter migration is tracked separately).
 
 **`@osn/api` wiring (now behind Cloudflare):** osn-api is deployed on Cloudflare Workers serving `id.musubi.social`, so every **non-local** tier now keys per-IP rate limiting on `cf-connecting-ip` **exclusively** (`trustCloudflare: true`), closing the XFF-spoof bypass. The Workers entry (`osn/api/src/index.ts` `buildAll`) sets `trustCloudflare: isNonLocal(env)`; `buildAppDeps` (`build-deps.ts`) then builds `clientIpConfig = { trustCloudflare: true }` for deployed tiers. `TRUSTED_PROXY_COUNT` is **ignored** in deployed tiers (it only feeds the legacy XFF/socket path on the local Bun dev server, where `trustCloudflare` is `false` and the per-request `socketIp` comes from Bun's `server.requestIP`). Under Cloudflare, the W3.3 startup warning about the proxy count stays suppressed. Unresolved IPs still deny (429) at the call sites via `isUnresolvedIp`. Pulse / Zap still use their own options; Cire is CF-aware in its own surface.
 

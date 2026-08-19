@@ -24,7 +24,7 @@ finding-ids:
   - S-H16
 packages:
   - "@pulse/api"
-last-reviewed: 2026-08-09
+last-reviewed: 2026-08-19
 ---
 
 # Event Access Control
@@ -74,7 +74,7 @@ When adding a new event-scoped route, **always** load the event via `loadVisible
 - Public events → visible to everyone.
 - Private events → visible to `createdByProfileId = viewerId` **or** `EXISTS (SELECT 1 FROM event_rsvps WHERE event_id = events.id AND profile_id = viewerId)`.
 
-Any code that SELECTs from `events` and returns multiple rows MUST consume `buildVisibilityFilter` — divergence re-opens the S-H12..S-H16 regression class. Do not reinvent the filter. `listTodayEvents` was the one surface that shipped without it (S-H today-feed-visibility, fixed 2026-08-09, see [[security-fixes]]); its viewer argument is deliberately required rather than defaulted, so a new caller cannot inherit the leak by omission.
+Any code that SELECTs from `events` and returns multiple rows MUST consume `buildVisibilityFilter` — divergence re-opens the S-H12..S-H16 regression class. Do not reinvent the filter. `listTodayEvents` was the one surface that shipped without it (S-H today-feed-visibility, fixed 2026-08-09); its viewer argument is deliberately required rather than defaulted, so a new caller cannot inherit the leak by omission.
 
 P-W12 moved the SQL predicate into the `WHERE` clause to fix unstable page sizes. Before that, the `LIMIT` ran before the JS visibility filter, so the client got fewer rows than it asked for.
 

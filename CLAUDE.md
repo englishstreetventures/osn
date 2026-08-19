@@ -54,6 +54,10 @@ gh issue create --repo xchromo/osn --type Feature --label product:cire --title "
 
 **Never delete an issue — close it.** The history matters.
 
+**Every issue body stands on its own.** Someone opens it months later with nothing checked out. Name the file and line; state the concrete fix or the observable "done when"; spell out the acronyms. A body whose content is a pointer — "see the TODO", "per `wiki/todo/api.md`", "migrated from …" — is a bookmark, not an issue, and the 2026-08-15 migration deleted every page those pointers named. Where a wiki page adds real context, reference it by **repo path** (`wiki/systems/rate-limiting.md`) and restate the fact in the issue anyway: a `[[wikilink]]` does not resolve on GitHub.
+
+**Several PRs for one goal get stacked**, each based on the one below it — `[[wiki/conventions/stacked-prs]]`.
+
 ## Wiki Navigation
 
 `wiki/` has detailed ref pages. Hot-path lookups below; full page-by-page map (per-app subsystems, Pulse sub-features, individual debug runbooks, compliance pages) → `[[wiki/index]]`:
@@ -70,6 +74,7 @@ gh issue create --repo xchromo/osn --type Feature --label product:cire --title "
 | Add rate limiting to endpoint | `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]` |
 | Instrument logging, tracing, metrics | `[[wiki/observability/overview]]`, then specific page |
 | Write or review tests | `[[wiki/conventions/testing-patterns]]` |
+| Split one goal across several PRs (stacked PRs — setting the base with the gh CLI, merge order, rebasing a stack) | `[[wiki/conventions/stacked-prs]]` |
 | Add or use UI component (Button, Card, Dialog…) | `[[wiki/architecture/component-library]]` |
 | Work on a specific app/surface (osn-core, social, pulse, zap, cire, cire-landing, osn-landing, pulse-landing) | `[[wiki/apps/<name>]]` |
 | Build the OIDC consent screen (states, decision-error contract, login_required retry loop) | `[[wiki/apps/authorize-ui]]` |
@@ -224,6 +229,7 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | Testing | `it.effect` + `createTestLayer()` for service tests; `createXxxRoutes(createTestLayer())` for route tests. In-memory SQLite. | `[[wiki/conventions/testing-patterns]]` |
 | Schema Layers | Elysia TypeBox at HTTP boundary, Effect Schema in services. Never mix. | `[[wiki/architecture/schema-layers]]` |
 | Review Finding IDs | S-C/H/M/L (security), P-C/W/I (perf), T-M/U/E/R/S (tests). Four-field format (Issue / Why / Solution / Rationale). | `[[wiki/conventions/review-findings]]` |
+| Stacked PRs | Branch cut from the parent branch, `git config branch.<name>.gh-merge-base <parent>` at worktree creation, `gh pr create --base` — that fixes the diff. The stack itself is a separate object GitHub never infers: register it with `gh stack link <bottom-pr> … <top-pr>` (extension `github/gh-stack`). | `[[wiki/conventions/stacked-prs]]` |
 | Component Library | Zaidan-style (shadcn for SolidJS) on Kobalte. Three class utils: `bx()` defaults, `clsx()` conditional joins, `cn()` only for arbitrary conflicts. | `[[wiki/architecture/component-library]]` |
 | Share-source attribution | Closed `ShareSource` enum (`instagram | facebook | tiktok | x | whatsapp | copy_link | other`) drives the share picker, `?source=` URL injection, RSVP attribution columns (`share_source_first` sticky, `share_source_last` overwriting), and four bounded-cardinality counters. Single source of truth in `pulse/api/src/lib/shareSource.ts`; metric attribute type via `import type`. Lightweight `checkEventVisibility` (3 cols) gates the high-frequency share / exposure endpoints instead of the full `loadVisibleEvent`. Organiser self-RSVPs / self-views excluded. | `[[wiki/systems/event-access]]` |
 

@@ -6,8 +6,7 @@ related:
   - "[[gdpr]]"
   - "[[scope-matrix]]"
   - "[[sessions]]"
-  - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-08-19
 ---
 
 # ePrivacy Directive
@@ -59,7 +58,7 @@ Per the EDPB Guidelines 2/2023:
 
 Tracked with `C-` IDs:
 
-1. **Cookie + storage inventory** in the privacy notice — the table above, in plain language. **Partly done (C-H4, PR #124):** the cire guest site now publishes a `/privacy` notice covering its first-party storage. The OSN-landing-side inventory (the table above) is still pending. See [[changelog/compliance-fixes]]. ID: rolled into **C-H4**.
+1. **Cookie + storage inventory** in the privacy notice — the table above, in plain language. **Partly done (C-H4, PR #124):** the cire guest site now publishes a `/privacy` notice covering its first-party storage. The OSN-landing-side inventory (the table above) is still pending. ID: rolled into **C-H4**.
 2. **Lint rule against new third-party scripts** — pre-commit hook fails if any HTML / Astro template references a script tag with a non-OSN origin. Forces explicit decision. ID: **C-L18**.
 3. **CSP `connect-src` audit** — moot: this tracked a transitional `https:` entry in Pulse's native-shell CSP config (S-L3-follow-up); that shell is removed, so the config no longer exists. ID: rolled into existing S-L3, closed.
 4. **Banner scaffold** in `@osn/landing` — built but not mounted; mounting requires a code change + DPO sign-off. Forces a deliberate decision the day someone wants to add an analytics tag. ID: **C-L19**.

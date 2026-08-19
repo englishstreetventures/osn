@@ -7,8 +7,7 @@ related:
   - "[[data-map]]"
   - "[[dsar]]"
   - "[[cire]]"
-  - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-08-14
+last-reviewed: 2026-08-19
 ---
 
 # Retention

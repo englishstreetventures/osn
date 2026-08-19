@@ -2,7 +2,7 @@
 title: OSN Wiki
 aliases: [home, map of content, MOC]
 tags: [index]
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-19
 ---
 
 # OSN Wiki
@@ -73,6 +73,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[commands]] — CLI commands reference
 - [[review-findings]] — finding ID format (S-H1, P-W2, T-M1)
 - [[contributing]] — PR workflow, changesets, branching
+- [[stacked-prs]] — basing one PR on another with the gh CLI, and merging the stack
 
 ## Compliance
 
@@ -92,13 +93,6 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[compliance/breach-response]] — 72-hour notification clock + incident runbook
 - [[compliance/access-control]] — SOC 2 CC6 production access matrix
 - [[compliance/backup-dr]] — SOC 2 A1 backup + DR plan + restore drills
-
-## Changelog
-
-- [[changelog/completed-features]] — archived completed feature work
-- [[changelog/security-fixes]] — archived completed security findings
-- [[changelog/performance-fixes]] — archived completed performance findings
-- [[changelog/compliance-fixes]] — archived closed compliance findings (`C-` prefix)
 
 ## Runbooks
 

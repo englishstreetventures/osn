@@ -13,8 +13,7 @@ related:
   - "[[data-map]]"
   - "[[subprocessors]]"
   - "[[cire]]"
-  - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-19
 ---
 
 # Compliance
@@ -76,7 +75,7 @@ compliance" surface looks like.
 - [[access-control]] — SOC 2 CC6: who has prod access, how it is granted / revoked / reviewed
 - [[backup-dr]] — SOC 2 A1: backup cadence, restore drills, RTO / RPO targets
 - [[dpia/cire-guest-data]] — Art. 35 DPIA for cire guest data (special-category dietary; gating consent mitigation C-H2 (cire dietary) RESOLVED PR #123, sign-off pending residual C-H1)
-- [[changelog/compliance-fixes]] — archived closed `C-` findings (C-H2, C-H2 (cire dietary), C-H4)
+- Closed `C-` findings — `gh issue list --repo xchromo/osn-tracker --label area:compliance --state closed`
 
 ## How to use this directory
 

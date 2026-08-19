@@ -6,7 +6,7 @@ related:
   - "[[github-issues-setup]]"
   - "[[review-findings]]"
   - "[[deferred-decisions]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-19
 ---
 
 # OSN Project TODO
@@ -31,7 +31,7 @@ finding names an unpatched route.
 
 ## Where the old checklists went
 
-- **Completed items** — [changelog/](changelog/), folded in when the checklists retired.
+- **Completed items** — closed issues. `gh issue list --state closed` in either repo.
 - **Open items** — issues, one per item, with the epic as the parent.
 - **Deferred decisions** — [[deferred-decisions]]. Open questions are not tracked work.
 

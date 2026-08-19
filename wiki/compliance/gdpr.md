@@ -11,8 +11,7 @@ related:
   - "[[subprocessors]]"
   - "[[identity-model]]"
   - "[[dpia/cire-guest-data]]"
-  - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-19
 ---
 
 # GDPR + UK GDPR
@@ -65,7 +64,7 @@ high-impact ones, in priority order:
 
 3. **Photon geocoder keystroke leak (S-M13)** — proxy through `@pulse/api` so Photon never sees the user IP, debounce server-side, and add a one-time consent dialog on first use ("Location lookups are sent to Photon, an open-source geocoder, to convert what you type into coordinates"). ID: **C-H3**.
 
-4. **Privacy notice + ToS** — public, plain-language, version-stamped, backlinked from every collection point. **RESOLVED for cire (PR #124, C-H4):** the guest site publishes `/privacy` + `/terms` with a site-wide footer — Australia/APP framing, controller Aniket Chavan, DSAR contact owner@example.com, 1-year retention basis, processors (Cloudflare), guest rights, and dietary/access free-text flagged as Art. 9 special-category collected under explicit consent. See [[changelog/compliance-fixes]]. The parallel `@osn/landing` notice (drafts under `wiki/compliance/legal-drafts/`; published copy in `osn/landing/src/pages/legal/`) remains the open follow-up. ID: **C-H4**.
+4. **Privacy notice + ToS** — public, plain-language, version-stamped, backlinked from every collection point. **RESOLVED for cire (PR #124, C-H4):** the guest site publishes `/privacy` + `/terms` with a site-wide footer — Australia/APP framing, controller Aniket Chavan, DSAR contact owner@example.com, 1-year retention basis, processors (Cloudflare), guest rights, and dietary/access free-text flagged as Art. 9 special-category collected under explicit consent. The parallel `@osn/landing` notice (drafts under `wiki/compliance/legal-drafts/`; published copy in `osn/landing/src/pages/legal/`) remains the open follow-up. ID: **C-H4**.
 
 5. **DPA + SCC pack for processors** — sign the Cloudflare DPA template, the Grafana Labs DPA + SCCs, the chosen Redis provider's DPA, and Photon's DPA-equivalent (Komoot). File under `wiki/compliance/dpa/<vendor>.md` with execution date + scope. ID: **C-H5**.
 

@@ -19,8 +19,22 @@ gh issue create --repo xchromo/osn \
   --title "<short imperative title>" \
   --type Feature \
   --label "product:<osn-core|pulse|cire|zap|shared|landing>" \
-  --body "<what and why, in a couple of sentences>"
+  --body "$(cat <<'EOF'
+**What** — the change, in two or three sentences. Name the surface it lands on.
+
+**Why** — what is wrong or missing today, and who feels it.
+
+**Done when** — the observable result. Not "implemented"; the thing a reviewer
+can check.
+
+**Notes** — constraints, the files or systems it touches, anything already
+decided. Wiki pages by repo path (`wiki/systems/rate-limiting.md`), and the fact
+they carry restated here — a `[[wikilink]]` does not resolve on GitHub.
+EOF
+)"
 ```
+
+**The issue has to stand on its own.** Someone opening it months later, with nothing checked out, must see what to build and how to know it is done. Never file a body that only points somewhere else — "see the TODO", "per `wiki/todo/web.md`". Pages move and get deleted; the issue is the record.
 
 `--type` is an org-level field the Project groups and filters on, separate from the labels. `Feature` for new capability, `Bug` for something already built behaving wrongly, `Task` for the rest — a migration, a chore, a piece of infrastructure.
 
@@ -57,8 +71,14 @@ Every feature gets its own worktree and branch in the bare repo (`/Users/ac/.wor
 1. Run `git fetch origin main`
 2. Use the branch name from Step 0 — derived from the issue title, prefixed with `feat/` (e.g. `feat/user-profile-page`). The worktree directory name is the branch name without the prefix (e.g. `user-profile-page`)
 3. Run `git worktree add /Users/ac/.work/osn.git/<dir-name> -b <branch-name> origin/main`
-4. Run `bun install` inside the new worktree (fresh worktrees have no `node_modules`)
-5. Report the exact branch name and worktree path created — **all feature work happens in that worktree**, not in `main/`
+4. **If this branch stacks on another open PR's branch**, cut it from that branch instead of `origin/main`, and record the base so `gh pr create` targets it later:
+   ```bash
+   git worktree add /Users/ac/.work/osn.git/<dir-name> -b <branch-name> <parent-branch>
+   git -C /Users/ac/.work/osn.git/<dir-name> config branch.<branch-name>.gh-merge-base <parent-branch>
+   ```
+   Without that config, `/prep-pr` opens the PR against `main` and the stack has to be repaired by hand. The base is only half of it -- `/prep-pr` also runs `gh stack link` so GitHub renders the stack. See `[[wiki/conventions/stacked-prs]]`.
+5. Run `bun install` inside the new worktree (fresh worktrees have no `node_modules`)
+6. Report the exact branch name, the base branch, and the worktree path created — **all feature work happens in that worktree**, not in `main/`
 
 ---
 

@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[deferred]]"
   - "[[future]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-19
 ---
 
 # Cire TODO
@@ -31,8 +31,8 @@ finding names an unpatched route. Full label and type rules are in the root `CLA
 
 The per-area shards under `wiki/todo/` — `status`, `web`, `api`, `db`,
 `spreadsheet-import`, `security`, `perf`, `platform` — were retired in the 2026-08-15
-migration. Every open item in them is an issue; every completed item is in
-[changelog/](changelog/).
+migration. Every open item in them is an issue; every completed item is a closed
+issue.
 
 Two of them were never checklists and survive as pages in their own right:
 

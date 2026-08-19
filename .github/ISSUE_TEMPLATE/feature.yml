@@ -2,6 +2,13 @@ name: Feature
 description: Planned work — a new capability, a change to an existing one, or a chore.
 type: Feature
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Write it so it stands alone. Someone opening this in six months, with nothing
+        checked out, should see what to build and how to know it is done. A body that only
+        points somewhere else — "see the TODO", "per the wiki" — is not an issue.
+
   - type: textarea
     id: what
     attributes:
@@ -35,10 +42,22 @@ body:
       required: true
 
   - type: textarea
+    id: done-when
+    attributes:
+      label: Done when
+      description: The observable result. Not "implemented" — the thing a reviewer can check.
+      placeholder: The guest list shows only Going when the Going filter is selected, and the count in the header matches.
+    validations:
+      required: true
+
+  - type: textarea
     id: notes
     attributes:
       label: Notes
-      description: Links to wiki pages, prior issues, or PRs. Anything that saves the implementer a search.
+      description: >-
+        Constraints, the files or systems this touches, prior issues or PRs. Reference a wiki
+        page by repo path (`wiki/systems/rate-limiting.md`) and restate the fact here anyway —
+        a [[wikilink]] does not resolve on GitHub, and pages move.
     validations:
       required: false
 

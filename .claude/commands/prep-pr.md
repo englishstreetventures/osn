@@ -2,9 +2,31 @@ Prepare the current branch for a pull request. Run the following steps in order.
 
 ---
 
+## Step 0 — Resolve the base branch
+
+Every later step diffs against the branch this PR will merge **into**, which is not always `main`. On a stacked branch it is the parent branch, and diffing against `main` reports the parent's files as this PR's changes.
+
+```bash
+BASE=$(git config --get branch.$(git branch --show-current).gh-merge-base || echo main)
+git fetch origin "$BASE"
+echo "base: $BASE"
+```
+
+If `BASE` is not `main` and no PR is open for it yet, open the parent's PR first — a stacked PR cannot be based on a branch GitHub does not have.
+
+If this branch is stacked but `gh-merge-base` was never set (the config is written at worktree creation — see `[[wiki/conventions/stacked-prs]]`), set it now rather than passing the base by hand:
+
+```bash
+git config branch.$(git branch --show-current).gh-merge-base <parent-branch>
+```
+
+Use `$BASE` in every `git diff` below and as `--base` in Step 8.
+
+---
+
 ## Step 1 — Identify changed workspaces
 
-Run `git diff --name-only main...HEAD` to list all changed files.
+Run `git diff --name-only "$BASE"...HEAD` to list all changed files.
 
 Map changed files to workspaces using these rules:
 
@@ -19,7 +41,7 @@ Report: the list of affected workspaces and whether any CI/infra-only files were
 
 ## Step 2 — Check changesets
 
-Run `git diff --name-only main...HEAD -- .changeset/` and filter out `config.json` and `README.md` to find new changeset files on this branch.
+Run `git diff --name-only "$BASE"...HEAD -- .changeset/` and filter out `config.json` and `README.md` to find new changeset files on this branch.
 
 **If no new changeset files exist:**
 
@@ -105,16 +127,27 @@ Work is tracked in GitHub Issues, not in a markdown checklist. Two repos:
 
 One issue per finding that this branch does **not** fix. Title leads with the finding ID; body keeps the same four fields the PR uses.
 
+**The issue body must stand on its own.** Someone opening it in six months, with no branch checked out and no wiki open, must be able to see what is wrong, where, and what to do. Name the file and line. State the concrete fix. A body that points at a wiki page instead of saying the thing — "see `wiki/todo/api.md`", "tracked in the TODO" — is not an issue, it is a bookmark, and the page it points at moves or dies. Where a wiki page genuinely adds context, name it by **repo path** (`wiki/systems/rate-limiting.md`) and put the fact in the issue anyway; a `[[wikilink]]` does not resolve on GitHub.
+
 ```bash
 gh issue create --repo xchromo/osn-tracker \
   --title "S-M1 — No rate limit on POST /events/:id/rsvp" \
   --type Bug \
   --label "area:security" --label "severity:medium" --label "product:cire" \
   --body "$(cat <<'EOF'
-**Issue:** What the problem is.
-**Why:** Risk, correctness, or design concern.
-**Solution:** What would fix it.
-**Rationale:** Why that is the right fix.
+**Issue:** `cire/api/src/routes/rsvp.ts:42` — `POST /events/:id/rsvp` has no
+rate limit. Every sibling write route calls `rateLimit()` first; this one does not.
+
+**Why:** The route is reachable unauthenticated with a guest claim token, so a
+single token can enumerate event IDs and write an RSVP per request. It also writes
+a row per call, so the cost lands on D1.
+
+**Solution:** Wrap the handler in `rateLimit({ key: "rsvp", limit: 10, window: "1m" })`
+from `@shared/rate-limit`, keyed on the claim token rather than the IP.
+
+**Rationale:** Matches the limiter every other write route already uses, so there is
+no new mechanism to maintain. Keying on the token, not the IP, is what stops one
+token behind a shared NAT from locking out a whole venue's guests.
 
 Found reviewing `<branch-name>`.
 EOF
@@ -177,7 +210,7 @@ The narrative wiki stays hand-written and stays in the repo. Only the checklists
 # both sides reduced to a bare page name, since links come in both
 # `[[arc-tokens]]` and `[[systems/arc-tokens]]` form
 comm -23 \
-  <(git diff origin/main...HEAD --name-only -- 'wiki/**/*.md' \
+  <(git diff "$BASE"...HEAD --name-only -- 'wiki/**/*.md' \
       | xargs -r grep -oh '\[\[[^]|#]*' | sed 's/^\[\[//; s#.*/##' | sort -u) \
   <(find wiki -name '*.md' | xargs -n1 basename | sed 's/\.md$//' | sort -u)
 ```
@@ -194,52 +227,118 @@ Report the issues opened and the issue numbers this branch closes — Step 8 nee
 
 Run `git push -u origin HEAD`.
 
-Then open the PR using `gh pr create`. Derive the title and body from the branch's commit history (`git log main...HEAD --oneline`) and everything that happened during this prep-pr run:
+Then open the PR **against `$BASE` from Step 0**, not against `main`:
 
-- **Title**: short imperative summary of the overall change (under 70 chars)
-- **Body**: use this structure:
-
+```bash
+gh pr create --base "$BASE" --title "<title>" --body-file <path>
 ```
-gh pr create --title "<title>" --body "$(cat <<'EOF'
+
+`gh pr create` also reads `branch.<current>.gh-merge-base` on its own, so `--base` is belt and braces — pass it anyway, because a branch created without that config silently targets `main`.
+
+Write the body to a file and pass `--body-file`. A heredoc inside `--body` mangles backticks and `$` in the prose.
+
+Derive the title and body from the branch's commit history (`git log "$BASE"...HEAD --oneline`) and everything that happened during this prep-pr run.
+
+**Title**: short imperative summary of the whole change, under 70 chars.
+
+**Body**: exactly these five sections, in this order. All five are mandatory; a section with nothing in it says "None" rather than being dropped, because an absent section reads as a forgotten one.
+
+```markdown
 ## Summary
-- <bullet points summarising what changed and why>
+
+<Two or three sentences of prose: what this branch changes and why it was
+needed. Not a commit-log restatement — the reviewer can read the commits.
+Then bullets for anything the prose could not carry.>
 
 ## Workspaces affected
-- <list of affected packages/apps, or "CI/infra only">
+
+`<pkg>`, `<pkg>`. <Changeset status: which packages it names and at what bump,
+or why none is needed.>
 
 ## Issues
 
-Closes #<n> — <one-line title>
-Closes xchromo/osn-tracker#<n> — <finding ID only>
+**Closes**
 
-Opened:
-- xchromo/osn#<n> — <title>
-- xchromo/osn-tracker#<n> — <finding ID only, no description>
+| Issue | What |
+|---|---|
+| #<n> | <one-line title> |
+| xchromo/osn-tracker#<n> | <finding ID only — e.g. `S-M1`> |
 
-## Decisions & issues
+**Opened**
 
-<For every non-trivial decision, lint/type error, test failure, or security/perf finding — use this format per item:>
+| Issue | What |
+|---|---|
+| xchromo/osn#<n> | <one-line title> |
+| xchromo/osn-tracker#<n> | <finding ID only> |
 
-**[S-H1 / P-W2 / approach / etc.]** — <short title>
-- **Issue:** What the problem was.
-- **Why:** Why it mattered — risk, correctness, or design concern.
-- **Solution:** What was done to address it.
-- **Rationale:** Why this is the right fix.
+## Decisions
+
+### <short title> — `<S-H1 / P-W2 / approach / …>`
+
+- **Issue** — what the problem was.
+- **Why** — why it mattered: risk, correctness, or design concern.
+- **Solution** — what was done.
+- **Rationale** — why this is the right fix, and what was rejected.
+
+### <next decision> — `<ID or "approach">`
+
+…
+
+**Out of scope** — <what was found and deliberately not fixed here, each with
+the issue number now tracking it. One line each.>
 
 ## Test plan
-- <checklist of what to verify when reviewing>
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
-)"
+| Gate | Result |
+|---|---|
+| `bun run typecheck` | ✅ |
+| `bun test <scope>` | ✅ <n> pass |
+| … | … |
+
+<Then anything a reviewer must exercise by hand, and anything that stayed
+unverified — say so plainly rather than leaving it implied.>
 ```
 
-**The "Issues" section is mandatory.** It lists every issue this branch closes and every issue Step 7 opened. If the branch closes nothing and opened nothing, say "None" — an absent section reads as a forgotten one.
+### Section rules
+
+**Issues.** One row per issue. A same-repo issue closes on merge with plain `Closes #<n>` — put that line under the table, one per issue, since a table cell does not trigger GitHub's closing keyword. A tracker issue needs the full `Closes xchromo/osn-tracker#<n>`; that works cross-repo with write access to both, but verify it actually closed after the merge and close it by hand if not.
 
 **A PR on `xchromo/osn` is public.** Reference a tracker issue by number and finding ID only — never paste its title, its file:line, or a word of its body. `xchromo/osn-tracker#412 — S-M1` is the whole entry.
 
-A same-repo issue closes on merge with plain `Closes #<n>`. A tracker issue needs the full `Closes xchromo/osn-tracker#<n>`; that works across repos when you have write access to both, so verify it actually closed after the merge and close it by hand if not.
+**Decisions.** One `###` heading per decision, so each gets its own anchor and shows up in GitHub's outline. The heading is a plain-English title; the ID goes after the em dash, in backticks, and is omitted for a decision that has no finding behind it. The four fields are mandatory and always in the same order — a reviewer scanning ten PRs reads them positionally.
 
-**The "Decisions & issues" section is mandatory.** Every entry must use the four-field format above. Entries that were dismissed rather than fixed must still appear — include the rationale for dismissal in the Rationale field.
+What belongs here: every non-trivial design choice, every finding fixed on this branch, and every finding **dismissed** rather than fixed — dismissals carry their reasoning in **Rationale**. What does not: routine lint fixes, formatting, and anything the diff already says plainly.
 
-Report the PR URL once created.
+**Out of scope** is a subsection of Decisions, not a section of its own. It exists so a reviewer never has to ask "did you notice X?" — one line per thing noticed and left, each naming the issue now tracking it.
+
+**Test plan.** The table is the gates that ran, with their real results. Never write a gate as passing without running it in this worktree. Anything not covered by an automatic gate goes below the table in prose, including the honest negatives — "the two-app ceremony is not exercised anywhere" belongs in the PR, not in a comment nobody reads.
+
+### After opening
+
+Confirm the base actually took:
+
+```bash
+gh pr list --repo xchromo/osn --state open --json number,headRefName,baseRefName
+```
+
+A stacked PR showing `main` in `baseRefName` is not stacked — fix it with `gh pr edit <n> --base <parent-branch>` rather than in the web UI.
+
+### Register the stack
+
+A correct base gives a correct diff. It does **not** make GitHub render a stack — that is a separate object, and skipping this step is why stacks used to get built by hand in the web UI.
+
+Only when `$BASE` is not `main`, i.e. this PR sits on top of another:
+
+```bash
+gh stack --help >/dev/null 2>&1 || gh extension install github/gh-stack
+gh stack link <bottom-pr> [<middle-pr> …] <this-pr>      # bottom to top, PR numbers or branches
+gh stack view                                            # confirm
+```
+
+`gh stack link` needs no local stack state, which is what makes it the right command in a worktree layout. It reuses PRs that already exist and never drops one. Two arguments minimum, so the bottom PR of a stack has nothing to register until the second PR opens.
+
+If the extension is missing and cannot be installed (a remote environment with no network), say so and stop there. The base chain is already correct, so the diffs and merge order hold; the stack can be registered later from any machine.
+
+Merge order and rebase rules are in `[[wiki/conventions/stacked-prs]]`.
+
+Report the PR number, its base branch, whether the stack is registered, and the issues it closes.

@@ -7,8 +7,7 @@ related:
   - "[[dsar]]"
   - "[[data-map]]"
   - "[[scope-matrix]]"
-  - "[[changelog/compliance-fixes]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-19
 ---
 
 # CCPA / CPRA
@@ -64,7 +63,7 @@ Tracked with `C-` IDs:
 2. **Authorised-agent verification** in DSAR runbook. ID: rolled into **C-M1**.
 3. **Global Privacy Control header recognition** middleware. ID: **C-L7**.
 4. **CCPA-shaped DSAR audit log** persisted for 24 months. ID: rolled into **C-M1**.
-5. **Sale / share = "no"** declaration in privacy notice (negative declaration is sufficient if accurate). **Partly done (C-H4, PR #124):** the cire guest site publishes a `/privacy` notice at the point of collection; the explicit "we do not sell / share" declaration belongs in the OSN-landing notice (still pending). See [[changelog/compliance-fixes]]. ID: rolled into **C-H4**.
+5. **Sale / share = "no"** declaration in privacy notice (negative declaration is sufficient if accurate). **Partly done (C-H4, PR #124):** the cire guest site publishes a `/privacy` notice at the point of collection; the explicit "we do not sell / share" declaration belongs in the OSN-landing notice (still pending). ID: rolled into **C-H4**.
 
 ## What "sale" and "share" mean here
 

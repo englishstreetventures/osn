@@ -17,7 +17,7 @@ related:
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-19
 ---
 
 # Cire
@@ -35,7 +35,7 @@ Cire is a digital wedding invite: an animated guest-facing site plus an organise
 | `@cire/landing` | `cire/landing` | 4323 | Static marketing site for the apex `cireweddings.com` — see [[cire-landing]] |
 | `@cire/vendor` | `cire/vendor` | 4326 | Vendor portal (Astro + SolidJS) — listing claim, enquiry inbox, quotes; prod `vendor.cireweddings.com` |
 
-Note: `@cire/api` runs Elysia with `aot: false` — Elysia's ahead-of-time compilation builds handlers via `new Function`, which Cloudflare Workers forbids. Organiser auth uses the shared Elysia adapter (`@shared/osn-auth-client/middleware/elysia`), same as the other backends. (Migrated from Hono 2026-06-12 — see [[completed-features]].)
+Note: `@cire/api` runs Elysia with `aot: false` — Elysia's ahead-of-time compilation builds handlers via `new Function`, which Cloudflare Workers forbids. Organiser auth uses the shared Elysia adapter (`@shared/osn-auth-client/middleware/elysia`), same as the other backends. (Migrated from Hono 2026-06-12.)
 
 ## Auth model (summary)
 
@@ -174,7 +174,7 @@ recorded in the OSN compliance programme:
 - [[dpia/cire-guest-data]] — Art. 35 DPIA (dietary special-category; gating consent mitigation RESOLVED PR #123, sign-off pending residual C-H1)
 - [[retention]] — cire rows: guest data swept at 1 year (PR #132) + expired guest sessions swept daily (PR #127); R2-object lifecycle still open (C-H1)
 - [[subprocessors]] — Cloudflare D1/R2 (guest-PII volume) + Pinterest embed (C-H3)
-- privacy notice — guest site publishes `/privacy` + `/terms` (PR #124, C-H4); see [[changelog/compliance-fixes]]
+- privacy notice — guest site publishes `/privacy` + `/terms` (PR #124, C-H4)
 - [[dsar]] — cross-DB reachability + orphan-tolerance decision (C-M1)
 - [[access-control]] — cire D1/R2 operator access + the two cire credential classes (C-M3)
 - [[soc2]] — `@cire/api` observability exception; redaction deny-list interim guard (C-M2)
