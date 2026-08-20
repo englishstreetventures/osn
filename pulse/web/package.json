@@ -19,6 +19,7 @@
     "@fontsource/instrument-serif": "^5.3.0",
     "@osn/ui": "workspace:*",
     "@pulse/api": "workspace:*",
+    "@shared/legal": "workspace:*",
     "@shared/rp-auth": "workspace:*",
     "@solidjs/meta": "^0.29.4",
     "@solidjs/router": "^0.16.2",

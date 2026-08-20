@@ -36,6 +36,10 @@ const SettingsPage = lazy(() =>
 const AuthorizePage = lazy(() =>
   import("./pages/AuthorizePage").then((m) => ({ default: m.AuthorizePage })),
 );
+const PrivacyPage = lazy(() =>
+  import("./pages/PrivacyPage").then((m) => ({ default: m.PrivacyPage })),
+);
+const TermsPage = lazy(() => import("./pages/TermsPage").then((m) => ({ default: m.TermsPage })));
 
 /**
  * The consent screen runs bare: no navigation out of the flow, nothing to
@@ -129,6 +133,10 @@ export default function App() {
       <Route path="/organisations/:id" component={OrgDetailPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/authorize" component={AuthorizePage} />
+      {/* Reachable signed-out on purpose: a notice you can only read once you have
+          already handed over your data is not a notice. */}
+      <Route path="/privacy" component={PrivacyPage} />
+      <Route path="/terms" component={TermsPage} />
     </Router>
   );
 }
