@@ -170,8 +170,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
           restore-keys: |
+            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-build-
 
       - name: Install dependencies
@@ -343,11 +344,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-build-
+
       - name: Install dependencies
         run: bun install
 
       - name: Build cire/invites (dev)
-        run: bun run --cwd cire/invites build
+        run: bun run build --filter=@cire/invites
         env:
           PUBLIC_API_URL: https://api.dev.cireweddings.com
           PUBLIC_SITE_URL: https://invite.dev.cireweddings.com
@@ -413,6 +423,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-build-
+
       - name: Install dependencies
         run: bun install
 
@@ -423,7 +442,7 @@ jobs:
       #   widget, no gate — key-optional). The matching TURNSTILE_SECRET_KEY is a
       #   `wrangler secret` on the cire-api Worker (see production-deploy.md).
       - name: Build cire/invites
-        run: bun run --cwd cire/invites build
+        run: bun run build --filter=@cire/invites
         env:
           PUBLIC_API_URL: https://api.cireweddings.com
           # Domain reshuffle 2026-07-16: the guest site now lives on the `invite.`
@@ -500,11 +519,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-build-
+
       - name: Install dependencies
         run: bun install
 
       - name: Build cire/host (dev)
-        run: bun run --cwd cire/host build
+        run: bun run build --filter=@cire/host
         env:
           PUBLIC_CIRE_API_URL: https://api.dev.cireweddings.com
           # Dev account pages live on the dev identity app — a dev passkey is a
@@ -558,11 +586,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-build-
+
       - name: Install dependencies
         run: bun install
 
       - name: Build cire/host
-        run: bun run --cwd cire/host build
+        run: bun run build --filter=@cire/host
         env:
           PUBLIC_CIRE_API_URL: https://api.cireweddings.com
           # The account pages (passkeys, recovery codes) live on musubi's own
@@ -608,11 +645,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-build-
+
       - name: Install dependencies
         run: bun install
 
       - name: Build cire/vendor (dev)
-        run: bun run --cwd cire/vendor build
+        run: bun run build --filter=@cire/vendor
         env:
           PUBLIC_CIRE_API_URL: https://api.dev.cireweddings.com
           PUBLIC_OSN_ACCOUNT_URL: https://dev.musubi.social
@@ -656,11 +702,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-build-
+
       - name: Install dependencies
         run: bun install
 
       - name: Build cire/vendor
-        run: bun run --cwd cire/vendor build
+        run: bun run build --filter=@cire/vendor
         env:
           PUBLIC_CIRE_API_URL: https://api.cireweddings.com
           # Account management deep link (see the organiser build above).
@@ -703,11 +758,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-build-
+
       - name: Install dependencies
         run: bun install
 
       - name: Build cire/landing (dev)
-        run: bun run --cwd cire/landing build
+        run: bun run build --filter=@cire/landing
         env:
           PUBLIC_ORGANISER_URL: https://host.dev.cireweddings.com
           SITE: https://dev.cireweddings.com
@@ -753,6 +817,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-build-
+
       - name: Install dependencies
         run: bun install
 
@@ -762,7 +835,7 @@ jobs:
       #     (domain reshuffle 2026-07-16, moved off app.cireweddings.com).
       #   SITE — canonical origin for SEO meta; the apex cireweddings.com.
       - name: Build cire/landing
-        run: bun run --cwd cire/landing build
+        run: bun run build --filter=@cire/landing
         env:
           PUBLIC_ORGANISER_URL: https://host.cireweddings.com
           SITE: https://cireweddings.com
@@ -977,6 +1050,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-build-
+
       - name: Install dependencies
         run: bun install
 
@@ -985,7 +1067,7 @@ jobs:
       # per-tier choice (key-optional, fail-closed only when the secret is set).
       # The prod job's gate is what protects the pairing that actually matters.
       - name: Build osn/social (dev)
-        run: bun run --cwd osn/social build
+        run: bun run build --filter=@osn/social
         env:
           VITE_OSN_ISSUER_URL: https://id.dev.musubi.social
           VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
@@ -1029,6 +1111,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
+      - name: Restore turbo cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .turbo
+          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
+            ${{ runner.os }}-turbo-build-
+
       - name: Install dependencies
         run: bun install
 
@@ -1065,7 +1156,7 @@ jobs:
           VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
 
       - name: Build osn/social
-        run: bun run --cwd osn/social build
+        run: bun run build --filter=@osn/social
         env:
           VITE_OSN_ISSUER_URL: https://id.musubi.social
           VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}

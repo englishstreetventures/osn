@@ -9,7 +9,8 @@
         "dist/**",
         ".output/**",
         "build/**"
-      ]
+      ],
+      "env": ["PUBLIC_*", "VITE_*", "SITE"]
     },
     "dev": {
       "cache": false,
