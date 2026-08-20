@@ -13,7 +13,6 @@ import { DESIGNS } from "@cire/invite-designs";
 import type { DesignMeta } from "@cire/invite-designs";
 import { createRateLimiter } from "@shared/rate-limit";
 import type { RateLimiterBackend } from "@shared/rate-limit";
-import { eq } from "drizzle-orm";
 
 import { createApp } from "../app";
 import { createDb, seedDb } from "../db/setup";
@@ -97,13 +96,20 @@ function createImagesStub(opts?: { fail?: boolean }): ImagesBindingLike & {
   };
 }
 
-async function uploadHero(app: ReturnType<typeof buildApp>["app"]): Promise<void> {
-  const up = await appRequest(app, `${orgBase}/image/hero`, {
+async function uploadSlot(
+  app: ReturnType<typeof buildApp>["app"],
+  slot: "hero" | "story" | "footer",
+): Promise<void> {
+  const up = await appRequest(app, `${orgBase}/image/${slot}`, {
     method: "POST",
     headers: await authHeaders(BOOTSTRAP_OWNER),
     body: PNG,
   });
   expect(up.status).toBe(200);
+}
+
+async function uploadHero(app: ReturnType<typeof buildApp>["app"]): Promise<void> {
+  await uploadSlot(app, "hero");
 }
 
 const emptyText = JSON.stringify({
@@ -1229,7 +1235,7 @@ describe("invite image transforms — Cache API short-circuit", () => {
     });
   });
 
-  it("a re-upload (bumped updatedAt) creates a second cache entry and re-runs the binding (T-S1)", async () => {
+  it("a re-upload (fresh R2 key) creates a second cache entry and re-runs the binding (T-S1)", async () => {
     const cache = createCacheStub();
     await withCaches(cache.caches, async () => {
       const images = createImagesStub();
@@ -1240,7 +1246,7 @@ describe("invite image transforms — Cache API short-circuit", () => {
       const accept = { accept: "image/avif,image/webp,*/*" };
 
       // First request → miss → binding runs once, one cache entry written under
-      // the current server `updatedAt`.
+      // the current server-derived version.
       const first = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`, {
         headers: accept,
       });
@@ -1248,16 +1254,10 @@ describe("invite image transforms — Cache API short-circuit", () => {
       expect(images.widths).toEqual([1600]); // binding ran once
       expect(cache.store.size).toBe(1);
 
-      // Simulate a re-upload by advancing the wedding's stored `imagesUpdatedAt`
-      // (what setImage bumps; migration 0029 made it the image cache version).
-      // After the S-M1 fix the cache version is derived from this DB value (NOT
-      // the client ?v=), so a bump must mint a fresh key — the new image can't
-      // be served the stale cached transform.
-      built.db
-        .update(weddingInviteCustomisations)
-        .set({ imagesUpdatedAt: new Date(Date.now() + 60_000) })
-        .where(eq(weddingInviteCustomisations.weddingId, BOOTSTRAP_WEDDING_ID))
-        .run();
+      // A real re-upload: `storeAsset` mints a fresh uuid-suffixed R2 key, and
+      // the cache version is a digest of that key (NOT the client ?v=, S-M1), so
+      // the new bytes can never be served the stale cached transform.
+      await uploadHero(app);
 
       // Same request URL (same ?variant, same Accept) → because the server
       // version changed, this is a MISS against a new key → binding re-runs and a
@@ -1771,7 +1771,7 @@ describe("hero display sliders (migration 0018)", () => {
       expect(images.widths.length).toBe(1);
       expect(cache.store.size).toBe(1);
 
-      // A copy-only save (bumps `updatedAt`, NOT `imagesUpdatedAt`)…
+      // A copy-only save — it writes no image key, so no slot's version moves…
       const put = await appRequest(app, `${orgBase}/text`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", ...(await authHeaders(BOOTSTRAP_OWNER)) },
@@ -1792,6 +1792,53 @@ describe("hero display sliders (migration 0018)", () => {
       expect(second.status).toBe(200);
       expect(images.widths.length).toBe(1); // still exactly one transform
       expect(cache.store.size).toBe(1); // no new cache entry
+    });
+  });
+
+  it("re-uploading one slot leaves the other slots' versions and caches untouched (P-I1)", async () => {
+    const cache = createCacheStub();
+    await withCaches(cache.caches, async () => {
+      const images = createImagesStub();
+      const { app } = buildApp({ images });
+      await uploadSlot(app, "hero");
+      await uploadSlot(app, "story");
+      await uploadSlot(app, "footer");
+      const accept = { accept: "image/webp,*/*" };
+
+      type Urls = {
+        hero: { imageUrl: string };
+        story: { imageUrl: string };
+        footer: { imageUrl: string };
+      };
+      const before = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as Urls;
+
+      // Prime the hero transform cache.
+      const primed = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`, {
+        headers: accept,
+      });
+      expect(primed.status).toBe(200);
+      expect(images.widths.length).toBe(1);
+      expect(cache.store.size).toBe(1);
+
+      // Re-upload the STORY slot only. Under the old per-wedding
+      // `images_updated_at` this bumped the version every slot shared, throwing
+      // away hero (including the preloaded `hero-bg` LCP variant) and footer in
+      // every colo and format.
+      await uploadSlot(app, "story");
+
+      const after = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as Urls;
+      expect(after.story.imageUrl).not.toBe(before.story.imageUrl);
+      expect(after.hero.imageUrl).toBe(before.hero.imageUrl);
+      expect(after.footer.imageUrl).toBe(before.footer.imageUrl);
+
+      // …and the hero's primed transform is still a HIT: no re-billed transform,
+      // no second cache entry.
+      const heroAgain = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero`, {
+        headers: accept,
+      });
+      expect(heroAgain.status).toBe(200);
+      expect(images.widths.length).toBe(1);
+      expect(cache.store.size).toBe(1);
     });
   });
 
@@ -1873,7 +1920,10 @@ describe("hero display sliders (migration 0018)", () => {
       await uploadHero(app);
       const accept = { accept: "image/webp,*/*" };
 
-      // Prime the cache at the default blur.
+      // Prime the cache at the default blur, and capture the guest-facing URL.
+      const beforeBlur = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as {
+        hero: { imageUrl: string };
+      };
       const first = await appRequest(app, `/api/invite/${SLUG}/image/hero?variant=hero-bg`, {
         headers: accept,
       });
@@ -1896,6 +1946,17 @@ describe("hero display sliders (migration 0018)", () => {
       // Binding re-ran with the new blur; a distinct cache entry was minted.
       expect(images.blurs).toEqual([VARIANT_BLUR["hero-bg"], 5]);
       expect(cache.store.size).toBe(2);
+
+      // …and the GUEST-facing ?v= moved too. The edge cache folds `blur` into
+      // its own key, but the response is `max-age=31536000, immutable`, so a
+      // browser that already holds the old backdrop would keep it forever unless
+      // the URL changes. The hero slot folds the radius into its version for
+      // exactly this (`heroVersionFromKey`) — the R2 key alone does not move on
+      // a blur-only save.
+      const afterBlur = (await (await appRequest(app, `/api/invite/${SLUG}`)).json()) as {
+        hero: { imageUrl: string };
+      };
+      expect(afterBlur.hero.imageUrl).not.toBe(beforeBlur.hero.imageUrl);
     });
   });
 });

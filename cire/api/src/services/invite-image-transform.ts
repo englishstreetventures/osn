@@ -116,16 +116,19 @@ export function negotiateFormat(accept: string | null | undefined): OutputFormat
  *    is NOT in the request URL (it comes from the `Accept` header), so baking it
  *    into the key is what keeps AVIF/WebP/JPEG as separate entries — otherwise a
  *    WebP-only client could be served an AVIF cached for an AVIF-capable one.
- *  - `v` — the content version, derived SERVER-SIDE from the wedding row's
- *    `updatedAt` (NOT the client `?v=`, which is ignored for keying — S-M1), so a
- *    re-upload bumps `updatedAt` → a new key → the new image isn't served stale,
- *    while an attacker can't loop arbitrary `?v=` values to mint fresh transforms.
+ *  - `v` — the content version, derived SERVER-SIDE from the slot's own R2 key
+ *    (`versionFromKey`, NOT the client `?v=`, which is ignored for keying — S-M1),
+ *    so a re-upload mints a fresh key → a new `v` → the new image isn't served
+ *    stale, while an attacker can't loop arbitrary `?v=` values to mint fresh
+ *    transforms, and bumping one slot never busts another slot's cached entry.
  *  - `blur` — the server-derived hero backdrop blur radius (per-wedding
- *    `hero_blur`, migration 0018), present only for the `hero-bg` variant. Saving
- *    a new blur already bumps `updatedAt` (so `v` busts the cache on its own),
- *    but we ALSO fold `blur` into the key defensively so the cached bytes can
- *    never disagree with the requested radius. It stays bounded: exactly one
- *    server-derived value per wedding, not a client-swept param.
+ *    `hero_blur`, migration 0018), present only for the `hero-bg` variant. A
+ *    blur-only save touches no image key, so the hero slot's version folds the
+ *    radius into its digest as well (`heroVersionFromKey`, `invite.ts`) — `v`
+ *    busts the cache on its own. We ALSO fold `blur` in here defensively so the
+ *    cached bytes can never disagree with the requested radius. It stays
+ *    bounded: exactly one server-derived value per wedding, not a client-swept
+ *    param.
  *
  * The format slug strips the `image/` prefix to keep the key tidy. We use a
  * synthetic host so the key never collides with a real inbound request URL and
@@ -295,9 +298,10 @@ export function imageResponseHeaders(
  * it", not "any proxy may"; nothing between us and the browser ever sees this
  * header.
  *
- * NOT VERIFIED against a live Worker. The 413-on-`private` behaviour is from
- * Cloudflare's docs; confirm with `wrangler tail` and a second identical request
- * (see `[[wiki/todo/perf]]`).
+ * VERIFIED against the deployed dev Worker on 2026-08-19: a repeat request showed
+ * a Cache API HIT with `age` advancing, `cache-control: private, max-age=31536000,
+ * immutable` on the way out to the client, and zero `image cache put failed`
+ * events in the tail.
  */
 const STORABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
 

@@ -21,6 +21,7 @@ import {
   type InviteTextBody,
   type InviteThemeBody,
 } from "../schemas/invite";
+import { versionFromKey } from "./event-image";
 import { deleteAsset, storeAsset } from "./invite-assets";
 import type { AssetR2Error, AssetsR2Service } from "./invite-assets";
 
@@ -32,8 +33,9 @@ export class WeddingNotFound extends Data.TaggedError("WeddingNotFound")<{
  * The customisation as the invite renders it. Text fields are the raw stored
  * overrides (`null` ⇒ the guest site / organiser preview falls back to the
  * built-in default copy). Image fields are ready-to-use URL *paths* — clients
- * prepend their API origin — carrying a `?v=` cache-buster keyed to the row's
- * `updatedAt` so a re-uploaded image isn't served stale.
+ * prepend their API origin — carrying a `?v=` cache-buster derived from that
+ * SLOT's own R2 key (`versionFromKey`), so a re-uploaded image isn't served
+ * stale and bumping one slot never busts another's cache.
  */
 /**
  * Per-section theme as the invite renders it. Every field is nullable; `null`
@@ -203,8 +205,24 @@ const EMPTY: InviteCustomisation = {
 };
 
 /** Public path the invite image is served from. Clients prepend the API origin. */
-function imagePath(slug: string, slot: InviteImageSlot, version: number): string {
+function imagePath(slug: string, slot: InviteImageSlot, version: string): string {
   return `/api/invite/${encodeURIComponent(slug)}/image/${slot}?v=${version}`;
+}
+
+/**
+ * Version for the HERO slot's URLs. The hero backdrop blur is applied
+ * server-side to the `hero-bg` variant, so a blur-only save changes the bytes we
+ * serve WITHOUT changing the R2 key — and the served image carries
+ * `max-age=31536000, immutable`, so a guest's browser would hold the old radius
+ * forever. Folding the radius into the digest moves the URL when either the
+ * bytes or the radius move. The edge cache already keys `blur` separately
+ * (`buildTransformCacheKey`); this is the browser's half of the same guarantee.
+ * The sharp `hero` variant ignores blur, so it takes one needless re-transform
+ * per blur-only save — a rare organiser action, and the alternative (a
+ * per-variant version) would leak the variant into a shared URL.
+ */
+function heroVersionFromKey(key: string, heroBlur: number | null): string {
+  return versionFromKey(`${key}#blur=${heroBlur ?? HERO_BLUR_DEFAULT}`);
 }
 
 /**
@@ -302,17 +320,20 @@ function toCustomisation(
     imagesUpdatedAt: Date | null;
   },
 ): InviteCustomisation {
-  // The image URLs' ?v= cache-buster tracks the IMAGE version, not the row
-  // version — a copy/colour save must not bust the guest image caches
-  // (WT-P-I1). `imagesUpdatedAt` is null only for rows that predate any image
-  // write; coalesce to `updatedAt` as a safety net.
-  const imageVersion = c.imagesUpdatedAt ?? c.updatedAt;
-  const version = imageVersion ? imageVersion.getTime() : 0;
+  // Each slot's ?v= cache-buster is derived from THAT slot's own R2 key
+  // (versionFromKey — mirrors the per-event image path in event-image.ts) —
+  // never the row's `updatedAt`/`imagesUpdatedAt`. A copy/colour save must not
+  // bust the guest image caches (WT-P-I1), and bumping one slot must not bust
+  // another's (P-I1): a per-row version broke both, since it moved on every
+  // slot's write. Deriving from the key alone fixes both — the key only
+  // changes when THAT slot's bytes change.
   return {
     hero: {
       title: c.heroTitle,
       subtitle: c.heroSubtitle,
-      imageUrl: c.heroImageKey ? imagePath(slug, "hero", version) : null,
+      imageUrl: c.heroImageKey
+        ? imagePath(slug, "hero", heroVersionFromKey(c.heroImageKey, c.heroBlur))
+        : null,
       // Only surface a crop when there's an image to crop — a stored rectangle on
       // a since-removed image is inert. `decodeCrop` drops a malformed/legacy
       // value to null so a bad rectangle never reaches the guest-facing style.
@@ -323,7 +344,7 @@ function toCustomisation(
       eyebrow: c.storyEyebrow,
       heading: c.storyHeading,
       body: c.storyBody,
-      imageUrl: c.storyImageKey ? imagePath(slug, "story", version) : null,
+      imageUrl: c.storyImageKey ? imagePath(slug, "story", versionFromKey(c.storyImageKey)) : null,
       imageCrop: c.storyImageKey ? decodeCrop(c.storyImageCrop) : null,
     },
     details: { eyebrow: c.detailsEyebrow, heading: c.detailsHeading },
@@ -335,7 +356,9 @@ function toCustomisation(
     },
     footer: {
       message: c.footerMessage,
-      imageUrl: c.footerImageKey ? imagePath(slug, "footer", version) : null,
+      imageUrl: c.footerImageKey
+        ? imagePath(slug, "footer", versionFromKey(c.footerImageKey))
+        : null,
       imageCrop: c.footerImageKey ? decodeCrop(c.footerImageCrop) : null,
     },
     heroDisplay: {
@@ -533,29 +556,34 @@ export const inviteService = {
   },
 
   /**
-   * Resolve the R2 key backing a slug's image slot (for serving) PLUS the row's
-   * IMAGE version (`imagesUpdatedAt`, coalesced to `updatedAt` for legacy rows;
-   * migration 0029) — the authoritative content version — and the per-wedding
-   * `heroBlur`. The serve route derives its edge-cache key from this server-side
-   * version (not the client `?v=`), so an attacker can't loop distinct `?v=`
-   * values to force unbounded, per-call-billed transforms (S-M1); and because
-   * the version only moves on image upload/remove/crop + hero-blur changes,
-   * copy/colour saves leave the transform cache warm (WT-P-I1). The version is
-   * null when the wedding exists but has no customisation row yet (LEFT JOIN
-   * miss) — the slot key is then null too, so the route 404s before it ever
-   * builds a cache key.
+   * Resolve the R2 key backing a slug's image slot (for serving) PLUS that
+   * slot's key-derived content version (`versionFromKey` — mirrors the
+   * per-event image path in `event-image.ts`) and the per-wedding `heroBlur`.
+   * The serve route derives its edge-cache key from this server-side version
+   * (not the client `?v=`), so an attacker can't loop distinct `?v=` values to
+   * force unbounded, per-call-billed transforms (S-M1). Deriving the version
+   * from the SLOT's own key rather than the row's `updatedAt`/`imagesUpdatedAt`
+   * fixes two over-invalidation bugs at once (P-I1): a copy/colour save never
+   * bumps it (the key is unchanged — WT-P-I1), and bumping one slot never
+   * busts another slot's cache (each slot's version comes from its own
+   * column). The version is null when there is no key — either the wedding has
+   * no customisation row yet (LEFT JOIN miss) or that slot has no image — so
+   * the route 404s before it ever builds a cache key.
    *
    * `heroBlur` is the per-wedding override of the hero backdrop's server-side
    * blur (migration 0018). It is resolved here alongside the key so the serve
    * route can apply it to the `hero-bg` transform WITHOUT a client query param
    * (preserving the no-arbitrary-cache-minting invariant) and fold it into the
-   * cache key. A LEFT JOIN miss coalesces to the today's-look default.
+   * cache key. A LEFT JOIN miss coalesces to the today's-look default. It is
+   * ALSO folded into the hero slot's version (`heroVersionFromKey`), because a
+   * blur-only save changes the bytes we serve without changing the R2 key and
+   * the response is `immutable` for a year — see that function.
    */
   imageKeyForSlug(
     slug: string,
     slot: InviteImageSlot,
   ): Effect.Effect<
-    { key: string | null; imageVersion: Date | null; heroBlur: number },
+    { key: string | null; imageVersion: string | null; heroBlur: number },
     WeddingNotFound,
     DbService
   > {
@@ -572,8 +600,6 @@ export const inviteService = {
             storyImageKey: weddingInviteCustomisations.storyImageKey,
             footerImageKey: weddingInviteCustomisations.footerImageKey,
             heroBlur: weddingInviteCustomisations.heroBlur,
-            updatedAt: weddingInviteCustomisations.updatedAt,
-            imagesUpdatedAt: weddingInviteCustomisations.imagesUpdatedAt,
           })
           .from(weddings)
           .leftJoin(
@@ -585,10 +611,15 @@ export const inviteService = {
       );
       if (!row) return yield* Effect.fail(new WeddingNotFound({ slug }));
       const key = row[SLOT_COLUMNS[slot].key];
+      const heroBlur = row.heroBlur ?? HERO_BLUR_DEFAULT;
       return {
         key,
-        imageVersion: row.imagesUpdatedAt ?? row.updatedAt,
-        heroBlur: row.heroBlur ?? HERO_BLUR_DEFAULT,
+        imageVersion: key
+          ? slot === "hero"
+            ? heroVersionFromKey(key, heroBlur)
+            : versionFromKey(key)
+          : null,
+        heroBlur,
       };
     }).pipe(Effect.withSpan("cire.invite.imageKeyForSlug"));
   },

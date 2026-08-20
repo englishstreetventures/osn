@@ -98,7 +98,7 @@ export const createInvitePublicRoutes = (
       // cardinality per slot is capped (3 variants × 3 formats) — keeps the edge
       // cache hot and denies an attacker unbounded distinct transform URLs.
       // (The client's `?v=` is intentionally NOT read here — the cache version is
-      // derived server-side from the wedding row's `updatedAt` below, S-M1.)
+      // derived server-side from the SLOT's own R2 key below, S-M1.)
       const variant = resolveVariant((query as Record<string, string | undefined>).variant);
       const format = negotiateFormat(request.headers.get("accept"));
       return runCire(
@@ -106,15 +106,16 @@ export const createInvitePublicRoutes = (
           // Resolve the slug → image key + authoritative content version FIRST.
           // This is a cheap, indexed D1 read and it's required before we can key
           // the cache: the cache-key version is derived SERVER-SIDE from the
-          // row's `updatedAt` (NOT the client `?v=`). Slugs are public, so if we
-          // keyed on the raw `?v=` an attacker could loop ?v=1,2,3… on a valid
-          // slug to force unbounded cache-missing, per-call-billed transforms,
-          // defeating the bounded-cardinality cost guarantee (S-M1). The client
-          // may still SEND `?v=` (the frontend uses it for browser-cache busting
-          // and it equals `updatedAt` anyway) but it MUST NOT influence this key.
-          // By design this DB read now runs on EVERY request — it's cheap and is
-          // the source of the authoritative version; the expensive work (R2 read
-          // + Images binding call) is still skipped on a cache hit below.
+          // SLOT's own R2 key (`versionFromKey`, NOT the client `?v=`). Slugs are
+          // public, so if we keyed on the raw `?v=` an attacker could loop
+          // ?v=1,2,3… on a valid slug to force unbounded cache-missing, per-call-
+          // billed transforms, defeating the bounded-cardinality cost guarantee
+          // (S-M1). The client may still SEND `?v=` (the frontend uses it for
+          // browser-cache busting and it equals the key-derived version anyway)
+          // but it MUST NOT influence this key. By design this DB read now runs
+          // on EVERY request — it's cheap and is the source of the authoritative
+          // version; the expensive work (R2 read + Images binding call) is still
+          // skipped on a cache hit below.
           const { key, imageVersion, heroBlur } = yield* inviteService.imageKeyForSlug(
             params.slug,
             slot,
@@ -149,11 +150,13 @@ export const createInvitePublicRoutes = (
               return { error: "Not found" };
             }
           }
-          // Server-derived IMAGE version (`imagesUpdatedAt`, migration 0029):
-          // a re-upload / crop / hero-blur change mints a new cache key (fresh
-          // entry) so the new image is never served stale — while copy/colour
-          // saves leave it untouched, keeping the transform cache warm (WT-P-I1).
-          const version = imageVersion ? String(imageVersion.getTime()) : undefined;
+          // Server-derived IMAGE version (a digest of the slot's own R2 key,
+          // `versionFromKey`): a re-upload mints a fresh key ⇒ a fresh version ⇒
+          // a fresh cache entry, so the new image is never served stale — while
+          // copy/colour saves (same key) and another slot's changes (different
+          // column) both leave it untouched, keeping the transform cache warm
+          // (WT-P-I1 / P-I1).
+          const version = imageVersion ?? undefined;
 
           // Per-wedding hero backdrop blur (migration 0018). It applies ONLY to
           // the blurred `hero-bg` variant of the `hero` slot; every other
@@ -166,9 +169,9 @@ export const createInvitePublicRoutes = (
           // Identical Cache-API-short-circuit + Images-binding transform + raw-
           // original fallback pipeline as the per-event serve route — see
           // `serveTransformedImage`. The cache version is ALWAYS the server-
-          // derived one (here `updatedAt`, NEVER the client `?v=`), so an attacker
-          // can't loop arbitrary `?v=` to mint unbounded per-call-billed
-          // transforms (S-M1).
+          // derived one (here the slot's key-derived version, NEVER the client
+          // `?v=`), so an attacker can't loop arbitrary `?v=` to mint unbounded
+          // per-call-billed transforms (S-M1).
           return yield* serveTransformedImage({
             request,
             key,

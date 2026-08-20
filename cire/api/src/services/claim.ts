@@ -278,9 +278,13 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
     }
     eventList.sort((a, b) => a.sortOrder - b.sortOrder);
 
-    // The image URL's `?v=` tracks the IMAGE version like every other slot's
-    // (WT-P-I1), coalescing to `updatedAt` for rows that predate migration 0029.
-    const closingVersion = (closing?.imagesUpdatedAt ?? closing?.updatedAt)?.getTime() ?? 0;
+    // The image URL's `?v=` is derived from the closing image's own R2 key
+    // (WT-P-I1 / P-I1) — a digest of the key, not the row's `updatedAt` — so
+    // bumping the hero or story slot never busts this one, and a byte-neutral
+    // crop save (same key) never busts it either.
+    const closingImageUrl = closing?.imageKey
+      ? `/api/invite/${encodeURIComponent(slug)}/image/footer?v=${versionFromKey(closing.imageKey)}`
+      : null;
     return {
       familyId: family.id,
       publicId: family.publicId,
@@ -299,9 +303,7 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
       ),
       closing: {
         message: closing?.message ?? null,
-        imageUrl: closing?.imageKey
-          ? `/api/invite/${encodeURIComponent(slug)}/image/footer?v=${closingVersion}`
-          : null,
+        imageUrl: closingImageUrl,
         // Only surface a rectangle when there is an image to crop; `decodeCrop`
         // drops a malformed/legacy value so a bad rect never reaches a style.
         imageCrop: closing?.imageKey ? decodeCrop(closing.imageCrop) : null,
