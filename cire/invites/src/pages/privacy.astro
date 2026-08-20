@@ -22,7 +22,7 @@ import LegalLayout from '../layouts/LegalLayout.astro'
 import { ConsentPreferencesLink } from '../components/consent/ConsentBanner'
 import { CATEGORY_META } from '../lib/consent/categories'
 import { thirdPartyVendors } from '../lib/consent/vendors'
-import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING } from '@shared/legal'
+import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING, isPlaceholder } from '@shared/legal'
 
 // The third-party list below is GENERATED from the consent vendor registry
 // rather than written out by hand. Prose drifts: an earlier version of this
@@ -33,8 +33,9 @@ import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING } from '@shared/legal'
 // next build, and one that is removed disappears.
 const vendors = thirdPartyVendors()
 
-// Only highlight the operator's details while they are still placeholders.
-const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
+// Highlight a detail only while THAT detail is still a placeholder. A page-wide
+// flag would mark a filled field as pending the moment any other one wasn't.
+const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 ---
 <LegalLayout title="Privacy Notice">
   {LEGAL_DETAILS_PENDING && (
@@ -67,7 +68,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
       the fastest route to it.
     </li>
     <li>
-      <strong>Us</strong>, <span class={ph}>{LEGAL_ENTITY.name}</span>, who build and
+      <strong>Us</strong>, <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>, who build and
       run the site. We hold and process guest information on your hosts’ instructions.
       We also make some decisions on our own account and for every wedding alike — how
       long guest data survives the event, how the site is secured, and what technical
@@ -78,7 +79,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
   <p>
     You can contact us about anything in this notice at
     <a href={`mailto:${LEGAL_ENTITY.contactEmail}`}>
-      <span class={ph}>{LEGAL_ENTITY.contactEmail}</span></a>, whether or not you have
+      <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span></a>, whether or not you have
     spoken to your hosts first.
   </p>
 
@@ -263,7 +264,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
   <p>
     Ask your hosts, who can act on most of it immediately, or email us at
     <a href={`mailto:${LEGAL_ENTITY.contactEmail}`}>
-      <span class={ph}>{LEGAL_ENTITY.contactEmail}</span></a> and we will act on it
+      <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span></a> and we will act on it
     ourselves and tell your hosts only what we must. We respond as soon as we
     reasonably can, and within a month at the outside.
   </p>
@@ -272,7 +273,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
   <p>
     We would rather resolve a concern directly. If you are in Australia and are not
     satisfied, you can contact the
-    <span class={ph}>{LEGAL_ENTITY.regulator}</span> at
+    <span class={ph(LEGAL_ENTITY.regulator)}>{LEGAL_ENTITY.regulator}</span> at
     <a href="https://www.oaic.gov.au/" rel="noreferrer">oaic.gov.au</a>. If you are in
     the EU or the UK, you can complain to your local data protection authority instead.
   </p>

@@ -1,9 +1,10 @@
 ---
 import LegalLayout from '../layouts/LegalLayout.astro'
-import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING } from '@shared/legal'
+import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING, isPlaceholder } from '@shared/legal'
 
-// Only highlight the operator's details while they are still placeholders.
-const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
+// Highlight a detail only while THAT detail is still a placeholder. A page-wide
+// flag would mark a filled field as pending the moment any other one wasn't.
+const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 ---
 <LegalLayout title="Refund Policy">
   {LEGAL_DETAILS_PENDING && (
@@ -19,7 +20,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
   <p>
     Cire add-ons are one-time purchases that permanently unlock a feature for a single wedding.
     This policy explains when and how we refund them. It is offered by
-    <span class={ph}>{LEGAL_ENTITY.name}</span>, trading as Cire.
+    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>, trading as Cire.
   </p>
 
   <h2>14-day change of mind</h2>
@@ -28,7 +29,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
     <strong>14 days of purchase</strong>, provided you haven&rsquo;t substantially used it (for
     example, a capacity upgrade you haven&rsquo;t imported guests against, or a template pack you
     haven&rsquo;t published an invitation with). Just email
-    <span class={ph}>{LEGAL_ENTITY.contactEmail}</span> with your order details.
+    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span> with your order details.
   </p>
 
   <h2>Your rights under the Australian Consumer Law</h2>
@@ -49,7 +50,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
   <h2>How refunds are processed</h2>
   <p>
     Purchases are processed by our merchant of record,
-    <span class={ph}>{LEGAL_ENTITY.merchantOfRecord}</span>, so refunds are issued through
+    <span class={ph(LEGAL_ENTITY.merchantOfRecord)}>{LEGAL_ENTITY.merchantOfRecord}</span>, so refunds are issued through
     them back to your original payment method — typically within 5&ndash;10 business days of
     approval. When a purchase is refunded, the corresponding add-on is removed from the wedding
     (unless the refund was a remedy for a fault we couldn&rsquo;t fix).
@@ -57,6 +58,6 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
 
   <h2>Contact</h2>
   <p>
-    Refund requests and questions: <span class={ph}>{LEGAL_ENTITY.contactEmail}</span>.
+    Refund requests and questions: <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
   </p>
 </LegalLayout>

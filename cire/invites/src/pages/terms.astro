@@ -10,10 +10,11 @@
 // operator's terms and stays general.
 export const prerender = true
 import LegalLayout from '../layouts/LegalLayout.astro'
-import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING } from '@shared/legal'
+import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING, isPlaceholder } from '@shared/legal'
 
-// Only highlight the operator's details while they are still placeholders.
-const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
+// Highlight a detail only while THAT detail is still a placeholder. A page-wide
+// flag would mark a filled field as pending the moment any other one wasn't.
+const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 ---
 <LegalLayout title="Terms of Use">
   {LEGAL_DETAILS_PENDING && (
@@ -29,7 +30,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
   <p>
     This is a private invitation website. Your hosts have invited you to their wedding
     and asked us to run the invitation for them; the site itself is operated by
-    <span class={ph}>{LEGAL_ENTITY.name}</span> (“we”, “us”). By using the
+    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (“we”, “us”). By using the
     site you agree to these short terms. If you don’t agree, please don’t use it.
   </p>
 
@@ -77,7 +78,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
     best put to your hosts, who can change all of it. Questions about these terms or
     about the site itself:
     <a href={`mailto:${LEGAL_ENTITY.contactEmail}`}>
-      <span class={ph}>{LEGAL_ENTITY.contactEmail}</span></a>.
+      <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span></a>.
   </p>
 
   <h2>Governing law</h2>

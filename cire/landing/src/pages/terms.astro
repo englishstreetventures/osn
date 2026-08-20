@@ -1,9 +1,10 @@
 ---
 import LegalLayout from '../layouts/LegalLayout.astro'
-import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING } from '@shared/legal'
+import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING, isPlaceholder } from '@shared/legal'
 
-// Only highlight the operator's details while they are still placeholders.
-const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
+// Highlight a detail only while THAT detail is still a placeholder. A page-wide
+// flag would mark a filled field as pending the moment any other one wasn't.
+const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 ---
 <LegalLayout title="Terms of Service">
   {LEGAL_DETAILS_PENDING && (
@@ -19,7 +20,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
   <p>
     Cire is a digital wedding invitation and wedding planning service available at cireweddings.com,
     invite.cireweddings.com and host.cireweddings.com. It is operated by
-    <span class={ph}>{LEGAL_ENTITY.name}</span>, trading as Cire (&ldquo;Cire&rdquo;,
+    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>, trading as Cire (&ldquo;Cire&rdquo;,
     &ldquo;we&rdquo;, &ldquo;us&rdquo;). By creating an account or using the service you agree to
     these terms.
   </p>
@@ -52,7 +53,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
   <h2>Purchases and payment</h2>
   <p>
     Purchases are processed by our merchant of record,
-    <span class={ph}>{LEGAL_ENTITY.merchantOfRecord}</span>. When you buy an add-on, your
+    <span class={ph(LEGAL_ENTITY.merchantOfRecord)}>{LEGAL_ENTITY.merchantOfRecord}</span>. When you buy an add-on, your
     contract of sale (including payment, applicable taxes and invoicing) is with the merchant of
     record, and their terms of sale apply to the transaction. We then unlock the purchased add-on
     for your wedding. Prices are shown in or converted to your local currency at checkout. Refunds are
@@ -115,6 +116,6 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
 
   <h2>Contact</h2>
   <p>
-    Questions about these terms: <span class={ph}>{LEGAL_ENTITY.contactEmail}</span>.
+    Questions about these terms: <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
   </p>
 </LegalLayout>

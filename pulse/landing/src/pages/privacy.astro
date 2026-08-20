@@ -1,9 +1,10 @@
 ---
 import LegalLayout from '../layouts/LegalLayout.astro'
-import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING } from '@shared/legal'
+import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING, isPlaceholder } from '@shared/legal'
 
-// Only highlight the operator's details while they are still placeholders.
-const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
+// Highlight a detail only while THAT detail is still a placeholder. A page-wide
+// flag would mark a filled field as pending the moment any other one wasn't.
+const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 ---
 <LegalLayout title="Privacy Notice">
   {LEGAL_DETAILS_PENDING && (
@@ -17,7 +18,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
   <p class="meta">Last updated: 2026-08-20</p>
 
   <p>
-    This notice explains how <span class={ph}>{LEGAL_ENTITY.name}</span> (&ldquo;Pulse&rdquo;,
+    This notice explains how <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (&ldquo;Pulse&rdquo;,
     &ldquo;we&rdquo;) handles personal information collected through this marketing site. It covers
     visitors to this site only. Using the Pulse app itself is governed by the OSN privacy notice
     shown when you sign in.
@@ -53,14 +54,14 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
   <p>
     Depending on where you live, you may have rights to access, correct, delete or port your
     information, and to object to certain uses. To exercise them, contact us at
-    <span class={ph}>{LEGAL_ENTITY.contactEmail}</span>. You may also complain to your local data
-    protection regulator (<span class={ph}>{LEGAL_ENTITY.regulator}</span>).
+    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>. You may also complain to your local data
+    protection regulator (<span class={ph(LEGAL_ENTITY.regulator)}>{LEGAL_ENTITY.regulator}</span>).
   </p>
 
   <h2>Contact</h2>
   <p>
-    <span class={ph}>{LEGAL_ENTITY.name}</span>,
-    <span class={ph}>{LEGAL_ENTITY.postalAddress}</span> —
-    <span class={ph}>{LEGAL_ENTITY.contactEmail}</span>.
+    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>,
+    <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span> —
+    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
   </p>
 </LegalLayout>

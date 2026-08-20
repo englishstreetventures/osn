@@ -1,9 +1,10 @@
 ---
 import LegalLayout from '../layouts/LegalLayout.astro'
-import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING } from '@shared/legal'
+import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING, isPlaceholder } from '@shared/legal'
 
-// Only highlight the operator's details while they are still placeholders.
-const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
+// Highlight a detail only while THAT detail is still a placeholder. A page-wide
+// flag would mark a filled field as pending the moment any other one wasn't.
+const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 ---
 <LegalLayout title="Terms of Use">
   {LEGAL_DETAILS_PENDING && (
@@ -18,7 +19,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
 
   <p>
     These terms govern your use of the Pulse marketing site, operated by
-    <span class={ph}>{LEGAL_ENTITY.name}</span>. By using the site you agree to them.
+    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>. By using the site you agree to them.
   </p>
 
   <h2>Using the site</h2>
@@ -69,6 +70,6 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
 
   <h2>Contact</h2>
   <p>
-    Questions about these terms: <span class={ph}>{LEGAL_ENTITY.contactEmail}</span>.
+    Questions about these terms: <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
   </p>
 </LegalLayout>

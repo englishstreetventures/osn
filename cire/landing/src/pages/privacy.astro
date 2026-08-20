@@ -1,9 +1,10 @@
 ---
 import LegalLayout from '../layouts/LegalLayout.astro'
-import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING } from '@shared/legal'
+import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING, isPlaceholder } from '@shared/legal'
 
-// Only highlight the operator's details while they are still placeholders.
-const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
+// Highlight a detail only while THAT detail is still a placeholder. A page-wide
+// flag would mark a filled field as pending the moment any other one wasn't.
+const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 ---
 <LegalLayout title="Privacy Notice">
   {LEGAL_DETAILS_PENDING && (
@@ -17,7 +18,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
   <p class="meta">Last updated: 2026-08-20</p>
 
   <p>
-    This notice explains how <span class={ph}>{LEGAL_ENTITY.name}</span>, trading as Cire
+    This notice explains how <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>, trading as Cire
     (&ldquo;Cire&rdquo;, &ldquo;we&rdquo;), handles
     personal information across the Cire service — this marketing site, the invitation site your
     guests use, and the organiser portal.
@@ -49,7 +50,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
       identify a person), and the enquiry threads between you and a couple. An enquiry
       sends the couple&rsquo;s wedding name and message to the vendor they chose.</li>
     <li><strong>Purchases</strong> — handled by our merchant of record,
-      <span class={ph}>{LEGAL_ENTITY.merchantOfRecord}</span>. We receive order confirmation
+      <span class={ph(LEGAL_ENTITY.merchantOfRecord)}>{LEGAL_ENTITY.merchantOfRecord}</span>. We receive order confirmation
       (what was bought, for which wedding) but never see your card details.</li>
     <li><strong>Site usage</strong> — the technical logs needed to keep the service secure. We run
       no third-party analytics or advertising trackers.</li>
@@ -68,7 +69,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
   <p>We use a small set of service providers to run Cire:</p>
   <ul>
     <li><strong>Cloudflare</strong> — hosting, content delivery and databases (global network).</li>
-    <li><span class={ph}>{LEGAL_ENTITY.merchantOfRecord}</span> — payment processing, as
+    <li><span class={ph(LEGAL_ENTITY.merchantOfRecord)}>{LEGAL_ENTITY.merchantOfRecord}</span> — payment processing, as
       merchant of record for purchases.</li>
     <li><strong>Resend</strong> — transactional email delivery, including vendor claim
       invitations.</li>
@@ -96,7 +97,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
     That window is set by us and applies to every wedding — an organiser cannot extend it.
     Other wedding and account data is kept while your account is active and removed when you ask us
     to; specific periods for account data:
-    <span class={ph}>{LEGAL_ENTITY.accountDataRetention}</span>.
+    <span class={ph(LEGAL_ENTITY.accountDataRetention)}>{LEGAL_ENTITY.accountDataRetention}</span>.
   </p>
 
   <h2>Security</h2>
@@ -111,7 +112,7 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
     You may have rights to access, correct, delete or port your information, and to object to
     certain uses — under the Australian Privacy Act, and for people in the EEA or UK, the GDPR and
     UK GDPR. To exercise them, contact us at
-    <span class={ph}>{LEGAL_ENTITY.contactEmail}</span>. You can also complain to a regulator —
+    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>. You can also complain to a regulator —
     in Australia, the Office of the Australian Information Commissioner (OAIC), or your local data
     protection authority.
   </p>
@@ -124,8 +125,8 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
 
   <h2>Contact</h2>
   <p>
-    <span class={ph}>{LEGAL_ENTITY.name}</span> (trading as Cire),
-    <span class={ph}>{LEGAL_ENTITY.postalAddress}</span> —
-    <span class={ph}>{LEGAL_ENTITY.contactEmail}</span>.
+    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (trading as Cire),
+    <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span> —
+    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
   </p>
 </LegalLayout>

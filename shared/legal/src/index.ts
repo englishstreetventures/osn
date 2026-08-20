@@ -68,14 +68,15 @@ export interface LegalEntity {
 }
 
 /**
- * PLACEHOLDER VALUES. Replace all four before the pages are treated as
+ * Fill the remaining `{{PLACEHOLDER}}` values before the pages are treated as
  * published — see `LEGAL_DETAILS_PENDING`, which every page reads to decide
- * whether to show its draft banner.
+ * whether to show its draft banner, and which resolves on its own once the
+ * identity fields are real.
  */
 export const LEGAL_ENTITY: LegalEntity = {
   name: "{{LEGAL_ENTITY}}",
   postalAddress: "{{POSTAL_ADDRESS}}",
-  contactEmail: "{{CONTACT_EMAIL}}",
+  contactEmail: "aniket@englishstventures.com",
   regulator: "Office of the Australian Information Commissioner (OAIC)",
   governingLaw: "Australia",
   merchantOfRecord: "{{MERCHANT_OF_RECORD}}",
