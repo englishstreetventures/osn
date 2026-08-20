@@ -1,20 +1,26 @@
 ---
 import LegalLayout from '../layouts/LegalLayout.astro'
+import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING, isPlaceholder } from '@shared/legal'
+
+// Highlight a detail only while THAT detail is still a placeholder. A page-wide
+// flag would mark a filled field as pending the moment any other one wasn't.
+const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 ---
 <LegalLayout title="Refund Policy">
-  <div class="draft-banner">
-    <strong>Draft</strong> — A working draft for review, not legal advice. Have it checked before
-    publishing and replace every highlighted <span class="placeholder">{'{{PLACEHOLDER}}'}</span>
-    value.
-  </div>
+  {LEGAL_DETAILS_PENDING && (
+    <div class="draft-banner">
+      <strong>Draft</strong> — this notice is not final. Some details of the operator are
+      still to be confirmed, and this banner disappears once they are.
+    </div>
+  )}
 
   <h1>Refund Policy</h1>
-  <p class="meta">Last updated: 2026-07-18</p>
+  <p class="meta">Last updated: 2026-08-20</p>
 
   <p>
     Cire add-ons are one-time purchases that permanently unlock a feature for a single wedding.
     This policy explains when and how we refund them. It is offered by
-    <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span>, trading as Cire.
+    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>, trading as Cire.
   </p>
 
   <h2>14-day change of mind</h2>
@@ -23,7 +29,7 @@ import LegalLayout from '../layouts/LegalLayout.astro'
     <strong>14 days of purchase</strong>, provided you haven&rsquo;t substantially used it (for
     example, a capacity upgrade you haven&rsquo;t imported guests against, or a template pack you
     haven&rsquo;t published an invitation with). Just email
-    <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span> with your order details.
+    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span> with your order details.
   </p>
 
   <h2>Your rights under the Australian Consumer Law</h2>
@@ -44,7 +50,7 @@ import LegalLayout from '../layouts/LegalLayout.astro'
   <h2>How refunds are processed</h2>
   <p>
     Purchases are processed by our merchant of record,
-    <span class="placeholder">{'{{MERCHANT_OF_RECORD}}'}</span>, so refunds are issued through
+    <span class={ph(LEGAL_ENTITY.merchantOfRecord)}>{LEGAL_ENTITY.merchantOfRecord}</span>, so refunds are issued through
     them back to your original payment method — typically within 5&ndash;10 business days of
     approval. When a purchase is refunded, the corresponding add-on is removed from the wedding
     (unless the refund was a remedy for a fault we couldn&rsquo;t fix).
@@ -52,6 +58,6 @@ import LegalLayout from '../layouts/LegalLayout.astro'
 
   <h2>Contact</h2>
   <p>
-    Refund requests and questions: <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>.
+    Refund requests and questions: <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
   </p>
 </LegalLayout>

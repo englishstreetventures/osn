@@ -1,18 +1,24 @@
 ---
 import LegalLayout from '../layouts/LegalLayout.astro'
+import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING, isPlaceholder } from '@shared/legal'
+
+// Highlight a detail only while THAT detail is still a placeholder. A page-wide
+// flag would mark a filled field as pending the moment any other one wasn't.
+const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 ---
 <LegalLayout title="Privacy Notice">
-  <div class="draft-banner">
-    <strong>Draft</strong> — A working draft for review, not legal advice. Have it checked before
-    publishing and replace every highlighted <span class="placeholder">{'{{PLACEHOLDER}}'}</span>
-    value (contact address, retention specifics).
-  </div>
+  {LEGAL_DETAILS_PENDING && (
+    <div class="draft-banner">
+      <strong>Draft</strong> — this notice is not final. Some details of the operator are
+      still to be confirmed, and this banner disappears once they are.
+    </div>
+  )}
 
   <h1>Privacy Notice</h1>
-  <p class="meta">Last updated: 2026-07-18</p>
+  <p class="meta">Last updated: 2026-08-20</p>
 
   <p>
-    This notice explains how <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span>, trading as Cire
+    This notice explains how <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>, trading as Cire
     (&ldquo;Cire&rdquo;, &ldquo;we&rdquo;), handles
     personal information across the Cire service — this marketing site, the invitation site your
     guests use, and the organiser portal.
@@ -23,9 +29,12 @@ import LegalLayout from '../layouts/LegalLayout.astro'
     <li><strong>Organisers</strong> (couples and their helpers) create an account with us. For your
       account and purchase information, we decide how it is handled, as described here.</li>
     <li><strong>Guests</strong> don&rsquo;t create accounts. Your couple uploads your details to
-      manage their wedding, and we process them on the couple&rsquo;s behalf and instructions. If
-      you are a guest with questions about why your details are in Cire, your couple is the first
-      port of call — but you can always contact us directly too.</li>
+      manage their wedding, and we process them on the couple&rsquo;s behalf and instructions.
+      Three things are ours to decide rather than theirs, and we decide them the same way for
+      every wedding: how long guest information survives the event, how the service is secured,
+      and what technical telemetry it produces. If you are a guest with questions about why your
+      details are in Cire, your couple is the first port of call — but you can always contact us
+      directly too.</li>
   </ul>
 
   <h2>What we collect</h2>
@@ -36,8 +45,12 @@ import LegalLayout from '../layouts/LegalLayout.astro'
       and budgets you create.</li>
     <li><strong>Guest information uploaded by organisers</strong> — guest names, household
       groupings, RSVP responses, dietary needs and similar details the couple chooses to record.</li>
+    <li><strong>Vendor listings and enquiries</strong> — if you are a wedding
+      supplier, the contact details on your directory listing (which for a sole trader
+      identify a person), and the enquiry threads between you and a couple. An enquiry
+      sends the couple&rsquo;s wedding name and message to the vendor they chose.</li>
     <li><strong>Purchases</strong> — handled by our merchant of record,
-      <span class="placeholder">{'{{MERCHANT_OF_RECORD}}'}</span>. We receive order confirmation
+      <span class={ph(LEGAL_ENTITY.merchantOfRecord)}>{LEGAL_ENTITY.merchantOfRecord}</span>. We receive order confirmation
       (what was bought, for which wedding) but never see your card details.</li>
     <li><strong>Site usage</strong> — the technical logs needed to keep the service secure. We run
       no third-party analytics or advertising trackers.</li>
@@ -56,9 +69,12 @@ import LegalLayout from '../layouts/LegalLayout.astro'
   <p>We use a small set of service providers to run Cire:</p>
   <ul>
     <li><strong>Cloudflare</strong> — hosting, content delivery and databases (global network).</li>
-    <li><span class="placeholder">{'{{MERCHANT_OF_RECORD}}'}</span> — payment processing, as
+    <li><span class={ph(LEGAL_ENTITY.merchantOfRecord)}>{LEGAL_ENTITY.merchantOfRecord}</span> — payment processing, as
       merchant of record for purchases.</li>
-    <li><strong>Resend</strong> — transactional email delivery.</li>
+    <li><strong>Resend</strong> — transactional email delivery, including vendor claim
+      invitations.</li>
+    <li><strong>The vendor you enquire with</strong> — an enquiry is sent to that supplier,
+      who then holds it under their own responsibility.</li>
     <li><strong>Upstash</strong> — infrastructure supporting security features such as rate limiting.</li>
     <li><strong>Grafana Cloud</strong> — service telemetry (metrics and traces; pseudonymised
       identifiers only, never guest content).</li>
@@ -66,18 +82,22 @@ import LegalLayout from '../layouts/LegalLayout.astro'
       which sees your IP address when they load. We plan to self-host these fonts.</li>
   </ul>
   <p>
-    We also disclose information where the law requires it. Because these providers operate
-    globally, personal information may be stored or processed outside Australia, including in the
-    United States and the European Union.
+    We also disclose information where the law requires it. Our primary region is
+    <strong>Australia</strong>; the infrastructure supporting the service&rsquo;s security is
+    pinned to Sydney, and some technical records &mdash; email delivery, service telemetry,
+    payment processing &mdash; are handled by providers outside it. If you are in the EEA or the UK,
+    that means your information is transferred out of that area to Australia and elsewhere;
+    ask us and we will tell you what protections apply to that transfer.
   </p>
 
   <h2>How long we keep it</h2>
   <p>
     Only as long as needed for the purposes above. Guest information (guest lists, RSVPs, dietary
     needs) is automatically deleted <strong>one year after the wedding&rsquo;s final event</strong>.
+    That window is set by us and applies to every wedding — an organiser cannot extend it.
     Other wedding and account data is kept while your account is active and removed when you ask us
     to; specific periods for account data:
-    <span class="placeholder">{'{{RETENTION}}'}</span>.
+    <span class={ph(LEGAL_ENTITY.accountDataRetention)}>{LEGAL_ENTITY.accountDataRetention}</span>.
   </p>
 
   <h2>Security</h2>
@@ -92,7 +112,7 @@ import LegalLayout from '../layouts/LegalLayout.astro'
     You may have rights to access, correct, delete or port your information, and to object to
     certain uses — under the Australian Privacy Act, and for people in the EEA or UK, the GDPR and
     UK GDPR. To exercise them, contact us at
-    <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>. You can also complain to a regulator —
+    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>. You can also complain to a regulator —
     in Australia, the Office of the Australian Information Commissioner (OAIC), or your local data
     protection authority.
   </p>
@@ -105,8 +125,8 @@ import LegalLayout from '../layouts/LegalLayout.astro'
 
   <h2>Contact</h2>
   <p>
-    <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span> (trading as Cire),
-    <span class="placeholder">{'{{POSTAL_ADDRESS}}'}</span> —
-    <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>.
+    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (trading as Cire),
+    <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span> —
+    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
   </p>
 </LegalLayout>

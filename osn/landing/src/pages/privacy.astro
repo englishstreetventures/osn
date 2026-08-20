@@ -1,18 +1,24 @@
 ---
 import LegalLayout from '../layouts/LegalLayout.astro'
+import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING, isPlaceholder } from '@shared/legal'
+
+// Highlight a detail only while THAT detail is still a placeholder. A page-wide
+// flag would mark a filled field as pending the moment any other one wasn't.
+const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
 ---
 <LegalLayout title="Privacy Notice">
-  <div class="draft-banner">
-    <strong>Draft</strong> — A working draft for review, not legal advice. Have it checked before
-    publishing and replace every highlighted <span class="placeholder">{'{{PLACEHOLDER}}'}</span>
-    value (legal entity, contact address, regulator details).
-  </div>
+  {LEGAL_DETAILS_PENDING && (
+    <div class="draft-banner">
+      <strong>Draft</strong> — this notice is not final. Some details of the operator are
+      still to be confirmed, and this banner disappears once they are.
+    </div>
+  )}
 
   <h1>Privacy Notice</h1>
-  <p class="meta">Last updated: 2026-06-28</p>
+  <p class="meta">Last updated: 2026-08-20</p>
 
   <p>
-    This notice explains how <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span> (&ldquo;OSN&rdquo;,
+    This notice explains how <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (&ldquo;OSN&rdquo;,
     &ldquo;we&rdquo;) handles personal information collected through this marketing site. It covers
     visitors to this site only. The OSN identity service and each connected app publish their own,
     separate privacy notices governing the data they process.
@@ -41,22 +47,25 @@ import LegalLayout from '../layouts/LegalLayout.astro'
 
   <h2>How long we keep it</h2>
   <p>
-    Only as long as we need it for the purpose above, then we delete or anonymise it. Specific
-    retention periods: <span class="placeholder">{'{{RETENTION}}'}</span>.
+    Only as long as we need it for the purpose above, then we delete or anonymise it.
+    Server request logs are kept by our static host for a short period for security and
+    reliability and are not used for anything else; nothing on this site is retained beyond
+    that unless you contacted us, in which case we keep the correspondence for as long as it
+    takes to deal with it.
   </p>
 
   <h2>Your rights</h2>
   <p>
     Depending on where you live, you may have rights to access, correct, delete or port your
     information, and to object to certain uses. To exercise them, contact us at
-    <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>. You may also complain to your local data
-    protection regulator (<span class="placeholder">{'{{REGULATOR}}'}</span>).
+    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>. You may also complain to your local data
+    protection regulator (<span class={ph(LEGAL_ENTITY.regulator)}>{LEGAL_ENTITY.regulator}</span>).
   </p>
 
   <h2>Contact</h2>
   <p>
-    <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span>,
-    <span class="placeholder">{'{{POSTAL_ADDRESS}}'}</span> —
-    <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>.
+    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>,
+    <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span> —
+    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
   </p>
 </LegalLayout>
