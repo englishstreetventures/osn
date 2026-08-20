@@ -1,6 +1,7 @@
 ---
 import '../styles/global.css'
 import SiteFooter from '../components/SiteFooter.astro'
+import { Font } from 'astro:assets'
 
 interface Props {
   title: string
@@ -15,17 +16,10 @@ const { title } = Astro.props
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>{title} — Cire</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="preload"
-      as="style"
-      href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap"
-      onload="this.onload=null;this.rel='stylesheet'"
-    />
-    <noscript>
-      <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=Lato:wght@300;400&display=swap" rel="stylesheet" />
-    </noscript>
+    <!-- Both faces are above the fold — the wordmark is Cormorant, the copy beside
+         it is Lato — so both preload. -->
+    <Font cssVariable="--font-cormorant" preload />
+    <Font cssVariable="--font-lato" preload />
   </head>
   <body>
     <main class="legal">

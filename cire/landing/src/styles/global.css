@@ -3,7 +3,15 @@
 /* Brand tokens — kept byte-identical to cire/invites's theme block so the marketing
    site, the invites it advertises, and the organiser portal all read as one
    brand. If you change a token here, change it in cire/invites/src/styles/global.css
-   too (and vice versa). See [[wiki/apps/cire-landing]] → "Brand parity". */
+   too (and vice versa). See [[wiki/apps/cire-landing]] → "Brand parity".
+
+   The COLOUR tokens are byte-identical. The two font tokens are not, and cannot
+   be: both sites now self-host Cormorant Garamond and Lato, but by different
+   routes — this one through Astro's font pipeline (`astro.config.mjs`), the
+   guest site through hand-written `@font-face` rules over `@fontsource`, because
+   its build is an SSR Worker that predates this config. What matters for brand
+   parity is that they resolve to the same two families at the same weights, and
+   both carry a metric-matched fallback. */
 @theme {
   --color-bg: oklch(19.96% 0.0331 147.34);
   --color-surface: oklch(22.7% 0.0275 152.78);
@@ -15,8 +23,11 @@
   --color-gold-dim: oklch(74.99% 0.0854 82.08 / 0.35);
   --color-error: oklch(67.56% 0.1401 21.48);
   --color-success: oklch(75.96% 0.1421 146.94);
-  --font-display: "Cormorant Garamond", Georgia, serif;
-  --font-body: "Lato", system-ui, sans-serif;
+  /* Both faces are self-hosted by Astro's font pipeline, which defines
+     `--font-cormorant` / `--font-lato` on :root with their metric-matched
+     fallbacks already in the chain (see astro.config.mjs). */
+  --font-display: var(--font-cormorant);
+  --font-body: var(--font-lato);
   --default-font-family: var(--font-body);
 
   /* Landing-only additions (not part of the shared cire/invites brand block above —

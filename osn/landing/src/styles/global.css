@@ -15,8 +15,11 @@
   --color-accent-2: oklch(0.78 0.12 205);
   --color-error: oklch(67.56% 0.1401 21.48);
   --color-success: oklch(75.96% 0.1421 146.94);
-  --font-display: "Space Grotesk", system-ui, sans-serif;
-  --font-body: "Inter", system-ui, sans-serif;
+  /* Both faces are self-hosted by Astro's font pipeline, which defines
+     `--font-space-grotesk` / `--font-inter` on :root with their
+     metric-matched fallbacks already in the chain (see astro.config.mjs). */
+  --font-display: var(--font-space-grotesk);
+  --font-body: var(--font-inter);
   --default-font-family: var(--font-body);
 }
 
