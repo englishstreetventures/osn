@@ -430,6 +430,72 @@ describe("RsvpView", () => {
     expect(body.status).toBe("declined");
   });
 
+  it("keeps an unrelated event's row identity across a reload, patches the one that changed", async () => {
+    // The point of the store + mapArray split: a reload must not rebuild every
+    // <section>/<tr> in the wedding, only the one event whose data actually moved.
+    const RELOADED = {
+      events: VIEW.events.map((event) =>
+        event.id === "evt_1"
+          ? {
+              ...event,
+              attending: 2,
+              responded: 4,
+              noResponse: 0,
+              guests: [
+                ...event.guests,
+                {
+                  ...CLEO,
+                  status: "attending" as const,
+                  dietary: "Nut allergy",
+                  consentSource: "organiser_attested" as const,
+                },
+              ],
+              unresponded: [],
+            }
+          : event,
+      ),
+    };
+    authFetchMock
+      .mockResolvedValueOnce(json(VIEW)) // initial load
+      .mockResolvedValueOnce(
+        json({ rsvp: { status: "attending", consentSource: "organiser_attested" } }),
+      ) // PUT
+      .mockResolvedValueOnce(json(RELOADED)); // reload after save
+    render(() => <RsvpView weddingId="wed_a" canEdit />);
+    await waitFor(() => expect(screen.getByText("Bo Jones")).toBeTruthy());
+
+    // Reception never changes across this save — Ada's silent row there is the
+    // control. A whole-list rebuild would swap this node out even though nothing
+    // about Reception moved.
+    const reception = screen.getByText("Reception").closest("section")!;
+    const untouchedRow = within(reception).getByText("Ada Sharma").closest("tr")!;
+
+    fireEvent.click(screen.getByRole("button", { name: "Record reply for Cleo Jones" }));
+    const dietary = await screen.findByLabelText(/Dietary requirements/i);
+    fireEvent.input(dietary, { target: { value: "Nut allergy" } });
+    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));
+
+    await waitFor(() => expect(authFetchMock).toHaveBeenCalledTimes(3));
+
+    // Cleo's own row is the one that should have moved — she now has a reply,
+    // so a brand-new <tr> for her is correct. The reload body still has to parse
+    // and land in the store after the third call resolves, so requery the whole
+    // way down on each tick: a captured <section> would go stale the moment a
+    // rebuild swapped it out, and this half of the test must fail for its own
+    // reason, not that one.
+    await waitFor(() => {
+      const ceremony = screen.getByText("Ceremony").closest("section")!;
+      const cleoRow = within(ceremony).getByText("Cleo Jones").closest("tr")!;
+      expect(within(cleoRow).getByText("Attending")).toBeTruthy();
+    });
+
+    const receptionAfter = screen.getByText("Reception").closest("section")!;
+    const rowAfter = within(receptionAfter).getByText("Ada Sharma").closest("tr")!;
+    expect(rowAfter).toBe(untouchedRow);
+    expect(document.body.contains(untouchedRow)).toBe(true);
+  });
+
   it("closes the open editor when a filter hides the row it belongs to", async () => {
     authFetchMock.mockResolvedValueOnce(json(VIEW));
     render(() => <RsvpView weddingId="wed_a" canEdit />);

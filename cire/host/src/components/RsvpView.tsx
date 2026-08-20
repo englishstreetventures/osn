@@ -1,5 +1,15 @@
 import { useAuth } from "@shared/rp-auth/solid";
-import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  mapArray,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { haptic } from "../lib/haptics";
@@ -76,7 +86,7 @@ interface EditTarget {
  */
 export default function RsvpView(props: RsvpViewProps) {
   const { authFetch } = useAuth();
-  const [events, setEvents] = createSignal<RsvpViewEvent[]>([]);
+  const [state, setState] = createStore<{ events: RsvpViewEvent[] }>({ events: [] });
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
 
@@ -98,7 +108,7 @@ export default function RsvpView(props: RsvpViewProps) {
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) throw new Error(`Failed to load (${res.status})`);
       const body = (await res.json()) as { events: RsvpViewEvent[] };
-      setEvents(body.events);
+      setState("events", reconcile(body.events, { key: "id" }));
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Could not load RSVPs. Is the API running?");
@@ -109,27 +119,30 @@ export default function RsvpView(props: RsvpViewProps) {
 
   onMount(load);
 
-  const hasEvents = () => events().length > 0;
+  const hasEvents = () => state.events.length > 0;
 
-  // Two memos, both keyed by event id. Without them the merge and the filter
-  // ran once per read — and the markup reads them four times per event, on
-  // every keystroke. The rows also keep their identity between reads, which is
-  // what lets <For> patch the table instead of rebuilding it.
-  /** Every guest invited to each event, replied or not, before filtering. */
-  const merged = createMemo(
-    () => new Map(events().map((event) => [event.id, mergeRows(event)] as const)),
+  // A store, not a signal: reload writes patch each event's own fields in
+  // place, so an event nothing touched keeps its object identity and <For>
+  // leaves its <section> alone. That alone is not enough, though — a plain
+  // memo over the whole event list reads every event's guests, so it
+  // subscribes to all of them and re-merges every row when any one changes.
+  // `mapArray` is the fix: its callback runs once per event,
+  // cached by identity, so the per-event row memos below only re-run for the
+  // event whose own guests actually changed. Everything reads `sections()`.
+  const sections = createMemo(
+    mapArray(
+      () => state.events,
+      (event) => {
+        const rows = createMemo(() => mergeRows(event));
+        const visible = createMemo(() => filterRows(rows(), query(), filter()));
+        return { event, rows, visible };
+      },
+    ),
   );
-  const shown = createMemo(() => {
-    const q = query();
-    const f = filter();
-    return new Map([...merged()].map(([id, rows]) => [id, filterRows(rows, q, f)] as const));
-  });
-  const rowsFor = (event: RsvpViewEvent) => merged().get(event.id) ?? [];
-  const shownFor = (event: RsvpViewEvent) => shown().get(event.id) ?? [];
 
-  const counts = createMemo(() => statusCounts(merged().values()));
+  const counts = createMemo(() => statusCounts(sections().map((section) => section.rows())));
   const shownCount = createMemo(() =>
-    [...shown().values()].reduce((total, rows) => total + rows.length, 0),
+    sections().reduce((total, section) => total + section.visible().length, 0),
   );
   const filtering = () => query().trim().length > 0 || filter() !== "all";
 
@@ -180,7 +193,9 @@ export default function RsvpView(props: RsvpViewProps) {
   createEffect(() => {
     const target = edit();
     if (!target) return;
-    const rows = shown().get(target.eventId);
+    const rows = sections()
+      .find((section) => section.event.id === target.eventId)
+      ?.visible();
     if (!rows?.some((row) => row.guestId === target.guestId)) closeEditor();
   });
 
@@ -234,8 +249,9 @@ export default function RsvpView(props: RsvpViewProps) {
         setSaving(false);
         return;
       }
-      // Recorded. The reload that follows redraws the whole list, so the buzz
-      // is the only thing that marks *this* row as the one that changed.
+      // Recorded. The reload that follows patches only the row that changed,
+      // but that patch still takes a moment to land — the buzz is what tells
+      // the host the save landed, not the redraw.
       haptic("commit");
       closeEditor();
       await load();
@@ -324,39 +340,39 @@ export default function RsvpView(props: RsvpViewProps) {
         </div>
 
         <div class="flex flex-col gap-10">
-          <For each={events()}>
-            {(event) => (
+          <For each={sections()}>
+            {(section) => (
               <section class="border-border bg-surface/30 flex flex-col gap-4 rounded-sm border p-5">
                 <header class="flex flex-wrap items-end justify-between gap-3">
                   <h3 class="font-display text-text text-[1.3rem] leading-none font-light">
-                    {event.name}
+                    {section.event.name}
                   </h3>
                   <dl class="font-body text-text-muted flex flex-wrap gap-x-4 gap-y-1 text-[0.78rem]">
                     <div class="flex items-center gap-1.5">
                       <dt class="text-gold tracking-[0.08em] uppercase">Attending</dt>
-                      <dd class="text-text font-mono">{event.attending}</dd>
+                      <dd class="text-text font-mono">{section.event.attending}</dd>
                     </div>
                     <div class="flex items-center gap-1.5">
                       <dt class="tracking-[0.08em] uppercase">Declined</dt>
-                      <dd class="text-text font-mono">{event.declined}</dd>
+                      <dd class="text-text font-mono">{section.event.declined}</dd>
                     </div>
                     <div class="flex items-center gap-1.5">
                       <dt class="tracking-[0.08em] uppercase">Maybe</dt>
-                      <dd class="text-text font-mono">{event.maybe}</dd>
+                      <dd class="text-text font-mono">{section.event.maybe}</dd>
                     </div>
                     <div class="flex items-center gap-1.5">
                       <dt class="tracking-[0.08em] uppercase">No reply</dt>
-                      <dd class="text-text font-mono">{event.noResponse}</dd>
+                      <dd class="text-text font-mono">{section.event.noResponse}</dd>
                     </div>
                     <div class="flex items-center gap-1.5">
                       <dt class="tracking-[0.08em] uppercase">Invited</dt>
-                      <dd class="text-text font-mono">{event.invited}</dd>
+                      <dd class="text-text font-mono">{section.event.invited}</dd>
                     </div>
                   </dl>
                 </header>
 
                 <Show
-                  when={rowsFor(event).length > 0}
+                  when={section.rows().length > 0}
                   fallback={
                     <p class="font-body text-text-muted text-[0.82rem] italic">
                       No guests to show for this event.
@@ -364,15 +380,15 @@ export default function RsvpView(props: RsvpViewProps) {
                   }
                 >
                   <Show
-                    when={shownFor(event).length > 0}
+                    when={section.visible().length > 0}
                     fallback={
                       <p class="font-body text-text-muted text-[0.82rem] italic">
                         No guests match this filter.
                       </p>
                     }
                   >
-                    <Table label={`Replies for ${event.name}`} class="font-body">
-                      <caption class="sr-only">RSVPs for {event.name}</caption>
+                    <Table label={`Replies for ${section.event.name}`} class="font-body">
+                      <caption class="sr-only">RSVPs for {section.event.name}</caption>
                       <thead>
                         <tr>
                           <Th>Guest</Th>
@@ -387,7 +403,7 @@ export default function RsvpView(props: RsvpViewProps) {
                         </tr>
                       </thead>
                       <tbody>
-                        <For each={shownFor(event)}>
+                        <For each={section.visible()}>
                           {(row) => (
                             <>
                               <tr class="hover:[&>td]:bg-surface">
@@ -425,14 +441,16 @@ export default function RsvpView(props: RsvpViewProps) {
                                       type="button"
                                       class="border-border text-text-muted hover:text-text hover:border-gold/40 rounded-sm border px-2.5 py-1 text-[0.7rem] tracking-[0.08em] uppercase"
                                       aria-label={`${row.responded ? "Edit" : "Record"} reply for ${row.firstName} ${row.lastName}`}
-                                      onClick={() => openRow(event.id, row)}
+                                      onClick={() => openRow(section.event.id, row)}
                                     >
                                       {row.responded ? "Edit" : "Record"}
                                     </button>
                                   </Td>
                                 </Show>
                               </tr>
-                              <Show when={props.canEdit && isEditing(event.id, row.guestId)}>
+                              <Show
+                                when={props.canEdit && isEditing(section.event.id, row.guestId)}
+                              >
                                 {renderEditorRow()}
                               </Show>
                             </>
