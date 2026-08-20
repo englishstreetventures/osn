@@ -2,12 +2,14 @@ import { describe, it, expect } from "vitest";
 
 import {
   cropAspectRatio,
+  cropBackgroundImageSetDeclaration,
   cropBackgroundStyle,
   heroCropBackgroundStyle,
   heroCropLayers,
   heroImgRevealClass,
   isRenderableCrop,
 } from "./image-crop";
+import { VARIANT_WIDTHS } from "./invite-images";
 
 describe("isRenderableCrop", () => {
   it("treats null/undefined as not renderable (fall back to object-cover)", () => {
@@ -202,6 +204,54 @@ describe("heroCropLayers (per-breakpoint hero crops, migration 0046)", () => {
   it("an identity mobile crop is ignored (falls back to desktop)", () => {
     const layers = heroCropLayers("u", DESKTOP, { x: 0, y: 0, w: 1, h: 1 });
     expect(layers.narrow).toEqual(layers.wide);
+  });
+});
+
+describe("cropBackgroundImageSetDeclaration (viewport+DPR sibling of cropBackgroundStyle, BRIEF-88)", () => {
+  const CROP = { x: 0.25, y: 0.25, w: 0.5, h: 0.5 };
+
+  it("returns null when there's no renderable crop, same as the object helper", () => {
+    expect(cropBackgroundImageSetDeclaration("a", "b", null)).toBeNull();
+    expect(cropBackgroundImageSetDeclaration("a", "b", { x: 0, y: 0, w: 1, h: 1 })).toBeNull();
+  });
+
+  it("declares the plain url() fallback BEFORE image-set() (Safari < 17 has no unprefixed image-set)", () => {
+    const decl = cropBackgroundImageSetDeclaration(
+      "https://x/img.jpg?variant=card",
+      "https://x/img.jpg?variant=hero",
+      CROP,
+    )!;
+    const urlIndex = decl.indexOf('background-image:url("https://x/img.jpg?variant=card")');
+    const imageSetIndex = decl.indexOf("background-image:image-set(");
+    expect(urlIndex).toBeGreaterThanOrEqual(0);
+    expect(imageSetIndex).toBeGreaterThan(urlIndex);
+  });
+
+  it("names the image-set() candidates at 1x and 2x, matching the caller's card/hero URLs", () => {
+    const decl = cropBackgroundImageSetDeclaration(
+      "https://x/img.jpg?variant=card",
+      "https://x/img.jpg?variant=hero",
+      CROP,
+    )!;
+    expect(decl).toContain(
+      'image-set(url("https://x/img.jpg?variant=card") 1x, url("https://x/img.jpg?variant=hero") 2x)',
+    );
+  });
+
+  it("keeps both image-set() candidates inside the bounded VARIANT_WIDTHS allowlist", () => {
+    expect(Object.keys(VARIANT_WIDTHS)).toContain("card");
+    expect(Object.keys(VARIANT_WIDTHS)).toContain("hero");
+  });
+
+  it("computes byte-identical crop maths to the object helper for the same crop", () => {
+    const objectStyle = cropBackgroundStyle("https://x/img.jpg?variant=hero", CROP)!;
+    const decl = cropBackgroundImageSetDeclaration(
+      "https://x/img.jpg?variant=card",
+      "https://x/img.jpg?variant=hero",
+      CROP,
+    )!;
+    expect(decl).toContain(`background-size:${objectStyle["background-size"]};`);
+    expect(decl).toContain(`background-position:${objectStyle["background-position"]};`);
   });
 });
 

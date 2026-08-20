@@ -1,6 +1,11 @@
 import { Show } from "solid-js";
 
-import { cropAspectRatio, cropBackgroundStyle, type ImageCrop } from "./image-crop";
+import {
+  cropAspectRatio,
+  cropBackgroundImageSetDeclaration,
+  cropBackgroundStyle,
+  type ImageCrop,
+} from "./image-crop";
 import { isFooterEmpty } from "./invite-emptiness";
 import { buildSrcSet, variantSrc } from "./invite-images";
 
@@ -149,13 +154,34 @@ export function InviteClosing(props: InviteClosingProps) {
 
   // A saved crop paints a background layer instead of the `<img>`, rendering the
   // framed region EXACTLY: uniform scale, and the box below takes the crop's own
-  // aspect, so the region fills it with no distortion and no bars. Backgrounds
-  // can't carry a `srcset`, so we name one bounded variant: `hero` (1600w), the
-  // width a full-bleed band actually needs — the old tightness-based thumb/card
-  // pick was sized for a 200px box and would be visibly soft across a viewport.
-  const cropStyle = () => {
+  // aspect, so the region fills it with no distortion and no bars. A background
+  // layer can't carry a `srcset`, and `image-set()` only sees device-pixel-ratio
+  // — not viewport width — so the two axes split across two elements below
+  // `md:`. Above `md:` the band renders at 1200–1600px, where even DPR 1 needs
+  // the full `hero` (1600w): dropping to `card` there would be visibly soft
+  // across the viewport, so the wide layer keeps exactly today's behaviour.
+  // Below `md:` the band is ~400 CSS px wide, so `card` (800w) covers DPR 1 and
+  // `hero` only serves DPR 2 — `image-set()` picks between the two.
+  const wideCropStyle = () => {
     const url = imageSrc();
     return url ? cropBackgroundStyle(variantSrc(url, "hero"), props.imageCrop) : null;
+  };
+
+  // Folds the box's `aspect-ratio` / `max-width` into the same string as the
+  // background declarations — a style OBJECT can't carry `background-image`
+  // twice (the plain `url()` fallback + `image-set()`), so this layer's whole
+  // `style` is a CSS text string instead of the usual object.
+  const narrowCropStyle = () => {
+    const url = imageSrc();
+    if (!url) return null;
+    const bg = cropBackgroundImageSetDeclaration(
+      variantSrc(url, "card"),
+      variantSrc(url, "hero"),
+      props.imageCrop,
+    );
+    if (!bg) return null;
+    const aspect = bandAspect();
+    return `${bg}aspect-ratio:${aspect};max-width:${bandMaxWidth(aspect)};`;
   };
 
   // The band's height, expressed as the crop's true pixel aspect (from its
@@ -194,7 +220,7 @@ export function InviteClosing(props: InviteClosingProps) {
         <Show when={imageSrc()}>
           {(url) => (
             <Show
-              when={cropStyle()}
+              when={wideCropStyle()}
               fallback={
                 /* Two candidates so `sizes` has a real choice to make: `card`
                    (800w) covers the band on a phone, `hero` (1600w) from a
@@ -227,20 +253,30 @@ export function InviteClosing(props: InviteClosingProps) {
               }
             >
               {(style) => (
-                <div
-                  aria-hidden="true"
-                  // The cropped variant paints a background layer, so the box
-                  // owns its size (an empty div has no intrinsic dimensions):
-                  // the CROP's aspect, at the full width the screen-height bound
-                  // allows. Never a `max-height` clip — that would cut the
-                  // framing this whole path exists to honour.
-                  class="mx-auto block w-full"
-                  style={{
-                    ...style(),
-                    "aspect-ratio": String(bandAspect()),
-                    "max-width": bandMaxWidth(bandAspect()),
-                  }}
-                />
+                <>
+                  {/* Below md: — image-set() 1x=card/2x=hero, so a DPR-1 phone
+                      doesn't fetch the same 1600w desktop needs. */}
+                  <div
+                    aria-hidden="true"
+                    class="mx-auto block w-full md:hidden"
+                    style={narrowCropStyle() ?? undefined}
+                  />
+                  {/* md: and up — exactly today's behaviour: plain `hero` url,
+                      the box owns its size (an empty div has no intrinsic
+                      dimensions): the CROP's aspect, at the full width the
+                      screen-height bound allows. Never a `max-height` clip —
+                      that would cut the framing this whole path exists to
+                      honour. */}
+                  <div
+                    aria-hidden="true"
+                    class="mx-auto hidden w-full md:block"
+                    style={{
+                      ...style(),
+                      "aspect-ratio": String(bandAspect()),
+                      "max-width": bandMaxWidth(bandAspect()),
+                    }}
+                  />
+                </>
               )}
             </Show>
           )}

@@ -16,6 +16,13 @@ const IMG = "/api/invite/anita-ben/image/footer?v=7";
 
 const closing = (el: HTMLElement) => el.querySelector("[data-invite-closing]");
 
+// BRIEF-88 split the crop layer into narrow (image-set) + wide (plain hero url)
+// divs. These pre-existing assertions pin "exactly today's behaviour" — the wide
+// layer — so they target it explicitly rather than the first `[aria-hidden]`
+// match, which is now the narrow layer.
+const wideCropLayer = (el: HTMLElement) =>
+  el.querySelector("[aria-hidden='true'].md\\:block") as HTMLElement | null;
+
 describe("InviteClosing", () => {
   afterEach(cleanup);
 
@@ -140,7 +147,7 @@ describe("InviteClosing", () => {
 
       // The crop path replaces the <img> entirely — one node, not both.
       expect(section.querySelector("img")).toBeNull();
-      const layer = section.querySelector("[aria-hidden='true']") as HTMLElement;
+      const layer = wideCropLayer(section) as HTMLElement;
       expect(layer).toBeTruthy();
       expect(layer.style.getPropertyValue("background-image")).toContain(`${API}${IMG}`);
       // The EXACT framed region, not a focal-point cover: single-value
@@ -154,6 +161,38 @@ describe("InviteClosing", () => {
       expect(layer.style.getPropertyValue("max-height")).toBe("");
     });
 
+    it("splits the crop layer into a narrow and a wide element, one hidden at a time", () => {
+      const { container } = render(() => (
+        <InviteClosing
+          apiUrl={API}
+          imageUrl={IMG}
+          imageCrop={{ x: 0.1, y: 0.1, w: 0.5, h: 0.5, natW: 1000, natH: 500 }}
+        />
+      ));
+      const section = closing(container) as HTMLElement;
+
+      // Below `md:` a DPR-1 phone must resolve the 800w `card`; above it the
+      // band still needs the 1600w `hero`. A `display:none` layer never fetches
+      // its background, so exactly one of the two downloads.
+      const narrow = section.querySelector("[aria-hidden='true'].md\\:hidden") as HTMLElement;
+      expect(narrow).toBeTruthy();
+      // Same crop maths and box sizing as the wide layer — the split changes
+      // which file is fetched, never the framing.
+      expect(narrow.style.getPropertyValue("background-size")).toBe("200%");
+      expect(narrow.style.getPropertyValue("aspect-ratio")).toBe("2 / 1");
+
+      // The wide layer stays exactly today's single hero url.
+      const wide = wideCropLayer(section) as HTMLElement;
+      expect(wide.style.getPropertyValue("background-image")).toContain("variant=hero");
+      expect(wide.style.getPropertyValue("background-image")).not.toContain("image-set");
+
+      // The narrow layer's URLs are NOT asserted here on purpose: jsdom's CSS
+      // parser drops both `background-image` declarations rather than keeping
+      // the valid one, so the property reads empty no matter what was set. The
+      // string itself is pinned in `image-crop.test.ts`, and that a real engine
+      // parses the pair is pinned in `InviteClosing.browser.test.tsx`.
+    });
+
     it("asks for the hero width, the one a full-bleed band actually needs", () => {
       const { container } = render(() => (
         <InviteClosing
@@ -162,9 +201,7 @@ describe("InviteClosing", () => {
           imageCrop={{ x: 0, y: 0, w: 0.9, h: 0.9, natW: 1000, natH: 1000 }}
         />
       ));
-      const layer = (closing(container) as HTMLElement).querySelector(
-        "[aria-hidden='true']",
-      ) as HTMLElement;
+      const layer = wideCropLayer(closing(container) as HTMLElement) as HTMLElement;
       // A background can't carry a srcset, so it names one bounded variant —
       // and at viewport width the 320w thumb the small box used is far too soft.
       expect(layer.style.getPropertyValue("background-image")).toContain("variant=hero");
@@ -179,9 +216,7 @@ describe("InviteClosing", () => {
           imageCrop={{ x: 0, y: 0, w: 0.4, h: 0.5, natW: 1000, natH: 1000 }}
         />
       ));
-      const layer = (closing(container) as HTMLElement).querySelector(
-        "[aria-hidden='true']",
-      ) as HTMLElement;
+      const layer = wideCropLayer(closing(container) as HTMLElement) as HTMLElement;
 
       // `width: 100%` + a max-width of cap × aspect IS `min(100%, cap × aspect)`
       // — full-bleed at any ordinary landscape shape, a centred column only when
@@ -223,9 +258,7 @@ describe("InviteClosing", () => {
       const { container } = render(() => (
         <InviteClosing apiUrl={API} imageUrl={IMG} imageCrop={{ x: 0, y: 0, w: 0.5, h: 0.5 }} />
       ));
-      const layer = (closing(container) as HTMLElement).querySelector(
-        "[aria-hidden='true']",
-      ) as HTMLElement;
+      const layer = wideCropLayer(closing(container) as HTMLElement) as HTMLElement;
       // True aspect needs the captured source dims; without them the box takes
       // the shape the closing slot's crop editor opens on (`CROP_ASPECT.footer`),
       // so the fallback matches what the organiser was shown.
