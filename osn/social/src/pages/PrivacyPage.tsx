@@ -76,9 +76,11 @@ export function PrivacyPage(): JSX.Element {
       <p>
         When you use your OSN account to sign in to another app, we record that you granted it —
         which app, which profile, what it may see, and when. That record <em>is</em> your consent,
-        and withdrawing it in Settings under Connected apps deletes the grant and kills any
-        authorisation still in flight. The identifier each app receives for you is derived per-app,
-        so two apps that compare notes cannot tell they are looking at the same person.
+        and withdrawing it in Settings under Connected apps stops the app receiving anything more
+        and kills any authorisation still in flight. The row itself stays, marked withdrawn, as the
+        record that you withdrew — and goes when your account does. The identifier each app receives
+        for you is derived per-app, so two apps that compare notes cannot tell they are looking at
+        the same person.
       </p>
 
       <h2>The legal bases</h2>

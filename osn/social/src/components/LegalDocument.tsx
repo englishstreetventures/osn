@@ -19,9 +19,8 @@ export function LegalDocument(props: {
     <article class="prose-legal mx-auto w-full max-w-2xl px-6 py-12">
       {LEGAL_DETAILS_PENDING && (
         <p class="mb-8 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-          <strong>Draft</strong> — the operator's own details are not filled in yet, so this page is
-          not final. Fill them in at <code>shared/legal/src/index.ts</code> and this banner goes
-          away by itself.
+          <strong>Draft</strong> — this notice is not final. Some details of the operator are still
+          to be confirmed, and this banner disappears once they are.
         </p>
       )}
       <h1 class="mb-1 text-2xl font-semibold">{props.title}</h1>

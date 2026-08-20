@@ -19,9 +19,8 @@ export default function PrivacyRoute(): JSX.Element {
     <article class="mx-auto w-full max-w-2xl px-6 py-12 leading-relaxed">
       {LEGAL_DETAILS_PENDING && (
         <p class="mb-8 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-          <strong>Draft</strong> — the operator's own details are not filled in yet, so this page is
-          not final. Fill them in at <code>shared/legal/src/index.ts</code> and this banner goes
-          away by itself.
+          <strong>Draft</strong> — this notice is not final. Some details of the operator are still
+          to be confirmed, and this banner disappears once they are.
         </p>
       )}
       <h1 class="mb-1 text-2xl font-semibold">Privacy Notice</h1>
@@ -77,10 +76,14 @@ export default function PrivacyRoute(): JSX.Element {
       <p>
         Some events say something about the people at them — a health event, a religious one, a
         political one, a Pride event. A host publishing such an event has chosen to; someone
-        RSVP'ing to it has not made anything public about themselves. We treat attendance at events
-        of that kind as protected information, ask before recording it, and honour the event's
-        visibility setting strictly. If you would rather not be listed, mark yourself interested
-        rather than going, or ask us to remove the record.
+        RSVP'ing to it has not made anything public about themselves.
+      </p>
+      <p>
+        Today the control is the host's visibility setting, which we honour strictly, and your own
+        choice of whether to respond at all. We do not yet ask you separately before recording an
+        RSVP to an event of that kind, and we should — it is on our list. Until it exists: if you
+        would rather not be listed, mark yourself interested rather than going, or ask us to remove
+        the record and we will.
       </p>
 
       <h2>The legal bases</h2>
@@ -88,13 +91,37 @@ export default function PrivacyRoute(): JSX.Element {
         Creating and attending events is contract — you asked for the service (GDPR Art. 6(1)(b)).
         Share attribution and public venue listings rest on legitimate interest (Art. 6(1)(f)), and
         you can object to either. Attendance visibility and anything in the paragraph above rest on
-        your explicit consent (Art. 6(1)(a) and, where it applies, Art. 9(2)(a)).
+        your explicit consent (Art. 6(1)(a)). Where an RSVP would reveal something protected about
+        you, Art. 9(2)(a) is the basis we are building towards — see the note above for what stands
+        in its place today.
       </p>
+
+      <h2>Who else sees it</h2>
+      <p>
+        Behind the service, a small number of providers process data on our instructions: Cloudflare
+        for hosting and databases, Upstash for rate-limit state (hashed), and Grafana Cloud for
+        technical telemetry, which carries pseudonymised identifiers and no event content.
+      </p>
+      <p>Two third parties your browser contacts directly:</p>
+      <ul class="my-4 list-disc space-y-2 pl-6">
+        <li>
+          <strong>OpenStreetMap</strong> — map tiles. Opening a page with a map sends your IP
+          address to the OpenStreetMap Foundation's tile servers, because that is what fetching a
+          tile is.
+        </li>
+        <li>
+          <strong>Komoot (Photon)</strong> — address autocomplete. While you type an address into an
+          event, what you have typed so far goes to Komoot's geocoder in Germany, with your IP. It
+          fires as you type rather than when you submit, and it is not currently behind a consent
+          gate. We are moving it behind our own server and a gate; until then it is stated here
+          rather than left for you to find in a network log.
+        </li>
+      </ul>
 
       <h2>What we do not do</h2>
       <p>
         No advertising, no third-party trackers, no selling your information, and no following you
-        around other sites. Pulse loads a map, and that is the only third-party content on it.
+        around other sites.
       </p>
 
       <h2>Where it is stored, and for how long</h2>
