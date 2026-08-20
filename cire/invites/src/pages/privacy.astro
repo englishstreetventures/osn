@@ -148,12 +148,12 @@ const vendors = thirdPartyVendors()
   </ul>
   <p class="owner-note">
     <strong>Note for the site owner:</strong> the entries marked “loads on every
-    visit” are not covered by the consent choice. Today that is Google Fonts,
-    which is requested from the page <code>&lt;head&gt;</code> before any choice
-    can be applied. The fix is to self-host the two font files so Google drops
-    out of this list entirely, rather than to put the site’s typography behind a
-    switch — tracked as an open issue. Until then this page says
-    so plainly instead of implying the toggle covers it.
+    visit” are not covered by the consent choice. Today that is Cloudflare
+    Turnstile, which the claim form can’t function without and which is
+    requested before any choice can be applied — so this page says so plainly
+    instead of implying the toggle covers it. (Google Fonts used to be listed
+    here too; self-hosting the two font files removed it from the vendor
+    registry entirely — tracker #98.)
   </p>
 
   <h3>Changing your mind</h3>

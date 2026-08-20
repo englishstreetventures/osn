@@ -25,14 +25,15 @@ import type { ConsentCategory } from "./categories";
  *    grants its category. Pinterest and Google Maps are both gated: their
  *    components mount inside the click-opened details sheet, so nothing is in
  *    the server-rendered HTML and a client-side gate is genuinely sufficient.
- *  - `"always"` — loads on every visit regardless of the guest's choice. Only
- *    Google Fonts, and only because the font `<link>` lives in the `<head>` of
- *    the server-rendered document: gating it would either swap the typeface
- *    mid-visit (a jarring, consent-triggered redesign) or leave the prerendered
- *    legal pages inconsistent with the SSR'd invite. The right fix is to remove
- *    the vendor rather than gate it — self-host the two woff2 families and
- *    Google drops out of this table entirely. Tracked as an open issue in
- *    `xchromo/osn` (`label:product:cire`).
+ *  - `"always"` — loads on every visit regardless of the guest's choice. Used
+ *    for first-party necessities (the session cookie, the consent record
+ *    itself) and Turnstile, which the claim form cannot function without.
+ *    Google Fonts used to be the one third party in this bucket — its `<link>`
+ *    lived in the `<head>` of the server-rendered document, so gating it would
+ *    have either swapped the typeface mid-visit or left the prerendered legal
+ *    pages inconsistent with the SSR'd invite. Self-hosting the two woff2
+ *    families (tracker #98) removed the vendor from this table entirely rather
+ *    than gating it.
  *
  * The preferences dialog surfaces this distinction rather than hiding it: an
  * `"always"` vendor is listed with a plain "loads on every visit" note instead
@@ -97,18 +98,6 @@ export const CONSENT_VENDORS: readonly ConsentVendor[] = [
     transfer: "Cloudflare, Inc. (US)",
   },
   {
-    id: "google-fonts",
-    name: "Google Fonts",
-    category: "embeds",
-    purpose: "Serves the two typefaces the invite is set in.",
-    origins: ["https://fonts.googleapis.com", "https://fonts.gstatic.com"],
-    // See the module doc: `<head>`-level, so not gated. Being replaced by
-    // self-hosted font files rather than moved behind the toggle.
-    enforcement: "always",
-    privacyUrl: "https://policies.google.com/privacy",
-    transfer: "Google LLC (US)",
-  },
-  {
     id: "google-maps",
     name: "Google Maps",
     category: "embeds",
@@ -155,7 +144,7 @@ export function gatedVendorsInCategory(category: ConsentCategory): readonly Cons
 /**
  * Vendors in a category that load regardless of the toggle — listed separately
  * and labelled, so the dialog never implies a switch governs something it
- * doesn't. Today this is Google Fonts only.
+ * doesn't.
  */
 export function ungatedVendorsInCategory(category: ConsentCategory): readonly ConsentVendor[] {
   return vendorsInCategory(category).filter(

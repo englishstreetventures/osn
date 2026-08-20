@@ -100,6 +100,8 @@
         "@astrojs/solid-js": "^7.0.1",
         "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
+        "@fontsource/cormorant-garamond": "^5.3.0",
+        "@fontsource/lato": "^5.3.0",
         "@shared/rp-auth": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
         "astro": "^7.1.3",
@@ -109,6 +111,7 @@
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
+        "@capsizecss/metrics": "^4.2.0",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@testing-library/jest-dom": "^6.10.0",
@@ -177,7 +180,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.20.6",
+      "version": "3.20.9",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.15",
@@ -266,7 +269,7 @@
     },
     "osn/social": {
       "name": "@osn/social",
-      "version": "0.12.7",
+      "version": "0.12.8",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -318,7 +321,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.26.5",
+      "version": "0.26.7",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -389,7 +392,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.22.8",
+      "version": "0.22.10",
       "dependencies": {
         "@osn/ui": "workspace:*",
         "@pulse/api": "workspace:*",
@@ -419,7 +422,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.10.3",
+      "version": "0.10.5",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -450,7 +453,7 @@
     },
     "shared/email": {
       "name": "@shared/email",
-      "version": "0.4.8",
+      "version": "0.4.9",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "^3.22.0",
@@ -463,7 +466,7 @@
     },
     "shared/feature-flags": {
       "name": "@shared/feature-flags",
-      "version": "0.2.7",
+      "version": "0.2.8",
       "dependencies": {
         "@growthbook/growthbook": "^1.6.5",
         "@shared/observability": "workspace:*",
@@ -475,7 +478,7 @@
     },
     "shared/observability": {
       "name": "@shared/observability",
-      "version": "0.13.4",
+      "version": "0.13.5",
       "dependencies": {
         "@effect/opentelemetry": "^0.64.0",
         "@effect/platform": "^0.97.0",
@@ -508,7 +511,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.4.3",
+      "version": "0.4.5",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "^6.2.4",
@@ -566,7 +569,7 @@
     },
     "shared/turnstile": {
       "name": "@shared/turnstile",
-      "version": "0.2.11",
+      "version": "0.2.12",
       "dependencies": {
         "@shared/observability": "workspace:*",
       },
@@ -581,7 +584,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.8.17",
+      "version": "0.8.19",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -761,6 +764,8 @@
     "@bruits/satteri-win32-arm64-msvc": ["@bruits/satteri-win32-arm64-msvc@0.9.5", "", { "os": "win32", "cpu": "arm64" }, "sha512-SrfE7NEsgZjBvU3c+RR6oQRu0ToXY5uVJEbieXEF0YTctIV2zAVlbaMjWLts074QCgh3a+XHWkR/lWh2VH2LUg=="],
 
     "@bruits/satteri-win32-x64-msvc": ["@bruits/satteri-win32-x64-msvc@0.9.5", "", { "os": "win32", "cpu": "x64" }, "sha512-5Kw9ZAtTGS8WHizyn+CJhjjfIQrw+7jcZodpmpXJjefnO15M8UexIi6JR2E5thyvsmHyhL6ZDDMUNR4bKJPd4g=="],
+
+    "@capsizecss/metrics": ["@capsizecss/metrics@4.2.0", "", {}, "sha512-BkLX2NonSAVuHrStmxlRG/PVUxq4uQWeQGPY/G/4pi7GRQt/4A+7RzMWR8m85+0Tv7BsuBpR7JoniMS9QwuVRw=="],
 
     "@capsizecss/unpack": ["@capsizecss/unpack@4.0.0", "", { "dependencies": { "fontkitten": "^1.0.0" } }, "sha512-VERIM64vtTP1C4mxQ5thVT9fK0apjPFobqybMtA1UdUujWka24ERHbRHFGmpbbhp73MhV+KSsHQH9C6uOTdEQA=="],
 
@@ -973,6 +978,10 @@
     "@floating-ui/dom": ["@floating-ui/dom@1.7.6", "", { "dependencies": { "@floating-ui/core": "^1.7.5", "@floating-ui/utils": "^0.2.11" } }, "sha512-9gZSAI5XM36880PPMm//9dfiEngYoC6Am2izES1FF406YFsjvyBMmeJ2g4SAju3xWwtuynNRFL2s9hgxpLI5SQ=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.11", "", {}, "sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg=="],
+
+    "@fontsource/cormorant-garamond": ["@fontsource/cormorant-garamond@5.3.0", "", {}, "sha512-weuGsCirGVWBWqpt6YUp0yLThTe4G8YO45noq8wxeJCRvEpq5lFrxNMFSTxcyOyV5k5otzJ8guDzYegdYlcLMQ=="],
+
+    "@fontsource/lato": ["@fontsource/lato@5.3.0", "", {}, "sha512-0WhF/4rhrw+ErIyneKvhHn2YAl+xf8GDtllgOgOzDmeaSlLQtjpChXaQOpWhG2BchQW0WJy2zLV12Hdg0ndOMw=="],
 
     "@growthbook/growthbook": ["@growthbook/growthbook@1.6.5", "", { "dependencies": { "dom-mutator": "^0.6.0" } }, "sha512-mUaMsgeUTpRIUOTn33EUXHRK6j7pxBjwqH4WpQyq+pukjd1AIzWlEa6w7i6bInJUcweGgP2beXZmaP6b6UPn7A=="],
 

@@ -40,11 +40,12 @@ const FOCUSABLE_SELECTOR = [
  * confirmed. Nothing here persists without the explicit Save (or one of the two
  * one-click actions, which are unambiguous by construction).
  *
- * Vendors that the toggle does NOT govern (`enforcement: "always"` — today only
- * Google Fonts, loaded from the document head) are listed separately under an
- * explicit "loads on every visit" heading. Hiding them would leave the dialog
- * quietly overstating what the switch controls; listing them under the switch
- * as though it applied would do the same thing more loudly.
+ * Vendors that the toggle does NOT govern (`enforcement: "always"` — today
+ * Cloudflare Turnstile, which the claim form can't function without) are
+ * listed separately under an explicit "loads on every visit" heading. Hiding
+ * them would leave the dialog quietly overstating what the switch controls;
+ * listing them under the switch as though it applied would do the same thing
+ * more loudly.
  */
 export function ConsentPreferences() {
   const titleId = createUniqueId();

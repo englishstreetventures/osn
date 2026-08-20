@@ -214,12 +214,14 @@ describe("ConsentPreferences dialog", () => {
   });
 
   it("names the vendors the switch does NOT govern, rather than hiding them", () => {
-    // Google Fonts loads from the document head before any choice can apply.
-    // Listing it under the toggle would overstate what the toggle does; omitting
-    // it would understate what the site loads.
+    // Turnstile loads before any choice can apply — the claim form can't
+    // function without it. Listing it under the toggle would overstate what
+    // the toggle does; omitting it would understate what the site loads.
+    // (Google Fonts used to be the other ungated vendor here; self-hosting
+    // removed it from the registry entirely — tracker #98.)
     const text = dialog()!.textContent ?? "";
     expect(text).toContain("Loads on every visit");
-    expect(text).toContain("Google Fonts");
+    expect(text).toContain("Cloudflare Turnstile");
   });
 
   it("offers accept-all and reject-all from inside the dialog too", () => {

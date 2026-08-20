@@ -1,5 +1,337 @@
 @import "tailwindcss";
 
+/* Self-hosted faces (tracker #98) — matches the weight set the guest site used
+   to pull from Google Fonts (`ital,wght@0,300;0,400;0,600;0,700;1,300;1,400;1,700`
+   for Cormorant Garamond, `ital,wght@0,300;0,400;0,700;1,300;1,400;1,700` for
+   Lato). Cormorant 700 is load-bearing — organiser `headingWeight: "bold"`
+   renders through it (`components/invite-theme.ts`).
+
+   The rules below are WRITTEN OUT rather than pulled in with
+   `@import "@fontsource/lato/400.css"`, for two reasons that both cost real
+   bytes on the render-blocking critical path:
+
+     1. A whole-family entrypoint carries every subset fontsource publishes.
+        Cormorant ships five (cyrillic, cyrillic-ext, latin, latin-ext,
+        vietnamese), so thirteen weight imports produced 49 `@font-face` rules
+        and ~49 KB of stylesheet. The browser never DOWNLOADS an unused subset
+        — `unicode-range` gates the fetch — but the rules are parsed on every
+        page load regardless. Only latin and latin-ext are kept here.
+     2. Every fontsource rule carries a legacy `.woff` alongside the `.woff2`.
+        The latin-ext `.woff` files are under Vite's 4096-byte
+        `assetsInlineLimit`, so the bundler base64-INLINED eight of them
+        straight into the critical CSS — ~5 KB each. Every browser that can run
+        this site takes the woff2, so the fallback is dropped entirely.
+
+   The per-subset entrypoints (`@fontsource/lato/latin-400.css`) are NOT the fix
+   for (1): fontsource omits `unicode-range` from those files, so latin and
+   latin-ext become two indistinguishable faces for one family/weight/style and
+   the later declaration silently wins outright.
+
+   The trade-off, stated plainly: a name in Cyrillic or Vietnamese paints in the
+   metric-matched fallback below (Georgia / Arial) rather than in Cormorant or
+   Lato. To add a subset back, copy its rule out of
+   `node_modules/@fontsource/<family>/<weight>.css`, keep the `unicode-range`,
+   and point `src` at the `.woff2` alone. */
+
+/* cormorant-garamond-latin-ext-300-normal */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-ext-300-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* cormorant-garamond-latin-300-normal */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-300-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* cormorant-garamond-latin-ext-300-italic */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 300;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-ext-300-italic.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* cormorant-garamond-latin-300-italic */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 300;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-300-italic.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* cormorant-garamond-latin-ext-400-normal */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-ext-400-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* cormorant-garamond-latin-400-normal */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* cormorant-garamond-latin-ext-400-italic */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-ext-400-italic.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* cormorant-garamond-latin-400-italic */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-400-italic.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* cormorant-garamond-latin-ext-600-normal */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-ext-600-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* cormorant-garamond-latin-600-normal */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-600-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* cormorant-garamond-latin-ext-700-normal */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-ext-700-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* cormorant-garamond-latin-700-normal */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-700-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* cormorant-garamond-latin-ext-700-italic */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-ext-700-italic.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* cormorant-garamond-latin-700-italic */
+@font-face {
+  font-family: 'Cormorant Garamond';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/cormorant-garamond/files/cormorant-garamond-latin-700-italic.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* lato-latin-ext-300-normal */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300;
+  src: url('@fontsource/lato/files/lato-latin-ext-300-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* lato-latin-300-normal */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300;
+  src: url('@fontsource/lato/files/lato-latin-300-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* lato-latin-ext-300-italic */
+@font-face {
+  font-family: 'Lato';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 300;
+  src: url('@fontsource/lato/files/lato-latin-ext-300-italic.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* lato-latin-300-italic */
+@font-face {
+  font-family: 'Lato';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 300;
+  src: url('@fontsource/lato/files/lato-latin-300-italic.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* lato-latin-ext-400-normal */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/lato/files/lato-latin-ext-400-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* lato-latin-400-normal */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/lato/files/lato-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* lato-latin-ext-400-italic */
+@font-face {
+  font-family: 'Lato';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/lato/files/lato-latin-ext-400-italic.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* lato-latin-400-italic */
+@font-face {
+  font-family: 'Lato';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/lato/files/lato-latin-400-italic.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* lato-latin-ext-700-normal */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/lato/files/lato-latin-ext-700-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* lato-latin-700-normal */
+@font-face {
+  font-family: 'Lato';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/lato/files/lato-latin-700-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* lato-latin-ext-700-italic */
+@font-face {
+  font-family: 'Lato';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/lato/files/lato-latin-ext-700-italic.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* lato-latin-700-italic */
+@font-face {
+  font-family: 'Lato';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/lato/files/lato-latin-700-italic.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/*
+  Metric-matched fallback faces, so the fallback occupies the same box the
+  webfont will and the hero title doesn't reflow when the swap lands.
+
+  Formula (the one behind `@next/font`'s local-fallback generation and
+  Katie Hempenius's "Overriding font fallback metrics", web.dev 2021): match
+  average character width first, then re-derive the vertical metrics against
+  that adjusted scale.
+
+    sizeAdjust    = (webfont.xWidthAvg / webfont.unitsPerEm)
+                    / (fallback.xWidthAvg / fallback.unitsPerEm)
+    ascent-override    = (webfont.ascent  / webfont.unitsPerEm) / sizeAdjust
+    descent-override   = abs(webfont.descent / webfont.unitsPerEm) / sizeAdjust
+    line-gap-override  = (webfont.lineGap / webfont.unitsPerEm) / sizeAdjust
+
+  Source metrics, `@capsizecss/metrics` `entireMetricsCollection` (devDependency):
+    cormorantGaramond: ascent 924, descent -287, lineGap 0, unitsPerEm 1000, xWidthAvg 394
+    lato:              ascent 1974, descent -426, lineGap 0, unitsPerEm 2000, xWidthAvg 871
+    georgia:           unitsPerEm 2048, xWidthAvg 913
+    arial:             unitsPerEm 2048, xWidthAvg 913
+*/
+@font-face {
+  font-family: "Cormorant Garamond Fallback";
+  src: local("Georgia");
+  size-adjust: 88.38%;
+  ascent-override: 104.55%;
+  descent-override: 32.47%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: "Lato Fallback";
+  src: local("Arial");
+  size-adjust: 97.69%;
+  ascent-override: 101.03%;
+  descent-override: 21.8%;
+  line-gap-override: 0%;
+}
+
 /*
   The built-in scheme — the `evergreen` preset in `@cire/theme`, spelled out
   here as the Tailwind token defaults.
@@ -39,8 +371,8 @@
   --color-bloom-dim: oklch(70.5% 0.1123 24.5 / 0.3);
   --color-error: oklch(72% 0.1401 21.48);
   --color-success: oklch(64% 0.1421 146.94);
-  --font-display: "Cormorant Garamond", Georgia, serif;
-  --font-body: "Lato", system-ui, sans-serif;
+  --font-display: "Cormorant Garamond", "Cormorant Garamond Fallback", Georgia, serif;
+  --font-body: "Lato", "Lato Fallback", system-ui, sans-serif;
   --default-font-family: var(--font-body);
 
   /* The tick that confirms a recorded RSVP, drawing itself in behind the bloom

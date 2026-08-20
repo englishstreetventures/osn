@@ -38,9 +38,9 @@ describe("buildCsp", () => {
     expect(csp).toMatch(/img-src[^;]*https:\/\/maps\.googleapis\.com/);
   });
 
-  it("allowlists Google Fonts (stylesheet + font files)", () => {
-    expect(csp).toMatch(/style-src[^;]*https:\/\/fonts\.googleapis\.com/);
-    expect(csp).toMatch(/font-src[^;]*https:\/\/fonts\.gstatic\.com/);
+  it("does NOT allowlist Google Fonts — the two families are self-hosted (tracker #98)", () => {
+    expect(csp).not.toMatch(/fonts\.googleapis\.com/);
+    expect(csp).not.toMatch(/fonts\.gstatic\.com/);
   });
 
   it("allowlists Cloudflare Turnstile (script + challenge frame)", () => {
@@ -75,8 +75,8 @@ describe("buildCsp", () => {
       const isHttpsHost = src.startsWith("https://");
       expect(isKeyword || isHttpsHost).toBe(true);
     }
-    // The documented, required relaxations for Astro island hydration + the
-    // font-link onload handler. Hosts beyond these are explicit allowlist only.
+    // The documented, required relaxation for Astro island hydration. Hosts
+    // beyond these are explicit allowlist only.
     expect(sources).toContain("'self'");
     expect(sources).toContain("'unsafe-inline'");
   });

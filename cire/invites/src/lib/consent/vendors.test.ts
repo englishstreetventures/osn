@@ -130,13 +130,15 @@ describe("category partitioning", () => {
     expect(ids).toContain("google-maps");
   });
 
-  it("lists Google Fonts as loading regardless of the toggle", () => {
-    // Honesty check. Fonts load from the document <head>, before any consent can
-    // be applied, so the dialog must not imply the switch controls them. If this
-    // ever flips to `gated` (or the vendor is removed by self-hosting), this
-    // test is the prompt to update the privacy-page note that says so.
+  it("has no ungated embeds — Google Fonts was self-hosted out of the registry (tracker #98)", () => {
+    // Honesty check, inverted. Fonts used to load from the document <head>
+    // before any consent could apply, so `embeds` carried one "always" vendor.
+    // Self-hosting removed the vendor entirely rather than gating it, so
+    // `embeds` should now be gated-only. If this list is ever non-empty again,
+    // that is the prompt to update the privacy-page note that used to explain
+    // the exception.
     const ids = ungatedVendorsInCategory("embeds").map((vendor) => vendor.id);
-    expect(ids).toEqual(["google-fonts"]);
+    expect(ids).toEqual([]);
   });
 
   it("splits every category's vendors into exactly gated + ungated", () => {

@@ -21,8 +21,8 @@
  * pools for credentialed and anonymous connections, and every request the guest
  * site makes to the API is credentialed — `fetch(..., { credentials: "include" })`
  * for claim/restore/RSVP, and plain `<img>` loads for the hero and event images.
- * An anonymous preconnect (what the Google Fonts links need, because font
- * fetches are anonymous-CORS) would warm the wrong pool and buy nothing.
+ * An anonymous preconnect (the shape an anonymous-CORS asset fetch would need)
+ * would warm the wrong pool and buy nothing here.
  */
 export function apiPreconnectHref(apiUrl: string): string | null {
   try {
