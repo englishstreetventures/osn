@@ -13,6 +13,7 @@ import {
 } from "solid-js";
 import { Toaster } from "solid-toast";
 
+import { awaitEventCards } from "../../components/await-event-cards";
 import { createSessionRestore, noteClaimed, signOut } from "../../components/claim-session";
 import { createRsvpClosed } from "../../components/createRsvpClosed";
 import type { ImageCrop } from "../../components/image-crop";
@@ -296,6 +297,18 @@ export default function InvitePage(props: InvitePageProps) {
     // visitor never spends a request on a guaranteed 401.
     noteClaimed();
 
+    // Start the post-claim chunk NOW, not when the reveal reaches its events
+    // step. `onMount` warms it at idle, but the whole reason this wait exists is
+    // the guest whose phone never ran that idle callback — and for them the
+    // sequence would not ask for the chunk until the form had finished fading
+    // out, spending ~350ms of the cap before the request was even sent (P-W1).
+    // `awaitEventCards` then joins a fetch already in flight.
+    const cardsReady = EventCard.preload().then(() => undefined);
+    // A failed chunk is handled where it matters, in `awaitEventCards` — but
+    // that handler attaches a beat later, so mark the rejection handled here to
+    // keep an offline guest from tripping an unhandled-rejection report.
+    void cardsReady.catch(() => {});
+
     // Wait a tick so SolidJS renders the events section into the DOM
     await new Promise((r) => setTimeout(r, 0));
 
@@ -304,6 +317,16 @@ export default function InvitePage(props: InvitePageProps) {
         const { unlockRevealSequence } = await import("./UnlockReveal.motion");
         await unlockRevealSequence(loginFormRef, welcomeRef, eventsSectionRef, {
           onFormHidden: () => setRevealed(true),
+          // The cards come from a `lazy` component, so on a cold cache their
+          // chunk can still be in flight here. The sequence awaits this
+          // alongside its own layout beat, and the wait caps itself, so the
+          // entrance animates real cards instead of an empty section — and
+          // never stalls.
+          waitForEvents: () =>
+            awaitEventCards(
+              () => cardsReady,
+              () => eventsSectionRef,
+            ),
         });
       } else if (eventsSectionRef) {
         eventsSectionRef.style.opacity = "1";
