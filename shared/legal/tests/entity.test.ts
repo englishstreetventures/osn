@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isPlaceholder, LEGAL_DETAILS_PENDING, LEGAL_ENTITY, pendingAny } from "../src/index";
+import { draftPending, isPlaceholder, LEGAL_DETAILS_PENDING, LEGAL_ENTITY } from "../src/index";
 
 describe("isPlaceholder", () => {
   it("recognises an unfilled token", () => {
@@ -38,10 +38,26 @@ describe("LEGAL_DETAILS_PENDING", () => {
   });
 });
 
-describe("pendingAny", () => {
-  it("lets a page flag a field outside the identity set", () => {
-    expect(pendingAny(LEGAL_ENTITY.merchantOfRecord)).toBe(true);
-    expect(pendingAny(LEGAL_ENTITY.governingLaw)).toBe(false);
+describe("draftPending", () => {
+  it("flags a field outside the identity set", () => {
+    expect(draftPending(LEGAL_ENTITY.merchantOfRecord)).toBe(true);
+  });
+
+  it("passes a page whose extra fields are all answered", () => {
+    expect(draftPending(LEGAL_ENTITY.governingLaw)).toBe(LEGAL_DETAILS_PENDING);
+  });
+
+  /**
+   * The regression this function exists for. A page naming the merchant of
+   * record must stay flagged even once the identity fields are all filled in,
+   * and the caller must not have to remember to check the identity half.
+   */
+  it("keeps flagging an unfilled extra once the identity is complete", () => {
+    expect(draftPending("Example Pty Ltd", "{{MERCHANT_OF_RECORD}}")).toBe(true);
+  });
+
+  it("covers the identity half even when handed nothing", () => {
+    expect(draftPending()).toBe(LEGAL_DETAILS_PENDING);
   });
 });
 

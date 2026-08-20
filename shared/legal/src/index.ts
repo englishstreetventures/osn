@@ -110,11 +110,19 @@ const IDENTITY_FIELDS = [
 export const LEGAL_DETAILS_PENDING: boolean = IDENTITY_FIELDS.some(isPlaceholder);
 
 /**
- * Per-field pendingness, for a page that renders something outside the identity
- * set — a purchase page naming the merchant of record, say. `LEGAL_DETAILS_PENDING`
- * will not cover it, and a page that renders `{{MERCHANT_OF_RECORD}}` without
- * flagging itself is exactly what this module exists to prevent.
+ * Whether a page must show its draft banner.
+ *
+ * True while any field every page renders is unfilled, and true while any of
+ * the extra fields THIS page publishes still is. Pass every non-identity field
+ * the page names — the merchant of record, the retention sentence, whatever it
+ * is — and the banner cannot outlive them.
+ *
+ * Taking the identity half itself rather than leaving it to the caller is the
+ * whole point. The version of this that read `LEGAL_DETAILS_PENDING` alone let
+ * three pages publish a live `{{MERCHANT_OF_RECORD}}` with no banner over it
+ * the moment the operator's name was filled in: the flag had gone false, and
+ * the field it did not cover was still a placeholder.
  */
-export function pendingAny(...values: readonly string[]): boolean {
-  return values.some(isPlaceholder);
+export function draftPending(...alsoRendered: readonly string[]): boolean {
+  return LEGAL_DETAILS_PENDING || alsoRendered.some(isPlaceholder);
 }

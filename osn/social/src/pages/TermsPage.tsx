@@ -1,4 +1,4 @@
-import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING } from "@shared/legal";
+import { LEGAL_ENTITY, draftPending, isPlaceholder } from "@shared/legal";
 import type { JSX } from "solid-js";
 
 import { LegalDocument } from "../components/LegalDocument";
@@ -13,13 +13,17 @@ import { LegalDocument } from "../components/LegalDocument";
  */
 export function TermsPage(): JSX.Element {
   const entity = () => (
-    <span class={LEGAL_DETAILS_PENDING ? "underline decoration-dotted" : undefined}>
+    <span class={isPlaceholder(LEGAL_ENTITY.name) ? "underline decoration-dotted" : undefined}>
       {LEGAL_ENTITY.name}
     </span>
   );
 
   return (
-    <LegalDocument title="Terms of Service" updated="2026-08-20">
+    <LegalDocument
+      title="Terms of Service"
+      updated="2026-08-20"
+      draft={draftPending(LEGAL_ENTITY.governingLaw)}
+    >
       <p>
         These terms govern your OSN account and the identity service run by {entity()} ("we", "us").
         Each app you use your account with may add its own terms; those cover that app, and these
