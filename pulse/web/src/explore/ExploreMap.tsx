@@ -3,10 +3,15 @@ import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show }
 
 import { Icon } from "../components/Icon";
 import type { EventItem } from "../lib/types";
-import type { VenueSummary } from "../lib/venues";
+import type { MapBounds, VenuePin } from "../lib/venues";
 
-// NYC bounding box for coordinate projection
-const BBOX = { minLng: -74.03, maxLng: -73.88, minLat: 40.63, maxLat: 40.76 };
+/**
+ * NYC bounding box. Two jobs: it projects a lat/lng onto the SVG, and it
+ * is the viewport the venue query is scoped to — the route passes it to
+ * `fetchVenuePins`, so this is the one literal box in the codebase. The
+ * map neither pans nor zooms, so it never changes at runtime.
+ */
+export const BBOX: MapBounds = { minLng: -74.03, maxLng: -73.88, minLat: 40.63, maxLat: 40.76 };
 
 function proj(lat: number, lng: number, w: number, h: number): [number, number] {
   const x = ((lng - BBOX.minLng) / (BBOX.maxLng - BBOX.minLng)) * w;
@@ -370,7 +375,7 @@ function Legend() {
 
 export function ExploreMap(props: {
   events: EventItem[];
-  venues?: VenueSummary[];
+  venues?: VenuePin[];
   hoveredId?: string | null;
   onHoverEvent?: (id: string | null) => void;
 }) {
@@ -420,7 +425,7 @@ export function ExploreMap(props: {
   // Map of venueId → venue summary so an event pin at a known venue can
   // upgrade itself into a clickable venue link.
   const venueById = createMemo(() => {
-    const m = new Map<string, VenueSummary>();
+    const m = new Map<string, VenuePin>();
     for (const v of props.venues ?? []) m.set(v.id, v);
     return m;
   });
@@ -434,24 +439,17 @@ export function ExploreMap(props: {
     return s;
   });
 
-  // Filter venues to the bbox client-side so off-screen venues don't paint
-  // outside the viewport. Drop venues that share a pin with an event.
-  // Will move server-side with the bbox query.
+  // The server already scoped the venues to BBOX, so all that's left here
+  // is dropping venues that share a pin with an event — something the
+  // server knows nothing about. The `!= null` guards narrow the type.
   const geoVenues = createMemo(() =>
     (props.venues ?? []).filter(
-      (v) =>
-        v.latitude != null &&
-        v.longitude != null &&
-        v.latitude >= BBOX.minLat &&
-        v.latitude <= BBOX.maxLat &&
-        v.longitude >= BBOX.minLng &&
-        v.longitude <= BBOX.maxLng &&
-        !venueIdsWithEvent().has(v.id),
+      (v) => v.latitude != null && v.longitude != null && !venueIdsWithEvent().has(v.id),
     ),
   );
 
   const [hoveredVenue, setHoveredVenue] = createSignal<{
-    venue: VenueSummary;
+    venue: VenuePin;
     x: number;
     y: number;
   } | null>(null);

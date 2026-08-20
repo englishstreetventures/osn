@@ -4,28 +4,19 @@ import type { JSX } from "solid-js";
 import { describe, it, expect, afterEach, vi } from "vitest";
 
 import { ExploreMap } from "../../src/explore/ExploreMap";
-import type { VenueSummary } from "../../src/lib/venues";
+import type { VenuePin } from "../../src/lib/venues";
 import { makeEvent } from "../helpers/events";
 import { wrapRouter } from "../helpers/router";
 
-const venueRow = (overrides: Partial<VenueSummary>): VenueSummary => ({
+const venueRow = (overrides: Partial<VenuePin>): VenuePin => ({
   id: "ven_x",
   orgHandle: "org",
   handle: "venue",
   name: "Some Venue",
   kind: "club",
-  description: null,
-  address: null,
-  city: null,
-  country: null,
+  capacity: null,
   latitude: null,
   longitude: null,
-  capacity: null,
-  hours: null,
-  heroImageUrl: null,
-  websiteUrl: null,
-  instagramHandle: null,
-  timezone: "UTC",
   ...overrides,
 });
 
@@ -157,7 +148,7 @@ describe("ExploreMap", () => {
   // Venue layer (T-R1)
   // -------------------------------------------------------------------------
 
-  it("renders a clickable venue pin for venues inside the bbox", () => {
+  it("renders a clickable venue pin for a venue the server returned", () => {
     const venues = [
       venueRow({
         id: "ven_1",
@@ -172,17 +163,11 @@ describe("ExploreMap", () => {
     expect(links.length).toBe(1);
   });
 
-  it("filters venues outside the NYC bbox", () => {
-    const venues = [
-      venueRow({
-        id: "ven_london",
-        orgHandle: "tpf",
-        handle: "london",
-        // London is well outside the NYC bbox.
-        latitude: 51.5326,
-        longitude: -0.0561,
-      }),
-    ];
+  // The bbox filter moved into the `/venues` query, so the map paints what
+  // it is given. What it must still drop is a venue with no coordinates —
+  // there is nowhere to put the pin.
+  it("drops a venue with no coordinates", () => {
+    const venues = [venueRow({ id: "ven_nowhere", orgHandle: "tpf", handle: "nowhere" })];
     const { container } = renderWithRouter(() => <ExploreMap events={[]} venues={venues} />);
     expect(container.querySelectorAll("a[href^='/venues/']").length).toBe(0);
   });

@@ -3,6 +3,7 @@ import { render as _baseRender, cleanup, fireEvent } from "@solidjs/testing-libr
 import type { JSX } from "solid-js";
 import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";
 
+import { BBOX } from "../../src/explore/ExploreMap";
 import { wrapRouter } from "../helpers/router";
 
 const mockGet = vi.fn();
@@ -31,14 +32,14 @@ vi.mock("solid-toast", async () => {
   return solidToastMock();
 });
 
-const mockFetchAllVenues = vi.fn().mockResolvedValue([]);
+const mockFetchVenuePins = vi.fn().mockResolvedValue([]);
 
 vi.mock("../../src/lib/venues", async () => {
   const actual =
     await vi.importActual<typeof import("../../src/lib/venues")>("../../src/lib/venues");
   return {
     ...actual,
-    fetchAllVenues: (...args: unknown[]) => mockFetchAllVenues(...args),
+    fetchVenuePins: (...args: unknown[]) => mockFetchVenuePins(...args),
   };
 });
 
@@ -304,30 +305,22 @@ describe("ExplorePage", () => {
       data: { events: [], nextCursor: null, series: {} },
       error: null,
     });
-    mockFetchAllVenues.mockResolvedValue([
+    mockFetchVenuePins.mockResolvedValue([
       {
         id: "ven_1",
         orgHandle: "tpf",
         handle: "factory",
         name: "The Factory",
         kind: "club",
-        description: null,
-        address: null,
-        city: null,
-        country: null,
+        capacity: null,
         latitude: 40.705,
         longitude: -73.93,
-        capacity: null,
-        hours: null,
-        heroImageUrl: null,
-        websiteUrl: null,
-        instagramHandle: null,
-        timezone: "UTC",
       },
     ]);
     const { container } = render(() => <ExplorePage />);
     await vi.waitFor(() => {
       expect(container.querySelector("a[href='/venues/tpf/factory']")).toBeTruthy();
     });
+    expect(mockFetchVenuePins).toHaveBeenCalledWith(BBOX);
   });
 });

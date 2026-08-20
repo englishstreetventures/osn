@@ -29,6 +29,31 @@ export interface VenueSummary {
   timezone: string;
 }
 
+/**
+ * Slim map projection returned by `GET /venues`. Eight fields, matching
+ * `VenuePin` in `pulse/api/src/services/venues.ts` — the heavy venue
+ * fields (`description`, `hours`, image/website URLs) are only on the
+ * detail endpoint, which still returns a `VenueSummary`.
+ */
+export interface VenuePin {
+  id: string;
+  orgHandle: string;
+  handle: string;
+  name: string;
+  kind: string;
+  capacity: number | null;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+/** Viewport the map paints, and the box the pin query is scoped to. */
+export interface MapBounds {
+  minLng: number;
+  maxLng: number;
+  minLat: number;
+  maxLat: number;
+}
+
 export interface VenueEvent {
   id: string;
   title: string;
@@ -71,16 +96,20 @@ export function parseVenueHours(raw: string | null): VenueHours | null {
 }
 
 /**
- * Pulls every venue. Feeds the Explore map's venue layer.
- *
- * TODO(venue-bbox-search): swap for a viewport-scoped fetch (pass
- * minLat/maxLat/minLng/maxLng) once the API supports it — tracked in
- * `P-W28` in `xchromo/osn-tracker`.
+ * Pulls the venue pins inside a viewport. Feeds the Explore map's venue
+ * layer — the box is applied by the server, so the caller paints what it
+ * gets back without a second filter.
  */
-export async function fetchAllVenues(): Promise<VenueSummary[]> {
-  const res = await fetch(`${BASE_URL}/venues`);
+export async function fetchVenuePins(bounds: MapBounds): Promise<VenuePin[]> {
+  const query = new URLSearchParams({
+    minLat: String(bounds.minLat),
+    maxLat: String(bounds.maxLat),
+    minLng: String(bounds.minLng),
+    maxLng: String(bounds.maxLng),
+  });
+  const res = await fetch(`${BASE_URL}/venues?${query.toString()}`);
   if (!res.ok) return [];
-  const body = (await res.json()) as { venues?: VenueSummary[] };
+  const body = (await res.json()) as { venues?: VenuePin[] };
   return body.venues ?? [];
 }
 

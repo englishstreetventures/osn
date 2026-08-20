@@ -3,13 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   computeOpenStatus,
-  fetchAllVenues,
   fetchEventLineup,
   fetchVenue,
   fetchVenueEvents,
+  fetchVenuePins,
   parseVenueHours,
   safeHttpUrl,
   venueMapsUrl,
+  type MapBounds,
+  type VenuePin,
   type VenueSummary,
 } from "../../src/lib/venues";
 
@@ -114,10 +116,25 @@ describe("computeOpenStatus", () => {
 });
 
 // ---------------------------------------------------------------------------
-// fetchAllVenues
+// fetchVenuePins
 // ---------------------------------------------------------------------------
 
-describe("fetchAllVenues", () => {
+const basePin: VenuePin = {
+  id: "v1",
+  orgHandle: "org",
+  handle: "venue",
+  name: "Venue",
+  kind: "club",
+  capacity: null,
+  latitude: null,
+  longitude: null,
+};
+
+// Four distinct values so a swapped pair (minLat sent as maxLat, say)
+// shows up as a mismatch rather than passing by symmetry.
+const bounds: MapBounds = { minLng: -74.03, maxLng: -73.88, minLat: 40.63, maxLat: 40.76 };
+
+describe("fetchVenuePins", () => {
   const realFetch = globalThis.fetch;
   beforeEach(() => {
     globalThis.fetch = vi.fn() as unknown as typeof fetch;
@@ -126,31 +143,32 @@ describe("fetchAllVenues", () => {
     globalThis.fetch = realFetch;
   });
 
+  const mock = () => globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+
+  it("sends all four corners of the viewport as query parameters", async () => {
+    mock().mockResolvedValue({ ok: true, json: async () => ({ venues: [] }) });
+    await fetchVenuePins(bounds);
+    const url = new URL(mock().mock.calls[0][0] as string);
+    expect(url.pathname).toBe("/venues");
+    expect(url.searchParams.get("minLat")).toBe("40.63");
+    expect(url.searchParams.get("maxLat")).toBe("40.76");
+    expect(url.searchParams.get("minLng")).toBe("-74.03");
+    expect(url.searchParams.get("maxLng")).toBe("-73.88");
+  });
+
   it("returns the venues array on a 200 response", async () => {
-    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: async () => ({ venues: [baseVenue] }),
-    });
-    const result = await fetchAllVenues();
-    expect(result).toEqual([baseVenue]);
+    mock().mockResolvedValue({ ok: true, json: async () => ({ venues: [basePin] }) });
+    expect(await fetchVenuePins(bounds)).toEqual([basePin]);
   });
 
   it("returns an empty array on a non-OK response (fail-soft)", async () => {
-    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: false,
-      json: async () => ({}),
-    });
-    const result = await fetchAllVenues();
-    expect(result).toEqual([]);
+    mock().mockResolvedValue({ ok: false, json: async () => ({}) });
+    expect(await fetchVenuePins(bounds)).toEqual([]);
   });
 
   it("returns an empty array when the body has no venues key", async () => {
-    (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ok: true,
-      json: async () => ({}),
-    });
-    const result = await fetchAllVenues();
-    expect(result).toEqual([]);
+    mock().mockResolvedValue({ ok: true, json: async () => ({}) });
+    expect(await fetchVenuePins(bounds)).toEqual([]);
   });
 });
 

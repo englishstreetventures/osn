@@ -10,13 +10,13 @@ import {
   type DiscoveryFilterValues,
 } from "../explore/DiscoveryFilters";
 import { ExploreCard } from "../explore/ExploreCard";
-import { ExploreMap } from "../explore/ExploreMap";
+import { BBOX, ExploreMap } from "../explore/ExploreMap";
 import { ExploreNav } from "../explore/ExploreNav";
 import { FilterRail } from "../explore/FilterRail";
 import { api } from "../lib/api";
 import { showCreateForm, setShowCreateForm } from "../lib/createEventSignal";
 import type { EventItem } from "../lib/types";
-import { fetchAllVenues } from "../lib/venues";
+import { fetchVenuePins } from "../lib/venues";
 
 import "../explore/explore.css";
 
@@ -142,8 +142,9 @@ export function ExplorePage() {
   const [discovery, { refetch }] = createResource(fetchSource, ({ q }) => fetchDiscovery(q));
 
   // Venues feed the Explore map's clickable venue layer. Public surface,
-  // no auth needed.
-  const [venues] = createResource(fetchAllVenues);
+  // no auth needed. The map neither pans nor zooms, so the viewport is a
+  // constant and the fetch runs once.
+  const [venues] = createResource(() => fetchVenuePins(BBOX));
 
   const [searchQuery, setSearchQuery] = createSignal("");
   const [hoveredId, setHoveredId] = createSignal<string | null>(null);
