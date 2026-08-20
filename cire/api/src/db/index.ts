@@ -53,16 +53,18 @@ export type BatchStatements = [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]];
  * The `.batch()` half of a Drizzle handle, as an OPTIONAL member — only the D1
  * driver has it, bun:sqlite does not, so every caller feature-detects it (see
  * {@link commitBatch}). Kept here as one named type rather than re-declared at
- * each of the three call sites (`commitBatch`, the importer's write-set commit,
- * session rotation).
+ * each call site (`commitBatch`, `commitGroupedBatchesReturning`, the importer's
+ * write-set commit, session rotation).
  *
- * The result is `Promise<void>`: D1 resolves one `D1Result` per statement, but
- * no caller in this codebase reads them — what a batch guarantees is that every
- * statement committed together, which you get by awaiting. TypeScript's
- * "return value is ignored" rule keeps D1's real, richer signature assignable.
+ * The result is one element per statement, in statement order. Write-only
+ * callers ignore it — what a batch guarantees them is that every statement
+ * committed together, which you get by awaiting. A caller that ends its batch
+ * with a SELECT reads the last element for that SELECT's rows (see
+ * {@link commitGroupedBatchesReturning}); Drizzle's D1 session maps a SELECT
+ * result to rows for us, so the element is already the row array.
  */
 export type BatchableDb = {
-  batch?: (statements: BatchStatements) => Promise<void>;
+  batch?: (statements: BatchStatements) => Promise<unknown[]>;
 };
 
 /**
@@ -115,4 +117,77 @@ export async function commitGroupedBatches(db: Db, groups: BatchItem<"sqlite">[]
     chunk.push(...group);
   }
   await commitBatch(db, chunk);
+}
+
+/**
+ * The trailing read `commitGroupedBatchesReturning` appends to the write
+ * batch. It must be batchable (rides inside `db.batch()`, same as any write
+ * statement) AND directly awaitable (the bun:sqlite fallback just awaits it
+ * in place) — a real Drizzle select builder is both.
+ */
+export type ReturningTail<T> = BatchItem<"sqlite"> & PromiseLike<T[]>;
+
+/**
+ * Commit GROUPS of statements exactly as {@link commitGroupedBatches} does,
+ * then run one trailing read and return its rows — folding a read-back into
+ * the same D1 round-trip as the write that produced it, instead of a second
+ * one after (P-W1).
+ *
+ * The tail rides in the FINAL chunk when it fits under
+ * `MAX_STATEMENTS_PER_BATCH`; if appending it would push that chunk over the
+ * ceiling, it ships as its own trailing batch instead. Either way it ends up
+ * the last statement of the last batch actually sent, so its rows are always
+ * `results.at(-1)` of that batch — D1 returns one result per statement, and
+ * `drizzle-orm@0.45.2`'s `d1/session` maps a SELECT's element to its rows via
+ * `mapResult(result, true)`. Correctness never depends on the tail sharing a
+ * batch with the writes (every earlier batch is already committed by the
+ * time the next one runs) — only the saved round-trip does.
+ *
+ * bun:sqlite has no `.batch()`: every statement, including the tail, just
+ * runs in order in-process, same as {@link commitBatch}'s fallback — chunking
+ * is a D1-only concern there. An empty `groups` list is legal: the tail still
+ * runs and still returns rows.
+ *
+ * Whole-set atomicity is given up beyond the ceiling, the same trade
+ * `commitGroupedBatches` makes — callers must tolerate a mid-run failure
+ * (each group idempotent / re-runnable).
+ */
+export async function commitGroupedBatchesReturning<T>(
+  db: Db,
+  groups: BatchItem<"sqlite">[][],
+  tail: ReturningTail<T>,
+): Promise<T[]> {
+  const batchable = db as BatchableDb;
+  if (typeof batchable.batch !== "function") {
+    for (const group of groups) {
+      for (const stmt of group) {
+        // eslint-disable-next-line no-await-in-loop
+        await stmt;
+      }
+    }
+    return await tail;
+  }
+
+  const chunks: BatchItem<"sqlite">[][] = [];
+  let chunk: BatchItem<"sqlite">[] = [];
+  for (const group of groups) {
+    if (chunk.length > 0 && chunk.length + group.length > MAX_STATEMENTS_PER_BATCH) {
+      chunks.push(chunk);
+      chunk = [];
+    }
+    chunk.push(...group);
+  }
+  if (chunk.length + 1 <= MAX_STATEMENTS_PER_BATCH) {
+    chunks.push([...chunk, tail]);
+  } else {
+    chunks.push(chunk, [tail]);
+  }
+
+  let tailRows: T[] = [];
+  for (const c of chunks) {
+    // eslint-disable-next-line no-await-in-loop
+    const results = await batchable.batch(c as BatchStatements);
+    tailRows = results[results.length - 1] as T[];
+  }
+  return tailRows;
 }

@@ -3,7 +3,8 @@ import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect } from "effect";
 
-import { DbService, dbQuery, commitGroupedBatches } from "../db";
+import type { Db, ReturningTail } from "../db";
+import { DbService, dbQuery, commitGroupedBatches, commitGroupedBatchesReturning } from "../db";
 import { metricRsvpUpserted } from "../metrics";
 import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import type { RsvpRecord } from "../schemas/rsvp";
@@ -30,6 +31,71 @@ export interface RsvpInput {
   // so the row is distinguishable and its dietary consent is attested, not
   // self-given. Stamped into `rsvps.consent_source`.
   consentSource?: ConsentSource;
+}
+
+/**
+ * Build one `INSERT … ON CONFLICT DO UPDATE` per input. The single place that
+ * knows the upsert shape — {@link rsvpService.submitRsvps} and
+ * {@link rsvpService.submitRsvpsAndList} both call this instead of building
+ * their own, so the two paths cannot drift apart.
+ */
+function buildRsvpUpsertStatements(
+  db: Db,
+  inputs: readonly RsvpInput[],
+  now: Date,
+): BatchItem<"sqlite">[] {
+  return inputs.map((input) => {
+    const dietaryConsentAt = input.dietaryConsent ? now : null;
+    const dietaryConsentVersion = input.dietaryConsent ? DIETARY_CONSENT_VERSION : null;
+    const consentSource: ConsentSource = input.consentSource ?? "guest";
+    return db
+      .insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: input.guestId,
+        eventId: input.eventId,
+        status: input.status,
+        dietary: input.dietary,
+        dietaryConsentAt,
+        dietaryConsentVersion,
+        consentSource,
+        createdAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [rsvps.guestId, rsvps.eventId],
+        set: {
+          status: input.status,
+          dietary: input.dietary,
+          dietaryConsentAt,
+          dietaryConsentVersion,
+          // Overwrite the writer/consent provenance too: an organiser
+          // recording over a guest's reply (or vice-versa) must repoint
+          // this so the row reflects who last wrote it.
+          consentSource,
+        },
+      });
+  });
+}
+
+/**
+ * Build the read-back select for a family's RSVPs. The single place that
+ * knows the read-back shape — {@link rsvpService.getRsvpsForFamily} and
+ * {@link rsvpService.submitRsvpsAndList} both call this instead of building
+ * their own. Deliberately unexecuted (no `.all()`): it must ride either as a
+ * `db.batch()` array element (S1: keyed only on `familyId`) or, directly
+ * awaited, resolve to the same rows on bun:sqlite.
+ */
+function buildFamilyRsvpsQuery(db: Db, familyId: string) {
+  return db
+    .select({
+      guestId: rsvps.guestId,
+      eventId: rsvps.eventId,
+      status: rsvps.status,
+      dietary: rsvps.dietary,
+    })
+    .from(rsvps)
+    .innerJoin(guests, eq(rsvps.guestId, guests.id))
+    .where(eq(guests.familyId, familyId));
 }
 
 export const rsvpService = {
@@ -78,37 +144,7 @@ export const rsvpService = {
       if (inputs.length === 0) return;
 
       const now = new Date();
-      const statements: BatchItem<"sqlite">[] = inputs.map((input) => {
-        const dietaryConsentAt = input.dietaryConsent ? now : null;
-        const dietaryConsentVersion = input.dietaryConsent ? DIETARY_CONSENT_VERSION : null;
-        const consentSource: ConsentSource = input.consentSource ?? "guest";
-        return db
-          .insert(rsvps)
-          .values({
-            id: crypto.randomUUID(),
-            guestId: input.guestId,
-            eventId: input.eventId,
-            status: input.status,
-            dietary: input.dietary,
-            dietaryConsentAt,
-            dietaryConsentVersion,
-            consentSource,
-            createdAt: now,
-          })
-          .onConflictDoUpdate({
-            target: [rsvps.guestId, rsvps.eventId],
-            set: {
-              status: input.status,
-              dietary: input.dietary,
-              dietaryConsentAt,
-              dietaryConsentVersion,
-              // Overwrite the writer/consent provenance too: an organiser
-              // recording over a guest's reply (or vice-versa) must repoint
-              // this so the row reflects who last wrote it.
-              consentSource,
-            },
-          });
-      });
+      const statements = buildRsvpUpsertStatements(db, inputs, now);
 
       yield* dbQuery(() =>
         commitGroupedBatches(
@@ -127,21 +163,50 @@ export const rsvpService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
 
-      const rows = yield* dbQuery(() =>
-        db
-          .select({
-            guestId: rsvps.guestId,
-            eventId: rsvps.eventId,
-            status: rsvps.status,
-            dietary: rsvps.dietary,
-          })
-          .from(rsvps)
-          .innerJoin(guests, eq(rsvps.guestId, guests.id))
-          .where(eq(guests.familyId, familyId))
-          .all(),
-      );
+      const rows = yield* dbQuery(() => buildFamilyRsvpsQuery(db, familyId).all());
 
       return rows;
     }).pipe(Effect.withSpan("cire.rsvp.list"));
+  },
+
+  /**
+   * {@link submitRsvps} and {@link getRsvpsForFamily} folded into one commit
+   * (P-W1): the read-back rides as the trailing statement in the same
+   * `db.batch()` array as the upserts instead of a second round-trip after
+   * it. Same ownership precondition as `submitRsvps` — the caller must have
+   * already validated every `guestId` belongs to `familyId` and every
+   * (guestId, eventId) is a real invitation. S1: the read-back is keyed only
+   * on the authenticated `familyId` passed in, never on anything in `inputs`.
+   *
+   * Same `now`/chunking/atomicity trade as `submitRsvps` — see its doc
+   * comment. An empty `inputs` list still runs the read-back and returns
+   * the family's current rows (an empty upsert set is a legal chunk).
+   */
+  submitRsvpsAndList(
+    inputs: readonly RsvpInput[],
+    familyId: string,
+  ): Effect.Effect<RsvpRecord[], never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+
+      const now = new Date();
+      const statements = buildRsvpUpsertStatements(db, inputs, now);
+      const tail = buildFamilyRsvpsQuery(db, familyId) as ReturningTail<RsvpRecord>;
+
+      const rows = yield* dbQuery(() =>
+        commitGroupedBatchesReturning<RsvpRecord>(
+          db,
+          statements.map((s) => [s]),
+          tail,
+        ),
+      );
+
+      for (const input of inputs) {
+        const writer = (input.consentSource ?? "guest") === "guest" ? "guest" : "organiser";
+        yield* Effect.sync(() => metricRsvpUpserted(input.status, writer, "ok"));
+      }
+
+      return rows;
+    }).pipe(Effect.withSpan("cire.rsvp.submitAndList"));
   },
 };

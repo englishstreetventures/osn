@@ -351,6 +351,96 @@ describe("cire/api over real D1 (Miniflare)", () => {
   );
 
   it(
+    "submitRsvpsAndList folds the read-back into the write batch over D1 (P-W1)",
+    async () => {
+      // Real db.batch() is the only environment that can fail the way the fix
+      // targets — bun:sqlite's fallback just awaits each statement in order and
+      // would pass even if the tail read the wrong rows or ran before the writes.
+      const rows = await run(
+        rsvpService.submitRsvpsAndList(
+          [
+            {
+              guestId: GUEST_1,
+              eventId: EVENT_A,
+              status: "attending",
+              dietary: "",
+              dietaryConsent: false,
+            },
+            {
+              guestId: GUEST_2,
+              eventId: EVENT_A,
+              status: "declined",
+              dietary: "",
+              dietaryConsent: false,
+            },
+          ],
+          FAMILY_ID,
+        ),
+      );
+
+      expect(rows).toHaveLength(2);
+      expect(rows.find((r) => r.guestId === GUEST_1)).toMatchObject({
+        guestId: GUEST_1,
+        eventId: EVENT_A,
+        status: "attending",
+      });
+      expect(rows.find((r) => r.guestId === GUEST_2)).toMatchObject({
+        guestId: GUEST_2,
+        eventId: EVENT_A,
+        status: "declined",
+      });
+
+      // Persisted, not just echoed back.
+      const persisted = await db.select().from(rsvps).where(eq(rsvps.guestId, GUEST_1));
+      expect(persisted).toHaveLength(1);
+      expect(persisted[0]).toMatchObject({ status: "attending" });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "submitRsvpsAndList sends the tail as its own trailing batch at the chunk ceiling",
+    async () => {
+      // MAX_STATEMENTS_PER_BATCH is 50. 50 upsert statements exactly fill the
+      // first chunk, so commitGroupedBatchesReturning must flush it and send the
+      // tail read as its own trailing batch rather than folding it in — proving
+      // the ceiling path (not just the common under-ceiling path above) still
+      // returns the full row set.
+      const eventIds = Array.from({ length: 50 }, (_, i) => `evt_ceiling_${i}`);
+      for (const [i, id] of eventIds.entries()) {
+        await db.insert(events).values({
+          id,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: `ceiling-${i}`,
+          name: `Ceiling ${i}`,
+          description: "",
+          startAt: "",
+          endAt: "",
+          timezone: "",
+          sortOrder: 20 + i,
+        });
+      }
+
+      const inputs = eventIds.map((eventId) => ({
+        guestId: GUEST_1,
+        eventId,
+        status: "attending" as const,
+        dietary: "",
+        dietaryConsent: false,
+      }));
+
+      const rows = await run(rsvpService.submitRsvpsAndList(inputs, FAMILY_ID));
+
+      expect(rows).toHaveLength(50);
+      expect(new Set(rows.map((r) => r.eventId))).toEqual(new Set(eventIds));
+
+      const persisted = await db.select().from(rsvps).where(eq(rsvps.guestId, GUEST_1));
+      expect(persisted).toHaveLength(50);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
     "tasks.reorder commits its per-row updates over the D1 batch path",
     async () => {
       // Regression guard: reorder used to run through db.transaction(), which the
