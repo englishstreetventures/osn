@@ -39,9 +39,8 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
 <LegalLayout title="Privacy Notice">
   {LEGAL_DETAILS_PENDING && (
     <div class="draft-banner">
-      <strong>Draft</strong> — the operator's own details are not filled in yet, so this
-      page is not final. Fill them in at <code>shared/legal/src/index.ts</code> and this
-      banner goes away by itself.
+      <strong>Draft</strong> — this notice is not final. Some details of the operator are
+      still to be confirmed, and this banner disappears once they are.
     </div>
   )}
 
@@ -94,6 +93,11 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
       belief-based dietary needs).
     </li>
     <li>
+      <strong>When your household first opened the invitation</strong> — a single
+      timestamp, shown to your hosts as a “Sent / Opened” marker so they know whether an
+      invitation arrived. Not a record of every visit, and not what you looked at.
+    </li>
+    <li>
       <strong>Technical records</strong> — the session cookie that keeps you signed in
       to your invitation after you enter your code, and server logs kept to keep the
       site secure and working.
@@ -111,8 +115,11 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
     the GDPR and UK GDPR as “special category” data — because they can reveal your
     health or your religious beliefs. Both regimes say such information should be
     collected only with your explicit consent (APP 3.3; GDPR Art. 9(2)(a)). The field
-    is therefore optional, you tick a box to confirm before it is submitted, and the
-    exact wording you agreed to is recorded alongside it. Please don’t include any
+    is therefore optional, you tick a box to confirm before it is submitted, and a record of
+    which version of this wording you agreed to is stored alongside it. If you give your
+    answer to your hosts another way — over the phone, say — they can record it for you,
+    and what is stored then is their confirmation that you agreed, not yours. Either way
+    you can withdraw it with us directly. Please don’t include any
     health or other sensitive detail you’d rather not share — a simple note such as
     “vegetarian” or “no nuts” is all that is needed.
   </p>
@@ -130,6 +137,11 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
       accommodate your needs on the day. Because this can include protected
       information, the basis is your <strong>explicit consent</strong>, given when you
       tick the box and submit your RSVP, and withdrawable at any time.
+    </li>
+    <li>
+      <strong>The first-opened timestamp</strong> — so your hosts can tell a delivered
+      invitation from one that never arrived. Their legitimate interest in administering
+      their own wedding; you can ask for it to be removed.
     </li>
     <li>
       <strong>Technical records</strong> — to keep your session working and the site
@@ -154,9 +166,8 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
 
   <h3>Where your information is stored</h3>
   <p>
-    In <strong>Australia</strong>. The databases holding guest information, and the
-    infrastructure supporting the site’s security, are hosted in Sydney, and the site
-    is operated from Australia. Some technical records — server logs, error and
+    Our primary region is <strong>Australia</strong> — the site is operated from there,
+    and the infrastructure supporting its security is pinned to Sydney. Some technical records — server logs, error and
     performance telemetry containing no guest content — are processed by providers
     outside Australia in the course of running the service.
   </p>
@@ -196,8 +207,8 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
         {vendor.enforcement === 'gated' ? (
           <> <em>On by default; stops loading if you switch off third-party content.</em></>
         ) : (
-          <> <em>Loads on every visit, whatever you choose — it is needed for the site
-          to work, and it is requested before any choice can be applied.</em></>
+          <> <em>Loads on every visit, whatever you choose — the site cannot do its job
+          without it.</em></>
         )}
         {vendor.privacyUrl ? (
           <> <a href={vendor.privacyUrl} rel="noreferrer">Their privacy policy</a>.</>
@@ -217,9 +228,9 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
   <p>
     Turning something off stops it loading from then on. Anything already sent while it
     was switched on has already left your browser and cannot be recalled. Because
-    third-party content is on by default, the venue map and the moodboard will have
-    loaded at least once before you switch them off. We would rather say that plainly
-    than imply otherwise.
+    third-party content is on by default, the venue map and the moodboard may already have
+    loaded if you opened an event’s details before coming here — they sit inside that
+    sheet and load only when it opens, so if you haven’t opened one, nothing has gone.
   </p>
 
   <h2>How long it is kept</h2>

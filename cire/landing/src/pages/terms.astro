@@ -8,14 +8,13 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
 <LegalLayout title="Terms of Service">
   {LEGAL_DETAILS_PENDING && (
     <div class="draft-banner">
-      <strong>Draft</strong> — the operator's own details are not filled in yet, so this
-      page is not final. Fill them in at <code>shared/legal/src/index.ts</code> and this
-      banner goes away by itself.
+      <strong>Draft</strong> — this notice is not final. Some details of the operator are
+      still to be confirmed, and this banner disappears once they are.
     </div>
   )}
 
   <h1>Terms of Service</h1>
-  <p class="meta">Last updated: 2026-07-18</p>
+  <p class="meta">Last updated: 2026-08-20</p>
 
   <p>
     Cire is a digital wedding invitation and wedding planning service available at cireweddings.com,
@@ -67,8 +66,10 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
       service.</li>
     <li>When you upload guest information (names, contact details, dietary needs), you confirm you
       are entitled to share it with us for managing your wedding. We handle it on your behalf as
-      described in our <a href="/privacy">Privacy Notice</a> and don&rsquo;t use it for anything
-      else.</li>
+      described in our <a href="/privacy">Privacy Notice</a>, and we never sell it, advertise
+      against it or profile anyone with it. Three decisions are ours rather than yours, because
+      we make them the same way for every wedding: the retention window, the security of the
+      service, and the technical telemetry it emits.</li>
   </ul>
 
   <h2>Acceptable use</h2>

@@ -54,12 +54,15 @@ export interface LegalEntity {
    */
   readonly merchantOfRecord: string;
   /**
-   * How long account data is kept, in one publishable sentence. Guest data is
-   * NOT this: that window is 365 days after the final event, enforced in code
-   * by `RETENTION_AFTER_FINAL_EVENT_MS` in
-   * `cire/api/src/services/retention.ts`, and stated as a fact on the notices
-   * rather than as a field here — a retention promise that can drift from the
-   * scheduler enforcing it is worse than no promise.
+   * How long account data is kept, in one publishable sentence.
+   *
+   * Two things this is NOT. It is not guest data: that window is 365 days after
+   * the final event, enforced by `RETENTION_AFTER_FINAL_EVENT_MS` in
+   * `cire/api/src/services/retention.ts` and stated as a fact on the notices —
+   * a retention promise that can drift from the scheduler enforcing it is worse
+   * than no promise. And it is not a marketing site's server logs, which have
+   * their own answer; those notices say what their host keeps rather than
+   * borrowing this.
    */
   readonly accountDataRetention: string;
 }
@@ -85,13 +88,32 @@ export function isPlaceholder(value: string): boolean {
 }
 
 /**
- * True while any identity field is unfilled. Drives the draft banner on every
- * legal page, so the banner cannot outlive the placeholders or vice versa.
+ * The fields every legal page renders, whatever else it says. The draft banner
+ * derives from these alone.
+ *
+ * Deliberately NOT `merchantOfRecord`: it is unset while nothing is for sale,
+ * which is the expected steady state, and only three of eleven pages mention a
+ * purchase at all. Deriving the banner from it would leave the identity app's
+ * privacy notice flagged draft over a field it never renders.
  */
-export const LEGAL_DETAILS_PENDING: boolean = [
+const IDENTITY_FIELDS = [
   LEGAL_ENTITY.name,
   LEGAL_ENTITY.postalAddress,
   LEGAL_ENTITY.contactEmail,
-  LEGAL_ENTITY.merchantOfRecord,
-  LEGAL_ENTITY.accountDataRetention,
-].some(isPlaceholder);
+] as const;
+
+/**
+ * True while any field every page renders is unfilled. Drives the draft banner,
+ * so the banner cannot outlive the placeholders or vice versa.
+ */
+export const LEGAL_DETAILS_PENDING: boolean = IDENTITY_FIELDS.some(isPlaceholder);
+
+/**
+ * Per-field pendingness, for a page that renders something outside the identity
+ * set — a purchase page naming the merchant of record, say. `LEGAL_DETAILS_PENDING`
+ * will not cover it, and a page that renders `{{MERCHANT_OF_RECORD}}` without
+ * flagging itself is exactly what this module exists to prevent.
+ */
+export function pendingAny(...values: readonly string[]): boolean {
+  return values.some(isPlaceholder);
+}

@@ -71,8 +71,24 @@ describe("privacy.astro", () => {
     expect(body).toContain("APP 3.3");
   });
 
-  it("says where guest information is actually stored", () => {
-    expect(body).toMatch(/hosted in Sydney|in <strong>Australia<\/strong>/);
+  /**
+   * `cire/api/src/services/retention.ts` names this notice as the thing that must
+   * move whenever `RETENTION_AFTER_FINAL_EVENT_MS` does. Pin the sentence so the
+   * pairing is enforced rather than remembered.
+   */
+  it("states the retention window the sweep actually enforces", () => {
+    expect(body).toContain("1 year after the final wedding event");
+  });
+
+  /**
+   * Softened from "hosted in Sydney" once the subprocessor register turned out to
+   * record the D1/R2 region as unconfirmed. The page must still name a region and
+   * still tell an EEA or UK reader that their data leaves that area — those two
+   * are the disclosure; the exact city is not.
+   */
+  it("names the region and flags the transfer out of the EEA/UK", () => {
+    expect(body).toMatch(/primary region is <strong>Australia<\/strong>/);
+    expect(body).toMatch(/transferred outside/i);
   });
 
   /**

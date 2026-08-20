@@ -8,14 +8,13 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
 <LegalLayout title="Privacy Notice">
   {LEGAL_DETAILS_PENDING && (
     <div class="draft-banner">
-      <strong>Draft</strong> — the operator's own details are not filled in yet, so this
-      page is not final. Fill them in at <code>shared/legal/src/index.ts</code> and this
-      banner goes away by itself.
+      <strong>Draft</strong> — this notice is not final. Some details of the operator are
+      still to be confirmed, and this banner disappears once they are.
     </div>
   )}
 
   <h1>Privacy Notice</h1>
-  <p class="meta">Last updated: 2026-06-28</p>
+  <p class="meta">Last updated: 2026-08-20</p>
 
   <p>
     This notice explains how <span class={ph}>{LEGAL_ENTITY.name}</span> (&ldquo;OSN&rdquo;,
@@ -47,8 +46,11 @@ const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
 
   <h2>How long we keep it</h2>
   <p>
-    Only as long as we need it for the purpose above, then we delete or anonymise it. Specific
-    retention periods: <span class={ph}>{LEGAL_ENTITY.accountDataRetention}</span>.
+    Only as long as we need it for the purpose above, then we delete or anonymise it.
+    Server request logs are kept by our static host for a short period for security and
+    reliability and are not used for anything else; nothing on this site is retained beyond
+    that unless you contacted us, in which case we keep the correspondence for as long as it
+    takes to deal with it.
   </p>
 
   <h2>Your rights</h2>

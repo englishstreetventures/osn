@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-20
 ---
 
 # Data Map
@@ -105,7 +105,9 @@ Cire is a wedding-invite app merged into the monorepo as the `cire/*`
 workspace. It runs its **own** Cloudflare D1 and R2, separate from `osn/db`
 (see [[cire]], [[cire-auth]]). The **controller** for guest data is the
 wedding organiser (the couple) who uploads the guest list; OSN/cire is the
-**platform / processor** and provides the technical means. The wedding owner
+**platform / processor** and provides the technical means — **except** for the
+three decisions cire makes unilaterally and identically for every wedding, where
+cire is the controller (see the Controller / processor note below). The wedding owner
 is identified by `weddings.owner_osn_profile_id` — an opaque OSN profile id
 (`usr_*` string, cross-DB reference, **no FK**). Lawful basis is
 organiser-initiated wedding administration.
@@ -175,7 +177,23 @@ Vendor personal data arises when the vendor is a **sole trader**, so their conta
 
 **Controller / processor note.** For guest data the organiser is the
 controller (they decide to upload the list, set the field contents); cire
-is the processor. The organiser is themselves an OSN data subject (their
+is the processor **for that content**.
+
+Cire is the **controller** for three decisions it takes on its own account,
+applies to every wedding alike, and no organiser can override:
+
+| Decision | Where it is made | Why it is controllership |
+|---|---|---|
+| Retention of guest data | `RETENTION_AFTER_FINAL_EVENT_MS` (365 d) in `cire/api/src/services/retention.ts` | Choosing how long personal data is kept is a purposes-and-means decision. An organiser cannot extend or shorten it. |
+| Security posture of the service | CSP, session hashing, Turnstile, rate limits | Ordinarily an Art. 28(3)(c) processor obligation — recorded here because the published notices describe it in the same breath. **Do not rest the controllership argument on this leg alone.** |
+| Technical telemetry | `@shared/observability` → Grafana Cloud, per §Observability | Collected for cire's own purposes (running and improving the platform), not on the organiser's instruction. |
+
+This is what `cire/invites/src/pages/privacy.astro` and
+`cire/landing/src/pages/privacy.astro` publish. If this table changes, those two
+pages change with it — a notice that disagrees with the Art. 30 record is the
+defect this row exists to prevent.
+
+The organiser is themselves an OSN data subject (their
 `owner_osn_profile_id` ties the wedding to an OSN account — see
 [[identity-model]]). DSAR reachability + the cross-DB deletion orphan are
 covered in [[dsar]] (C-M1).

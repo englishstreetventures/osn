@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isPlaceholder, LEGAL_DETAILS_PENDING, LEGAL_ENTITY } from "../src/index";
+import { isPlaceholder, LEGAL_DETAILS_PENDING, LEGAL_ENTITY, pendingAny } from "../src/index";
 
 describe("isPlaceholder", () => {
   it("recognises an unfilled token", () => {
@@ -14,13 +14,34 @@ describe("isPlaceholder", () => {
 });
 
 describe("LEGAL_DETAILS_PENDING", () => {
-  it("agrees with the fields it is derived from", () => {
+  it("agrees with the identity fields it is derived from", () => {
     const anyUnfilled = [
       LEGAL_ENTITY.name,
       LEGAL_ENTITY.postalAddress,
       LEGAL_ENTITY.contactEmail,
     ].some(isPlaceholder);
     expect(LEGAL_DETAILS_PENDING).toBe(anyUnfilled);
+  });
+
+  /**
+   * The state this has to survive: identity filled in, nothing for sale yet.
+   * An earlier derivation included `merchantOfRecord`, which would have left
+   * every page — including the ones that never mention a purchase — flagged
+   * draft forever.
+   */
+  it("ignores the merchant of record, which is unset until something is sold", () => {
+    expect(isPlaceholder(LEGAL_ENTITY.merchantOfRecord)).toBe(true);
+    const identityFilled = !["Example Pty Ltd", "1 Example St", "privacy@example.com"].some(
+      isPlaceholder,
+    );
+    expect(identityFilled).toBe(true);
+  });
+});
+
+describe("pendingAny", () => {
+  it("lets a page flag a field outside the identity set", () => {
+    expect(pendingAny(LEGAL_ENTITY.merchantOfRecord)).toBe(true);
+    expect(pendingAny(LEGAL_ENTITY.governingLaw)).toBe(false);
   });
 });
 
