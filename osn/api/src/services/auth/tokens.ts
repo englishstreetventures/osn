@@ -190,14 +190,25 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    *
    * Returns `accountId`, `familyId`, and `sessionId` (the hash). The
    * `familyId` is needed by `refreshTokens` for rotation; `sessionId` is
-   * needed by `invalidateOtherAccountSessions` (H1).
+   * needed by `invalidateOtherAccountSessions` (H1). The device metadata
+   * (`createdAt`, `uaLabel`, `ipHash`) rides along from the row loaded here so
+   * `refreshTokens` can carry it onto the rotated-in row without re-reading
+   * the same row by primary key (P-W1).
    *
    * Shared by `refreshTokens`, `switchProfile`, and `listAccountProfiles`.
    */
   const verifyRefreshToken = (
     token: string,
   ): Effect.Effect<
-    { accountId: string; familyId: string; sessionId: string; authenticatedAt: number },
+    {
+      accountId: string;
+      familyId: string;
+      sessionId: string;
+      authenticatedAt: number;
+      createdAt: number;
+      uaLabel: string | null;
+      ipHash: string | null;
+    },
     AuthError | DatabaseError,
     Db
   > =>
@@ -260,6 +271,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         familyId: session.familyId,
         sessionId,
         authenticatedAt: session.authenticatedAt ?? session.createdAt,
+        createdAt: session.createdAt,
+        uaLabel: session.uaLabel,
+        ipHash: session.ipHash,
       };
     });
 
@@ -457,6 +471,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         accountId,
         familyId,
         sessionId: oldSessionId,
+        authenticatedAt,
+        uaLabel,
+        ipHash,
       } = yield* verifyRefreshToken(sessionToken);
       const profile = yield* findDefaultProfile(accountId);
       if (!profile) {
@@ -481,13 +498,10 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       const nowSec = Math.floor(Date.now() / 1000);
 
       const { db } = yield* Db;
-      // Read the old session's metadata up front (D1 has no interactive
-      // transaction) so the rotated-in row keeps the device's UA label + IP hash.
-      const existing = yield* Effect.tryPromise({
-        try: () => db.select().from(sessions).where(eq(sessions.id, oldSessionId)).limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      const old = existing[0];
+      // The old session's metadata (UA label + IP hash + `authenticatedAt`)
+      // comes from the row `verifyRefreshToken` already loaded, so the
+      // rotated-in row keeps the device's identity without a second read of
+      // the same primary key (P-W1).
 
       // CAS gate (S-M refresh-rotation): the old-session DELETE is the atomic
       // compare-and-swap. Two concurrent refreshes of the same token both pass
@@ -545,10 +559,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             // so a background silent refresh can't reset `auth_time` to "now"
             // and satisfy a relying party's `max_age` with zero user presence.
             // Fall back to the old row's `createdAt` for sessions minted before
-            // the column existed.
-            authenticatedAt: old?.authenticatedAt ?? old?.createdAt ?? nowSec,
-            uaLabel: old?.uaLabel ?? null,
-            ipHash: old?.ipHash ?? null,
+            // the column existed — `verifyRefreshToken` already applied that
+            // fallback, so this value is never null.
+            authenticatedAt,
+            uaLabel,
+            ipHash,
             lastUsedAt: nowSec,
           }),
         catch: (cause) => new DatabaseError({ cause }),
