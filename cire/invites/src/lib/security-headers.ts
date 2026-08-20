@@ -26,13 +26,24 @@
  * Origins the guest site genuinely talks to, grouped by purpose. Production
  * hosts are the source of truth; the localhost entries keep `astro dev` / a
  * local `wrangler dev` working without loosening production. Everything here is
- * an explicit allowlist — no wildcards beyond the first-party scheme hosts.
+ * an explicit allowlist. The one wildcard is `apiLocalProxy`, and it is confined
+ * to the reserved loopback-only `.localhost` namespace.
  */
 const ORIGINS = {
   /** First-party cire-api (invite JSON fetch + invite/event image bytes). */
   api: "https://api.cireweddings.com",
   /** Local dev API origin (the PUBLIC_API_URL default in `lib/invite.ts`). */
   apiLocal: "http://localhost:8787",
+  /**
+   * The same API behind the portless devloop, where it answers on
+   * `api.cire.localhost` — branch-prefixed in a linked worktree, so the exact
+   * host is not knowable here. `.localhost` is reserved and loopback-only, so
+   * it names nothing anyone else can serve, which is why the same reasoning
+   * that keeps `apiLocal` in the production policy applies. Without it the
+   * devloop breaks the day the policy stops being Report-Only.
+   * See `wiki/conventions/devloop-urls.md`.
+   */
+  apiLocalProxy: "https://*.localhost",
   // No OSN issuer origin here on purpose. The "Link my Pulse account" flow used
   // to fetch the issuer directly; it now signs in by TOP-LEVEL redirect to
   // musubi and cire-api does the code exchange, so the guest site never fetches
@@ -117,6 +128,7 @@ export const CSP_DIRECTIVES = {
     "blob:",
     ORIGINS.api,
     ORIGINS.apiLocal,
+    ORIGINS.apiLocalProxy,
     ORIGINS.pinterestImg,
     ORIGINS.googleMapsImg,
     ORIGINS.googleMapsImg2,
@@ -124,7 +136,13 @@ export const CSP_DIRECTIVES = {
   // Runtime fetches: cire-api (invite JSON + revalidation + account-link,
   // including the session probe behind the Pulse account-link panel) and the
   // Pinterest pidgets data endpoint the widget calls.
-  "connect-src": ["'self'", ORIGINS.api, ORIGINS.apiLocal, ORIGINS.pinterestConnect],
+  "connect-src": [
+    "'self'",
+    ORIGINS.api,
+    ORIGINS.apiLocal,
+    ORIGINS.apiLocalProxy,
+    ORIGINS.pinterestConnect,
+  ],
   // Embedded iframes: the Google Maps embed, the Pinterest board widget, and
   // the Turnstile challenge.
   "frame-src": ["'self'", ORIGINS.googleMapsFrame, ORIGINS.pinterestFrame, ORIGINS.turnstile],

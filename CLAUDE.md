@@ -74,6 +74,7 @@ gh issue create --repo xchromo/osn --type Feature --label product:cire --title "
 | Add rate limiting to endpoint | `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]` |
 | Instrument logging, tracing, metrics | `[[wiki/observability/overview]]`, then specific page |
 | Write or review tests | `[[wiki/conventions/testing-patterns]]` |
+| Run the devloop (named HTTPS hosts per app, a stack per worktree, adding an app to it) | `[[wiki/conventions/devloop-urls]]` |
 | Split one goal across several PRs (stacked PRs — setting the base with the gh CLI, merge order, rebasing a stack) | `[[wiki/conventions/stacked-prs]]` |
 | Add or use UI component (Button, Card, Dialog…) | `[[wiki/architecture/component-library]]` |
 | Work on a specific app/surface (osn-core, social, pulse, zap, cire, cire-landing, osn-landing, pulse-landing) | `[[wiki/apps/<name>]]` |
@@ -265,6 +266,55 @@ bun run dev:cire         # Cire work: cire API + web + organiser, osn core
 bun run dev:landing      # Landing site only
 bun run build            # Build all packages (turbo)
 bun run check            # Type-check all packages (turbo)
+```
+
+### Local URLs
+
+Every dev server runs behind [portless](https://github.com/vercel-labs/portless): each app answers on a named HTTPS host instead of a port, so there are no port numbers to remember and no clashes between stacks. Each package's `dev` script is `portless`, which reads that package's own `"portless"` key and runs its real `dev:app` command behind the proxy.
+
+One-time setup on a new machine — it binds port 443, adds a local CA to the system trust store and writes an `/etc/hosts` block, so it asks for sudo:
+
+```bash
+bunx portless proxy start     # or: bunx portless service install (starts at boot)
+bunx portless doctor          # check proxy, routes, DNS, CA trust
+bunx portless clean           # undo it all: state, CA trust entry, hosts block
+```
+
+That CA is a TLS-interception primitive for every host the machine talks to, so `portless` is pinned with a tilde (`~0.15.5`) rather than a caret: it is pre-1.0, and a version bump is a change to review, not a lockfile refresh. Nothing installs or starts it for you — the package has no lifecycle scripts, and it refuses to run without a TTY or under `CI`.
+
+| App | URL |
+| --- | --- |
+| `@osn/social` | `https://musubi.localhost` |
+| `@osn/api` | `https://id.musubi.localhost` |
+| `@osn/landing` | `https://www.musubi.localhost` |
+| `@pulse/web` | `https://pulse.localhost` |
+| `@pulse/api` | `https://api.pulse.localhost` |
+| `@pulse/landing` | `https://www.pulse.localhost` |
+| `@cire/landing` | `https://cire.localhost` |
+| `@cire/invites` | `https://invite.cire.localhost` |
+| `@cire/host` | `https://host.cire.localhost` |
+| `@cire/vendor` | `https://vendor.cire.localhost` |
+| `@cire/api` | `https://api.cire.localhost` |
+| `@zap/api` | `https://zap.cire.localhost` |
+
+The names mirror production hostnames, and the nesting is load-bearing: a WebAuthn RP ID has to be the origin's host or a registrable suffix of it, so `@osn/social` (`musubi.*`) and `@osn/api` (`id.musubi.*`) sit under a shared `musubi` parent that can serve as the RP ID for both. Flat names would put every passkey out of reach of the API that verifies it.
+
+**Worktrees get their own stack.** In a linked worktree portless prepends the branch, so the same `bun run dev` gives `https://my-branch.host.cire.localhost` and friends. Two worktrees can run the full devloop at once without colliding. The `main` worktree keeps the bare names.
+
+Because those hostnames differ per worktree, no app can be told where its siblings live from a committed `.env`. Each `dev:app` runs through the `dev-env` launcher (`@shared/dev-urls`), which derives every sibling's origin from the app's own `PORTLESS_URL` and exports the same env vars the deployed tiers set (`OSN_ISSUER_URL`, `WEB_ORIGIN`, `PUBLIC_API_URL`, …). Those values win over `.env`. Adding an app means the `"portless"` key in its `package.json` and an entry in `DEV_APPS` (`shared/dev-urls/src/index.ts`), plus its env-var map in `src/app-env.ts`; a test asserts the first two agree.
+
+**What it costs.** A steady-state page load is 15–40 ms slower through the proxy — the TLS handshake and the hop. The *first* load after a cold start is the one to know about: about 3× slower on `@pulse/web` (~2.9 s vs ~0.87 s), because HTTP/2 drops the browser's per-origin connection cap and Vite's whole unbundled module graph arrives at a single-threaded dev server at once. Numbers and method are in `[[wiki/conventions/devloop-urls]]`.
+
+To run without the proxy, on the fixed ports the repo used before (`:4000` osn-api, `:8787` cire-api, `:1422` musubi, …):
+
+```bash
+PORTLESS=0 bun run dev                    # whole devloop, fixed ports
+bun run --cwd cire/host dev:app           # one app, no proxy at all
+```
+
+One trap for agents: Astro 7 detects an agent environment and puts `astro dev` in the background. Control returns to portless, portless deregisters the route when its child exits, and the URL then 404s while a stray daemon still holds the port. Run it as `CLAUDECODE= bun run dev` to keep it in the foreground, and clear a stray with `bunx astro dev stop`. A human terminal is unaffected.
+
+```bash
 
 # Testing
 bun run test                          # run all tests (turbo, skips packages without test script)

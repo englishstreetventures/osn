@@ -11,6 +11,7 @@
         "lefthook": "^2.1.10",
         "oxfmt": "^0.59.0",
         "oxlint": "1.78.0",
+        "portless": "^0.15.5",
         "turbo": "^2.10.7",
         "typescript": "^6.0.3",
       },
@@ -36,6 +37,7 @@
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20260702.1",
+        "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "jose": "^6.2.4",
         "miniflare": "^4.20260722.0",
@@ -73,6 +75,7 @@
       },
       "devDependencies": {
         "@astrojs/check": "0.9.10",
+        "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@testing-library/jest-dom": "^6.10.0",
@@ -113,6 +116,7 @@
       },
       "devDependencies": {
         "@capsizecss/metrics": "^4.2.0",
+        "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@testing-library/jest-dom": "^6.10.0",
@@ -138,6 +142,7 @@
       },
       "devDependencies": {
         "@astrojs/check": "0.9.10",
+        "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@testing-library/jest-dom": "^6.10.0",
@@ -170,6 +175,7 @@
       },
       "devDependencies": {
         "@astrojs/check": "0.9.10",
+        "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@testing-library/jest-dom": "^6.10.0",
@@ -204,6 +210,7 @@
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20260702.1",
         "@effect/vitest": "^0.30.0",
+        "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "miniflare": "^4.20260722.0",
         "vitest": "^4.1.10",
@@ -249,7 +256,7 @@
     },
     "osn/landing": {
       "name": "@osn/landing",
-      "version": "0.1.2",
+      "version": "0.1.4",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.1",
         "@shared/legal": "workspace:*",
@@ -261,6 +268,7 @@
       },
       "devDependencies": {
         "@astrojs/check": "0.9.10",
+        "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@testing-library/jest-dom": "^6.10.0",
@@ -272,7 +280,7 @@
     },
     "osn/social": {
       "name": "@osn/social",
-      "version": "0.12.8",
+      "version": "0.12.9",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -285,6 +293,7 @@
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
+        "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@testing-library/jest-dom": "^6.10.0",
@@ -347,6 +356,7 @@
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20260702.1",
         "@effect/vitest": "^0.30.0",
+        "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "miniflare": "^4.20260722.0",
         "vitest": "^4.1.10",
@@ -374,7 +384,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.2",
+      "version": "0.1.4",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.1",
         "@shared/legal": "workspace:*",
@@ -386,6 +396,7 @@
       },
       "devDependencies": {
         "@astrojs/check": "0.9.10",
+        "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@testing-library/jest-dom": "^6.10.0",
@@ -397,7 +408,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.22.12",
+      "version": "0.22.14",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -417,6 +428,7 @@
         "tailwindcss": "^4.3.3",
       },
       "devDependencies": {
+        "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
         "@testing-library/jest-dom": "^6.10.0",
@@ -457,6 +469,17 @@
         "@shared/typescript-config": "workspace:*",
         "@types/better-sqlite3": "^7.6.13",
         "better-sqlite3": "^12.11.1",
+        "vitest": "^4.1.10",
+      },
+    },
+    "shared/dev-urls": {
+      "name": "@shared/dev-urls",
+      "version": "0.0.0",
+      "bin": {
+        "dev-env": "./src/cli.ts",
+      },
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
         "vitest": "^4.1.10",
       },
     },
@@ -618,6 +641,7 @@
         "@cloudflare/workers-types": "^4.20260702.1",
         "@effect/vitest": "^0.30.0",
         "@shared/db-utils": "workspace:*",
+        "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "jose": "^6.2.4",
         "miniflare": "^4.20260722.0",
@@ -1407,6 +1431,8 @@
     "@shared/crypto": ["@shared/crypto@workspace:shared/crypto"],
 
     "@shared/db-utils": ["@shared/db-utils@workspace:shared/db-utils"],
+
+    "@shared/dev-urls": ["@shared/dev-urls@workspace:shared/dev-urls"],
 
     "@shared/email": ["@shared/email@workspace:shared/email"],
 
@@ -2229,6 +2255,8 @@
     "playwright-core": ["playwright-core@1.62.1", "", { "bin": { "playwright-core": "cli.js" } }, "sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw=="],
 
     "pngjs": ["pngjs@7.0.0", "", {}, "sha512-LKWqWJRhstyYo9pGvgor/ivk2w94eSjE3RGVuzLGlr3NmD8bf7RcYGze1mNdEHRP6TRP6rMuDHk5t44hnTRyow=="],
+
+    "portless": ["portless@0.15.5", "", { "os": [ "linux", "win32", "darwin", ], "bin": { "portless": "dist/cli.js" } }, "sha512-zmJu4Q8/fY54oVUT/5NnmF4Ih8wTdCvCf6JCN783dRYl9mXkJBzXSckX2lztGCLIbM70varDjCudAbGKT73XPg=="],
 
     "postcss": ["postcss@8.5.25", "", { "dependencies": { "nanoid": "^3.3.16", "picocolors": "^1.1.1", "source-map-js": "^1.2.1" } }, "sha512-DTPx3RWSSnWyzLxQnlH0rJP+EW5ekl16ZU4/psbIhA0e53kJfdgaN5vKM+xP7yJtXVu+nfdVFmlgFDEKAe4Pyw=="],
 

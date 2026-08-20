@@ -5,7 +5,8 @@ tags: [convention, reference]
 related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-08-06
+  - "[[devloop-urls]]"
+last-reviewed: 2026-08-20
 ---
 
 # CLI Commands Reference
@@ -17,6 +18,8 @@ bun run dev              # Start all dev servers (turbo)
 bun run build            # Build all packages (turbo)
 bun run check            # Type-check all packages (turbo)
 ```
+
+Dev servers answer on named HTTPS hosts, not ports — `https://id.musubi.localhost`, `https://host.cire.localhost` — and each worktree gets its own stack. The names, the one-time `portless proxy start`, and the `PORTLESS=0` fallback are in [[devloop-urls]].
 
 ## Testing
 

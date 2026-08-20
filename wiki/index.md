@@ -71,6 +71,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 
 - [[testing-patterns]] — it.effect, createTestLayer, route tests
 - [[commands]] — CLI commands reference
+- [[devloop-urls]] — named HTTPS hosts per app, one dev stack per worktree
 - [[review-findings]] — finding ID format (S-H1, P-W2, T-M1)
 - [[contributing]] — PR workflow, changesets, branching
 - [[stacked-prs]] — basing one PR on another with the gh CLI, and merging the stack

@@ -1,4 +1,5 @@
 import solidJs from "@astrojs/solid-js";
+import { devPort } from "@shared/dev-urls";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, fontProviders } from "astro/config";
 
@@ -7,6 +8,12 @@ import { defineConfig, fontProviders } from "astro/config";
 // `wrangler pages deploy dist`. No Cloudflare adapter is needed for a static
 // build; there is no first-party API call from this site.
 export default defineConfig({
+  // Portless assigns the port and passes it as `PORT`; the literal is the
+  // fallback for a devloop without portless (`PORTLESS=0`, or running
+  // `dev:app` directly), where every Astro app would otherwise fight over the
+  // default 4321.
+  server: { port: devPort(4325) },
+
   // Astro 7 changed the default to JSX-style whitespace stripping; pin the
   // Astro 6 behaviour so the upgrade does not change rendered markup.
   compressHTML: true,

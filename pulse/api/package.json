@@ -8,7 +8,8 @@
     "./client": "./src/client.ts"
   },
   "scripts": {
-    "dev": "bun run --watch src/local.ts",
+    "dev": "portless",
+    "dev:app": "dev-env bun run --watch src/local.ts",
     "dev:wrangler": "wrangler dev --env dev",
     "build": "wrangler deploy --env dev --dry-run --outdir dist",
     "deploy:dev": "wrangler deploy --env dev",
@@ -20,6 +21,10 @@
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
     "test:d1": "bun test src/d1-integration.test.ts"
+  },
+  "portless": {
+    "name": "api.pulse",
+    "script": "dev:app"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.2",
@@ -42,6 +47,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260702.1",
     "@effect/vitest": "^0.30.0",
+    "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "miniflare": "^4.20260722.0",
     "vitest": "^4.1.10",

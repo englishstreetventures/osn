@@ -3,13 +3,18 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "bun run src/local.ts",
+    "dev": "portless",
+    "dev:app": "dev-env bun run src/local.ts",
     "dev:wrangler": "wrangler dev",
     "build": "wrangler deploy --dry-run --outdir dist",
     "test": "bun test",
     "deploy": "wrangler deploy --env production",
     "types": "wrangler types",
     "test:d1": "bun test src/db/d1-integration.test.ts"
+  },
+  "portless": {
+    "name": "api.cire",
+    "script": "dev:app"
   },
   "dependencies": {
     "@cire/db": "workspace:*",
@@ -30,6 +35,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260702.1",
+    "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "jose": "^6.2.4",
     "miniflare": "^4.20260722.0",

@@ -4,7 +4,7 @@ AI coding assistant reference. For full spec see README.md. Work is tracked in G
 
 ## Quick Context
 
-Cire is a bespoke digital wedding invite — Astro + SolidJS frontends with a Cloudflare Workers backend (Elysia + D1 + Drizzle), designed to feel tactile and animated. It lives inside the **OSN monorepo** as the `cire/` workspace (merged from cire.git, 2026-06). Packages: `cire/invites` (guest site, :4321), `cire/host` (organiser portal, :4322), `cire/api` (backend, :8787), `cire/db` (Drizzle schema + D1 migrations). All paths in this file are relative to the OSN repo root.
+Cire is a bespoke digital wedding invite — Astro + SolidJS frontends with a Cloudflare Workers backend (Elysia + D1 + Drizzle), designed to feel tactile and animated. It lives inside the **OSN monorepo** as the `cire/` workspace (merged from cire.git, 2026-06). Packages: `cire/invites` (guest site, `invite.cire.localhost`), `cire/host` (organiser portal, `host.cire.localhost`), `cire/api` (backend, `api.cire.localhost`), `cire/db` (Drizzle schema + D1 migrations). Dev hostnames come from portless — see the root `CLAUDE.md` > Local URLs. All paths in this file are relative to the OSN repo root.
 
 Auth is a **two-system model** (see `[[wiki/systems/cire-auth]]` in the OSN wiki): guests claim a family code (`POST /api/claim` → hashed-at-rest `cire_session` cookie, `sessionAuth()` on `/api/rsvp` — no OSN account); organisers sign in with their **OSN passkey** on the portal, and `cire/api` verifies the OSN access JWT via `osnAuth()` (`@shared/osn-auth-client`) plus a per-`:weddingId` **three-tier role gate** on `/api/organiser/weddings/:weddingId/*`: `weddingOwner()` (owner-only — codes, settings, REMOVING/demoting a co-host, delete), `weddingEditor()` (owner or `editor` co-host — module writes, the RSVP-by date, and ADDING a co-host; viewers get 403 `read_only_role`), `weddingMember()` (any role incl. read-only `viewer` — reads + invite preview). Roles live in `wedding_hosts.role` (list + create are `osnAuth()`-only; owner = caller). The interim `X-Organiser-Token` shared secret is gone. Organisers can host **multiple** weddings — the portal lands on a wedding list/selector and a create form.
 
@@ -191,10 +191,12 @@ All commands run from the **OSN repo root**.
 
 ```bash
 # Dev
+# Dev servers run behind portless — named HTTPS hosts, not ports, and a
+# separate stack per worktree. See the root CLAUDE.md > Local URLs.
 bun run dev:cire                     # cire API + web + organiser, plus @osn/api (organiser sign-in needs the OSN issuer)
-bun run --cwd cire/invites dev           # Guest site only (:4321)
-bun run --cwd cire/host dev     # Organiser portal only (:4322)
-bun run --cwd cire/api dev           # API only (Bun.serve local entry, :8787; wrangler via dev:wrangler)
+bun run --cwd cire/invites dev       # Guest site only (https://invite.cire.localhost)
+bun run --cwd cire/host dev          # Organiser portal only (https://host.cire.localhost)
+bun run --cwd cire/api dev           # API only (Bun.serve local entry, https://api.cire.localhost; wrangler via dev:wrangler)
 
 # Build
 bun run build                        # Build all packages (turbo)
