@@ -21,7 +21,7 @@
     "test": "turbo test --continue",
     "test:d1": "turbo test:d1 --continue --concurrency=1",
     "test:browser": "turbo test:browser --continue",
-    "test:migration": "bun test scripts/todo-to-issues/",
+    "test:scripts": "bun test ./scripts/",
     "clean": "git clean -fdX",
     "db:reset": "bun run --cwd osn/db db:reset && bun run --cwd pulse/db db:reset && bun run --cwd zap/db db:reset && bun run --cwd cire/db db:reset",
     "fmt": "bunx --bun oxfmt osn pulse zap shared cire '!**/*.{json,jsonc,md,yml,yaml,css,html,astro}'",
@@ -35,7 +35,7 @@
   "devDependencies": {
     "@changesets/cli": "^2.31.1",
     "@oxlint/plugins": "1.78.0",
-    "bun-types": "^1.3.14",
+    "bun-types": "^1.4.0",
     "lefthook": "^2.1.10",
     "oxfmt": "^0.59.0",
     "oxlint": "1.78.0",

@@ -18,6 +18,8 @@
 
 import { deflateSync } from "node:zlib";
 
+import { $ } from "bun";
+
 import { customisation, events } from "./data";
 
 // Only ever this bucket. The production bucket holds real couples' photographs;
@@ -183,24 +185,19 @@ async function upload(spec: Placeholder, dir: string): Promise<void> {
   const file = `${dir}/${spec.key.replaceAll("/", "_")}.png`;
   await Bun.write(file, render(spec));
 
-  const proc = Bun.spawn(
-    [
-      "bunx",
-      "wrangler",
-      "r2",
-      "object",
-      "put",
-      `${DEV_BUCKET}/${spec.key}`,
-      `--file=${file}`,
-      "--content-type=image/png",
-      "--remote",
-    ],
-    { cwd: new URL("../../api", import.meta.url).pathname, stdout: "inherit", stderr: "inherit" },
-  );
+  // `$` escapes each interpolated value so it stays a single argument — which
+  // is not the same as stopping that argument being read as an option. It is
+  // safe here because every key comes from the committed seed data, not from
+  // input: `placeholders()` builds them from a fixed list. A key sourced from
+  // anywhere else would want validating before it reached this line.
+  const api = new URL("../../api", import.meta.url).pathname;
+  const { exitCode } =
+    await $`bunx wrangler r2 object put ${`${DEV_BUCKET}/${spec.key}`} --file=${file} --content-type=image/png --remote`
+      .cwd(api)
+      .nothrow();
 
-  const code = await proc.exited;
-  if (code !== 0) {
-    throw new Error(`wrangler r2 object put failed for ${spec.key} (exit ${code})`);
+  if (exitCode !== 0) {
+    throw new Error(`wrangler r2 object put failed for ${spec.key} (exit ${exitCode})`);
   }
 }
 

@@ -234,7 +234,7 @@ jobs:
         run: bun install
 
       - name: Guard against placeholder D1 database_id
-        run: bash scripts/check-d1-database-id.sh
+        run: bun run scripts/check-d1-database-id.ts
 
       - name: Reset the dev D1 (drops every table)
         run: bun run --cwd cire/db db:reset:dev
@@ -304,7 +304,7 @@ jobs:
       # silently break every D1 read/write in prod. Wired correctly today; this
       # is a regression guard (grep-only, no creds needed).
       - name: Guard against placeholder D1 database_id
-        run: bash scripts/check-d1-database-id.sh
+        run: bun run scripts/check-d1-database-id.ts
 
       # Idempotent: wrangler skips already-applied migrations, so re-running the
       # workflow is safe. Production is never reset and never seeded.

@@ -54,11 +54,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-bun-
 
+      # Keyed on the commit, not the lockfile. `actions/cache` will not
+      # overwrite an entry whose key already exists, so a cache keyed on
+      # `bun.lock` is written once and then frozen: every later run on the same
+      # lockfile restores that first snapshot, misses on everything that has
+      # changed since, and saves nothing back. The cache aged out of usefulness
+      # while still reporting a hit. A unique primary key forces a save each
+      # run and the prefix restore-key still pulls the most recent one, so the
+      # cache follows the branch instead of the dependency list.
+      #
+      # The Chromium cache below is left on `bun.lock` deliberately — the
+      # browser version IS a function of the lockfile, so an exact hit there
+      # genuinely has nothing new to write.
       - name: Cache turbo
         uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-check-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-turbo-check-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-turbo-check-
 
@@ -98,7 +110,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .turbo
-          key: ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}
+          key: ${{ runner.os }}-turbo-build-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-turbo-build-
 
@@ -165,8 +177,8 @@ jobs:
       - name: Browser tests
         run: bun run test:browser
 
-  shell-tests:
-    name: Shell Scripts
+  script-tests:
+    name: Scripts
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -175,12 +187,35 @@ jobs:
       # unattended `db:reset:dev` step and the live-wedding D1, and a weakened
       # guard's failure mode is *passing* — nothing downstream would notice
       # until the tables were gone. Its own tests therefore run on every PR,
-      # not just when someone remembers. No bun needed: plain bash + awk.
+      # not just when someone remembers.
       #
       # (The changeset gate's two shell tests live in changeset-check.yml
       # instead, beside the job whose scripts they self-test.)
       - name: Test the cire dev-db guard
         run: bash scripts/cire-dev-db-guard.test.sh
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # `scripts/` is not a workspace, so `turbo test` never reaches it and the
+      # tests under it ran nowhere: `test:migration` was declared in the root
+      # package.json and called by no workflow, so the throttle and backfill
+      # tests had never run in CI at all. They do now, along with the D1
+      # guard's — which is the pair that matters, since that guard decides
+      # whether a deploy proceeds.
+      #
+      # The `./` in `bun test ./scripts/` is load-bearing. A bare `scripts/` is
+      # a SUBSTRING filter on the test path, not a directory, so it also picks
+      # up `cire/api/src/scripts/remint-family-codes.test.ts` — which imports
+      # drizzle and effect and therefore needs an install this job does not do.
+      # `./scripts/` anchors to the directory.
+      #
+      # No `bun install` on purpose: these three files import nothing but
+      # `bun:test` and each other, so an install here would be a minute spent
+      # on nothing.
+      - name: Test the scripts
+        run: bun run test:scripts
 
   openapi-freshness:
     name: OpenAPI Freshness
@@ -217,7 +252,7 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [lint, typecheck, build-test, shell-tests, openapi-freshness]
+    needs: [lint, typecheck, build-test, script-tests, openapi-freshness]
     runs-on: ubuntu-latest
     steps:
       - name: Check results

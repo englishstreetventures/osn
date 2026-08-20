@@ -4,4 +4,14 @@ telemetry = false
 minimumReleaseAge = 259200
 # Escape hatch for advisory fixes younger than the gate: fast-uri 3.1.4 patches
 # GHSA-v2hh-gcrm-f6hx (high) and was published inside the 3-day window.
-minimumReleaseAgeExcludes = ["fast-uri"]
+#
+# bun-types is here for a different reason, and it is temporary. `.bun-version`
+# pins the 1.4.0 runtime, so without the matching types the repo typechecks 1.4
+# APIs (Bun.TOML, Bun.Image, Bun.JSONC) against 1.3 definitions and every one of
+# them is an error. bun-types 1.4.0 was published 2026-08-20, inside the window.
+#
+# It is the mildest package to make an exception for: types only, no runtime
+# code, devDependency, never bundled into a Worker. It still gets no free pass —
+# DROP THIS ENTRY once 1.4.0 clears three days (after 2026-08-23). Leaving it
+# would silently exempt every future bun-types release from the gate.
+minimumReleaseAgeExcludes = ["fast-uri", "bun-types"]

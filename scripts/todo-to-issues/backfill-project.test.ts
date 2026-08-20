@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
 
-import { alreadyOnBoard, parseBoard, parseIssues, pending, rateLimited } from "./backfill-project";
+import {
+  alreadyOnBoard,
+  ghError,
+  parseBoard,
+  parseIssues,
+  pending,
+  rateLimited,
+} from "./backfill-project";
 
 test("reads the issue URLs in a repo listing", () => {
   const json = JSON.stringify([
@@ -46,4 +53,33 @@ test("the hourly allowance running out is told apart from a real failure", () =>
   expect(
     rateLimited(new Error("gh project failed (1): GraphQL: Could not resolve to a node")),
   ).toBe(false);
+});
+
+// `gh` used to hand-roll a spawn and build this message itself. It now runs
+// through `$`, and `$` is why this test exists: a ShellError's message is
+// exactly "Failed with exit code 1" — stderr sits on `.stderr` and never
+// reaches the message. So `gh` uses `.nothrow()` and rebuilds the message.
+// Let `$` throw its own error instead and the two classifiers below both go
+// quiet: an "already exists" stops being a no-op and aborts the run, and a
+// rate limit stops being a resumable pause. That failure is silent, which is
+// why the message shape is pinned here rather than left to the refactor.
+test("gh's error message carries stderr, so the classifiers can read it", () => {
+  const error = ghError(
+    ["project", "item-add"],
+    1,
+    "GraphQL: Content already exists in this project (addProjectV2ItemById)\n",
+  );
+
+  expect(error.message).toBe(
+    "gh project failed (1): GraphQL: Content already exists in this project (addProjectV2ItemById)",
+  );
+  expect(alreadyOnBoard(error)).toBe(true);
+  expect(rateLimited(error)).toBe(false);
+});
+
+test("a rate-limited stderr is classified as resumable, not fatal", () => {
+  const error = ghError(["project", "item-add"], 1, "GraphQL: API rate limit already exceeded\n");
+
+  expect(rateLimited(error)).toBe(true);
+  expect(alreadyOnBoard(error)).toBe(false);
 });
