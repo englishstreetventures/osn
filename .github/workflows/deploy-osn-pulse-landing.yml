@@ -25,6 +25,9 @@ concurrency:
   group: deploy-osn-pulse-landing-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   deploy:
     name: Build + deploy ${{ matrix.site.project }}
