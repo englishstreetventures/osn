@@ -549,9 +549,6 @@ export function createOrganisationService() {
         id: string;
         handle: string;
         displayName: string | null;
-        avatarUrl: string | null;
-        createdAt: Date;
-        updatedAt: Date;
       };
       // The column's own enum, not a bare string: the roster is what a client
       // reads before PATCHing a role back, and both request bodies accept
@@ -590,9 +587,6 @@ export function createOrganisationService() {
               id: users.id,
               handle: users.handle,
               displayName: users.displayName,
-              avatarUrl: users.avatarUrl,
-              createdAt: users.createdAt,
-              updatedAt: users.updatedAt,
               role: organisationMembers.role,
               joinedAt: organisationMembers.createdAt,
             })
@@ -609,9 +603,6 @@ export function createOrganisationService() {
           id: r.id,
           handle: r.handle,
           displayName: r.displayName,
-          avatarUrl: r.avatarUrl,
-          createdAt: r.createdAt,
-          updatedAt: r.updatedAt,
         },
         role: r.role,
         joinedAt: r.joinedAt,

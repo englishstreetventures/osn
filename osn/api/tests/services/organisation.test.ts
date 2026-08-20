@@ -494,6 +494,16 @@ describe("listMembers", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  it.effect("projects only id, handle and displayName on each profile", () =>
+    Effect.gen(function* () {
+      const { organisation } = yield* setupOrgWithOwner;
+
+      const members = yield* org.listMembers(organisation.id);
+      expect(members).toHaveLength(1);
+      expect(Object.keys(members[0].profile).toSorted()).toEqual(["displayName", "handle", "id"]);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect("fails when org not found", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(org.listMembers("org_nonexistent"));
