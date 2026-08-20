@@ -3,6 +3,7 @@ import '../styles/global.css'
 import { ConstellationCanvas } from '../components/ConstellationCanvas'
 import SiteFooter from '../components/SiteFooter.astro'
 import { SITE_DESCRIPTION, SITE_NAME, SITE_TAGLINE } from '../lib/site'
+import { Font } from 'astro:assets'
 
 interface Props {
   /** Document <title>. Defaults to the brand + tagline. */
@@ -46,20 +47,15 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : As
 
     {/* Space Grotesk (display) + Inter (body), loaded with the preload+noscript
         strategy so they never block first paint. */}
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="preload"
-      as="style"
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap"
-      onload="this.onload=null;this.rel='stylesheet'"
-    />
     <noscript>
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
       {/* No JS ⇒ the scroll-reveal observer never runs, so reveal everything up
           front rather than leaving it hidden (SEO + accessibility). */}
       <style is:inline>[data-reveal]{opacity:1 !important;transform:none !important}</style>
     </noscript>
+    <!-- Both faces are above the fold — the wordmark and the hero heading are Space
+         Grotesk, the copy under them is Inter — so both preload. -->
+    <Font cssVariable="--font-space-grotesk" preload />
+    <Font cssVariable="--font-inter" preload />
   </head>
   <body>
     <div class="page-root">

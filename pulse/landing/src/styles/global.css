@@ -42,9 +42,13 @@
   --color-cat-5: var(--cat-5);
   --color-cat-6: var(--cat-6);
 
-  --font-display: "Instrument Serif", Georgia, serif;
-  --font-body: "Geist", system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* All three faces are self-hosted by Astro's font pipeline, which defines
+     `--font-instrument-serif` / `--font-geist` / `--font-geist-mono` on :root
+     with their metric-matched fallbacks already in the chain (see
+     astro.config.mjs). */
+  --font-display: var(--font-instrument-serif);
+  --font-body: var(--font-geist);
+  --font-mono: var(--font-geist-mono);
   --default-font-family: var(--font-body);
 }
 
