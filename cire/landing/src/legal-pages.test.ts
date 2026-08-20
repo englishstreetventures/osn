@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import footer from "./components/SiteFooter.astro?raw";
 import privacy from "./pages/privacy.astro?raw";
-import refunds from "./pages/refunds.astro?raw";
+import refunds from "./pages/refunds.mdx?raw";
 import terms from "./pages/terms.astro?raw";
 
 const legalPages = { terms, privacy, refunds };
