@@ -1,62 +1,86 @@
 ---
 // Static page — prerendered at build time even though the site is `output:
 // "server"`. Only the invite + bare-domain routes need per-request SSR.
+//
+// This page is served to the guests of EVERY wedding on the platform, so it
+// cannot name a couple. The version before this one opened "the wedding of
+// Aniket Chavan" and gave that couple's personal email as the contact — true
+// of the first wedding and wrong for every one since. Anything specific to a
+// wedding belongs on the invite itself, which is per-tenant; this page is the
+// operator's terms and stays general.
 export const prerender = true
 import LegalLayout from '../layouts/LegalLayout.astro'
+import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING } from '@shared/legal'
 ---
 <LegalLayout title="Terms of Use">
-  <div class="draft-banner">
-    <strong>Draft</strong> — This is a working draft for review, not legal advice.
-    Please have it checked before publishing and replace every highlighted
-    <span class="placeholder">{'{{PLACEHOLDER}}'}</span> value.
-  </div>
+  {LEGAL_DETAILS_PENDING && (
+    <div class="draft-banner">
+      <strong>Draft</strong> — the operator's own details are not filled in yet, so this
+      page is not final. Fill them in at <code>shared/legal/src/index.ts</code> and this
+      banner goes away by itself.
+    </div>
+  )}
 
   <h1>Terms of Use</h1>
-  <p class="meta">Last updated: 2026-06-17</p>
+  <p class="meta">Last updated: 2026-08-20</p>
 
   <p>
-    This is a private website for invited guests of the wedding of
-    <span class="placeholder">{'Aniket Chavan'}</span>. By using it you
-    agree to these short terms. If you don’t agree, please don’t use the site.
+    This is a private invitation website. Your hosts have invited you to their wedding
+    and asked us to run the invitation for them; the site itself is operated by
+    <span class="placeholder">{LEGAL_ENTITY.name}</span> (“we”, “us”). By using the
+    site you agree to these short terms. If you don’t agree, please don’t use it.
   </p>
 
   <h2>Invited guests only</h2>
   <p>
-    Access is by personal invitation code. Please don’t share your code or attempt
-    to access invitations or details that aren’t meant for your household. The
-    information on this site is private and shared with you in confidence.
+    Access is by personal invitation code. Please don’t share your code or attempt to
+    access invitations or details meant for another household. What you can see here
+    was shared with you in confidence by your hosts.
   </p>
 
   <h2>Using the site</h2>
   <ul>
-    <li>Please keep the information you give us (such as your RSVP and guest names) accurate and up to date.</li>
+    <li>Please keep what you tell us — your RSVP, guest names, dietary needs — accurate and up to date.</li>
     <li>Please don’t submit anything unlawful, abusive, or that isn’t yours to share.</li>
     <li>Please don’t try to disrupt, probe, or gain unauthorised access to the site or its data.</li>
   </ul>
 
   <h2>Your information</h2>
   <p>
-    How we handle the information you provide is explained in our
-    <a href="/privacy">Privacy Notice</a>. By submitting an RSVP you confirm the
-    details you enter are correct to the best of your knowledge.
+    Your hosts decide what to ask you and what to do with your answers; we run the site
+    and hold the data for them. Both halves are set out in our
+    <a href="/privacy">Privacy Notice</a>, including who to contact for what. By
+    submitting an RSVP you confirm the details you enter are correct as far as you know.
   </p>
 
   <h2>Availability</h2>
   <p>
-    We provide this site as-is for the convenience of our guests. We can’t promise
-    it will always be available or error-free, and we may update or take it down at
-    any time — for example after the wedding.
+    We provide this site as-is for the convenience of your hosts and their guests. We
+    can’t promise it will always be available or error-free, and an invitation is
+    normally taken down some time after the wedding.
+  </p>
+
+  <h2>Your rights as a consumer</h2>
+  <p>
+    Nothing in these terms excludes, restricts or modifies any guarantee, right or
+    remedy you have under the Australian Consumer Law or any other law that cannot
+    lawfully be excluded. If you are reading this somewhere else in the world, you keep
+    the consumer protections of the place you live.
   </p>
 
   <h2>Contact</h2>
   <p>
-    Questions about these terms? Email us at
-    <a href="mailto:owner@example.com">owner@example.com</a>.
+    Questions about your invitation — the date, the guest list, what you can see — are
+    best put to your hosts, who can change all of it. Questions about these terms or
+    about the site itself:
+    <a href={`mailto:${LEGAL_ENTITY.contactEmail}`}>
+      <span class="placeholder">{LEGAL_ENTITY.contactEmail}</span></a>.
   </p>
 
   <h2>Governing law</h2>
   <p>
-    These terms are governed by the laws of <strong>Australia</strong>, and any
-    disputes will be subject to the courts of that jurisdiction.
+    These terms are governed by the laws of <strong>{LEGAL_ENTITY.governingLaw}</strong>.
+    This does not take away the protections you have under the consumer laws of the
+    place where you live.
   </p>
 </LegalLayout>

@@ -1,12 +1,18 @@
 ---
 import LegalLayout from '../layouts/LegalLayout.astro'
+import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING } from '@shared/legal'
+
+// Only highlight the operator's details while they are still placeholders.
+const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
 ---
 <LegalLayout title="Terms of Service">
-  <div class="draft-banner">
-    <strong>Draft</strong> — A working draft for review, not legal advice. Have it checked before
-    publishing and replace every highlighted <span class="placeholder">{'{{PLACEHOLDER}}'}</span>
-    value.
-  </div>
+  {LEGAL_DETAILS_PENDING && (
+    <div class="draft-banner">
+      <strong>Draft</strong> — the operator's own details are not filled in yet, so this
+      page is not final. Fill them in at <code>shared/legal/src/index.ts</code> and this
+      banner goes away by itself.
+    </div>
+  )}
 
   <h1>Terms of Service</h1>
   <p class="meta">Last updated: 2026-07-18</p>
@@ -14,7 +20,7 @@ import LegalLayout from '../layouts/LegalLayout.astro'
   <p>
     Cire is a digital wedding invitation and wedding planning service available at cireweddings.com,
     invite.cireweddings.com and host.cireweddings.com. It is operated by
-    <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span>, trading as Cire (&ldquo;Cire&rdquo;,
+    <span class={ph}>{LEGAL_ENTITY.name}</span>, trading as Cire (&ldquo;Cire&rdquo;,
     &ldquo;we&rdquo;, &ldquo;us&rdquo;). By creating an account or using the service you agree to
     these terms.
   </p>
@@ -47,7 +53,7 @@ import LegalLayout from '../layouts/LegalLayout.astro'
   <h2>Purchases and payment</h2>
   <p>
     Purchases are processed by our merchant of record,
-    <span class="placeholder">{'{{MERCHANT_OF_RECORD}}'}</span>. When you buy an add-on, your
+    <span class={ph}>{LEGAL_ENTITY.merchantOfRecord}</span>. When you buy an add-on, your
     contract of sale (including payment, applicable taxes and invoicing) is with the merchant of
     record, and their terms of sale apply to the transaction. We then unlock the purchased add-on
     for your wedding. Prices are shown in or converted to your local currency at checkout. Refunds are
@@ -102,12 +108,12 @@ import LegalLayout from '../layouts/LegalLayout.astro'
 
   <h2>Governing law</h2>
   <p>
-    These terms are governed by the laws of New South Wales, Australia. This does not deprive you of
+    These terms are governed by the laws of <strong>{LEGAL_ENTITY.governingLaw}</strong>. This does not deprive you of
     protections you have under the consumer laws of the place where you live.
   </p>
 
   <h2>Contact</h2>
   <p>
-    Questions about these terms: <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>.
+    Questions about these terms: <span class={ph}>{LEGAL_ENTITY.contactEmail}</span>.
   </p>
 </LegalLayout>

@@ -1,19 +1,25 @@
 ---
 import LegalLayout from '../layouts/LegalLayout.astro'
+import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING } from '@shared/legal'
+
+// Only highlight the operator's details while they are still placeholders.
+const ph = LEGAL_DETAILS_PENDING ? 'placeholder' : undefined
 ---
 <LegalLayout title="Terms of Use">
-  <div class="draft-banner">
-    <strong>Draft</strong> — A working draft for review, not legal advice. Have it checked before
-    publishing and replace every highlighted <span class="placeholder">{'{{PLACEHOLDER}}'}</span>
-    value.
-  </div>
+  {LEGAL_DETAILS_PENDING && (
+    <div class="draft-banner">
+      <strong>Draft</strong> — the operator's own details are not filled in yet, so this
+      page is not final. Fill them in at <code>shared/legal/src/index.ts</code> and this
+      banner goes away by itself.
+    </div>
+  )}
 
   <h1>Terms of Use</h1>
   <p class="meta">Last updated: 2026-06-28</p>
 
   <p>
     These terms govern your use of the Pulse marketing site, operated by
-    <span class="placeholder">{'{{LEGAL_ENTITY}}'}</span>. By using the site you agree to them.
+    <span class={ph}>{LEGAL_ENTITY.name}</span>. By using the site you agree to them.
   </p>
 
   <h2>Using the site</h2>
@@ -36,13 +42,34 @@ import LegalLayout from '../layouts/LegalLayout.astro'
 
   <h2>No warranty &amp; liability</h2>
   <p>
-    This site is provided &ldquo;as is&rdquo;. To the extent permitted by law we exclude implied
-    warranties and limit our liability for your use of it. Nothing here limits liability that cannot
-    be limited by law.
+    This site is provided &ldquo;as is&rdquo;. Subject to the consumer guarantees below, and to the
+    extent permitted by law, we exclude implied warranties and limit our liability for your use of
+    it. Nothing here limits liability that cannot lawfully be limited.
+  </p>
+
+  <h2>Your rights as a consumer</h2>
+  <p>
+    Our services come with guarantees that cannot be excluded under the Australian Consumer
+    Law. Nothing in these terms excludes, restricts or modifies any consumer guarantee, right
+    or remedy you have under that law or any other law that cannot lawfully be excluded. If you
+    are reading this elsewhere in the world, you keep the consumer protections of the place you
+    live.
+  </p>
+
+  <h2>Changes to these terms</h2>
+  <p>
+    We may update these terms from time to time. The &ldquo;last updated&rdquo; date above changes
+    when we do, and changes are not retroactive.
+  </p>
+
+  <h2>Governing law</h2>
+  <p>
+    These terms are governed by the laws of <strong>{LEGAL_ENTITY.governingLaw}</strong>. This does
+    not take away the protections you have under the consumer laws of the place where you live.
   </p>
 
   <h2>Contact</h2>
   <p>
-    Questions about these terms: <span class="placeholder">{'{{CONTACT_EMAIL}}'}</span>.
+    Questions about these terms: <span class={ph}>{LEGAL_ENTITY.contactEmail}</span>.
   </p>
 </LegalLayout>
