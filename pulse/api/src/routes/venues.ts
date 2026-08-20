@@ -4,6 +4,7 @@ import { createRateLimiter, getClientIp, type RateLimiterBackend } from "@shared
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
+import { validateBbox } from "../lib/bbox";
 import { metricEventAccessDenied } from "../metrics";
 import { loadVisibleEvent } from "../services/eventAccess";
 import { getVenue, listAllVenues, listEventLineup, listVenueEvents } from "../services/venues";
@@ -117,6 +118,31 @@ const lineupSlotSchema = t.Object({
   createdAt: t.String({ format: "date-time" }),
 });
 
+/**
+ * Thin pin projection for the map surface — deliberately excludes the
+ * heavy `Venue` fields (`description`, `hours`, image/website URLs) so
+ * the bbox-scoped list stays cheap. A named model distinct from `Venue`
+ * so the existing response shape (and generated Swift client) is untouched.
+ */
+const venuePinSchema = t.Object({
+  id: t.String(),
+  orgHandle: t.String(),
+  handle: t.String(),
+  name: t.String(),
+  kind: t.String(),
+  capacity: t.Nullable(t.Number()),
+  latitude: t.Nullable(t.Number()),
+  longitude: t.Nullable(t.Number()),
+});
+
+const bboxQuery = t.Object({
+  minLat: t.Optional(t.Numeric()),
+  maxLat: t.Optional(t.Numeric()),
+  minLng: t.Optional(t.Numeric()),
+  maxLng: t.Optional(t.Numeric()),
+  limit: t.Optional(t.Numeric({ minimum: 1, maximum: 100 })),
+});
+
 const errorResponse = t.Object({ error: t.String() });
 const messageResponse = t.Object({ message: t.String() });
 
@@ -151,7 +177,7 @@ export const createVenuesRoutes = (
     new Elysia({ prefix: "/venues" })
       // Named model, so the venue object lands once in `components/schemas` and
       // both routes `$ref` it — see the longer note in `routes/events.ts`.
-      .model({ Venue: venueSchema })
+      .model({ Venue: venueSchema, VenuePin: venuePinSchema })
       .onBeforeHandle(async ({ headers, set }) => {
         // S-L1: fail-closed per-IP limit, matching the discover route —
         // a broken limiter backend must not become a bypass.
@@ -169,15 +195,22 @@ export const createVenuesRoutes = (
       })
       .get(
         "/",
-        async () => {
-          // TODO(venue-bbox-search): swap for bbox-filtered query — see
-          // `P-W28` in `xchromo/osn-tracker` (explore).
-          const venues = await runtime.runPromise(listAllVenues());
-          return { venues: venues.map(serializeVenue) };
+        async ({ query, set }) => {
+          const validation = validateBbox(query);
+          if (!validation.ok) {
+            set.status = 400;
+            return { error: validation.error };
+          }
+          const rows = await runtime.runPromise(
+            listAllVenues({ ...validation.bbox, limit: query.limit }),
+          );
+          return { venues: rows };
         },
         {
+          query: bboxQuery,
           response: {
-            200: t.Object({ venues: t.Array(t.Ref("Venue")) }),
+            200: t.Object({ venues: t.Array(t.Ref("VenuePin")) }),
+            400: errorResponse,
             429: errorResponse,
           },
           detail: { operationId: "listVenues" },

@@ -345,6 +345,36 @@ describe("events routes", () => {
     expect(body.events[0]!.title).toBe("Music Night");
   });
 
+  it("GET /events rejects a partial bbox with 400", async () => {
+    const res = await app.handle(new Request("http://localhost/events?minLat=51&maxLat=52"));
+    expect(res.status).toBe(400);
+  });
+
+  it("GET /events rejects an inverted bbox with 400", async () => {
+    const res = await app.handle(
+      new Request("http://localhost/events?minLat=52&maxLat=51&minLng=-1&maxLng=1"),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("GET /events?bbox filters to events inside the box", async () => {
+    await seedEvent({ title: "Inside", startTime: FUTURE, latitude: 51.5, longitude: -0.1 }).pipe(
+      Effect.provide(layer),
+      Effect.runPromise,
+    );
+    await seedEvent({ title: "Outside", startTime: FUTURE, latitude: 40.7, longitude: -74.0 }).pipe(
+      Effect.provide(layer),
+      Effect.runPromise,
+    );
+    const res = await app.handle(
+      new Request("http://localhost/events?minLat=51&maxLat=52&minLng=-0.5&maxLng=0.5"),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { events: { title: string }[] };
+    expect(body.events.length).toBe(1);
+    expect(body.events[0]!.title).toBe("Inside");
+  });
+
   it("PATCH /events/:id returns 422 for invalid startTime", async () => {
     const createRes = await post(
       app,

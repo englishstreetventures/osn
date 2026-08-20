@@ -1,7 +1,7 @@
 import { events, eventLineup, venues } from "@pulse/db/schema";
 import type { Event, EventLineupSlot, Venue } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
-import { and, asc, desc, eq, gte, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, lte, type SQL } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { metricVenueDetail, metricVenueEventsListed, metricVenueLineupListed } from "../metrics";
@@ -12,21 +12,88 @@ export class VenueNotFound extends Data.TaggedError("VenueNotFound")<{
   readonly venueHandle: string;
 }> {}
 
+/** Thin pin projection for the map — no description/hours/image/website fields. */
+export interface VenuePin {
+  id: string;
+  orgHandle: string;
+  handle: string;
+  name: string;
+  kind: string;
+  capacity: number | null;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+export interface ListAllVenuesParams {
+  minLat?: number;
+  maxLat?: number;
+  minLng?: number;
+  maxLng?: number;
+  limit?: number;
+}
+
+const VENUES_MAX_LIMIT = 100;
 /**
- * List every venue. Public surface — feeds the Explore map.
- *
- * TODO(P-perf, venue-bbox-search): Replace with a bbox/geohash-aware
- * query so the map only loads venues within the visible viewport. This
- * unbounded scan is fine while the catalogue is tiny but will break
- * once we ingest real venue data. Same applies to events — both
- * surfaces want the same `(minLat, maxLat, minLng, maxLng)` filter.
- * Open as `P-W28` in `xchromo/osn-tracker`.
+ * No-bbox default. Deliberately the same as the ceiling: the point of this
+ * change is that the query is BOUNDED, not that it returns fewer pins than
+ * it did yesterday. A smaller default would silently drop venues off the
+ * Explore map in the window between this landing and the client sending a
+ * viewport.
  */
-export const listAllVenues = (): Effect.Effect<Venue[], DatabaseError, Db> =>
+const VENUES_DEFAULT_LIMIT = VENUES_MAX_LIMIT;
+
+/**
+ * List venues for the map. Public surface — feeds the Explore map.
+ *
+ * Bounded whatever the caller sends: a hard ceiling on `limit`
+ * (`VENUES_MAX_LIMIT`) plus a default (`VENUES_DEFAULT_LIMIT`) applied
+ * even with no bbox, so the scan can never be unbounded again. When all
+ * four corners are given, rows are filtered to the box; a bbox query
+ * drops NULL-lat/lng venues (`BETWEEN`/`gte`+`lte` never match NULL) —
+ * the no-bbox path still returns them.
+ */
+export const listAllVenues = (
+  params: ListAllVenuesParams = {},
+): Effect.Effect<VenuePin[], DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
+    const filters: SQL[] = [];
+    if (
+      params.minLat !== undefined &&
+      params.maxLat !== undefined &&
+      params.minLng !== undefined &&
+      params.maxLng !== undefined
+    ) {
+      filters.push(gte(venues.latitude, params.minLat));
+      filters.push(lte(venues.latitude, params.maxLat));
+      filters.push(gte(venues.longitude, params.minLng));
+      filters.push(lte(venues.longitude, params.maxLng));
+    }
+    const limit =
+      params.limit === undefined
+        ? VENUES_DEFAULT_LIMIT
+        : Math.min(Math.max(1, params.limit), VENUES_MAX_LIMIT);
+
     const rows = yield* Effect.tryPromise({
-      try: (): Promise<Venue[]> => db.select().from(venues) as Promise<Venue[]>,
+      try: (): Promise<VenuePin[]> =>
+        db
+          .select({
+            id: venues.id,
+            orgHandle: venues.orgHandle,
+            handle: venues.handle,
+            name: venues.name,
+            kind: venues.kind,
+            capacity: venues.capacity,
+            latitude: venues.latitude,
+            longitude: venues.longitude,
+          })
+          .from(venues)
+          .where(filters.length > 0 ? and(...filters) : undefined)
+          // A LIMIT with no ORDER BY lets SQLite return any subset it likes,
+          // and a different one per call — the map would flicker between pin
+          // sets on refresh. `id` is the only column guaranteed unique.
+          .orderBy(asc(venues.id))
+          .limit(limit) as Promise<VenuePin[]>,
       catch: (cause) => new DatabaseError({ cause }),
     }).pipe(Effect.tapError((e) => Effect.logError("venue.list_all failed", e)));
     return rows;

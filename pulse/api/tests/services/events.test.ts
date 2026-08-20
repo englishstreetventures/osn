@@ -104,6 +104,49 @@ it.effect("listEvents filters by category", () =>
   ),
 );
 
+it.effect("listEvents bbox filters to rows inside the box and excludes rows outside it", () =>
+  provide(
+    Effect.gen(function* () {
+      yield* seedEvent({
+        title: "Inside London",
+        startTime: FUTURE,
+        latitude: 51.5,
+        longitude: -0.1,
+      });
+      yield* seedEvent({
+        title: "Outside NYC",
+        startTime: FUTURE,
+        latitude: 40.7,
+        longitude: -74.0,
+      });
+      const events = yield* listEvents({
+        minLat: 51.0,
+        maxLat: 52.0,
+        minLng: -0.5,
+        maxLng: 0.5,
+      });
+      expect(events.length).toBe(1);
+      expect(events[0]!.title).toBe("Inside London");
+    }),
+  ),
+);
+
+// NULL-lat/lng events are dropped by a bbox query (`gte`/`lte` never match
+// NULL) but still returned when no bbox is given — same asymmetry as
+// `listAllVenues`, pinned here so it stays a deliberate choice.
+it.effect("listEvents bbox query drops NULL-coordinate events; no-bbox path keeps them", () =>
+  provide(
+    Effect.gen(function* () {
+      yield* seedEvent({ title: "No Coords", startTime: FUTURE });
+      const boxed = yield* listEvents({ minLat: -90, maxLat: 90, minLng: -180, maxLng: 180 });
+      expect(boxed).toEqual([]);
+      const unboxed = yield* listEvents({});
+      expect(unboxed.length).toBe(1);
+      expect(unboxed[0]!.title).toBe("No Coords");
+    }),
+  ),
+);
+
 it.effect("listEvents boosts events organised by close friends to the top", () =>
   provide(
     Effect.gen(function* () {

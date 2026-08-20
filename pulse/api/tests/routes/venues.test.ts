@@ -79,6 +79,16 @@ describe("venue routes", () => {
     expect(body.venues).toEqual([]);
   });
 
+  it("GET /venues rejects a partial bbox with 400", async () => {
+    const res = await get(app, "/venues?minLat=51&maxLat=52");
+    expect(res.status).toBe(400);
+  });
+
+  it("GET /venues rejects an inverted bbox with 400", async () => {
+    const res = await get(app, "/venues?minLat=52&maxLat=51&minLng=-1&maxLng=1");
+    expect(res.status).toBe(400);
+  });
+
   it("GET /venues/:org/:venue returns 404 for an unknown venue", async () => {
     const res = await get(app, "/venues/org-one/does-not-exist");
     expect(res.status).toBe(404);

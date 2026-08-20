@@ -10,6 +10,7 @@ import {
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
+import { validateBbox } from "../lib/bbox";
 import { makeCallerResolver } from "../lib/caller";
 import { MAX_PRICE_MAJOR } from "../lib/currency";
 import { DEFAULT_JWKS_URL } from "../lib/jwks";
@@ -409,10 +410,15 @@ export const createEventsRoutes = (
       .model({ Event: eventResponseSchema, Rsvp: rsvpResponseSchema })
       .get(
         "/",
-        async ({ query, headers }) => {
+        async ({ query, headers, set }) => {
+          const validation = validateBbox(query);
+          if (!validation.ok) {
+            set.status = 400;
+            return { error: validation.error };
+          }
           const claims = await resolveCaller(headers);
           const result = await runtime.runPromise(
-            listEvents({ ...query, viewerId: claims?.profileId ?? null }),
+            listEvents({ ...query, ...validation.bbox, viewerId: claims?.profileId ?? null }),
           );
           return { events: result.map(serializeEvent) };
         },
@@ -421,8 +427,15 @@ export const createEventsRoutes = (
             status: statusEnum,
             category: t.Optional(t.String()),
             limit: t.Optional(t.String()),
+            minLat: t.Optional(t.Numeric()),
+            maxLat: t.Optional(t.Numeric()),
+            minLng: t.Optional(t.Numeric()),
+            maxLng: t.Optional(t.Numeric()),
           }),
-          response: { 200: t.Object({ events: t.Array(t.Ref("Event")) }) },
+          response: {
+            200: t.Object({ events: t.Array(t.Ref("Event")) }),
+            400: errorResponse,
+          },
           detail: { operationId: "listEvents" },
         },
       )

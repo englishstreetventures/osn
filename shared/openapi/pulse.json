@@ -584,6 +584,54 @@
           "updatedAt"
         ],
         "type": "object"
+      },
+      "VenuePin": {
+        "properties": {
+          "capacity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "handle": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "longitude": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "orgHandle": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "orgHandle",
+          "handle",
+          "name",
+          "kind",
+          "capacity",
+          "latitude",
+          "longitude"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -1541,6 +1589,74 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "minLat",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "default": 0,
+                  "format": "numeric",
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "maxLat",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "default": 0,
+                  "format": "numeric",
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "minLng",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "default": 0,
+                  "format": "numeric",
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "maxLng",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "default": 0,
+                  "format": "numeric",
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
           }
         ],
         "responses": {
@@ -1564,6 +1680,24 @@
               }
             },
             "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
           }
         }
       },
@@ -4937,6 +5071,97 @@
     "/venues/": {
       "get": {
         "operationId": "listVenues",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "minLat",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "default": 0,
+                  "format": "numeric",
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "maxLat",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "default": 0,
+                  "format": "numeric",
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "minLng",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "default": 0,
+                  "format": "numeric",
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "maxLng",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "default": 0,
+                  "format": "numeric",
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "default": 0,
+                  "format": "numeric",
+                  "type": "string"
+                },
+                {
+                  "maximum": 100,
+                  "minimum": 1,
+                  "type": "number"
+                }
+              ],
+              "maximum": 100,
+              "minimum": 1
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -4945,7 +5170,7 @@
                   "properties": {
                     "venues": {
                       "items": {
-                        "$ref": "#/components/schemas/Venue"
+                        "$ref": "#/components/schemas/VenuePin"
                       },
                       "type": "array"
                     }
@@ -4958,6 +5183,24 @@
               }
             },
             "description": "Response for status 200"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "error": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Response for status 400"
           },
           "429": {
             "content": {

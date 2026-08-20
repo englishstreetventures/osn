@@ -172,6 +172,15 @@ interface ListEventsParams {
    * events are filtered out (discovery behaviour).
    */
   viewerId?: string | null;
+  /**
+   * Optional map viewport — all four present or none. When present, rows
+   * are filtered to the box; NULL-lat/lng events are dropped (`gte`/`lte`
+   * never match NULL), matching the venues bbox behaviour.
+   */
+  minLat?: number;
+  maxLat?: number;
+  minLng?: number;
+  maxLng?: number;
 }
 
 const deriveStatus = (event: Event, now: Date): Event["status"] => {
@@ -313,6 +322,18 @@ export const listEvents = (
 
     if (params.category) {
       filters.push(eq(events.category, params.category));
+    }
+
+    if (
+      params.minLat !== undefined &&
+      params.maxLat !== undefined &&
+      params.minLng !== undefined &&
+      params.maxLng !== undefined
+    ) {
+      filters.push(gte(events.latitude, params.minLat));
+      filters.push(lte(events.latitude, params.maxLat));
+      filters.push(gte(events.longitude, params.minLng));
+      filters.push(lte(events.longitude, params.maxLng));
     }
 
     // Discovery rule: private events are filtered at the SQL layer so

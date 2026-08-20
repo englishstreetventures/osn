@@ -205,7 +205,7 @@ it.effect("listVenueEvents scope=all returns past + upcoming together", () =>
 // listAllVenues
 // ---------------------------------------------------------------------------
 
-it.effect("listAllVenues returns every venue row", () =>
+it.effect("listAllVenues returns every venue row within the default bound", () =>
   provide(
     Effect.gen(function* () {
       const { db } = yield* Db;
@@ -249,6 +249,168 @@ it.effect("listAllVenues returns an empty array when there are no venues", () =>
     Effect.gen(function* () {
       const rows = yield* listAllVenues();
       expect(rows).toEqual([]);
+    }),
+  ),
+);
+
+it.effect("listAllVenues no-bbox path is bounded even with no caller limit", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const now = new Date();
+      // More rows than the ceiling, so the bound has to come from the service
+      // rather than from the size of the table.
+      const rows = Array.from({ length: 130 }, (_, i) => ({
+        id: `v${String(i).padStart(3, "0")}`,
+        orgHandle: "org-a",
+        handle: `venue-${i}`,
+        name: `Venue ${i}`,
+        createdAt: now,
+        updatedAt: now,
+      }));
+      yield* Effect.promise(() => db.insert(venues).values(rows));
+      const result = yield* listAllVenues();
+      expect(result.length).toBe(100);
+    }),
+  ),
+);
+
+it.effect(
+  "listAllVenues returns the SAME bounded page on every call (ordered, not arbitrary)",
+  () =>
+    provide(
+      Effect.gen(function* () {
+        const { db } = yield* Db;
+        const now = new Date();
+        // A LIMIT with no ORDER BY is free to return a different subset each
+        // time — the map would show a different set of pins on every refresh.
+        const rows = Array.from({ length: 130 }, (_, i) => ({
+          id: `v${String(i).padStart(3, "0")}`,
+          orgHandle: "org-a",
+          handle: `venue-${i}`,
+          name: `Venue ${i}`,
+          createdAt: now,
+          updatedAt: now,
+        }));
+        yield* Effect.promise(() => db.insert(venues).values(rows));
+
+        const first = yield* listAllVenues();
+        const second = yield* listAllVenues();
+        expect(second.map((v) => v.id)).toEqual(first.map((v) => v.id));
+        // And it is the ordering the service declares, not whatever fell out.
+        expect(first.map((v) => v.id)).toEqual(first.map((v) => v.id).toSorted());
+      }),
+    ),
+);
+
+it.effect("listAllVenues clamps a caller-supplied limit to the server ceiling", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const now = new Date();
+      const rows = Array.from({ length: 120 }, (_, i) => ({
+        id: `v${i}`,
+        orgHandle: "org-a",
+        handle: `venue-${i}`,
+        name: `Venue ${i}`,
+        createdAt: now,
+        updatedAt: now,
+      }));
+      yield* Effect.promise(() => db.insert(venues).values(rows));
+      const result = yield* listAllVenues({ limit: 9999 });
+      expect(result.length).toBe(100);
+    }),
+  ),
+);
+
+it.effect("listAllVenues bbox filters to rows inside the box and excludes rows outside it", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const now = new Date();
+      yield* Effect.promise(() =>
+        db.insert(venues).values([
+          {
+            id: "inside",
+            orgHandle: "org-a",
+            handle: "inside",
+            name: "Inside",
+            latitude: 51.5,
+            longitude: -0.1,
+            createdAt: now,
+            updatedAt: now,
+          },
+          {
+            id: "outside",
+            orgHandle: "org-a",
+            handle: "outside",
+            name: "Outside",
+            latitude: 40.7,
+            longitude: -74.0,
+            createdAt: now,
+            updatedAt: now,
+          },
+        ]),
+      );
+      const rows = yield* listAllVenues({ minLat: 51, maxLat: 52, minLng: -1, maxLng: 0 });
+      expect(rows.map((r) => r.id)).toEqual(["inside"]);
+    }),
+  ),
+);
+
+it.effect("listAllVenues bbox query drops NULL-coordinate venues; no-bbox path keeps them", () =>
+  provide(
+    Effect.gen(function* () {
+      // seedVenue never sets latitude/longitude, so "the-club" is NULL/NULL.
+      // gte/lte never match NULL, so a bbox query silently loses it — that
+      // asymmetry is intentional (see BRIEF-308) and pinned here rather
+      // than papered over with an IS NULL branch.
+      yield* seedVenue;
+      const withBbox = yield* listAllVenues({ minLat: -90, maxLat: 90, minLng: -180, maxLng: 180 });
+      expect(withBbox.map((r) => r.id)).toEqual([]);
+
+      const withoutBbox = yield* listAllVenues();
+      expect(withoutBbox.map((r) => r.id)).toEqual(["the-club"]);
+    }),
+  ),
+);
+
+it.effect("listAllVenues projects only the thin pin fields", () =>
+  provide(
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const now = new Date();
+      yield* Effect.promise(() =>
+        db.insert(venues).values({
+          id: "v1",
+          orgHandle: "org-a",
+          handle: "alpha",
+          name: "Alpha",
+          kind: "club",
+          capacity: 300,
+          latitude: 51.5,
+          longitude: -0.1,
+          description: "A description that must not leak into the pin projection",
+          hours: '{"1":{"open":"18:00","close":"02:00"}}',
+          heroImageUrl: "https://example.com/hero.jpg",
+          websiteUrl: "https://example.com",
+          createdAt: now,
+          updatedAt: now,
+        }),
+      );
+      const rows = yield* listAllVenues();
+      expect(rows).toEqual([
+        {
+          id: "v1",
+          orgHandle: "org-a",
+          handle: "alpha",
+          name: "Alpha",
+          kind: "club",
+          capacity: 300,
+          latitude: 51.5,
+          longitude: -0.1,
+        },
+      ]);
     }),
   ),
 );
