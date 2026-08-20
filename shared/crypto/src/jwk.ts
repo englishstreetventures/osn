@@ -201,11 +201,17 @@ export async function signArcToken(
   const scopes = normaliseScopes(claims.scope);
   validateScopeFormat(scopes);
 
+  // One clock read for both claims. `setIssuedAt()` and a relative
+  // `setExpirationTime("300s")` each call Date.now() separately, so a token
+  // minted across a second boundary carries exp - iat = ttl + 1 — a lifetime
+  // the caller never asked for, and a flaky assertion for anyone checking it.
+  const issuedAt = Math.floor(Date.now() / 1000);
+
   return new SignJWT({ scope: scopes.join(",") })
     .setProtectedHeader({ alg: ARC_ALG, kid: claims.kid })
     .setIssuer(claims.iss)
     .setAudience(claims.aud)
-    .setIssuedAt()
-    .setExpirationTime(`${ttl}s`)
+    .setIssuedAt(issuedAt)
+    .setExpirationTime(issuedAt + ttl)
     .sign(privateKey);
 }

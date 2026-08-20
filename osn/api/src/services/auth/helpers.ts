@@ -149,11 +149,15 @@ export async function signJwt(
    */
   typ?: string,
 ): Promise<string> {
+  // One clock read for both claims — `setIssuedAt()` takes its own Date.now(),
+  // so a token minted across a second boundary lived ttl + 1 seconds.
+  const issuedAt = Math.floor(Date.now() / 1000);
+
   return new SignJWT(payload)
     .setProtectedHeader(typ ? { alg: "ES256", kid, typ } : { alg: "ES256", kid })
-    .setIssuedAt()
+    .setIssuedAt(issuedAt)
     .setIssuer(issuer)
-    .setExpirationTime(Math.floor(Date.now() / 1000) + ttl)
+    .setExpirationTime(issuedAt + ttl)
     .sign(privateKey);
 }
 
