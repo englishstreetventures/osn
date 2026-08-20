@@ -1,3 +1,5 @@
+export { budgetItems } from "./budget";
+export type { SeedBudgetItem, SeedPayment } from "./budget";
 export { customisation } from "./customisations";
 export type { SeedCustomisation } from "./customisations";
 export { entitlements } from "./entitlements";
@@ -9,6 +11,10 @@ export type { SeedFamily, SeedGuest } from "./guests";
 export { syntheticFamilies, syntheticRsvps } from "./households";
 export { hosts } from "./hosts";
 export type { SeedHost } from "./hosts";
+export { registryClaims, registryItems, registrySettings } from "./registry";
+export type { SeedRegistryClaim, SeedRegistryItem, SeedRegistrySettings } from "./registry";
 export { DIETARY_CONSENT_VERSION, rsvps } from "./rsvps";
 export type { SeedRsvp } from "./rsvps";
+export { tasks } from "./tasks";
+export type { SeedTask } from "./tasks";
 export { bootstrapWedding, DEV_OWNER_PROFILE_ID } from "./wedding";

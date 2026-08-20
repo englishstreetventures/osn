@@ -15,6 +15,7 @@ import { getTableConfig, SQLiteTable } from "drizzle-orm/sqlite-core";
 import * as schema from "../src/schema";
 import {
   bootstrapWedding,
+  budgetItems,
   customisation,
   DEV_OWNER_PROFILE_ID,
   DIETARY_CONSENT_VERSION,
@@ -22,15 +23,26 @@ import {
   events,
   guests,
   hosts,
+  registryClaims,
+  registryItems,
+  registrySettings,
   rsvps,
   syntheticFamilies,
   syntheticRsvps,
+  tasks,
   type SeedFamily,
   type SeedRsvp,
 } from "./data";
 
 // SQL single-quote escaping: double any embedded apostrophe.
 const sql = (value: string): string => `'${value.replaceAll("'", "''")}'`;
+
+// The two null-aware emitters. Every optional column below is nullable in the
+// schema and meaningfully so — an unquoted estimate, a task with no due date, a
+// gift with no price — so a seed that coerced null to 0 or "" would be seeding a
+// state the app cannot produce.
+const sqlOrNull = (value: string | null): string => (value === null ? "NULL" : sql(value));
+const numOrNull = (value: number | null): string => (value === null ? "NULL" : String(value));
 
 // A reply's `created_at` (and its consent stamp) as an offset from seed time, so
 // seeded replies always read as recent however long ago the seed was written.
@@ -379,6 +391,152 @@ function describeEvents(ids: readonly string[]): string {
   return ids.map((id) => SLUG_BY_ID.get(id) ?? id).join(" + ");
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Planning modules — budget, checklist, registry
+// ─────────────────────────────────────────────────────────────────────────────
+
+function budgetBlock(): string {
+  const rows = budgetItems.map(
+    (b, index) => `  (
+    ${sql(b.id)}, ${sql(bootstrapWedding.id)}, ${sql(b.category)}, ${sql(b.name)},
+    ${numOrNull(b.estimateMinor)}, ${numOrNull(b.quotedMinor)}, ${numOrNull(b.actualMinor)},
+    ${sqlOrNull(b.notes)}, ${index}, unixepoch(), unixepoch()
+  )`,
+  );
+  return section(
+    `Budget lines (${rows.length}) — estimates, quotes, actuals`,
+    `-- \`category\` is a key from cire/api/src/lib/service-categories.ts; the Budget
+-- HTTP schema validates writes against that same list, so a category invented
+-- here would seed a row the organiser can read but never save.
+INSERT OR IGNORE INTO budget_items (
+  id, wedding_id, category, name,
+  estimate_minor, quoted_minor, actual_minor,
+  notes, sort_order, created_at, updated_at
+) VALUES
+${rows.join(",\n")};`,
+  );
+}
+
+function paymentsBlock(): string {
+  const rows: string[] = [];
+  for (const b of budgetItems) {
+    for (const p of b.payments) {
+      const paidAt = p.paidDaysAgo === null ? "NULL" : daysAgo(p.paidDaysAgo);
+      rows.push(
+        `  (${sql(p.id)}, ${sql(b.id)}, ${sql(p.label)}, ${p.amountMinor}, ${sqlOrNull(p.dueAt)}, ${paidAt}, unixepoch())`,
+      );
+    }
+  }
+  return section(
+    `Payments (${rows.length}) — deposits paid, balances outstanding`,
+    `-- FK'd to the budget lines above, so this block must follow them. Both states
+-- are seeded: \`paid_at\` set (settled) and NULL with a \`due_at\` (outstanding),
+-- which is the split every payment summary in the module reads.
+INSERT OR IGNORE INTO payments (
+  id, budget_item_id, label, amount_minor, due_at, paid_at, created_at
+) VALUES
+${rows.join(",\n")};`,
+  );
+}
+
+function tasksBlock(): string {
+  const rows = tasks.map(
+    (t) => `  (
+    ${sql(t.id)}, ${sql(bootstrapWedding.id)}, ${sql(t.title)}, ${sqlOrNull(t.notes)},
+    ${sql(t.timeframeBucket)}, ${sqlOrNull(t.dueAt)}, ${sql(t.status)}, ${t.sortOrder},
+    unixepoch(), ${t.completedDaysAgo === null ? "NULL" : daysAgo(t.completedDaysAgo)}
+  )`,
+  );
+  return section(
+    `Checklist tasks (${rows.length}) — across every lead-time bucket`,
+    `-- \`timeframe_bucket\` is a key from cire/api/src/lib/checklist-buckets.ts.
+-- \`sort_order\` restarts at 0 in each bucket — it orders within a bucket, and
+-- the reorder endpoint rewrites exactly that run.
+INSERT OR IGNORE INTO tasks (
+  id, wedding_id, title, notes,
+  timeframe_bucket, due_at, status, sort_order,
+  created_at, completed_at
+) VALUES
+${rows.join(",\n")};`,
+  );
+}
+
+function registrySettingsBlock(): string {
+  const r = registrySettings;
+  return section(
+    "Registry settings — one row, and the guest-side publish gate",
+    `-- \`published\` is the SECOND gate on the guest registry: the guest read needs
+-- both this flag AND the wedding's \`registry\` entitlement (comped above), so a
+-- dev tier with the entitlement and no row still 404s the guest page.
+--
+-- Cash gifts stay off. They need a Stripe Connect account per wedding, and a
+-- registry is fully usable as an honour-system list without one.
+INSERT OR IGNORE INTO registry_settings (
+  wedding_id, published, headline, message,
+  cash_gifts_enabled, shipping_address, shipping_visible_from,
+  created_at, updated_at
+) VALUES (
+  ${sql(bootstrapWedding.id)}, ${r.published ? 1 : 0}, ${sql(r.headline)},
+  ${sql(r.message)},
+  ${r.cashGiftsEnabled ? 1 : 0}, ${sql(r.shippingAddress)}, ${sqlOrNull(r.shippingVisibleFrom)},
+  unixepoch(), unixepoch()
+);`,
+  );
+}
+
+function registryItemsBlock(): string {
+  const rows = registryItems.map(
+    (i) => `  (
+    ${sql(i.id)}, ${sql(bootstrapWedding.id)}, 'product', ${sql(i.title)},
+    ${sqlOrNull(i.description)},
+    ${sqlOrNull(i.externalUrl)},
+    ${numOrNull(i.priceMinor)}, ${i.quantityWanted}, ${sqlOrNull(i.category)}, ${i.sortOrder},
+    unixepoch(), unixepoch()
+  )`,
+  );
+  return section(
+    `Registry items (${rows.length})`,
+    `-- \`image_key\` is left NULL on every row: it is an R2 object key, and a key
+-- with no bytes behind it renders a broken image on both the organiser list and
+-- the guest site. The link-preview path fills it in normally.
+--
+-- \`kind\` is 'product' throughout — 'cash_fund' is a declared seam with no UI in
+-- v1, so seeding one would put a row on screen that nothing can edit.
+INSERT OR IGNORE INTO registry_items (
+  id, wedding_id, kind, title, description,
+  external_url, price_minor, quantity_wanted, category, sort_order,
+  created_at, updated_at
+) VALUES
+${rows.join(",\n")};`,
+  );
+}
+
+function registryClaimsBlock(): string {
+  const rows = registryClaims.map(
+    (c) => `  (
+    ${sql(c.id)}, ${sql(bootstrapWedding.id)}, ${sql(c.itemId)}, ${sql(c.familyId)},
+    ${c.quantity}, ${sql(c.status)}, ${sqlOrNull(c.note)}, ${sqlOrNull(c.displayName)},
+    ${c.thankedDaysAgo === null ? "NULL" : daysAgo(c.thankedDaysAgo)},
+    ${c.thankedDaysAgo === null ? "NULL" : sql(DEV_OWNER_PROFILE_ID)},
+    ${daysAgo(c.daysAgo)}, ${daysAgo(c.daysAgo)}
+  )`,
+  );
+  return section(
+    `Registry claims (${rows.length}) — the gift log`,
+    `-- FK'd to the canonical households, so this block must follow the families
+-- above. Gifts come from a HOUSEHOLD, not a guest — that is the unit the couple
+-- thanks, and \`display_name\` overrides the household name when the giver is
+-- someone the list does not name ("Auntie Ros").
+INSERT OR IGNORE INTO registry_claims (
+  id, wedding_id, item_id, family_id,
+  quantity, status, note, display_name,
+  thanked_at, thanked_by,
+  created_at, updated_at
+) VALUES
+${rows.join(",\n")};`,
+  );
+}
+
 export function generateSeedSql(): string {
   return `${[
     HEADER,
@@ -393,6 +551,16 @@ export function generateSeedSql(): string {
     "",
     entitlementsBlock(),
     "",
+    budgetBlock(),
+    "",
+    paymentsBlock(),
+    "",
+    tasksBlock(),
+    "",
+    registrySettingsBlock(),
+    "",
+    registryItemsBlock(),
+    "",
     familiesBlock(),
     "",
     guestsBlock(),
@@ -400,6 +568,9 @@ export function generateSeedSql(): string {
     guestEventsBlock(),
     "",
     rsvpsBlock(),
+    "",
+    // After the families above: a claim is FK'd to the household that made it.
+    registryClaimsBlock(),
     "",
     syntheticFamiliesBlock(),
     "",

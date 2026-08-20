@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Seed a cire D1 with the sample wedding from seed/dev-seed.sql, then (local
-# convenience) re-point that wedding's owner at your OSN profile so your
-# signed-in account owns it. The seed creates the wedding owned by the fixed dev
-# id usr_dev_bootstrap_owner; set CIRE_DEV_OWNER_PROFILE_ID (in cire/db/.env or
-# the environment) to override it after every seed/reset.
+# Seed a cire D1 with the sample wedding from seed/dev-seed.sql, then re-point
+# that wedding's owner at a real OSN profile so a signed-in account owns it. The
+# seed creates the wedding owned by the fixed dev id usr_dev_bootstrap_owner; set
+# CIRE_DEV_OWNER_PROFILE_ID (in cire/db/.env, or as a GitHub environment variable
+# for the dev tier) to override it after every seed/reset.
 #
 #   bun run --cwd cire/db db:seed          # local miniflare D1
 #   bun run --cwd cire/db db:seed:dev      # remote cire-db-dev (this script --dev)
@@ -52,17 +52,22 @@ fi
 
 "${WRANGLER[@]}" --file=./seed/dev-seed.sql
 
-# The owner override is a LOCAL convenience only. On dev the wedding stays owned
-# by usr_dev_bootstrap_owner; sign in on host-dev and create your own wedding, or
-# add yourself as a host — a CI-set owner would just be whoever ran the deploy.
-if [ "$TARGET" != "local" ]; then
-  echo "db:seed: seeded $CIRE_DEV_DB_NAME (owner stays usr_dev_bootstrap_owner)"
-elif [ -n "${CIRE_DEV_OWNER_PROFILE_ID:-}" ]; then
+# Repoint the sample wedding at a real account. This runs on BOTH targets:
+# locally the id comes from cire/db/.env, on dev from the CIRE_DEV_OWNER_PROFILE_ID
+# variable the deploy workflow passes in (a GitHub environment variable, so no
+# profile id is committed here).
+#
+# It is not a nicety on dev. The seed owns the wedding as usr_dev_bootstrap_owner,
+# an id no account holds, and every cire_api deploy resets and reseeds the tier —
+# so without the override the seeded wedding, its 494 guests and its comped
+# entitlements (registry, vendors, AI) are invisible to whoever signs in to test
+# them, and any wedding a tester makes by hand is wiped on the next deploy.
+if [ -n "${CIRE_DEV_OWNER_PROFILE_ID:-}" ]; then
   # The value is interpolated into a SQL string literal below. It comes from
-  # cire/db/.env or the ambient environment — trusted-ish, but a stray apostrophe
-  # closes the literal and the rest of the value runs as SQL against the whole
-  # local database. Profile ids are `usr_` + url-safe base64, so an exact match
-  # on that shape costs nothing and removes the question.
+  # cire/db/.env, the workflow, or the ambient environment — trusted-ish, but a
+  # stray apostrophe closes the literal and the rest of the value runs as SQL
+  # against the whole database. Profile ids are `usr_` + url-safe base64, so an
+  # exact match on that shape costs nothing and removes the question.
   if ! printf '%s' "$CIRE_DEV_OWNER_PROFILE_ID" | grep -qE '^usr_[A-Za-z0-9_-]+$'; then
     echo "db:seed: CIRE_DEV_OWNER_PROFILE_ID='${CIRE_DEV_OWNER_PROFILE_ID}' is not a profile id (expected usr_ followed by letters, digits, - or _). Refusing." >&2
     exit 1
@@ -70,6 +75,8 @@ elif [ -n "${CIRE_DEV_OWNER_PROFILE_ID:-}" ]; then
   "${WRANGLER[@]}" --command \
     "UPDATE weddings SET owner_osn_profile_id='${CIRE_DEV_OWNER_PROFILE_ID}' WHERE id='wed_bootstrap';"
   echo "db:seed: wedding owner set to ${CIRE_DEV_OWNER_PROFILE_ID}"
+elif [ "$TARGET" = "dev" ]; then
+  echo "db:seed: CIRE_DEV_OWNER_PROFILE_ID unset - the seeded wedding stays owned by usr_dev_bootstrap_owner and NO real account can open it. Set it as a variable on the dev environment in GitHub."
 else
   echo "db:seed: CIRE_DEV_OWNER_PROFILE_ID unset - sample wedding owner stays the dev default usr_dev_bootstrap_owner (set it in cire/db/.env to own it from your account)"
 fi
