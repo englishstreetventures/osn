@@ -71,6 +71,10 @@ jobs:
   build-test:
     name: Build & Test
     runs-on: ubuntu-latest
+    # The backstop under the per-step timeouts below. Without it the job's
+    # ceiling is GitHub's six hours, which is long enough for one stuck runner
+    # to hold up a day of review.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -124,12 +128,39 @@ jobs:
       # step above: it needs a dependency the default path doesn't, and keeping
       # it separate leaves the fast tier fast.
       #
-      # `--with-deps` installs Chromium's shared libraries as well as the
-      # browser; on ubuntu-latest the browser alone is not enough. Only chromium
-      # is installed — the tier pins a single instance, so pulling Firefox and
-      # WebKit too would be ~3x the download for nothing.
+      # `--with-deps` used to do both halves of the install in one line: an apt
+      # install of Chromium's shared libraries, and a ~150MB download of the
+      # browser itself. On ubuntu-latest the browser alone is not enough, so
+      # both have to happen — but neither half had a timeout, and a step with no
+      # timeout inherits the job's, which is six hours. On 2026-08-19 one of them
+      # stalled and every open PR's Build & Test sat in `pending` behind it for
+      # most of a day, with no log to read because a job's logs only appear once
+      # it ends. Three changes, all aimed at that:
+      #
+      #   * the halves are separate steps, so a stall names which half stalled;
+      #   * each is bounded, so a stall is a red X in ten minutes instead of a
+      #     wedged runner;
+      #   * the download half is cached on the lockfile, so the usual run never
+      #     makes it. The system libraries are not cacheable (apt writes into the
+      #     image, not the workspace) and are reinstalled each run.
+      #
+      # Only chromium is installed — the tier pins a single instance, so pulling
+      # Firefox and WebKit too would be ~3x the download for nothing.
+      - name: Cache Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
+
+      - name: Install Chromium's system libraries
+        timeout-minutes: 10
+        run: bunx playwright install-deps chromium
+
       - name: Install Chromium for browser tests
-        run: bunx playwright install --with-deps chromium
+        timeout-minutes: 10
+        run: bunx playwright install chromium
 
       - name: Browser tests
         run: bun run test:browser
