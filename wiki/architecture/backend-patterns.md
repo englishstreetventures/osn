@@ -19,7 +19,8 @@ packages:
   - "@pulse/api"
   - "@osn/api"
   - "@zap/api"
-last-reviewed: 2026-08-02
+  - "@cire/api"
+last-reviewed: 2026-08-19
 ---
 
 # Backend Code Patterns
@@ -74,6 +75,8 @@ const result = await run(createEvent(body));
 Route factories keep accepting `dbLayer` / `loggerLayer` for tests (where `makeAppRunner` wraps the test layer in a one-time `ManagedRuntime`); production threads the single shared `appRuntime` through every factory so there is exactly one OTel SDK + one DB connection process-wide. Cheap, stateless effects that need no services (e.g. JWT verification) can still use a bare `Effect.runPromise` — the rule is: do not re-provide `DbLive` or the observability layer inside a hot request path.
 
 As of 2026-07-03, `pulse/api` and `zap/api` route factories comply too: each factory builds `const runtime = ManagedRuntime.make(dbLayer)` once at construction time and handlers call `runtime.runPromise(eff)` — the per-request `Effect.provide(dbLayer)` pattern was removed monorepo-wide. (They build one runtime per route group rather than threading a single shared `AppRuntime` like `osn/api`; consolidating to one runtime per process is a follow-up if those services grow an observability layer.)
+
+`cire/api` (`cire/api/src/observability.ts`) builds its `ManagedRuntime` at **module scope**, not per route factory: one `const cireRuntime = ManagedRuntime.make(cireLoggerLayer)` for the whole file, and both `runCire`/`runCireSync` delegate to it. The layer it wraps (`cireLoggerLayer`) stays behind `Layer.suspend` even though the runtime is now built eagerly at module load — `ManagedRuntime.make` only allocates a scope at construction (pure, no env access), it does not force the layer, so the suspended `loadConfig` still only runs on the first `runPromise`/`runSync`, inside a request or cron handler. That deferral is load-bearing on workerd: `nodejs_compat_populate_process_env` fills `process.env` from wrangler `[vars]`/secrets only on first access, so a config read during module evaluation would silently pin every deployed tier to `local` (pretty logs, debug level) with no error. Do not drop `Layer.suspend` to "simplify" this.
 
 **Catching errors from `runPromise`:** the promise rejects with a `FiberFailure` *wrapping* the typed failure — never the tagged error itself — so `catch (e) { if ("_tag" in e) … }` never matches. Unwrap with `Runtime.isFiberFailure(e)` → `Cause.failureOption(e[Runtime.FiberFailureCauseId])`, or use `makeSafeError` (`osn/api/src/lib/safe-error.ts`) when the goal is a client-safe error message. This bit the graph/organisation routes for weeks: every business-rule message collapsed to a generic "Request failed" — see [[social-graph]] §Error Handling.
 

@@ -1,6 +1,6 @@
 import { loadConfig } from "@shared/observability/config";
 import { makeLoggerLayer } from "@shared/observability/logger";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 
 /**
  * Redacting structured-logger layer for cire/api.
@@ -39,6 +39,24 @@ export const cireLoggerLayer: Layer.Layer<never> = Layer.suspend(
 );
 
 /**
+ * Module-scope runtime for `cireLoggerLayer`, built once per isolate instead
+ * of once per `runCire`/`runCireSync` call — each call used to pay for a
+ * fresh `FiberRuntime` plus `Layer.buildWithScope`, twice over on routes that
+ * called either helper more than once.
+ *
+ * This is safe with the `Layer.suspend` above left intact: `ManagedRuntime.make`
+ * only runs `scopeMake` at construction (pure, no env access) — it does not
+ * force the layer. The layer itself still builds lazily, on the first
+ * `runPromise`/`runSync` below, so `loadConfig` still never runs during module
+ * evaluation. Do NOT "simplify" this by inlining `loadConfig` or dropping
+ * `Layer.suspend`: on workerd, `nodejs_compat_populate_process_env` only fills
+ * `process.env` on first access, and a config read during module load would
+ * silently pin every deployed tier to `local` (pretty logs, debug level) with
+ * no error at all.
+ */
+const cireRuntime = ManagedRuntime.make(cireLoggerLayer);
+
+/**
  * Run a fully-resolved cire effect to a Promise with the redacting logger
  * installed. The effect must already have its services (`DbService`,
  * `R2Service`, `AssetsR2Service`, …) provided and its typed errors handled —
@@ -46,11 +64,11 @@ export const cireLoggerLayer: Layer.Layer<never> = Layer.suspend(
  * `Effect.runPromise` so no log line escapes redaction.
  */
 export const runCire = <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> =>
-  Effect.runPromise(Effect.provide(effect, cireLoggerLayer));
+  cireRuntime.runPromise(effect);
 
 /**
  * Synchronous counterpart for the framework error boundary (`app.ts` onError)
  * and the local dev-server banners, where there is no Promise to await.
  */
 export const runCireSync = <A, E>(effect: Effect.Effect<A, E, never>): A =>
-  Effect.runSync(Effect.provide(effect, cireLoggerLayer));
+  cireRuntime.runSync(effect);
