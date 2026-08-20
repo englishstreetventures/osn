@@ -16,6 +16,7 @@
   "dependencies": {
     "@osn/client": "workspace:*",
     "@osn/ui": "workspace:*",
+    "@shared/legal": "workspace:*",
     "@simplewebauthn/browser": "^13.3.0",
     "@solidjs/router": "^0.16.2",
     "@tailwindcss/vite": "^4.3.3",
