@@ -57,10 +57,12 @@ describe("EditWorkspace", () => {
     expect(screen.queryByTestId("import")).toBeNull();
   });
 
-  it("swaps the editor for the import, and back", () => {
+  it("swaps the editor for the import, and back", async () => {
     mount();
     fireEvent.click(mode(/spreadsheet import/i));
-    expect(screen.getByTestId("import")).toBeTruthy();
+    // `lazy()` resolves the (mocked) module on a microtask, so the mount lands
+    // a tick after the click even though nothing is actually fetched.
+    expect(await screen.findByTestId("import")).toBeTruthy();
     expect(screen.queryByTestId("editor")).toBeNull();
 
     fireEvent.click(mode(/web editor/i));
@@ -68,13 +70,13 @@ describe("EditWorkspace", () => {
     expect(screen.queryByTestId("import")).toBeNull();
   });
 
-  it("gives the import the module's own sheet", () => {
+  it("gives the import the module's own sheet", async () => {
     mount("events");
     fireEvent.click(mode(/spreadsheet import/i));
-    expect(screen.getByTestId("import").getAttribute("data-kind")).toBe("events");
+    expect((await screen.findByTestId("import")).getAttribute("data-kind")).toBe("events");
   });
 
-  it("asks before dropping an unsaved editor draft", () => {
+  it("asks before dropping an unsaved editor draft", async () => {
     // The editor registers a dirty-check while mounted; switching mode unmounts
     // it, which would take the draft with it.
     const confirm = stubConfirm(false);
@@ -89,18 +91,18 @@ describe("EditWorkspace", () => {
 
     confirm.mockReturnValue(true);
     fireEvent.click(mode(/spreadsheet import/i));
-    expect(screen.getByTestId("import")).toBeTruthy();
+    expect(await screen.findByTestId("import")).toBeTruthy();
     unregister();
   });
 
-  it("switches silently when the draft is clean", () => {
+  it("switches silently when the draft is clean", async () => {
     const confirm = stubConfirm(true);
     const unregister = registerUnsavedGuard(() => false);
     mount();
 
     fireEvent.click(mode(/spreadsheet import/i));
     expect(confirm).not.toHaveBeenCalled();
-    expect(screen.getByTestId("import")).toBeTruthy();
+    expect(await screen.findByTestId("import")).toBeTruthy();
     unregister();
   });
 
@@ -149,5 +151,20 @@ describe("EditWorkspace", () => {
     expect(confirm).not.toHaveBeenCalled();
     expect(screen.getByTestId("editor")).toBeTruthy();
     unregister();
+  });
+
+  it("warms the import chunk on pointer or focus intent, without mounting or switching", () => {
+    mount();
+    const control = mode(/spreadsheet import/i);
+    // The warm is fire-and-forget (see `warmImportPanel`): hovering or
+    // keyboard-focusing the control must not throw, must not flip the mode, and
+    // must not mount the panel — only a click does that. If hover ever mounted
+    // it eagerly, the "never mounted until chosen" guarantee above would break.
+    expect(() => {
+      fireEvent.pointerEnter(control);
+      fireEvent.focus(control);
+    }).not.toThrow();
+    expect(control.getAttribute("aria-checked")).toBe("false");
+    expect(screen.queryByTestId("import")).toBeNull();
   });
 });

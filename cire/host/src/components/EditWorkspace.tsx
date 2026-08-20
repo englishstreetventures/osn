@@ -1,9 +1,22 @@
 import type { JSX } from "solid-js";
-import { createSignal, createUniqueId, For, Show } from "solid-js";
+import { createSignal, createUniqueId, For, lazy, Show, Suspense } from "solid-js";
 
 import { haptic } from "../lib/haptics";
 import { confirmNavigation } from "../lib/unsaved-guard";
-import ImportPanel, { type ImportKind } from "./ImportPanel";
+import type { ImportKind } from "./ImportPanel";
+import PanelLoading from "./PanelLoading";
+
+/** Split out of the eager portal bundle: ~900 lines dragging in `ChangeHistory`,
+ *  `ChangePreview` and `import-templates` for a surface two clicks deep that
+ *  most organisers never open. Warmed on intent — see the radio button below. */
+const loadImportPanel = () => import("./ImportPanel");
+const ImportPanel = lazy(loadImportPanel);
+
+function warmImportPanel(): void {
+  // Fire and forget, same as `warmPanel` in ModuleShell.tsx: a failed prefetch
+  // just means the real mount pays the cost it would have paid anyway.
+  void loadImportPanel().catch(() => {});
+}
 
 /** The two ways to change this module's data. */
 type EditMode = "editor" | "import";
@@ -89,6 +102,8 @@ export default function EditWorkspace(props: {
               role="radio"
               aria-checked={mode() === m.id}
               onClick={() => choose(m.id)}
+              onPointerEnter={m.id === "import" ? warmImportPanel : undefined}
+              onFocus={m.id === "import" ? warmImportPanel : undefined}
               class="font-body relative flex items-center gap-2 rounded-sm px-3.5 py-1.5 text-[0.74rem] tracking-[0.12em] whitespace-nowrap uppercase transition-colors duration-(--dur-fast) ease-(--ease-out)"
               classList={{
                 "bg-gold/12 text-gold": mode() === m.id,
@@ -120,7 +135,9 @@ export default function EditWorkspace(props: {
 
       <Show when={mode() === "editor"}>{props.editor()}</Show>
       <Show when={mode() === "import"}>
-        <ImportPanel weddingId={props.weddingId} kind={props.kind} />
+        <Suspense fallback={<PanelLoading />}>
+          <ImportPanel weddingId={props.weddingId} kind={props.kind} />
+        </Suspense>
       </Show>
     </div>
   );

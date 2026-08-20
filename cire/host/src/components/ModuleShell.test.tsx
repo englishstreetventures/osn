@@ -333,7 +333,9 @@ describe("ModuleShell", () => {
       renderShell({ module: "guests", sub: "edit" });
       await screen.findByTestId("guests-editor");
       fireEvent.click(importMode());
-      expect(screen.getByTestId("import").getAttribute("data-kind")).toBe("guests");
+      // `EditWorkspace` now `lazy()`-loads ImportPanel, so the mount lands a
+      // tick after the click even though nothing is actually fetched (mocked).
+      expect((await screen.findByTestId("import")).getAttribute("data-kind")).toBe("guests");
       expect(screen.queryByTestId("guests-editor")).toBeNull();
     });
 
@@ -341,7 +343,7 @@ describe("ModuleShell", () => {
       renderShell({ module: "events", sub: "edit" });
       await screen.findByTestId("events-editor");
       fireEvent.click(importMode());
-      expect(screen.getByTestId("import").getAttribute("data-kind")).toBe("events");
+      expect((await screen.findByTestId("import")).getAttribute("data-kind")).toBe("events");
       expect(screen.queryByTestId("events-editor")).toBeNull();
     });
 

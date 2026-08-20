@@ -15,6 +15,7 @@ import GuestTable from "./GuestTable";
 import HostsPanel from "./HostsPanel";
 import ModuleSidebar from "./ModuleSidebar";
 import Overview from "./Overview";
+import PanelLoading from "./PanelLoading";
 import RemintPanel from "./RemintPanel";
 import RsvpView from "./RsvpView";
 import SettingsPanel from "./SettingsPanel";
@@ -112,28 +113,6 @@ function warmPanel(module: Module, sub: string): void {
   // Fire and forget: a failed prefetch is not an error, it just means the real
   // mount pays the cost it would have paid anyway.
   void PANEL_LOADERS[`${module}:${sub}`]?.().catch(() => {});
-}
-
-/** What a panel shows while its chunk is in flight. Deliberately a line of text
- *  rather than a skeleton: a skeleton that flashes reads as a fault, and with
- *  the prefetch above this is usually not painted at all.
- *
- *  The min-height is not decoration. This sits inside the auto-sized frame, so a
- *  fallback of its natural height (one line) would collapse the panel to ~40px,
- *  animate down, then snap back up when the chunk lands — two layout passes and
- *  two visible jumps where an eager panel had none. Holding roughly a panel's
- *  worth of height keeps the swap reading as one movement.
- *
- *  `aria-busy` is what tells a screen reader the panel is still coming. */
-function PanelLoading() {
-  return (
-    <p
-      class="font-body text-text-muted flex min-h-[20rem] items-start py-8 text-[0.85rem]"
-      aria-busy="true"
-    >
-      Loading…
-    </p>
-  );
 }
 
 interface ModuleShellProps {
