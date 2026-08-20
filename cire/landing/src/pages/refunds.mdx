@@ -1,0 +1,44 @@
+---
+layout: ../layouts/LegalMdxLayout.astro
+title: Refund Policy
+updated: "2026-08-20"
+---
+
+import { LEGAL_ENTITY } from '@shared/legal'
+import Field from '../components/LegalField.astro'
+
+Cire add-ons are one-time purchases that permanently unlock a feature for a single wedding.
+This policy explains when and how we refund them. It is offered by <Field value={LEGAL_ENTITY.name} />,
+trading as Cire.
+
+## 14-day change of mind
+
+If you buy an add-on and change your mind, we will refund it in full within
+**14 days of purchase**, provided you haven&rsquo;t substantially used it (for
+example, a capacity upgrade you haven&rsquo;t imported guests against, or a template pack you
+haven&rsquo;t published an invitation with). Just email <Field value={LEGAL_ENTITY.contactEmail} />
+with your order details.
+
+## Your rights under the Australian Consumer Law
+
+Our services come with guarantees that cannot be excluded under the Australian Consumer Law.
+If an add-on has a major failure, you are entitled to a refund or to compensation for any
+reasonably foreseeable loss or damage; if the failure is minor, you are entitled to have it
+fixed in a reasonable time. Nothing in this policy limits those rights — the change-of-mind
+window above is in addition to them, not instead of them.
+
+## If you're outside Australia
+
+Your local consumer laws (for example EU or UK consumer rights) are unaffected by this policy.
+Where they give you stronger rights, those apply.
+
+## How refunds are processed
+
+Purchases are processed by our merchant of record, <Field value={LEGAL_ENTITY.merchantOfRecord} />,
+so refunds are issued through them back to your original payment method — typically within
+5&ndash;10 business days of approval. When a purchase is refunded, the corresponding add-on is
+removed from the wedding (unless the refund was a remedy for a fault we couldn't fix).
+
+## Contact
+
+Refund requests and questions: <Field value={LEGAL_ENTITY.contactEmail} />.

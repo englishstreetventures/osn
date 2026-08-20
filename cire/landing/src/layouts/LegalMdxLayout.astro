@@ -1,0 +1,21 @@
+---
+import LegalLayout from './LegalLayout.astro'
+import { LEGAL_DETAILS_PENDING } from '@shared/legal'
+
+interface Props {
+  frontmatter: { title: string; updated: string }
+}
+
+const { title, updated } = Astro.props.frontmatter
+---
+<LegalLayout title={title}>
+  {LEGAL_DETAILS_PENDING && (
+    <div class="draft-banner">
+      <strong>Draft</strong> — this notice is not final. Some details of the operator are
+      still to be confirmed, and this banner disappears once they are.
+    </div>
+  )}
+  <h1>{title}</h1>
+  <p class="meta">Last updated: {updated}</p>
+  <slot />
+</LegalLayout>

@@ -1,0 +1,12 @@
+---
+import { isPlaceholder } from '@shared/legal'
+
+interface Props {
+  value: string
+}
+
+// Highlight a detail only while THAT detail is still a placeholder. A page-wide
+// flag would mark a filled field as pending the moment any other one wasn't.
+const { value } = Astro.props
+---
+<span class={isPlaceholder(value) ? 'placeholder' : undefined}>{value}</span>

@@ -1,3 +1,4 @@
+import mdx from "@astrojs/mdx";
 import solidJs from "@astrojs/solid-js";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
@@ -18,7 +19,7 @@ export default defineConfig({
   // per-environment via the `SITE` build var so the preview deploy advertises its
   // own URL and the apex deploy advertises cireweddings.com.
   site: process.env.SITE ?? "https://cireweddings.com",
-  integrations: [solidJs()],
+  integrations: [solidJs(), mdx()],
   vite: {
     plugins: [tailwindcss()],
   },
