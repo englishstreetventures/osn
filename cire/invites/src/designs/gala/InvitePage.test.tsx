@@ -1,5 +1,5 @@
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll, beforeEach } from "vitest";
 
 import { noteClaimed } from "../../components/claim-session";
 import { TOTAL_DURATION_MS } from "../../components/rsvp-responded";
@@ -118,6 +118,17 @@ function respondButtonFor(container: HTMLElement, eventName: string) {
 }
 
 describe("gala InvitePage", () => {
+  // `EventCard` reaches the tree through a `lazy()` import now, so the first
+  // test to render a card pays that chunk's transform inside its own assertion
+  // window. The default `findBy*`/`waitFor` budget is 1s, and a loaded CI
+  // runner blows through it on a cold module graph — the events container
+  // renders empty with Suspense still on its fallback. Warm the module once,
+  // up front, where the hook's own budget covers it; each test then waits only
+  // the tick Solid needs to swap the fallback for the card.
+  beforeAll(async () => {
+    await import("../../components/EventCard");
+  });
+
   afterEach(() => {
     cleanup();
     document.documentElement.removeAttribute("style");

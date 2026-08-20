@@ -1,6 +1,6 @@
 import { derivePalette, PALETTE_PRESETS } from "@cire/theme";
 import { render, cleanup, fireEvent, waitFor } from "@solidjs/testing-library";
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeAll, beforeEach } from "vitest";
 
 import { noteClaimed } from "../../components/claim-session";
 import { TOTAL_DURATION_MS } from "../../components/rsvp-responded";
@@ -124,6 +124,17 @@ function respondButtonFor(container: HTMLElement, eventName: string) {
 }
 
 describe("InvitePage", () => {
+  // `EventCard` reaches the tree through a `lazy()` import now, so the first
+  // test to render a card pays that chunk's transform inside its own assertion
+  // window. The default `findBy*`/`waitFor` budget is 1s, and a loaded CI
+  // runner blows through it on a cold module graph — the events container
+  // renders empty with Suspense still on its fallback. Warm the module once,
+  // up front, where the hook's own budget covers it; each test then waits only
+  // the tick Solid needs to swap the fallback for the card.
+  beforeAll(async () => {
+    await import("../../components/EventCard");
+  });
+
   afterEach(() => {
     cleanup();
     // The palette is applied to the document root, which outlives a render —
@@ -146,7 +157,7 @@ describe("InvitePage", () => {
     vi.stubGlobal("fetch", noSession(fetchMock));
     window.history.replaceState(null, "", "/?code=HOST-ABCDEF0123456789ABCDEF01");
 
-    const { getByText, getByRole, getByTestId } = render(() => (
+    const { getByText, findByRole, getByTestId } = render(() => (
       <InvitePage apiUrl="https://api.test" />
     ));
 
@@ -160,8 +171,14 @@ describe("InvitePage", () => {
       publicId: "HOST-ABCDEF0123456789ABCDEF01",
     });
 
-    // RSVP is NO LONGER disabled in preview — the host can try it.
-    const respond = getByRole("button", { name: /Respond/i }) as HTMLButtonElement;
+    // RSVP is NO LONGER disabled in preview — the host can try it. `findBy*`,
+    // not `getBy*`: the cards now arrive through a lazy import, so the button
+    // exists a microtask after the preview banner rather than in the same tick.
+    const respond = (await findByRole(
+      "button",
+      { name: /Respond/i },
+      { timeout: 2000 },
+    )) as HTMLButtonElement;
     expect(respond.disabled).toBe(false);
 
     // Opening it mounts the RSVP modal in preview mode, so submit is a no-op.

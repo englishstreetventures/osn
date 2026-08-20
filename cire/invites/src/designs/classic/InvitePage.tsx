@@ -1,21 +1,20 @@
-import { AuthProvider } from "@shared/rp-auth/solid";
 import {
   batch,
   createEffect,
   createMemo,
   createResource,
   createSignal,
+  lazy,
   onCleanup,
   onMount,
   Show,
+  Suspense,
   For,
 } from "solid-js";
 import { Toaster } from "solid-toast";
 
 import { createSessionRestore, noteClaimed, signOut } from "../../components/claim-session";
 import { createRsvpClosed } from "../../components/createRsvpClosed";
-import { DetailsModal } from "../../components/DetailsModal";
-import { EventCard } from "../../components/EventCard";
 import type { ImageCrop } from "../../components/image-crop";
 import {
   applyPaletteToRoot,
@@ -26,12 +25,39 @@ import {
 import { InviteClosing } from "../../components/InviteClosing";
 import { LoginSection } from "../../components/LoginSection";
 import { prefetchOnIdle } from "../../components/prefetch-idle";
-import { PulseAccountLink } from "../../components/PulseAccountLink";
 import { deadlineNotice, formatDeadlineDay, RSVP_NOTICE_ID } from "../../components/rsvp-deadline";
 import { hasHouseholdResponded } from "../../components/rsvp-responded";
-import { RsvpModal } from "../../components/RsvpModal";
 import type { ClaimResult, EventSummary, RsvpSummary } from "../../components/types";
 import { Z_LAYER } from "../../lib/z-index";
+
+// Post-claim UI, split out of the page's initial chunk (P-W1). Nothing here
+// renders before the guest claims their code — every one of these sits inside a
+// `Show` below — yet a static import collected them into the page's initial
+// shared chunk, where they were ~44% of its gzipped bytes: downloaded and
+// parsed while the guest is still looking at the hero, competing with the
+// preloaded hero image (the LCP element) on exactly the phones that made this a
+// bug. `lazy` moves them to their own chunk, and `onMount` warms that chunk at
+// idle (see the prefetch below) so the split never costs the guest a wait at
+// the moment a modal opens.
+//
+// `.then` adapters because `lazy` wants a default export and these are all
+// named. Declared at module scope, not inside the component, so the promise —
+// and therefore the chunk — is shared across every render.
+const RsvpModal = lazy(() =>
+  import("../../components/RsvpModal").then((m) => ({ default: m.RsvpModal })),
+);
+const DetailsModal = lazy(() =>
+  import("../../components/DetailsModal").then((m) => ({ default: m.DetailsModal })),
+);
+const EventCard = lazy(() =>
+  import("../../components/EventCard").then((m) => ({ default: m.EventCard })),
+);
+const PulseAccountLink = lazy(() =>
+  import("../../components/PulseAccountLink").then((m) => ({ default: m.PulseAccountLink })),
+);
+const AuthProvider = lazy(() =>
+  import("@shared/rp-auth/solid").then((m) => ({ default: m.AuthProvider })),
+);
 
 /** Events ("details") section header copy. `null` ⇒ the built-in defaults. */
 export interface DetailsCopy {
@@ -128,14 +154,24 @@ export default function InvitePage(props: InvitePageProps) {
   // form. See `RevealHooks` in ./UnlockReveal.motion.
   const [revealed, setRevealed] = createSignal(false);
 
-  // Warm the two chunks that are otherwise fetched mid-interaction: the unlock
-  // sequence (imported inside `handleClaimed`, i.e. after the claim resolves)
-  // and the modal transitions (imported inside `AnimatedModal` on first open).
-  // Hints only — both call sites keep their own import and their own fallback.
+  // Warm the chunks that are otherwise fetched mid-interaction: the unlock
+  // sequence (imported inside `handleClaimed`, i.e. after the claim resolves),
+  // the modal transitions (imported inside `AnimatedModal` on first open), and
+  // the post-claim components split out above — those are needed the instant
+  // the claim resolves, so without this the split would trade a slower first
+  // paint for a slower reveal. `lazy` exposes each one's loader as `.preload()`,
+  // which both fetches the chunk and primes the same cache the render reads, so
+  // a warmed component renders without a suspense gap.
+  // Hints only — every call site keeps its own import and its own fallback.
   onMount(() => {
     const cancels = [
       prefetchOnIdle(() => import("./UnlockReveal.motion")),
       prefetchOnIdle(() => import("../../components/Modal.motion")),
+      prefetchOnIdle(() => RsvpModal.preload()),
+      prefetchOnIdle(() => DetailsModal.preload()),
+      prefetchOnIdle(() => EventCard.preload()),
+      prefetchOnIdle(() => PulseAccountLink.preload()),
+      prefetchOnIdle(() => AuthProvider.preload()),
     ];
     onCleanup(() => cancels.forEach((cancel) => cancel()));
   });
@@ -401,33 +437,35 @@ export default function InvitePage(props: InvitePageProps) {
                 )}
               </Show>
               <div class="flex flex-col gap-5 text-left">
-                <For each={data().events}>
-                  {(event, index) => (
-                    <div data-event-card>
-                      <EventCard
-                        event={event}
-                        apiUrl={props.apiUrl}
-                        // Alternating rhythm: even rows render text-left/image-
-                        // right (`norm`), odd rows flip to image-left/text-right
-                        // (`alt`). Collapses to a single text column when the
-                        // event has no image.
-                        orientation={index() % 2 === 0 ? "norm" : "alt"}
-                        rsvpClosed={rsvpClosed()}
-                        rsvpClosedNoticeId={RSVP_NOTICE_ID}
-                        responded={respondedEventIds().has(event.id)}
-                        justResponded={justRespondedEventId() === event.id}
-                        // While this event's sheet is up it covers this button, so the
-                        // card holds its mark back until the sheet is gone — otherwise
-                        // the fill would sweep in behind the sheet, where nobody can
-                        // see it. See `EventCard`'s `covered`.
-                        covered={rsvpEvent()?.id === event.id}
-                        onCelebrated={() => setJustRespondedEventId(null)}
-                        onRespond={setRsvpEvent}
-                        onDetails={setDetailsEvent}
-                      />
-                    </div>
-                  )}
-                </For>
+                <Suspense fallback={null}>
+                  <For each={data().events}>
+                    {(event, index) => (
+                      <div data-event-card>
+                        <EventCard
+                          event={event}
+                          apiUrl={props.apiUrl}
+                          // Alternating rhythm: even rows render text-left/image-
+                          // right (`norm`), odd rows flip to image-left/text-right
+                          // (`alt`). Collapses to a single text column when the
+                          // event has no image.
+                          orientation={index() % 2 === 0 ? "norm" : "alt"}
+                          rsvpClosed={rsvpClosed()}
+                          rsvpClosedNoticeId={RSVP_NOTICE_ID}
+                          responded={respondedEventIds().has(event.id)}
+                          justResponded={justRespondedEventId() === event.id}
+                          // While this event's sheet is up it covers this button, so the
+                          // card holds its mark back until the sheet is gone — otherwise
+                          // the fill would sweep in behind the sheet, where nobody can
+                          // see it. See `EventCard`'s `covered`.
+                          covered={rsvpEvent()?.id === event.id}
+                          onCelebrated={() => setJustRespondedEventId(null)}
+                          onRespond={setRsvpEvent}
+                          onDetails={setDetailsEvent}
+                        />
+                      </div>
+                    )}
+                  </For>
+                </Suspense>
               </div>
             </div>
 
@@ -439,9 +477,11 @@ export default function InvitePage(props: InvitePageProps) {
                 dependency. The component self-hides when linking is disabled (503) or
                 unavailable, so it can never break the core invite. */}
             <Show when={!data().preview}>
-              <AuthProvider config={{ apiBase: props.apiUrl }}>
-                <PulseAccountLink apiUrl={props.apiUrl} members={data().members} />
-              </AuthProvider>
+              <Suspense fallback={null}>
+                <AuthProvider config={{ apiBase: props.apiUrl }}>
+                  <PulseAccountLink apiUrl={props.apiUrl} members={data().members} />
+                </AuthProvider>
+              </Suspense>
             </Show>
           </section>
         )}
@@ -471,45 +511,49 @@ export default function InvitePage(props: InvitePageProps) {
 
       <Show when={rsvpEvent()}>
         {(event) => (
-          <RsvpModal
-            event={event()}
-            members={claimResult()!.members}
-            existingRsvps={claimResult()!.rsvps}
-            apiUrl={props.apiUrl}
-            // Host preview keeps the RSVP interactive but makes submit a no-op.
-            preview={claimResult()!.preview}
-            // Past the deadline the sheet is a read-only view of the reply
-            // already on file — normally unreachable (Respond is disabled), but
-            // the deadline can pass with the sheet open.
-            closed={rsvpClosed()}
-            closedOn={rsvpDeadline() ? formatDeadlineDay(rsvpDeadline()!) : undefined}
-            // The RSVP dialog is the events section's expanded surface — it
-            // follows the "details" theme (the modal renders outside the themed
-            // section wrapper, so the vars must be re-applied on its panel).
-            themeVars={detailsVars()}
-            onClose={() => setRsvpEvent(null)}
-            onSubmitted={(updated: RsvpSummary[]) => {
-              const current = claimResult();
-              if (!current) return;
-              setClaimResult({ ...current, rsvps: updated });
-            }}
-            // Fires for the preview no-op too, which never touches
-            // `claimResult` — see `respondedEventIds`'s comment.
-            onConfirmed={() => setJustRespondedEventId(event().id)}
-          />
+          <Suspense fallback={null}>
+            <RsvpModal
+              event={event()}
+              members={claimResult()!.members}
+              existingRsvps={claimResult()!.rsvps}
+              apiUrl={props.apiUrl}
+              // Host preview keeps the RSVP interactive but makes submit a no-op.
+              preview={claimResult()!.preview}
+              // Past the deadline the sheet is a read-only view of the reply
+              // already on file — normally unreachable (Respond is disabled), but
+              // the deadline can pass with the sheet open.
+              closed={rsvpClosed()}
+              closedOn={rsvpDeadline() ? formatDeadlineDay(rsvpDeadline()!) : undefined}
+              // The RSVP dialog is the events section's expanded surface — it
+              // follows the "details" theme (the modal renders outside the themed
+              // section wrapper, so the vars must be re-applied on its panel).
+              themeVars={detailsVars()}
+              onClose={() => setRsvpEvent(null)}
+              onSubmitted={(updated: RsvpSummary[]) => {
+                const current = claimResult();
+                if (!current) return;
+                setClaimResult({ ...current, rsvps: updated });
+              }}
+              // Fires for the preview no-op too, which never touches
+              // `claimResult` — see `respondedEventIds`'s comment.
+              onConfirmed={() => setJustRespondedEventId(event().id)}
+            />
+          </Suspense>
         )}
       </Show>
 
       <Show when={detailsEvent()}>
         {(event) => (
-          <DetailsModal
-            event={event()}
-            siteUrl={siteUrl()}
-            // Same reasoning as RsvpModal — the event-details sheet follows the
-            // "details" section theme.
-            themeVars={detailsVars()}
-            onClose={() => setDetailsEvent(null)}
-          />
+          <Suspense fallback={null}>
+            <DetailsModal
+              event={event()}
+              siteUrl={siteUrl()}
+              // Same reasoning as RsvpModal — the event-details sheet follows the
+              // "details" section theme.
+              themeVars={detailsVars()}
+              onClose={() => setDetailsEvent(null)}
+            />
+          </Suspense>
         )}
       </Show>
       {/* Confirmation toasts — mounted at the PAGE ROOT, deliberately.
