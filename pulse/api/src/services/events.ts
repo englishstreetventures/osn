@@ -551,13 +551,11 @@ export const listMyCalendarEvents = (
     // group (P-W5) — applyTransitions preserves row order, so the
     // parallel myStatus array zips back by index.
     const transitionedEvents = yield* applyTransitions(merged.map((m) => m.event));
-    const entries = transitionedEvents.map(
-      (e, i): CalendarEntry => ({
-        event: e,
-        myStatus: merged[i]!.myStatus,
-        isHost: e.createdByProfileId === viewerId,
-      }),
-    );
+    const entries = transitionedEvents.map((e, i): CalendarEntry => ({
+      event: e,
+      myStatus: merged[i]!.myStatus,
+      isHost: e.createdByProfileId === viewerId,
+    }));
 
     metricCalendarListed(entries.length);
     return entries;
