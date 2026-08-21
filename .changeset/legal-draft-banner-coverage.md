@@ -1,7 +1,5 @@
 ---
 "@shared/legal": patch
-"@cire/landing": patch
-"@cire/invites": patch
 "@osn/landing": patch
 "@pulse/landing": patch
 "@osn/social": patch
@@ -30,11 +28,7 @@ const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDa
 ```
 
 All thirteen pages pass every field they name, so no page can go un-flagged for
-a detail it has not filled in. `@cire/landing`'s test asserts exactly that, in
-place of the one it had: that test said a page may ship `{{TOKEN}}` text only
-while a banner is present, but no page has held a token in its own source since
-the identity moved into `@shared/legal` — it had been passing on its empty half,
-and passed throughout the bug above.
+a detail it has not filled in.
 
 Also on the app frontends: the dotted underline marking an unfilled detail read
 the page-wide flag, so it would have marked a filled entity name as pending

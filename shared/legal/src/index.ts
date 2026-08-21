@@ -10,9 +10,9 @@
  * still in them, because filling them in meant eight coordinated edits and
  * nobody had the values to hand.
  *
- * Now there is one file. Fill in the four fields below and every page resolves
- * at once — and the draft banner disappears on its own, because
- * `LEGAL_DETAILS_PENDING` is derived from the values rather than hand-maintained.
+ * Now there is one file. Fill in the fields below and every page resolves at
+ * once — and each page's draft banner disappears on its own, because
+ * `draftPending` is derived from the values rather than hand-maintained.
  * A page cannot be left half-published.
  *
  * ## What may live here
@@ -69,9 +69,9 @@ export interface LegalEntity {
 
 /**
  * Fill the remaining `{{PLACEHOLDER}}` values before the pages are treated as
- * published — see `LEGAL_DETAILS_PENDING`, which every page reads to decide
- * whether to show its draft banner, and which resolves on its own once the
- * identity fields are real.
+ * published — see `draftPending`, which every page calls to decide whether to
+ * show its draft banner, and which resolves on its own once the fields that
+ * page names are real.
  */
 export const LEGAL_ENTITY: LegalEntity = {
   name: "{{LEGAL_ENTITY}}",
@@ -89,13 +89,14 @@ export function isPlaceholder(value: string): boolean {
 }
 
 /**
- * The fields every legal page renders, whatever else it says. The draft banner
- * derives from these alone.
+ * The fields every legal page renders, whatever else it says. This is the part
+ * of the draft banner no page has to ask for.
  *
  * Deliberately NOT `merchantOfRecord`: it is unset while nothing is for sale,
- * which is the expected steady state, and only three of eleven pages mention a
- * purchase at all. Deriving the banner from it would leave the identity app's
- * privacy notice flagged draft over a field it never renders.
+ * which is the expected steady state, and only three of thirteen pages mention
+ * a purchase at all. Deriving the banner from it would leave the identity app's
+ * privacy notice flagged draft over a field it never renders. A page that does
+ * name it passes it to `draftPending` instead.
  */
 const IDENTITY_FIELDS = [
   LEGAL_ENTITY.name,
@@ -104,8 +105,11 @@ const IDENTITY_FIELDS = [
 ] as const;
 
 /**
- * True while any field every page renders is unfilled. Drives the draft banner,
- * so the banner cannot outlive the placeholders or vice versa.
+ * True while any field every page renders is unfilled.
+ *
+ * The identity half of the draft banner, and only that half — no page reads it
+ * directly, because a page also has to answer for the extra fields it names.
+ * Call `draftPending` instead; this is what it checks on every caller's behalf.
  */
 export const LEGAL_DETAILS_PENDING: boolean = IDENTITY_FIELDS.some(isPlaceholder);
 

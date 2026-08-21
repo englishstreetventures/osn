@@ -11,7 +11,7 @@ related:
   - "[[subprocessors]]"
   - "[[identity-model]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-08-19
+last-reviewed: 2026-08-21
 ---
 
 # GDPR + UK GDPR
