@@ -264,9 +264,13 @@ body {
  * so a toast is a popover that happens to be transient, and follows `.dark`
  * with the rest of the app.
  *
- * `--toast-accent-success` is a literal rather than an alias because the ramp
- * has no success token. Both values clear 4.5:1 on their own ramp's
- * `--popover` (6.2:1 light, 9.1:1 dark), the surface the toast paints on.
+ * `--toast-accent-success` and `-warn` are literals rather than aliases because
+ * the ramp has neither token — nothing else in these apps has
+ * needed one. Every value clears 4.5:1 on its own ramp's `--popover`, the
+ * surface the toast paints on (success 6.2:1 light / 9.1:1 dark, warning 5.6:1
+ * / 9.1:1). Warning is a real amber rather than the muted ink it started as:
+ * the lab bench showed `warning` and `info` rendering identically, which leans
+ * the whole distinction on the glyph shape alone.
  */
 :root {
   --toast-surface: var(--popover);
@@ -276,10 +280,11 @@ body {
   --toast-focus: var(--ring);
   --toast-accent-error: var(--destructive);
   --toast-accent-info: var(--muted-foreground);
-  --toast-accent-warn: var(--muted-foreground);
+  --toast-accent-warn: oklch(52% 0.12 75);
   --toast-accent-success: oklch(48% 0.13 150);
 }
 
 .dark {
   --toast-accent-success: oklch(78% 0.13 150);
+  --toast-accent-warn: oklch(80% 0.12 75);
 }

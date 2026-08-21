@@ -113,6 +113,14 @@ export function Lab() {
   // a control — otherwise a number input becomes unusable.
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+    // A story that owns the arrows has already said so. `@shared/sortable`'s
+    // grip moves a row on Arrow Up/Down and calls `preventDefault()`; this
+    // listener is on `window`, so it runs after Solid's delegated handler on
+    // `document` and sees that flag. Without this check the lab stepped to the
+    // NEXT STORY on every attempted row move, which made the keyboard half of
+    // that package — the half with no other way to be exercised — untestable
+    // here. Any story that handles the arrows itself gets the same protection.
+    if (event.defaultPrevented) return;
     const target = event.target as HTMLElement | null;
     if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
     // A CSS3D story renders live, editable DOM inside the preview; stepping

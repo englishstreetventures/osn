@@ -125,12 +125,13 @@
   --toast-focus: var(--ring);
   --toast-accent-error: var(--destructive);
   --toast-accent-info: var(--muted-foreground);
-  --toast-accent-warn: var(--muted-foreground);
+  --toast-accent-warn: oklch(52% 0.12 75);
   --toast-accent-success: oklch(48% 0.13 150);
 }
 
 .dark {
   --toast-accent-success: oklch(78% 0.13 150);
+  --toast-accent-warn: oklch(80% 0.12 75);
 }
 
 /* Safe-area utilities (viewport-fit=cover exposes the notch / home-indicator

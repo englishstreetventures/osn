@@ -6,6 +6,7 @@ related:
   - "[[cire-guest-event-editor]]"
   - "[[monorepo-structure]]"
   - "[[toast]]"
+  - "[[component-lab]]"
 last-reviewed: 2026-08-21
 ---
 # Drag and drop — `@shared/sortable`, and the keyboard path it owns
@@ -193,7 +194,18 @@ root, so a hand-constructed `KeyboardEvent` needs `bubbles: true` or it never
 reaches the handler.
 
 What this still can't cover: drag *feel*, the shift/settle animation, and the
-grip's hover/focus styling. Those need a real browser.
+grip's hover/focus styling. Those need a real browser and a pair of eyes —
+`bun run dev:lab` → **shared/sortable**, which benches exactly those three plus
+the multi-container isolation. See [[component-lab]].
+
+The shift-aside is why that bench exists. It shipped broken: `transform` returned
+`null` for every non-dragged row, so the rows between the dragged one and its
+target never opened a gap and `EventsEditor`'s "animate the OTHER rows shifting
+aside" styling animated nothing — with every drop-semantics test green. The
+displacement is now computed from the `SortableProvider`'s `ids` and a stride
+**measured** from the first adjacent pair of rows (the gap lives in the
+consumer's CSS, so a package that assumed it would open a hole of the wrong
+size), and three tests pin it. A bench would have caught it in a second.
 
 ## Scope + open follow-ups
 

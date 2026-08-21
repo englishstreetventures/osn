@@ -177,17 +177,62 @@ describe("the dragged row paints its offset", () => {
     expect(row.style.transform, "the offset outlived the drop").toBe("");
   });
 
-  it("moves only the dragged row, not its neighbours", () => {
+  it("shifts the rows between the dragged one and its target, to open the gap", () => {
+    // The drop preview. Without it only the row under the pointer moves and the
+    // list gives no sign of where the row would land — which is how this
+    // shipped at first: `transform` returned null for every non-dragged row, so
+    // `EventsEditor`'s "animate the OTHER rows shifting aside" styling animated
+    // nothing, and every drop-semantics test stayed green.
     stubRowGeometry();
     render(() => <List />);
     const grip = document.querySelector("[data-grip=a]")!;
+    const rows = () => [...document.querySelectorAll("[data-row]")] as HTMLElement[];
+
+    // Drag the first row down onto the third.
     fireEvent.pointerDown(grip, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
-    fireEvent(document, new PointerEvent("pointermove", { clientX: 10, clientY: 60 }));
-    const rows = [...document.querySelectorAll("[data-row]")] as HTMLElement[];
-    expect(rows[0]!.style.transform).not.toBe("");
-    expect(rows[1]!.style.transform).toBe("");
-    expect(rows[2]!.style.transform).toBe("");
-    fireEvent(document, new PointerEvent("pointerup", { clientX: 10, clientY: 60 }));
+    fireEvent(document, new PointerEvent("pointermove", { clientX: 10, clientY: 30 }));
+    fireEvent(document, new PointerEvent("pointermove", { clientX: 10, clientY: 100 }));
+
+    // Rows b and c come UP by one stride (40px, from the stubbed geometry) to
+    // make room; the dragged row is on the pointer, not on a stride.
+    expect(rows()[1]!.style.transform).toBe("translate3d(0px, -40px, 0)");
+    expect(rows()[2]!.style.transform).toBe("translate3d(0px, -40px, 0)");
+    expect(rows()[0]!.style.transform).toBe("translate3d(0px, 90px, 0)");
+
+    fireEvent(document, new PointerEvent("pointerup", { clientX: 10, clientY: 100 }));
+    for (const row of rows()) expect(row.style.transform).toBe("");
+  });
+
+  it("shifts the other way when dragging upwards", () => {
+    stubRowGeometry();
+    render(() => <List />);
+    const grip = document.querySelector("[data-grip=c]")!;
+    const rows = () => [...document.querySelectorAll("[data-row]")] as HTMLElement[];
+
+    fireEvent.pointerDown(grip, { pointerId: 1, button: 0, clientX: 10, clientY: 90 });
+    fireEvent(document, new PointerEvent("pointermove", { clientX: 10, clientY: 70 }));
+    fireEvent(document, new PointerEvent("pointermove", { clientX: 10, clientY: 10 }));
+
+    // a and b go DOWN to open a slot at the top.
+    expect(rows()[0]!.style.transform).toBe("translate3d(0px, 40px, 0)");
+    expect(rows()[1]!.style.transform).toBe("translate3d(0px, 40px, 0)");
+    fireEvent(document, new PointerEvent("pointerup", { clientX: 10, clientY: 10 }));
+  });
+
+  it("leaves rows outside the moved range alone", () => {
+    stubRowGeometry();
+    render(() => <List />);
+    const grip = document.querySelector("[data-grip=a]")!;
+    const rows = () => [...document.querySelectorAll("[data-row]")] as HTMLElement[];
+
+    // Drag row a only as far as row b — row c is not between them.
+    fireEvent.pointerDown(grip, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
+    fireEvent(document, new PointerEvent("pointermove", { clientX: 10, clientY: 30 }));
+    fireEvent(document, new PointerEvent("pointermove", { clientX: 10, clientY: 55 }));
+
+    expect(rows()[1]!.style.transform).toBe("translate3d(0px, -40px, 0)");
+    expect(rows()[2]!.style.transform, "an untouched row must write no transform").toBe("");
+    fireEvent(document, new PointerEvent("pointerup", { clientX: 10, clientY: 55 }));
   });
 });
 

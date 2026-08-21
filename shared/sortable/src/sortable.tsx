@@ -16,11 +16,22 @@ import type { Id, Sortable, Transform } from "./types";
  */
 const GroupContext = createContext<symbol>();
 
+/**
+ * One sortable list. `ids` is the list's order, and is load-bearing twice over:
+ * it scopes collision detection to this list, and it is what lets the provider
+ * work out which rows sit between the dragged one and its target, so they can
+ * shift aside to open the gap.
+ */
 export function SortableProvider(props: ParentProps<{ ids: Id[] }>) {
-  // One identity per provider instance. `props.ids` is not used to key anything
-  // — it exists so the call site reads as a declaration of the list's contents,
-  // and so a future virtualised variant has the full order available.
+  const ctx = useDragDropContext();
+  if (!ctx) throw new Error("<SortableProvider> must be used inside a <DragDropProvider>");
+  const [, registry] = ctx;
+
+  // One identity per provider instance, so two lists never share a group.
   const group = Symbol("sortable-group");
+  registry.registerGroup(group, () => props.ids);
+  onCleanup(() => registry.unregisterGroup(group));
+
   return <GroupContext.Provider value={group}>{props.children}</GroupContext.Provider>;
 }
 
@@ -47,7 +58,16 @@ export function createSortable(id: Id): Sortable {
 
   return {
     ref: (el: HTMLElement) => registry.register(id, el, group),
-    transform: createMemo(() => (isActiveDraggable() ? state.transform() : null)),
+    transform: createMemo((): Transform | null => {
+      // The dragged row tracks the pointer.
+      if (isActiveDraggable()) return state.transform();
+      // Everything between it and the drop target shifts by one row to open the
+      // gap — that preview is what makes a drop legible before it happens.
+      // `0` means "not displaced", and must stay `null` so the row writes no
+      // transform at all rather than an identity one.
+      const dy = state.displacement(id);
+      return dy === 0 ? null : { x: 0, y: dy };
+    }),
     isActiveDraggable,
     dragActivators: {
       onPointerDown: (event: PointerEvent) => {

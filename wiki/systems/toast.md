@@ -7,6 +7,7 @@ related:
   - "[[component-library]]"
   - "[[cire-invite-builder]]"
   - "[[browser-tests]]"
+  - "[[component-lab]]"
 last-reviewed: 2026-08-21
 ---
 # Toasts — `@shared/toast` and the `--toast-*` contract
@@ -206,3 +207,11 @@ returns, so no colour parser here has to keep up with CSS Color 4.
 bun run --cwd shared/toast test:run
 bun run --cwd cire/invites test:browser     # the contrast + stacking assertions
 ```
+
+**By hand.** `bun run dev:lab` → **shared/toast** benches the half no assertion
+reaches: how a toast enters and leaves, whether the tone glyphs are tellable
+apart at a glance, how the stack behaves when five arrive at once, and what a
+three-line message does to the layout. The lab borrows `@osn/social`'s
+stylesheet — the one that maps the shadcn ramp onto `--toast-*` — so its
+**light · dark** toggle re-themes toasts exactly as the app does, which is where
+a too-dark accent shows up. See [[component-lab]].

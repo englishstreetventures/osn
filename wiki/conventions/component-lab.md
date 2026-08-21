@@ -35,13 +35,34 @@ with its import path — the "what do we already have" view. Per-component group
 (`osn/ui/Button`, `osn/ui/display`, `osn/ui/forms`, `osn/ui/overlays`) carry the
 variants and states.
 
+`shared/toast` and `shared/sortable` are benches rather than catalogues: they
+exist for the behaviour no test tier can reach. Their unit suites assert the
+toast queue and DOM contract, and the sortable's drop semantics against stubbed
+rects — happy-dom computes no layout, so a drag test can only check numbers.
+What is left over is exactly what a bench is for: whether a drag tracks the
+pointer, whether the rows between it and the target shift aside to preview the
+drop, whether the grip is findable on hover and visible on focus, and whether a
+toast reads on the surface it lands on. The **light · dark** toggle is part of
+the toast bench, not chrome around it — the lab borrows `@osn/social`'s
+stylesheet, which is what maps the shadcn ramp onto the `--toast-*` contract, so
+the toggle re-themes toasts exactly as the app does. See [[toast]] and
+[[drag-and-drop]].
+
+> [!note]
+> The shift-aside is the case in point. It shipped broken: `transform` returned
+> `null` for every non-dragged row, so the "rows shifting aside" styling
+> animated nothing while every drop-semantics test stayed green. A bench shows
+> that in a second; no assertion we had could.
+
 App-level components — `pulse/web/src/components`, `cire/invites`,
 `osn/social` — are **not** catalogued. They read from an API client, a router
 and an auth session; standing those up in a story means fixtures the repo
 deliberately keeps out of app source — see [[component-library]]. The path is
 open where a component needs no such context: `pulse/Icon` is catalogued from
 a story sitting in `pulse/web/src/components/Icon.story.tsx`, which imports
-nothing from the lab and so stays an ordinary file in its own package.
+nothing from the lab and so stays an ordinary file in its own package. The two
+`shared/*` benches are the same shape — bare component exports, no lab imports,
+typechecked and linted in their own package like any other file.
 
 ## Why not Storybook
 
