@@ -604,6 +604,23 @@
         "solid-js",
       ],
     },
+    "shared/sortable": {
+      "name": "@shared/sortable",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "@solidjs/testing-library": "^0.8.10",
+        "@testing-library/jest-dom": "^6.10.0",
+        "happy-dom": "^20.11.1",
+        "solid-js": "^1.9.14",
+        "vite": "^8.1.5",
+        "vite-plugin-solid": "^2.11.14",
+        "vitest": "^4.1.10",
+      },
+      "peerDependencies": {
+        "solid-js": ">=1.9",
+      },
+    },
     "shared/toast": {
       "name": "@shared/toast",
       "version": "0.0.0",
@@ -1435,6 +1452,8 @@
     "@shared/redis": ["@shared/redis@workspace:shared/redis"],
 
     "@shared/rp-auth": ["@shared/rp-auth@workspace:shared/rp-auth"],
+
+    "@shared/sortable": ["@shared/sortable@workspace:shared/sortable"],
 
     "@shared/toast": ["@shared/toast@workspace:shared/toast"],
 
