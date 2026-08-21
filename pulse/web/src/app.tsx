@@ -1,8 +1,8 @@
 import { AuthProvider } from "@shared/rp-auth/solid";
+import { Toaster } from "@shared/toast";
 import { type RouteSectionProps, Router, useLocation } from "@solidjs/router";
 import { FileRoutes } from "@solidjs/start/router";
 import { Show, Suspense } from "solid-js";
-import { Toaster } from "solid-toast";
 
 import { AuthErrorToast } from "./components/AuthErrorToast";
 import { Header } from "./components/Header";

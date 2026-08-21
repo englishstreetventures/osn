@@ -3,8 +3,8 @@ import { Card } from "@osn/ui/ui/card";
 import { Label } from "@osn/ui/ui/label";
 import { RadioGroup, RadioGroupItem } from "@osn/ui/ui/radio-group";
 import { useAuth } from "@shared/rp-auth/solid";
+import { toast } from "@shared/toast";
 import { createSignal, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import { updateMySettings } from "../lib/rsvps";
 

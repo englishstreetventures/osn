@@ -1,4 +1,5 @@
 import { useAuth } from "@shared/rp-auth/solid";
+import { toast } from "@shared/toast";
 import {
   closestCenter,
   createSortable,
@@ -11,7 +12,6 @@ import {
 } from "@thisbeyond/solid-dnd";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { type DateTimeParts, joinIso, splitIso } from "../lib/event-datetime";

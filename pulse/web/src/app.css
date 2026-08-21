@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@shared/toast/toast.css";
 
 /* Self-hosted faces (tracker #388). The app shell used to <link>
    fonts.googleapis.com from `entry-server.tsx`, which cost a DNS lookup, a TLS
@@ -256,4 +257,29 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   font-feature-settings: "cv11", "ss01";
+}
+
+/* ── Toast ──────────────────────────────────────────────────────────────────
+ * `@shared/toast` styles itself from these names. Aliased onto the shadcn ramp
+ * so a toast is a popover that happens to be transient, and follows `.dark`
+ * with the rest of the app.
+ *
+ * `--toast-accent-success` is a literal rather than an alias because the ramp
+ * has no success token. Both values clear 4.5:1 on their own ramp's
+ * `--popover` (6.2:1 light, 9.1:1 dark), the surface the toast paints on.
+ */
+:root {
+  --toast-surface: var(--popover);
+  --toast-ink: var(--popover-foreground);
+  --toast-border: var(--border);
+  --toast-radius: var(--radius);
+  --toast-focus: var(--ring);
+  --toast-accent-error: var(--destructive);
+  --toast-accent-info: var(--muted-foreground);
+  --toast-accent-warn: var(--muted-foreground);
+  --toast-accent-success: oklch(48% 0.13 150);
+}
+
+.dark {
+  --toast-accent-success: oklch(78% 0.13 150);
 }

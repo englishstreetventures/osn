@@ -1,6 +1,6 @@
+import { toast } from "@shared/toast";
 import { useNavigate } from "@solidjs/router";
 import { createSignal, Match, Switch } from "solid-js";
-import { toast } from "solid-toast";
 
 import {
   completeOnboarding,

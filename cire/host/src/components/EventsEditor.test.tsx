@@ -15,9 +15,9 @@ vi.mock("@shared/rp-auth/solid", async () => {
   return rpAuthSolidMock();
 });
 
-vi.mock("solid-toast", async () => {
-  const { solidToastMock } = await import("../test-support/mocks");
-  return solidToastMock();
+vi.mock("@shared/toast", async () => {
+  const { toastMock } = await import("../test-support/mocks");
+  return toastMock();
 });
 
 vi.mock("../lib/api", async () => {

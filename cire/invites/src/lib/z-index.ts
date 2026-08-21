@@ -16,7 +16,7 @@
  * | `EVENT_CARD`    | 10  | An event card's own local stacking context.             |
  * | `MODAL`         | 100 | `AnimatedModal` backdrop + panel (details / RSVP).      |
  * | `MODAL_POPOVER` | 110 | Popover launched *from inside* a modal (AddToCalendar). |
- * | `TOAST`         | 150 | Confirmation toasts (`solid-toast` `<Toaster>`).         |
+ * | `TOAST`         | 150 | Confirmation toasts (`@shared/toast` `<Toaster>`).       |
  * | `CONSENT`       | 200 | Site-wide consent banner (`ConsentBanner`).             |
  * | `CONSENT_DIALOG`| 210 | Consent preferences dialog, opened from the banner.     |
  *
@@ -38,9 +38,10 @@
  * Motion One transform makes it a stacking context that no `z-index` can escape.
  *
  * It must ALSO sit below consent, i.e. `TOAST < CONSENT`. That half is easy to
- * lose because the library's own default (9999) satisfies the lower bound while
- * violating the upper one, so `InvitePage.browser.test.tsx` asserts the measured
- * value against BOTH bounds rather than just "above the modal".
+ * lose: a "just make it big" z-index satisfies the lower bound while violating
+ * the upper one — which is exactly what the previous library's hardcoded 9999
+ * did — so `InvitePage.browser.test.tsx` asserts the measured value against
+ * BOTH bounds rather than just "above the modal".
  *
  * The consent layers sit above EVERYTHING, deliberately and with a wide gap.
  * The banner is the guest's only route to granting — or later withdrawing —
@@ -73,20 +74,22 @@ export const Z_LAYER = {
   /** Popover launched from inside a modal (e.g. Add-to-Calendar). Must be > MODAL. */
   MODAL_POPOVER: 110,
   /**
-   * Transient confirmation toasts (`solid-toast`'s `<Toaster>`). Must be >
+   * Transient confirmation toasts (`@shared/toast`'s `<Toaster>`). Must be >
    * MODAL: the RSVP save toast fires the instant the reply lands, while the
    * sheet is still up for its dwell, so a toast below the modal is painted
    * behind the sheet's backdrop and the guest never sees the one confirmation
    * a partial save gets. Must also stay < CONSENT — see the invariants below.
    *
-   * **This one cannot be applied as a class.** solid-toast spreads its own
-   * `defaultContainerStyle` onto the container's inline `style`, and that
-   * carries a hardcoded `z-index: 9999`; inline style beats a Tailwind utility,
-   * so `containerClassName={Z_CLASS.TOAST}` is silently inert and the toast
-   * lands at 9999 — above the consent layers. Pass
-   * `containerStyle={{ "z-index": String(Z_LAYER.TOAST) }}` instead, which is
-   * merged after the defaults in the same spread. (`Z_CLASS.TOAST` still
-   * exists so the layer table stays total, and for any non-toast consumer.)
+   * Applied as `class={Z_CLASS.TOAST}`, like every other layer here.
+   *
+   * That is worth a note because it used not to work. `solid-toast` spread its
+   * own `defaultContainerStyle` onto the container's inline `style`, and that
+   * carried a hardcoded `z-index: 9999`; inline style beats a Tailwind utility,
+   * so `containerClassName={Z_CLASS.TOAST}` was silently inert and the toast
+   * landed at 9999 — above the consent layers, the one place it must never be.
+   * The only override that won was `containerStyle`. `@shared/toast` sets no
+   * `z-index` at all, precisely so the layer is the consumer's to state; the
+   * two-sided bound in `InvitePage.browser.test.tsx` is what keeps it honest.
    */
   TOAST: 150,
   /** Site-wide consent banner. Above every page overlay, including modals. */

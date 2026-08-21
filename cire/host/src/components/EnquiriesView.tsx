@@ -1,6 +1,6 @@
 import { useAuth } from "@shared/rp-auth/solid";
+import { toast } from "@shared/toast";
 import { createResource, createSignal, onMount, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import { isAuthExpired, redirectToLogin } from "../lib/api";
 import {

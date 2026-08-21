@@ -34,7 +34,7 @@ vi.mock("@shared/rp-auth/solid", () => ({
   }),
 }));
 
-vi.mock("solid-toast", () => ({
+vi.mock("@shared/toast", () => ({
   Toaster: () => null,
   toast: { success: vi.fn(), error: vi.fn() },
 }));

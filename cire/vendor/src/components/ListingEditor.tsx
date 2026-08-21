@@ -1,6 +1,6 @@
 import { useAuth } from "@shared/rp-auth/solid";
+import { toast } from "@shared/toast";
 import { createEffect, createMemo, createResource, createSignal, For, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import { friendlyError } from "../lib/api";
 import { haptic } from "../lib/haptics";

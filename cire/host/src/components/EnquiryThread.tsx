@@ -1,5 +1,5 @@
+import { toast } from "@shared/toast";
 import { createSignal, For, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import type { EnquiryListItem, EnquiryMessage } from "../lib/enquiries-store";
 import { haptic } from "../lib/haptics";

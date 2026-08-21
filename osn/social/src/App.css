@@ -4,6 +4,7 @@
  * radii 8px controls · 16px cards · pill CTAs · icons 14 nav / 20 card
  */
 @import "tailwindcss";
+@import "@shared/toast/toast.css";
 @source "../../../osn/ui/src";
 
 @custom-variant base (:where(&));
@@ -104,6 +105,32 @@
   --popover-foreground: #f2f2f2;
   --accent: #2b2b2b;
   --accent-foreground: #f2f2f2;
+}
+
+/* ── Toast ──────────────────────────────────────────────────────────────────
+ * `@shared/toast` styles itself from these names. Aliased onto the shadcn
+ * ramp so a toast is a popover that happens to be transient, and follows
+ * `.dark` with the rest of the app.
+ *
+ * `--toast-success` is a literal rather than an alias because the ramp has no
+ * success token — nothing else in the app has needed one. Both values were
+ * picked to clear 4.5:1 on their own ramp's `--popover` (6.2:1 light, 8.2:1
+ * dark), which is the surface the toast paints on.
+ */
+:root {
+  --toast-surface: var(--popover);
+  --toast-ink: var(--popover-foreground);
+  --toast-border: var(--border);
+  --toast-radius: var(--radius);
+  --toast-focus: var(--ring);
+  --toast-accent-error: var(--destructive);
+  --toast-accent-info: var(--muted-foreground);
+  --toast-accent-warn: var(--muted-foreground);
+  --toast-accent-success: oklch(48% 0.13 150);
+}
+
+.dark {
+  --toast-accent-success: oklch(78% 0.13 150);
 }
 
 /* Safe-area utilities (viewport-fit=cover exposes the notch / home-indicator

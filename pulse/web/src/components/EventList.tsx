@@ -1,6 +1,6 @@
 import { useAuth } from "@shared/rp-auth/solid";
+import { toast } from "@shared/toast";
 import { createResource, createSignal, createMemo, For, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import { api } from "../lib/api";
 import { showCreateForm, setShowCreateForm } from "../lib/createEventSignal";

@@ -1,7 +1,7 @@
 import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
+import { toast } from "@shared/toast";
 import { A } from "@solidjs/router";
 import { createSignal, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import { Icon } from "../components/Icon";
 import { type CalendarEntry, formatTimeRange } from "../lib/calendar";

@@ -1,7 +1,9 @@
+import { contrastRatio, WCAG_TEXT_MIN } from "@cire/theme";
 import { cleanup, fireEvent, render, waitFor } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it, vi } from "vitest";
 
 import "../styles/global.css";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { noteClaimed } from "../components/claim-session";
 import { SWEEP_DURATION_MS, TOTAL_DURATION_MS } from "../components/rsvp-responded";
 import { SAVED_DWELL_MS } from "../components/rsvp-saved";
@@ -16,7 +18,7 @@ import galaInvitePage from "./gala/InvitePage";
  * the Respond button afterwards.
  *
  * `InvitePage.test.tsx` mocks `RsvpModal`, `motion`, `UnlockReveal.motion`,
- * `solid-toast` and `PulseAccountLink` — necessarily, to assert the page's
+ * `@shared/toast` and `PulseAccountLink` — necessarily, to assert the page's
  * wiring in isolation. That leaves nothing anywhere in the suite that exercises
  * the confirmation inside the page it actually ships in: the themed events
  * `<section>`, the Motion-One-animated `[data-event-card]` wrappers each with a
@@ -122,7 +124,7 @@ function save() {
 
 /**
  * The toast element carrying a given message, plus the `position: fixed`
- * container `solid-toast` mounts it in.
+ * container `@shared/toast` mounts it in.
  */
 function toastFor(message: string) {
   const el = [...document.querySelectorAll("div")].find((d) => d.textContent === message);
@@ -132,6 +134,47 @@ function toastFor(message: string) {
     container = container.parentElement;
   }
   return { el, container };
+}
+
+/**
+ * The colour an element is actually painted ON, compositing every translucent
+ * background between it and the root on a 1x1 canvas.
+ *
+ * Composited rather than read off one node: the palette's own `--toast-border`
+ * is an alpha colour, Tailwind's `/12`-style modifiers compute to `color-mix`
+ * results Chrome serialises as `oklab(… / .12)`, and a ratio measured against
+ * an uncomposited colour is a ratio for a colour nobody sees. The canvas parses
+ * whatever `getComputedStyle` returns, which is the point — no colour parser
+ * here has to keep up with CSS Color 4.
+ */
+function paintedBackdrop(element: Element): string {
+  const layers: string[] = [];
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    const bg = getComputedStyle(node).backgroundColor;
+    if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") layers.push(bg);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  for (const layer of layers.toReversed()) {
+    ctx.fillStyle = layer;
+    ctx.fillRect(0, 0, 1, 1);
+  }
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+/** The ink an element is painted IN, composited over its own backdrop. */
+function paintedInk(element: Element): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = paintedBackdrop(element);
+  ctx.fillRect(0, 0, 1, 1);
+  ctx.fillStyle = getComputedStyle(element).color;
+  ctx.fillRect(0, 0, 1, 1);
+  const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return `rgb(${r}, ${g}, ${b})`;
 }
 
 /**
@@ -291,6 +334,54 @@ describe.each([
     expect(respondButton().querySelector("svg")).not.toBeNull();
   });
 
+  /**
+   * The whole reason the toast reads its colours from `--toast-*` rather than
+   * re-using the page's `--color-error` / `--color-success`.
+   *
+   * Those two are walked against `--color-surface`; a toast paints on
+   * `--color-surface-raised`, derived as `card ± 0.05` lightness and outside
+   * that walk. On the built-in `jewel` preset the page's success green measures
+   * 4.29:1 on the raised surface — under the 4.5 text minimum. `derivePalette`
+   * emits a toast pair walked against the surface the toast is really on, and
+   * this measures the composited result rather than trusting the token.
+   *
+   * Only a real browser can answer this: jsdom parses no stylesheet, so every
+   * `getComputedStyle` here would return the empty string.
+   */
+  it("paints the toast legibly on the surface it actually sits on", async () => {
+    openRestored(Pack, [json({ rsvps: [row("guest-priya")] })]);
+    await waitFor(() => expect(respondButton()).toBeTruthy(), { timeout: 3000 });
+
+    respondButton().click();
+    await waitFor(() => expect(document.querySelector('[role="dialog"]')).toBeTruthy());
+    answer("Priya");
+    save();
+
+    const { el } = await vi.waitFor(() => {
+      const found = toastFor("Your RSVP for Mehndi has been recorded.");
+      expect(found, "no toast element in the DOM at all").toBeTruthy();
+      expect(found!.el.getBoundingClientRect().top).toBeGreaterThanOrEqual(0);
+      return found!;
+    }, SETTLED);
+
+    const toast = el.closest(".osn-toast") as HTMLElement;
+    expect(toast, "the message is not inside a toast element").toBeTruthy();
+
+    // The message itself, on whatever the toast composites to.
+    expect(
+      contrastRatio(paintedInk(el), paintedBackdrop(el)),
+      "the toast message is illegible on its own surface",
+    ).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
+
+    // And the tone glyph, which is the half that carries the organiser's
+    // semantic colour and the half the page tokens got wrong.
+    const glyph = toast.querySelector(".osn-toast__glyph")!;
+    expect(
+      contrastRatio(paintedInk(glyph), paintedBackdrop(glyph)),
+      "the tone glyph is illegible on the toast surface",
+    ).toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
+  });
+
   it("shows the save toast where a guest can actually see it", async () => {
     openRestored(Pack, [json({ rsvps: [row("guest-priya")] })]);
     await waitFor(() => expect(respondButton()).toBeTruthy(), { timeout: 3000 });
@@ -303,7 +394,7 @@ describe.each([
     // A ceiling, so anchor it to the state that opens the window rather than to
     // the clock: the toast fires the moment the save lands, and the sheet's
     // label flipping to "Saved" is that same moment. `waitFor` on the toast's
-    // geometry then absorbs solid-toast's enter animation without assuming a
+    // geometry then absorbs the toast's enter animation without assuming a
     // duration for it.
     await vi.waitFor(() => {
       const submit = document.querySelector('[role="dialog"] button[type="submit"]');
@@ -332,10 +423,10 @@ describe.each([
       fixedContainingBlockAncestor(container!),
       "the toast is trapped inside a transformed ancestor's stacking context",
     ).toBeNull();
-    // Two-sided on purpose. `> MODAL` alone is satisfied by solid-toast's own
-    // hardcoded inline `z-index: 9999`, which is what the layer prop has to
-    // override — so a one-sided assertion passes while the toast sits ABOVE the
-    // consent banner and dialog, the one thing that must never be buried.
+    // Two-sided on purpose. `> MODAL` alone is satisfied by any "just make it
+    // big" z-index — the previous library hardcoded 9999 — so a one-sided
+    // assertion passes while the toast sits ABOVE the consent banner and
+    // dialog, the one thing that must never be buried.
     const painted = Number.parseInt(getComputedStyle(container!).zIndex, 10);
     expect(painted, "the toast stacks below the RSVP sheet").toBeGreaterThan(Z_LAYER.MODAL);
     expect(painted, "the toast stacks above the consent layers").toBeLessThan(Z_LAYER.CONSENT);
@@ -400,10 +491,10 @@ describe.each([
       fixedContainingBlockAncestor(container!),
       "the toast is trapped inside a transformed ancestor's stacking context",
     ).toBeNull();
-    // Two-sided on purpose. `> MODAL` alone is satisfied by solid-toast's own
-    // hardcoded inline `z-index: 9999`, which is what the layer prop has to
-    // override — so a one-sided assertion passes while the toast sits ABOVE the
-    // consent banner and dialog, the one thing that must never be buried.
+    // Two-sided on purpose. `> MODAL` alone is satisfied by any "just make it
+    // big" z-index — the previous library hardcoded 9999 — so a one-sided
+    // assertion passes while the toast sits ABOVE the consent banner and
+    // dialog, the one thing that must never be buried.
     const painted = Number.parseInt(getComputedStyle(container!).zIndex, 10);
     expect(painted, "the toast stacks below the RSVP sheet").toBeGreaterThan(Z_LAYER.MODAL);
     expect(painted, "the toast stacks above the consent layers").toBeLessThan(Z_LAYER.CONSENT);

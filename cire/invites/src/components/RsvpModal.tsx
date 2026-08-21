@@ -1,3 +1,4 @@
+import { toast } from "@shared/toast";
 import {
   batch,
   createEffect,
@@ -8,7 +9,6 @@ import {
   Show,
   For,
 } from "solid-js";
-import { toast } from "solid-toast";
 
 import { AnimatedModal } from "./AnimatedModal";
 import { hasHouseholdResponded } from "./rsvp-responded";

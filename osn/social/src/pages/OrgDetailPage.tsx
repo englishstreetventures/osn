@@ -6,9 +6,9 @@ import { Dialog, DialogHeader, DialogTitle } from "@osn/ui/ui/dialog";
 import { Input } from "@osn/ui/ui/input";
 import { Label } from "@osn/ui/ui/label";
 import { Textarea } from "@osn/ui/ui/textarea";
+import { toast } from "@shared/toast";
 import { useParams, useNavigate } from "@solidjs/router";
 import { createMemo, createResource, createSignal, For, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { orgClient } from "../lib/api";

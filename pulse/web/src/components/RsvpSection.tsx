@@ -1,7 +1,7 @@
 import { Button } from "@osn/ui/ui/button";
 import { Card } from "@osn/ui/ui/card";
+import { toast } from "@shared/toast";
 import { createResource, createSignal, For, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import {
   fetchLatestRsvps,

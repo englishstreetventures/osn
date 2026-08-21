@@ -22,7 +22,7 @@ vi.mock("@shared/rp-auth/solid", () => ({
   useAuth: () => ({ authFetch, activeProfileId }),
 }));
 
-vi.mock("solid-toast", () => ({
+vi.mock("@shared/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 

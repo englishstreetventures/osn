@@ -32,7 +32,7 @@ vi.mock("@shared/rp-auth/solid", () => ({
   }),
 }));
 
-vi.mock("solid-toast", () => ({ Toaster: () => null }));
+vi.mock("@shared/toast", () => ({ Toaster: () => null }));
 
 vi.mock("../lib/api", async () => {
   const { organiserApiMock } = await import("../test-support/mocks");

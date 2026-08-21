@@ -3,6 +3,7 @@
  * contrast: asserted in tokens.test.ts · motion: cut (CSS only) · nav: rail + sheet
  */
 @import "tailwindcss";
+@import "@shared/toast/toast.css";
 
 /* ── The two ramps ──────────────────────────────────────────────────────────
  * Every colour in the portal is one of the custom properties below, and every
@@ -172,6 +173,25 @@
   --dur-fast: calc(120ms * var(--motion-scale));
   --dur-base: calc(200ms * var(--motion-scale));
   --dur-slow: calc(320ms * var(--motion-scale));
+}
+
+/* ── Toast ──────────────────────────────────────────────────────────────────
+ * `@shared/toast` styles itself from these names, so the toast is the portal's
+ * own surface rather than a foreign white pill. Aliases onto the ramp like
+ * every other token here, which is what makes them follow `data-theme` with no
+ * rebuild — the toast re-themes with the rest of the portal.
+ */
+:root {
+  --toast-surface: var(--surface-raised);
+  --toast-ink: var(--text);
+  --toast-border: var(--border-strong);
+  --toast-radius: var(--radius-md);
+  --toast-font: var(--font-ui);
+  --toast-focus: var(--focus);
+  --toast-accent-success: var(--success);
+  --toast-accent-error: var(--error);
+  --toast-accent-warn: var(--warn);
+  --toast-accent-info: var(--text-muted);
 }
 
 /* Every design token is an *alias* onto the ramp above, never a literal value.

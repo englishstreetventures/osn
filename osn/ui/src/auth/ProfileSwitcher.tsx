@@ -1,7 +1,7 @@
 import type { PublicProfile } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
+import { toast } from "@shared/toast";
 import { createSignal, For, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import { Avatar, AvatarFallback, AvatarImage } from "../components/ui/avatar";
 import { Button } from "../components/ui/button";
