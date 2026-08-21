@@ -6,18 +6,23 @@ status: active
 packages:
   - "@cire/invites"
   - "@cire/host"
+  - "@cire/vendor"
   - "@cire/api"
   - "@cire/db"
+  - "@cire/theme"
   - "@cire/landing"
 related:
   - "[[cire-auth]]"
   - "[[cire-landing]]"
+  - "[[cire-platform-plan]]"
+  - "[[cire-invite-builder]]"
+  - "[[cire-organiser]]"
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-08-19
+last-reviewed: 2026-08-21
 ---
 
 # Cire
@@ -26,14 +31,17 @@ Cire is a digital wedding invite: an animated guest-facing site plus an organise
 
 ## Packages
 
-| Package | Dir | Port (dev) | Purpose |
+| Package | Dir | Dev host | Purpose |
 |---|---|---|---|
-| `@cire/invites` | `cire/invites` | 4321 | Guest-facing Astro + SolidJS site (claim code → events → RSVP) |
-| `@cire/host` | `cire/host` | 4322 | Organiser portal (Astro + SolidJS) — guest/event tables, spreadsheet import, OSN sign-in by OIDC redirect |
-| `@cire/api` | `cire/api` | 8787 | Elysia on Cloudflare Workers + Effect services + Drizzle on D1 |
+| `@cire/invites` | `cire/invites` | `invite.cire.localhost` | Guest-facing Astro + SolidJS site (claim code → events → RSVP) |
+| `@cire/host` | `cire/host` | `host.cire.localhost` | Organiser portal (Astro + SolidJS) — guest/event tables, spreadsheet import, OSN sign-in by OIDC redirect |
+| `@cire/vendor` | `cire/vendor` | `vendor.cire.localhost` | Vendor portal (Astro + SolidJS) — listing claim, enquiry inbox, quotes |
+| `@cire/api` | `cire/api` | `api.cire.localhost` | Elysia on Cloudflare Workers + Effect services + Drizzle on D1 |
 | `@cire/db` | `cire/db` | — | Drizzle schema + D1 SQL migrations |
-| `@cire/landing` | `cire/landing` | 4323 | Static marketing site for the apex `cireweddings.com` — see [[cire-landing]] |
-| `@cire/vendor` | `cire/vendor` | 4326 | Vendor portal (Astro + SolidJS) — listing claim, enquiry inbox, quotes; prod `vendor.cireweddings.com` |
+| `@cire/theme` | `cire/theme` | — | Zero-dependency theming validators (CSS-colour allow-list) |
+| `@cire/landing` | `cire/landing` | `cire.localhost` | Static marketing site for the apex `cireweddings.com` — see [[cire-landing]] |
+
+Dev hosts are the portless names, branch-prefixed in a linked worktree — see [[devloop-urls]].
 
 Note: `@cire/api` runs Elysia with `aot: false` — Elysia's ahead-of-time compilation builds handlers via `new Function`, which Cloudflare Workers forbids. Organiser auth uses the shared Elysia adapter (`@shared/osn-auth-client/middleware/elysia`), same as the other backends. (Migrated from Hono 2026-06-12.)
 
@@ -48,7 +56,7 @@ Two separate systems by design — full contract in [[cire-auth]]:
 
 ## Guest + organiser features (shipped by 2026-07-22)
 
-- **Per-section invite theming (#152)** — organisers theme each invite section with a bounded set of fonts + colours (migration `0014`). The allowlist is CSS-injection-safe: only known font keys and validated colour values reach the rendered styles, so a malicious value can't break out into arbitrary CSS. The colour validator's single source of truth is the zero-dependency `@cire/theme` package (`isSafeCssColor`) — `cire/api` validates at write time and `cire/invites` re-checks at render time from the same definition (IB-S-L1, fixed 2026-07-03). A shared **scoped token bridge** (`sectionTokenBridge`, 2026-07-09) re-points the guest site's Tailwind tokens at the validated `--invite-*` vars per section, so the theme reaches every descendant (event-card buttons, hover states, the RSVP/details modals). This fixed the reported "details theme only changed the header" bug. Migration `0028` made the last hardcoded guest-facing copy editable (events-section eyebrow/heading + the post-claim welcome greeting), and the guest tab `<title>` follows the couple's hero title. Full contract in `cire/wiki/architecture/invite-builder.md`.
+- **Per-section invite theming (#152)** — organisers theme each invite section with a bounded set of fonts + colours (migration `0014`). The allowlist is CSS-injection-safe: only known font keys and validated colour values reach the rendered styles, so a malicious value can't break out into arbitrary CSS. The colour validator's single source of truth is the zero-dependency `@cire/theme` package (`isSafeCssColor`) — `cire/api` validates at write time and `cire/invites` re-checks at render time from the same definition (IB-S-L1, fixed 2026-07-03). A shared **scoped token bridge** (`sectionTokenBridge`, 2026-07-09) re-points the guest site's Tailwind tokens at the validated `--invite-*` vars per section, so the theme reaches every descendant (event-card buttons, hover states, the RSVP/details modals). This fixed the reported "details theme only changed the header" bug. Migration `0028` made the last hardcoded guest-facing copy editable (events-section eyebrow/heading + the post-claim welcome greeting), and the guest tab `<title>` follows the couple's hero title. Full contract in [[cire-invite-builder]].
 - **Google Maps Embed preview (#146)** — venue/location previews use the Maps Embed API, key-optional with a CSS-card fallback when no key is set (same graceful-degradation pattern as Turnstile and the optional email).
 - **Turnstile bot protection (#154)** — guest claim + RSVP (and the organiser-portal OSN register/login) are gated by Cloudflare Turnstile, key-optional + fail-closed; **inert until a widget is created**. See [[turnstile]].
 - **Organiser Security / Devices section (#155)** — the portal's `SecurityPanel` mounts `@osn/ui`'s `PasskeysView` to list / add / rename / remove passkeys, with passkey-only step-up (the `passkeyOnly` flag on `StepUpDialog`). The flag is still forced on, but its original reason has expired: it was set because the deployed osn-api ran with email degraded, and osn-api has delivered through Resend since 2026-06-18 ([[email]]). Whether to re-enable the OTP factor is an open decision, tracked as an issue in `xchromo/osn`; the code comment in `cire/host/src/components/SecurityPanel.tsx` still cites the degraded-email reason. New-device help points at synced/backed-up passkeys, the cross-device QR ceremony, or a recovery code. See [[passkey-primary]], [[sessions]].
@@ -63,10 +71,17 @@ Two separate systems by design — full contract in [[cire-auth]]:
 ## Local dev
 
 ```bash
-bun run dev:cire   # @cire/api (:8787) + @cire/invites (:4321) + @cire/host (:4322) + @osn/api (:4000)
+bun run dev:cire   # @cire/api + @cire/invites + @cire/host + @osn/api
 ```
 
-`@osn/api` is included because organiser sign-in needs the OSN issuer (passkey ceremony + JWKS). The osn/api local-dev CORS fallback includes `http://localhost:4322` for the portal.
+`@osn/api` is included because organiser sign-in redirects to the OSN issuer. Every
+surface answers on its portless host rather than a port, and the `dev-env` launcher
+derives each app's view of its siblings from its own hostname — so a worktree's portal
+always talks to that worktree's API. See [[devloop-urls]].
+
+Local sign-in also needs an `oauth_clients` row in the local OSN D1 and
+`CIRE_OIDC_CLIENT_SECRET` in `cire/api/.dev.vars`. Without them `/api/auth/oidc/*`
+answers 503 and the rest of cire works as normal.
 
 ### Resetting / seeding the local DB
 
@@ -100,8 +115,10 @@ Free tier throughout — see [[free-tier-limits]]). Domains (#149):
 
 | Host | Surface |
 |---|---|
-| `cireweddings.com` (apex) | guest site (`cire/invites` Pages) |
-| `app.cireweddings.com` | organiser portal (`cire/host` Pages) |
+| `cireweddings.com` (apex) | marketing site (`cire/landing` Pages) |
+| `invite.cireweddings.com` | guest site (`cire/invites` Pages) |
+| `host.cireweddings.com` | organiser portal (`cire/host` Pages) |
+| `vendor.cireweddings.com` | vendor portal (`cire/vendor` Pages) |
 | `api.cireweddings.com` | `cire-api` Worker |
 | `id.musubi.social` | `osn-api` Worker — the OSN issuer, on a **zone of its own** since 2026-07-27 (was `id.cireweddings.com`) |
 | `musubi.social` (apex) | `@osn/social` — the identity app and the OIDC consent screen |
@@ -109,10 +126,10 @@ Free tier throughout — see [[free-tier-limits]]). Domains (#149):
 **Passkey RP ID is `musubi.social`, not `cireweddings.com`.** The identity move
 ([[musubi-identity-migration]]) took the RP ID with it, and a WebAuthn ceremony
 is only legal on an origin same-site with the RP ID — so no cireweddings.com
-host can run one any more, and the passkeys enrolled under the old RP ID are
-dead. Organiser, vendor and guest sign-in are **broken until cire moves to the
-OIDC redirect flow** (register cire as a client, hand the ceremony to
-`musubi.social/authorize`). Deploys run via the **GitHub Actions
+host can run one any more. **That is why cire signs in over the OIDC redirect**
+(shipped 2026-07-27): cire is a registered client, the ceremony and consent run on
+`musubi.social/authorize`, and cire-api exchanges the code server-side. No
+cireweddings.com origin runs a WebAuthn ceremony. Deploys run via the **GitHub Actions
 workflow** (`.github/workflows/deploy.yml`): gated on a build/test job, it
 applies the remote cire D1 migrations (incl. `0014` theming + `0015`
 drop-bootstrap) and deploys the **cire-api Worker** + the **cire-web / organiser
@@ -125,7 +142,18 @@ one-time Turnstile widget step, and post-deploy smoke checks live in the
 
 ## Cire-internal docs
 
-Cire keeps its own knowledge graph: `cire/CLAUDE.md` is the AI entry point and `cire/wiki/` is the Obsidian vault (architecture, conventions, observability). This page and [[cire-auth]] cover the OSN-facing integration surface only.
+Cire used to keep a second Obsidian vault at `cire/wiki/`. It was folded into this
+one on 2026-08-21, so every cire page is now a wikilink away instead of a backticked
+path that resolves nowhere:
+
+- Architecture — [[cire-platform-plan]], [[cire-invite-builder]], [[cire-guest-event-editor]], [[cire-consent]], [[cire-host-portal-layout]], [[drag-and-drop]]
+- Systems — [[cire-organiser]], [[cire-budget]], [[cire-checklist-tasks]], [[cire-entitlements]], [[cire-invite-designs]], [[cire-registry]], [[cire-rsvp-deadline]], [[cire-vendors]], [[feature-flags]]
+- Observability — [[cire-workerd]] · Conventions — [[browser-tests]]
+
+Cire's build conventions — the backend patterns, the two test tiers, and the
+commands that differ from the platform defaults — are in [[cire-development]].
+There is no `cire/CLAUDE.md` any more: the root `CLAUDE.md` is the one AI entry
+point, and everything product-specific is a wiki page.
 
 ## Marketing site + platform roadmap
 
@@ -142,7 +170,7 @@ discovery with availability + location search, context-aware pricing estimates,
 budget, checklist, seating, and guest comms. The multi-tenant `weddings` root
 means this is a product build-out, not a migration. **A phased build plan now
 exists**: architecture + schema sketches in
-`cire/wiki/architecture/platform-plan.md`, actionable items as open issues
+[[cire-platform-plan]], actionable items as open issues
 (`gh issue list --repo xchromo/osn --label product:cire`).
 
 ## Future integrations

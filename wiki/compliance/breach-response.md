@@ -6,7 +6,7 @@ related:
   - "[[gdpr]]"
   - "[[soc2]]"
   - "[[subprocessors]]"
-  - "[[runbooks/auth-failure]]"
+  - "[[auth-failure]]"
 last-reviewed: 2026-07-22
 ---
 

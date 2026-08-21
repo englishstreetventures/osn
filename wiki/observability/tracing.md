@@ -9,10 +9,8 @@ related:
   - "[[metrics]]"
   - "[[arc-tokens]]"
 packages: ["@shared/observability"]
-finding-ids: [S-H18, S-H20]
 last-reviewed: 2026-07-22
 ---
-
 # Tracing
 
 ## Span creation

@@ -16,17 +16,10 @@ related:
   - "[[pulse-close-friends]]"
   - "[[pulse]]"
   - "[[event-visibility-bug]]"
-finding-ids:
-  - S-H12
-  - S-H13
-  - S-H14
-  - S-H15
-  - S-H16
 packages:
   - "@pulse/api"
 last-reviewed: 2026-08-19
 ---
-
 # Event Access Control
 
 ## The Shared Visibility Gate

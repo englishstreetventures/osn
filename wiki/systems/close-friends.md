@@ -1,9 +1,11 @@
 ---
 title: Close Friends (moved)
+tags: [systems, pulse, retired]
 status: retired
 related:
   - "[[pulse-close-friends]]"
-last-reviewed: 2026-04-26
+  - "[[social-graph]]"
+last-reviewed: 2026-08-21
 ---
 
 # Close Friends (moved)

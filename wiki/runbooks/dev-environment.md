@@ -8,7 +8,8 @@ related:
   - "[[musubi-identity-migration]]"
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
-last-reviewed: 2026-08-17
+  - "[[devloop-urls]]"
+last-reviewed: 2026-08-20
 ---
 
 # Dev environment (cire + OSN identity)
@@ -512,8 +513,9 @@ Fail either and the routes are **never mounted**, so the path answers 404 rather
 than a 401 that would admit the surface exists.
 
 ```bash
-# local (bun run dev): put DEV_LOGIN_SECRET + DEV_LOGIN_RETURN_ORIGINS in osn/api/.env
-open "http://localhost:4000/dev/login?secret=$SECRET&return_to=http://localhost:4322/dashboard"
+# local (bun run dev): put DEV_LOGIN_SECRET in osn/api/.env. DEV_LOGIN_RETURN_ORIGINS
+# is set for you by the dev-env launcher, to this worktree's own hosts — see [[devloop-urls]]
+open "https://id.musubi.localhost/dev/login?secret=$SECRET&return_to=https://host.cire.localhost/dashboard"
 
 # deployed dev — one-time. Park the value on the dev GitHub Environment, then
 # let the workflow put it on the Worker; neither step prints it.
@@ -526,8 +528,9 @@ open "https://id.dev.musubi.social/dev/login?secret=$SECRET&return_to=https://ho
 `return_to` is optional; without it the response is the session JSON. With it the
 route 302s, after checking the target's origin against
 **`DEV_LOGIN_RETURN_ORIGINS`** — a comma-separated var of its own, already set in
-`wrangler.toml`'s `[env.dev.vars]` for the four dev browser hosts, and in
-`.env.example` for the local ports. An off-list `return_to` is a 400, never a
+`wrangler.toml`'s `[env.dev.vars]` for the four dev browser hosts. Locally the
+`dev-env` launcher sets it to this worktree's own portless hosts, so a linked
+worktree allows its own surfaces and no other's ([[devloop-urls]]). An off-list `return_to` is a 400, never a
 redirect, so the endpoint can't be turned into an open redirect that leaks the
 session cookie. **Unset ⇒ every `return_to` is a 400** — closed by default, so
 each origin is an explicit decision.

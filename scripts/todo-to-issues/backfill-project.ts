@@ -14,6 +14,8 @@
  *
  * Re-runnable: it reads what is already on the board and adds only the rest.
  */
+import { $ } from "bun";
+
 import { Throttle } from "./throttle";
 
 const OWNER = "xchromo";
@@ -21,15 +23,25 @@ const REPOS = ["xchromo/osn", "xchromo/osn-tracker"];
 
 export type Run = (args: string[]) => Promise<string>;
 
+/**
+ * `.nothrow()` rather than letting `$` throw, and the message is rebuilt by
+ * hand, because both are load-bearing. A `ShellError`'s message is exactly
+ * "Failed with exit code 1" — stderr lives on `.stderr` and never reaches the
+ * message. `alreadyOnBoard()` and `rateLimited()` below decide what to do by
+ * matching stderr substrings, so letting `$` throw its own error would make
+ * both of them return false: a "content already exists" response would stop
+ * being the no-op it is and abort the backfill instead, and a rate limit would
+ * stop being the resumable pause it is. Keeping the message shape keeps their
+ * contract, and their tests assert on it.
+ */
+export function ghError(args: string[], exitCode: number, stderr: string): Error {
+  return new Error(`gh ${args[0]} failed (${exitCode}): ${stderr.trim()}`);
+}
+
 export const gh: Run = async (args) => {
-  const proc = Bun.spawn(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
-  const [out, err, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (code !== 0) throw new Error(`gh ${args[0]} failed (${code}): ${err.trim()}`);
-  return out;
+  const { exitCode, stdout, stderr } = await $`gh ${args}`.nothrow().quiet();
+  if (exitCode !== 0) throw ghError(args, exitCode, stderr.toString());
+  return stdout.toString();
 };
 
 /** Every issue URL in one repo's listing. `gh issue list` omits pull requests. */

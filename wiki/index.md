@@ -2,7 +2,12 @@
 title: OSN Wiki
 aliases: [home, map of content, MOC]
 tags: [index]
-last-reviewed: 2026-08-19
+related:
+  - "[[TODO]]"
+  - "[[deferred-decisions]]"
+  - "[[monorepo-structure]]"
+  - "[[compliance/index]]"
+last-reviewed: 2026-08-21
 ---
 
 # OSN Wiki
@@ -23,6 +28,12 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[s2s-patterns]] — graphBridge, cross-package calls, ARC token flow
 - [[frontend-patterns]] — SolidJS, shared UI tokens, lazy loading
 - [[component-library]] — Zaidan/shadcn-style components, Kobalte primitives, CVA variants
+- [[drag-and-drop]] — solid-dnd for drag-to-reorder, its staleness risk, and the keyboard + announcement path we own
+- [[cire-platform-plan]] — cire's build plan from digital invite to wedding-management platform
+- [[cire-invite-builder]] — organiser-editable invite images + copy (slots, storage, API, guest rendering)
+- [[cire-guest-event-editor]] — the interactive events + guests editor alongside the CSV schema
+- [[cire-consent]] — cire's site-wide cookie/third-party consent: categories, vendor registry, the `cire_consent` record
+- [[cire-host-portal-layout]] — how the organiser portal decides widths: `page-frame`, `auto-grid`, named container queries
 
 ## Systems
 
@@ -40,6 +51,15 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[pulse-close-friends]] — Pulse-scoped close-friends list (feed boost + hosting affordance)
 - [[pulse-onboarding]] — Pulse first-run onboarding flow (account-keyed, themed illustrations)
 - [[cire-auth]] — Cire's two-system auth (guest claim-code sessions + organiser OSN passkeys)
+- [[cire-organiser]] — the cire organiser overview surface
+- [[cire-budget]] — cire budget lines and spend roll-ups
+- [[cire-checklist-tasks]] — the cire planning checklist / tasks module
+- [[cire-entitlements]] — per-wedding capability gates
+- [[cire-invite-designs]] — the invite design selector
+- [[cire-registry]] — the gift registry: list, household claims, gift log, one-primary-currency money rule
+- [[cire-rsvp-deadline]] — the "respond by" date and how the invite locks past it
+- [[cire-vendors]] — vendor directory, CRM, and the email-verification claim
+- [[feature-flags]] — GrowthBook flags via `@shared/feature-flags`, key-optional and fail-safe
 - [[event-access]] — loadVisibleEvent, public/private visibility gate
 - [[venues]] — org-scoped venues, event lineups, venue detail page + Explore map layer
 - [[platform-limits]] — MAX_EVENT_GUESTS and other caps
@@ -53,6 +73,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[tracing]] — Effect.withSpan, span naming, traceparent propagation
 - [[metrics]] — naming convention, typed attributes, cardinality enforcement
 - [[feature-checklist]] — per-feature observability checklist
+- [[cire-workerd]] — what cire does differently on workerd (no OTel SDK, deferred export)
 
 ## Apps
 
@@ -63,6 +84,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[pulse]] — events app (`@pulse/web` + `@pulse/api` + `@pulse/db`)
 - [[zap]] — messaging app (`@zap/api` + `@zap/db` scaffolded; client app planned)
 - [[cire]] — wedding-invite stack (`@cire/invites` + `@cire/host` + `@cire/api` + `@cire/db`)
+- [[cire-development]] — cire's own build conventions: backend patterns, the two test tiers, its commands
 - [[cire-landing]] — marketing site for the apex `cireweddings.com` (`@cire/landing`) + domain-migration / platform roadmap
 - [[osn-landing]] — marketing site for OSN (`@osn/landing`) — dark/dotted, connections-led
 - [[pulse-landing]] — marketing site for Pulse events (`@pulse/landing`) — colourful + fun
@@ -70,10 +92,13 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 ## Conventions
 
 - [[testing-patterns]] — it.effect, createTestLayer, route tests
+- [[browser-tests]] — the real-Chromium Vitest project: what belongs in it and why jsdom can't cover it
 - [[commands]] — CLI commands reference
+- [[devloop-urls]] — named HTTPS hosts per app, one dev stack per worktree
 - [[review-findings]] — finding ID format (S-H1, P-W2, T-M1)
 - [[contributing]] — PR workflow, changesets, branching
 - [[stacked-prs]] — basing one PR on another with the gh CLI, and merging the stack
+- [[component-lab]] — the in-repo Storybook replacement: prototyping components, three.js and canvas
 
 ## Compliance
 
@@ -106,3 +131,4 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[arc-token-debugging]] — verification failures, key rotation
 - [[event-visibility-bug]] — private event leaks, loadVisibleEvent
 - [[s2s-migration]] — historical record (HTTP+ARC migration is complete)
+- [[bun-1.4-migration]] — what Bun 1.4 is worth using here: adopted (`$` shell, `Bun.TOML` guard, bun-types), impossible (`Bun.Image` in the seed), and what is left

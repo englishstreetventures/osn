@@ -24,10 +24,12 @@ Phase 1 surfaces:
 ## File Responsibilities
 
 - `README.md` → Project spec, vision, features, tech stack, contributing (human-readable)
-- `CLAUDE.md` → AI entry point: quick context, conventions, commands, wiki nav
+- `CLAUDE.md` → **the** AI entry point: quick context, conventions, commands, wiki nav.
+  There is exactly one, at the repo root. A product with build conventions of its own
+  gets a wiki page — `wiki/apps/<product>-development.md` — not a second `CLAUDE.md`
 - `pulse/DESIGN.md` → Pulse visual design system: typography, color tokens, component catalog, layout patterns
 - `wiki/TODO.md` → A pointer to GitHub Issues. No work is tracked in the wiki
-- `wiki/` → Obsidian knowledge graph: architecture, systems, observability, runbooks
+- `wiki/` → Obsidian knowledge graph: architecture, systems, observability, runbooks, compliance. One vault for the whole monorepo — cire included
   - Open in Obsidian for graph view; or navigate via `[[wiki links]]`
   - See `[[wiki/index]]` for full content map
 
@@ -74,10 +76,19 @@ gh issue create --repo xchromo/osn --type Feature --label product:cire --title "
 | Add rate limiting to endpoint | `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]` |
 | Instrument logging, tracing, metrics | `[[wiki/observability/overview]]`, then specific page |
 | Write or review tests | `[[wiki/conventions/testing-patterns]]` |
+| Run the devloop (named HTTPS hosts per app, a stack per worktree, adding an app to it) | `[[wiki/conventions/devloop-urls]]` |
 | Split one goal across several PRs (stacked PRs — setting the base with the gh CLI, merge order, rebasing a stack) | `[[wiki/conventions/stacked-prs]]` |
 | Add or use UI component (Button, Card, Dialog…) | `[[wiki/architecture/component-library]]` |
+| Prototype a component, a three.js scene or canvas work in isolation (`bun run dev:lab`, `https://lab.localhost`) | `[[wiki/conventions/component-lab]]`, `tools/lab/README.md` |
 | Work on a specific app/surface (osn-core, social, pulse, zap, cire, cire-landing, osn-landing, pulse-landing) | `[[wiki/apps/<name>]]` |
+| Build cire itself (Elysia `aot: false`, the middleware/role gates, the two test tiers, the by-hand deploy) | `[[wiki/apps/cire-development]]` |
+| Hit a Solid/Motion/Tailwind rendering bug the unit tests cannot see (computed classes, `createMemo` TDZ, `transform` breaking `position: fixed`, Motion One's leftover inline styles, sticky offsets) | `[[wiki/architecture/frontend-patterns]]` §Rendering and animation gotchas |
 | Build the OIDC consent screen (states, decision-error contract, login_required retry loop) | `[[wiki/apps/authorize-ui]]` |
+| Work on a cire organiser module (budget, checklist, entitlements, registry, vendors, RSVP deadline) | `[[wiki/systems/cire-budget]]`, `[[wiki/systems/cire-checklist-tasks]]`, `[[wiki/systems/cire-entitlements]]`, `[[wiki/systems/cire-registry]]`, `[[wiki/systems/cire-vendors]]`, `[[wiki/systems/cire-rsvp-deadline]]` |
+| Change the cire invite (slots, images, theming, design selector) | `[[wiki/architecture/cire-invite-builder]]`, `[[wiki/systems/cire-invite-designs]]` |
+| Understand where cire is going (guests/events decoupled, vendors, pricing, seating, comms) | `[[wiki/architecture/cire-platform-plan]]` |
+| Add a third party to a cire page (cookies, CSP, the consent gate) | `[[wiki/architecture/cire-consent]]` |
+| Write a test that needs real CSS or layout (the Chromium Vitest project) | `[[wiki/conventions/browser-tests]]` |
 | Deploy osn-api + cire to production (secrets/vars, migrations, CI pipeline, smoke checks) | `[[wiki/runbooks/production-deploy]]` |
 | Use the dev tier — what deploys automatically, how to promote past the approval gate, how to reset dev | `[[wiki/runbooks/dev-environment]]` |
 | Check free-tier limits / what breaks at a cap / Cloudflare hardening TODO | `[[wiki/runbooks/free-tier-limits]]` |
@@ -181,9 +192,14 @@ So: tables and mermaid for anything a reader might hit through GitHub; the Obsid
 ### Wiki maintenance rules
 
 - **New system or pattern** → create wiki page, link from table above and `[[wiki/index]]`.
+- **Product-specific build conventions** → `wiki/apps/<product>-development.md`, linked from
+  that product's overview page. Never a nested `CLAUDE.md`. Put a fact there only if it is
+  genuinely that product's alone — anything true of another Solid or Workers package belongs
+  in `[[wiki/architecture/frontend-patterns]]`, `[[wiki/architecture/backend-patterns]]` or
+  `[[wiki/conventions/testing-patterns]]`, where the next person will actually find it.
 - **Modify existing pattern** → update wiki page in same PR.
 - **Every wiki page must have YAML frontmatter** with `title`, `tags`, `related`, `last-reviewed`.
-- **Use `[[wiki links]]`** between wiki pages; never relative markdown links. The vault is `wiki/` alone, so a page in another tree — `cire/wiki/` — cannot be reached by a wikilink in any form: cite it as a backticked repo path (`` `cire/wiki/systems/vendors.md` ``). `[[vendors]]`, `[[systems/vendors]]` and `[[cire/wiki/systems/vendors]]` all render as broken links.
+- **Use `[[wiki links]]`** between wiki pages; never relative markdown links. `wiki/` is the only vault — the second one at `cire/wiki/` folded into it on 2026-08-21, and every cire page is now a plain wikilink (`[[cire-vendors]]`, `[[cire-platform-plan]]`, `[[cire-invite-builder]]`). Cire pages carry a `cire-` prefix where a bare name would collide.
 - **Security/performance findings** are issues in `xchromo/osn-tracker`, and the body names the affected wiki page by path (e.g. `wiki/systems/rate-limiting.md`) — a wikilink does not resolve on GitHub.
 - **Update `last-reviewed`** in frontmatter of any wiki page you touch.
 
@@ -212,7 +228,7 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | ARC Tokens | S2S auth via self-issued ES256 JWTs (kid + scope + audience). Lives in `@shared/crypto`. | `[[wiki/systems/arc-tokens]]` |
 | Passkey-Primary Login | Only primary login factor. OTP/magic-link primary removed; OTP survives only as step-up. Account invariant: ≥1 WebAuthn credential always. | `[[wiki/systems/passkey-primary]]` |
 | User Access Tokens | ES256 JWTs, **5-min TTL**, `aud: "osn-access"`. Public key at `/.well-known/jwks.json`; downstream services verify via `@shared/osn-auth-client` (`extractClaims` + JWKS cache + audience check; Elysia adapter). Client `authFetch` silent-refreshes on 401 from HttpOnly session cookie. | `[[wiki/systems/identity-model]]` |
-| Cire Consent Framework | Site-wide cookie/third-party consent on the cire guest site. Categories are the unit of consent; one vendor registry drives the preferences dialog, the `/privacy` disclosure and (by test) the CSP allowlist. `<ConsentGate>` doesn't *render* gated children, so their effects never run. Defaults are **opt-out** for third-party content, opt-in for analytics — and three grant maps (floor / pre-decision / accept-all) are kept distinct so a refusal is never briefly ignored. | `[[cire/wiki/architecture/consent]]` |
+| Cire Consent Framework | Site-wide cookie/third-party consent on the cire guest site. Categories are the unit of consent; one vendor registry drives the preferences dialog, the `/privacy` disclosure and (by test) the CSP allowlist. `<ConsentGate>` doesn't *render* gated children, so their effects never run. Defaults are **opt-out** for third-party content, opt-in for analytics — and three grant maps (floor / pre-decision / accept-all) are kept distinct so a refusal is never briefly ignored. | `[[wiki/architecture/cire-consent]]` |
 | Cire Two-Auth Model | Guests use claim-code → opaque hashed session cookie (no OSN account); organisers use OSN passkey sign-in + access-JWT verification + wedding-ownership authz. The two middlewares never gate the same route — except the optional account-linking `POST /api/account/link`, which deliberately requires both (guest cookie binds the household, OSN token names the account; additive, not a privilege ladder). | `[[wiki/systems/cire-auth]]` |
 | Server-side Sessions | Opaque `ses_*` refresh tokens, SHA-256 hashed at rest, 30-day sliding window. Rotated every `/token` grant; reuse → family revocation via `RotatedSessionStore`. Refresh token **only** in HttpOnly cookie (S-M1) — so **any browser call that sets or reads it MUST pass `credentials: "include"`**. The issuer (`id.musubi.social`) is a different origin from every app that calls it, and a cross-origin `fetch` on the default `same-origin` mode silently discards `Set-Cookie` — no error, no warning, just no session. This is the bug class behind the 2026-08-06 registration fix; check it first whenever a ceremony "succeeds" but the user is still signed out. | `[[wiki/systems/sessions]]` |
 | Step-up (sudo) tokens | Short-lived `aud: "osn-step-up"` JWTs from fresh passkey/OTP ceremony. Required by `/recovery/generate`, `/account/email/complete`, security-event ack, passkey rename/delete. Single-use via `StepUpJtiStore`. **Purpose-bound at every gate** (`passkey_register`/`passkey_delete`/`email_change`/`security_event_ack`/`recovery_generate`): a verifier requires its own `purpose` claim, so a token minted for one ceremony can't be replayed at another before its jti is consumed. | `[[wiki/systems/step-up]]` |
@@ -265,6 +281,55 @@ bun run dev:cire         # Cire work: cire API + web + organiser, osn core
 bun run dev:landing      # Landing site only
 bun run build            # Build all packages (turbo)
 bun run check            # Type-check all packages (turbo)
+```
+
+### Local URLs
+
+Every dev server runs behind [portless](https://github.com/vercel-labs/portless): each app answers on a named HTTPS host instead of a port, so there are no port numbers to remember and no clashes between stacks. Each package's `dev` script is `portless`, which reads that package's own `"portless"` key and runs its real `dev:app` command behind the proxy.
+
+One-time setup on a new machine — it binds port 443, adds a local CA to the system trust store and writes an `/etc/hosts` block, so it asks for sudo:
+
+```bash
+bunx portless proxy start     # or: bunx portless service install (starts at boot)
+bunx portless doctor          # check proxy, routes, DNS, CA trust
+bunx portless clean           # undo it all: state, CA trust entry, hosts block
+```
+
+That CA is a TLS-interception primitive for every host the machine talks to, so `portless` is pinned with a tilde (`~0.15.5`) rather than a caret: it is pre-1.0, and a version bump is a change to review, not a lockfile refresh. Nothing installs or starts it for you — the package has no lifecycle scripts, and it refuses to run without a TTY or under `CI`.
+
+| App | URL |
+| --- | --- |
+| `@osn/social` | `https://musubi.localhost` |
+| `@osn/api` | `https://id.musubi.localhost` |
+| `@osn/landing` | `https://www.musubi.localhost` |
+| `@pulse/web` | `https://pulse.localhost` |
+| `@pulse/api` | `https://api.pulse.localhost` |
+| `@pulse/landing` | `https://www.pulse.localhost` |
+| `@cire/landing` | `https://cire.localhost` |
+| `@cire/invites` | `https://invite.cire.localhost` |
+| `@cire/host` | `https://host.cire.localhost` |
+| `@cire/vendor` | `https://vendor.cire.localhost` |
+| `@cire/api` | `https://api.cire.localhost` |
+| `@zap/api` | `https://zap.cire.localhost` |
+
+The names mirror production hostnames, and the nesting is load-bearing: a WebAuthn RP ID has to be the origin's host or a registrable suffix of it, so `@osn/social` (`musubi.*`) and `@osn/api` (`id.musubi.*`) sit under a shared `musubi` parent that can serve as the RP ID for both. Flat names would put every passkey out of reach of the API that verifies it.
+
+**Worktrees get their own stack.** In a linked worktree portless prepends the branch, so the same `bun run dev` gives `https://my-branch.host.cire.localhost` and friends. Two worktrees can run the full devloop at once without colliding. The `main` worktree keeps the bare names.
+
+Because those hostnames differ per worktree, no app can be told where its siblings live from a committed `.env`. Each `dev:app` runs through the `dev-env` launcher (`@shared/dev-urls`), which derives every sibling's origin from the app's own `PORTLESS_URL` and exports the same env vars the deployed tiers set (`OSN_ISSUER_URL`, `WEB_ORIGIN`, `PUBLIC_API_URL`, …). Those values win over `.env`. Adding an app means the `"portless"` key in its `package.json` and an entry in `DEV_APPS` (`shared/dev-urls/src/index.ts`), plus its env-var map in `src/app-env.ts`; a test asserts the first two agree.
+
+**What it costs.** A steady-state page load is 15–40 ms slower through the proxy — the TLS handshake and the hop. The *first* load after a cold start is the one to know about: about 3× slower on `@pulse/web` (~2.9 s vs ~0.87 s), because HTTP/2 drops the browser's per-origin connection cap and Vite's whole unbundled module graph arrives at a single-threaded dev server at once. Numbers and method are in `[[wiki/conventions/devloop-urls]]`.
+
+To run without the proxy, on the fixed ports the repo used before (`:4000` osn-api, `:8787` cire-api, `:1422` musubi, …):
+
+```bash
+PORTLESS=0 bun run dev                    # whole devloop, fixed ports
+bun run --cwd cire/host dev:app           # one app, no proxy at all
+```
+
+One trap for agents: Astro 7 detects an agent environment and puts `astro dev` in the background. Control returns to portless, portless deregisters the route when its child exits, and the URL then 404s while a stray daemon still holds the port. Run it as `CLAUDECODE= bun run dev` to keep it in the foreground, and clear a stray with `bunx astro dev stop`. A human terminal is unaffected.
+
+```bash
 
 # Testing
 bun run test                          # run all tests (turbo, skips packages without test script)

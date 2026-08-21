@@ -6,7 +6,7 @@ related:
   - "[[github-issues-setup]]"
   - "[[review-findings]]"
   - "[[deferred-decisions]]"
-last-reviewed: 2026-08-19
+last-reviewed: 2026-08-21
 ---
 
 # OSN Project TODO
@@ -21,6 +21,7 @@ Work is tracked in GitHub Issues. Nothing is tracked here.
 
 ```bash
 gh issue list --repo xchromo/osn --state open --label product:pulse
+gh issue list --repo xchromo/osn --state open --label product:cire
 gh issue list --repo xchromo/osn-tracker --state open --label severity:high
 ```
 
@@ -34,6 +35,8 @@ finding names an unpatched route.
 - **Completed items** — closed issues. `gh issue list --state closed` in either repo.
 - **Open items** — issues, one per item, with the epic as the parent.
 - **Deferred decisions** — [[deferred-decisions]]. Open questions are not tracked work.
+  Cire's own `deferred` and `future` shards folded in there on 2026-08-21, when the
+  cire vault merged into this one.
 
 For how a finding is filed see [conventions/review-findings.md](conventions/review-findings.md).
 For the migration and the label set see [runbooks/github-issues-setup.md](runbooks/github-issues-setup.md).

@@ -198,6 +198,320 @@ INSERT OR IGNORE INTO wedding_entitlements (wedding_id, entitlement, source, gra
   ('wed_bootstrap', 'vendors', 'comp', unixepoch(), 'dev-seed', NULL);
 
 -- ────────────────────────────────────────────────────────────────────────────
+-- Budget lines (14) — estimates, quotes, actuals
+-- ────────────────────────────────────────────────────────────────────────────
+
+-- `category` is a key from cire/api/src/lib/service-categories.ts; the Budget
+-- HTTP schema validates writes against that same list, so a category invented
+-- here would seed a row the organiser can read but never save.
+INSERT OR IGNORE INTO budget_items (
+  id, wedding_id, category, name,
+  estimate_minor, quoted_minor, actual_minor,
+  notes, sort_order, created_at, updated_at
+) VALUES
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000001', 'wed_bootstrap', 'venue', 'Reception venue',
+    3200000, 3450000, NULL,
+    'Quote came in over the estimate — minimum spend on a Saturday.', 0, unixepoch(), unixepoch()
+  ),
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000002', 'wed_bootstrap', 'catering', 'Dinner and canapés',
+    2800000, 2940000, NULL,
+    'Per head, 560 guests. Final numbers due with the balance.', 1, unixepoch(), unixepoch()
+  ),
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000003', 'wed_bootstrap', 'photography', 'Photographer — full day',
+    650000, 620000, 620000,
+    NULL, 2, unixepoch(), unixepoch()
+  ),
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000004', 'wed_bootstrap', 'videography', 'Videographer — ceremony and speeches',
+    450000, NULL, NULL,
+    'Two quotes outstanding.', 3, unixepoch(), unixepoch()
+  ),
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000005', 'wed_bootstrap', 'decor_styling', 'Styling and lighting',
+    420000, 445000, NULL,
+    NULL, 4, unixepoch(), unixepoch()
+  ),
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000006', 'wed_bootstrap', 'florals', 'Mandap and table florals',
+    380000, 412000, NULL,
+    NULL, 5, unixepoch(), unixepoch()
+  ),
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000007', 'wed_bootstrap', 'music_entertainment', 'DJ and dhol players',
+    300000, 285000, 285000,
+    NULL, 6, unixepoch(), unixepoch()
+  ),
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000008', 'wed_bootstrap', 'celebrant', 'Celebrant',
+    90000, 90000, NULL,
+    NULL, 7, unixepoch(), unixepoch()
+  ),
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000009', 'wed_bootstrap', 'cake', 'Three-tier cake',
+    120000, NULL, NULL,
+    NULL, 8, unixepoch(), unixepoch()
+  ),
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000010', 'wed_bootstrap', 'stationery', 'Invitations and signage',
+    95000, 88000, 88000,
+    NULL, 9, unixepoch(), unixepoch()
+  ),
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000011', 'wed_bootstrap', 'hair_makeup', 'Hair and makeup, both sides',
+    260000, 275000, NULL,
+    NULL, 10, unixepoch(), unixepoch()
+  ),
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000012', 'wed_bootstrap', 'transport', 'Guest coaches and the car',
+    180000, NULL, NULL,
+    NULL, 11, unixepoch(), unixepoch()
+  ),
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000013', 'wed_bootstrap', 'attire', 'Outfits and jewellery',
+    700000, NULL, 760000,
+    'Came in over — the second outfit was not in the estimate.', 12, unixepoch(), unixepoch()
+  ),
+  (
+    'bud_e2a1c0d4-0000-4000-8000-000000000014', 'wed_bootstrap', 'other', 'Contingency',
+    300000, NULL, NULL,
+    NULL, 13, unixepoch(), unixepoch()
+  );
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Payments (10) — deposits paid, balances outstanding
+-- ────────────────────────────────────────────────────────────────────────────
+
+-- FK'd to the budget lines above, so this block must follow them. Both states
+-- are seeded: `paid_at` set (settled) and NULL with a `due_at` (outstanding),
+-- which is the split every payment summary in the module reads.
+INSERT OR IGNORE INTO payments (
+  id, budget_item_id, label, amount_minor, due_at, paid_at, created_at
+) VALUES
+  ('pay_e2a1c0d4-0000-4000-8000-000000000001', 'bud_e2a1c0d4-0000-4000-8000-000000000001', 'Deposit', 690000, NULL, unixepoch() - 10368000, unixepoch()),
+  ('pay_e2a1c0d4-0000-4000-8000-000000000002', 'bud_e2a1c0d4-0000-4000-8000-000000000001', 'Balance', 2760000, '2026-10-25', NULL, unixepoch()),
+  ('pay_e2a1c0d4-0000-4000-8000-000000000003', 'bud_e2a1c0d4-0000-4000-8000-000000000002', 'Deposit', 588000, NULL, unixepoch() - 7776000, unixepoch()),
+  ('pay_e2a1c0d4-0000-4000-8000-000000000004', 'bud_e2a1c0d4-0000-4000-8000-000000000002', 'Balance', 2352000, '2026-11-10', NULL, unixepoch()),
+  ('pay_e2a1c0d4-0000-4000-8000-000000000005', 'bud_e2a1c0d4-0000-4000-8000-000000000003', 'Deposit', 200000, NULL, unixepoch() - 12960000, unixepoch()),
+  ('pay_e2a1c0d4-0000-4000-8000-000000000006', 'bud_e2a1c0d4-0000-4000-8000-000000000003', 'Balance', 420000, NULL, unixepoch() - 864000, unixepoch()),
+  ('pay_e2a1c0d4-0000-4000-8000-000000000007', 'bud_e2a1c0d4-0000-4000-8000-000000000007', 'Full fee', 285000, NULL, unixepoch() - 2592000, unixepoch()),
+  ('pay_e2a1c0d4-0000-4000-8000-000000000008', 'bud_e2a1c0d4-0000-4000-8000-000000000008', 'Booking fee', 30000, NULL, unixepoch() - 17280000, unixepoch()),
+  ('pay_e2a1c0d4-0000-4000-8000-000000000009', 'bud_e2a1c0d4-0000-4000-8000-000000000008', 'Balance', 60000, '2026-11-20', NULL, unixepoch()),
+  ('pay_e2a1c0d4-0000-4000-8000-000000000010', 'bud_e2a1c0d4-0000-4000-8000-000000000011', 'Trial', 45000, NULL, unixepoch() - 1728000, unixepoch());
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Checklist tasks (18) — across every lead-time bucket
+-- ────────────────────────────────────────────────────────────────────────────
+
+-- `timeframe_bucket` is a key from cire/api/src/lib/checklist-buckets.ts.
+-- `sort_order` restarts at 0 in each bucket — it orders within a bucket, and
+-- the reorder endpoint rewrites exactly that run.
+INSERT OR IGNORE INTO tasks (
+  id, wedding_id, title, notes,
+  timeframe_bucket, due_at, status, sort_order,
+  created_at, completed_at
+) VALUES
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000001', 'wed_bootstrap', 'Set the date and the guest-count ceiling', NULL,
+    '12m', NULL, 'done', 0,
+    unixepoch(), unixepoch() - 20736000
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000002', 'wed_bootstrap', 'Book the reception venue', 'Deposit paid — see the Venue line in Budget.',
+    '12m', NULL, 'done', 1,
+    unixepoch(), unixepoch() - 18144000
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000003', 'wed_bootstrap', 'Book the celebrant', NULL,
+    '12m', NULL, 'done', 2,
+    unixepoch(), unixepoch() - 17280000
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000004', 'wed_bootstrap', 'Book the photographer', NULL,
+    '9m', NULL, 'done', 0,
+    unixepoch(), unixepoch() - 12960000
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000005', 'wed_bootstrap', 'Choose a videographer', 'Two quotes still outstanding.',
+    '9m', NULL, 'open', 1,
+    unixepoch(), NULL
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000006', 'wed_bootstrap', 'Send the invitations', NULL,
+    '6m', '2026-08-30', 'open', 0,
+    unixepoch(), NULL
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000007', 'wed_bootstrap', 'Book hair and makeup trials', NULL,
+    '6m', NULL, 'done', 1,
+    unixepoch(), unixepoch() - 1728000
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000008', 'wed_bootstrap', 'Open the gift registry', NULL,
+    '6m', NULL, 'done', 2,
+    unixepoch(), unixepoch() - 2419200
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000009', 'wed_bootstrap', 'Confirm the catering menu', 'Final head count goes with the balance payment.',
+    '3m', '2026-09-15', 'open', 0,
+    unixepoch(), NULL
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000010', 'wed_bootstrap', 'Order the cake', NULL,
+    '3m', NULL, 'open', 1,
+    unixepoch(), NULL
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000011', 'wed_bootstrap', 'Chase the households who haven''t replied', NULL,
+    '1m', '2026-10-25', 'open', 0,
+    unixepoch(), NULL
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000012', 'wed_bootstrap', 'Book the guest coaches', NULL,
+    '1m', NULL, 'open', 1,
+    unixepoch(), NULL
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000013', 'wed_bootstrap', 'Send the run sheet to every supplier', NULL,
+    '2w', '2026-11-11', 'open', 0,
+    unixepoch(), NULL
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000014', 'wed_bootstrap', 'Pay the outstanding balances', 'Venue, catering and the celebrant — all in Budget.',
+    '2w', '2026-11-10', 'open', 1,
+    unixepoch(), NULL
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000015', 'wed_bootstrap', 'Final head count to the caterer', NULL,
+    'week_of', '2026-11-20', 'open', 0,
+    unixepoch(), NULL
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000016', 'wed_bootstrap', 'Print the seating chart and the signage', NULL,
+    'week_of', NULL, 'open', 1,
+    unixepoch(), NULL
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000017', 'wed_bootstrap', 'Hand the rings to the best man', NULL,
+    'day_of', NULL, 'open', 0,
+    unixepoch(), NULL
+  ),
+  (
+    'tsk_f7d3b1e0-0000-4000-8000-000000000018', 'wed_bootstrap', 'Pack the emergency kit', 'Safety pins, plasters, a phone charger, painkillers.',
+    'day_of', NULL, 'open', 1,
+    unixepoch(), NULL
+  );
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Registry settings — one row, and the guest-side publish gate
+-- ────────────────────────────────────────────────────────────────────────────
+
+-- `published` is the SECOND gate on the guest registry: the guest read needs
+-- both this flag AND the wedding's `registry` entitlement (comped above), so a
+-- dev tier with the entitlement and no row still 404s the guest page.
+--
+-- Cash gifts stay off. They need a Stripe Connect account per wedding, and a
+-- registry is fully usable as an honour-system list without one.
+INSERT OR IGNORE INTO registry_settings (
+  wedding_id, published, headline, message,
+  cash_gifts_enabled, shipping_address, shipping_visible_from,
+  created_at, updated_at
+) VALUES (
+  'wed_bootstrap', 1, 'Our registry',
+  'Your being there is the gift — but if you''d like to mark the day with something, here is our list.',
+  0, '12 Wharf Road, Birchgrove NSW 2041', NULL,
+  unixepoch(), unixepoch()
+);
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Registry items (10)
+-- ────────────────────────────────────────────────────────────────────────────
+
+-- `image_key` is left NULL on every row: it is an R2 object key, and a key
+-- with no bytes behind it renders a broken image on both the organiser list and
+-- the guest site. The link-preview path fills it in normally.
+--
+-- `kind` is 'product' throughout — 'cash_fund' is a declared seam with no UI in
+-- v1, so seeding one would put a row on screen that nothing can edit.
+INSERT OR IGNORE INTO registry_items (
+  id, wedding_id, kind, title, description,
+  external_url, price_minor, quantity_wanted, category, sort_order,
+  created_at, updated_at
+) VALUES
+  (
+    'reg_c4b8a2f1-0000-4000-8000-000000000001', 'wed_bootstrap', 'product', 'Cast-iron casserole, 26cm',
+    'Anything oven-to-table. Blue if there''s a choice.',
+    'https://example.com/kitchen/cast-iron-casserole',
+    45000, 1, 'Kitchen', 0,
+    unixepoch(), unixepoch()
+  ),
+  (
+    'reg_c4b8a2f1-0000-4000-8000-000000000002', 'wed_bootstrap', 'product', 'Stand mixer',
+    NULL,
+    'https://example.com/kitchen/stand-mixer',
+    79900, 1, 'Kitchen', 1,
+    unixepoch(), unixepoch()
+  ),
+  (
+    'reg_c4b8a2f1-0000-4000-8000-000000000003', 'wed_bootstrap', 'product', 'Espresso machine',
+    'The one gift that gets used every single morning.',
+    'https://example.com/kitchen/espresso-machine',
+    129900, 1, 'Kitchen', 2,
+    unixepoch(), unixepoch()
+  ),
+  (
+    'reg_c4b8a2f1-0000-4000-8000-000000000004', 'wed_bootstrap', 'product', 'Wine glasses, set of six',
+    'Two sets would not go astray.',
+    'https://example.com/table/wine-glasses',
+    12000, 2, 'Table', 3,
+    unixepoch(), unixepoch()
+  ),
+  (
+    'reg_c4b8a2f1-0000-4000-8000-000000000005', 'wed_bootstrap', 'product', 'Cutlery set, 24 piece',
+    NULL,
+    'https://example.com/table/cutlery-set',
+    34900, 1, 'Table', 4,
+    unixepoch(), unixepoch()
+  ),
+  (
+    'reg_c4b8a2f1-0000-4000-8000-000000000006', 'wed_bootstrap', 'product', 'Hand-thrown serving platter',
+    'Made in Bowral, so no two are the same.',
+    'https://example.com/table/serving-platter',
+    18000, 1, 'Table', 5,
+    unixepoch(), unixepoch()
+  ),
+  (
+    'reg_c4b8a2f1-0000-4000-8000-000000000007', 'wed_bootstrap', 'product', 'Linen bedding set, queen',
+    NULL,
+    'https://example.com/home/linen-bedding',
+    39900, 1, 'Home', 6,
+    unixepoch(), unixepoch()
+  ),
+  (
+    'reg_c4b8a2f1-0000-4000-8000-000000000008', 'wed_bootstrap', 'product', 'Wool throw',
+    NULL,
+    'https://example.com/home/wool-throw',
+    24900, 2, 'Home', 7,
+    unixepoch(), unixepoch()
+  ),
+  (
+    'reg_c4b8a2f1-0000-4000-8000-000000000009', 'wed_bootstrap', 'product', 'Picnic hamper',
+    'For the drive up the coast afterwards.',
+    'https://example.com/outdoors/picnic-hamper',
+    15900, 1, 'Outdoors', 8,
+    unixepoch(), unixepoch()
+  ),
+  (
+    'reg_c4b8a2f1-0000-4000-8000-000000000010', 'wed_bootstrap', 'product', 'A recipe you actually cook',
+    'Written out, in your handwriting. That''s the whole gift.',
+    NULL,
+    NULL, 1, NULL, 9,
+    unixepoch(), unixepoch()
+  );
+
+-- ────────────────────────────────────────────────────────────────────────────
 -- Families (4) — stable UUIDs so dev links don't drift between seeds
 -- ────────────────────────────────────────────────────────────────────────────
 
@@ -269,6 +583,42 @@ INSERT OR IGNORE INTO rsvps (id, guest_id, event_id, status, dietary, dietary_co
   ('c0000000-0000-4000-8000-000000000008', 'b0000000-0000-4000-8000-000000000004', '9f7a2c14-1b3d-4e5f-8a01-000000000003', 'maybe', '', NULL, NULL, 'guest', unixepoch() - 259200),
   ('c0000000-0000-4000-8000-000000000009', 'b0000000-0000-4000-8000-000000000005', '9f7a2c14-1b3d-4e5f-8a01-000000000001', 'attending', 'Severe nut allergy — please keep preparation separate.', unixepoch() - 518400, '2026-06-17', 'guest', unixepoch() - 518400),
   ('c0000000-0000-4000-8000-000000000010', 'b0000000-0000-4000-8000-000000000005', '9f7a2c14-1b3d-4e5f-8a01-000000000003', 'attending', '', NULL, NULL, 'guest', unixepoch() - 518400);
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Registry claims (3) — the gift log
+-- ────────────────────────────────────────────────────────────────────────────
+
+-- FK'd to the canonical households, so this block must follow the families
+-- above. Gifts come from a HOUSEHOLD, not a guest — that is the unit the couple
+-- thanks, and `display_name` overrides the household name when the giver is
+-- someone the list does not name ("Auntie Ros").
+INSERT OR IGNORE INTO registry_claims (
+  id, wedding_id, item_id, family_id,
+  quantity, status, note, display_name,
+  thanked_at, thanked_by,
+  created_at, updated_at
+) VALUES
+  (
+    'rgc_c4b8a2f1-0000-4000-8000-000000000001', 'wed_bootstrap', 'reg_c4b8a2f1-0000-4000-8000-000000000003', 'a0000000-0000-4000-8000-000000000001',
+    1, 'purchased', 'Ordered — it should land the week before.', 'The Testfamilys',
+    unixepoch() - 259200,
+    'usr_dev_bootstrap_owner',
+    unixepoch() - 1814400, unixepoch() - 1814400
+  ),
+  (
+    'rgc_c4b8a2f1-0000-4000-8000-000000000002', 'wed_bootstrap', 'reg_c4b8a2f1-0000-4000-8000-000000000004', 'a0000000-0000-4000-8000-000000000002',
+    1, 'purchased', NULL, NULL,
+    NULL,
+    NULL,
+    unixepoch() - 1209600, unixepoch() - 1209600
+  ),
+  (
+    'rgc_c4b8a2f1-0000-4000-8000-000000000003', 'wed_bootstrap', 'reg_c4b8a2f1-0000-4000-8000-000000000008', 'a0000000-0000-4000-8000-000000000003',
+    1, 'reserved', 'Hope the colour''s right.', 'Auntie Ros',
+    NULL,
+    NULL,
+    unixepoch() - 518400, unixepoch() - 518400
+  );
 
 -- ────────────────────────────────────────────────────────────────────────────
 -- Synthetic households (195) — brings the list to production scale

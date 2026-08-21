@@ -9,6 +9,9 @@ on:
   # whole stack collapsed onto main, which is the last moment a break is useful.
   pull_request:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   # macOS runner minutes bill at a multiple of Linux, so the iOS build only
   # runs when a push/PR actually touches Swift/Xcode files. GitHub Actions

@@ -9,10 +9,8 @@ related:
   - "[[tracing]]"
   - "[[feature-checklist]]"
 packages: ["@shared/observability", "@osn/api", "@pulse/api", "@shared/crypto"]
-finding-ids: [S-C1, S-C2, S-C3]
 last-reviewed: 2026-07-22
 ---
-
 # Metrics
 
 ## Naming convention

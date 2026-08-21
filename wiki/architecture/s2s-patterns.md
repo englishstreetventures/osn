@@ -19,15 +19,7 @@ packages:
   - "@osn/api"
   - "@shared/crypto"
 last-reviewed: 2026-07-22
-security-fixes:
-  - S-H100
-  - S-H101
-  - S-M100
-  - S-M101
-  - S-M102
-  - S-L101
 ---
-
 # Cross-Package S2S Patterns
 
 When a Pulse service needs identity or graph data (RSVP visibility, profile displays, connection eligibility checks), **every call must go through `pulse/api/src/services/graphBridge.ts`**. That file is the single seam for all S2S calls from Pulse to `@osn/api`.

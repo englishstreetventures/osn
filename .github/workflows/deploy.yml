@@ -152,7 +152,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -234,7 +234,7 @@ jobs:
         run: bun install
 
       - name: Guard against placeholder D1 database_id
-        run: bash scripts/check-d1-database-id.sh
+        run: bun run scripts/check-d1-database-id.ts
 
       - name: Reset the dev D1 (drops every table)
         run: bun run --cwd cire/db db:reset:dev
@@ -242,8 +242,19 @@ jobs:
       - name: Replay cire D1 migrations from zero (dev)
         run: bun run --cwd cire/db db:migrate:dev
 
+      # CIRE_DEV_OWNER_PROFILE_ID repoints the seeded wedding at a real dev
+      # account. The seed owns it as `usr_dev_bootstrap_owner`, an id no account
+      # holds, so without this the sample wedding — its guests, its events and
+      # its comped entitlements (registry, vendors, AI) — is invisible to
+      # everyone signing in to test, and this job resets the tier on every
+      # cire_api change, wiping any wedding a tester made by hand. It is a
+      # VARIABLE, not a secret: an OSN profile id is not a credential, and a
+      # masked value would only make the seed log unreadable. Unset, the seed
+      # says so and carries on.
       - name: Seed the dev D1
         run: bun run --cwd cire/db db:seed:dev
+        env:
+          CIRE_DEV_OWNER_PROFILE_ID: ${{ vars.CIRE_DEV_OWNER_PROFILE_ID }}
 
       - name: Deploy cire/api Worker (dev)
         run: bunx wrangler deploy --env dev
@@ -293,7 +304,7 @@ jobs:
       # silently break every D1 read/write in prod. Wired correctly today; this
       # is a regression guard (grep-only, no creds needed).
       - name: Guard against placeholder D1 database_id
-        run: bash scripts/check-d1-database-id.sh
+        run: bun run scripts/check-d1-database-id.ts
 
       # Idempotent: wrangler skips already-applied migrations, so re-running the
       # workflow is safe. Production is never reset and never seeded.

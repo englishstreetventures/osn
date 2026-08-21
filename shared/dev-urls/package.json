@@ -1,0 +1,21 @@
+{
+  "name": "@shared/dev-urls",
+  "version": "0.1.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "dev-env": "./src/cli.ts"
+  },
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run"
+  },
+  "devDependencies": {
+    "@shared/typescript-config": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

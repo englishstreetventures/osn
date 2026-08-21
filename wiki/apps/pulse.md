@@ -7,8 +7,15 @@ packages:
   - "@pulse/web"
   - "@pulse/api"
   - "@pulse/db"
-port: 3001
-last-reviewed: 2026-08-06
+dev-host: https://pulse.localhost
+related:
+  - "[[pulse-landing]]"
+  - "[[pulse-close-friends]]"
+  - "[[pulse-onboarding]]"
+  - "[[venues]]"
+  - "[[event-access]]"
+  - "[[devloop-urls]]"
+last-reviewed: 2026-08-21
 ---
 
 # Pulse

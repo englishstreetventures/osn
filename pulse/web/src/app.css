@@ -1,6 +1,156 @@
-/* Pulse editorial fonts loaded via <link> in index.html (non-blocking) */
-
 @import "tailwindcss";
+
+/* Self-hosted faces (tracker #388). The app shell used to <link>
+   fonts.googleapis.com from `entry-server.tsx`, which cost a DNS lookup, a TLS
+   handshake and a render-blocking round trip to a third party before a word
+   painted — and told Google LLC (US) the IP and user-agent of every visitor.
+
+   The three landing sites solved this with Astro's font pipeline
+   (`fontProviders.google()` in their `astro.config.mjs`). @solidjs/start has no
+   equivalent, so the rules are WRITTEN OUT here over `@fontsource`, for two
+   reasons that both cost real bytes on the render-blocking critical path:
+
+     1. A whole-family entrypoint (`@fontsource/geist-mono/400.css`) carries
+        every subset the family publishes — Geist Mono ships six, including
+        cyrillic and vietnamese. `unicode-range` stops the browser FETCHING an
+        unused subset, but every rule is parsed on every page load. Only latin
+        and latin-ext are kept. (Geist Sans ships one unsubsetted file per
+        weight, so there is nothing to trim there.)
+     2. Every fontsource rule carries a legacy `.woff` beside the `.woff2`, and
+        the small subset `.woff` files fall under Vite's 4096-byte
+        `assetsInlineLimit` — so the bundler base64-INLINES them straight into
+        the critical CSS. Every browser that can run this app takes the woff2.
+
+   The per-subset entrypoints (`@fontsource/geist-mono/latin-400.css`) are NOT
+   the fix for (1): fontsource omits `unicode-range` from those files, so latin
+   and latin-ext become two indistinguishable faces for one
+   family/weight/style and the later declaration wins outright.
+
+   `@fontsource/geist-sans` names the family `Geist Sans`; the rules below say
+   `Geist`, which is what Google Fonts called it and what `--font-sans` has
+   always spelled. Renaming here rather than at the token keeps every component
+   untouched.
+
+   Names in Cyrillic or Vietnamese paint in the fallback chain on the tokens
+   below. To add a subset back, copy its rule out of
+   `node_modules/@fontsource/<family>/<weight>.css`, keep the `unicode-range`,
+   and point `src` at the `.woff2` alone. */
+
+/* geist-sans-latin-400-normal */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/geist-sans/files/geist-sans-latin-400-normal.woff2') format('woff2');
+}
+
+/* geist-sans-latin-500-normal */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('@fontsource/geist-sans/files/geist-sans-latin-500-normal.woff2') format('woff2');
+}
+
+/* geist-sans-latin-600-normal */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('@fontsource/geist-sans/files/geist-sans-latin-600-normal.woff2') format('woff2');
+}
+
+/* geist-sans-latin-700-normal */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/geist-sans/files/geist-sans-latin-700-normal.woff2') format('woff2');
+}
+
+/* geist-mono-latin-ext-400-normal */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/geist-mono/files/geist-mono-latin-ext-400-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* geist-mono-latin-400-normal */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/geist-mono/files/geist-mono-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* geist-mono-latin-ext-500-normal */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('@fontsource/geist-mono/files/geist-mono-latin-ext-500-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* geist-mono-latin-500-normal */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('@fontsource/geist-mono/files/geist-mono-latin-500-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* instrument-serif-latin-ext-400-normal */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/instrument-serif/files/instrument-serif-latin-ext-400-normal.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* instrument-serif-latin-400-normal */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+
+/* instrument-serif-latin-ext-400-italic */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/instrument-serif/files/instrument-serif-latin-ext-400-italic.woff2') format('woff2');
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* instrument-serif-latin-400-italic */
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2') format('woff2');
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
 @source "../../../osn/ui/src";
 
 @custom-variant base (:where(&));

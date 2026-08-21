@@ -3,12 +3,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev --port 4326",
+    "dev": "portless",
+    "dev:app": "dev-env astro dev",
     "build": "astro build",
     "preview": "astro preview",
     "check": "bunx --bun astro check",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run"
+  },
+  "portless": {
+    "name": "vendor.cire",
+    "script": "dev:app"
   },
   "dependencies": {
     "@astrojs/solid-js": "^7.0.1",
@@ -24,6 +29,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "0.9.10",
+    "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
     "@testing-library/jest-dom": "^6.10.0",

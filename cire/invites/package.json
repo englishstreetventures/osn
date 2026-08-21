@@ -3,11 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev",
+    "dev": "portless",
+    "dev:app": "dev-env astro dev",
     "build": "astro build",
     "preview": "astro preview",
     "test": "vitest run --project unit",
     "test:browser": "vitest run --project browser"
+  },
+  "portless": {
+    "name": "invite.cire",
+    "script": "dev:app"
   },
   "dependencies": {
     "@astrojs/cloudflare": "^14.1.4",
@@ -27,6 +32,7 @@
   },
   "devDependencies": {
     "@capsizecss/metrics": "^4.2.0",
+    "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
     "@testing-library/jest-dom": "^6.10.0",
