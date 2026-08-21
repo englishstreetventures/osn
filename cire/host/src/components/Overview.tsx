@@ -352,10 +352,15 @@ export default function Overview(props: {
           </p>
         }
       >
-        <ul class="divide-border/40 flex flex-col divide-y">
+        {/* The band runs the full width, so the rows run in columns rather than
+            one 1300px-wide line of six dated entries with a hole in the middle.
+            Order stays chronological, read left-to-right along each row. A rule
+            per row rather than `divide-y`, which follows DOM order and so draws
+            its lines in the wrong places once the list wraps into columns. */}
+        <ul class="grid gap-x-8 @3xl/panel:grid-cols-2 @6xl/panel:grid-cols-3">
           <For each={agenda()}>
             {(item) => (
-              <li>
+              <li class="border-border/40 border-t">
                 <button
                   type="button"
                   onClick={() =>
@@ -433,13 +438,15 @@ export default function Overview(props: {
         </Show>
 
         <Show when={!isFresh()}>
-          {/* Narrow: agenda above the stat cards, one column each. Wide: the
-              agenda becomes a fixed-measure left column and the stat cards fill
-              the rest — a full-width list of six dated rows across 1300px is
-              mostly empty space, and the cards are what benefit from the room.
-              A container query (not `auto-grid`) because this changes the
-              layout's *shape*, not just its column count. */}
-          <div class="flex flex-col gap-4 @4xl/panel:grid @4xl/panel:grid-cols-[minmax(20rem,26rem)_minmax(0,1fr)] @4xl/panel:items-start">
+          {/* The home reads top-down as a briefing: the agenda band first —
+              what needs attention, dated — then the module snapshots beneath
+              it. (The agenda used to be a fixed-measure left column beside the
+              cards, which left the page lopsided: one list down one side, six
+              cards down the other.) The written summary the band will lead
+              with slots in at the top of this stack, above `<WhatsNext />`.
+              The band earns the full width by laying its rows out in columns —
+              see the list inside `WhatsNext`. */}
+          <div class="flex flex-col gap-4">
             <WhatsNext />
             {/* The cards themselves need no breakpoints: as many ≥15rem columns
                 as fit, so the widescreen fills rows instead of leaving three
