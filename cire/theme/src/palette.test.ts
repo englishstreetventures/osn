@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  contrastOklch,
   contrastRatio,
   DERIVED_TOKENS,
   derivePalette,
@@ -16,6 +17,7 @@ import {
   paletteContrastWarnings,
   parseColor,
   resolveSeeds,
+  type DerivedToken,
   type PaletteSeeds,
   rgbToOklch,
   sectionToneVars,
@@ -673,5 +675,108 @@ describe("sectionToneVars", () => {
     expect(sectionToneVars("nonsense" as never)).toEqual({
       "--invite-section-bg": "var(--color-bg)",
     });
+  });
+});
+
+// ── Toast tokens ─────────────────────────────────────────────────────────────
+
+describe("toast tokens", () => {
+  test("emits a toast token for every name the allow-list expects", () => {
+    const tokens = derivePalette(PALETTE_PRESETS.evergreen);
+    for (const key of [
+      "--toast-surface",
+      "--toast-ink",
+      "--toast-border",
+      "--toast-error",
+      "--toast-success",
+    ]) {
+      expect(tokens[key as DerivedToken], key).toBeDefined();
+    }
+  });
+
+  test("paints the toast on the raised surface, matching where it actually sits", () => {
+    const tokens = derivePalette(PALETTE_PRESETS.evergreen);
+    expect(tokens["--toast-surface"]).toBe(tokens["--color-surface-raised"]);
+  });
+
+  /**
+   * The reason these tokens exist. `--color-error` / `--color-success` are
+   * walked against `card`; a toast paints on `raised`, which is derived as
+   * `card ± 0.05` lightness and is outside that walk. Every preset, both
+   * semantic tones, measured against the surface the toast is really on.
+   */
+  test("clears WCAG text contrast on every preset scheme", () => {
+    for (const key of PALETTE_PRESET_KEYS) {
+      const tokens = derivePalette(PALETTE_PRESETS[key]);
+      const surface = parseColor(tokens["--toast-surface"])!;
+      for (const token of ["--toast-ink", "--toast-error", "--toast-success"] as const) {
+        const fg = parseColor(tokens[token])!;
+        expect(contrastOklch(fg, surface), `${token} on ${key}`).toBeGreaterThanOrEqual(
+          WCAG_TEXT_MIN,
+        );
+      }
+    }
+  });
+
+  /**
+   * A straddling scheme — near-black page, near-white cards — is the case that
+   * defeats a single-surface walk, and the one where re-using `--color-error`
+   * on a toast is most likely to come out short.
+   */
+  test("clears contrast on a straddling scheme too", () => {
+    const tokens = derivePalette({
+      ground: "oklch(12% 0.02 260)",
+      card: "oklch(96% 0.01 90)",
+      ink: "oklch(20% 0.02 260)",
+      gilt: "oklch(70% 0.09 82)",
+      bloom: "oklch(65% 0.12 25)",
+    });
+    const surface = parseColor(tokens["--toast-surface"])!;
+    for (const token of ["--toast-ink", "--toast-error", "--toast-success"] as const) {
+      expect(contrastOklch(parseColor(tokens[token])!, surface), token).toBeGreaterThanOrEqual(
+        WCAG_TEXT_MIN,
+      );
+    }
+  });
+
+  /**
+   * The concrete failure that motivated these tokens, pinned so it cannot
+   * return. On the built-in JEWEL preset, `--color-success` measures 4.29:1
+   * against the raised surface a toast paints on — under the 4.5 text minimum —
+   * because it was walked against `card`. `--toast-success` clears it.
+   *
+   * A shipped preset, not a contrived one: every jewel invite that raised an
+   * RSVP confirmation was rendering a sub-threshold green.
+   */
+  test("fixes the jewel preset's sub-threshold success green", () => {
+    const tokens = derivePalette(PALETTE_PRESETS.jewel);
+    const raised = parseColor(tokens["--toast-surface"])!;
+    const page = contrastOklch(parseColor(tokens["--color-success"])!, raised);
+    const toast = contrastOklch(parseColor(tokens["--toast-success"])!, raised);
+    expect(page, "the page token really was short on raised").toBeLessThan(WCAG_TEXT_MIN);
+    expect(toast, "the toast token clears it").toBeGreaterThanOrEqual(WCAG_TEXT_MIN);
+  });
+
+  test("costs nothing on a scheme that already works", () => {
+    // Evergreen's semantics already clear on `raised`, so the extra walk must
+    // return them untouched rather than drifting the organiser's colour.
+    const tokens = derivePalette(PALETTE_PRESETS.evergreen);
+    expect(tokens["--toast-error"]).toBe(tokens["--color-error"]);
+    expect(tokens["--toast-success"]).toBe(tokens["--color-success"]);
+  });
+
+  test("keeps the organiser's hue — a corrected red is still their red", () => {
+    const tokens = derivePalette(PALETTE_PRESETS.jewel);
+    const page = parseColor(tokens["--color-error"])!;
+    const toast = parseColor(tokens["--toast-error"])!;
+    // Lightness may move to clear the surface; hue must not.
+    expect(Math.abs(toast.h - page.h)).toBeLessThan(1);
+  });
+
+  test("emits only safe CSS colours, like every other token", () => {
+    const tokens = derivePalette(PALETTE_PRESETS.chapel);
+    for (const token of ["--toast-surface", "--toast-ink", "--toast-error"] as const) {
+      expect(isSafeCssColor(tokens[token]), token).toBe(true);
+    }
   });
 });

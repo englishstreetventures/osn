@@ -255,6 +255,13 @@ export const DERIVED_TOKENS = [
   "--color-bloom-dim",
   "--color-error",
   "--color-success",
+  // Toast tokens. Separate from the pair above because they are measured
+  // against a DIFFERENT surface — see the `--toast-*` block in the return.
+  "--toast-surface",
+  "--toast-ink",
+  "--toast-border",
+  "--toast-error",
+  "--toast-success",
   // Invite-specific compositions that used to be hardcoded literals.
   "--invite-hero-grad-1",
   "--invite-hero-grad-2",
@@ -461,6 +468,24 @@ export function derivePalette(
     "--color-bloom-dim": formatOklch(withAlpha(bloom, 0.3)),
     "--color-error": semantic(21.48, 0.1401, card),
     "--color-success": semantic(146.94, 0.1421, card, 0.64),
+
+    // ── Toast ────────────────────────────────────────────────────────────────
+    // A toast paints on `raised`, not on `card`. The two semantic tokens above
+    // are walked against `card`, and `raised` is derived as `card ± 0.05`
+    // lightness — outside that walk by construction (the same gap
+    // `RESIDUAL_PAIRS` documents for `ink` and `gilt`). Re-using
+    // `--color-error` on a toast therefore had NO contrast guarantee: on a
+    // scheme where the step goes the wrong way it can miss 4.5:1 outright.
+    //
+    // So the toast gets its own pair, identical in hue and chroma to the page's
+    // — an organiser's red is still their red — but walked against the surface
+    // the toast actually sits on. On a well-behaved scheme these come out equal
+    // to the `--color-*` pair and cost nothing.
+    "--toast-surface": formatOklch(raised),
+    "--toast-ink": formatOklch(ensureContrast(ink, raised, WCAG_TEXT_MIN)),
+    "--toast-border": formatOklch(withAlpha(ink, 0.18)),
+    "--toast-error": semantic(21.48, 0.1401, raised),
+    "--toast-success": semantic(146.94, 0.1421, raised, 0.64),
 
     // Hero base gradient — three stops walked across the palette's own
     // surfaces, replacing a hardcoded evergreen `linear-gradient` that ignored
