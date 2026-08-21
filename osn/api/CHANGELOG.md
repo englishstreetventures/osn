@@ -1,5 +1,12 @@
 # @osn/osn
 
+## 3.20.11
+
+### Patch Changes
+
+- Updated dependencies [7a75d6c]
+  - @shared/crypto@0.10.6
+
 ## 3.20.10
 
 ### Patch Changes
