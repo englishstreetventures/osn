@@ -7,7 +7,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[contributing]]"
   - "[[passkey-primary]]"
-last-reviewed: 2026-08-20
+last-reviewed: 2026-08-21
 ---
 
 # Devloop URLs
@@ -45,8 +45,9 @@ bunx portless clean              # undo it all: state, CA trust entry, hosts blo
 | `@cire/vendor` | `https://vendor.cire.localhost` |
 | `@cire/api` | `https://api.cire.localhost` |
 | `@zap/api` | `https://zap.cire.localhost` |
+| `@tools/lab` | `https://lab.localhost` |
 
-The names mirror production hostnames — `id.musubi` for `id.musubi.social`, `host.cire` for `host.cireweddings.com`.
+The names mirror production hostnames — `id.musubi` for `id.musubi.social`, `host.cire` for `host.cireweddings.com`. `@tools/lab` is the exception: the component lab has no production host, so it is simply `lab`.
 
 > [!important] The nesting is load-bearing
 > A WebAuthn RP ID must be the origin's host or a registrable suffix of it, and a passkey created under one RP ID is invisible under another. `@osn/social` creates the passkey; `@osn/api` verifies it. Both sit under a shared `musubi` parent so `musubi.localhost` can serve as the RP ID for both. Flat names — `musubi` beside `osn-api` — would put every local passkey out of reach of the API that checks it. See [[passkey-primary]].
@@ -83,7 +84,7 @@ Three places, all of which must agree:
 
 1. The `"portless"` key in that package's `package.json` — the name the proxy registers, and `"script": "dev:app"`.
 2. `DEV_APPS` in `shared/dev-urls/src/index.ts` — the same name, plus the port the app falls back to without portless.
-3. `DEV_ENV` in `shared/dev-urls/src/app-env.ts` — which sibling URLs that app needs, keyed by the env var it already reads.
+3. `DEV_ENV` in `shared/dev-urls/src/app-env.ts` — which sibling URLs that app needs, keyed by the env var it already reads. An app that needs none still gets an entry returning `{}` — `@tools/lab` is the one — because the map has to cover every `DEV_APPS` key, and an entry it can forget is one an app can forget too.
 
 ## What the proxy costs
 
@@ -109,6 +110,13 @@ The **first** load after a cold start is the one to know about: on `@pulse/web` 
 PORTLESS=0 bun run dev                # whole devloop on the old fixed ports
 bun run --cwd cire/host dev:app       # one app, no proxy at all
 ```
+
+`PORTLESS` is in `globalPassThroughEnv` in `turbo.json`. Turbo 2 runs strict env
+mode, which hands each task only the variables it is told to, so without that
+line `PORTLESS=0` is stripped between the shell and the `dev` script and every
+app comes up behind the proxy anyway. Pass-through, not `globalEnv`: the value
+picks a devloop, it does not change any build output, and hashing it would evict
+the whole cache every time someone toggled it.
 
 The ports the frontends lost from their `dev` scripts moved into `astro.config.mjs` / `vite.config.ts` as `devPort(<old port>)`. Portless assigns a port and passes it as `PORT`; without portless the literal keeps the four Astro apps from all landing on 4321.
 

@@ -622,6 +622,26 @@
       "name": "@shared/typescript-config",
       "version": "0.0.2",
     },
+    "tools/lab": {
+      "name": "@tools/lab",
+      "version": "0.0.0",
+      "dependencies": {
+        "@osn/ui": "workspace:*",
+        "@tailwindcss/vite": "^4.3.3",
+        "solid-js": "^1.9.14",
+        "tailwindcss": "^4.3.3",
+        "three": "^0.185.1",
+      },
+      "devDependencies": {
+        "@shared/dev-urls": "workspace:*",
+        "@shared/typescript-config": "workspace:*",
+        "@types/three": "^0.185.1",
+        "typescript": "^6.0.3",
+        "vite": "^8.1.5",
+        "vite-plugin-solid": "^2.11.14",
+        "vitest": "^4.1.10",
+      },
+    },
     "zap/api": {
       "name": "@zap/api",
       "version": "0.8.20",
@@ -1505,6 +1525,8 @@
     "@tokenizer/inflate": ["@tokenizer/inflate@0.4.1", "", { "dependencies": { "debug": "^4.4.3", "token-types": "^6.1.1" } }, "sha512-2mAv+8pkG6GIZiF1kNg1jAjh27IDxEPKwdGul3snfztFerfPGI1LjDezZp3i7BElXompqEtPmoPx6c2wgtWsOA=="],
 
     "@tokenizer/token": ["@tokenizer/token@0.3.0", "", {}, "sha512-OvjF+z51L3ov0OyAU0duzsYuvO01PH7x4t6DJx+guahgTnBHkhJdG7soQeTSFLWN3efnHyibZ4Z8l2EuWwJN3A=="],
+
+    "@tools/lab": ["@tools/lab@workspace:tools/lab"],
 
     "@turbo/darwin-64": ["@turbo/darwin-64@2.10.7", "", { "os": "darwin", "cpu": "x64" }, "sha512-/c9cSBRermWDv85oufLhoH6XRLOVbvzJLRd+WLyfJCP+i0HFLQj4PVNDrHcY17/ve5l8X0Oua4bJBqJUgJPnZA=="],
 

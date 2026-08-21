@@ -1,0 +1,36 @@
+{
+  "name": "@tools/lab",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Component lab — a Storybook-shaped scratchpad for spiking UI, three.js and canvas work",
+  "scripts": {
+    "dev": "portless",
+    "dev:app": "dev-env vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run"
+  },
+  "portless": {
+    "name": "lab",
+    "script": "dev:app"
+  },
+  "dependencies": {
+    "@osn/ui": "workspace:*",
+    "@tailwindcss/vite": "^4.3.3",
+    "solid-js": "^1.9.14",
+    "tailwindcss": "^4.3.3",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@shared/dev-urls": "workspace:*",
+    "@shared/typescript-config": "workspace:*",
+    "@types/three": "^0.185.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.5",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "^4.1.10"
+  }
+}

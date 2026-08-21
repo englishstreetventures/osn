@@ -1,5 +1,5 @@
 /**
- * `DEV_APPS` and the twelve app `package.json`s both describe
+ * `DEV_APPS` and the thirteen app `package.json`s both describe
  * the same devloop, and nothing but this file makes them agree.
  *
  * A rename in one place only is silent: the app's `PORTLESS_URL` stops

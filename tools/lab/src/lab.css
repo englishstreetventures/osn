@@ -1,0 +1,45 @@
+/* The lab borrows @osn/social's stylesheet wholesale rather than keeping its
+ * own copy of the design tokens. That file is the source of truth for
+ * `--background`, `--foreground`, the `.dark` block and the `base:` variant
+ * that every @osn/ui component's classes are written against, so importing it
+ * is what makes those components render here exactly as they render in the
+ * app. A second copy would drift within a week. */
+@import "../../../osn/social/src/App.css";
+
+/* Tailwind only generates classes it can see. App.css already scans
+ * osn/ui/src; these add the lab's own chrome and any story file living next
+ * to the component it exercises. Gitignored paths are skipped, so
+ * node_modules costs nothing here. */
+@source "../";
+@source "../../../osn";
+@source "../../../pulse";
+@source "../../../cire";
+@source "../../../zap";
+@source "../../../shared";
+
+/* Preview backdrops. A component that looks right on paper can disappear on
+ * ink, and transparency is invisible until something is behind it. */
+@utility bg-lab-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--foreground) 8%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--foreground) 8%, transparent) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+@utility bg-lab-checker {
+  background-image:
+    linear-gradient(45deg, color-mix(in srgb, var(--foreground) 10%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--foreground) 10%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--foreground) 10%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--foreground) 10%, transparent) 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
+
+/* The lab chrome is a tool, not a document: it should never scroll as a page. */
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}

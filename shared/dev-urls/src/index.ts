@@ -56,6 +56,10 @@ export const DEV_APPS = {
   "@cire/vendor": { name: "vendor.cire", port: 4326 },
   "@cire/api": { name: "api.cire", port: 8787 },
   "@zap/api": { name: "zap.cire", port: 3002 },
+  // Not a product surface — the component lab (`bun run dev:lab`). It is in
+  // here because it is a long-running dev server that portless has to name, not
+  // because anything addresses it.
+  "@tools/lab": { name: "lab", port: 4400 },
 } as const satisfies Record<string, DevApp>;
 
 export type DevAppId = keyof typeof DEV_APPS;

@@ -9,6 +9,7 @@ import {
   publicKeyCacheSize,
   _setPublicKeyCacheMaxSizeForTest,
   _resetPublicKeyCacheMaxSize,
+  _publicKeyAccessRankForTest,
   createArcToken,
   verifyArcToken,
   resolvePublicKey,
@@ -887,6 +888,38 @@ describe("publicKeyCache LRU eviction", () => {
     expect(resB._tag).toBe("Left"); // B evicted (was LRU) and deleted from DB
     expect(resC._tag).toBe("Right"); // C survived
     expect(resD._tag).toBe("Right"); // D just inserted
+  });
+
+  // The eviction scan picks the entry with the lowest access rank, so two
+  // accesses must never compare equal — on a tie it keeps whichever key it
+  // happened to iterate first and can throw away a just-used entry. Ranks used
+  // to come from `Date.now()`, and back-to-back accesses land in the same
+  // millisecond, so this is the property that was actually broken. Asserting it
+  // directly beats asserting an eviction outcome: the outcome only goes wrong
+  // when the timing happens to tie, which made the LRU test above flaky rather
+  // than failing.
+  it("gives every access a distinct, increasing rank (T-R1)", async () => {
+    const layer = createTestLayer();
+    const run = <A>(eff: Effect.Effect<A, unknown, Db>) =>
+      Effect.runPromise(eff.pipe(Effect.provide(layer)) as Effect.Effect<A, never, never>);
+
+    await seedAndResolve(layer, "rank-svc-a", "rank-key-a");
+    await seedAndResolve(layer, "rank-svc-b", "rank-key-b");
+
+    const ranks: number[] = [];
+    // Back-to-back cache hits, as fast as the runtime will do them.
+    for (let i = 0; i < 8; i++) {
+      const kid = i % 2 === 0 ? "rank-key-a" : "rank-key-b";
+      const svc = i % 2 === 0 ? "rank-svc-a" : "rank-svc-b";
+      await run(resolvePublicKey(kid, svc));
+      const rank = _publicKeyAccessRankForTest(svc, kid);
+      expect(rank).toBeDefined();
+      ranks.push(rank as number);
+    }
+
+    for (let i = 1; i < ranks.length; i++) {
+      expect(ranks[i]).toBeGreaterThan(ranks[i - 1] as number);
+    }
   });
 
   it("cache size stays bounded at the configured max", async () => {

@@ -98,6 +98,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[review-findings]] — finding ID format (S-H1, P-W2, T-M1)
 - [[contributing]] — PR workflow, changesets, branching
 - [[stacked-prs]] — basing one PR on another with the gh CLI, and merging the stack
+- [[component-lab]] — the in-repo Storybook replacement: prototyping components, three.js and canvas
 
 ## Compliance
 

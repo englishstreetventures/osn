@@ -20,7 +20,7 @@ packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
-last-reviewed: 2026-08-19
+last-reviewed: 2026-08-21
 ---
 # ARC Tokens (S2S Auth)
 
@@ -264,6 +264,22 @@ The in-process token cache key is `kid:iss:aud:canonical(scope):ttl`:
 ## Current S2S Strategy
 
 `@pulse/api` calls `@osn/api`'s `/graph/internal/*` endpoints over HTTP, authenticated with ARC tokens. ARC token verification middleware (`requireArc` in `osn/api/src/lib/arc-middleware.ts`) protects all inbound calls. The [[s2s-patterns|graphBridge]] in `pulse/api` is the only file that makes these calls.
+
+## Public key cache eviction
+
+`publicKeyCache` is bounded. When it is full, the insert path scans a side map
+of access ranks and drops the lowest — the least recently used entry. Reads go
+through `touchPublicKey`, which writes the rank without a Map delete and
+re-insert, so the hot cache-hit path stays O(1).
+
+The rank is a counter, not a clock. It was `Date.now()` until 2026-08-21, and
+milliseconds are too coarse: back-to-back accesses share one, the scan sees a
+tie, keeps whichever key it iterated first, and evicts an entry that was just
+used instead of the oldest. A counter cannot tie, and it is cheaper
+than reading the clock. `_publicKeyAccessRankForTest` exists so a
+test can assert that two accesses never compare equal, which is the property the
+scan depends on — asserting an eviction outcome instead only catches the bug on
+the runs where the timing happens to tie.
 
 ## Security Notes
 

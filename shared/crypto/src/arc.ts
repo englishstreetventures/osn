@@ -173,11 +173,24 @@ const publicKeyCache = new Map<
   { key: CryptoKey; allowedScopes: Set<string>; expiresAt: number }
 >();
 /**
- * Last-access timestamps for LRU eviction (P-W1).
+ * Access order for LRU eviction (P-W1).
  * Updated on every cache hit; scanned only at insert time (DB-miss path).
  * Avoids the Map delete+re-insert on the hot cache-hit path.
+ *
+ * The value is a logical clock, not a timestamp. `Date.now()` counts
+ * milliseconds, and several cache accesses routinely land inside one: the
+ * eviction scan below then sees a tie, keeps the first key it iterated, and
+ * throws away an entry that was just used instead of the oldest one. A counter
+ * gives a total order for free — and costs less than a clock read on the hot
+ * path, which is where the touch happens.
  */
-const publicKeyLastAccess = new Map<string, number>();
+const publicKeyAccessOrder = new Map<string, number>();
+let publicKeyAccessClock = 0;
+
+/** Record `key` as the most recently used entry. */
+function touchPublicKey(key: string): void {
+  publicKeyAccessOrder.set(key, ++publicKeyAccessClock);
+}
 
 /**
  * Composite cache key. Keying by `kid` ALONE would let a cache hit return a key
@@ -240,10 +253,9 @@ export const resolvePublicKey = (
           }
         }
       }
-      // LRU touch: record access time in ms (P-W1). Side-map write is O(1)
-      // and avoids Map delete+re-insert on the hot cache-hit path. Using
-      // Date.now() (ms) gives sub-second precision for test determinism.
-      publicKeyLastAccess.set(pkKey, Date.now());
+      // LRU touch (P-W1). Side-map write is O(1) and avoids Map
+      // delete+re-insert on the hot cache-hit path.
+      touchPublicKey(pkKey);
       metricArcPublicKeyCacheHit(issuer);
       return cached.key;
     }
@@ -308,21 +320,21 @@ export const resolvePublicKey = (
     });
 
     // Cache the resolved CryptoKey. Store allowedScopes as a Set for O(1)
-    // hit-path scope checks (P-W2). LRU eviction scans the side-timestamp map
+    // hit-path scope checks (P-W2). LRU eviction scans the access-order map
     // to find the least-recently-used entry (P-W1) — O(n) but only on the
     // slow DB-miss path.
     if (publicKeyCache.size >= _publicKeyCacheMaxSize) {
       let lruKid: string | undefined;
-      let lruTime = Infinity;
-      for (const [k, t] of publicKeyLastAccess) {
-        if (t < lruTime) {
-          lruTime = t;
+      let lruRank = Infinity;
+      for (const [k, t] of publicKeyAccessOrder) {
+        if (t < lruRank) {
+          lruRank = t;
           lruKid = k;
         }
       }
       if (lruKid !== undefined) {
         publicKeyCache.delete(lruKid);
-        publicKeyLastAccess.delete(lruKid);
+        publicKeyAccessOrder.delete(lruKid);
       }
     }
     publicKeyCache.set(pkKey, {
@@ -330,7 +342,7 @@ export const resolvePublicKey = (
       allowedScopes: new Set(normaliseScopes(allowedScopes)),
       expiresAt: now + PUBLIC_KEY_CACHE_TTL_SECONDS,
     });
-    publicKeyLastAccess.set(pkKey, Date.now());
+    touchPublicKey(pkKey);
 
     return key;
   });
@@ -340,7 +352,8 @@ export const resolvePublicKey = (
  */
 export function clearPublicKeyCache(): void {
   publicKeyCache.clear();
-  publicKeyLastAccess.clear();
+  publicKeyAccessOrder.clear();
+  publicKeyAccessClock = 0;
 }
 
 /**
@@ -357,7 +370,7 @@ export function evictPublicKeyCacheEntry(kid: string): void {
   for (const key of publicKeyCache.keys()) {
     if (key.endsWith(suffix)) {
       publicKeyCache.delete(key);
-      publicKeyLastAccess.delete(key);
+      publicKeyAccessOrder.delete(key);
     }
   }
 }
@@ -378,6 +391,16 @@ export function _setPublicKeyCacheMaxSizeForTest(n: number): void {
 /** Resets the public key cache max size to the production default. */
 export function _resetPublicKeyCacheMaxSize(): void {
   _publicKeyCacheMaxSize = MAX_CACHE_SIZE;
+}
+
+/**
+ * The LRU rank of a cached `(issuer, kid)` pair, or undefined if it is not
+ * cached. **Tests only** — it exists so a test can assert the property the
+ * eviction scan depends on: that two accesses never compare equal. A wall
+ * clock cannot promise that, which is the bug this replaced.
+ */
+export function _publicKeyAccessRankForTest(issuer: string, kid: string): number | undefined {
+  return publicKeyAccessOrder.get(pkCacheKey(issuer, kid));
 }
 
 // ---------------------------------------------------------------------------
