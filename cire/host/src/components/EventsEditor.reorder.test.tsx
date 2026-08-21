@@ -7,10 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * EventsEditor suite because the pointer path needs geometry faked in.
  *
  * happy-dom does no layout: every `getBoundingClientRect()` is zeroes, so
- * solid-dnd's `closestCenter` would see every row's centre at (0,0) and pick a
+ * `closestCenter` would see every row's centre at (0,0) and pick a
  * collision arbitrarily. `stubRowGeometry` gives the rows real stacked rects so a
  * synthetic pointer drag resolves to a genuine drop target — which makes this an
- * end-to-end check of solid-dnd itself (sensor → collision → `onDragEnd`), not
+ * end-to-end check of the sortable package itself (sensor → collision →
+ * `onDragEnd`), not
  * just of our handler.
  */
 
@@ -79,7 +80,7 @@ const ROW_HEIGHT = 100;
 /** The event rows, scoped to the schedule list. NOT a document-wide `li` query:
  *  `ChangePreview` and the drawer render list markup too, so a test that opens
  *  one would otherwise silently pick up foreign rows — and with the geometry
- *  stub below that failure would look like a solid-dnd bug. */
+ *  stub below that failure would look like a bug in the sortable package. */
 function rows() {
   const list = document.querySelector('ul[data-testid="event-list"]');
   return [...(list?.querySelectorAll(":scope > li") ?? [])] as HTMLLIElement[];
@@ -106,9 +107,13 @@ function renderedOrder() {
 /** Every grip's aria-label, in rendered order — the positional feedback screen
  *  readers rely on, which must track the order after every move. */
 function gripLabels() {
+  // Matched by the label rather than by the hint id: the id is generated per
+  // list (so two sortable lists can share a page) and is not a stable selector.
   return rows().map(
     (li) =>
-      li.querySelector('button[aria-describedby="reorder-hint"]')?.getAttribute("aria-label") ?? "",
+      [...li.querySelectorAll("button")]
+        .find((b) => (b.getAttribute("aria-label") ?? "").startsWith("Reorder "))
+        ?.getAttribute("aria-label") ?? "",
   );
 }
 
@@ -294,7 +299,7 @@ describe("EventsEditor — re-ordering by keyboard", () => {
     await mounted();
 
     // Deleting a row rewrites `SortableProvider`'s ids. A stale id list is the
-    // classic solid-dnd sortable failure: `onDragEnd` resolves -1 and the drop is
+    // classic sortable failure: `onDragEnd` resolves -1 and the drop is
     // swallowed by the guard with no feedback.
     fireEvent.click(screen.getAllByRole("button", { name: /^Delete$/i })[1]!);
     await waitFor(() => expect(renderedOrder()).toEqual(["Ceremony", "Brunch"]));
@@ -378,14 +383,22 @@ describe("EventsEditor — re-ordering for assistive tech", () => {
 });
 
 describe("EventsEditor — re-ordering by pointer drag", () => {
-  /** Drive solid-dnd's pointer sensor: press the grip, move past the sensor's
+  /** Drive the pointer sensor: press the grip, move past the sensor's
    *  activation threshold onto the target row's centre, release. */
   function drag(handle: HTMLElement, toY: number) {
     fireEvent.pointerDown(handle, { pointerId: 1, clientX: 10, clientY: 10 });
-    // First move activates the sensor (it has a small distance threshold).
-    fireEvent(document, new PointerEvent("pointermove", { clientX: 10, clientY: 30 }));
-    fireEvent(document, new PointerEvent("pointermove", { clientX: 10, clientY: toY }));
-    fireEvent(document, new PointerEvent("pointerup", { clientX: 10, clientY: toY }));
+    // Every event carries the SAME pointerId, as a real browser's do — the
+    // sensor ignores contacts other than the one that started the gesture, so
+    // one finger cannot drive or end another's drag.
+    fireEvent(
+      document,
+      new PointerEvent("pointermove", { pointerId: 1, clientX: 10, clientY: 30 }),
+    );
+    fireEvent(
+      document,
+      new PointerEvent("pointermove", { pointerId: 1, clientX: 10, clientY: toY }),
+    );
+    fireEvent(document, new PointerEvent("pointerup", { pointerId: 1, clientX: 10, clientY: toY }));
   }
 
   it("drops a row onto a lower slot and commits the new order", async () => {

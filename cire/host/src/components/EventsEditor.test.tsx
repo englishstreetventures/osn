@@ -176,13 +176,21 @@ describe("EventsEditor", () => {
     render(() => <EventsEditor weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Reception")).toBeTruthy());
 
-    // One grip per event, labelled by name AND position — solid-dnd announces
-    // nothing, so the label carries the position itself. Re-ordering behaviour
-    // (pointer drag + keyboard) is covered in EventsEditor.reorder.test.tsx.
+    // One grip per event, labelled by name AND position — a drag reports
+    // nothing to assistive tech, so the label carries the position itself.
+    // Re-ordering behaviour (pointer drag + keyboard) is covered in
+    // EventsEditor.reorder.test.tsx.
     expect(screen.getByRole("button", { name: /Reorder Ceremony, position 1 of 2/i })).toBeTruthy();
     const grip = screen.getByRole("button", { name: /Reorder Reception, position 2 of 2/i });
     expect(grip.tagName).toBe("BUTTON"); // tabbable ⇒ it can own the keyboard path
-    expect(grip.getAttribute("aria-describedby")).toBe("reorder-hint");
+    // The hint id is GENERATED per list rather than a hardcoded
+    // `"reorder-hint"`, so several sortable lists can share a page without every
+    // grip describing itself with whichever one won. Assert the link, not the id.
+    const hintId = grip.getAttribute("aria-describedby")!;
+    expect(hintId).toBeTruthy();
+    expect(document.getElementById(hintId)?.textContent).toMatch(
+      /press the up and down arrow keys/i,
+    );
     expect(screen.getByText(/press the up and down arrow keys/i)).toBeTruthy();
 
     // The VISIBLE ▲/▼ pair is gone, but an Enter/Space-activated equivalent

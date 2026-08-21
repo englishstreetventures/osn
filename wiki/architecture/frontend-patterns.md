@@ -118,7 +118,7 @@ toast behind the `z-100` sheet it fires underneath.
 **Fix:** mount page-level overlays at the component root, as siblings of the
 modals, never inside an animated section.
 
-**Testing it:** do NOT reach for `document.elementFromPoint`. `solid-toast`'s
+**Testing it:** do NOT reach for `document.elementFromPoint`. `@shared/toast`'s
 container is deliberately `pointer-events: none`, so it hit-tests as transparent
 even when painted perfectly. Assert the mechanism instead — no fixed-position
 containing block between the element and `<body>`, and a computed `z-index` above

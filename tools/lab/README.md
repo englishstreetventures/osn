@@ -22,14 +22,25 @@ Open **`osn/ui` → Everything** for every component `@osn/ui` exports on one
 page, each with the import path to copy. That is the "what do we already have"
 view. For a component's full range of variants and states, open its own group:
 
-| Group | Covers |
-| --- | --- |
-| `osn/ui` | Everything, one state each |
-| `osn/ui/Button` | All variants, all sizes, live playground |
-| `osn/ui/display` | Badge, Avatar, Card |
-| `osn/ui/forms` | Input, Label, Textarea, Checkbox, RadioGroup, UsernameInput, OtpInput |
-| `osn/ui/overlays` | Dialog, DropdownMenu, Popover, Tabs |
-| `pulse/Icon` | The Pulse glyph set, every icon at every size |
+| Group             | Covers                                                                   |
+| ----------------- | ------------------------------------------------------------------------ |
+| `osn/ui`          | Everything, one state each                                               |
+| `osn/ui/Button`   | All variants, all sizes, live playground                                 |
+| `osn/ui/display`  | Badge, Avatar, Card                                                      |
+| `osn/ui/forms`    | Input, Label, Textarea, Checkbox, RadioGroup, UsernameInput, OtpInput    |
+| `osn/ui/overlays` | Dialog, DropdownMenu, Popover, Tabs                                      |
+| `pulse/Icon`      | The Pulse glyph set, every icon at every size                            |
+| `shared/toast`    | Tones, positions, stacking, actions/promises, overflow                   |
+| `shared/sortable` | Drag feel, the shift/settle animation, grip hover/focus, multi-container |
+
+The last two are benches for behaviour no test tier can see. `@shared/toast`'s
+suite asserts the queue and the DOM contract; `@shared/sortable`'s asserts drop
+semantics against stubbed geometry, because happy-dom computes no layout. Neither
+can tell you whether a drag tracks the pointer, whether the rows shift aside to
+preview the drop, or whether a toast is legible on the surface it lands on. The
+lab's **light · dark** toggle matters for the toast in particular — it borrows
+`@osn/social`'s stylesheet, which is what maps the shadcn ramp onto the
+`--toast-*` contract, so the toggle re-themes toasts exactly as the app does.
 
 App-level components (`pulse/web/src/components`, `cire/invites`,
 `osn/social`) are not catalogued: they read from an API client, a router and an
@@ -155,11 +166,11 @@ pre-scaled so you work in CSS pixels.
 
 Three routes, one per story in `src/stories/html-in-canvas.story.tsx`:
 
-| Want | Use | Cost |
-| --- | --- | --- |
-| DOM-authored artwork, canvas compositing | `htmlToCanvas` | It is pixels. No interaction. |
-| The same artwork in a 3D scene | `htmlToTexture` | Lights and depth-sorts; still pixels. |
-| Live, clickable DOM in 3D | `css3d` + `CSS3DObject` | Real hit-testing, but it composites *over* the WebGL layer — geometry cannot occlude it, and it takes no lighting. |
+| Want                                     | Use                     | Cost                                                                                                               |
+| ---------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| DOM-authored artwork, canvas compositing | `htmlToCanvas`          | It is pixels. No interaction.                                                                                      |
+| The same artwork in a 3D scene           | `htmlToTexture`         | Lights and depth-sorts; still pixels.                                                                              |
+| Live, clickable DOM in 3D                | `css3d` + `CSS3DObject` | Real hit-testing, but it composites _over_ the WebGL layer — geometry cannot occlude it, and it takes no lighting. |
 
 The first two rasterise through an SVG `foreignObject`, which has two limits
 worth knowing before you blame the helper:
