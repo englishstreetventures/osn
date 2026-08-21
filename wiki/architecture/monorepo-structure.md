@@ -45,9 +45,11 @@ packages:
   - "@shared/osn-auth-client"
   - "@shared/rate-limit"
   - "@shared/redis"
+  - "@shared/sortable"
+  - "@shared/toast"
   - "@shared/turnstile"
   - "@shared/typescript-config"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-21
 ---
 
 # Monorepo Structure
@@ -101,6 +103,8 @@ shared/
   osn-auth-client/     # @shared/osn-auth-client — downstream access-JWT verification (JWKS cache, Elysia adapter)
   rate-limit/          # @shared/rate-limit — per-IP / per-user fixed-window limiter primitives, getClientIp trust policy
   redis/               # @shared/redis — Redis client wrapper, rate-limiter Lua, JTI / rotated-session stores
+  sortable/            # @shared/sortable — drag-to-reorder for SolidJS: pointer sensor, closestCenter, multi-container, and the whole keyboard / screen-reader path
+  toast/               # @shared/toast — SolidJS toasts themed through --toast-* custom properties
   turnstile/           # @shared/turnstile — key-optional, fail-closed Turnstile verifier
   typescript-config/   # @shared/typescript-config — base.json, node.json, solid.json
 ```

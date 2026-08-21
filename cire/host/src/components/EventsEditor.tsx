@@ -1,15 +1,17 @@
 import { useAuth } from "@shared/rp-auth/solid";
-import { toast } from "@shared/toast";
 import {
   closestCenter,
   createSortable,
+  createSortableList,
   DragDropProvider,
   DragDropSensors,
-  type DragEvent as SortableDragEvent,
+  type Id,
   maybeTransformStyle,
+  type SortableItem,
   SortableProvider,
   useDragDropContext,
-} from "@thisbeyond/solid-dnd";
+} from "@shared/sortable";
+import { toast } from "@shared/toast";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
@@ -65,7 +67,7 @@ const UNNAMED_EVENT = "Untitled event";
  * mutates the `events` slice E5 carried through untouched). Add/edit an event
  * via a drawer form (name, start/end + timezone, address, dress-code + palette
  * reusing {@link ColorPicker}, Pinterest/Maps URLs); delete with an impact
- * confirm; re-order by DRAGGING a row's grip handle (solid-dnd), writing
+ * confirm; re-order by DRAGGING a row's grip handle (`@shared/sortable`), writing
  * `sortOrder`. Save posts the WHOLE draft (events + families) as DesiredState
  * JSON to `changes/preview` → the shared {@link ChangePreview} modal →
  * `changes/apply` on confirm → refetch + toast.
@@ -73,14 +75,16 @@ const UNNAMED_EVENT = "Untitled event";
  * Field-invalid drafts can't be submitted — Save disables and the drawer shows
  * errors inline. Guests ride along unchanged (id-matched ⇒ no-op update).
  *
- * Re-ordering has THREE input paths, and all three are load-bearing. solid-dnd
- * ships a pointer sensor only — no keyboard sensor, no announcements — so on top
- * of dragging the grip handles Arrow Up/Down itself, each row carries `sr-only`
- * move buttons (NVDA/JAWS browse mode never forwards the grip's arrow keys, so
- * without an Enter/Space-activated path those users have none), and every move is
+ * Re-ordering has THREE input paths, and all three are load-bearing: dragging
+ * the grip, Arrow Up/Down from the focused grip, and per-row `sr-only` move
+ * buttons (NVDA/JAWS browse mode never forwards the grip's arrow keys, so
+ * without an Enter/Space-activated path those users have none). Every move is
  * reported through a polite live region. That's what stops "drag instead of ▲/▼
- * buttons" from being an accessibility regression — see
- * `[[cire/wiki/architecture/drag-and-drop]]` before removing any of it.
+ * buttons" from being an accessibility regression.
+ *
+ * All three now come from `createSortableList` in `@shared/sortable`, which
+ * owns and tests the five obligations that make them work — see its docblock,
+ * and `wiki/architecture/drag-and-drop.md`, before changing any of it.
  */
 export default function EventsEditor(props: { weddingId: string }) {
   const { authFetch } = useAuth();
@@ -93,87 +97,33 @@ export default function EventsEditor(props: { weddingId: string }) {
   /** The draft key of the event whose drawer is open, or null when closed. */
   const [editingKey, setEditingKey] = createSignal<string | null>(null);
 
-  /** Live-region text announcing the last re-order. solid-dnd announces nothing,
-   *  so without this a keyboard/screen-reader user gets no feedback that the move
-   *  landed. */
-  const [announcement, setAnnouncement] = createSignal("");
-
   /** The draft keys in current schedule order — `SortableProvider`'s id list, and
    *  what a drop's draggable/droppable ids are resolved against. */
   const eventKeys = createMemo(() => store.draft.events.map((e) => e.key));
 
-  function announceMove(name: string, to: number) {
-    // Clear FIRST. A live region only re-announces when its text actually
-    // changes, and walking one row down the list repeatedly produces the same
-    // sentence every time ("X moved to position 2 of 3") — set straight, the
-    // signal's `===` equality would drop it and the second press would be
-    // silent. Solid applies each set synchronously, so this is two real DOM
-    // writes: empty, then the message.
-    setAnnouncement("");
-    setAnnouncement(
-      `${name || UNNAMED_EVENT} moved to position ${to + 1} of ${store.draft.events.length}.`,
-    );
-  }
+  const nameForKey = (key: Id) =>
+    store.draft.events.find((e) => e.key === key)?.name || UNNAMED_EVENT;
 
-  /** Undo/discard rewind the order without going through `announceMove`, so the
-   *  region would otherwise keep asserting a move that has just been reversed.
-   *  Cleared rather than re-announced: an undo may have reverted a field edit
-   *  rather than a re-order, and guessing which would be worse than silence. */
-  const clearAnnouncement = () => setAnnouncement("");
-
-  /** The slot the pointer was last over, so `onDragOver` can tell a real slot
-   *  change from the stream of same-slot events solid-dnd emits per pointer
-   *  move. Only the change is worth a tick. */
-  let lastOverKey: string | null = null;
-
-  /** Lift-off. The row detaches from the list here, so this is the moment the
-   *  drag becomes real to the host — the buzz is what a physical control's
-   *  detent gives you when it leaves its seat. */
-  function handleDragStart() {
-    lastOverKey = null;
-    haptic("pickup");
-  }
-
-  /** Crossing into another row's slot. One light tick per slot, so a drag down
-   *  a long list reads as counting rows rather than as one continuous smear. */
-  function handleDragOver({ droppable }: SortableDragEvent) {
-    const key = droppable ? String(droppable.id) : null;
-    if (key === lastOverKey) return;
-    lastOverKey = key;
-    if (key) haptic("step");
-  }
-
-  /** Commit a drop. solid-dnd hands back the dragged row and the row it landed
-   *  on; both ids are draft keys, so the move is their two indices in the current
-   *  order. `reorderEvents` itself no-ops on same-index/out-of-range. */
-  function handleDragEnd({ draggable, droppable }: SortableDragEvent) {
-    lastOverKey = null;
-    if (!droppable) return;
-    const keys = eventKeys();
-    const from = keys.indexOf(String(draggable.id));
-    const to = keys.indexOf(String(droppable.id));
-    if (from === -1 || to === -1 || from === to) return;
-    const name = store.draft.events[from]?.name ?? "";
-    store.reorderEvents(from, to);
-    announceMove(name, to);
-    // Only a drop that actually moved something gets the commit buzz — a row
-    // dropped back where it started has changed nothing to confirm.
-    haptic("commit");
-  }
-
-  /** Keyboard re-order: move the row at `index` one slot in `delta`'s direction.
-   *  Focus rides along for free — `<For>` is keyed, so the row's DOM node (and
-   *  the focused grip inside it) is MOVED rather than re-created. */
-  function handleKeyboardMove(index: number, delta: -1 | 1) {
-    const to = index + delta;
-    if (to < 0 || to >= store.draft.events.length) return;
-    const name = store.draft.events[index]?.name ?? "";
-    store.reorderEvents(index, to);
-    announceMove(name, to);
-    // The keyboard path has no pick-up or hover phase — each press IS the move,
-    // so it gets the same confirmation a drop does.
-    haptic("commit");
-  }
+  /**
+   * The whole keyboard / screen-reader / announcement layer, owned by
+   * `@shared/sortable`.
+   *
+   * It used to live here — about 120 lines of it — because the drag library
+   * supplied none of it: no keyboard sensor, no announcements. Every list that
+   * wanted dragging had to re-derive the same five obligations, which is why
+   * `ChecklistView`, `BudgetView` and `RegistryView` are still on arrow buttons.
+   * `createSortableList` documents and tests all five; see its docblock.
+   *
+   * Haptics stay here. They are the portal's vocabulary, not the package's, so
+   * the package reports phases and this decides what they feel like.
+   */
+  const list = createSortableList({
+    ids: eventKeys,
+    labelFor: nameForKey,
+    noun: "event",
+    onMove: (from, to) => store.reorderEvents(from, to),
+    onPhase: (phase) => haptic(phase),
+  });
 
   const changesUrl = (op: string) =>
     apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/${op}`);
@@ -386,15 +336,10 @@ export default function EventsEditor(props: { weddingId: string }) {
             />
           }
         >
-          {/* `DragDropSensors` registers solid-dnd's pointer sensor; the grip's own
-              Arrow-key handler covers keyboard (solid-dnd has no keyboard sensor).
+          {/* `DragDropSensors` registers the pointer sensor; the keyboard and
+              screen-reader paths come from `createSortableList` above.
               `closestCenter` is the right detector for a single-column list. */}
-          <DragDropProvider
-            onDragStart={handleDragStart}
-            onDragOver={handleDragOver}
-            onDragEnd={handleDragEnd}
-            collisionDetector={closestCenter}
-          >
+          <DragDropProvider {...list.dragHandlers} collisionDetector={closestCenter}>
             <DragDropSensors />
             <ul class="flex flex-col gap-3" data-testid="event-list">
               <SortableProvider ids={eventKeys()}>
@@ -407,7 +352,7 @@ export default function EventsEditor(props: { weddingId: string }) {
                       hasError={(errorsByKey().get(event.key)?.length ?? 0) > 0}
                       onEdit={() => setEditingKey(event.key)}
                       onDelete={() => handleDelete(event)}
-                      onKeyboardMove={(delta) => handleKeyboardMove(index(), delta)}
+                      sortableItem={list.item(event.key, index, () => store.draft.events.length)}
                     />
                   )}
                 </For>
@@ -416,15 +361,12 @@ export default function EventsEditor(props: { weddingId: string }) {
           </DragDropProvider>
 
           {/* Keyboard instructions, referenced by every grip's aria-describedby —
-              the drag affordance is invisible to a screen-reader user otherwise. */}
-          <p id="reorder-hint" class="sr-only">
-            Drag to re-order, or press the up and down arrow keys to move this event. Move up and
-            move down buttons follow this handle.
-          </p>
+              the drag affordance is invisible to a screen-reader user otherwise.
+              The id is generated per list, so several sortable lists can share a
+              page without every grip describing itself with whichever won. */}
+          <p {...list.hintProps()}>{list.hintText}</p>
           {/* Screen-reader feedback for a completed move (drag or keyboard). */}
-          <p class="sr-only" role="status" aria-live="polite">
-            {announcement()}
-          </p>
+          <p {...list.liveRegionProps()}>{list.announcement()}</p>
         </Show>
       </Show>
 
@@ -493,7 +435,7 @@ export default function EventsEditor(props: { weddingId: string }) {
                   size="sm"
                   onClick={() => {
                     store.undo();
-                    clearAnnouncement();
+                    list.clearAnnouncement();
                   }}
                   disabled={!store.canUndo() || busy()}
                 >
@@ -504,7 +446,7 @@ export default function EventsEditor(props: { weddingId: string }) {
                   size="sm"
                   onClick={() => {
                     store.discard();
-                    clearAnnouncement();
+                    list.clearAnnouncement();
                     setEditingKey(null);
                   }}
                   disabled={busy()}
@@ -547,88 +489,59 @@ function EventRowCard(props: {
   hasError: boolean;
   onEdit: () => void;
   onDelete: () => void;
-  onKeyboardMove: (delta: -1 | 1) => void;
+  /** The row's slice of `createSortableList` — grip, move controls, labels. */
+  sortableItem: SortableItem;
 }) {
   const sortable = createSortable(props.event.key);
   // Non-null: the row only ever renders inside the list's DragDropProvider.
   const [dndState] = useDragDropContext()!;
-  let handleEl!: HTMLButtonElement;
-
-  /** Arrow Up/Down re-orders from the focused grip — solid-dnd has no keyboard
-   *  sensor, so this is the whole keyboard story for the list. */
-  function handleKeyDown(event: KeyboardEvent) {
-    const delta = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
-    if (delta === 0) return;
-    // Stop the page scrolling out from under the row being moved. Deliberately
-    // BEFORE the bounds check, so a focused grip owns Up/Down unconditionally:
-    // at either end of the list the key does nothing at all rather than
-    // sometimes moving the row and sometimes scrolling the page.
-    event.preventDefault();
-    // One press, one move — matching the click semantics of the ▲/▼ buttons this
-    // replaced. Auto-repeat fires ~30×/s and every move is a full draft
-    // checkpoint (a structuredClone) plus a revalidation, so a held key would
-    // stall the list AND burn through the 100-slot undo stack in a few seconds,
-    // silently dropping the edits the organiser actually wants to undo.
-    if (event.repeat) return;
-    props.onKeyboardMove(delta);
-    // Re-focus the grip explicitly. `<For>` is keyed so this very node is MOVED
-    // rather than re-created, but a DOM move is a remove-then-insert and focus
-    // does not reliably survive it — without this, one keypress moves the row and
-    // then focus is on <body>, so the row can't be walked further.
-    handleEl.focus();
-  }
 
   /** One screen-reader move control. Activated with Enter/Space (or an AT's
    *  "activate" command), so it works from browse mode where the grip's arrow
-   *  keys don't reach. Disabled at the list ends rather than silently no-op, so
-   *  AT reports the boundary instead of the user pressing into nothing. */
-  const moveButton = (delta: -1 | 1) => {
-    const atEnd = () => (delta === -1 ? props.index === 0 : props.index === props.count - 1);
-    return (
-      <button
-        type="button"
-        disabled={atEnd()}
-        onClick={() => props.onKeyboardMove(delta)}
-        class="border-border bg-surface font-body text-text-muted hover:text-gold sr-only rounded-sm border px-2 py-1 text-[0.7rem] tracking-[0.1em] uppercase focus:not-sr-only focus:relative focus:z-20"
-      >
-        Move {props.event.name || UNNAMED_EVENT} {delta === -1 ? "up" : "down"}
-      </button>
-    );
-  };
+   *  keys don't reach. `moveProps` disables it at the list ends rather than
+   *  silently no-opping, so AT reports the boundary instead of the user
+   *  pressing into nothing. */
+  const moveButton = (delta: -1 | 1) => (
+    <button
+      {...props.sortableItem.moveProps(delta)}
+      class="border-border bg-surface font-body text-text-muted hover:text-gold sr-only rounded-sm border px-2 py-1 text-[0.7rem] tracking-[0.1em] uppercase focus:not-sr-only focus:relative focus:z-20"
+    >
+      {props.sortableItem.moveLabel(delta)}
+    </button>
+  );
 
   return (
     <li
       ref={sortable.ref}
-      // `ref` (unlike solid-dnd's `use:sortable` directive) registers the node
-      // WITHOUT applying the drag/shift transform, which is what lets the grip —
-      // rather than the whole row — be the drag affordance. So apply it here.
-      style={maybeTransformStyle(sortable.transform)}
+      // `ref` registers the node WITHOUT applying the drag transform, which is
+      // what lets the grip — rather than the whole row — be the drag affordance.
+      // So apply it here. `transform` is an accessor: CALL it, or
+      // `maybeTransformStyle` sees a truthy function and paints
+      // `translate3d(undefinedpx, …)`.
+      style={maybeTransformStyle(sortable.transform())}
       class="border-border bg-surface/30 flex flex-wrap items-center gap-3 rounded-sm border p-4"
       classList={{
         "border-error/50": props.hasError,
         // Lift the row being dragged clear of its neighbours.
-        "border-gold/60 bg-surface/80 z-10 shadow-lg": sortable.isActiveDraggable,
+        "border-gold/60 bg-surface/80 z-10 shadow-lg": sortable.isActiveDraggable(),
         // Animate the OTHER rows shifting aside, but never the dragged one —
         // that must track the pointer without easing. Only while a drag is live,
         // so the post-drop settle isn't double-animated.
-        "transition-transform": !!dndState.active.draggable && !sortable.isActiveDraggable,
+        "transition-transform": !!dndState.active().draggable && !sortable.isActiveDraggable(),
       }}
     >
       {/* Re-order controls: a grip you drag, plus two activate-to-move buttons
-          that are only rendered for assistive tech. See `moveButton` below for
+          that are only rendered for assistive tech. See `moveButton` above for
           why the second path is NOT redundant. `touch-none` on the grip is
           required — without it the browser scrolls instead of handing the
-          gesture to solid-dnd. */}
+          gesture to the sensor. */}
       <div class="flex items-center">
         <button
-          type="button"
-          ref={handleEl}
-          aria-label={`Reorder ${props.event.name || UNNAMED_EVENT}, position ${props.index + 1} of ${props.count}`}
-          aria-describedby="reorder-hint"
-          // Spread FIRST so our keyboard handler can't be clobbered by a future
-          // solid-dnd sensor that also binds keydown.
+          // `dragActivators` FIRST, so the pointer sensor can never clobber the
+          // grip's own keyboard handler — later props win in Solid's spread,
+          // and `gripProps` is what carries `onKeyDown`, the label and the ref.
           {...sortable.dragActivators}
-          onKeyDown={handleKeyDown}
+          {...props.sortableItem.gripProps()}
           // `py-2` is not decoration: it brings the handle to the WCAG 2.5.8
           // 24px minimum target, on the row's only re-order affordance.
           class="text-text-muted hover:text-gold focus-visible:text-gold cursor-grab touch-none px-1 py-2 text-[1.1rem] leading-none active:cursor-grabbing"

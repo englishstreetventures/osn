@@ -79,6 +79,8 @@ gh issue create --repo xchromo/osn --type Feature --label product:cire --title "
 | Run the devloop (named HTTPS hosts per app, a stack per worktree, adding an app to it) | `[[wiki/conventions/devloop-urls]]` |
 | Split one goal across several PRs (stacked PRs — setting the base with the gh CLI, merge order, rebasing a stack) | `[[wiki/conventions/stacked-prs]]` |
 | Add or use UI component (Button, Card, Dialog…) | `[[wiki/architecture/component-library]]` |
+| Raise a toast, theme one for an app, or debug a toast's stacking/contrast | `[[wiki/systems/toast]]` |
+| Add drag-to-reorder to a list (and get the keyboard + screen-reader path for free) | `[[wiki/architecture/drag-and-drop]]` |
 | Prototype a component, a three.js scene or canvas work in isolation (`bun run dev:lab`, `https://lab.localhost`) | `[[wiki/conventions/component-lab]]`, `tools/lab/README.md` |
 | Work on a specific app/surface (osn-core, social, pulse, zap, cire, cire-landing, osn-landing, pulse-landing) | `[[wiki/apps/<name>]]` |
 | Build cire itself (Elysia `aot: false`, the middleware/role gates, the two test tiers, the by-hand deploy) | `[[wiki/apps/cire-development]]` |
@@ -213,7 +215,7 @@ Monorepo by domain. Five dirs, five prefixes — see `[[wiki/architecture/monore
 | `pulse/` | `@pulse/*` | Events stack (app, API, DB) |
 | `zap/` | `@zap/*` | Messaging stack (API on port 3002, DB) |
 | `cire/` | `@cire/*` | Wedding-invite stack (guest site, organiser portal, API, DB) |
-| `shared/` | `@shared/*` | Cross-cutting utils (`@shared/crypto` for ARC tokens, `@shared/email` for transactional mail, `@shared/observability`, `@shared/rate-limit`, `@shared/turnstile` for key-optional bot protection, `@shared/osn-auth-client` for downstream access-JWT verification) |
+| `shared/` | `@shared/*` | Cross-cutting utils (`@shared/crypto` for ARC tokens, `@shared/email` for transactional mail, `@shared/observability`, `@shared/rate-limit`, `@shared/turnstile` for key-optional bot protection, `@shared/osn-auth-client` for downstream access-JWT verification, `@shared/toast` + `@shared/sortable` for the SolidJS toast and drag-to-reorder surfaces) |
 
 ## Tech (one-liner)
 
@@ -241,6 +243,8 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | Origin Guard (M1) | Origin header validation on POST/PUT/PATCH/DELETE. ARC-protected internal routes exempt. | `osn/api/src/lib/origin-guard.ts` |
 | Rate Limiting | Per-IP on auth endpoints; per-user on graph/org writes and `/recommendations/connections`. Behind Cloudflare, per-IP keys on `cf-connecting-ip` (`trustCloudflare`); the 60s auth-IP limiters run on **native Workers rate-limit bindings**, Upstash keeps the 1h-window IP limiters + all per-user/account limiters + stateful stores. Fail-closed. | `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]` |
 | Turnstile bot protection | Cloudflare Turnstile on osn register/login + cire claim/rsvp. Shared `@shared/turnstile` `createTurnstileVerifier`; **key-optional + fail-closed** (no secret ⇒ inert no-op; secret set ⇒ token required, rejects on missing/invalid/duplicate/unreachable). Shipped inert until a dashboard widget exists. | `[[wiki/systems/turnstile]]` |
+| Toasts | `@shared/toast` — internal SolidJS toasts. Styled from `--toast-*` custom properties each app maps onto its own tokens, so no `!important` and no library-owned `z-index` (the layer is a class). Portalled to `<body>` so an ancestor `transform` can't trap the fixed container. Tone is a distinct glyph shape + `sr-only` word, never hue alone; errors `assertive`, the rest `polite`. | `[[wiki/systems/toast]]` |
+| Drag-to-reorder | `@shared/sortable` — internal, replacing the unmaintained solid-dnd. Pointer sensor with an activation threshold, `closestCenter`, provider-scoped groups for multi-container lists. `createSortableList` owns the five accessibility obligations (real button grip, `sr-only` move buttons for browse mode, focus restore, clear-before-set live region, no auto-repeat) so adopting drag is no longer an accessibility project. | `[[wiki/architecture/drag-and-drop]]` |
 | Observability | OpenTelemetry → Grafana Cloud. Three rules: no `console.*`, no raw OTel constructors, no unbounded metric attributes. | `[[wiki/observability/overview]]` |
 | Testing | `it.effect` + `createTestLayer()` for service tests; `createXxxRoutes(createTestLayer())` for route tests. In-memory SQLite. | `[[wiki/conventions/testing-patterns]]` |
 | Schema Layers | Elysia TypeBox at HTTP boundary, Effect Schema in services. Never mix. | `[[wiki/architecture/schema-layers]]` |

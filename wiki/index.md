@@ -28,7 +28,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[s2s-patterns]] — graphBridge, cross-package calls, ARC token flow
 - [[frontend-patterns]] — SolidJS, shared UI tokens, lazy loading
 - [[component-library]] — Zaidan/shadcn-style components, Kobalte primitives, CVA variants
-- [[drag-and-drop]] — solid-dnd for drag-to-reorder, its staleness risk, and the keyboard + announcement path we own
+- [[drag-and-drop]] — `@shared/sortable` for drag-to-reorder, multi-container lists, and the keyboard + announcement path it owns
 - [[cire-platform-plan]] — cire's build plan from digital invite to wedding-management platform
 - [[cire-invite-builder]] — organiser-editable invite images + copy (slots, storage, API, guest rendering)
 - [[cire-guest-event-editor]] — the interactive events + guests editor alongside the CSV schema
@@ -64,6 +64,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[venues]] — org-scoped venues, event lineups, venue detail page + Explore map layer
 - [[platform-limits]] — MAX_EVENT_GUESTS and other caps
 - [[redis]] — Redis-backed rate limiters + cluster-safe auth state stores
+- [[toast]] — `@shared/toast`, the `--toast-*` theming contract, and contrast on the surface a toast actually sits on
 - [[database-environments]] — four DB environments (local bun:sqlite / dev·staging·prod D1), driver-agnostic Drizzle seam, D1 transaction caveat
 
 ## Observability

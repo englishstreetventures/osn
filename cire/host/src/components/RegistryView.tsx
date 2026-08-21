@@ -305,7 +305,9 @@ export default function RegistryView(props: RegistryViewProps) {
 
   // ── Reorder ───────────────────────────────────────────────────────────────
   // Arrow buttons, not drag: the same pattern `ChecklistView`/`BudgetView` use,
-  // and the one that already works from a keyboard. solid-dnd ships no keyboard
+  // and the one that already works from a keyboard. Adopting drag here is now
+  // cheap — `@shared/sortable`'s `createSortableList` supplies the whole keyboard
+  // and screen-reader path — but it is a UX change, so it is its own issue.
   // sensor and no announcements, so adopting it here would mean re-supplying the
   // whole keyboard path by hand — see `[[cire/wiki/architecture/drag-and-drop]]`.
   const move = async (index: number, delta: -1 | 1) => {

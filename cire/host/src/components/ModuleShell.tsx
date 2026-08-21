@@ -28,7 +28,7 @@ import VendorsView from "./VendorsView";
  * The portal is one `client:only` island, so everything a module might show
  * used to arrive before the Overview could paint — including the invite builder
  * (its own tree plus every design in `@cire/invite-designs`) and the events
- * editor (which drags in solid-dnd). None of the three is on the path to the
+ * editor (which drags in `@shared/sortable`). None of the three is on the path to the
  * page an organiser actually lands on, and two of them are closed to a viewer
  * entirely. They now arrive when the sub-tab that shows them is chosen.
  *

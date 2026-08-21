@@ -205,7 +205,7 @@ the repo stayed green, because every assertion about it was class-presence in
 happy-dom — the fill's whole job is a painted colour a second later, and nothing
 measured that. Note also what the browser tier does NOT relieve you of: the
 `elementFromPoint` trick used elsewhere on this page is useless against a
-`solid-toast` container, which is deliberately `pointer-events: none` and so
+`@shared/toast` container, which is deliberately `pointer-events: none` and so
 hit-tests as transparent even when painted perfectly. Assert the mechanism
 (containing block, stacking context, computed `z-index`) in that case, not the
 hit test.

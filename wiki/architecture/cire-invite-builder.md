@@ -848,7 +848,7 @@ wedding from its own link.
 1,650-line `InviteBuilder.tsx` is now a directory; the old
 `components/InviteBuilder.tsx` path survives as a re-export so import sites
 and tests are unchanged). `useAuth().authFetch` drives the organiser
-endpoints; `solid-toast` for feedback, `isAuthExpired` / `redirectToLogin` for
+endpoints; `@shared/toast` for feedback, `isAuthExpired` / `redirectToLogin` for
 401 handling — same patterns as `ImportPanel`.
 
 | File | Owns |
