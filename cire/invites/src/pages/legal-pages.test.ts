@@ -48,7 +48,8 @@ describe.each(pages)("%s", (page) => {
   });
 
   it("shows its draft banner only while the operator's details are unfilled", () => {
-    expect(source).toContain("LEGAL_DETAILS_PENDING &&");
+    expect(source).toContain("draftPending(");
+    expect(source).toContain("{draft && (");
   });
 });
 

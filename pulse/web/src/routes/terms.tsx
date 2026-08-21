@@ -1,4 +1,4 @@
-import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING } from "@shared/legal";
+import { LEGAL_ENTITY, draftPending, isPlaceholder } from "@shared/legal";
 import type { JSX } from "solid-js";
 
 /**
@@ -9,7 +9,7 @@ import type { JSX } from "solid-js";
 export default function TermsRoute(): JSX.Element {
   return (
     <article class="mx-auto w-full max-w-2xl px-6 py-12 leading-relaxed">
-      {LEGAL_DETAILS_PENDING && (
+      {draftPending(LEGAL_ENTITY.governingLaw) && (
         <p class="mb-8 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
           <strong>Draft</strong> — this notice is not final. Some details of the operator are still
           to be confirmed, and this banner disappears once they are.
@@ -20,7 +20,7 @@ export default function TermsRoute(): JSX.Element {
 
       <p>
         These terms cover Pulse, operated by{" "}
-        <span class={LEGAL_DETAILS_PENDING ? "underline decoration-dotted" : undefined}>
+        <span class={isPlaceholder(LEGAL_ENTITY.name) ? "underline decoration-dotted" : undefined}>
           {LEGAL_ENTITY.name}
         </span>
         . Your account itself is governed by the{" "}

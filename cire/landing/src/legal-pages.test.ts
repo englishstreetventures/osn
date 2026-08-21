@@ -1,3 +1,4 @@
+import { LEGAL_ENTITY, isPlaceholder } from "@shared/legal";
 import { describe, expect, it } from "vitest";
 
 import footer from "./components/SiteFooter.astro?raw";
@@ -7,14 +8,43 @@ import terms from "./pages/terms.astro?raw";
 
 const legalPages = { terms, privacy, refunds };
 
+/** The fields `draftPending` already checks on every page's behalf. */
+const IDENTITY = ["name", "postalAddress", "contactEmail"] as const;
+
+/** The `LEGAL_ENTITY.x` fields named inside the page's `draftPending(...)` gate. */
+function gateFields(source: string): string[] {
+  const call = source.match(/draftPending\(([\s\S]*?)\)/);
+  return call ? [...call[1].matchAll(/LEGAL_ENTITY\.(\w+)/g)].map((m) => m[1]) : [];
+}
+
+/** The fields the page actually publishes, ignoring the gate that guards them. */
+function renderedFields(source: string): string[] {
+  const body = source.replace(/draftPending\(([\s\S]*?)\)/, "");
+  return [...new Set([...body.matchAll(/LEGAL_ENTITY\.(\w+)/g)].map((m) => m[1]))];
+}
+
 describe("legal pages", () => {
-  // A page may only ship {{...}} placeholder tokens while its draft banner is
-  // still present — the lawyer-review cleanup must remove both together.
   for (const [name, source] of Object.entries(legalPages)) {
-    it(`${name} keeps the draft banner while placeholders remain`, () => {
-      const hasPlaceholders = /\{\{[A-Z_]+\}\}/.test(source);
-      const hasDraftBanner = source.includes("draft-banner");
-      expect(!hasPlaceholders || hasDraftBanner).toBe(true);
+    /**
+     * The invariant the old version of this test only looked like it checked.
+     * It asserted a page may ship `{{TOKEN}}` text while a banner is present —
+     * but no page has held a token in its own source since the identity moved
+     * into `@shared/legal`, so it passed on its empty half and went on passing
+     * while all three pages published a live `{{MERCHANT_OF_RECORD}}` with the
+     * banner already gone.
+     */
+    it(`${name} gates its banner on every field it publishes`, () => {
+      const covered = new Set<string>([...IDENTITY, ...gateFields(source)]);
+      expect(renderedFields(source).filter((f) => !covered.has(f))).toEqual([]);
+    });
+
+    it(`${name} is still flagged a draft while any field it publishes is unfilled`, () => {
+      const unfilled = renderedFields(source).filter((f) =>
+        isPlaceholder(LEGAL_ENTITY[f as keyof typeof LEGAL_ENTITY]),
+      );
+      if (unfilled.length === 0) return;
+      expect(source).toContain("{draft && (");
+      expect(source).toContain("draft-banner");
     });
   }
 

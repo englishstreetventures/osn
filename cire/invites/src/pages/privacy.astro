@@ -22,7 +22,7 @@ import LegalLayout from '../layouts/LegalLayout.astro'
 import { ConsentPreferencesLink } from '../components/consent/ConsentBanner'
 import { CATEGORY_META } from '../lib/consent/categories'
 import { thirdPartyVendors } from '../lib/consent/vendors'
-import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING, isPlaceholder } from '@shared/legal'
+import { LEGAL_ENTITY, draftPending, isPlaceholder } from '@shared/legal'
 
 // The third-party list below is GENERATED from the consent vendor registry
 // rather than written out by hand. Prose drifts: an earlier version of this
@@ -36,9 +36,14 @@ const vendors = thirdPartyVendors()
 // Highlight a detail only while THAT detail is still a placeholder. A page-wide
 // flag would mark a filled field as pending the moment any other one wasn't.
 const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
+
+// Name every field this page publishes that the shared identity check does
+// not already cover. Leave one out and the banner can go while that field
+// is still a token.
+const draft = draftPending(LEGAL_ENTITY.regulator)
 ---
 <LegalLayout title="Privacy Notice">
-  {LEGAL_DETAILS_PENDING && (
+  {draft && (
     <div class="draft-banner">
       <strong>Draft</strong> — this notice is not final. Some details of the operator are
       still to be confirmed, and this banner disappears once they are.

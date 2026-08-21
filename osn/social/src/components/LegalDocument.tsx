@@ -1,4 +1,3 @@
-import { LEGAL_DETAILS_PENDING } from "@shared/legal";
 import type { JSX } from "solid-js";
 
 /**
@@ -13,11 +12,17 @@ import type { JSX } from "solid-js";
 export function LegalDocument(props: {
   title: string;
   updated: string;
+  /**
+   * Whether to show the draft banner. The pages decide rather than this shell,
+   * because each publishes a different set of fields and only the page knows
+   * which ones it names — see `draftPending` in `@shared/legal`.
+   */
+  draft: boolean;
   children?: JSX.Element;
 }): JSX.Element {
   return (
     <article class="prose-legal mx-auto w-full max-w-2xl px-6 py-12">
-      {LEGAL_DETAILS_PENDING && (
+      {props.draft && (
         <p class="mb-8 rounded border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
           <strong>Draft</strong> — this notice is not final. Some details of the operator are still
           to be confirmed, and this banner disappears once they are.

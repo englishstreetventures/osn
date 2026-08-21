@@ -1,13 +1,18 @@
 ---
 import LegalLayout from '../layouts/LegalLayout.astro'
-import { LEGAL_ENTITY, LEGAL_DETAILS_PENDING, isPlaceholder } from '@shared/legal'
+import { LEGAL_ENTITY, draftPending, isPlaceholder } from '@shared/legal'
 
 // Highlight a detail only while THAT detail is still a placeholder. A page-wide
 // flag would mark a filled field as pending the moment any other one wasn't.
 const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
+
+// Name every field this page publishes that the shared identity check does
+// not already cover. Leave one out and the banner can go while that field
+// is still a token.
+const draft = draftPending(LEGAL_ENTITY.merchantOfRecord, LEGAL_ENTITY.accountDataRetention)
 ---
 <LegalLayout title="Privacy Notice">
-  {LEGAL_DETAILS_PENDING && (
+  {draft && (
     <div class="draft-banner">
       <strong>Draft</strong> — this notice is not final. Some details of the operator are
       still to be confirmed, and this banner disappears once they are.
