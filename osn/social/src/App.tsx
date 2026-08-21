@@ -1,8 +1,8 @@
 import { AuthProvider } from "@osn/client/solid";
 import { clsx } from "@osn/ui/lib/utils";
+import { Toaster } from "@shared/toast";
 import { Route, Router, useLocation } from "@solidjs/router";
 import { createSignal, lazy, onCleanup, onMount, Show } from "solid-js";
-import { Toaster } from "solid-toast";
 
 import { OSN_ISSUER_URL } from "./lib/auth";
 
@@ -83,7 +83,7 @@ function Layout(props: { children?: import("solid-js").JSX.Element }) {
       </Show>
       <Toaster
         position={isMobile() ? "top-center" : "bottom-right"}
-        containerStyle={
+        style={
           isMobile()
             ? // Clear the mobile top bar (3rem) plus the notch inset.
               { top: "calc(3rem + env(safe-area-inset-top, 0px) + 8px)" }

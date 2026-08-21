@@ -1,8 +1,8 @@
 import type { LoginClient, RecoveryClient } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
+import { toast } from "@shared/toast";
 import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
 import { createSignal, Show, onMount } from "solid-js";
-import { toast } from "solid-toast";
 
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";

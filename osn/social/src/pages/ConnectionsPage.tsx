@@ -15,8 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@osn/ui/ui/dialog";
+import { toast } from "@shared/toast";
 import { createResource, createSignal, For, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import { ResponsiveDialogContent } from "../components/ResponsiveDialogContent";
 import { graphClient } from "../lib/api";

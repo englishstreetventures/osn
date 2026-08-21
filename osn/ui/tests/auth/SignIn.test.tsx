@@ -24,7 +24,7 @@ vi.mock("@simplewebauthn/browser", () => ({
   startAuthentication: hoisted.startAuthentication,
 }));
 
-vi.mock("solid-toast", () => ({
+vi.mock("@shared/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 

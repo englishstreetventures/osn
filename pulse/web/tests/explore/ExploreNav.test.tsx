@@ -11,9 +11,9 @@ vi.mock("@shared/rp-auth/solid", async () => {
   return rpAuthSolidMock();
 });
 
-vi.mock("solid-toast", async () => {
-  const { solidToastMock } = await import("../helpers/toast");
-  return solidToastMock();
+vi.mock("@shared/toast", async () => {
+  const { toastMock } = await import("../helpers/toast");
+  return toastMock();
 });
 
 // Must import AFTER mocks are set up

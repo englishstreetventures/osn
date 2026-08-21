@@ -2,8 +2,8 @@ import { Avatar, AvatarFallback } from "@osn/ui/ui/avatar";
 import { Button } from "@osn/ui/ui/button";
 import { Card } from "@osn/ui/ui/card";
 import { useAuth } from "@shared/rp-auth/solid";
+import { toast } from "@shared/toast";
 import { createResource, createSignal, For, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import {
   addCloseFriend,

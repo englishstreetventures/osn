@@ -13,9 +13,9 @@ import { wrapRouter } from "../helpers/router";
 const render: typeof _baseRender = ((factory: () => JSX.Element) =>
   _baseRender(wrapRouter(factory))) as unknown as typeof _baseRender;
 
-vi.mock("solid-toast", async () => {
-  const { solidToastMock } = await import("../helpers/toast");
-  return solidToastMock();
+vi.mock("@shared/toast", async () => {
+  const { toastMock } = await import("../helpers/toast");
+  return toastMock();
 });
 import { authState, fakeSession } from "../helpers/auth";
 import { mockToastError, mockToastSuccess } from "../helpers/toast";

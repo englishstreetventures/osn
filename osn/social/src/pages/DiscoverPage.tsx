@@ -2,9 +2,9 @@ import type { Suggestion } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
 import { Button } from "@osn/ui/ui/button";
+import { toast } from "@shared/toast";
 import { A } from "@solidjs/router";
 import { createResource, createSignal, For, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import { graphClient, recommendationClient } from "../lib/api";
 import { safeAvatarUrl } from "../lib/utils";

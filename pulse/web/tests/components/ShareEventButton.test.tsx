@@ -2,9 +2,9 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-li
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("solid-toast", async () => {
-  const { solidToastMock } = await import("../helpers/toast");
-  return solidToastMock();
+vi.mock("@shared/toast", async () => {
+  const { toastMock } = await import("../helpers/toast");
+  return toastMock();
 });
 import { mockToastSuccess } from "../helpers/toast";
 

@@ -3,8 +3,8 @@ import { useAuth } from "@osn/client/solid";
 import { clsx } from "@osn/ui/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
 import { Dialog } from "@osn/ui/ui/dialog";
+import { toast } from "@shared/toast";
 import { createSignal, For, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import { profileInitials, safeAvatarUrl } from "../lib/utils";
 import { ResponsiveDialogContent } from "./ResponsiveDialogContent";

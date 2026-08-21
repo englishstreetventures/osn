@@ -4,9 +4,9 @@ import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import { CreateEventForm } from "../../src/components/CreateEventForm";
 
-vi.mock("solid-toast", async () => {
-  const { solidToastMock } = await import("../helpers/toast");
-  return solidToastMock();
+vi.mock("@shared/toast", async () => {
+  const { toastMock } = await import("../helpers/toast");
+  return toastMock();
 });
 import { mockToastError } from "../helpers/toast";
 

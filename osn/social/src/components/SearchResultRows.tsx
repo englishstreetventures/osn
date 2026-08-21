@@ -6,9 +6,9 @@ import type {
 import { clsx } from "@osn/ui/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@osn/ui/ui/avatar";
 import { Button } from "@osn/ui/ui/button";
+import { toast } from "@shared/toast";
 import { A } from "@solidjs/router";
 import { createSignal, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import { graphClient } from "../lib/api";
 import type { SearchController } from "../lib/search";

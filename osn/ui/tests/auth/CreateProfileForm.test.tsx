@@ -14,11 +14,11 @@ vi.mock("@osn/client/solid", () => ({
   }),
 }));
 
-vi.mock("solid-toast", () => ({
+vi.mock("@shared/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-import { toast } from "solid-toast";
+import { toast } from "@shared/toast";
 
 import { CreateProfileForm } from "../../src/auth/CreateProfileForm";
 

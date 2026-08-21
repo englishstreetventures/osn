@@ -1,6 +1,6 @@
 import { clearAuthError, readAuthError } from "@shared/rp-auth";
+import { toast } from "@shared/toast";
 import { onMount } from "solid-js";
-import { toast } from "solid-toast";
 
 /**
  * Surfaces a failed sign-in.

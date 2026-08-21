@@ -1,6 +1,6 @@
 import { useAuth } from "@osn/client/solid";
+import { toast } from "@shared/toast";
 import { createSignal, onCleanup } from "solid-js";
-import { toast } from "solid-toast";
 
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";

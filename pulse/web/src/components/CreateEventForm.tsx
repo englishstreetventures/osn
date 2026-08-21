@@ -5,8 +5,8 @@ import { Input } from "@osn/ui/ui/input";
 import { Label } from "@osn/ui/ui/label";
 import { RadioGroup, RadioGroupItem } from "@osn/ui/ui/radio-group";
 import { Textarea } from "@osn/ui/ui/textarea";
+import { toast } from "@shared/toast";
 import { createSignal, createMemo, For, Show } from "solid-js";
-import { toast } from "solid-toast";
 
 import { api } from "../lib/api";
 import { formatPrice } from "../lib/formatPrice";

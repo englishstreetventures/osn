@@ -27,9 +27,9 @@ vi.mock("../../src/lib/api", () => ({
   },
 }));
 
-vi.mock("solid-toast", async () => {
-  const { solidToastMock } = await import("../helpers/toast");
-  return solidToastMock();
+vi.mock("@shared/toast", async () => {
+  const { toastMock } = await import("../helpers/toast");
+  return toastMock();
 });
 
 const mockFetchVenuePins = vi.fn().mockResolvedValue([]);
