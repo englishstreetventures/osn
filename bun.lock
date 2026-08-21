@@ -188,7 +188,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.20.11",
+      "version": "3.20.12",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.15",
@@ -237,7 +237,7 @@
     },
     "osn/db": {
       "name": "@osn/db",
-      "version": "0.20.6",
+      "version": "0.20.7",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -256,7 +256,7 @@
     },
     "osn/landing": {
       "name": "@osn/landing",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.1",
         "@shared/legal": "workspace:*",
@@ -280,7 +280,7 @@
     },
     "osn/social": {
       "name": "@osn/social",
-      "version": "0.12.10",
+      "version": "0.12.11",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -334,7 +334,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.26.10",
+      "version": "0.26.11",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -365,7 +365,7 @@
     },
     "pulse/db": {
       "name": "@pulse/db",
-      "version": "0.19.1",
+      "version": "0.19.2",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -384,7 +384,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.5",
+      "version": "0.1.6",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.1",
         "@shared/legal": "workspace:*",
@@ -408,7 +408,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.22.16",
+      "version": "0.22.17",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -443,7 +443,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.10.6",
+      "version": "0.10.7",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -459,7 +459,7 @@
     },
     "shared/db-utils": {
       "name": "@shared/db-utils",
-      "version": "0.6.1",
+      "version": "0.6.2",
       "dependencies": {
         "drizzle-orm": "^0.45.2",
         "effect": "^3.22.0",
@@ -508,7 +508,7 @@
     },
     "shared/legal": {
       "name": "@shared/legal",
-      "version": "0.0.0",
+      "version": "0.0.1",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "vitest": "^4.1.10",
@@ -549,7 +549,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.4.6",
+      "version": "0.4.7",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "^6.2.4",
@@ -587,7 +587,7 @@
     },
     "shared/rp-auth": {
       "name": "@shared/rp-auth",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -604,6 +604,23 @@
       "optionalPeers": [
         "solid-js",
       ],
+    },
+    "shared/toast": {
+      "name": "@shared/toast",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "@solidjs/testing-library": "^0.8.10",
+        "@testing-library/jest-dom": "^6.10.0",
+        "happy-dom": "^20.11.1",
+        "solid-js": "^1.9.14",
+        "vite": "^8.1.5",
+        "vite-plugin-solid": "^2.11.14",
+        "vitest": "^4.1.10",
+      },
+      "peerDependencies": {
+        "solid-js": ">=1.9",
+      },
     },
     "shared/turnstile": {
       "name": "@shared/turnstile",
@@ -642,7 +659,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.8.21",
+      "version": "0.8.22",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -669,7 +686,7 @@
     },
     "zap/db": {
       "name": "@zap/db",
-      "version": "0.5.7",
+      "version": "0.5.8",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -1419,6 +1436,8 @@
     "@shared/redis": ["@shared/redis@workspace:shared/redis"],
 
     "@shared/rp-auth": ["@shared/rp-auth@workspace:shared/rp-auth"],
+
+    "@shared/toast": ["@shared/toast@workspace:shared/toast"],
 
     "@shared/turnstile": ["@shared/turnstile@workspace:shared/turnstile"],
 

@@ -1,8 +1,12 @@
 name: Changeset Check
 
 on:
+  # No `branches:` filter. This repo ships stacked PRs, so a PR's base is often
+  # the branch below it rather than `main` — and because this check is REQUIRED,
+  # filtering to `main` did not merely skip it, it left every stacked PR blocked
+  # on a status that could never report. Same reasoning, and the same fix, as
+  # `ci-swift.yml`.
   pull_request:
-    branches: [main]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -22,8 +26,14 @@ jobs:
         run: bash scripts/changeset-required.test.sh
 
       - name: Check for changeset
+        env:
+          # The PR's own base, not `main` — on a stacked PR those differ, and
+          # diffing against `main` would attribute every commit from the branches
+          # below to this PR. `fetch-depth: 0` above is what makes `origin/<base>`
+          # resolvable for a base that isn't the default branch.
+          BASE_REF: ${{ github.base_ref }}
         run: |
-          diff=$(git diff --name-only origin/main...HEAD)
+          diff=$(git diff --name-only "origin/$BASE_REF...HEAD")
 
           # A PR touching nothing any versioned package ships — Swift/Xcode
           # scaffolding, CI, wiki — has no honest package to name in a

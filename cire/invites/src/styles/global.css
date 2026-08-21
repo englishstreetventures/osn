@@ -371,6 +371,17 @@
   --color-bloom-dim: oklch(70.5% 0.1123 24.5 / 0.3);
   --color-error: oklch(72% 0.1401 21.48);
   --color-success: oklch(64% 0.1421 146.94);
+
+  /* Toast tokens. Same hue and chroma as the pair above, but walked against
+     `--color-surface-raised` — the surface a toast actually paints on — rather
+     than `--color-surface`. On evergreen the two pairs coincide; on `jewel`
+     they do not, which is why the toast has its own. Kept in lockstep with
+     `derivePalette` by `invite-theme.test.ts`. */
+  --toast-surface: oklch(27.7% 0.0275 152.78);
+  --toast-ink: oklch(94.62% 0.0111 89.72);
+  --toast-border: oklch(94.62% 0.0111 89.72 / 0.18);
+  --toast-error: oklch(72% 0.1401 21.48);
+  --toast-success: oklch(64% 0.1421 146.94);
   --font-display: "Cormorant Garamond", "Cormorant Garamond Fallback", Georgia, serif;
   --font-body: "Lato", "Lato Fallback", system-ui, sans-serif;
   --default-font-family: var(--font-body);

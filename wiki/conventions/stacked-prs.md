@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[review-findings]]"
   - "[[commands]]"
-last-reviewed: 2026-08-20
+last-reviewed: 2026-08-21
 ---
 
 # Stacked PRs
@@ -138,7 +138,9 @@ git rebase --onto <bottom> <old-base> <middle> && git push --force-with-lease or
 
 Path-filtered jobs must diff against the PR's own base, not `main`, or a stacked PR sees its parent's files as changed. `.github/workflows/ci-swift.yml` does this: on `pull_request` it diffs `origin/$BASE_REF`. Copy that shape for any new filter.
 
-Changeset checks behave the same way — a stacked PR whose parent already carries the changeset does not need a second one.
+Changeset checks behave the same way, and `.github/workflows/changeset-check.yml` was fixed to match on 2026-08-21. It had `on: pull_request: branches: [main]`, which matches the PR's *base* — so a stacked PR never triggered it at all. Because the check is **required**, that did not skip the gate, it left every stacked PR blocked on a status that could never report. It now has no `branches:` filter and diffs `origin/$BASE_REF...HEAD`.
+
+The consequence for authors: **each stacked PR needs a changeset in its own diff**, not just somewhere in the stack. The check sees only what that PR adds on top of its parent, which is the point — it is gating this PR, not the whole chain.
 
 ## When to stack, and when not to
 

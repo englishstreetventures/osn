@@ -1,0 +1,250 @@
+/*
+ * @shared/toast — the whole visual surface, in plain CSS.
+ *
+ * Deliberately NOT Tailwind. Consumers span two token vocabularies (shadcn
+ * names in `@osn/social`/`@pulse/web`, cire's own in `@cire/*`) and only two of
+ * the five apps declare the `base:` variant or `@source` a workspace package,
+ * so utilities here would mean threading Tailwind config changes through every
+ * consumer. A stylesheet keyed off custom properties needs none of that, and
+ * makes theming a pure variable exercise.
+ *
+ * ## Theming
+ *
+ * Every colour is a `var(--toast-*)` with a neutral fallback, so the package
+ * renders sanely with nothing set and takes an app's identity the moment it
+ * maps its own tokens onto these names — once, anywhere in the cascade above
+ * the container:
+ *
+ *   :root {
+ *     --toast-surface: var(--color-surface-raised);
+ *     --toast-ink: var(--color-text);
+ *     --toast-accent-error: var(--toast-error);
+ *   }
+ *
+ * The container is portalled to <body>, so anything set on :root or <html>
+ * reaches it. cire's palette lands on <html>, so its invites theme their
+ * toasts with no extra wiring at all.
+ */
+
+.osn-toaster {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 1rem;
+  /*
+   * No z-index. The layer is the consumer's to set via `class` — see the
+   * docblock on `Toaster`.
+   *
+   * `pointer-events: none` so the container never eats clicks meant for the
+   * page under it; each toast re-enables them for itself. Note for tests:
+   * this makes `document.elementFromPoint` see straight through the container,
+   * so assert on computed style and DOM position instead.
+   */
+  pointer-events: none;
+  max-width: min(100vw, 26rem);
+}
+
+.osn-toaster--top-left {
+  top: 0;
+  left: 0;
+  align-items: flex-start;
+}
+.osn-toaster--top-center {
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  align-items: center;
+}
+.osn-toaster--top-right {
+  top: 0;
+  right: 0;
+  align-items: flex-end;
+}
+.osn-toaster--bottom-left {
+  bottom: 0;
+  left: 0;
+  align-items: flex-start;
+}
+.osn-toaster--bottom-center {
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  align-items: center;
+}
+.osn-toaster--bottom-right {
+  bottom: 0;
+  right: 0;
+  align-items: flex-end;
+}
+
+/* Newest nearest the edge the stack grows from. */
+.osn-toaster--bottom-left,
+.osn-toaster--bottom-center,
+.osn-toaster--bottom-right {
+  flex-direction: column-reverse;
+}
+
+.osn-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 0.75rem 0.875rem;
+  border: 1px solid var(--toast-border, rgb(0 0 0 / 0.12));
+  border-radius: var(--toast-radius, 0.375rem);
+  background: var(--toast-surface, #ffffff);
+  color: var(--toast-ink, #1c1c1c);
+  box-shadow: var(--toast-shadow, 0 6px 20px rgb(0 0 0 / 0.18));
+  font-family: var(--toast-font, inherit);
+  font-size: var(--toast-font-size, 0.85rem);
+  line-height: 1.45;
+  animation: osn-toast-in var(--toast-enter-duration, 160ms) ease-out both;
+}
+
+.osn-toast--leaving {
+  animation: osn-toast-out var(--toast-exit-duration, 160ms) ease-in both;
+}
+
+/*
+ * The glyph is the tone's SHAPE, and the accent is its colour. Both carry the
+ * tone, so neither alone has to.
+ */
+.osn-toast__glyph {
+  flex: none;
+  width: 0.9rem;
+  text-align: center;
+  font-weight: 700;
+  color: var(--toast-accent, currentColor);
+  user-select: none;
+}
+
+.osn-toast--success {
+  --toast-accent: var(--toast-accent-success, #1a7f4b);
+}
+.osn-toast--error {
+  --toast-accent: var(--toast-accent-error, #b3261e);
+}
+.osn-toast--warning {
+  --toast-accent: var(--toast-accent-warn, #8a5a00);
+}
+.osn-toast--info {
+  --toast-accent: var(--toast-accent-info, currentColor);
+}
+.osn-toast--loading {
+  --toast-accent: var(--toast-accent-info, currentColor);
+}
+
+.osn-toast--loading .osn-toast__glyph {
+  animation: osn-toast-spin 900ms linear infinite;
+}
+
+.osn-toast__message {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.osn-toast__action,
+.osn-toast__close {
+  flex: none;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+}
+
+.osn-toast__action {
+  align-self: center;
+  margin-left: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--toast-border, rgb(0 0 0 / 0.12));
+  border-radius: calc(var(--toast-radius, 0.375rem) - 0.125rem);
+  color: var(--toast-accent, inherit);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/*
+ * `padding` here is not decoration: it brings the close button to the WCAG
+ * 2.5.8 24px minimum target on a glyph this small.
+ */
+.osn-toast__close {
+  align-self: flex-start;
+  margin: -0.25rem -0.25rem -0.25rem 0.25rem;
+  padding: 0.375rem;
+  line-height: 1;
+  opacity: 0.65;
+}
+
+.osn-toast__close:hover,
+.osn-toast__close:focus-visible {
+  opacity: 1;
+}
+
+.osn-toast__action:focus-visible,
+.osn-toast__close:focus-visible {
+  outline: 2px solid var(--toast-focus, var(--toast-accent, currentColor));
+  outline-offset: 2px;
+}
+
+/* Read, never seen. Matches the repo's `sr-only`. */
+.osn-toast__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes osn-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes osn-toast-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(0.25rem) scale(0.97);
+  }
+}
+
+@keyframes osn-toast-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * Motion is opt-out at the source as well as globally. `cire/invites` already
+ * clamps every animation under this query, but the other four consumers do not
+ * all have such a clamp, and a package that only behaves inside one app's
+ * global CSS is not portable.
+ *
+ * Near-zero rather than `none` so `animationend` listeners still fire.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .osn-toast,
+  .osn-toast--leaving,
+  .osn-toast--loading .osn-toast__glyph {
+    animation-duration: 0.01ms;
+    animation-iteration-count: 1;
+  }
+}
