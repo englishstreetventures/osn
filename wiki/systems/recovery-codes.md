@@ -13,9 +13,7 @@ packages:
   - "@osn/client"
   - "@osn/ui"
 last-reviewed: 2026-08-07
-updated: 2026-06-16
 ---
-
 # Recovery Codes
 
 Copenhagen Book **M2** — single-use, high-entropy, account-scoped recovery tokens. They're the "my device is gone" escape hatch in the passkey-primary model (`[[passkey-primary]]`). They are **not** a substitute credential: `deletePasskey` refuses to drop the account below 1 passkey regardless of recovery-code state.

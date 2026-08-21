@@ -9,7 +9,7 @@ related:
   - "[[database-environments]]"
   - "[[redis]]"
   - "[[email]]"
-  - "cire/wiki/systems/vendors.md"
+  - "[[cire-vendors]]"
   - "[[musubi-identity-migration]]"
   - "[[dev-environment]]"
 last-reviewed: 2026-08-15
@@ -991,14 +991,14 @@ Run these in order. Each one maps to a startup requirement listed above.
 - [[database-environments]] — local bun:sqlite vs dev/staging/prod D1
 - [[redis]] — Redis-backed rate limiters + session stores
 - [[email]] — transactional email transport (Resend; Cloudflare Email Service is the legacy fallback)
-- `cire/wiki/systems/vendors.md` — vendor portal screens, API surface, token-stripping, Referrer-Policy, ARC org:read scope
+- [[cire-vendors]] — vendor portal screens, API surface, token-stripping, Referrer-Policy, ARC org:read scope
 
 
 ---
 
 ## 8. Vendor portal first-run (manual, one-time)
 
-> **These steps are NOT automated.** A team member with Cloudflare account access must run them by hand, before or just after the first `deploy-cire-vendor` CI job runs. They are listed here so the person merging PR B knows to run them. See `cire/wiki/systems/vendors.md` for the full vendor portal system doc; see [[cire-auth]] for the auth model the portal relies on.
+> **These steps are NOT automated.** A team member with Cloudflare account access must run them by hand, before or just after the first `deploy-cire-vendor` CI job runs. They are listed here so the person merging PR B knows to run them. See [[cire-vendors]] for the full vendor portal system doc; see [[cire-auth]] for the auth model the portal relies on.
 
 ### 8.1 Create the Pages project
 

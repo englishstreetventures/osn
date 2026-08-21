@@ -3,11 +3,10 @@ title: "Drag and drop — solid-dnd, and the keyboard path we own"
 tags: [architecture, organiser, frontend, accessibility]
 related:
   - "[[index]]"
-  - "[[guest-event-editor]]"
+  - "[[cire-guest-event-editor]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-07-30
+last-reviewed: 2026-08-21
 ---
-
 # Drag and drop — solid-dnd, and the keyboard path we own
 
 Drag-to-reorder in the organiser portal uses
@@ -141,7 +140,7 @@ grip's hover/focus styling. Those need a real browser.
 
 Current adopters:
 
-- **Schedule → Edit** (`EventsEditor`) — see `[[guest-event-editor]]` E7.
+- **Schedule → Edit** (`EventsEditor`) — see `[[cire-guest-event-editor]]` E7.
 
 Still on arrow buttons:
 

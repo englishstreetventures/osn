@@ -1,12 +1,11 @@
 ---
-title: "Invite design selector"
-tags: [systems, web, api]
+title: Cire invite design selector
+tags: [systems, web, api, cire]
 related:
   - "[[index]]"
-  - "[[invite-builder]]"
-last-reviewed: 2026-08-07
+  - "[[cire-invite-builder]]"
+last-reviewed: 2026-08-21
 ---
-
 # Invite design selector
 
 A wedding's invite renders as one of several full template packs. The design id
@@ -35,7 +34,7 @@ round-trips.
   lock badge on unentitled premium designs, instant save. **The live previews
   follow the pack** (2026-08-06): `invite/design-layout.ts` names each pack's
   structural signature and `HeroSample`/`SectionSample` render it, so switching
-  designs visibly re-shapes the miniature. See [[invite-builder]] §preview.
+  designs visibly re-shapes the miniature. See [[cire-invite-builder]] §preview.
 
 ## Adding a design
 

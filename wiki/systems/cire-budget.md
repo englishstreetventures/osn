@@ -1,13 +1,12 @@
 ---
-title: "Budget"
-tags: [system, budget, phase-1]
+title: Cire budget
+tags: [system, budget, phase-1, cire]
 related:
-  - "[[platform-plan]]"
-  - "[[checklist-tasks]]"
-  - "[[deferred]]"
-last-reviewed: 2026-08-07
+  - "[[cire-platform-plan]]"
+  - "[[cire-checklist-tasks]]"
+  - "[[deferred-decisions]]"
+last-reviewed: 2026-08-21
 ---
-
 # Budget
 
 Phase 1 Budget v1 module. Organisers add line items under a service category, track estimate → quoted → actual per item, attach payment schedule rows (deposit/balance with due + paid dates), and edit the overall cap from the Budget tab.
@@ -114,7 +113,7 @@ Previously: `Budget` v0 (Phase 1 spec artifact) had the cap editor in the Settin
 
 ## Deferred Items
 
-The following are **intentionally NOT implemented** in v1; tracked in `[[deferred]]`:
+The following are **intentionally NOT implemented** in v1; tracked in `[[deferred-decisions]]`:
 
 - **Vendor linkage** (`budget_items.vendor_id`) — Phase 2 couples budget to the CRM; v1 items are free-text placeholders
 - **Pricing seeding** — Phase 3 engine will prefill estimates via heuristic baseline (v1 is all manual entry)

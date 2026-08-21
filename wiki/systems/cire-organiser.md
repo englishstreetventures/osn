@@ -1,10 +1,13 @@
 ---
-title: Organiser Overview
+title: Cire organiser overview
 tags: [systems, cire, organiser]
-related: [checklist-tasks, budget]
-last-reviewed: 2026-08-07
+related:
+  - "[[cire]]"
+  - "[[cire-checklist-tasks]]"
+  - "[[cire-budget]]"
+  - "[[cire-platform-plan]]"
+last-reviewed: 2026-08-21
 ---
-
 # Organiser Overview
 
 The Overview (`cire/host/src/components/Overview.tsx`) is the module shell's

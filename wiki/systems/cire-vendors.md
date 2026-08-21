@@ -1,16 +1,15 @@
 ---
-title: Vendors — directory, CRM, and email-verification claim
+title: Cire vendors
 tags: [systems, cire, vendors, phase2]
 related:
   - "[[cire-auth]]"
-  - "[[budget]]"
-  - "[[checklist-tasks]]"
-last-reviewed: 2026-08-07
+  - "[[cire-budget]]"
+  - "[[cire-checklist-tasks]]"
+last-reviewed: 2026-08-21
 ---
-
 # Vendors — directory, CRM, and email-verification claim
 
-> **Entitlement gate:** the Vendor CRM routes (`/api/organiser/weddings/:weddingId/vendors/*`) and the Directory browse/add routes (`/api/organiser/weddings/:weddingId/directory/*`) both require the `vendors` entitlement (a row in `wedding_entitlements` with `entitlement = 'vendors'`). Requests from a wedding without this capability receive `402 { "error": "payment_required", "entitlement": "vendors" }`. The gate sits after the role check — see [[entitlements]].
+> **Entitlement gate:** the Vendor CRM routes (`/api/organiser/weddings/:weddingId/vendors/*`) and the Directory browse/add routes (`/api/organiser/weddings/:weddingId/directory/*`) both require the `vendors` entitlement (a row in `wedding_entitlements` with `entitlement = 'vendors'`). Requests from a wedding without this capability receive `402 { "error": "payment_required", "entitlement": "vendors" }`. The gate sits after the role check — see [[cire-entitlements]].
 
 The Vendors slice introduces a **three-tier principal model** (guests / organisers / vendors), a wedding-scoped **Vendor CRM** for organisers, a global **directory** of vendor profiles, and an **email-verification claim flow** that lets a vendor bind their directory listing to their OSN org. It landed in two slices — the backend foundation, CRM and claim backend first, then the `vendor.cireweddings.com` portal app (`cire/vendor`) with its CORS allowlist entry and deploy job. **Both are in**: `cire/vendor` builds and deploys as a Pages project from `.github/workflows/deploy.yml`, and `vendor.cireweddings.com` sits in cire-api's `WEB_ORIGIN` allowlist.
 
@@ -101,7 +100,7 @@ Guests and the guest cookie path are unchanged (see [[cire-auth]] §Guest path).
 3. Sets `c.var.vendorOrgId` and `c.var.directoryVendorId` for downstream handlers.
 4. Returns **403** if the profile is not a member; **503** (fail-soft) if the ARC call is unavailable.
 
-**Scope:** `org:read` — resolves org membership without exposing the org's full member list. cire-api's ARC key registration (`POST /graph/internal/register-service`) must include this scope alongside `graph:read` and `graph:resolve-account` (see [[../../../wiki/runbooks/production-deploy]] §6.2).
+**Scope:** `org:read` — resolves org membership without exposing the org's full member list. cire-api's ARC key registration (`POST /graph/internal/register-service`) must include this scope alongside `graph:read` and `graph:resolve-account` (see [[production-deploy]] §6.2).
 
 **ARC bridge pattern:** identical to the existing `graph:read` / `graph:resolve-account` bridges (co-host handle resolution, guest account-linking). Key-optional + fail-soft: absent ARC key → 503, never a bypass.
 
@@ -182,7 +181,7 @@ The vendor self-service portal (`vendor.cireweddings.com`) is an Astro + SolidJS
 - **osn-api** — the portal does not call it at all. Since the 2026-07-27 OIDC swap the browser holds a cire session cookie, not an OSN token, so it has nothing to send. The caller's orgs come from cire-api's `GET /api/vendor/orgs`, which resolves them over ARC (`profileOrgs` in `cire/api/src/routes/vendor-portal.ts:52`). **Org creation is still not here** — an org is an OSN account-level entity, created in the OSN app.
 - **cire-api** — `/api/vendor/*` routes gated by `osnAuth()` plus an inline ARC org-membership check. Called via the `authFetch` from `@shared/rp-auth`, which sends `credentials: "include"`. Cross-origin (portal → `api.cireweddings.com`), so cire-api's `WEB_ORIGIN` must include `vendor.cireweddings.com`.
 
-`vendor.cireweddings.com` stays in osn-api's `OSN_CORS_ORIGIN` for now but no longer earns its place; pruning is tracked in `[[wiki/runbooks/production-deploy]]`. It is **not** in `OSN_ORIGIN` — that list is the WebAuthn expected-origin allowlist, and with the RP ID on `musubi.social` a ceremony from a cireweddings.com host is illegal whatever the list says.
+`vendor.cireweddings.com` stays in osn-api's `OSN_CORS_ORIGIN` for now but no longer earns its place; pruning is tracked in `[[production-deploy]]`. It is **not** in `OSN_ORIGIN` — that list is the WebAuthn expected-origin allowlist, and with the RP ID on `musubi.social` a ceremony from a cireweddings.com host is illegal whatever the list says.
 
 ### Look and feel
 
@@ -234,7 +233,7 @@ The `/claim?token=<raw>` URL carries a 256-bit claim secret. Two defences preven
 
 The browser never holds an OSN token. `useAuth` from `@shared/rp-auth/solid` reads the session with `GET /api/auth/session` and gives islands an `authFetch` that sends the cookie; a 401 means the session is gone and the panel offers sign-in again. Account management — passkeys, recovery codes, connected apps — links out to `PUBLIC_OSN_ACCOUNT_URL` (`cire/vendor/src/lib/osn.ts`), because those are bound to the `musubi.social` RP ID.
 
-Full contract in the OSN wiki: `[[wiki/systems/cire-auth]]`, `[[wiki/systems/oidc-provider]]`, `[[wiki/runbooks/musubi-identity-migration]]`.
+Full contract in the OSN wiki: `[[cire-auth]]`, `[[oidc-provider]]`, `[[musubi-identity-migration]]`.
 
 ---
 
@@ -293,9 +292,9 @@ Still open. Directory browse used to sit in this list; it shipped 2026-07-18 and
 ## Related
 
 - [[cire-auth]] — full auth model; organiser JWT verification chain; ARC bridge pattern
-- [[budget]] — budget items that vendor bookings will feed (deferred linkage)
-- [[checklist-tasks]] — tasks that vendor bookings will tick (deferred linkage)
-- [[../../../wiki/systems/arc-tokens]] — ARC token pattern used by the `org:read` bridge
-- [[../../../wiki/compliance/data-map]] — vendor contact PII fields
-- [[../../../wiki/compliance/retention]] — vendor data retention rows
-- [[../../../wiki/runbooks/production-deploy]] — §6.2 cire-api ARC key re-registration with `org:read`
+- [[cire-budget]] — budget items that vendor bookings will feed (deferred linkage)
+- [[cire-checklist-tasks]] — tasks that vendor bookings will tick (deferred linkage)
+- [[arc-tokens]] — ARC token pattern used by the `org:read` bridge
+- [[compliance/data-map]] — vendor contact PII fields
+- [[compliance/retention]] — vendor data retention rows
+- [[production-deploy]] — §6.2 cire-api ARC key re-registration with `org:read`

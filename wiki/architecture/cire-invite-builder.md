@@ -1,13 +1,12 @@
 ---
-title: "Invite Builder"
-tags: [architecture, api, web, db]
+title: Cire invite builder
+tags: [architecture, api, web, db, cire]
 related:
   - "[[index]]"
   - "[[monorepo-structure]]"
-  - "[[invite-templates]]"
-last-reviewed: 2026-08-17
+  - "[[cire-invite-designs]]"
+last-reviewed: 2026-08-21
 ---
-
 # Invite Builder
 
 Lets an organiser customise the **presentation** of the guest invite — swap a
@@ -255,7 +254,7 @@ set (`REQUIRED_EVENT_COLUMNS` in `cire/api/src/services/spreadsheet.ts`,
   timestamp carries is derived from the zone for that event's own date
   (`cire/api/src/lib/event-time.ts`). That is the same thing the events editor's
   drawer asks for, so a sheet and the editor describe an event identically; see
-  `[[guest-event-editor]]` E9 for why asking for both was a bug factory.
+  `[[cire-guest-event-editor]]` E9 for why asking for both was a bug factory.
 
 **End and Location are optional** (2026-07-08; previously both were required —
 Location since `feat/invite-conditional-segments`):
@@ -437,7 +436,7 @@ assertion about this button was class-presence in happy-dom, which parses no
 stylesheet. `EventCard.browser.test.tsx` and
 `rsvp-confirmation.browser.test.tsx` measure the painted `scale` and
 background of the fill seconds after every timer has expired, which is the
-property a guest actually reports. See `[[conventions/browser-tests]]`.
+property a guest actually reports. See `[[browser-tests]]`.
 
 The fill layer also takes **both** its `scale-x-0` and `scale-x-100` from
 `classList`, so exactly one is ever present. Carrying `scale-x-0` as a static
@@ -631,7 +630,7 @@ CSV-import `R2Bucket` is text-only and is **not** widened in place). Routes:
   - `POST /invite/image/:slot` → upload an image.
   - `DELETE /invite/image/:slot` → reset slot to default.
   - Ownership mismatch returns **403, never 401** (a 401 makes `@osn/client`
-    `authFetch` discard a valid session). See `[[wiki/systems/cire-auth]]`.
+    `authFetch` discard a valid session). See `[[cire-auth]]`.
 
 Image URL paths are returned relative to the API origin (`/api/invite/<slug>/
 image/<slot>?v=…`); clients (guest island + organiser preview) prepend their API
@@ -740,7 +739,7 @@ and let the fresh `/api/invite/:slug` response override the per-request snapshot
     panel whose background is the theme **surface** colour (`--invite-surface`)
     when set, else a dark `oklch(0% 0 0 / 0.45)` scrim panel — so the title reads
     over any busy/sharp photo. (Future: auto contrast-check the title colour vs the
-    image and auto-enable the panel — see [[future]].)
+    image and auto-enable the panel — see [[deferred-decisions]].)
   - **Visible-or-gone load lifecycle (the "invisible hero" SSR fix)**: the backdrop
     fades in on `load`; on a failed load (`onError` — e.g. a 404'd image) it
     **unmounts** so the base gradient shows through (replacing an `onLoad`-only gate
@@ -1176,7 +1175,7 @@ upload/remove/crop and a `heroBlur` change (the one theme field that alters
 the served bytes), backfilled from `updated_at`, coalesced to it when NULL —
 so copy/colour saves never bust the per-variant transform cache or force
 guests to re-download the hero (WT-P-I1; transforms are the metered resource,
-see the root `[[wiki/runbooks/free-tier-limits]]`). Dirty halves run sequentially (text
+see the root `[[free-tier-limits]]`). Dirty halves run sequentially (text
 then theme), mutating the loaded data after each success — the API's
 two-endpoint split is an implementation detail the organiser never sees.
 (Before the restructure the builder had separate "Save copy" / "Save theme"
@@ -1292,7 +1291,7 @@ literal>)` declarations above.
 ## Observability
 
 cire/api uses `@shared/observability` (workerd-safe subpaths) — see
-`[[overview]]`. The invite-builder surface is instrumented with spans, the
+`[[cire-workerd]]`. The invite-builder surface is instrumented with spans, the
 redacting logger, and metrics:
 
 - **Spans**: `cire.invite.{getForWedding,getForWeddingId,getForSlug,
@@ -1306,7 +1305,7 @@ redacting logger, and metrics:
 - **Metrics**: `cire.invite.saved`, `cire.invite.asset.uploaded`, and the
   `cire.invite.asset.size` histogram (bytes), defined in
   `cire/api/src/metrics.ts`. No-op until a workerd exporter is wired (see
-  `[[overview]]` → Deferred).
+  `[[cire-workerd]]` → Deferred).
 
 ## Compliance
 

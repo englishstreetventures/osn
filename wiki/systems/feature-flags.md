@@ -2,11 +2,10 @@
 title: Feature flags — GrowthBook (key-optional, fail-safe)
 tags: [systems, cire, feature-flags, growthbook]
 related:
-  - "[[overview]]"
-  - "[[observability]]"
-last-reviewed: 2026-08-07
+  - "[[cire-organiser]]"
+  - "[[cire-workerd]]"
+last-reviewed: 2026-08-21
 ---
-
 # Feature flags — GrowthBook
 
 Flag + experiment evaluation for `cire/api`, via the shared
@@ -88,4 +87,4 @@ effect within the cache TTL (~60s). No webhook required.
 
 The payload fetch goes through `@shared/observability`'s `instrumentedFetch`, so
 it appears on the trace tree. Flag reads themselves emit no logs. See
-`[[observability]]`.
+`[[cire-workerd]]`.

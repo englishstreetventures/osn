@@ -215,7 +215,7 @@ wiki/business/
 # and an attachment for every FAILING browser test, next to the test file. They
 # are debugging aids for the run that produced them — regenerated on the next
 # failure and meaningless once the test is fixed. See
-# [[cire/wiki/conventions/browser-tests]].
+# [[wiki/conventions/browser-tests]].
 **/__screenshots__/
 **/.vitest-attachments/
 

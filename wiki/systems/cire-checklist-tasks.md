@@ -1,15 +1,14 @@
 ---
-title: "Checklist / Tasks — Phase 1 planning module"
-tags: [systems, platform, phase1, tasks]
+title: Cire checklist / tasks
+tags: [systems, platform, phase1, tasks, cire]
 related:
   - "[[index]]"
-  - "[[platform-plan]]"
-last-reviewed: 2026-08-17
+  - "[[cire-platform-plan]]"
+last-reviewed: 2026-08-21
 ---
-
 # Checklist / Tasks
 
-Phase 1 planning module ([[platform-plan]] §4.1). Organisers maintain a
+Phase 1 planning module ([[cire-platform-plan]] §4.1). Organisers maintain a
 freeform per-wedding task list, file each task under a lead-time **bucket**
 (12 months out → day-of), optionally set a due date, check tasks off, and
 reorder tasks within a bucket.

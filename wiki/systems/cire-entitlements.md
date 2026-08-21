@@ -1,13 +1,12 @@
 ---
-title: Entitlements — per-wedding capability gates
+title: Cire entitlements
 tags: [systems, cire, entitlements, phase1]
 related:
-  - "[[vendors]]"
-  - "[[registry]]"
+  - "[[cire-vendors]]"
+  - "[[cire-registry]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-08-14
+last-reviewed: 2026-08-21
 ---
-
 # Entitlements — per-wedding capability gates
 
 The entitlement system is a row-presence gate: a row in `wedding_entitlements` means that wedding has the named capability. No row means the capability is absent. There are no enum columns to decode, no flag columns to toggle — the table acts as a sparse capability set.
@@ -145,6 +144,6 @@ wrangler d1 execute cire-db --remote --command "<printed SQL>"
 
 ## Related
 
-- [[vendors]] — Vendor CRM + Directory; both route groups gate on the `vendors` entitlement
-- [[registry]] — Gift registry; granted to NO wedding, which is how that module ships built but unreachable
+- [[cire-vendors]] — Vendor CRM + Directory; both route groups gate on the `vendors` entitlement
+- [[cire-registry]] — Gift registry; granted to NO wedding, which is how that module ships built but unreachable
 - [[cire-auth]] — role gate middleware; ordering of role vs entitlement vs rate-limit gates

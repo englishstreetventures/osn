@@ -13,19 +13,11 @@ related:
   - "[[rate-limiting]]"
   - "[[arc-tokens]]"
   - "[[observability/overview]]"
-finding-ids:
-  - S-M2
-  - S-M8
-  - P-W1
-  - P-W4
-  - S-L18
-  - S-L23
 packages:
   - "@shared/redis"
   - "@osn/api"
 last-reviewed: 2026-08-17
 ---
-
 # Redis Migration
 
 Migrate in-memory rate limiters and auth state stores to Redis for horizontal scaling. One piece of work covers six findings: S-M2, S-M8, P-W1, P-W4, S-L18, S-L23.

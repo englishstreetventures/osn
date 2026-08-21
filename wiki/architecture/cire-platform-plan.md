@@ -1,16 +1,13 @@
 ---
-title: "Platform Plan — from digital invite to wedding management platform"
-tags: [architecture, platform, plan]
+title: Cire platform plan
+tags: [architecture, platform, plan, cire]
 related:
   - "[[index]]"
-  - "[[invite-builder]]"
+  - "[[cire-invite-builder]]"
   - "[[monorepo-structure]]"
-  - "[[guest-event-editor]]"
-last-reviewed: 2026-08-17
-pr4-shipped: 2026-07-15
-pr4-reversed: 2026-07-15
+  - "[[cire-guest-event-editor]]"
+last-reviewed: 2026-08-21
 ---
-
 # Platform Plan — from digital invite to wedding management platform
 
 This is the build plan for growing the cire organiser portal (`host.cireweddings.com`) from a digital-invite tool into a full wedding **management** platform: guest list, schedule, vendors (venues / photographers / decorators / caterers / …) with availability and location search, context-aware pricing estimates, budget, checklist, seating, and guest comms — with the digital invite becoming **one module among several** rather than the product itself.
@@ -44,7 +41,7 @@ Wedding (profile: date, location, guest estimate, currency, budget)
 ├── Checklist   — planning tasks by lead time + day-of         (consumer of profile + Schedule)
 ├── Seating     — tables + assignments per event               (consumer of Guests + RSVPs)
 ├── Comms       — save-the-dates, reminders, RSVP chasing      (consumer of Guests; needs email)
-└── Registry / wishing well / photos                            (later; see [[future]])
+└── Registry / wishing well / photos                            (later; see [[deferred-decisions]])
 ```
 
 Modules consume each other through services, never by reaching into another module's tables from a route. Route factories stay one-per-module (existing convention), services stay `Effect.Effect<A, E>` with tagged errors, D1 via Drizzle only.
@@ -84,8 +81,8 @@ Other (retired) implementation notes: `pricing_region` was **state-granular** (`
 
 The import stays (it's a strength) but stops being the only writer.
 
-**Endpoint shape amended 2026-07-12 — batch draft-save, not per-row CRUD** (full design in [[guest-event-editor]]; [[deferred]] Resolved): the editor accumulates changes client-side and submits a whole desired state through the SAME preview → warnings → apply pipeline the import uses (`POST .../changes/{preview,apply,revert}` + `GET .../changes/list`), with an ID-aware diff so editor renames are updates rather than remove+create. Preview-diff, impact warnings, checkpointing, and revert are shared with the import instead of rebuilt per endpoint, and a save session produces one checkpoint. Per-row endpoints may land later as sugar over the same reconcile. The original sketch this supersedes was `POST/PATCH/DELETE .../guests/households`, `.../guests/households/:familyId/guests`, per-guest `PUT .../attendance`, and `POST/PATCH/DELETE .../schedule/events`; household notes/tags are still wanted, now as draft fields.
-- **Organiser-recorded RSVPs — SHIPPED (PR 5b)**: `PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId` (`weddingEditor()`-gated) — phone/paper RSVPs land in the same `rsvps` table the invite writes to (upsert on `(guest_id, event_id)`, last-writer-wins, so an organiser reply visibly overwrites a guest one and vice-versa). Migration `0037_rsvp_consent_source.sql` added `consent_source` (`'guest' | 'organiser_attested'`, NOT NULL DEFAULT `'guest'`, legacy rows back-filled `'guest'`). **Design choice: ONE column carries BOTH the writer attribution AND the Art. 9 consent basis** — the writer and the consent-attester are always the same principal (guest self-attests; organiser attests on the guest's behalf), so a separate `recorded_by` would be 1:1 redundant. Dietary keeps its Art. 9 story (§10): the record UI gates dietary behind an "I confirm the guest consented…" attestation checkbox, the API 422s a non-empty dietary without it, and the same `dietary_consent_at`/`_version` record is stamped. The RSVP report gained a "Recorded By" column; the dashboard badges organiser-entered replies. Deliberately NOT routed through `changes/*` — RSVPs sit outside the reconcile pipeline (§5). Compliance updated: [[../../wiki/compliance/dpia/cire-guest-data|DPIA]] (organiser-attested C-H2 variant), [[../../wiki/compliance/data-map|data-map]], [[../../wiki/compliance/retention|retention]].
+**Endpoint shape amended 2026-07-12 — batch draft-save, not per-row CRUD** (full design in [[cire-guest-event-editor]]; [[deferred-decisions]] Resolved): the editor accumulates changes client-side and submits a whole desired state through the SAME preview → warnings → apply pipeline the import uses (`POST .../changes/{preview,apply,revert}` + `GET .../changes/list`), with an ID-aware diff so editor renames are updates rather than remove+create. Preview-diff, impact warnings, checkpointing, and revert are shared with the import instead of rebuilt per endpoint, and a save session produces one checkpoint. Per-row endpoints may land later as sugar over the same reconcile. The original sketch this supersedes was `POST/PATCH/DELETE .../guests/households`, `.../guests/households/:familyId/guests`, per-guest `PUT .../attendance`, and `POST/PATCH/DELETE .../schedule/events`; household notes/tags are still wanted, now as draft fields.
+- **Organiser-recorded RSVPs — SHIPPED (PR 5b)**: `PUT /api/organiser/weddings/:weddingId/guests/:guestId/rsvps/:eventId` (`weddingEditor()`-gated) — phone/paper RSVPs land in the same `rsvps` table the invite writes to (upsert on `(guest_id, event_id)`, last-writer-wins, so an organiser reply visibly overwrites a guest one and vice-versa). Migration `0037_rsvp_consent_source.sql` added `consent_source` (`'guest' | 'organiser_attested'`, NOT NULL DEFAULT `'guest'`, legacy rows back-filled `'guest'`). **Design choice: ONE column carries BOTH the writer attribution AND the Art. 9 consent basis** — the writer and the consent-attester are always the same principal (guest self-attests; organiser attests on the guest's behalf), so a separate `recorded_by` would be 1:1 redundant. Dietary keeps its Art. 9 story (§10): the record UI gates dietary behind an "I confirm the guest consented…" attestation checkbox, the API 422s a non-empty dietary without it, and the same `dietary_consent_at`/`_version` record is stamped. The RSVP report gained a "Recorded By" column; the dashboard badges organiser-entered replies. Deliberately NOT routed through `changes/*` — RSVPs sit outside the reconcile pipeline (§5). Compliance updated: [[compliance/dpia/cire-guest-data|DPIA]] (organiser-attested C-H2 variant), [[compliance/data-map|data-map]], [[compliance/retention|retention]].
 - **Provenance column (decided 2026-07-08)**: `source: 'import' | 'manual'` on `families` + `guests`. Once organisers can hand-add rows, a re-applied sheet that lacks them would otherwise propose deleting them — `diffAgainstDb` reconciles the whole wedding. The diff manages `import`-sourced rows only by default, with an explicit "also remove manual rows" toggle; free "added by hand" badge in the UI. (`guests.externalId` already half-anticipated this.)
 - **Un-invite guard**: deleting a `guest_events` row for a pair that has an RSVP gets the same explicit state-loss confirm the import preview shows — no silent discarding of real answers.
 
@@ -97,7 +94,7 @@ The import stays (it's a strength) but stops being the only writer.
 
 ### 3.5 Roles
 
-**Shipped (PR 2, 2026-07-12).** `wedding_hosts.role` `editor`/`viewer` + the `weddingEditor()` gate (between `weddingMember` and `weddingOwner`) landed as designed; the matrix below is now live (enforcement notes in `[[wiki/systems/cire-auth]]`, root wiki). Implementation deltas beyond the sketch: `PUT /hosts/:osnProfileId/role` (owner-gated role flip, `cire.host.role_changed` metric), `POST /hosts` takes an optional `role` (default `editor`), the wedding list tags rows `owner|editor|viewer`, family `deactivate`/`reactivate` moved up to `weddingOwner()` per the Codes row, and `preview-code` moved *down* to `weddingMember()` so viewer co-hosts can preview the invite (it was owner-only — a pre-existing gap since the header's Preview button renders for every member). Matrix:
+**Shipped (PR 2, 2026-07-12).** `wedding_hosts.role` `editor`/`viewer` + the `weddingEditor()` gate (between `weddingMember` and `weddingOwner`) landed as designed; the matrix below is now live (enforcement notes in `[[cire-auth]]`, root wiki). Implementation deltas beyond the sketch: `PUT /hosts/:osnProfileId/role` (owner-gated role flip, `cire.host.role_changed` metric), `POST /hosts` takes an optional `role` (default `editor`), the wedding list tags rows `owner|editor|viewer`, family `deactivate`/`reactivate` moved up to `weddingOwner()` per the Codes row, and `preview-code` moved *down* to `weddingMember()` so viewer co-hosts can preview the invite (it was owner-only — a pre-existing gap since the header's Preview button renders for every member). Matrix:
 
 | Capability | viewer | editor | owner |
 |---|---|---|---|
@@ -117,7 +114,7 @@ Existing co-hosts map to `editor` (they already have import + invite-builder wri
 | 2 | ✅ Roles (`editor`/`viewer` + `weddingEditor()`) — shipped 2026-07-12 | — |
 | 3 | Portal IA shell (sidebar, Overview, hash routes; existing tabs rehomed; P-I3 fetch lift) | 1 (Settings home) |
 | 4 | ⛔ Households ≠ codes — shipped then **REVERSED 2026-07-15** (product-owner: every household carries a code; migration 0033 restores `public_id NOT NULL` + full unique) | 0 |
-| 5 | Guest/event editing (batch draft-save — design + E1–E6 slicing in [[guest-event-editor]]) + organiser RSVPs + provenance | 3 (E5 editor-created households **auto-mint a code** — there is no code-less path) |
+| 5 | Guest/event editing (batch draft-save — design + E1–E6 slicing in [[cire-guest-event-editor]]) + organiser RSVPs + provenance | 3 (E5 editor-created households **auto-mint a code** — there is no code-less path) |
 
 PRs 0–2 can run in parallel. The IA shell deliberately lands **early** (not last) so CRUD is built directly into its module home instead of into the old tabs and moved later.
 
@@ -146,7 +143,7 @@ payments:     id, budget_item_id FK↘, label ('deposit'|'balance'|free text), a
 
 All money in **minor units** + the wedding's `currency` (no FX). Views: per-category rollup vs `budget_total_minor`, upcoming-payments list (feeds Overview + Checklist nudges). "Estimate" column is seeded by the pricing engine (§6) when available, hand-editable always.
 
-**Multi-currency note (2026-07-10, follows the event-scoped-location decision in §3.1):** weddings can span countries, so foreign vendors (the Jaipur caterer) will quote/invoice in a currency other than the wedding's main one. **v1 stays single-currency on purpose** — every stored figure is in the wedding's MAIN `currency` (the one the couple budgets in), and the organiser converts a foreign quote when entering it. The rollup maths, the total comparison, and the pricing-engine seeding all stay trivial. If real multi-country weddings want more, the v2 extension is additive: optional `original_currency` + `original_amount_minor` (+ entered rate) on `budget_items`/`payments`, display-only — the converted main-currency figure stays the canonical amount every view sums. Tracked in [[deferred]]; do NOT build v2 speculatively.
+**Multi-currency note (2026-07-10, follows the event-scoped-location decision in §3.1):** weddings can span countries, so foreign vendors (the Jaipur caterer) will quote/invoice in a currency other than the wedding's main one. **v1 stays single-currency on purpose** — every stored figure is in the wedding's MAIN `currency` (the one the couple budgets in), and the organiser converts a foreign quote when entering it. The rollup maths, the total comparison, and the pricing-engine seeding all stay trivial. If real multi-country weddings want more, the v2 extension is additive: optional `original_currency` + `original_amount_minor` (+ entered rate) on `budget_items`/`payments`, display-only — the converted main-currency figure stays the canonical amount every view sums. Tracked in [[deferred-decisions]]; do NOT build v2 speculatively.
 
 ### 4.3 Service-category enum
 
@@ -206,7 +203,7 @@ Context-aware estimates from the wedding profile: guest count, date (season + we
 
 - **Seating**: `seating_tables` (id, wedding_id, event_id FK, name, capacity, sort_order) + `seating_assignments` (table_id, guest_id, PK pair; guest unique per event). Reads Guests + live RSVP status (badge declined/no-response guests). Drag-drop SolidJS island; CSV/print export for the venue.
 - **Guest comms**: save-the-dates, "the invite is live", RSVP-chaser emails via `@shared/email` (Resend). Two prerequisites: **guest/household email columns don't exist** (new PII → consent at collection, data-map/retention/DPIA delta, §10) and **prod email is currently degraded** (`OSN_EMAIL_OPTIONAL=true`, root TODO "Re-enable email later"). Build behind the same key-optional/fail-soft pattern as Turnstile/Maps. Comms log table for auditability; unsubscribe/suppression from day one.
-- **Registry / wishing well / guest photos / Wallet passes**: remain in [[future]]; registry is the first candidate after Phase 2 (root TODO "withjoy parity"). Payments (wishing well) deliberately out of scope until the platform core is proven.
+- **Registry / wishing well / guest photos / Wallet passes**: remain in [[deferred-decisions]]; registry is the first candidate after Phase 2 (root TODO "withjoy parity"). Payments (wishing well) deliberately out of scope until the platform core is proven.
 
 ## 8. Cross-cutting
 
@@ -216,7 +213,7 @@ Context-aware estimates from the wedding profile: guest count, date (season + we
 - **Free tier** (root `wiki/runbooks/free-tier-limits`): directory search is the only new read-hot path — one indexed query per search, no N+1; availability join bounded by date equality. D1 storage growth from vendors/tasks/budget is trivial next to R2 images. Watch Worker CPU on haversine ordering at scale.
 - **Rate limiting**: writes ride the existing per-user limiter pattern; directory search + enquiries get their own Upstash limiters (enquiries are a spam vector).
 
-## 9. Open decisions (tracked in [[deferred]])
+## 9. Open decisions (tracked in [[deferred-decisions]])
 
 | Decision | Options | Decide when |
 |---|---|---|
@@ -225,7 +222,7 @@ Context-aware estimates from the wedding profile: guest count, date (season + we
 | Pricing baseline sourcing + regions | hand-curated AU-first dataset vs licensed data | Phase 3 start |
 | Guest email collection point | RSVP flow (guest-entered) vs organiser-entered vs both | Comms build; consent design first |
 
-Decided 2026-07-08 (Phase 0 review — rows moved to [[deferred]] Resolved): import keeps auto-minting codes; `source` provenance column on families/guests; **key-optional Geocoding API** for location capture; **one-release alias layer** for the route move.
+Decided 2026-07-08 (Phase 0 review — rows moved to [[deferred-decisions]] Resolved): import keeps auto-minting codes; `source` provenance column on families/guests; **key-optional Geocoding API** for location capture; **one-release alias layer** for the route move.
 
 ## 10. Compliance deltas (new PII classes)
 
@@ -266,18 +263,18 @@ the phase's epic in GitHub Issues + the phase's section above; skim the rest.
 
 ### Invariants (do not break)
 
-- **Tenant scoping**: every organiser read/write is scoped to `:weddingId` through the gates; tables without a `wedding_id` column (guests, guest_events, rsvps) scope via a `families`/`events` join — see the `diffAgainstDb` wedding-scoping entry in [[guest-event-editor]] for why the join is load-bearing.
+- **Tenant scoping**: every organiser read/write is scoped to `:weddingId` through the gates; tables without a `wedding_id` column (guests, guest_events, rsvps) scope via a `families`/`events` join — see the `diffAgainstDb` wedding-scoping entry in [[cire-guest-event-editor]] for why the join is load-bearing.
 - **No cross-DB FKs**: OSN identities are opaque `usr_*` strings; resolve via the ARC-gated `services/osn-bridge.ts` (key-optional, fail-soft). Never store OSN emails/handles.
 - **`events.end_at` `""` sentinel** = no stated end; anything aggregating or comparing event dates must use the effective end (`max(end_at, start_at)` — see `services/retention.ts`).
 - **Host preview families** (`families.kind = 'host'`) are synthetic and must stay invisible to imports, exports, RSVP counts, and (future) seating/comms.
-- **Guest PII rules**: dietary text is special-category (Art. 9 consent columns on `rsvps`); no PII in logs (redaction deny-list in `cire/CLAUDE.md`); new PII classes need [[../../wiki/compliance/data-map|root data-map]] + retention rows (§10 lists the per-phase deltas).
+- **Guest PII rules**: dietary text is special-category (Art. 9 consent columns on `rsvps`); no PII in logs (redaction deny-list in [[cire-workerd]]); new PII classes need [[compliance/data-map|root data-map]] + retention rows (§10 lists the per-phase deltas).
 - Effect is **backend-only** — never import it in `cire/host` or `cire/invites`.
 
 ### Definition of done (every platform PR)
 
 1. Code + co-located tests (route authz cases included: 401 unauth / 403 wrong-wedding / 404 unknown).
 2. Migration mirrored in all three DDL surfaces (if schema changed).
-3. Close the issue, update this page if the design changed, bump `last-reviewed`, note new decisions in [[deferred]].
+3. Close the issue, update this page if the design changed, bump `last-reviewed`, note new decisions in [[deferred-decisions]].
 4. Changeset (`bun run changeset`) — `@cire/*` exact workspace names, never mixed with versioned packages.
 5. `bun run --cwd cire/api test` + organiser/web suites + root `bun run check` green.
 
@@ -285,6 +282,6 @@ the phase's epic in GitHub Issues + the phase's section above; skim the rest.
 
 - **Phase 0** — start from §3.6's PR table. PR 0/1/2 are independent; PR 4 (the `families` rebuild) is the only risky migration — read §3.2's mechanics note first. The roles PR extends `middleware/wedding-member.ts` + `wedding_hosts.role` (no CHECK constraint — data UPDATE + Drizzle enum widening only). The IA PR restructures `OrganiserApp.tsx`/`DashboardTabs.tsx` + `dashboard-route.ts` and must fold in the P-I3 fetch-lift (root TODO, Performance Backlog).
 - **Phase 1** — greenfield tables (`tasks`, `budget_items`, `payments`) + the shared category enum (`cire/api/src/lib/service-categories.ts`, mirror the pulse `shareSource` single-source-of-truth pattern). No auth changes; everything rides `weddingMember()`/`weddingEditor()`. Checklist template is a versioned TS module resolved against `weddings.wedding_date` (nullable — seed only when set, re-anchor incomplete seeded tasks on change).
-- **Phase 2** — CRM first (`vendors`, wedding-scoped, §5.1) — it is deliberately shippable without the directory. Directory (§5.2) introduces the third principal (vendor = OSN account + `directory_vendors.owner_osn_profile_id` authz) and the D1 geo query (bounding-box prefilter on indexed lat/lng, haversine order). The event point this searches around is **no longer stored** (the `events` location columns were retired by 0036) — geocode `events.address` on-demand at search time. Check [[deferred]] for the open vendor-identity decision before building self-serve.
+- **Phase 2** — CRM first (`vendors`, wedding-scoped, §5.1) — it is deliberately shippable without the directory. Directory (§5.2) introduces the third principal (vendor = OSN account + `directory_vendors.owner_osn_profile_id` authz) and the D1 geo query (bounding-box prefilter on indexed lat/lng, haversine order). The event point this searches around is **no longer stored** (the `events` location columns were retired by 0036) — geocode `events.address` on-demand at search time. Check [[deferred-decisions]] for the open vendor-identity decision before building self-serve.
 - **Phase 3** — pure-function engine (`services/pricing.ts`) over a versioned dataset (`lib/pricing-baselines.ts`). The old Phase 0 `pricing_region` column + its geocoding flow were **retired by migration 0036** (redundant, unbuilt-only); when this phase is built, **geocode `events.address` on-demand** to derive the region then (no stored copy). v2 (directory quote blending) needs the k-anonymity floor from §6 — do not ship aggregates without it.
-- **Phase 4** — seating consumes Guests + RSVPs (watch the host-family and `""`-endAt invariants); comms is **blocked** on guest email columns (consent decision in [[deferred]]) and prod email being enabled (root TODO "Re-enable email later") — build key-optional/fail-soft regardless.
+- **Phase 4** — seating consumes Guests + RSVPs (watch the host-family and `""`-endAt invariants); comms is **blocked** on guest email columns (consent decision in [[deferred-decisions]]) and prod email being enabled (root TODO "Re-enable email later") — build key-optional/fail-soft regardless.

@@ -17,10 +17,8 @@ packages:
   - "@cire/api"
   - "@cire/invites"
   - "@cire/host"
-finding-ids: []
 last-reviewed: 2026-08-07
 ---
-
 # Turnstile bot protection
 
 Cloudflare Turnstile gates the project's public, abusable form submissions —

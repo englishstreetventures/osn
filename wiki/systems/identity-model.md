@@ -12,12 +12,7 @@ packages:
   - "@osn/api"
   - "@osn/client"
 last-reviewed: 2026-07-27
-p4-completed: 2026-04-14
-p2-completed: 2026-04-14
-p3-completed: 2026-04-14
-m-pk-completed: 2026-04-22
 ---
-
 # Identity Model
 
 ## Terminology

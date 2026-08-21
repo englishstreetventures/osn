@@ -16,33 +16,12 @@ related:
   - "[[s2s-patterns]]"
   - "[[rate-limiting]]"
   - "[[arc-token-debugging]]"
-finding-ids:
-  - S-C2
 packages:
   - "@shared/crypto"
   - "@osn/api"
   - "@pulse/api"
 last-reviewed: 2026-08-19
-security-fixes:
-  - S-H100
-  - S-H101
-  - S-M100
-  - S-M101
-  - S-M102
-  - S-L101
-  - S-L40
-perf-fixes:
-  - P-W100
-  - P-W101
-  - P-W102
-  - P-I100
-  - P-I101
-  - P-W25
-  - P-W26
-  - P-W27
-  - P-I16
 ---
-
 # ARC Tokens (S2S Auth)
 
 ARC is OSN's service-to-service authentication token — an ASAP-style self-issued JWT for backend-to-backend calls (e.g. `@pulse/api` querying `@osn/api`'s social graph).

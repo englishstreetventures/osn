@@ -4,13 +4,12 @@ tags: [conventions, testing]
 related:
   - "[[contributing]]"
   - "[[review-findings]]"
-  - "[[index]]"
+  - "[[testing-patterns]]"
 packages:
   - "@cire/invites"
   - "@cire/host"
-last-reviewed: 2026-08-08
+last-reviewed: 2026-08-21
 ---
-
 # Browser Tests
 
 A second Vitest project — in `@cire/invites` and, since 2026-08-06, in
@@ -52,7 +51,7 @@ in ways that have already shipped:
 | An ancestor gaining a stacking context (`transform`, `filter`, `opacity < 1`, `contain`) and trapping a portalled overlay | Requires resolving containing blocks |
 | Tailwind v4's `scale-*` setting the standalone `scale` property, not `transform` — so a `transition-transform` that didn't list `scale` animates nothing | Requires the compiled `transition-property` |
 | Two conflicting utilities on one element resolving by **stylesheet order**, not class-attribute order | Requires the generated stylesheet |
-| A `position: sticky` action bar resolving `bottom` against the scrollport (see `[[contributing]]` and the rule in `cire/CLAUDE.md`) | Requires layout |
+| A `position: sticky` action bar resolving `bottom` against the scrollport (see [[frontend-patterns]] § Rendering and animation gotchas) | Requires layout |
 | The global `prefers-reduced-motion` clamp actually applying | Requires the cascade plus media emulation |
 
 The pre-existing answer to all of these is **text-matching drift guards** —

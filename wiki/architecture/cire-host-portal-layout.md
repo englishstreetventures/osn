@@ -1,13 +1,12 @@
 ---
-title: "Host Portal Layout System"
-tags: [architecture, web, organiser]
+title: Cire host portal layout system
+tags: [architecture, web, organiser, cire]
 related:
   - "[[index]]"
-  - "[[invite-builder]]"
-  - "[[systems/overview]]"
-last-reviewed: 2026-08-17
+  - "[[cire-invite-builder]]"
+  - "[[cire-organiser]]"
+last-reviewed: 2026-08-21
 ---
-
 # Host Portal Layout System
 
 How `cire/host` decides how wide things are. One page because the answer
@@ -162,7 +161,7 @@ component was previously reading a container it did not live in.
   (a `<Portal>` dialog) instead — one composed-preview markup source, two
   presentations, fed by five small per-slot prop helpers (`heroPreviewProps`,
   `storyPreviewProps`, …) called at each consumer's own JSX prop position, NOT
-  spread from one pre-built object — see `[[invite-builder]]` for why the
+  spread from one pre-built object — see `[[cire-invite-builder]]` for why the
   spread version silently broke live updates.
 
   It is also the one place that **measures instead of only querying**. The two

@@ -1,12 +1,11 @@
 ---
-title: "Site-wide consent framework"
-tags: [architecture, privacy, compliance, web]
+title: Cire site-wide consent framework
+tags: [architecture, privacy, compliance, web, cire]
 related:
   - "[[index]]"
-  - "[[invite-builder]]"
-last-reviewed: 2026-08-17
+  - "[[cire-invite-builder]]"
+last-reviewed: 2026-08-21
 ---
-
 # Site-wide consent framework
 
 Where the guest site's cookie/third-party consent lives, what it governs, and
@@ -128,7 +127,7 @@ undeclared transfer (silent, and the one that matters).
    is what you want, and that the banner copy still names it.
 4. Bump `CONSENT_POLICY_VERSION` in `record.ts` (this re-prompts everyone — see
    below).
-5. Add a row to the root `[[wiki/compliance/subprocessors]]` register.
+5. Add a row to the root `[[compliance/subprocessors]]` register.
 
 ### `enforcement: "gated" | "always"`
 

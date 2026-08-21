@@ -1,20 +1,19 @@
 ---
-title: "Gift registry"
-tags: [system, registry, gifts, money, phase-4]
+title: Cire gift registry
+tags: [system, registry, gifts, money, phase-4, cire]
 related:
-  - "[[entitlements]]"
-  - "[[budget]]"
-  - "[[platform-plan]]"
-  - "[[consent]]"
+  - "[[cire-entitlements]]"
+  - "[[cire-budget]]"
+  - "[[cire-platform-plan]]"
+  - "[[cire-consent]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-08-15
+last-reviewed: 2026-08-21
 ---
-
 # Gift registry
 
 Phase 4 module. The couple curate a gift list; guest **households** claim from it so nobody buys the same thing twice; the couple work from a gift log afterwards to write thank-yous. Card contributions ride Stripe Connect and land in a later PR — everything below is usable as an honour-system list with no Stripe account at all.
 
-> **It is locked.** The `registry` entitlement is granted to no wedding, so every route in this page answers `402 payment_required` in production today. See [[entitlements]] for the mechanism and the comp-grant CLI. Nothing here is reachable until someone grants it.
+> **It is locked.** The `registry` entitlement is granted to no wedding, so every route in this page answers `402 payment_required` in production today. See [[cire-entitlements]] for the mechanism and the comp-grant CLI. Nothing here is reachable until someone grants it.
 
 ---
 
@@ -78,7 +77,7 @@ One row per Stripe Checkout Session. `stripe_checkout_session_id` is **unique**,
 
 ## Money
 
-**The wedding has one primary currency** — `weddings.currency`, already shared with [[budget]]. The registry reuses it and introduces no second source of truth.
+**The wedding has one primary currency** — `weddings.currency`, already shared with [[cire-budget]]. The registry reuses it and introduces no second source of truth.
 
 - **Everything the organiser authors is in the primary currency.** `registry_items.price_minor` has no currency column of its own. A gift list quoted in four currencies is unreadable, and a per-item currency is the change that makes it one.
 - **Only received money can be foreign.** A contribution stores `amount_minor` + `currency` **as given**, plus `primary_amount_minor` + `primary_currency` + `fx_rate` + `fx_rate_at` — the primary-currency equivalent. All four are NULL when the gift arrived in the primary currency, which is the common case, and the UI then shows a single figure.
@@ -161,7 +160,7 @@ The parse also **rejects embedded credentials** (`https://evil.com@retailer.exam
 
 ### Images
 
-Registry images are **always our own copy in R2**, through the existing invite-assets pipeline. Never hotlink a retailer image: an off-origin `img-src` breaks the guest site's CSP and would need a vendor entry in the [[consent]] registry. How the bytes get there — upload or picked shop link — is [Picking one](#picking-one-we-copy-the-bytes-we-never-store-the-url) below.
+Registry images are **always our own copy in R2**, through the existing invite-assets pipeline. Never hotlink a retailer image: an off-origin `img-src` breaks the guest site's CSP and would need a vendor entry in the [[cire-consent]] registry. How the bytes get there — upload or picked shop link — is [Picking one](#picking-one-we-copy-the-bytes-we-never-store-the-url) below.
 
 **An `imageKey` must name this wedding's own upload.** Keys are `assets/<weddingId>/<name>`, so an editor on wedding A could otherwise set an item's image to `assets/<weddingB>/hero` and read a private photo out of a wedding they have no role on — an object-reference hole, not a validation nicety. Both `POST /registry/items` and `PATCH /registry/items/:itemId` compare the key's wedding segment against the route's `:weddingId` and answer **400 `image_key_not_in_wedding`** otherwise. The schema separately pins the key's *shape* — `assets/<segment>/registry-<name>`, no dots, no traversal — so a malformed key 400s before the ownership check ever runs; the two guards answer different questions and both are wanted.
 
@@ -173,7 +172,7 @@ Registry images are **always our own copy in R2**, through the existing invite-a
 
 `POST /api/organiser/weddings/:weddingId/registry/link-preview` takes `{ url }` and answers `{ title, siteName, images: string[] }` — up to six candidate image URLs for the item picker. The organiser pastes a shop link; we fetch the page, read its tags, and hand back what they can choose from.
 
-**This is the most dangerous module in `cire/api`, and the only one of its kind.** Every other outbound fetch we make goes to a host *we* chose — the OSN issuer, Resend, Stripe, Pinterest. This one goes wherever a caller's URL points, which is the textbook definition of a server-side request forgery sink: the Worker sits in a network position the caller does not have, so "fetch this for me" is a request to borrow it. [[pinterest-resolve]]'s answer is a host **allowlist**, which is correct when there is exactly one destination and impossible when the destination is any shop on the internet. So the guard has a different shape.
+**This is the most dangerous module in `cire/api`, and the only one of its kind.** Every other outbound fetch we make goes to a host *we* chose — the OSN issuer, Resend, Stripe, Pinterest. This one goes wherever a caller's URL points, which is the textbook definition of a server-side request forgery sink: the Worker sits in a network position the caller does not have, so "fetch this for me" is a request to borrow it. [`pinterest-resolve.ts`](../../cire/api/src/services/pinterest-resolve.ts)'s answer is a host **allowlist**, which is correct when there is exactly one destination and impossible when the destination is any shop on the internet. So the guard has a different shape.
 
 ### Five layers
 
@@ -228,7 +227,7 @@ That is a deliberate refusal, and the reasons are ordered by how badly each one 
 
 - **The bytes can change after the organiser approved them.** They saw a stand mixer; the shop can serve anything at that URL a month later, on a page couples send to everyone they know. Nothing about the preview binds what was shown to what is served.
 - **It rots.** Retailer CDNs re-slug on every catalogue change, and a delisted product takes its image with it. A wedding page is read for months after it is built.
-- **It leaks the guest.** Every guest loading the list would make a request to the shop carrying their IP and our referrer — a third-party disclosure nobody consented to, and a vendor entry we would owe the [[consent]] registry.
+- **It leaks the guest.** Every guest loading the list would make a request to the shop carrying their IP and our referrer — a third-party disclosure nobody consented to, and a vendor entry we would owe the [[cire-consent]] registry.
 - **We vetted the host for its IP range and nothing else.** That is enough to refuse an SSRF target; it is not a claim that the host is trustworthy for the lifetime of the page.
 
 Two endpoints, both on the write group's gates (`osnAuth` 401 → `weddingEditor` 403 → `weddingEntitlement` 402) with their own 10-a-minute per-organiser limiter appended (`defaultRegistryImageLimiter` — a save costs an outbound fetch and an R2 write):

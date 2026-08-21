@@ -45,12 +45,13 @@ is_allowed() {
     # `.claude/` is agent instructions — slash-commands, skills, settings; it is
     # read by the coding agent, never by a build.
     .github/* | .claude/* | scripts/* | wiki/* | docs/*) return 0 ;;
-    # cire keeps its own vault at `cire/wiki/`. Same category as `wiki/`:
-    # prose, read by people, built into nothing. It sits under `cire/` only
-    # because it documents cire, not because `@cire/*` ships it — the
-    # workspace packages are `cire/api`, `cire/host`, `cire/vendor`, and none
-    # of their build inputs reach outside their own directory.
-    cire/wiki/*) return 0 ;;
+    # RETIRED PATHS — both were prose that shipped in no package, and both
+    # were removed on 2026-08-21: `cire/wiki/` folded into `wiki/`, and
+    # `cire/CLAUDE.md` became `wiki/apps/cire-development.md` when the repo
+    # settled on exactly one CLAUDE.md at the root. Neither path exists now,
+    # so these two cases can only ever match that PR's own deletions.
+    # DROP BOTH once it has merged.
+    cire/wiki/* | cire/CLAUDE.md) return 0 ;;
   esac
 
   return 1

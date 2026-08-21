@@ -15,14 +15,6 @@ related:
   - "[[arc-tokens]]"
   - "[[rate-limit-incident]]"
   - "[[observability/metrics]]"
-finding-ids:
-  - S-H1
-  - S-H2
-  - S-M2
-  - S-M34
-  - S-M36
-  - P-W1
-  - P-W16
 packages:
   - "@osn/api"
   - "@pulse/api"
@@ -32,7 +24,6 @@ packages:
   - "@shared/redis"
 last-reviewed: 2026-08-19
 ---
-
 # Rate Limiting
 
 OSN uses **per-IP fixed-window rate limiting** on all auth endpoints and **per-user** limiting on graph write endpoints. Two backends exist: **Redis** (production, cross-process) and **in-memory** (local dev fallback).
@@ -150,7 +141,7 @@ Zap applies the same per-IP fixed-window limiter to its write endpoints
 (`createDefaultZapRateLimiters` in `zap/api/src/routes/chats.ts`):
 `POST /chats` 20/min, `POST /chats/:id/messages` 60/min,
 `POST /chats/:id/members` 30/min. These sit in front of ES256/JWKS token
-verification and the social-graph consent gate — see [[apps/zap]]. The limiter
+verification and the social-graph consent gate — see [[zap]]. The limiter
 check runs first so an unauthenticated flood is shed before any crypto or S2S
 work.
 

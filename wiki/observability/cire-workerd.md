@@ -1,13 +1,15 @@
 ---
-title: "Observability Overview"
-tags: [observability, system]
-related: [[contributing]], [[TODO]], [[index]]
-last-reviewed: 2026-07-23
+title: Cire observability on workerd
+tags: [observability, system, cire]
+related:
+  - "[[observability/overview]]"
+  - "[[cire]]"
+  - "[[deferred-decisions]]"
+last-reviewed: 2026-08-21
 ---
-
 # Observability Overview
 
-cire/api uses the OSN platform observability packages (`@shared/observability`), adapted to its Cloudflare Workers (workerd) runtime. The root OSN guide is authoritative: `[[wiki/observability/overview]]` (root). This page records what cire does differently.
+cire/api uses the OSN platform observability packages (`@shared/observability`), adapted to its Cloudflare Workers (workerd) runtime. The root OSN guide is authoritative: `[[observability/overview]]` (root). This page records what cire does differently.
 
 ## What cire runs on workerd
 
@@ -21,7 +23,7 @@ cire/api is an Elysia app on workerd; cire uses Effect.ts only in the service + 
 
 ### Deferred: metric/trace EXPORT
 
-There is no long-lived process on Workers to flush an OTLP exporter, so today the spans + `.inc()`/`.record()` calls are **no-ops**. They are defined, type-checked and correct at the call-site, but nothing ships them until a workerd reader (otel-cf-workers / Workers Analytics Engine) is wired. Tracked in `[[deferred]]`. Until then, Cloudflare's own dashboard (request traces, CPU time, error rates) plus the structured logs below are the live signal.
+There is no long-lived process on Workers to flush an OTLP exporter, so today the spans + `.inc()`/`.record()` calls are **no-ops**. They are defined, type-checked and correct at the call-site, but nothing ships them until a workerd reader (otel-cf-workers / Workers Analytics Engine) is wired. Tracked in `[[deferred-decisions]]`. Until then, Cloudflare's own dashboard (request traces, CPU time, error rates) plus the structured logs below are the live signal.
 
 ## Three Rules
 
@@ -58,4 +60,4 @@ The remaining step is wiring a workerd metric/trace exporter so the already-inst
 - **OpenTelemetry export** from Workers via `otel-cf-workers`, or
 - **Workers Analytics Engine** for metrics.
 
-Either one activates the existing call-sites with no code change. See `[[deferred]]`.
+Either one activates the existing call-sites with no code change. See `[[deferred-decisions]]`.

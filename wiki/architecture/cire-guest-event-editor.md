@@ -1,16 +1,14 @@
 ---
-title: "Guest + Event Editor — interactive UI alongside the CSV schema (plan)"
-tags: [architecture, plan, organiser, guests, events, spreadsheet]
+title: Cire guest + event editor
+tags: [architecture, plan, organiser, guests, events, spreadsheet, cire]
 related:
-  - "[[platform-plan]]"
-  - "[[invite-builder]]"
-last-reviewed: 2026-08-19
-updated: 2026-08-06 (E9 — the UTC offset leaves the organiser-facing surface: editor rows, drawer hint, CSV schema, exports)
+  - "[[cire-platform-plan]]"
+  - "[[cire-invite-builder]]"
+last-reviewed: 2026-08-21
 ---
-
 # Guest + Event Editor — plan
 
-Build plan for an interactive events + guests UI in the organiser portal that coexists with the CSV schema as an equal citizen. Expands [[platform-plan]] §3.3 (PR 5a) into a concrete design. Four requirements drive it:
+Build plan for an interactive events + guests UI in the organiser portal that coexists with the CSV schema as an equal citizen. Expands [[cire-platform-plan]] §3.3 (PR 5a) into a concrete design. Four requirements drive it:
 
 1. **In-app editor** — organisers create/edit/delete events, households, guests, and per-guest attendance directly.
 2. **CSV import stays** — the spreadsheet remains a first-class writer; editor and import are interchangeable.
@@ -23,7 +21,7 @@ Build plan for an interactive events + guests UI in the organiser portal that co
 - **Read surfaces**: `EventTable` / `GuestTable` (read-only rows + code management), `ChangeHistory` (list + revert).
 - **Write surfaces**: each module's **Edit** sub-tab is a choice between two ways in, held by `EditWorkspace.tsx` — the on-page editor (`EventsEditor` / `GuestsEditor`) or `ImportPanel`, one mounted at a time, a switch guarded by `confirmNavigation()`. `ImportPanel` is **per-sheet** (`kind: "events" | "guests"`) and posts only its own CSV key, so a module's import can never reconcile the other module's half (2026-08-06). Before that it sat above the guest list on the Guests read tab carrying both sheets. The `schedule` module is now `events`.
 - **Reporting exports**: `guests.csv` / `events.csv` / `rsvps.csv` (`services/table-export.ts`, `rsvp-export.ts`) — dashboard-shaped headers, **not** re-importable.
-- **Decided in [[platform-plan]]** (2026-07-08): direct CRUD lands (PR 5a); `source: 'import' | 'manual'` provenance on `families`/`guests`; un-invite state-loss confirm; import keeps auto-minting codes.
+- **Decided in [[cire-platform-plan]]** (2026-07-08): direct CRUD lands (PR 5a); `source: 'import' | 'manual'` provenance on `families`/`guests`; un-invite state-loss confirm; import keeps auto-minting codes.
 
 ## 2. Gaps against the requirements
 
@@ -52,7 +50,7 @@ Editor draft ─build─▶                      │                            
 - **`diffAgainstDb` becomes ID-aware** (fixes G4): match by id when present, fall back to normalised-name matching. A rename with an id is an *update*; the existing name-matched path is untouched. This also finally implements the long-anticipated optional `Guest ID` sheet column (`guests.externalId`) plus optional `Family ID` / `Event ID` columns — honoured when present, never required.
 - **Apply is unchanged**: same FK-ordered write set, same chunked `db.batch` commits, same partial-apply-reconciled-by-revert tradeoff.
 
-**Why batch reconcile instead of per-row CRUD endpoints** (amendment to [[platform-plan]] §3.3's `POST/PATCH/DELETE` sketch — **decided 2026-07-12**, see [[deferred]]): (a) preview-diff, impact warnings, and checkpointing fall out of the one pipeline instead of being rebuilt per endpoint; (b) one checkpoint per save session rather than per keystroke; (c) attendance-matrix edits are naturally batchy (tick 12 boxes, save once); (d) per-row CRUD can still be added later as sugar that compiles to a one-row reconcile. Everything else in §3.3 (provenance, un-invite guard, organiser-recorded RSVPs) stands — organiser RSVPs (PR 5b) stay a separate follow-up since RSVPs sit deliberately outside the reconcile's scope (§5).
+**Why batch reconcile instead of per-row CRUD endpoints** (amendment to [[cire-platform-plan]] §3.3's `POST/PATCH/DELETE` sketch — **decided 2026-07-12**, see [[deferred-decisions]]): (a) preview-diff, impact warnings, and checkpointing fall out of the one pipeline instead of being rebuilt per endpoint; (b) one checkpoint per save session rather than per keystroke; (c) attendance-matrix edits are naturally batchy (tick 12 boxes, save once); (d) per-row CRUD can still be added later as sugar that compiles to a one-row reconcile. Everything else in §3.3 (provenance, un-invite guard, organiser-recorded RSVPs) stands — organiser RSVPs (PR 5b) stay a separate follow-up since RSVPs sit deliberately outside the reconcile's scope (§5).
 
 ### 3.1 Change scope — a change need not be authoritative over everything
 
@@ -115,7 +113,7 @@ Extract the parser's semantic rules into a shared module `cire/api/src/lib/guest
 - **Field-level**: required Event Name / Start / Timezone; Start/End are LOCAL wall-clock timestamps (`YYYY-MM-DDTHH:MM`) read against the row's IANA `Timezone`, which must resolve — the stored offset is derived from the zone by `cire/api/src/lib/event-time.ts`, never typed (E9); `""` end sentinel preserved; end ≥ start when both present (new rule — warn, don't reject, matching sheet leniency); palette `Name:#rgb` entries against the theme colour allow-list; http(s)-only Pinterest/Maps URLs; length bounds; non-empty household + guest names.
 - **Cross-record**: duplicate event names (case/whitespace-insensitive) rejected; duplicate guest first names within a household rejected (first-name is still the fallback match key); attendance may reference only events present in the same DesiredState; empty household ⇒ warning.
 - **Impact warnings** (server-computed at preview, confirm-gated — extends today's RSVP-loss warnings): deleting a guest/household/event or un-inviting a pair discards existing RSVPs (enumerate per guest, as today; add the event-delete enumeration); deleting a household kills its already-shared claim code (`codeSharedAt` known); deleting an event drops its uploaded image; a CSV import that lacks manually-added rows follows the provenance default (below).
-- **Provenance default** ([[platform-plan]] decided): the diff manages `source = 'import'` rows only by default; an explicit "also remove manually-added rows" toggle widens it. Editor saves manage everything they were shown (the draft is the whole truth). "Added by hand" badge in the UI comes free.
+- **Provenance default** ([[cire-platform-plan]] decided): the diff manages `source = 'import'` rows only by default; an explicit "also remove manually-added rows" toggle widens it. Editor saves manage everything they were shown (the draft is the whole truth). "Added by hand" badge in the UI comes free.
 - **Concurrency guard**: the preview response carries `baseRevision` (latest applied change id). Apply re-diffs against the live DB (today's TOCTOU defence) and additionally 409s "state changed — re-preview" when the head moved, so two co-hosts editing simultaneously get a clean conflict instead of a silent last-writer-wins.
 - **Client mirror**: the organiser app re-implements the field-level rules for inline feedback (shared constants where practical); the server stays authoritative.
 
@@ -177,7 +175,7 @@ Each PR lands green with a changeset; order matters (later PRs consume earlier m
 
 ## 11. Decisions (resolved 2026-07-12, product owner sign-off)
 
-1. **Endpoint shape: batch draft-save (reconcile).** [[platform-plan]] §3.3's per-row `POST/PATCH/DELETE` sketch is amended; per-row CRUD may land later as sugar over the same reconcile.
+1. **Endpoint shape: batch draft-save (reconcile).** [[cire-platform-plan]] §3.3's per-row `POST/PATCH/DELETE` sketch is amended; per-row CRUD may land later as sugar over the same reconcile.
 2. **Checkpoint retention: keep the last 10 before-images** per wedding; older history rows stay listed but lose revertability (marked in the UI).
 3. **Revert vs manual rows**: stands as designed — the before-image model does a literal "restore the previous state", so reverting an import also restores manual rows that import deleted (via the provenance toggle).
 4. **Editor-created households auto-mint claim codes**, exactly like the import, until platform PR 4 (code-less households) lands — at which point manual creation switches to code-less per the decided §3.2 model.

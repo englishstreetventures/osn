@@ -16,7 +16,7 @@ related:
   - "[[arc-tokens]]"
   - "[[rate-limiting]]"
   - "[[auth-failure]]"
-port: 4000
+dev-host: https://id.musubi.localhost
 last-reviewed: 2026-07-22
 ---
 
