@@ -1,6 +1,6 @@
 import { AuthProvider, useAuth } from "@shared/rp-auth/solid";
+import { Toaster } from "@shared/toast";
 import { createEffect, createSignal, onCleanup, onMount, type ParentProps, Show } from "solid-js";
-import { Toaster } from "solid-toast";
 
 import { redirectToLogin } from "../lib/api";
 import { createAutoSize } from "../lib/auto-size";

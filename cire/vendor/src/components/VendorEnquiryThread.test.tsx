@@ -31,10 +31,10 @@ vi.mock("../lib/enquiries-store", () => ({
   friendlyEnquiryError: (err: unknown) => mockFriendlyEnquiryError(err),
 }));
 
-// Mock solid-toast so we can verify toast calls without a real DOM toaster.
+// Mock the toast package so we can verify toast calls without a real DOM toaster.
 const mockToastSuccess = vi.fn();
 const mockToastError = vi.fn();
-vi.mock("solid-toast", () => ({
+vi.mock("@shared/toast", () => ({
   toast: {
     success: (...args: any[]) => mockToastSuccess(...args),
     error: (...args: any[]) => mockToastError(...args),

@@ -1,7 +1,7 @@
 import { useAuth } from "@shared/rp-auth/solid";
+import { toast } from "@shared/toast";
 import { createSignal, Show } from "solid-js";
 import { Portal } from "solid-js/web";
-import { toast } from "solid-toast";
 
 import { redirectToLogin } from "../lib/api";
 import { enquiryErrorMessage, EnquiryApiError, openEnquiry } from "../lib/enquiries-api";

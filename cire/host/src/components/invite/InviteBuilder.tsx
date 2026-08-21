@@ -36,6 +36,7 @@ import {
   typographyVars,
 } from "@cire/theme";
 import { useAuth } from "@shared/rp-auth/solid";
+import { toast } from "@shared/toast";
 import {
   createEffect,
   createMemo,
@@ -47,7 +48,6 @@ import {
   Show,
 } from "solid-js";
 import { createStore } from "solid-js/store";
-import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../../lib/api";
 import { haptic } from "../../lib/haptics";

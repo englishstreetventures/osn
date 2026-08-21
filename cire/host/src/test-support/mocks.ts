@@ -4,7 +4,7 @@ import { type Mock, vi } from "vitest";
  * Shared module mocks for the organiser component suites.
  *
  * Nearly every organiser component sits behind the same three collaborators —
- * the OSN auth context, the api-url/auth-expiry helpers, and solid-toast — so
+ * the OSN auth context, the api-url/auth-expiry helpers, and the toast package — so
  * each suite was re-declaring an identical set of spies and `vi.mock` factory
  * bodies. Registration still has to live in the test file (`vi.mock` is hoisted
  * per module), but the factory bodies and the spies belong here.
@@ -36,8 +36,8 @@ export function rpAuthSolidMock() {
   return { useAuth: () => ({ authFetch: authFetchMock }) };
 }
 
-/** Factory for `vi.mock("solid-toast", ...)`. */
-export function solidToastMock() {
+/** Factory for `vi.mock("@shared/toast", ...)`. */
+export function toastMock() {
   return {
     toast: {
       success: (m: string) => toastSuccess(m),

@@ -5,9 +5,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EnquiryListItem, EnquiryMessage } from "../lib/enquiries-store";
 import EnquiryThread from "./EnquiryThread";
 
-// Stub solid-toast so toast.error doesn't throw in tests.
+// Stub the toast package so toast.error doesn't throw in tests.
 const toastError = vi.fn();
-vi.mock("solid-toast", () => ({
+vi.mock("@shared/toast", () => ({
   toast: { error: (m: string) => toastError(m) },
 }));
 

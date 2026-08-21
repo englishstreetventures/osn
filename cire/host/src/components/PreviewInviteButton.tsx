@@ -1,6 +1,6 @@
 import { useAuth } from "@shared/rp-auth/solid";
+import { toast } from "@shared/toast";
 import { createSignal } from "solid-js";
-import { toast } from "solid-toast";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { CIRE_WEB_URL } from "../lib/osn";

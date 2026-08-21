@@ -1,6 +1,6 @@
+import { toast } from "@shared/toast";
 import { render, cleanup, fireEvent, within } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
-import { toast } from "solid-toast";
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 import { EventCard } from "./EventCard";
@@ -38,7 +38,7 @@ vi.mock("motion", () => ({
   animate: vi.fn(() => ({ finished: Promise.resolve() })),
 }));
 
-vi.mock("solid-toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("@shared/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const event: EventSummary = {
   id: "event-1",
@@ -166,7 +166,7 @@ describe("RSVP confirmation — RsvpModal ↔ EventCard", () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
-    // The `solid-toast` mock is a module-level singleton (the factory runs
+    // The toast mock is a module-level singleton (the factory runs
     // once for the whole file), so its call history survives across tests
     // unless cleared here.
     vi.mocked(toast.success).mockClear();

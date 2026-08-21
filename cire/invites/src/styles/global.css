@@ -1,4 +1,8 @@
 @import "tailwindcss";
+/* The toast package's own styles. It reads the `--toast-*` custom properties
+   the palette block below emits, so an invite's toasts are the organiser's
+   colours with contrast already enforced against the surface they sit on. */
+@import "@shared/toast/toast.css";
 
 /* Self-hosted faces (tracker #98) — matches the weight set the guest site used
    to pull from Google Fonts (`ital,wght@0,300;0,400;0,600;0,700;1,300;1,400;1,700`
@@ -372,11 +376,11 @@
   --color-error: oklch(72% 0.1401 21.48);
   --color-success: oklch(64% 0.1421 146.94);
 
-  /* Toast tokens. Same hue and chroma as the pair above, but walked against
-     `--color-surface-raised` — the surface a toast actually paints on — rather
-     than `--color-surface`. On evergreen the two pairs coincide; on `jewel`
-     they do not, which is why the toast has its own. Kept in lockstep with
-     `derivePalette` by `invite-theme.test.ts`. */
+  /* Toast tokens (`@shared/toast` reads these names). Same hue and chroma as
+     the pair above, but walked against `--color-surface-raised` — the surface a
+     toast actually paints on — rather than `--color-surface`. On evergreen the
+     two pairs coincide; on `jewel` they do not, which is why the toast has its
+     own. Kept in lockstep with `derivePalette` by `invite-theme.test.ts`. */
   --toast-surface: oklch(27.7% 0.0275 152.78);
   --toast-ink: oklch(94.62% 0.0111 89.72);
   --toast-border: oklch(94.62% 0.0111 89.72 / 0.18);
@@ -434,6 +438,21 @@
   --invite-focus: oklch(74.99% 0.0854 82.08);
   /* Which derived surface a section sits on; set per-section by its wrapper. */
   --invite-section-bg: var(--color-bg);
+
+  /* `@shared/toast` reads `--toast-accent-*`; `derivePalette` emits
+     `--toast-error` / `--toast-success`. This is the join between the two
+     names, and it is load-bearing: without it the package falls back to its
+     built-in green, which measures 2.9:1 on evergreen's raised surface. The
+     browser test composites the painted glyph, so a missing alias here fails
+     rather than merely looking wrong. */
+  --toast-accent-error: var(--toast-error);
+  --toast-accent-success: var(--toast-success);
+  --toast-accent-warn: var(--color-gold-ink);
+  --toast-accent-info: var(--color-text-muted);
+  --toast-font: var(--font-body);
+  --toast-font-size: 0.85rem;
+  --toast-focus: var(--invite-focus);
+  --toast-radius: 0.25rem;
 }
 
 @layer base {

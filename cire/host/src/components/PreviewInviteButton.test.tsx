@@ -19,7 +19,7 @@ vi.mock("@shared/rp-auth/solid", async () => {
   return rpAuthSolidMock();
 });
 
-vi.mock("solid-toast", () => ({
+vi.mock("@shared/toast", () => ({
   toast: { success: vi.fn(), error: (...args: unknown[]) => toastErrorSpy(...args) },
 }));
 

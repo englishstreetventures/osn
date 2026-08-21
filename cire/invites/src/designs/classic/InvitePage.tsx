@@ -1,3 +1,4 @@
+import { Toaster } from "@shared/toast";
 import {
   batch,
   createEffect,
@@ -11,7 +12,6 @@ import {
   Suspense,
   For,
 } from "solid-js";
-import { Toaster } from "solid-toast";
 
 import { awaitEventCards } from "../../components/await-event-cards";
 import { createSessionRestore, noteClaimed, signOut } from "../../components/claim-session";
@@ -29,7 +29,7 @@ import { prefetchOnIdle } from "../../components/prefetch-idle";
 import { deadlineNotice, formatDeadlineDay, RSVP_NOTICE_ID } from "../../components/rsvp-deadline";
 import { hasHouseholdResponded } from "../../components/rsvp-responded";
 import type { ClaimResult, EventSummary, RsvpSummary } from "../../components/types";
-import { Z_LAYER } from "../../lib/z-index";
+import { Z_CLASS } from "../../lib/z-index";
 
 // Post-claim UI, split out of the page's initial chunk (P-W1). Nothing here
 // renders before the guest claims their code — every one of these sits inside a
@@ -581,35 +581,29 @@ export default function InvitePage(props: InvitePageProps) {
       </Show>
       {/* Confirmation toasts — mounted at the PAGE ROOT, deliberately.
           It used to sit next to `PulseAccountLink` inside the events section,
-          which broke it two ways at once: the section is `<Show when={!preview}>`
-          so host preview had no toaster at all and every `toast.success` there
-          was silently dropped, and Motion One's reveal leaves an inline
-          `transform` on that section, which makes it the containing block AND a
-          stacking context for the `position: fixed` toaster inside it — so the
-          toast was positioned against the section rather than the viewport and
-          painted BELOW the `z-100` RSVP sheet it fires underneath. Out here it
-          is a sibling of the modals and its own layer (`Z_LAYER.TOAST`) wins.
+          which is `<Show when={!preview}>` — so host preview had no toaster at
+          all and every `toast.success` there was silently dropped. Out here it
+          renders in both modes.
+
+          It also used to be trapped by that section: Motion One's reveal leaves
+          an inline `transform` on it, which makes it the containing block AND a
+          stacking context for a `position: fixed` toaster inside it, so the
+          toast painted BELOW the `z-100` RSVP sheet it fires underneath.
+          `@shared/toast` portals its container to <body>, so that half can no
+          longer happen wherever this is mounted — but the preview half still
+          can, which is why this stays at the root.
 
           `top-center`, not bottom: the toast is raised while the RSVP sheet is
           still open, and that sheet's sticky action bar owns the bottom edge. */}
       <Toaster
         position="top-center"
-        // The layer goes on as an inline STYLE, not via `containerClassName`:
-        // solid-toast spreads its own `defaultContainerStyle` — which carries a
-        // hardcoded `z-index: 9999` — onto this same div's `style`, and inline
-        // style beats a Tailwind class, so `containerClassName={Z_CLASS.TOAST}`
-        // was silently inert and the toast actually sat above the consent
-        // layers. `containerStyle` is merged AFTER the defaults in that spread,
-        // so it is the only override that wins. The library also injects
-        // `.sldt-active{z-index:9999}` for the per-toast wrapper, but that is
-        // scoped inside this container's own stacking context and cannot escape
-        // it. Two-sided bound asserted in `InvitePage.browser.test.tsx`.
-        containerStyle={{ "z-index": String(Z_LAYER.TOAST) }}
-        toastOptions={{
-          className:
-            "!bg-surface-raised !text-text !border-border !font-body !border !text-[0.85rem]",
-          duration: 4000,
-        }}
+        // The layer goes on as a CLASS. `@shared/toast` sets no `z-index` of
+        // its own — precisely so this works. (`solid-toast` spread a hardcoded
+        // `z-index: 9999` onto the same div's inline style, which beat any
+        // class and parked the toast ABOVE the consent layers; the only
+        // override that won was `containerStyle`. Two-sided bound asserted in
+        // `InvitePage.browser.test.tsx`.)
+        class={Z_CLASS.TOAST}
       />
     </>
   );

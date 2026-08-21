@@ -47,7 +47,7 @@ vi.mock("@shared/rp-auth/solid", () => ({
 // Rendered as a marker, not `() => null`: WHERE the Toaster is mounted is the
 // contract under test (see "save-confirmation plumbing" below), and a null
 // render makes that unassertable.
-vi.mock("solid-toast", () => ({
+vi.mock("@shared/toast", () => ({
   Toaster: () => <div data-testid="toaster-stub" />,
   toast: { success: vi.fn(), error: vi.fn() },
 }));
