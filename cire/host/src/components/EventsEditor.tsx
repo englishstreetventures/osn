@@ -117,7 +117,7 @@ export default function EventsEditor(props: { weddingId: string }) {
    * Haptics stay here. They are the portal's vocabulary, not the package's, so
    * the package reports phases and this decides what they feel like.
    */
-  const list = createSortableList({
+  const reorder = createSortableList({
     ids: eventKeys,
     labelFor: nameForKey,
     noun: "event",
@@ -339,7 +339,7 @@ export default function EventsEditor(props: { weddingId: string }) {
           {/* `DragDropSensors` registers the pointer sensor; the keyboard and
               screen-reader paths come from `createSortableList` above.
               `closestCenter` is the right detector for a single-column list. */}
-          <DragDropProvider {...list.dragHandlers} collisionDetector={closestCenter}>
+          <DragDropProvider {...reorder.dragHandlers} collisionDetector={closestCenter}>
             <DragDropSensors />
             <ul class="flex flex-col gap-3" data-testid="event-list">
               <SortableProvider ids={eventKeys()}>
@@ -352,7 +352,7 @@ export default function EventsEditor(props: { weddingId: string }) {
                       hasError={(errorsByKey().get(event.key)?.length ?? 0) > 0}
                       onEdit={() => setEditingKey(event.key)}
                       onDelete={() => handleDelete(event)}
-                      sortableItem={list.item(event.key, index, () => store.draft.events.length)}
+                      sortableItem={reorder.item(event.key, index, () => store.draft.events.length)}
                     />
                   )}
                 </For>
@@ -364,9 +364,9 @@ export default function EventsEditor(props: { weddingId: string }) {
               the drag affordance is invisible to a screen-reader user otherwise.
               The id is generated per list, so several sortable lists can share a
               page without every grip describing itself with whichever won. */}
-          <p {...list.hintProps()}>{list.hintText}</p>
+          <p {...reorder.hintProps()}>{reorder.hintText}</p>
           {/* Screen-reader feedback for a completed move (drag or keyboard). */}
-          <p {...list.liveRegionProps()}>{list.announcement()}</p>
+          <p {...reorder.liveRegionProps()}>{reorder.announcement()}</p>
         </Show>
       </Show>
 
@@ -435,7 +435,7 @@ export default function EventsEditor(props: { weddingId: string }) {
                   size="sm"
                   onClick={() => {
                     store.undo();
-                    list.clearAnnouncement();
+                    reorder.clearAnnouncement();
                   }}
                   disabled={!store.canUndo() || busy()}
                 >
@@ -446,7 +446,7 @@ export default function EventsEditor(props: { weddingId: string }) {
                   size="sm"
                   onClick={() => {
                     store.discard();
-                    list.clearAnnouncement();
+                    reorder.clearAnnouncement();
                     setEditingKey(null);
                   }}
                   disabled={busy()}
