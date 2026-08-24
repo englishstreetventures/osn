@@ -140,9 +140,52 @@ describe("beginEmailChange + completeEmailChange", () => {
 
       const result = yield* auth.beginEmailChange(profile.accountId, "ec-target@example.com");
       expect(result.sent).toBe(true);
-      // The complete step would still reject the collision via UNIQUE(email),
-      // so the protection is where it matters — on the write.
+      // The complete step still rejects the collision via UNIQUE(email) —
+      // see the next test, which drives a real write-time conflict through it.
       void stepUpToken;
+    }).pipe(Effect.provide(layer));
+  });
+
+  // O3/S-H2 write-time guard: the begin-time collision check only sees
+  // accounts as they stand *right then*. Account B can grab the target
+  // address (via its own, independent change) in the gap between account
+  // A's begin (collision check passes — nobody holds it yet) and A's
+  // complete. At that point the write hits UNIQUE(email) for real, and
+  // the catch in `completeEmailChange` must turn that into the same
+  // generic AuthError the OTP-mismatch path returns — never a raw
+  // DatabaseError, and never a hint that the address is taken.
+  it.effect("rejects at complete time when another account wins the email in the meantime", () => {
+    const { layer, captured } = makeEmailCapture();
+    return Effect.gen(function* () {
+      const a = yield* setup("ec-race-a@example.com", "ecracea", captured);
+      const b = yield* setup("ec-race-b@example.com", "ecraceb", captured);
+
+      const target = "ec-race-target@example.com";
+
+      // A begins first — target is free, so the collision check passes
+      // and a pending change is stored.
+      yield* a.auth.beginEmailChange(a.profile.accountId, target);
+      const codeA = captured.latest()!;
+
+      // B independently begins AND completes a change to the same
+      // address before A completes — same target is still free from
+      // B's point of view too.
+      yield* b.auth.beginEmailChange(b.profile.accountId, target);
+      const codeB = captured.latest()!;
+      const bResult = yield* b.auth.completeEmailChange(
+        b.profile.accountId,
+        codeB,
+        b.stepUpToken,
+        null,
+      );
+      expect(bResult.email).toBe(target);
+
+      // A's write now collides for real: B already owns `target`.
+      const err = yield* Effect.flip(
+        a.auth.completeEmailChange(a.profile.accountId, codeA, a.stepUpToken, null),
+      );
+      expect(err._tag).toBe("AuthError");
+      expect(err.message).toMatch(/invalid or expired code/i);
     }).pipe(Effect.provide(layer));
   });
 

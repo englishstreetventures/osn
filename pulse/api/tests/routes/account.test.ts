@@ -50,6 +50,20 @@ describe("account routes — auth gates", () => {
     expect(res.status).toBe(401);
   });
 
+  it("GET /account/deletion-status returns 401 with an expired bearer token", async () => {
+    // Route-level coverage: an access token that verifies structurally but
+    // is past `exp` must be rejected at the route, not just at the
+    // `resolveCaller` lib layer (see caller.test.ts). Distinct from a
+    // stale *cookie session* — this is a bearer token, no cookie involved.
+    const expired = await signer.sign("usr_expired", { expiresIn: "-120s" });
+    const res = await makeApp().handle(
+      new Request("http://localhost/account/deletion-status", {
+        headers: { authorization: `Bearer ${expired}` },
+      }),
+    );
+    expect(res.status).toBe(401);
+  });
+
   it("DELETE /account returns 403 without a step-up token", async () => {
     const token = await makeToken("usr_gate");
     const res = await makeApp().handle(

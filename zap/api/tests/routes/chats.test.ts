@@ -120,6 +120,17 @@ describe("chats routes", () => {
     expect(res.status).toBe(401);
   });
 
+  it("GET /chats returns 401 for an expired bearer token", async () => {
+    // Route-level coverage: a token that verifies (right key, right
+    // audience, right sub prefix) but is past `exp` must still be
+    // rejected — the neighbouring cases here cover a wrong key,
+    // wrong alg, and wrong/missing audience, but none of them exercise
+    // expiry specifically.
+    const expired = await signer.sign("usr_alice", { expiresIn: "-120s" });
+    const res = await req(app, "GET", "/chats", { token: expired });
+    expect(res.status).toBe(401);
+  });
+
   it("GET /chats returns 401 for a verified token whose sub is not a usr_ id (Z2)", async () => {
     const orgToken = await makeToken("org_evil");
     const res = await req(app, "GET", "/chats", { token: orgToken });
