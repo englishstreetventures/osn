@@ -1,5 +1,11 @@
 # @osn/ui
 
+## 1.10.0
+
+### Minor Changes
+
+- 5159096: Remove the deprecated `bx()` identity function. Write `base:`-prefixed classes directly in source strings instead.
+
 ## 1.9.1
 
 ### Patch Changes
