@@ -5,17 +5,27 @@ minimumReleaseAge = 259200
 # Every entry below is temporary and carries its own drop-trigger. An exclude
 # with no expiry stops being an exception and becomes a permanent hole: the
 # range keeps matching future releases, so the next publish under that name
-# installs with no soak at all.
+# installs with no soak at all. `scripts/check-release-age-excludes.ts` enforces
+# this — run in CI by the `script-tests` job's "Check release-age excludes are
+# marked and bounded" step, which gates the required `CI` check — every name
+# in minimumReleaseAgeExcludes must have a matching marker comment somewhere
+# in this block —
 #
-# bun-types: `.bun-version` pins the 1.4.0 runtime, so without the matching
-# types the repo typechecks 1.4 APIs (Bun.TOML, Bun.Image, Bun.JSONC) against
-# 1.3 definitions and every one of them is an error. bun-types 1.4.0 was
-# published 2026-08-20, inside the window.
+#   # DROP AFTER <package-name> <YYYY-MM-DD>
 #
-# It is the mildest package to make an exception for: types only, no runtime
-# code, devDependency, never bundled into a Worker. It still gets no free pass —
-# DROP THIS ENTRY once 1.4.0 clears three days (after 2026-08-23). Leaving it
-# would silently exempt every future bun-types release from the gate.
+# — dated no more than 30 days out, and the check fails once that date has
+# passed. Add the marker in the same commit as the exclude; when it fires,
+# remove the name from the array below and turn its paragraph into a
+# removed-entry note like the two below. The same script also fails if
+# `minimumReleaseAge` above drops below 259200 (3 days) — lowering the soak
+# window itself is a decision that belongs in a reviewed PR, not a quiet edit.
+#
+# bun-types was removed 2026-08-24. It was added because `.bun-version` pins
+# the 1.4.0 runtime, so without matching types the repo typechecked 1.4 APIs
+# (Bun.TOML, Bun.Image, Bun.JSONC) against 1.3 definitions. bun-types 1.4.0
+# published 2026-08-20, and its marker (drop after 2026-08-23) fired: the
+# three-day window had cleared, so the exception bought nothing further and
+# would have silently exempted every later bun-types release from the gate.
 #
 # fast-uri was removed 2026-08-21. It was added for fast-uri 3.1.4, which
 # patched GHSA-v2hh-gcrm-f6hx (high) inside the window. That reason expired:
@@ -23,4 +33,4 @@ minimumReleaseAge = 259200
 # 2026-07-31 — well past the gate on its own. The entry was buying nothing and
 # exempting every future 3.x publish of a package that parses URIs on the
 # request path via ajv.
-minimumReleaseAgeExcludes = ["bun-types"]
+minimumReleaseAgeExcludes = []

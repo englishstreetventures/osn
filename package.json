@@ -23,6 +23,7 @@
     "test:d1": "turbo test:d1 --continue --concurrency=1",
     "test:browser": "turbo test:browser --continue",
     "test:scripts": "bun test ./scripts/",
+    "check:release-age-excludes": "bun run scripts/check-release-age-excludes.ts",
     "clean": "git clean -fdX",
     "db:reset": "bun run --cwd osn/db db:reset && bun run --cwd pulse/db db:reset && bun run --cwd zap/db db:reset && bun run --cwd cire/db db:reset",
     "fmt": "bunx --bun oxfmt osn pulse zap shared cire tools/lab '!**/*.{json,jsonc,md,yml,yaml,css,html,astro}'",

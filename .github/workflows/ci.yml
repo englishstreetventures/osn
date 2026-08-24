@@ -183,6 +183,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # tools/oxlint/anti-slop is excluded from oxfmt and ignored by oxlint (see
+      # its README), specifically so a re-vendor stays a plain copy with no
+      # formatting noise. That also means an edit to the vendored tree passes
+      # every other gate unnoticed — this is the one check that would catch it.
+      # No bun needed, so it runs right after checkout.
+      #
+      # `shasum -c` only verifies the paths SHA256SUMS lists — a file ADDED to
+      # the tree isn't in that list, so it has nothing to check it against and
+      # passes silently. The diff catches that half: it fails if the tracked
+      # file set drifts from SHA256SUMS in either direction, added or removed.
+      - name: Verify vendored anti-slop matches its checksums
+        run: |
+          cd tools/oxlint/anti-slop
+          shasum -c SHA256SUMS
+          diff <(sed 's/^[0-9a-f]*  //' SHA256SUMS | sort) \
+               <(find . -type f ! -name SHA256SUMS | sed 's|^\./||' | sort)
+
       # scripts/cire-dev-db-guard.sh is the only thing standing between the
       # unattended `db:reset:dev` step and the live-wedding D1, and a weakened
       # guard's failure mode is *passing* — nothing downstream would notice
@@ -211,11 +228,22 @@ jobs:
       # drizzle and effect and therefore needs an install this job does not do.
       # `./scripts/` anchors to the directory.
       #
-      # No `bun install` on purpose: these three files import nothing but
-      # `bun:test` and each other, so an install here would be a minute spent
-      # on nothing.
+      # No `bun install` on purpose: the files under scripts/ import nothing
+      # but `bun:test`, Bun/Node built-ins, and each other, so an install here
+      # would be a minute spent on nothing.
       - name: Test the scripts
         run: bun run test:scripts
+
+      # A prior version of this job ran `checkReleaseAgeExcludes` only from
+      # `bun test`, which imports the pure function and feeds it synthetic
+      # TOML — the `import.meta.main` CLI block (the part that reads the real
+      # `bunfig.toml`) is false under `bun test` and so never ran here, while
+      # `bunfig.toml`'s own comment and the changeset that added this script
+      # both claimed CI enforced it. It did not. This step is what actually
+      # makes that true: the CLI test above proves the wiring works in
+      # general, this step proves it against this repo's own bunfig.toml.
+      - name: Check release-age excludes are marked and bounded
+        run: bun run check:release-age-excludes
 
   openapi-freshness:
     name: OpenAPI Freshness

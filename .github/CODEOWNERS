@@ -1,0 +1,22 @@
+# The guards that keep this repo honest, and the things they guard. `.github/`
+# is self-owning, so neither this file nor the CI wiring can change without an
+# owner's review. GitHub applies the LAST matching pattern for a given path —
+# every pattern here names the same owner and none of them overlap, so order
+# is not load-bearing today, but a later pattern that overlaps an earlier one
+# and names a different owner would win.
+/.github/            @chav-aniket
+/scripts/            @chav-aniket
+/bunfig.toml         @chav-aniket
+
+# The indirection the guards run through. Owning the workflow without owning
+# these leaves the cheapest bypass unreviewed: every CI step calls a guard by
+# script name out of `package.json`, `oxlintrc.json` decides that the vendored
+# oxlint plugin is the one that runs, and `lefthook.yml` is the local half.
+/package.json        @chav-aniket
+/oxlintrc.json       @chav-aniket
+/lefthook.yml        @chav-aniket
+
+# Vendored upstream source (see tools/oxlint/anti-slop/README.md). An edit
+# here bypasses oxfmt and oxlint by design — only the SHA256SUMS check in CI
+# catches drift — so a change to this tree gets a human owner's eyes.
+/tools/oxlint/**     @chav-aniket

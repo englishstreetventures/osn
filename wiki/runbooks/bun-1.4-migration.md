@@ -9,7 +9,7 @@ related:
   - "[[dev-environment]]"
   - "[[devloop-urls]]"
   - "[[commands]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-08-24
 ---
 
 # Bun 1.4 migration
@@ -60,9 +60,18 @@ That needed a `minimumReleaseAge` exception — 1.4.0 was published the same day
 inside the three-day window. An earlier draft of this page said to wait it out
 rather than add an exclude. The exception was taken instead, on the grounds that
 `bun-types` is the mildest possible case: types only, no runtime code,
-devDependency, never bundled into a Worker. The entry in `bunfig.toml` carries
-its own drop-trigger — **remove `bun-types` from `minimumReleaseAgeExcludes`
-after 2026-08-23**, or it silently exempts every future release.
+devDependency, never bundled into a Worker. The entry in `bunfig.toml` carried
+its own drop-trigger, and it fired: **`bun-types` was removed from
+`minimumReleaseAgeExcludes` on 2026-08-24**, leaving the list empty. Leaving it
+would have exempted every future `bun-types` release from the soak.
+
+Drop-triggers are no longer prose. `scripts/check-release-age-excludes.ts` runs
+in CI (the `script-tests` job) and fails the build if an entry in
+`minimumReleaseAgeExcludes` has no `# DROP AFTER <name> <YYYY-MM-DD>` marker
+comment, if that date is not a real date, if it has passed, or if it is more
+than 30 days out. The same check fails if `minimumReleaseAge` itself is missing
+or below 259200 (3 days), so the soak window cannot be lowered without a
+visible diff. Add the marker in the same commit as the exclude.
 
 ### Phase 1a — the two shell-outs onto `$`
 
@@ -237,7 +246,10 @@ same reason, and is not a candidate either.
   `minimumReleaseAge` window. **A blocked `audit fix` is the gate working.** Wait
   it out, or pin a transitive override to an already-aged version; add a
   `minimumReleaseAgeExcludes` entry only for a confirmed-exploitable
-  high/critical, with a drop-trigger inline, as `fast-uri` has.
+  high/critical, and give it a `# DROP AFTER <name> <YYYY-MM-DD>` marker in the
+  same commit — `scripts/check-release-age-excludes.ts` fails CI without one.
+  The list is empty today; `fast-uri` and `bun-types` were the last two, and
+  both were removed when their triggers fired.
 - **`linker = "isolated"`** — the global virtual store, claimed 7x faster warm
   installs. `bun install` runs 4 times across `ci.yml` and 23 times across all
   workflows, 16 of them in `deploy.yml`, so the win is bigger than it looks and
