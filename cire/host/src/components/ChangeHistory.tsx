@@ -9,10 +9,10 @@ import Notice from "./ui/Notice";
 
 /**
  * One row of the change list as returned by
- * `GET /api/organiser/weddings/:weddingId/changes/list` (the E4 endpoint, still
- * mounted at the `/import` alias for one release). `summary` mirrors the counts
- * stored at preview time; an older row whose summary failed to parse comes back
- * as `{}`, so every count field is optional and defaulted to 0 when rendered.
+ * `GET /api/organiser/weddings/:weddingId/changes/list` (the E4 endpoint).
+ * `summary` mirrors the counts stored at preview time; an older row whose
+ * summary failed to parse comes back as `{}`, so every count field is optional
+ * and defaulted to 0 when rendered.
  */
 interface ChangeSummaryCounts {
   eventCreates?: number;
@@ -170,7 +170,7 @@ export default function ChangeHistory(props: { weddingId: string }) {
       const res = await authFetch(revertUrl(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ changeId: entry.id, importId: entry.id }),
+        body: JSON.stringify({ changeId: entry.id }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };

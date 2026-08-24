@@ -234,11 +234,11 @@ export const PreviewBody = Schema.Struct({
 export type PreviewBody = Schema.Schema.Type<typeof PreviewBody>;
 
 export const ApplyBody = Schema.Struct({
-  importId: Schema.String,
+  changeId: Schema.String,
 });
 export type ApplyBody = Schema.Schema.Type<typeof ApplyBody>;
 
 export const RevertBody = Schema.Struct({
-  importId: Schema.String,
+  changeId: Schema.String,
 });
 export type RevertBody = Schema.Schema.Type<typeof RevertBody>;

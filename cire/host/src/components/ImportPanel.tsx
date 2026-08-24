@@ -51,7 +51,7 @@ interface ImportPlan {
 export type ImportKind = "events" | "guests";
 
 interface PreviewResponse {
-  importId: string;
+  changeId: string;
   plan: ImportPlan;
   warnings: string[];
   scope?: ImportKind | "both";
@@ -174,11 +174,6 @@ export default function ImportPanel(props: { weddingId: string; kind: ImportKind
   const copy = () => KIND[props.kind];
   // The spreadsheet upload posts through the canonical `changes/*` front door
   // (the CSV body shape `{eventsCsv, guestsCsv}`), same pipeline the editor uses.
-  // The legacy `/import/*` alias still serves identically for one release; the
-  // portal is now fully on `changes/*` so that alias can be deleted next release
-  // (tracked as an open issue in `xchromo/osn`). The preview response echoes
-  // `importId`=changeId,
-  // so the existing preview/apply reads below are unchanged.
   const importUrl = (op: string) =>
     apiUrl(`/api/organiser/weddings/${props.weddingId}/changes/${op}`);
   const [file, setFile] = createSignal<File | null>(null);
@@ -254,7 +249,7 @@ export default function ImportPanel(props: { weddingId: string; kind: ImportKind
       const res = await authFetch(importUrl("apply"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ importId: p.importId }),
+        body: JSON.stringify({ changeId: p.changeId }),
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as ImportErrorBody;
@@ -307,7 +302,7 @@ export default function ImportPanel(props: { weddingId: string; kind: ImportKind
    *
    * The `setPreview(null)` is the load-bearing line, and it belongs to EVERY
    * change of selection, not just to Remove (S-M1). A standing preview holds the
-   * `importId` of the plan the server computed for the OLD bytes, and Apply
+   * `changeId` of the plan the server computed for the OLD bytes, and Apply
    * commits that id — so a panel that keeps the diff on screen while the control
    * names a different file is offering to apply the wrong sheet, with a
    * plausible-looking diff above the button. The plan can reconcile away a whole

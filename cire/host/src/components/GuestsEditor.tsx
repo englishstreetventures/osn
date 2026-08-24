@@ -178,7 +178,7 @@ export default function GuestsEditor(props: { weddingId: string }) {
       const res = await authFetch(changesUrl("apply"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ changeId: p.changeId, importId: p.changeId }),
+        body: JSON.stringify({ changeId: p.changeId }),
       });
       if (res.status === 401) return redirectToLogin();
       if (!res.ok) {

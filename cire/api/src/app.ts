@@ -706,11 +706,7 @@ export function createApp(db: Db, options: AppOptions = {}) {
       )
       // General change API (guest+event editor E4). Both front doors
       // (DesiredState JSON + `{eventsCsv, guestsCsv}`) funnel into one pipeline.
-      // Mounted at TWO prefixes over the same factory: `changes` (canonical) and
-      // `import` (a one-release alias so existing clients keep working; deleted
-      // next release — see [[api]] TODO). Both serve identically.
-      .use(createOrganiserChangeRoutes(db, r2, osnAuthOptions, "changes"))
-      .use(createOrganiserChangeRoutes(db, r2, osnAuthOptions, "import"))
+      .use(createOrganiserChangeRoutes(db, r2, osnAuthOptions))
       // Wedding-profile Settings (platform Phase 0). Reads admit owner OR
       // co-host; the profile save is owner-only. No event location config —
       // an event's place is its free-text `address` (the sole location source).

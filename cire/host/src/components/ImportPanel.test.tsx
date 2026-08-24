@@ -292,7 +292,6 @@ describe("ImportPanel — single-sheet uploads", () => {
   const previewResponse = (scope: string) =>
     new Response(
       JSON.stringify({
-        importId: "chg_1",
         changeId: "chg_1",
         scope,
         warnings: [],
@@ -374,7 +373,7 @@ describe("ImportPanel — single-sheet uploads", () => {
   it("drops a standing preview when a DIFFERENT file is picked (S-M1)", async () => {
     // The bug this pins: preview file A, then re-pick file B on the same input.
     // The diff and its "Apply import" button stayed on screen holding A's
-    // importId, so Apply committed A — a bulk reconcile of one half of the
+    // changeId, so Apply committed A — a bulk reconcile of one half of the
     // wedding — while the control named B. `clearFile` documented the invariant
     // and held it for Remove only; re-selection is the commoner gesture.
     authFetchMock.mockResolvedValueOnce(previewResponse("guests"));
@@ -473,7 +472,6 @@ describe("ImportPanel — surfacing import failures", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            importId: "chg_1",
             changeId: "chg_1",
             scope: "guests",
             warnings: [],
@@ -519,7 +517,6 @@ describe("ImportPanel — surfacing import failures", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            importId: "chg_1",
             changeId: "chg_1",
             scope: "guests",
             warnings: [],
@@ -586,7 +583,6 @@ describe("ImportPanel — surfacing import failures", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            importId: "chg_1",
             changeId: "chg_1",
             scope: "guests",
             warnings: [],
@@ -657,7 +653,7 @@ describe("ImportPanel — surfacing import failures", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
-            importId: "chg_1",
+            changeId: "chg_1",
             scope: "guests",
             warnings: [],
             plan: {

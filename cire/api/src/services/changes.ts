@@ -14,8 +14,7 @@ import type { SpreadsheetParseError } from "./spreadsheet";
  * §3/§7). Both front doors — a spreadsheet upload (`{eventsCsv, guestsCsv}`) and
  * the editor's draft-save (a DesiredState JSON) — funnel into the SAME
  * reconcile: body → {@link DesiredState} → `diffAgainstDb` → checkpoint → apply.
- * This module owns the two concerns that are shared across both shapes and both
- * route prefixes (`changes/*` and the one-release `import/*` alias):
+ * This module owns the two concerns that are shared across both shapes:
  *
  *  1. {@link decodeChangeBody} — normalise either request shape into a
  *     DesiredState (with a flag recording which shape it was, so the CSV path can

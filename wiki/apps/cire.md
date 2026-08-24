@@ -22,7 +22,7 @@ related:
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-08-24
 ---
 
 # Cire
@@ -51,7 +51,7 @@ Two separate systems by design — full contract in [[cire-auth]]:
 
 - **Guests** never become OSN account holders. A guest exchanges a family claim code (`families.public_id`, e.g. `SHARMA-IVY-QM42`) at `POST /api/claim` for a 256-bit session token (SHA-256-hashed at rest), carried in a 30-day HttpOnly `cire_session` cookie. `sessionAuth()` protects `/api/rsvp`.
 - **Organisers** sign in with their OSN account through the **OIDC redirect** (since 2026-07-27): the portal navigates to cire-api's `/api/auth/oidc/start`, the passkey ceremony and consent run on `musubi.social`, and cire-api exchanges the code server-side and sets its own `cire_org_session` cookie. Registering a new OSN account happens on musubi too — the portal no longer carries `@osn/client` or `@osn/ui`. **Any logged-in OSN user is a full organiser** (the old bootstrap-owner 503 gate is gone — #156, see below). `osnAuth()` reads that cookie, falling back to an `aud: "osn-access"` bearer token for non-browser callers. Two checks enforce per-wedding authorisation against `weddings.owner_osn_profile_id` + the `wedding_hosts` table: `weddingOwner()` (owner-only, destructive/management routes) and `weddingMember()` (owner **or** co-host, dashboard reads).
-- **Multiple weddings + co-hosts** — an organiser lists / selects / creates weddings (`GET`/`POST /api/organiser/weddings`, #147); every wedding-scoped route carries an explicit `:weddingId` (the import routes were rescoped from global to `/api/organiser/weddings/:weddingId/import/*`). An organiser adds co-hosts **by OSN handle** (#148): `cire/api` resolves the handle via an ARC-gated osn-api `GET /graph/internal/profile-by-handle` call and writes a `wedding_hosts` row; co-hosts get the read dashboard via `weddingMember()` but nothing destructive.
+- **Multiple weddings + co-hosts** — an organiser lists / selects / creates weddings (`GET`/`POST /api/organiser/weddings`, #147); every wedding-scoped route carries an explicit `:weddingId` (the import routes were rescoped from global, and now live under `/api/organiser/weddings/:weddingId/changes/*` — see [[cire-guest-event-editor]] §7). An organiser adds co-hosts **by OSN handle** (#148): `cire/api` resolves the handle via an ARC-gated osn-api `GET /graph/internal/profile-by-handle` call and writes a `wedding_hosts` row; co-hosts get the read dashboard via `weddingMember()` but nothing destructive.
 - **Optional guest account linking** — an invitee may attach their seat to an OSN/Pulse account. `PulseAccountLink` renders after a claim; signing in is the same OIDC redirect the organiser uses, so the invite origin never runs a ceremony. `POST /api/account/link` is the one dual-credential route (guest `cire_session` cookie binds the household, the cire OSN session cookie names the account); it resolves the profile to an account id over ARC and writes `guest_account_links`. Full contract + the 401/dual-credential nuances in [[cire-auth]].
 
 ## Guest + organiser features (shipped by 2026-07-22)

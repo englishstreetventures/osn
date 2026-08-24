@@ -220,9 +220,7 @@ function desiredStateFromRow(
 
 /**
  * The general change route factory (guest+event editor E4,
- * [[guest-event-editor]] §7). Mounted at TWO path segments off the same code:
- * `changes` (the general API) and `import` (the one-release alias for existing
- * clients, deleted next release — see [[api]] TODO). Both serve identically.
+ * [[guest-event-editor]] §7). Mounted at `changes`.
  *
  * osnAuth() gates every request; weddingEditor() proves the caller is the OWNER
  * or an EDITOR co-host of the :weddingId (404 unknown, 403 non-member, 403
@@ -249,12 +247,10 @@ export const createOrganiserChangeRoutes = (
   db: Db,
   r2: R2Bucket | undefined,
   osnAuthOptions: OsnAuthOptions,
-  /** Path segment to mount under: `"changes"` (canonical) or `"import"` (alias). */
-  segment: "changes" | "import",
 ) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
-    .group(`/weddings/:weddingId/${segment}`, (group) =>
+    .group("/weddings/:weddingId/changes", (group) =>
       group
         .use(weddingEditor(db))
         .post(
@@ -363,11 +359,6 @@ export const createOrganiserChangeRoutes = (
 
                 return {
                   changeId,
-                  // One-release alias compatibility: legacy `/import/*` clients
-                  // read `importId` from the preview response and echo it to
-                  // apply. Return it alongside `changeId` (same value) so both
-                  // prefixes serve identically until the alias is deleted.
-                  importId: changeId,
                   baseRevision,
                   // Echoed so the preview UI can say WHICH halves this change
                   // touches ("guests only — your schedule is untouched") rather
@@ -444,7 +435,7 @@ export const createOrganiserChangeRoutes = (
 
             return runCire(
               Effect.gen(function* () {
-                const { importId: changeId } = yield* Schema.decodeUnknown(ApplyBody)(raw);
+                const { changeId } = yield* Schema.decodeUnknown(ApplyBody)(raw);
                 const dbService = yield* DbService;
 
                 const [row] = yield* dbQuery(() =>
@@ -616,7 +607,7 @@ export const createOrganiserChangeRoutes = (
 
             return runCire(
               Effect.gen(function* () {
-                const { importId: changeId } = yield* Schema.decodeUnknown(RevertBody)(raw);
+                const { changeId } = yield* Schema.decodeUnknown(RevertBody)(raw);
                 const summary = yield* revertImport(changeId, weddingId);
                 return { summary };
               }).pipe(
@@ -689,8 +680,8 @@ export const createOrganiserChangeRoutes = (
             rows.length > limit ? (page[page.length - 1]?.uploadedAt ?? null) : null;
 
           return {
-            // The history list is exposed under both `imports` (legacy clients)
-            // and `changes` (new clients) so both prefixes serve identically.
+            // The page is returned under `imports` — the table name — and is
+            // keyset-paginated on `uploadedAt`.
             imports: page.map((r) => ({
               id: r.id,
               uploadedAt: r.uploadedAt,
