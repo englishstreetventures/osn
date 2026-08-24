@@ -1,5 +1,13 @@
 # @osn/api
 
+## 0.26.12
+
+### Patch Changes
+
+- ee195a3: Add missing test coverage: the UNIQUE-constraint conflict branch in
+  `completeEmailChange`, and route-level 401 coverage for an expired bearer
+  access token on a protected Pulse and Zap route.
+
 ## 0.26.11
 
 ### Patch Changes
