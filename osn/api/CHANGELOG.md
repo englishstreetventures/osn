@@ -1,5 +1,11 @@
 # @osn/osn
 
+## 3.20.16
+
+### Patch Changes
+
+- 225fee1: `publicError`'s tag walk reads each own key with a plain property access instead of allocating an `Object.getOwnPropertyDescriptor` per key, which is much faster on the common untagged-error path (tracker#446). `GET /account/security-events` now sets `Cache-Control: private, no-store` (tracker#346).
+
 ## 3.20.15
 
 ### Patch Changes
