@@ -2385,6 +2385,9 @@ describe("auth routes", () => {
     it("GET /account/security-events requires Bearer auth", async () => {
       const res = await app.handle(new Request("http://localhost/account/security-events"));
       expect(res.status).toBe(401);
+      // tracker#346: the header is set above the guards, so it lands on the
+      // rejections too — not only on the 200.
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
     });
 
     it("GET /account/security-events surfaces the recovery_code_generate event end-to-end", async () => {
@@ -2419,6 +2422,18 @@ describe("auth routes", () => {
         "uaLabel",
       ]);
       expect(typeof json.events[0]!.createdAt).toBe("number");
+    });
+
+    // tracker#346: the list is per-user and names auth events — nothing may
+    // cache or store it.
+    it("GET /account/security-events sets cache-control: private, no-store", async () => {
+      const { app: freshApp, accessToken } = await setupWithRecovery();
+      const res = await freshApp.handle(
+        new Request("http://localhost/account/security-events", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+      );
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
     });
 
     // S-M1: an access-token-only ack would let an XSS silently dismiss the
@@ -2577,6 +2592,7 @@ describe("auth routes", () => {
         }),
       );
       expect(res.status).toBe(429);
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
     });
   });
 });

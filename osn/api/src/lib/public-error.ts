@@ -41,15 +41,16 @@ export function publicError(
       // `Object.values` never reaches — so the real `_tag` would otherwise be
       // invisible and every Effect failure would fall through to the default.
       for (const key of Reflect.ownKeys(node)) {
-        // Read through the descriptor rather than the property: a data
-        // property hands back its `value` without running anything, and an
-        // accessor is invoked explicitly (bound to `node`, as a plain read
-        // would) inside the try.
+        // Plain property read via computed destructuring: one [[Get]], no
+        // descriptor allocation. An accessor still runs bound to `node`
+        // (exactly as the old `descriptor.get?.call(node)` did), and the try
+        // still guards against a throwing getter. `node`'s own key set is
+        // genuinely unknowable ahead of time (arbitrary thrown values), so
+        // `as never` — not `as any` — lets the computed key through without
+        // asserting a shape we don't have.
         let v: unknown;
         try {
-          const descriptor = Object.getOwnPropertyDescriptor(node, key);
-          if (!descriptor) continue;
-          v = "value" in descriptor ? descriptor.value : descriptor.get?.call(node);
+          ({ [key]: v } = node as never);
         } catch {
           continue; // a throwing getter is not a tag carrier
         }
