@@ -16,7 +16,7 @@ related:
 packages:
   - "@shared/redis"
   - "@osn/api"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-24
 ---
 # Redis Migration
 
@@ -102,11 +102,14 @@ traffic for low latency (C-M18; see [[compliance/subprocessors]], [[production-d
 | P-W4 | ✅ | Auth Maps never evict expired entries — Redis backend uses native PX expiry |
 | S-L18 | ✅ | Graph rate-limit store never evicted expired windows |
 | S-L23 | n/a | `pkceStore` deleted with PKCE removal |
+| S-L1 | ✅ | Upstash `eval` returned the HTTP reply unchecked — `wrapUpstash` now runs it through `toRedisReply`, as the ioredis path already did |
 
 ## Source Files
 
 - [shared/redis/src/index.ts](../../shared/redis/src/index.ts) — `@shared/redis` public API
-- [shared/redis/src/client.ts](../../shared/redis/src/client.ts) — `RedisClient` interface, `wrapIoRedis()`, `createMemoryClient()`, `createClientFromUrl()`
+- [shared/redis/src/client.ts](../../shared/redis/src/client.ts) — `RedisClient` interface, `RedisReply`, `toRedisReply()` (the one reply validator both transports run), `createMemoryClient()`
+- [shared/redis/src/ioredis.ts](../../shared/redis/src/ioredis.ts) — `wrapIoRedis()`, `createClientFromUrl()` — the TCP transport, Node only
+- [shared/redis/src/upstash.ts](../../shared/redis/src/upstash.ts) — `wrapUpstash()` — the HTTP transport, and the one Workers can use
 - [shared/redis/src/service.ts](../../shared/redis/src/service.ts) — `Redis` Context.Tag, `RedisLive`, `RedisMemoryLive` layers
 - [shared/redis/src/rate-limiter.ts](../../shared/redis/src/rate-limiter.ts) — `createRedisRateLimiter()` with Lua script
 - [shared/redis/src/health.ts](../../shared/redis/src/health.ts) — `checkRedisHealth()` probe

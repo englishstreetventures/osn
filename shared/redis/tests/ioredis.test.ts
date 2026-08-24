@@ -57,6 +57,31 @@ describe("wrapIoRedis", () => {
       expect(mock.eval).toHaveBeenCalledWith("script", 2, "k1", "k2", 10, 20);
     });
 
+    // Parity with the Upstash path: both transports run the reply through
+    // toRedisReply, so both must coerce and both must reject the same values.
+    // Without these, deleting toRedisReply from ./ioredis leaves the suite green.
+    it("coerces a bigint EVALSHA reply to number", async () => {
+      mock.evalsha.mockResolvedValueOnce(42n);
+      expect(await client.eval("script", ["k"], [1])).toBe(42);
+    });
+
+    it("rejects an EVALSHA reply RESP cannot carry", async () => {
+      mock.evalsha.mockResolvedValueOnce({ not: "a RESP value" });
+      await expect(client.eval("script", ["k"], [1])).rejects.toThrow(/not a RESP value/);
+    });
+
+    it("coerces a bigint reply on the EVAL fallback path too", async () => {
+      mock.evalsha.mockRejectedValueOnce(new Error("NOSCRIPT No matching script"));
+      mock.eval.mockResolvedValueOnce(42n);
+      expect(await client.eval("script", ["k"], [1])).toBe(42);
+    });
+
+    it("rejects a non-RESP reply on the EVAL fallback path too", async () => {
+      mock.evalsha.mockRejectedValueOnce(new Error("NOSCRIPT No matching script"));
+      mock.eval.mockResolvedValueOnce({ not: "a RESP value" });
+      await expect(client.eval("script", ["k"], [1])).rejects.toThrow(/not a RESP value/);
+    });
+
     it("rethrows non-NOSCRIPT errors from EVALSHA", async () => {
       mock.evalsha.mockRejectedValueOnce(new Error("OOM command not allowed"));
 

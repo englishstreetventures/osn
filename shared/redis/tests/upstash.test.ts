@@ -84,7 +84,7 @@ describe("wrapUpstash", () => {
     });
   });
 
-  describe("eval — numeric return passthrough", () => {
+  describe("eval — reply validated at the HTTP boundary", () => {
     it("returns the numeric value from the Lua script (rate-limit / counter)", async () => {
       fake.eval.mockResolvedValueOnce(1);
       const result = await client.eval("script", ["k"], [10, 1000]);
@@ -99,6 +99,45 @@ describe("wrapUpstash", () => {
     it('passes through a string-typed count (step-up jti `=== "1"` path)', async () => {
       fake.eval.mockResolvedValueOnce("1");
       expect(await client.eval("script", ["k"], [1])).toBe("1");
+    });
+
+    it("coerces a bigint reply to number, same as the ioredis path", async () => {
+      fake.eval.mockResolvedValueOnce(42n);
+      expect(await client.eval("script", ["k"], [1])).toBe(42);
+    });
+
+    it("passes a boolean reply through unchanged (RESP3)", async () => {
+      fake.eval.mockResolvedValueOnce(true);
+      expect(await client.eval("script", ["k"], [1])).toBe(true);
+    });
+
+    // The REST body carries no `result` when a script returns nil, so the SDK
+    // hands back null or undefined depending on the shape. Both must land on
+    // null: recovery-lockout-store does `Number(result)` on this, and
+    // `Number(undefined)` is NaN, which compares false against every threshold.
+    it("normalises a nil reply to null", async () => {
+      fake.eval.mockResolvedValueOnce(null);
+      expect(await client.eval("script", ["k"], [1])).toBeNull();
+    });
+
+    it("normalises a missing reply to null", async () => {
+      fake.eval.mockResolvedValueOnce(undefined);
+      expect(await client.eval("script", ["k"], [1])).toBeNull();
+    });
+
+    it("walks a nested array reply, coercing as it goes", async () => {
+      fake.eval.mockResolvedValueOnce([1, "a", null, [42n, true]]);
+      expect(await client.eval("script", ["k"], [1])).toEqual([1, "a", null, [42, true]]);
+    });
+
+    it("rejects a non-RESP value nested inside an array reply", async () => {
+      fake.eval.mockResolvedValueOnce([1, { not: "a RESP value" }]);
+      await expect(client.eval("script", ["k"], [1])).rejects.toThrow(/not a RESP value/);
+    });
+
+    it("rejects a reply RESP cannot carry (toRedisReply's contract)", async () => {
+      fake.eval.mockResolvedValueOnce({ not: "a RESP value" });
+      await expect(client.eval("script", ["k"], [1])).rejects.toThrow(/not a RESP value/);
     });
   });
 
