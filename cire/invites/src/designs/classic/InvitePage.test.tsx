@@ -7,6 +7,7 @@ import { TOTAL_DURATION_MS } from "../../components/rsvp-responded";
 import type { ClaimResult, RsvpSummary } from "../../components/types";
 import { noSession, withSession } from "../../test-support/claim-fetch";
 import InvitePage from "./InvitePage";
+import type { RevealHooks } from "./UnlockReveal.motion";
 
 vi.mock("motion", () => ({
   animate: vi.fn(() => ({ finished: Promise.resolve() })),
@@ -64,6 +65,7 @@ const claim: ClaimResult = {
       guestId: "guest-1",
       firstName: "Priya",
       lastName: "Sharma",
+      nickname: null,
       eventIds: ["event-1"],
     },
   ],
@@ -661,7 +663,13 @@ describe("InvitePage", () => {
       publicId: "OKAFOR-LILY-AB12CD",
       familyName: "Okafor",
       members: [
-        { guestId: "guest-9", firstName: "Chidi", lastName: "Okafor", eventIds: ["event-1"] },
+        {
+          guestId: "guest-9",
+          firstName: "Chidi",
+          lastName: "Okafor",
+          nickname: null,
+          eventIds: ["event-1"],
+        },
       ],
     };
     const fetchMock = vi
@@ -1111,7 +1119,7 @@ describe("InvitePage", () => {
       // A fresh Response per call: `mockResolvedValue` would hand the same one
       // to both the invite revalidation and the restore, and a body can only be
       // read once.
-      const restore = vi.fn(() =>
+      const restore = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
         Promise.resolve(
           new Response(JSON.stringify(claim), {
             status: 200,
@@ -1193,7 +1201,7 @@ describe("InvitePage", () => {
       // A fresh Response per call: `mockResolvedValue` would hand the same one
       // to both the invite revalidation and the restore, and a body can only be
       // read once.
-      const restore = vi.fn(() =>
+      const restore = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
         Promise.resolve(
           new Response(JSON.stringify(claim), {
             status: 200,
@@ -1221,9 +1229,18 @@ describe("InvitePage", () => {
   // — an imperative write from the animation would leave Solid believing the
   // form is displayed and silently skip every later attempt to show it again.
   describe("form/welcome swap", () => {
-    async function claimWith(sequence: () => Promise<void>) {
+    async function claimWith(
+      sequence: (
+        loginForm: HTMLElement,
+        welcomeEl: HTMLElement,
+        eventsSection: HTMLElement,
+        hooks?: RevealHooks,
+      ) => Promise<void> | void,
+    ) {
       const { unlockRevealSequence } = await import("./UnlockReveal.motion");
-      vi.mocked(unlockRevealSequence).mockImplementation(sequence);
+      vi.mocked(unlockRevealSequence).mockImplementation(async (...args) => {
+        await sequence(...args);
+      });
       vi.stubGlobal(
         "fetch",
         noSession(

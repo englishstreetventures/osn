@@ -20,6 +20,7 @@ const baseEvent: EventSummary = {
   pinterestUrl: null,
   mapsUrl: null,
   sortOrder: 0,
+  imageUrl: null,
 };
 
 describe("MapPreview", () => {

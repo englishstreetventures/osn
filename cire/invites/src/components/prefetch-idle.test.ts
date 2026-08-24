@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { prefetchOnIdle } from "./prefetch-idle";
 
-type IdleWindow = typeof globalThis & {
+type IdleWindow = Omit<typeof globalThis, "requestIdleCallback" | "cancelIdleCallback"> & {
   requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
   cancelIdleCallback?: (handle: number) => void;
 };
@@ -32,7 +32,7 @@ describe("prefetchOnIdle", () => {
   });
 
   it("passes a timeout so a permanently busy page still prefetches", () => {
-    const idle = vi.fn(() => 1);
+    const idle = vi.fn((_cb: () => void, _opts?: { timeout: number }) => 1);
     win.requestIdleCallback = idle;
 
     prefetchOnIdle(() => Promise.resolve());

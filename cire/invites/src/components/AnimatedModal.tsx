@@ -61,8 +61,8 @@ function showInstantly(backdrop: HTMLElement, panel: HTMLElement) {
 }
 
 export function AnimatedModal(props: AnimatedModalProps) {
-  let backdropRef: HTMLDivElement;
-  let panelRef: HTMLDivElement;
+  let backdropRef!: HTMLDivElement;
+  let panelRef!: HTMLDivElement;
   let closeButtonRef: HTMLButtonElement | undefined;
   let scrollRef: HTMLDivElement | undefined;
 

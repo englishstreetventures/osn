@@ -288,7 +288,7 @@ export default function InvitePage(props: InvitePageProps) {
 
   let loginFormRef: HTMLDivElement;
   let welcomeRef: HTMLDivElement;
-  let eventsSectionRef: HTMLElement;
+  let eventsSectionRef!: HTMLElement;
 
   async function handleClaimed(result: ClaimResult) {
     setClaimResult(result);

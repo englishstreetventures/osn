@@ -24,6 +24,7 @@ const baseEvent: EventSummary = {
   pinterestUrl: null,
   mapsUrl: null,
   sortOrder: 0,
+  imageUrl: null,
 };
 
 const renderModal = (event: EventSummary) =>

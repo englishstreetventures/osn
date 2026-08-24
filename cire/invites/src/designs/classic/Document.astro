@@ -70,12 +70,12 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
   </head>
   <body>
     <InviteHeader client:load apiUrl={apiUrl} slug={slug} initial={initialInvite} />
+    {/* rootMargin so the island hydrates while the full-viewport hero is
+        still on screen. Bare `client:visible` cannot fire at scroll position
+        0 (the hero is `min-h-dvh`), which would delay the session restore
+        until the guest has already scrolled to the code form — i.e. to the
+        exact moment they are waiting on its result. */}
     <InvitePage
-      {/* rootMargin so the island hydrates while the full-viewport hero is
-          still on screen. Bare `client:visible` cannot fire at scroll position
-          0 (the hero is `min-h-dvh`), which would delay the session restore
-          until the guest has already scrolled to the code form — i.e. to the
-          exact moment they are waiting on its result. */}
       client:visible={{ rootMargin: "600px" }}
       apiUrl={apiUrl}
       slug={slug}

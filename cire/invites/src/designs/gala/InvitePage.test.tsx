@@ -6,6 +6,7 @@ import { TOTAL_DURATION_MS } from "../../components/rsvp-responded";
 import type { ClaimResult, RsvpSummary } from "../../components/types";
 import { noSession, withSession } from "../../test-support/claim-fetch";
 import InvitePage from "./InvitePage";
+import type { RevealHooks } from "./UnlockReveal.motion";
 
 vi.mock("motion", () => ({
   animate: vi.fn(() => ({ finished: Promise.resolve() })),
@@ -60,6 +61,7 @@ const claim: ClaimResult = {
       guestId: "guest-1",
       firstName: "Priya",
       lastName: "Sharma",
+      nickname: null,
       eventIds: ["event-1"],
     },
   ],
@@ -882,7 +884,7 @@ describe("gala InvitePage", () => {
       // A fresh Response per call: `mockResolvedValue` would hand the same one
       // to both the invite revalidation and the restore, and a body can only be
       // read once.
-      const restore = vi.fn(() =>
+      const restore = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
         Promise.resolve(
           new Response(JSON.stringify(claim), {
             status: 200,
@@ -964,7 +966,7 @@ describe("gala InvitePage", () => {
       // A fresh Response per call: `mockResolvedValue` would hand the same one
       // to both the invite revalidation and the restore, and a body can only be
       // read once.
-      const restore = vi.fn(() =>
+      const restore = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
         Promise.resolve(
           new Response(JSON.stringify(claim), {
             status: 200,
@@ -989,11 +991,18 @@ describe("gala InvitePage", () => {
   // protect classic only. Without these, reverting BOTH of gala's `revealed`
   // bindings back to `claimResult()` — undoing the fix entirely — passes.
   describe("form/welcome swap", () => {
-    async function claimWith(sequence: (...args: never[]) => Promise<void> | void) {
+    async function claimWith(
+      sequence: (
+        loginForm: HTMLElement,
+        welcomeEl: HTMLElement,
+        eventsSection: HTMLElement,
+        hooks?: RevealHooks,
+      ) => Promise<void> | void,
+    ) {
       const { unlockRevealSequence } = await import("./UnlockReveal.motion");
-      vi.mocked(unlockRevealSequence).mockImplementation(
-        sequence as unknown as typeof unlockRevealSequence,
-      );
+      vi.mocked(unlockRevealSequence).mockImplementation(async (...args) => {
+        await sequence(...args);
+      });
       vi.stubGlobal(
         "fetch",
         noSession(
@@ -1018,17 +1027,17 @@ describe("gala InvitePage", () => {
       screen.getByText("Enter Your Code").parentElement as HTMLElement;
 
     it("hides the form when the sequence reports it faded out", async () => {
-      const { getByText } = await claimWith(((_f, _w, _e, hooks) => {
-        (hooks as { onFormHidden?: () => void } | undefined)?.onFormHidden?.();
+      const { getByText } = await claimWith((_f, _w, _e, hooks) => {
+        hooks?.onFormHidden?.();
         return Promise.resolve();
-      }) as never);
+      });
       await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
     });
 
     it("keeps the form up until that moment — the fade needs it on screen", async () => {
       let release: (() => void) | undefined;
       const { getByText } = await claimWith(
-        (() => new Promise<void>((resolve) => (release = resolve))) as never,
+        () => new Promise<void>((resolve) => (release = resolve)),
       );
       await waitFor(() => expect(release).toBeDefined());
       expect(formPanel({ getByText }).style.display).toBe("");
@@ -1043,10 +1052,10 @@ describe("gala InvitePage", () => {
       // difference, which is why dropping the `onFormHidden` wiring was
       // otherwise invisible.
       let release: (() => void) | undefined;
-      const { getByText } = await claimWith(((_f, _w, _e, hooks) => {
-        (hooks as { onFormHidden?: () => void } | undefined)?.onFormHidden?.();
+      const { getByText } = await claimWith((_f, _w, _e, hooks) => {
+        hooks?.onFormHidden?.();
         return new Promise<void>((resolve) => (release = resolve));
-      }) as never);
+      });
       await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
       expect(release).toBeDefined();
       release!();
@@ -1055,15 +1064,15 @@ describe("gala InvitePage", () => {
     it("still completes the swap when the sequence throws", async () => {
       // A motion chunk that fails to load must never leave the claim form
       // sitting on top of a claimed invite — the `finally` in handleClaimed.
-      const { getByText, queryByText } = await claimWith((() => {
+      const { getByText, queryByText } = await claimWith(() => {
         throw new Error("chunk failed");
-      }) as never);
+      });
       await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
       expect(queryByText(/Dear Priya/)).toBeTruthy();
     });
 
     it("still completes the swap when the sequence never reports", async () => {
-      const { getByText } = await claimWith((() => Promise.resolve()) as never);
+      const { getByText } = await claimWith(() => Promise.resolve());
       await waitFor(() => expect(formPanel({ getByText }).style.display).toBe("none"));
     });
   });

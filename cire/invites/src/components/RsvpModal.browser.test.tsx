@@ -40,6 +40,7 @@ const event: EventSummary = {
   pinterestUrl: null,
   mapsUrl: null,
   sortOrder: 0,
+  imageUrl: null,
 };
 
 /** Enough of a party to overflow the sheet, so the scrollport is real. */
@@ -47,6 +48,7 @@ const members: FamilyMember[] = Array.from({ length: 12 }, (_, i) => ({
   guestId: `guest-${i}`,
   firstName: `Guest${i}`,
   lastName: "Sharma",
+  nickname: null,
   eventIds: ["event-1"],
 }));
 

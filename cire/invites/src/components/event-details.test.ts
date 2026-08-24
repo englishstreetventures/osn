@@ -23,6 +23,7 @@ const base: EventSummary = {
   pinterestUrl: null,
   mapsUrl: null,
   sortOrder: 0,
+  imageUrl: null,
 };
 
 describe("venueLine", () => {

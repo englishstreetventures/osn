@@ -43,8 +43,20 @@ const claim: ClaimResult = {
   publicId: "SHARMA-JOY-RK97",
   familyName: "Sharma",
   members: [
-    { guestId: "guest-priya", firstName: "Priya", lastName: "Sharma", eventIds: ["event-1"] },
-    { guestId: "guest-raj", firstName: "Raj", lastName: "Sharma", eventIds: ["event-1"] },
+    {
+      guestId: "guest-priya",
+      firstName: "Priya",
+      lastName: "Sharma",
+      nickname: null,
+      eventIds: ["event-1"],
+    },
+    {
+      guestId: "guest-raj",
+      firstName: "Raj",
+      lastName: "Sharma",
+      nickname: null,
+      eventIds: ["event-1"],
+    },
   ],
   events: [
     {

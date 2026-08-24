@@ -16,6 +16,7 @@ const sydneyEvent: EventSummary = {
   pinterestUrl: null,
   mapsUrl: null,
   sortOrder: 0,
+  imageUrl: null,
 };
 
 const SITE_URL = "https://invite.example.com/abc-123";

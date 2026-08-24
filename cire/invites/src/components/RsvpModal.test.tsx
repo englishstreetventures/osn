@@ -26,12 +26,14 @@ const event: EventSummary = {
   pinterestUrl: null,
   mapsUrl: null,
   sortOrder: 0,
+  imageUrl: null,
 };
 
 const priya: FamilyMember = {
   guestId: "guest-priya",
   firstName: "Priya",
   lastName: "Sharma",
+  nickname: null,
   eventIds: ["event-1", "event-2"],
 };
 
@@ -39,6 +41,7 @@ const raj: FamilyMember = {
   guestId: "guest-raj",
   firstName: "Raj",
   lastName: "Sharma",
+  nickname: null,
   eventIds: ["event-1"],
 };
 
@@ -46,6 +49,7 @@ const naina: FamilyMember = {
   guestId: "guest-naina",
   firstName: "Naina",
   lastName: "Sharma",
+  nickname: null,
   // Not invited to event-1
   eventIds: ["event-2"],
 };
