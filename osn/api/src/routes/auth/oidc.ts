@@ -94,7 +94,7 @@ const AUTHORIZE_ERROR_COPY = {
 } satisfies Record<string, string>;
 
 const hasAuthorizeErrorCopy = (code: string): code is keyof typeof AUTHORIZE_ERROR_COPY =>
-  code in AUTHORIZE_ERROR_COPY;
+  Object.hasOwn(AUTHORIZE_ERROR_COPY, code);
 
 const renderAuthorizeErrorPage = (code: string): string => {
   const message = hasAuthorizeErrorCopy(code)

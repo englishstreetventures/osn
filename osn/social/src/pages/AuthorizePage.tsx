@@ -63,7 +63,8 @@ const SCOPE_COPY = {
 } satisfies Record<string, ScopeCopy>;
 
 /** A scope the map has copy for — anything else is shown as its raw name. */
-const isKnownScope = (scope: string): scope is keyof typeof SCOPE_COPY => scope in SCOPE_COPY;
+const isKnownScope = (scope: string): scope is keyof typeof SCOPE_COPY =>
+  Object.hasOwn(SCOPE_COPY, scope);
 
 const scopeCopy = (scope: string): ScopeCopy | undefined =>
   isKnownScope(scope) ? SCOPE_COPY[scope] : undefined;

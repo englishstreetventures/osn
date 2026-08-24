@@ -263,6 +263,7 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | Messaging | `@zap/api` shared backend — Pulse consumes for event chats; users don't need Zap install |
 | Privacy | E2E encryption everywhere; all personalisation data user-accessible + resettable |
 | Platform priority | iOS > Web > Android (Android deferred) |
+| Map-membership guards | A guard that narrows to `keyof typeof MAP` must test `Object.hasOwn(MAP, key)`, never `key in MAP`. `in` walks the prototype chain, so `constructor`, `toString` and `__proto__` pass and the predicate then asserts an inherited `Object.prototype` member is a real entry. No lint rule catches this — see `cire/theme/src/palette.ts` for the house form |
 | Pre-commit | lefthook runs oxlint + oxfmt (auto-fix + re-stage) on staged files |
 | Pre-push | lefthook runs type check |
 | oxlint | `oxlintrc.json` — plugins: typescript, unicorn, oxc, import, promise, vitest, node, jsx-a11y (React plugin disabled — SolidJS) |

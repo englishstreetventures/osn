@@ -401,7 +401,8 @@ const CONFUSABLE_FOLD = {
 } satisfies Record<string, string>;
 
 /** Is this character one the fold table knows how to rewrite? */
-const isConfusable = (ch: string): ch is keyof typeof CONFUSABLE_FOLD => ch in CONFUSABLE_FOLD;
+const isConfusable = (ch: string): ch is keyof typeof CONFUSABLE_FOLD =>
+  Object.hasOwn(CONFUSABLE_FOLD, ch);
 
 /**
  * Folds a name to a confusable skeleton for impersonation checks: NFKC,
