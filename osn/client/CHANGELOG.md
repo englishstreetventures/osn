@@ -1,5 +1,11 @@
 # @osn/client
 
+## 2.13.3
+
+### Patch Changes
+
+- e18a5e1: Factor the duplicated bearer-token fetch helpers out of `graph.ts`, `organisations.ts` and `recommendations.ts` into one shared `auth-fetch.ts` module. No behaviour change.
+
 ## 2.13.2
 
 ### Patch Changes
