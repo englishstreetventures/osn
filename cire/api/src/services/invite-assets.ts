@@ -35,20 +35,23 @@ export interface AssetObjectBody {
   readonly httpMetadata?: { contentType?: string };
 }
 
-// `put` / `delete` are declared `void` for the same reason as the CSV bucket's
-// (`r2-imports.ts`): the value a write resolves to is backend-specific (R2 hands
-// back the created `R2Object`, the stub hands back nothing) and no call site
-// reads it — awaiting is the whole contract. Declaring `void` states that and
-// keeps both R2 and the stub assignable; callers still `Promise.resolve(...)`
-// the call so an async backend is awaited at runtime.
+// `put` / `delete` are declared against the REAL backend's resolved type, for
+// the same reason as the CSV bucket's (`r2-imports.ts`): R2 hands a `put`
+// back the created `R2Object` and a `delete` back `void` (the ambient
+// `R2Bucket` from `@cloudflare/workers-types`); no call site here reads
+// either value — awaiting is the whole contract. A bare `void` would say that
+// too, but it would also make a real backend's promise legal to drop silently
+// — TypeScript's "return value is ignored" rule applies to a bare `void`
+// return, not to `void`/a concrete type inside a `Promise`. This union keeps
+// the promise visible to `await` while still accepting a synchronous stub.
 export interface AssetsBucket {
   put(
     key: string,
     value: ArrayBuffer | ArrayBufferView,
     options?: { httpMetadata?: { contentType?: string } },
-  ): void;
+  ): Promise<R2Object> | Promise<void> | void;
   get(key: string): Promise<AssetObjectBody | null> | AssetObjectBody | null;
-  delete(key: string): void;
+  delete(key: string): Promise<void> | void;
 }
 
 export class AssetsR2Service extends Context.Tag("AssetsR2Service")<
@@ -110,7 +113,7 @@ export function storeAsset(
     const key = assetKey(weddingId, slot);
     yield* Effect.tryPromise({
       try: async () => {
-        await Promise.resolve(bucket.put(key, bytes, { httpMetadata: { contentType } }));
+        await bucket.put(key, bytes, { httpMetadata: { contentType } });
       },
       catch: (cause) => new AssetR2Error({ reason: "store failed", key, cause }),
     });
@@ -193,7 +196,7 @@ export function deleteAsset(key: string): Effect.Effect<void, AssetR2Error, Asse
     const bucket = yield* AssetsR2Service;
     yield* Effect.tryPromise({
       try: async () => {
-        await Promise.resolve(bucket.delete(key));
+        await bucket.delete(key);
       },
       catch: (cause) => new AssetR2Error({ reason: "delete failed", key, cause }),
     });

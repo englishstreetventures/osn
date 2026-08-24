@@ -208,13 +208,11 @@ export const assetReconcileService = {
           }
           const page = yield* Effect.tryPromise({
             try: () =>
-              Promise.resolve(
-                bucket.list({
-                  prefix: ASSETS_PREFIX,
-                  cursor: nextCursor,
-                  limit: LIST_PAGE_SIZE,
-                }),
-              ),
+              bucket.list({
+                prefix: ASSETS_PREFIX,
+                cursor: nextCursor,
+                limit: LIST_PAGE_SIZE,
+              }),
             catch: (cause) =>
               new AssetReconcileError({ op: "reconcile", reason: `list failed: ${String(cause)}` }),
           });

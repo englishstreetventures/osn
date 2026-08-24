@@ -4,21 +4,29 @@ import { Context, Data, Effect } from "effect";
 // `R2Bucket` type satisfies this structurally; the in-memory stub used in
 // tests implements just these three methods.
 //
-// `put` and `delete` are declared `void`: what the write CALL resolves to
-// differs per backend (R2 hands back the created `R2Object`, the in-memory stub
-// hands back nothing) and no call site here reads it — the guarantee callers
-// need is that the write happened, which they get by awaiting. A `void` return
-// says exactly that, and TypeScript's "return value is ignored" rule keeps both
-// backends assignable. Callers still wrap the result in `Promise.resolve(...)`
-// before awaiting, so an async backend is awaited properly at runtime.
+// `put` and `delete` are declared against the REAL backend's resolved type
+// (`R2Object` for a write, `void` for a delete — see the ambient `R2Bucket`
+// from `@cloudflare/workers-types`, listed in `tsconfig.json`'s `types` and
+// used unqualified elsewhere, e.g. `index.ts`), unioned with a bare `void` so
+// a synchronous test stub stays assignable. A bare `void` alone would also
+// say "the caller doesn't need this value", but it would additionally make a
+// real backend's returned promise legal to drop silently (TypeScript's
+// "return value is ignored" rule applies to a bare `void` return, not to
+// `void`/a concrete type inside a `Promise`) — exactly the bug this type
+// exists to catch. Naming `R2Object` instead of `unknown` keeps the promise
+// visible to `await` while still naming what a real write actually resolves
+// to, rather than erasing it.
 export interface R2Bucket {
-  put(key: string, value: string | ArrayBuffer | ArrayBufferView): void;
+  put(
+    key: string,
+    value: string | ArrayBuffer | ArrayBufferView,
+  ): Promise<R2Object> | Promise<void> | void;
   get(
     key: string,
   ): Promise<{ text(): Promise<string> } | null> | { text(): Promise<string> } | null;
   // Cloudflare R2 accepts a single key or an array (multi-key delete); the
   // shared reaper (`r2-cleanup.ts`) prefers the array form and falls back.
-  delete(keys: string | string[]): void;
+  delete(keys: string | string[]): Promise<void> | void;
 }
 
 export class R2Service extends Context.Tag("R2Service")<R2Service, R2Bucket>() {}
@@ -68,8 +76,8 @@ export function storeBeforeImage(
 
     yield* Effect.tryPromise({
       try: async () => {
-        await Promise.resolve(r2.put(ek, eventsCsv));
-        await Promise.resolve(r2.put(gk, guestsCsv));
+        await r2.put(ek, eventsCsv);
+        await r2.put(gk, guestsCsv);
       },
       catch: (cause) => new R2Error({ reason: "before-image store failed", cause }),
     });
@@ -90,8 +98,8 @@ export function storeUpload(
 
     yield* Effect.tryPromise({
       try: async () => {
-        await Promise.resolve(r2.put(ek, eventsCsv));
-        await Promise.resolve(r2.put(gk, guestsCsv));
+        await r2.put(ek, eventsCsv);
+        await r2.put(gk, guestsCsv);
       },
       catch: (cause) => new R2Error({ reason: "store failed", cause }),
     });

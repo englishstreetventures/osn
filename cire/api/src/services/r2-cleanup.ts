@@ -38,13 +38,17 @@ export type R2BucketLabel = "sheets" | "assets";
  * delete; the in-memory test stubs implement only the single-key form. We
  * feature-detect the array form at call time so both work.
  *
- * The result is `void`: a delete either happened or threw, and nothing here
- * reads what R2 (or a stub) resolves with. Declaring `void` says so, and keeps
- * every backend assignable — the caller `Promise.resolve(...)`s the call, so an
- * async binding is still awaited at runtime.
+ * The result is `Promise<void> | void`, matching the real backend: R2's
+ * `delete` resolves `Promise<void>` (the ambient `R2Bucket` from
+ * `@cloudflare/workers-types`), and nothing here reads a resolved value — a
+ * delete either happened or threw. A bare `void` would say that too, but it
+ * would also make a real backend's promise legal to drop silently —
+ * TypeScript's "return value is ignored" rule applies to a bare `void`
+ * return, not to `void` inside a `Promise`, so only this union keeps the
+ * promise visible to `await` while still accepting a synchronous stub.
  */
 export interface DeletableBucket {
-  delete(keys: string | string[]): void;
+  delete(keys: string | string[]): Promise<void> | void;
 }
 
 /** Max keys per R2 multi-delete request — R2's documented cap is 1000. */
@@ -96,14 +100,14 @@ export function reapR2Objects(
           // the in-memory test stub / any single-key binding may not. Attempt the
           // array form first, fall back to per-key deletes if it throws.
           try {
-            await Promise.resolve(bucket.delete(batch));
+            await bucket.delete(batch);
             return;
           } catch {
             // Binding rejected the array form — fall through to per-key deletes.
           }
           for (const key of batch) {
             // eslint-disable-next-line no-await-in-loop
-            await Promise.resolve(bucket.delete(key));
+            await bucket.delete(key);
           }
         },
         catch: (cause) => cause,
