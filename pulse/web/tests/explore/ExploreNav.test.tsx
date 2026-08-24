@@ -1,4 +1,5 @@
 import { render as _baseRender, cleanup, fireEvent } from "@solidjs/testing-library";
+import "@testing-library/jest-dom/vitest";
 // @vitest-environment happy-dom
 import type { JSX } from "solid-js";
 import { vi, describe, it, expect, afterEach, beforeEach } from "vitest";

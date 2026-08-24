@@ -6,7 +6,7 @@ related:
   - "[[backend-patterns]]"
   - "[[schema-layers]]"
   - "[[commands]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-08-24
 ---
 
 # Testing Patterns
@@ -108,6 +108,8 @@ describe("events routes", () => {
 - **Never hand-write a DDL mirror.** Test databases are built from the live Drizzle schema via `applySchema()` (`@osn/db/testing`, `@pulse/db/testing`, `@zap/db/testing`) — never a `CREATE TABLE` string in a helper or a test file. A hand-written mirror makes constraint tests tautological: they assert the `UNIQUE` the author typed a few lines above, not the one the schema declares, so dropping `.unique()` from `src/schema` leaves them green. See [[#Schema-derived test databases]].
 
 - **A test must fail for the reason it is named.** Before landing a test that asserts a side effect (a row written, a notice sent), break the code path and confirm the test goes red. `expect(true).toBe(true)` after an action asserts nothing.
+
+- **Never add a setup file just to register jest-dom.** `vite-plugin-solid` adds `@testing-library/jest-dom/vitest` to `setupFiles` on its own, so a node- or jsdom-tier project whose `vitest.config.ts` loads that plugin already has `toHaveAttribute` and friends in every test file. It **adds**, it does not replace: the plugin writes that entry onto the partial config its `config` hook returns, and Vite concatenates the arrays, so your own setup files still run. Two things turn the addition off, and only two — one of your own `setupFiles` paths matching the regex `/jest-dom/`, or a browser-mode project, which the plugin skips because Vitest's browser assertions already carry the matchers. `cire/host` and `cire/invites` each run one, which is why `cire/host/src/test-support/vitest-dom.d.ts` exists to pull in the *types* the browser tier does not supply. Vitest runs `setupFiles` once per **test file**, not once per worker, so a setup file that does nothing else is a second entry resolving a module the plugin already loaded. `pulse/web` carried one until 2026-08, across all 41 of its files. Measured, it cost nothing you can see — the suite runs in the same 2.7–3.0s either way, because the module comes from cache after the first hit. Drop it for the tidiness, not for a speed-up you will not get. Import the matchers in the handful of test files that assert with them instead; `tsconfig.json` already has `tests/**/*` in `include`, so the matcher types resolve across the package from any one import. One package still has the old shape — `cire/vendor/vitest.config.ts`, tracked in `xchromo/osn-tracker#500`.
 
 ## Schema-derived test databases
 
