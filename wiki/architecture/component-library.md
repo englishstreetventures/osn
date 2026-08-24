@@ -20,7 +20,7 @@ related:
 packages:
   - "@osn/ui"
   - "@pulse/web"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-24
 ---
 
 # Component Library (Zaidan)
@@ -41,7 +41,7 @@ All shared UI primitives live in `@osn/ui`:
 ```
 osn/ui/src/
 ├── lib/
-│   └── utils.ts              ← clsx re-export, cn() (fallback), deprecated bx()
+│   └── utils.ts              ← clsx re-export, cn() (fallback)
 ├── components/
 │   └── ui/
 │       ├── avatar.tsx         ← Avatar, AvatarImage, AvatarFallback
@@ -88,7 +88,7 @@ These are dependencies of `@osn/ui`. Consuming apps get them transitively — no
 
 ## Class Composition: the `base:` prefix, `clsx()`, and `cn()`
 
-Three mechanisms handle class composition at different levels:
+Three approaches handle class composition at different levels — one source convention and two functions:
 
 ### `base:` prefix — component defaults (zero-specificity via CSS)
 
@@ -104,7 +104,7 @@ import { clsx } from "clsx";
 // Consumer passes class="bg-card/50 rounded-md" → wins via CSS cascade
 ```
 
-> **Note:** The `base:` prefix must be written literally in source strings. Tailwind v4's scanner does static analysis and cannot resolve runtime transforms. The legacy `bx()` function is deprecated.
+> **Note:** The `base:` prefix must be written literally in source strings. Tailwind v4's scanner does static analysis and cannot resolve runtime transforms.
 
 ### `clsx()` — conditional class joining (no conflict resolution)
 
@@ -170,7 +170,7 @@ Component files write `base:` prefixed classes directly in source strings (e.g. 
 
 If `tailwind-merge` is tree-shaken (i.e. no consumer imports `cn()`), the bundle drops by ~14 KB. If bundle size is a concern and `cn()` is still imported somewhere, consider refactoring the consumer to use `clsx()` instead — most conditional class composition doesn't involve Tailwind conflicts.
 
-> **Important:** `base:` prefixes must be written directly in source strings, not generated at runtime via a function. Tailwind v4's JIT scanner does static analysis of source files — it cannot see classes produced by runtime transforms like `bx("bg-card")`. The legacy `bx()` function is deprecated and is now an identity function.
+> **Important:** `base:` prefixes must be written directly in source strings, not generated at runtime via a function. Tailwind v4's JIT scanner does static analysis of source files — it cannot see classes produced by a runtime transform.
 
 **Any new app** that uses `@osn/ui` components must include two things in its CSS:
 
@@ -302,6 +302,6 @@ Tailwind maps these via `@theme inline` to utility classes (`bg-primary`, `text-
 ## Source Files
 
 - [osn/ui/src/components/ui/](../../osn/ui/src/components/ui/) — all component source
-- [osn/ui/src/lib/utils.ts](../../osn/ui/src/lib/utils.ts) — `clsx`, `cn()`, and the deprecated `bx()` identity function
+- [osn/ui/src/lib/utils.ts](../../osn/ui/src/lib/utils.ts) — `clsx`, `cn()`
 - [osn/ui/package.json](../../osn/ui/package.json) — subpath exports
 - [pulse/web/src/app.css](../../pulse/web/src/app.css) — CSS variable theme + `@custom-variant base`

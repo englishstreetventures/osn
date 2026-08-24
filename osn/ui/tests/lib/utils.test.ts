@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { bx, cn } from "../../src/lib/utils";
+import { cn } from "../../src/lib/utils";
 
 describe("cn()", () => {
   it("joins plain class strings", () => {
@@ -31,23 +31,5 @@ describe("cn()", () => {
 
   it("resolves size conflicts (rounded-md vs rounded-xl)", () => {
     expect(cn("rounded-md", "rounded-xl")).toBe("rounded-xl");
-  });
-});
-
-describe("bx() — deprecated identity function", () => {
-  it("returns input unchanged (identity)", () => {
-    expect(bx("bg-card rounded-xl border")).toBe("bg-card rounded-xl border");
-  });
-
-  it("passes through variant-prefixed classes", () => {
-    expect(bx("hover:bg-muted focus:ring-2")).toBe("hover:bg-muted focus:ring-2");
-  });
-
-  it("passes through base:-prefixed classes", () => {
-    expect(bx("base:bg-card base:rounded-xl")).toBe("base:bg-card base:rounded-xl");
-  });
-
-  it("handles empty string", () => {
-    expect(bx("")).toBe("");
   });
 });
