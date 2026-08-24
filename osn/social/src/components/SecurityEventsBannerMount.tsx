@@ -1,7 +1,7 @@
 import { SecurityEventsBanner } from "@osn/ui/auth/SecurityEventsBanner";
 
 import { securityEventsClient, stepUpClient } from "../lib/authClients";
-import { runPasskeyCeremony } from "../lib/webauthn";
+import { runPasskeyCeremony } from "../lib/webauthn-ceremony";
 
 /**
  * Wires the shared `SecurityEventsBanner` to this app's clients. Split into its

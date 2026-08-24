@@ -43,7 +43,7 @@ The app ships as a web build only.
 | `/discover` | `DiscoverPage` | Contact suggestions (`GET /recommendations/connections`) — mutual connections and shared organisations, each card saying which. See [[social-graph]] |
 | `/organisations` | `OrganisationsPage` | Orgs the user owns or belongs to; create new |
 | `/organisations/:id` | `OrgDetailPage` | Org detail + member management |
-| `/settings` | `SettingsPage` | Profile / Account / **Security** (passkey add/rename/delete, step-up gated) / Connected apps tabs. The Security tab is lazy-loaded (`SecuritySection` chunk) so `@simplewebauthn/browser` only ships when opened. |
+| `/settings` | `SettingsPage` | Profile / Account / **Security** (passkey add/rename/delete, step-up gated) / Connected apps tabs. The Security tab is lazy-loaded (`SecuritySection` chunk). `@simplewebauthn/browser` is split across two wrappers: `src/lib/webauthn-ceremony.ts` (assertion) ships with the always-mounted security-events banner, and `src/lib/webauthn-registration.ts` (enrolment) only when the Security tab opens — see below. |
 | `/authorize` | `AuthorizePage` | The OIDC consent screen — another app asking to sign the user in with their OSN account. Lazy-loaded, and the one route on a **bare layout**: no sidebar, nothing to click but the decision. Full contract in [[authorize-ui]]. |
 
 `BARE_ROUTES` in `src/App.tsx` is the allow-list that strips the sidebar. Add
@@ -138,6 +138,30 @@ The move from `id.cireweddings.com` happened 2026-07-27 — see
 ## Auth
 
 Uses `AuthProvider` from `@osn/client/solid` with the standard OSN passkey-primary login model — see [[passkey-primary]]. Access tokens live in `localStorage` (the only auth secret there after Copenhagen Book C3); the refresh token lives in an HttpOnly cookie. `OsnAuthService.authFetch` handles silent refresh on 401. A "Lost your passkey?" link routes to the recovery-code login form.
+
+### Where the WebAuthn runtime ships
+
+`@osn/ui` never imports `@simplewebauthn/browser`; each host app wires its own
+wrapper. This app has two, one per ceremony:
+
+| Module | Ceremony | Reached from |
+|---|---|---|
+| `src/lib/webauthn-ceremony.ts` | assertion (sign-in / step-up) | `SecurityEventsBannerMount`, `SecuritySection` |
+| `src/lib/webauthn-registration.ts` | attestation (passkey enrolment) | `SecuritySection` only |
+
+They are two modules, not one, because `SecurityEventsBannerMount` mounts on
+every Settings visit while `SecuritySection` loads only on the Security tab. A
+single module would drag the enrolment code into the banner's chunk.
+
+The source split alone does not hold through the bundler. `@simplewebauthn/browser`
+exports both methods through one barrel (`esm/index.js`) and ships no
+`"sideEffects": false`, so Rollup keeps that barrel — and therefore both methods
+— alive in any chunk naming either one. `osn/social/vite.config.ts` fixes both
+halves: a build-only plugin marks the barrel `moduleSideEffects: false` (its body
+is nothing but `export *` lines), and `manualChunks` puts each method file in its
+own named chunk. A production build then emits `webauthn-authentication` and
+`webauthn-registration` separately, and neither is in the entry bundle's eager
+set.
 
 ## Response headers
 

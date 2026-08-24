@@ -2,7 +2,8 @@ import { PasskeysView } from "@osn/ui/auth/PasskeysView";
 import { RecoveryCodesView } from "@osn/ui/auth/RecoveryCodesView";
 
 import { passkeysClient, recoveryClient, stepUpClient } from "../lib/authClients";
-import { runPasskeyCeremony, runPasskeyRegistration } from "../lib/webauthn";
+import { runPasskeyCeremony } from "../lib/webauthn-ceremony";
+import { runPasskeyRegistration } from "../lib/webauthn-registration";
 
 /**
  * Security section of the Settings page — passkey list / add / rename /
