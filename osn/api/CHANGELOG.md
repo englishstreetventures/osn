@@ -1,5 +1,12 @@
 # @osn/osn
 
+## 3.20.14
+
+### Patch Changes
+
+- Updated dependencies [15fe22c]
+  - @shared/redis@0.4.4
+
 ## 3.20.13
 
 ### Patch Changes

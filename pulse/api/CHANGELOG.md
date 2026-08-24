@@ -1,5 +1,12 @@
 # @osn/api
 
+## 0.26.13
+
+### Patch Changes
+
+- Updated dependencies [15fe22c]
+  - @shared/redis@0.4.4
+
 ## 0.26.12
 
 ### Patch Changes
