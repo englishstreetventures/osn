@@ -110,10 +110,12 @@ describe("createGraphClient — connection mutations", () => {
     });
   });
 
-  it("removeConnection DELETEs /graph/connections/:handle", async () => {
+  it("removeConnection DELETEs /graph/connections/:handle and returns the body", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
-    await client.removeConnection(TOKEN, "alice");
+    const result = await client.removeConnection(TOKEN, "alice");
     expect((vi.mocked(fetch).mock.calls[0]![1] as RequestInit).method).toBe("DELETE");
+    // graph's deletes return a JSON body, unlike organisations' 204 deletes.
+    expect(result).toEqual({ ok: true });
   });
 
   it("URL-encodes handles with special chars", async () => {
@@ -130,10 +132,11 @@ describe("createGraphClient — blocks", () => {
     expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/blocks/alice`);
   });
 
-  it("unblockProfile DELETEs /graph/blocks/:handle", async () => {
+  it("unblockProfile DELETEs /graph/blocks/:handle and returns the body", async () => {
     mockFetch({ ok: true, json: () => Promise.resolve({ ok: true }) });
-    await client.unblockProfile(TOKEN, "alice");
+    const result = await client.unblockProfile(TOKEN, "alice");
     expect((vi.mocked(fetch).mock.calls[0]![1] as RequestInit).method).toBe("DELETE");
+    expect(result).toEqual({ ok: true });
   });
 });
 
@@ -186,6 +189,15 @@ describe("createGraphClient — error surface", () => {
     const long = "x".repeat(500);
     mockFetch({ ok: false, json: () => Promise.resolve({ error: long }) });
     await expect(client.sendConnectionRequest(TOKEN, "alice")).rejects.toThrow(/^x{200}…$/);
+  });
+
+  it("throws GraphClientError on non-2xx PATCH and DELETE", async () => {
+    // Each verb closes over the caller's own error class, so assert the class
+    // per verb rather than trusting the message alone.
+    mockFetch({ ok: false, json: () => Promise.resolve({ error: "Forbidden" }) });
+    await expect(client.acceptConnection(TOKEN, "alice")).rejects.toBeInstanceOf(GraphClientError);
+    mockFetch({ ok: false, json: () => Promise.resolve({ error: "Forbidden" }) });
+    await expect(client.removeConnection(TOKEN, "alice")).rejects.toBeInstanceOf(GraphClientError);
   });
 });
 

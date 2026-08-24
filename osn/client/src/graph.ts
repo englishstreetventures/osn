@@ -4,6 +4,8 @@
  * Bearer token auth.
  */
 
+import { createAuthFetchers } from "./auth-fetch";
+
 export interface GraphClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
@@ -45,95 +47,6 @@ export class GraphClientError extends Error {
     super(message);
     this.name = "GraphClientError";
   }
-}
-
-// ---------------------------------------------------------------------------
-// Internal fetch helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Parse response body as JSON, returning null if the body isn't JSON.
- * Prevents SyntaxError from surfacing to UI toasts (S-L2).
- */
-async function safeJson<T>(res: Response): Promise<(T & { error?: string }) | null> {
-  try {
-    return (await res.json()) as T & { error?: string };
-  } catch {
-    return null;
-  }
-}
-
-/** Cap server-supplied error strings before surfacing to the UI (S-L2). */
-function safeErrorMessage(value: unknown, status: number): string {
-  if (typeof value !== "string" || value.length === 0) return `Request failed: ${status}`;
-  return value.length > 200 ? `${value.slice(0, 200)}…` : value;
-}
-
-async function authGet<T>(url: string, token: string): Promise<T> {
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const json = await safeJson<T>(res);
-  if (!res.ok) {
-    throw new GraphClientError(safeErrorMessage(json?.error, res.status));
-  }
-  if (json === null) {
-    throw new GraphClientError(`Invalid response: ${res.status}`);
-  }
-  return json;
-}
-
-async function authPost<T>(url: string, token: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  const json = await safeJson<T>(res);
-  if (!res.ok) {
-    throw new GraphClientError(safeErrorMessage(json?.error, res.status));
-  }
-  if (json === null) {
-    throw new GraphClientError(`Invalid response: ${res.status}`);
-  }
-  return json;
-}
-
-async function authPatch<T>(url: string, token: string, body: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  const json = await safeJson<T>(res);
-  if (!res.ok) {
-    throw new GraphClientError(safeErrorMessage(json?.error, res.status));
-  }
-  if (json === null) {
-    throw new GraphClientError(`Invalid response: ${res.status}`);
-  }
-  return json;
-}
-
-async function authDelete<T>(url: string, token: string): Promise<T> {
-  const res = await fetch(url, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  const json = await safeJson<T>(res);
-  if (!res.ok) {
-    throw new GraphClientError(safeErrorMessage(json?.error, res.status));
-  }
-  if (json === null) {
-    throw new GraphClientError(`Invalid response: ${res.status}`);
-  }
-  return json;
 }
 
 // ---------------------------------------------------------------------------
@@ -181,6 +94,15 @@ export interface GraphClient {
 
 export function createGraphClient(config: GraphClientConfig): GraphClient {
   const base = `${config.issuerUrl.replace(/\/$/, "")}/graph`;
+  // Built here rather than at module scope on purpose. A top-level
+  // `createAuthFetchers(...)` is a call a bundler will not drop — a
+  // `/* @__PURE__ */` comment does not help, because neither esbuild nor
+  // rolldown removes a declarator whose binding is a destructuring pattern.
+  // That pinned this module into the entry chunk of every app that imports
+  // the barrel. Inside the factory there is no top-level statement left to
+  // keep. These deletes return a JSON body; `organisations.ts` uses the
+  // void-returning variant instead.
+  const { authGet, authPost, authPatch, authDelete } = createAuthFetchers(GraphClientError);
 
   return {
     listConnections: (token, options) =>

@@ -3,6 +3,8 @@
  * `./graph.ts` and `./organisations.ts`.
  */
 
+import { createAuthFetchers } from "./auth-fetch";
+
 export interface RecommendationClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
   issuerUrl: string;
@@ -52,19 +54,6 @@ export class RecommendationClientError extends Error {
   }
 }
 
-async function safeJson<T>(res: Response): Promise<(T & { error?: string }) | null> {
-  try {
-    return (await res.json()) as T & { error?: string };
-  } catch {
-    return null;
-  }
-}
-
-function safeErrorMessage(value: unknown, status: number): string {
-  if (typeof value !== "string" || value.length === 0) return `Request failed: ${status}`;
-  return value.length > 200 ? `${value.slice(0, 200)}…` : value;
-}
-
 export interface RecommendationClient {
   suggestConnections(
     token: string,
@@ -94,40 +83,26 @@ export function createRecommendationClient(
   config: RecommendationClientConfig,
 ): RecommendationClient {
   const base = `${config.issuerUrl.replace(/\/$/, "")}/recommendations`;
+  // Built here, not at module scope: a top-level `createAuthFetchers(...)` is
+  // a call no bundler will drop, which pinned this module into the entry
+  // chunk of every app importing the barrel. `/* @__PURE__ */` does not fix
+  // that on a destructuring declarator.
+  const { authGet } = createAuthFetchers(RecommendationClientError);
 
   return {
     suggestConnections: async (token, options) => {
       const limit = options?.limit;
       const qs = limit !== undefined ? `?limit=${encodeURIComponent(String(limit))}` : "";
-      const res = await fetch(`${base}/connections${qs}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await safeJson<{ suggestions: Suggestion[] }>(res);
-      if (!res.ok) {
-        throw new RecommendationClientError(safeErrorMessage(json?.error, res.status));
-      }
-      if (json === null) {
-        throw new RecommendationClientError(`Invalid response: ${res.status}`);
-      }
-      return json;
+      return authGet<{ suggestions: Suggestion[] }>(`${base}/connections${qs}`, token);
     },
 
     search: async (token, query, options) => {
       const params = new URLSearchParams({ q: query });
       if (options?.limit !== undefined) params.set("limit", String(options.limit));
       if (options?.orgLimit !== undefined) params.set("orgLimit", String(options.orgLimit));
-      const res = await fetch(`${base}/search?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      return authGet<SearchResults>(`${base}/search?${params.toString()}`, token, {
         signal: options?.signal,
       });
-      const json = await safeJson<SearchResults>(res);
-      if (!res.ok) {
-        throw new RecommendationClientError(safeErrorMessage(json?.error, res.status));
-      }
-      if (json === null) {
-        throw new RecommendationClientError(`Invalid response: ${res.status}`);
-      }
-      return json;
     },
   };
 }
