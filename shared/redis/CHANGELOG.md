@@ -1,5 +1,11 @@
 # @shared/redis
 
+## 0.4.5
+
+### Patch Changes
+
+- c6d023b: Validate the Upstash `eval` reply against the RESP value space before returning it, instead of trusting the HTTP boundary's claimed type. Matches the check the ioredis path already runs through `toRedisReply`.
+
 ## 0.4.4
 
 ### Patch Changes
