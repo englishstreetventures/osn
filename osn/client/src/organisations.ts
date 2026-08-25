@@ -4,7 +4,7 @@
  * Bearer token auth.
  */
 
-import { createAuthFetchers } from "./auth-fetch";
+import { createAuthFetchers, qs } from "./auth-fetch";
 
 export interface OrgClientConfig {
   /** OSN issuer base URL, e.g. http://localhost:4000 */
@@ -38,19 +38,6 @@ export class OrgClientError extends Error {
     super(message);
     this.name = "OrgClientError";
   }
-}
-
-// ---------------------------------------------------------------------------
-// Query string helper
-// ---------------------------------------------------------------------------
-
-function qs(options?: { limit?: number; offset?: number }): string {
-  if (!options) return "";
-  const params = new URLSearchParams();
-  if (options.limit !== undefined) params.set("limit", String(options.limit));
-  if (options.offset !== undefined) params.set("offset", String(options.offset));
-  const str = params.toString();
-  return str ? `?${str}` : "";
 }
 
 // ---------------------------------------------------------------------------

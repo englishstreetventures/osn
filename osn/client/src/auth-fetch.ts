@@ -38,18 +38,28 @@ export function safeErrorMessage(value: unknown, status: number): string {
   return value.length > 200 ? `${value.slice(0, 200)}…` : value;
 }
 
-export interface AuthFetchers {
-  authGet<T>(url: string, token: string, options?: AuthFetchOptions): Promise<T>;
-  authPost<T>(url: string, token: string, body?: unknown): Promise<T>;
-  authPatch<T>(url: string, token: string, body: unknown): Promise<T>;
-  /** For endpoints that return a JSON body on success (e.g. `{ ok: true }`). */
-  authDelete<T>(url: string, token: string): Promise<T>;
-  /** For callers that want no body back. Parses JSON only on the error path, so a
-   * success response that is empty or unparseable still resolves. */
-  authDeleteVoid(url: string, token: string): Promise<void>;
+/** Shared `?limit=&offset=` pagination query builder for the package's list endpoints. */
+export function qs(options?: { limit?: number; offset?: number }): string {
+  if (!options) return "";
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  if (options.offset !== undefined) params.set("offset", String(options.offset));
+  const str = params.toString();
+  return str ? `?${str}` : "";
 }
 
-/** Build the four `auth*` helpers, parameterised on the error class each caller throws. */
+export interface AuthFetchers {
+  authGet<T>(url: string, token: string, options?: AuthFetchOptions): Promise<T>;
+  authPost<T>(url: string, token: string, body?: unknown, options?: AuthFetchOptions): Promise<T>;
+  authPatch<T>(url: string, token: string, body: unknown, options?: AuthFetchOptions): Promise<T>;
+  /** For endpoints that return a JSON body on success (e.g. `{ ok: true }`). */
+  authDelete<T>(url: string, token: string, options?: AuthFetchOptions): Promise<T>;
+  /** For callers that want no body back. Parses JSON only on the error path, so a
+   * success response that is empty or unparseable still resolves. */
+  authDeleteVoid(url: string, token: string, options?: AuthFetchOptions): Promise<void>;
+}
+
+/** Build the five `auth*` helpers, parameterised on the error class each caller throws. */
 export function createAuthFetchers(ErrorCtor: new (message: string) => Error): AuthFetchers {
   async function authGet<T>(url: string, token: string, options?: AuthFetchOptions): Promise<T> {
     const res = await fetch(url, {
@@ -66,7 +76,12 @@ export function createAuthFetchers(ErrorCtor: new (message: string) => Error): A
     return json;
   }
 
-  async function authPost<T>(url: string, token: string, body?: unknown): Promise<T> {
+  async function authPost<T>(
+    url: string,
+    token: string,
+    body?: unknown,
+    options?: AuthFetchOptions,
+  ): Promise<T> {
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -74,6 +89,7 @@ export function createAuthFetchers(ErrorCtor: new (message: string) => Error): A
         "Content-Type": "application/json",
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: options?.signal,
     });
     const json = await safeJson<T>(res);
     if (!res.ok) {
@@ -85,7 +101,12 @@ export function createAuthFetchers(ErrorCtor: new (message: string) => Error): A
     return json;
   }
 
-  async function authPatch<T>(url: string, token: string, body: unknown): Promise<T> {
+  async function authPatch<T>(
+    url: string,
+    token: string,
+    body: unknown,
+    options?: AuthFetchOptions,
+  ): Promise<T> {
     const res = await fetch(url, {
       method: "PATCH",
       headers: {
@@ -93,6 +114,7 @@ export function createAuthFetchers(ErrorCtor: new (message: string) => Error): A
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
+      signal: options?.signal,
     });
     const json = await safeJson<T>(res);
     if (!res.ok) {
@@ -104,10 +126,11 @@ export function createAuthFetchers(ErrorCtor: new (message: string) => Error): A
     return json;
   }
 
-  async function authDelete<T>(url: string, token: string): Promise<T> {
+  async function authDelete<T>(url: string, token: string, options?: AuthFetchOptions): Promise<T> {
     const res = await fetch(url, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
+      signal: options?.signal,
     });
     const json = await safeJson<T>(res);
     if (!res.ok) {
@@ -119,10 +142,15 @@ export function createAuthFetchers(ErrorCtor: new (message: string) => Error): A
     return json;
   }
 
-  async function authDeleteVoid(url: string, token: string): Promise<void> {
+  async function authDeleteVoid(
+    url: string,
+    token: string,
+    options?: AuthFetchOptions,
+  ): Promise<void> {
     const res = await fetch(url, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
+      signal: options?.signal,
     });
     if (!res.ok) {
       const json = await safeJson<{ error?: string }>(res);

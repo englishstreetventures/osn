@@ -123,6 +123,23 @@ describe("createGraphClient — connection mutations", () => {
     await client.sendConnectionRequest(TOKEN, "alice bob");
     expect(vi.mocked(fetch).mock.calls[0]![0]).toBe(`${base}/connections/alice%20bob`);
   });
+
+  it("removeConnection throws on a 204 with no body, unlike organisations' void deletes", async () => {
+    // graph's DELETE /graph/connections/:handle answers 200 { ok: true } today
+    // (osn/api/src/routes/graph.ts:256); removeConnection uses authDelete, which
+    // parses the success body. If that route ever regressed to a bodyless 204,
+    // this would catch it before organisations.ts's void-returning pattern got
+    // copied here by mistake.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 204,
+        json: () => Promise.reject(new SyntaxError("Unexpected end of JSON")),
+      } as Response),
+    );
+    await expect(client.removeConnection(TOKEN, "alice")).rejects.toThrow("Invalid response: 204");
+  });
 });
 
 describe("createGraphClient — blocks", () => {
