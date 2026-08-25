@@ -1,5 +1,13 @@
 # @osn/social
 
+## 0.12.17
+
+### Patch Changes
+
+- Updated dependencies [b2cdab1]
+  - @osn/client@2.13.4
+  - @osn/ui@1.10.1
+
 ## 0.12.16
 
 ### Patch Changes
