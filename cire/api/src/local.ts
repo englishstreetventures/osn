@@ -49,7 +49,9 @@ const app = createApp(db, {
 
 const server = Bun.serve({
   port,
-  fetch(request: Request, srv: Bun.Server) {
+  // Both parameters are contextually typed by `Bun.serve`; naming `Bun.Server`
+  // here would need its WebSocket type argument, which this server has not got.
+  fetch(request, srv) {
     // Local dev has no Cloudflare edge, so `cf-connecting-ip` is absent and the
     // fail-closed rate limiter (W5) 429s every gated route (claim, preview-code,
     // account-link, invite writes). Inject the socket peer as the trusted client

@@ -4,7 +4,7 @@ import { Elysia } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
-import { SERVICE_CATEGORIES } from "../lib/service-categories";
+import { isServiceCategory } from "../lib/service-categories";
 import { osnAuth } from "../middleware/osn-auth";
 import type { OsnAuthOptions } from "../middleware/osn-auth";
 import { rateLimitMiddlewareByUser } from "../middleware/rate-limit";
@@ -15,8 +15,6 @@ import { runCire } from "../observability";
 import { AddFromDirectoryBody } from "../schemas/vendors";
 import { directoryService } from "../services/directory";
 import { vendorsService } from "../services/vendors";
-
-const CATEGORY_KEYS = new Set(SERVICE_CATEGORIES.map((c) => c.key));
 
 function clampInt(raw: unknown, def: number, min: number, max: number): number {
   const n = typeof raw === "string" ? Number.parseInt(raw, 10) : NaN;
@@ -77,7 +75,7 @@ export const createVendorDirectoryReadRoutes = (
         .get("/directory", async ({ weddingId, query, set }) => {
           if (!weddingId) return internalSync(set);
           const q = query as Record<string, string | undefined>;
-          const category = q.category && CATEGORY_KEYS.has(q.category) ? q.category : null;
+          const category = q.category && isServiceCategory(q.category) ? q.category : null;
           return runCire(
             directoryService
               .browse(weddingId, {
@@ -107,53 +105,51 @@ export const createVendorDirectoryWriteRoutes = (
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
-      group.guard((write) =>
-        write
-          .use(weddingEditor(db))
-          .use(weddingEntitlement(db, "vendors"))
-          .use(rateLimitMiddlewareByUser(limiter))
-          .post(
-            "/directory/:directoryVendorId/add",
-            async ({ weddingId, params, request, set }) => {
-              if (!weddingId) return internalSync(set);
-              const raw: unknown = await request.json().catch(() => null);
-              return runCire(
-                Effect.gen(function* () {
-                  const body = yield* Schema.decodeUnknown(AddFromDirectoryBody)(raw);
-                  const listing = yield* directoryService.getLiveListingById(
-                    params.directoryVendorId,
-                  );
-                  if (!listing) return yield* notFound(set);
-                  if (!listing.categories.includes(body.category)) return yield* badRequest(set);
-                  const already = yield* vendorsService.existsForDirectory(
-                    weddingId,
-                    params.directoryVendorId,
-                  );
-                  if (already) return yield* conflict(set);
-                  const vendor = yield* vendorsService.create({
-                    weddingId,
-                    name: listing.name,
-                    category: body.category,
-                    status: "researching",
-                    contactName: null,
-                    email: listing.email,
-                    phone: listing.phone,
-                    notes: null,
-                    quotedMinor: null,
-                    directoryVendorId: listing.id,
-                  });
-                  set.status = 201;
-                  return { vendor };
-                }).pipe(
-                  Effect.provideService(DbService, db),
-                  Effect.catchTag("ParseError", () => badRequest(set)),
-                  Effect.catchAllDefect((d) =>
-                    isUniqueViolation(d) ? conflict(set) : internal(set),
-                  ),
+      group
+        .use(weddingEditor(db))
+        .use(weddingEntitlement(db, "vendors"))
+        .use(rateLimitMiddlewareByUser(limiter))
+        .post(
+          "/directory/:directoryVendorId/add",
+          async ({ weddingId, params, request, set }) => {
+            if (!weddingId) return internalSync(set);
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(AddFromDirectoryBody)(raw);
+                const listing = yield* directoryService.getLiveListingById(
+                  params.directoryVendorId,
+                );
+                if (!listing) return yield* notFound(set);
+                if (!listing.categories.includes(body.category)) return yield* badRequest(set);
+                const already = yield* vendorsService.existsForDirectory(
+                  weddingId,
+                  params.directoryVendorId,
+                );
+                if (already) return yield* conflict(set);
+                const vendor = yield* vendorsService.create({
+                  weddingId,
+                  name: listing.name,
+                  category: body.category,
+                  status: "researching",
+                  contactName: null,
+                  email: listing.email,
+                  phone: listing.phone,
+                  notes: null,
+                  quotedMinor: null,
+                  directoryVendorId: listing.id,
+                });
+                set.status = 201;
+                return { vendor };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("ParseError", () => badRequest(set)),
+                Effect.catchAllDefect((d) =>
+                  isUniqueViolation(d) ? conflict(set) : internal(set),
                 ),
-              );
-            },
-            manualParse,
-          ),
-      ),
+              ),
+            );
+          },
+          manualParse,
+        ),
     );

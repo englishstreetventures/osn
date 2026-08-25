@@ -253,7 +253,7 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
               .all(),
           );
 
-    const eventList: ClaimResponse["events"] = [];
+    const eventList: Array<ClaimResponse["events"][number]> = [];
     for (const e of eventRows) {
       const { palette, malformed } = decodePalette(e.dressCodePalette);
       if (malformed) {
@@ -506,7 +506,9 @@ export const claimService = {
 
       const byGuest = new Map<
         string,
-        { -readonly [K in keyof OrganiserGuestRow]: OrganiserGuestRow[K] }
+        Omit<{ -readonly [K in keyof OrganiserGuestRow]: OrganiserGuestRow[K] }, "events"> & {
+          events: string[];
+        }
       >();
       for (const row of rows) {
         let entry = byGuest.get(row.guestId);

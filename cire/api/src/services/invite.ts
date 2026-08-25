@@ -1,5 +1,6 @@
 import { families, weddingInviteCustomisations, weddings } from "@cire/db";
 import type {
+  FontChoice,
   FontStyleChoice,
   FontWeightChoice,
   HeadingSizeChoice,
@@ -15,7 +16,6 @@ import {
   decodeCrop,
   HERO_BLUR_DEFAULT,
   type CropScreen,
-  type FontChoice,
   type ImageCrop,
   type InviteImageSlot,
   type InviteTextBody,
@@ -809,7 +809,7 @@ export const inviteService = {
 
       yield* Effect.logInfo("invite image uploaded", { weddingId });
       yield* Effect.sync(() => metricInviteAssetUploaded("ok", bytes.byteLength));
-      return imagePath(slug, slot, now.getTime());
+      return imagePath(slug, slot, now.getTime().toString());
     }).pipe(
       Effect.tapError(() => Effect.sync(() => metricInviteAssetUploaded("error"))),
       Effect.withSpan("cire.invite.setImage"),

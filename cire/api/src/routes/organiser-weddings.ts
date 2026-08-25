@@ -1,6 +1,7 @@
 import type { RateLimiterBackend } from "@shared/rate-limit";
 import { Effect, Schema } from "effect";
 import { Elysia } from "elysia";
+import type { HTTPHeaders } from "elysia";
 
 import { DbService } from "../db";
 import type { Db } from "../db";
@@ -74,7 +75,7 @@ const rosterDefect = (set: { status?: number | string }, read: string, weddingId
   });
 
 /** Mark a claim-code-bearing JSON response uncacheable (see {@link rosterDefect}). */
-const noStore = (set: { headers: Record<string, string> }) => {
+const noStore = (set: { headers: HTTPHeaders }) => {
   set.headers["cache-control"] = "no-store";
 };
 

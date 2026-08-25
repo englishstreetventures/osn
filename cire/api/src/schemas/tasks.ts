@@ -1,12 +1,13 @@
 import { Schema } from "effect";
 
 import { TIMEFRAME_BUCKETS } from "../lib/checklist-buckets";
+import type { TimeframeBucket } from "../lib/checklist-buckets";
 
 const MAX_TITLE_CHARS = 200;
 const MAX_NOTES_CHARS = 2000;
 
 // The bucket enum, sourced from the single list so the two never drift.
-const bucketKeys = TIMEFRAME_BUCKETS.map((b) => b.key) as [string, ...string[]];
+const bucketKeys = TIMEFRAME_BUCKETS.map((b) => b.key) as [TimeframeBucket, ...TimeframeBucket[]];
 const TimeframeBucketSchema = Schema.Literal(...bucketKeys);
 
 const Title = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(MAX_TITLE_CHARS));

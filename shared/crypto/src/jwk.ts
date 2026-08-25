@@ -33,11 +33,18 @@ export const ARC_ALG = "ES256";
  * Returns Web Crypto CryptoKeyPair with extractable keys suitable for JWK export.
  */
 export async function generateArcKeyPair(): Promise<CryptoKeyPair> {
-  return crypto.subtle.generateKey(
+  const key = await crypto.subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
     true, // extractable — needed for JWK export
     ["sign", "verify"],
   );
+  // `generateKey` is typed as returning `CryptoKey | CryptoKeyPair` because it
+  // serves symmetric algorithms too. ECDSA always yields the pair, so this
+  // narrows rather than asserts — the throw is unreachable in practice.
+  if (!("privateKey" in key)) {
+    throw new TypeError("generateKey returned a single key for ECDSA P-256");
+  }
+  return key;
 }
 
 /**

@@ -106,189 +106,186 @@ export const createBudgetReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =
 export const createBudgetWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
   new Elysia({ prefix: "/api/organiser" })
     .use(osnAuth(osnAuthOptions))
+    // Editor writes. A second `.group` on the same path below carries the
+    // owner-only cap set — a gate is applied per group, so the only way to
+    // run two of them over the same prefix is two groups (mirrors
+    // createOrganiserHostsWriteRoutes).
     .group("/weddings/:weddingId", (group) =>
       group
-        // Editor writes.
-        .guard((write) =>
-          write
-            .use(weddingEditor(db))
-            .post(
-              "/budget/items",
-              async ({ weddingId, request, set }) => {
-                if (!weddingId) return internalSync(set);
-                const raw: unknown = await request.json().catch(() => null);
-                return runCire(
-                  Effect.gen(function* () {
-                    const body = yield* Schema.decodeUnknown(CreateBudgetItemBody)(raw);
-                    const item = yield* budgetService.createItem({ weddingId, ...body });
-                    return { item };
-                  }).pipe(
-                    Effect.provideService(DbService, db),
-                    Effect.catchTag("ParseError", () => badRequest(set)),
-                    Effect.catchAllDefect(() => internal(set)),
-                  ),
-                );
-              },
-              manualParse,
-            )
-            .patch(
-              "/budget/items/reorder",
-              async ({ weddingId, request, set }) => {
-                if (!weddingId) return internalSync(set);
-                const raw: unknown = await request.json().catch(() => null);
-                return runCire(
-                  Effect.gen(function* () {
-                    const body = yield* Schema.decodeUnknown(ReorderBudgetItemsBody)(raw);
-                    yield* budgetService.reorderItems(weddingId, body.category, body.orderedIds);
-                    return { ok: true as const };
-                  }).pipe(
-                    Effect.provideService(DbService, db),
-                    Effect.catchTag("ParseError", () => badRequest(set)),
-                    Effect.catchAllDefect(() => internal(set)),
-                  ),
-                );
-              },
-              manualParse,
-            )
-            .patch(
-              "/budget/items/:itemId",
-              async ({ weddingId, params, request, set }) => {
-                if (!weddingId) return internalSync(set);
-                const raw: unknown = await request.json().catch(() => null);
-                return runCire(
-                  Effect.gen(function* () {
-                    const body = yield* Schema.decodeUnknown(UpdateBudgetItemBody)(raw);
-                    const item = yield* budgetService.updateItem({
-                      weddingId,
-                      itemId: params.itemId,
-                      patch: body,
-                    });
-                    return { item };
-                  }).pipe(
-                    Effect.provideService(DbService, db),
-                    Effect.catchTag("ParseError", () => badRequest(set)),
-                    Effect.catchTag("BudgetItemNotInWedding", () => itemNotFound(set)),
-                    Effect.catchAllDefect(() => internal(set)),
-                  ),
-                );
-              },
-              manualParse,
-            )
-            .delete("/budget/items/:itemId", async ({ weddingId, params, set }) => {
-              if (!weddingId) return internalSync(set);
-              return runCire(
-                budgetService.removeItem(weddingId, params.itemId).pipe(
-                  Effect.map(() => ({ ok: true as const })),
-                  Effect.provideService(DbService, db),
-                  Effect.catchTag("BudgetItemNotInWedding", () => itemNotFound(set)),
-                  Effect.catchAllDefect(() => internal(set)),
-                ),
-              );
-            })
-            .post(
-              "/budget/items/:itemId/payments",
-              async ({ weddingId, params, request, set }) => {
-                if (!weddingId) return internalSync(set);
-                const raw: unknown = await request.json().catch(() => null);
-                return runCire(
-                  Effect.gen(function* () {
-                    const body = yield* Schema.decodeUnknown(CreatePaymentBody)(raw);
-                    const payment = yield* budgetService.addPayment({
-                      weddingId,
-                      itemId: params.itemId,
-                      label: body.label,
-                      amountMinor: body.amountMinor,
-                      dueAt: body.dueAt,
-                    });
-                    return { payment };
-                  }).pipe(
-                    Effect.provideService(DbService, db),
-                    Effect.catchTag("ParseError", () => badRequest(set)),
-                    Effect.catchTag("BudgetItemNotInWedding", () => itemNotFound(set)),
-                    Effect.catchAllDefect(() => internal(set)),
-                  ),
-                );
-              },
-              manualParse,
-            )
-            .patch(
-              "/budget/items/:itemId/payments/:paymentId",
-              async ({ weddingId, params, request, set }) => {
-                if (!weddingId) return internalSync(set);
-                const raw: unknown = await request.json().catch(() => null);
-                return runCire(
-                  Effect.gen(function* () {
-                    const body = yield* Schema.decodeUnknown(UpdatePaymentBody)(raw);
-                    const payment = yield* budgetService.updatePayment({
-                      weddingId,
-                      itemId: params.itemId,
-                      paymentId: params.paymentId,
-                      patch: body,
-                    });
-                    return { payment };
-                  }).pipe(
-                    Effect.provideService(DbService, db),
-                    Effect.catchTag("ParseError", () => badRequest(set)),
-                    Effect.catchTag("BudgetItemNotInWedding", () => itemNotFound(set)),
-                    Effect.catchTag("PaymentNotInItem", () => paymentNotFound(set)),
-                    Effect.catchAllDefect(() => internal(set)),
-                  ),
-                );
-              },
-              manualParse,
-            )
-            .delete(
-              "/budget/items/:itemId/payments/:paymentId",
-              async ({ weddingId, params, set }) => {
-                if (!weddingId) return internalSync(set);
-                return runCire(
-                  budgetService
-                    .removePayment({
-                      weddingId,
-                      itemId: params.itemId,
-                      paymentId: params.paymentId,
-                    })
-                    .pipe(
-                      Effect.map(() => ({ ok: true as const })),
-                      Effect.provideService(DbService, db),
-                      Effect.catchTag("BudgetItemNotInWedding", () => itemNotFound(set)),
-                      Effect.catchTag("PaymentNotInItem", () => paymentNotFound(set)),
-                      Effect.catchAllDefect(() => internal(set)),
-                    ),
-                );
-              },
-            ),
+        .use(weddingEditor(db))
+        .post(
+          "/budget/items",
+          async ({ weddingId, request, set }) => {
+            if (!weddingId) return internalSync(set);
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(CreateBudgetItemBody)(raw);
+                const item = yield* budgetService.createItem({ weddingId, ...body });
+                return { item };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("ParseError", () => badRequest(set)),
+                Effect.catchAllDefect(() => internal(set)),
+              ),
+            );
+          },
+          manualParse,
         )
-        // Owner-only cap set — delegates to the settings service (single writer
-        // of weddings.budget_total_minor).
-        .guard((own) =>
-          own.use(weddingOwner(db)).put(
-            "/budget/total",
-            async ({ weddingId, osnProfileId, request, set }) => {
-              if (!weddingId || !osnProfileId) return internalSync(set);
-              const raw: unknown = await request.json().catch(() => null);
-              return runCire(
-                Effect.gen(function* () {
-                  const body = yield* Schema.decodeUnknown(SetBudgetTotalBody)(raw);
-                  const settings = yield* weddingSettingsService.update(
-                    weddingId,
-                    { budgetTotalMinor: body.budgetTotalMinor },
-                    osnProfileId,
-                  );
-                  return { budgetTotalMinor: settings.budgetTotalMinor };
-                }).pipe(
-                  Effect.provideService(DbService, db),
-                  Effect.catchTag("ParseError", () => badRequest(set)),
-                  Effect.catchTag("WeddingNotFound", () => weddingNotFound(set)),
-                  Effect.catchTag("SettingsWriteError", () => internal(set)),
-                  // Unreachable: this patch never names the deadline. Handled so
-                  // the union stays total rather than falling to the defect arm.
-                  Effect.catchTag("RsvpDeadlineInPast", () => internal(set)),
-                  Effect.catchAllDefect(() => internal(set)),
-                ),
+        .patch(
+          "/budget/items/reorder",
+          async ({ weddingId, request, set }) => {
+            if (!weddingId) return internalSync(set);
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(ReorderBudgetItemsBody)(raw);
+                yield* budgetService.reorderItems(weddingId, body.category, body.orderedIds);
+                return { ok: true as const };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("ParseError", () => badRequest(set)),
+                Effect.catchAllDefect(() => internal(set)),
+              ),
+            );
+          },
+          manualParse,
+        )
+        .patch(
+          "/budget/items/:itemId",
+          async ({ weddingId, params, request, set }) => {
+            if (!weddingId) return internalSync(set);
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(UpdateBudgetItemBody)(raw);
+                const item = yield* budgetService.updateItem({
+                  weddingId,
+                  itemId: params.itemId,
+                  patch: body,
+                });
+                return { item };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("ParseError", () => badRequest(set)),
+                Effect.catchTag("BudgetItemNotInWedding", () => itemNotFound(set)),
+                Effect.catchAllDefect(() => internal(set)),
+              ),
+            );
+          },
+          manualParse,
+        )
+        .delete("/budget/items/:itemId", async ({ weddingId, params, set }) => {
+          if (!weddingId) return internalSync(set);
+          return runCire(
+            budgetService.removeItem(weddingId, params.itemId).pipe(
+              Effect.map(() => ({ ok: true as const })),
+              Effect.provideService(DbService, db),
+              Effect.catchTag("BudgetItemNotInWedding", () => itemNotFound(set)),
+              Effect.catchAllDefect(() => internal(set)),
+            ),
+          );
+        })
+        .post(
+          "/budget/items/:itemId/payments",
+          async ({ weddingId, params, request, set }) => {
+            if (!weddingId) return internalSync(set);
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(CreatePaymentBody)(raw);
+                const payment = yield* budgetService.addPayment({
+                  weddingId,
+                  itemId: params.itemId,
+                  label: body.label,
+                  amountMinor: body.amountMinor,
+                  dueAt: body.dueAt,
+                });
+                return { payment };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("ParseError", () => badRequest(set)),
+                Effect.catchTag("BudgetItemNotInWedding", () => itemNotFound(set)),
+                Effect.catchAllDefect(() => internal(set)),
+              ),
+            );
+          },
+          manualParse,
+        )
+        .patch(
+          "/budget/items/:itemId/payments/:paymentId",
+          async ({ weddingId, params, request, set }) => {
+            if (!weddingId) return internalSync(set);
+            const raw: unknown = await request.json().catch(() => null);
+            return runCire(
+              Effect.gen(function* () {
+                const body = yield* Schema.decodeUnknown(UpdatePaymentBody)(raw);
+                const payment = yield* budgetService.updatePayment({
+                  weddingId,
+                  itemId: params.itemId,
+                  paymentId: params.paymentId,
+                  patch: body,
+                });
+                return { payment };
+              }).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchTag("ParseError", () => badRequest(set)),
+                Effect.catchTag("BudgetItemNotInWedding", () => itemNotFound(set)),
+                Effect.catchTag("PaymentNotInItem", () => paymentNotFound(set)),
+                Effect.catchAllDefect(() => internal(set)),
+              ),
+            );
+          },
+          manualParse,
+        )
+        .delete("/budget/items/:itemId/payments/:paymentId", async ({ weddingId, params, set }) => {
+          if (!weddingId) return internalSync(set);
+          return runCire(
+            budgetService
+              .removePayment({
+                weddingId,
+                itemId: params.itemId,
+                paymentId: params.paymentId,
+              })
+              .pipe(
+                Effect.map(() => ({ ok: true as const })),
+                Effect.provideService(DbService, db),
+                Effect.catchTag("BudgetItemNotInWedding", () => itemNotFound(set)),
+                Effect.catchTag("PaymentNotInItem", () => paymentNotFound(set)),
+                Effect.catchAllDefect(() => internal(set)),
+              ),
+          );
+        }),
+    )
+    // Owner-only cap set — delegates to the settings service (single writer
+    // of weddings.budget_total_minor).
+    .group("/weddings/:weddingId", (group) =>
+      group.use(weddingOwner(db)).put(
+        "/budget/total",
+        async ({ weddingId, osnProfileId, request, set }) => {
+          if (!weddingId || !osnProfileId) return internalSync(set);
+          const raw: unknown = await request.json().catch(() => null);
+          return runCire(
+            Effect.gen(function* () {
+              const body = yield* Schema.decodeUnknown(SetBudgetTotalBody)(raw);
+              const settings = yield* weddingSettingsService.update(
+                weddingId,
+                { budgetTotalMinor: body.budgetTotalMinor },
+                osnProfileId,
               );
-            },
-            manualParse,
-          ),
-        ),
+              return { budgetTotalMinor: settings.budgetTotalMinor };
+            }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchTag("ParseError", () => badRequest(set)),
+              Effect.catchTag("WeddingNotFound", () => weddingNotFound(set)),
+              Effect.catchTag("SettingsWriteError", () => internal(set)),
+              // Unreachable: this patch never names the deadline. Handled so
+              // the union stays total rather than falling to the defect arm.
+              Effect.catchTag("RsvpDeadlineInPast", () => internal(set)),
+              Effect.catchAllDefect(() => internal(set)),
+            ),
+          );
+        },
+        manualParse,
+      ),
     );

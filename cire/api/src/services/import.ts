@@ -697,9 +697,11 @@ export function diffAgainstDb(
         db.select().from(rsvps).where(inArray(rsvps.guestId, ids)).all(),
       );
       const lostFirst = new Map(guestsBeingLost.map((g) => [g.id, g.firstName]));
+      // Every row here is an explicit response — `rsvps.status` is a required
+      // enum of attending/declined/maybe; "no response yet" is the absence of a
+      // row, never a stored "pending" status. So every fetched row is meaningful
+      // by definition (the previous `status !== "pending"` check was always true).
       for (const r of rsvpRows) {
-        const isMeaningful = r.status !== "pending" || (r.dietary && r.dietary.length > 0);
-        if (!isMeaningful) continue;
         const firstName = lostFirst.get(r.guestId) ?? "(unknown)";
         warnings.push(
           `Removing guest ${firstName} would lose their RSVP: status=${r.status}, dietary=${r.dietary ?? ""}`,

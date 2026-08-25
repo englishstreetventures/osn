@@ -19,6 +19,7 @@ import {
   InviteTextBody,
   InviteThemeBody,
   isInviteImageSlot,
+  type InviteImageSlot,
 } from "../schemas/invite";
 import { entitlementService } from "../services/entitlements";
 import { eventImageService } from "../services/event-image";

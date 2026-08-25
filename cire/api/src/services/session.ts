@@ -2,10 +2,10 @@ import { sessions } from "@cire/db";
 import { generateToken, hashToken } from "@shared/crypto/tokens";
 import { rowsChanged } from "@shared/db-utils";
 import { eq, lte } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data } from "effect";
 
-import { DbService, dbQuery } from "../db";
-import type { BatchableDb } from "../db";
+import { commitBatch, DbService, dbQuery } from "../db";
 import { metricSessionCreated, metricSessionSwept } from "../metrics";
 
 export class SessionInvalid extends Data.TaggedError("SessionInvalid")<{
@@ -123,28 +123,22 @@ export const sessionService = {
       const now = new Date();
       const expiresAt = new Date(now.getTime() + ttlSeconds * 1000);
 
-      const insertStmt = db.insert(sessions).values({
-        id: crypto.randomUUID(),
-        familyId,
-        token: newHash,
-        expiresAt,
-        createdAt: now,
-      });
-      const deleteStmt = db.delete(sessions).where(eq(sessions.token, oldHash));
+      // Insert before delete in the statement list — on the bun:sqlite
+      // sequential fallback (no `.batch()`) that keeps the family with a live
+      // session at every point, matching the previous by-hand ordering.
+      const statements: BatchItem<"sqlite">[] = [
+        db.insert(sessions).values({
+          id: crypto.randomUUID(),
+          familyId,
+          token: newHash,
+          expiresAt,
+          createdAt: now,
+        }),
+        db.delete(sessions).where(eq(sessions.token, oldHash)),
+      ];
 
       yield* Effect.tryPromise({
-        try: () => {
-          const batchable = db as BatchableDb;
-          if (typeof batchable.batch === "function") {
-            return batchable.batch([insertStmt, deleteStmt]);
-          }
-          // bun:sqlite (tests/local): no .batch(); run sequentially — insert
-          // before delete so the family always has a live session.
-          return (async () => {
-            await insertStmt;
-            await deleteStmt;
-          })();
-        },
+        try: () => commitBatch(db, statements),
         catch: (e) => new SessionWriteError({ op: "insert", reason: String(e) }),
       }).pipe(
         Effect.tapError((err) => Effect.logError("session rotate failed", { reason: err.reason })),

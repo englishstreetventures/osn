@@ -7,6 +7,7 @@ import { DbService, dbQuery } from "../db";
 import { metricImportReverted } from "../metrics";
 import type { ChangeScope, ImportSummary, ParsedFamily } from "../schemas/import";
 import { currentEventsAsParsed } from "./changes";
+import { CapacityExceeded } from "./entitlements";
 import { applyImport, diffAgainstDb, ImportError } from "./import";
 import { R2Service, fetchUpload, R2Error } from "./r2-imports";
 import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
@@ -19,7 +20,12 @@ export class RevertParseError extends Data.TaggedError("RevertParseError")<{
   readonly reason: string;
 }> {}
 
-export type RevertError = NoPriorImport | R2Error | RevertParseError | ImportError;
+export type RevertError =
+  | NoPriorImport
+  | R2Error
+  | RevertParseError
+  | ImportError
+  | CapacityExceeded;
 
 /**
  * Reconcile the wedding to the state described by a pair of snapshot CSVs:
@@ -46,7 +52,7 @@ function reconcileToSnapshot(
   eventsCsv: string,
   guestsCsv: string,
   finalize: BatchItem<"sqlite">[] = [],
-): Effect.Effect<ImportSummary, RevertParseError | ImportError, DbService> {
+): Effect.Effect<ImportSummary, RevertParseError | ImportError | CapacityExceeded, DbService> {
   return Effect.gen(function* () {
     const hasEvents = eventsCsv.trim().length > 0;
     const hasGuests = guestsCsv.trim().length > 0;

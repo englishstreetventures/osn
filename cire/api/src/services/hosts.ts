@@ -185,7 +185,13 @@ export const hostsService = {
         ),
       );
 
-      return { id, osnProfileId: input.osnProfileId, role: input.role, createdAt: now };
+      return {
+        id,
+        osnProfileId: input.osnProfileId,
+        role: input.role,
+        createdAt: now,
+        addedByOsnProfileId: input.addedByOsnProfileId,
+      };
     }).pipe(Effect.withSpan("cire.host.add"));
   },
 
@@ -266,7 +272,11 @@ export const hostsService = {
                   eq(weddingHosts.osnProfileId, input.osnProfileId),
                 ),
               )
-              .returning({ id: weddingHosts.id, createdAt: weddingHosts.createdAt })
+              .returning({
+                id: weddingHosts.id,
+                createdAt: weddingHosts.createdAt,
+                addedByOsnProfileId: weddingHosts.addedByOsnProfileId,
+              })
               .all(),
           ),
         catch: (e) => new HostWriteError({ op: "update", reason: String(e) }),
@@ -284,6 +294,7 @@ export const hostsService = {
         osnProfileId: input.osnProfileId,
         role: input.role,
         createdAt: updated.createdAt,
+        addedByOsnProfileId: updated.addedByOsnProfileId,
       };
     }).pipe(Effect.withSpan("cire.host.setRole"));
   },

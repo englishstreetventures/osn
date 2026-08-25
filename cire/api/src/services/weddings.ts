@@ -178,23 +178,25 @@ export const weddingsService = {
         const suffix = crypto.randomUUID().replace(/-/g, "").slice(0, 6);
         const slug = `${base}-${suffix}`;
 
-        const result = yield* Effect.tryPromise({
-          try: () =>
-            Promise.resolve(
-              db
-                .insert(weddings)
-                .values({
-                  id,
-                  slug,
-                  displayName: trimmed,
-                  ownerOsnProfileId: osnProfileId,
-                  codeStyle,
-                  createdAt: now,
-                  updatedAt: now,
-                })
-                .run(),
-            ),
-        }).pipe(
+        // The one-argument form, not `{ try }` — that object overload also
+        // requires a `catch`, and the failure is handled by the `catchAll`
+        // below rather than at the boundary.
+        const result = yield* Effect.tryPromise(() =>
+          Promise.resolve(
+            db
+              .insert(weddings)
+              .values({
+                id,
+                slug,
+                displayName: trimmed,
+                ownerOsnProfileId: osnProfileId,
+                codeStyle,
+                createdAt: now,
+                updatedAt: now,
+              })
+              .run(),
+          ),
+        ).pipe(
           Effect.map(() => ({
             ok: true as const,
             summary: {

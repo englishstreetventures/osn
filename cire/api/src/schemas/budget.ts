@@ -1,6 +1,7 @@
 import { Schema } from "effect";
 
 import { SERVICE_CATEGORIES } from "../lib/service-categories";
+import type { ServiceCategory } from "../lib/service-categories";
 
 const MAX_NAME_CHARS = 200;
 const MAX_LABEL_CHARS = 80;
@@ -10,7 +11,10 @@ const MAX_NOTES_CHARS = 2000;
 const MAX_MINOR = 9_000_000_000_000;
 
 // The category enum, sourced from the single list so the two never drift.
-const categoryKeys = SERVICE_CATEGORIES.map((c) => c.key) as [string, ...string[]];
+const categoryKeys = SERVICE_CATEGORIES.map((c) => c.key) as [
+  ServiceCategory,
+  ...ServiceCategory[],
+];
 const CategorySchema = Schema.Literal(...categoryKeys);
 
 const Name = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(MAX_NAME_CHARS));
