@@ -380,6 +380,34 @@ function contributionsPrimaryTotal(weddingId: string): Effect.Effect<number, nev
  * own invite hero through the registry. Both halves of the key have to be
  * earned.
  */
+/**
+ * Whether a household belongs to a wedding.
+ *
+ * Its own function because THREE gates now depend on it and they must not
+ * drift: the list read, this household's read, and the claim/release writes. A
+ * `cire_session` names a household and nothing else, so without this check one
+ * leaked code reaches every couple's list on the platform.
+ *
+ * A primary-key point read — `families.id` is the PK — so the cost is one hop,
+ * not one per row.
+ */
+function familyInWedding(
+  weddingId: string,
+  familyId: string,
+): Effect.Effect<boolean, never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const rows = yield* dbQuery(() =>
+      db
+        .select({ id: families.id })
+        .from(families)
+        .where(and(eq(families.id, familyId), eq(families.weddingId, weddingId)))
+        .all(),
+    );
+    return (rows as Array<{ id: string }>).length > 0;
+  });
+}
+
 function imageKeyBelongsTo(weddingId: string, key: string): boolean {
   const parts = key.split("/");
   return (
@@ -992,8 +1020,15 @@ export const registryService = {
         },
         { concurrency: "unbounded" },
       );
-      if (!itemRows[0]) return yield* Effect.fail(new RegistryItemNotInWedding());
+      // FAMILY FIRST, and the order is the security property (S-M1). A cookie
+      // names a household, not a wedding, so a holder of ANY valid session can
+      // point it at any slug. Answering `RegistryItemNotInWedding` first told
+      // them whether the item id they guessed exists on a wedding they cannot
+      // read; answering `FamilyNotInWedding` first tells them only what they
+      // already knew — that this cookie is not for this wedding — and the route
+      // maps it to the same `registry_not_found` an invisible registry gives.
       if (!familyRows[0]) return yield* Effect.fail(new FamilyNotInWedding());
+      if (!itemRows[0]) return yield* Effect.fail(new RegistryItemNotInWedding());
       return yield* Effect.fail(new ItemFullyClaimed());
     }).pipe(Effect.withSpan("cire.registry.claim"));
   },
@@ -1003,13 +1038,16 @@ export const registryService = {
     weddingId: string;
     itemId: string;
     familyId: string;
-  }): Effect.Effect<void, RegistryItemNotInWedding, DbService> {
+  }): Effect.Effect<void, RegistryItemNotInWedding | FamilyNotInWedding, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      // No family/wedding cross-check needed here (unlike `claim`): the WHERE
-      // matches an EXISTING claim row, which `claim` already refused to write
-      // unless the household belonged to the wedding. A foreign family id simply
-      // matches nothing.
+      // The WHERE matches an EXISTING claim row, which `claim` already refused
+      // to write unless the household belonged to the wedding — so a foreign
+      // family id simply matches nothing. What that leaves is the S-M1 problem:
+      // "matched nothing" would answer `registry_item_not_found` to a foreign
+      // cookie on a visible registry and `registry_not_found` on an invisible
+      // one, which is a probe for which weddings have a list. The failure path
+      // below tells the two apart so both answer the same thing.
       const [released] = yield* dbQuery(() =>
         db
           .update(registryClaims)
@@ -1024,7 +1062,12 @@ export const registryService = {
           .returning({ id: registryClaims.id })
           .all(),
       );
-      if (!released) return yield* Effect.fail(new RegistryItemNotInWedding());
+      if (!released) {
+        // One extra point read, and only ever on the failure path.
+        return yield* (yield* familyInWedding(input.weddingId, input.familyId))
+          ? Effect.fail(new RegistryItemNotInWedding())
+          : Effect.fail(new FamilyNotInWedding());
+      }
     }).pipe(Effect.withSpan("cire.registry.releaseClaim"));
   },
 
@@ -1283,11 +1326,33 @@ export const registryGuestService = {
     );
   },
 
-  /** The published list, with per-item claimed totals. No identities, ever. */
-  publicView(slug: string): Effect.Effect<PublicRegistryDto, RegistryNotVisible, DbService> {
+  /**
+   * The published list for one of THIS wedding's households, with per-item
+   * claimed totals. No identities, ever.
+   *
+   * **It takes a `familyId` because the list is not public.** A gift list names
+   * what a couple want and what they cost, and they only ever showed it to the
+   * people they invited — so it is gated on the same `cire_session` the rest of
+   * the invitation is, and a guest who has not entered their code gets a 401
+   * rather than the list.
+   *
+   * The family is checked against the WEDDING, not merely required to exist: a
+   * `cire_session` names a household, not a wedding, so without this one
+   * leaked code would open every couple's list on the platform. A family from
+   * another wedding fails `RegistryNotVisible` — the same failure, and so the
+   * same 404, as a registry that is unpublished or unentitled. A distinct code
+   * would confirm to any cookie-holder which weddings have a list.
+   */
+  guestView(input: {
+    slug: string;
+    familyId: string;
+  }): Effect.Effect<PublicRegistryDto, RegistryNotVisible, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      const { settings, weddingId } = yield* resolveVisibleRegistry(slug);
+      const { settings, weddingId } = yield* resolveVisibleRegistry(input.slug);
+      if (!(yield* familyInWedding(weddingId, input.familyId))) {
+        return yield* Effect.fail(new RegistryNotVisible());
+      }
       const { claimed, currency, itemRows } = yield* Effect.all(
         {
           itemRows: dbQuery(() =>
@@ -1312,7 +1377,7 @@ export const registryGuestService = {
           toPublicItemDto(weddingId, r, claimed.get(r.id) ?? 0),
         ),
       };
-    }).pipe(Effect.withSpan("cire.registry.publicView"));
+    }).pipe(Effect.withSpan("cire.registry.guestView"));
   },
 
   /**
@@ -1335,6 +1400,14 @@ export const registryGuestService = {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const { settings, weddingId } = yield* resolveVisibleRegistry(input.slug);
+      // The same gate the list read keeps (S-M1). Without it this route answered
+      // 200 `{claims: []}` for a visible registry and 404 for an invisible one —
+      // so anyone holding any valid session could walk slugs and learn which
+      // weddings have a published gift list, which is the exact fact the single
+      // 404 code exists to hide.
+      if (!(yield* familyInWedding(weddingId, input.familyId))) {
+        return yield* Effect.fail(new RegistryNotVisible());
+      }
       const rows = yield* dbQuery(() =>
         db
           .select({

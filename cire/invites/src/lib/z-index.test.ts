@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest";
 import { Z_CLASS, Z_LAYER } from "./z-index";
 
 describe("z-index layer scale", () => {
-  it("orders the layers low → high (BASE < EVENT_CARD < MODAL < MODAL_POPOVER < TOAST < CONSENT < CONSENT_DIALOG)", () => {
+  it("orders the layers low → high (BASE < EVENT_CARD < STICKY_RAIL < MODAL < MODAL_POPOVER < TOAST < CONSENT < CONSENT_DIALOG)", () => {
     expect(Z_LAYER.BASE).toBeLessThan(Z_LAYER.EVENT_CARD);
-    expect(Z_LAYER.EVENT_CARD).toBeLessThan(Z_LAYER.MODAL);
+    expect(Z_LAYER.EVENT_CARD).toBeLessThan(Z_LAYER.STICKY_RAIL);
+    expect(Z_LAYER.STICKY_RAIL).toBeLessThan(Z_LAYER.MODAL);
     expect(Z_LAYER.MODAL).toBeLessThan(Z_LAYER.MODAL_POPOVER);
     expect(Z_LAYER.MODAL_POPOVER).toBeLessThan(Z_LAYER.TOAST);
     expect(Z_LAYER.TOAST).toBeLessThan(Z_LAYER.CONSENT);
@@ -52,6 +53,7 @@ describe("z-index layer scale", () => {
   it("maps each layer to its matching Tailwind class literal", () => {
     expect(Z_CLASS.BASE).toBe("z-0");
     expect(Z_CLASS.EVENT_CARD).toBe("z-10");
+    expect(Z_CLASS.STICKY_RAIL).toBe("z-20");
     expect(Z_CLASS.MODAL).toBe("z-100");
     expect(Z_CLASS.MODAL_POPOVER).toBe("z-110");
     expect(Z_CLASS.TOAST).toBe("z-150");
@@ -63,5 +65,21 @@ describe("z-index layer scale", () => {
     for (const layer of Object.keys(Z_LAYER) as (keyof typeof Z_LAYER)[]) {
       expect(Z_CLASS[layer]).toBe(`z-${Z_LAYER[layer]}`);
     }
+  });
+});
+
+describe("the gift page's sticky rail", () => {
+  /**
+   * The rail carries the only way back to the invitation and stays put while a
+   * long gift list scrolls under it. Every card on that page paints a
+   * background of its own and is LATER in the document, so without a layer the
+   * rail is painted over by the list it floats above — visible at the top of
+   * the page and gone from the moment it matters.
+   */
+  it("floats above the list it sticks over, and below every modal", () => {
+    expect(Z_LAYER.STICKY_RAIL).toBeGreaterThan(Z_LAYER.EVENT_CARD);
+    expect(Z_LAYER.STICKY_RAIL).toBeGreaterThan(Z_LAYER.BASE);
+    expect(Z_LAYER.STICKY_RAIL).toBeLessThan(Z_LAYER.MODAL);
+    expect(Z_LAYER.STICKY_RAIL).toBeLessThan(Z_LAYER.CONSENT);
   });
 });

@@ -7,7 +7,7 @@ related:
   - "[[cire-platform-plan]]"
   - "[[cire-consent]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-08-23
 ---
 # Gift registry
 
@@ -136,6 +136,29 @@ All organiser routes sit under `/api/organiser/weddings/:weddingId/registry`, ga
 | `POST /registry/link-preview` | `weddingEditor` + **its own** per-organiser limiter — see [Link preview](#link-preview) |
 | `POST /registry/image` (raw bytes), `POST /registry/image/from-url` | `weddingEditor` + **their own** 10-a-minute limiter — see [Picking one](#picking-one-we-copy-the-bytes-we-never-store-the-url) |
 | `GET /registry/image/:name` — serves our R2 copy, `private` | `weddingMember` |
+
+### Guest routes
+
+Under `/api/invite/:slug/registry`. **The list is not public.** It names what a couple want and what it costs, and they only ever showed it to the people they invited — so the read sits behind the same `cire_session` the rest of the invitation does.
+
+| Route | Gate |
+|---|---|
+| `GET /registry` — the published list, with claim counts | `sessionAuth` + family-in-wedding |
+| `GET /registry/mine` — this household's own claims | `sessionAuth` |
+| `POST \| DELETE /registry/items/:itemId/claim` | `sessionAuth` + per-IP limiter |
+| `GET /registry/image/:name` — a gift's image bytes | none — see below |
+
+**Every gated route checks the family against the WEDDING**, through one shared `familyInWedding` read, and they must not drift: a `cire_session` names a household, not a wedding, so without it one leaked code reaches every couple's list on the platform. All three answer the same `registry_not_found` a missing, unentitled or unpublished registry gives:
+
+| Route | A household of another wedding gets |
+|---|---|
+| `GET /registry` | `404 registry_not_found` |
+| `GET /registry/mine` | `404 registry_not_found` — **not** the empty `200 {claims: []}` it used to give (S-M1) |
+| `POST \| DELETE /registry/items/:itemId/claim` | `404 registry_not_found`, because the service checks the family **before** the item |
+
+The order in `registryService.claim` is the security property, not a detail. Checking the item first told a cookie-holder whether the id they guessed exists on a wedding they cannot read; checking the family first tells them only what they already knew. `releaseClaim` pays one extra point read on its failure path for the same reason — "matched no claim row" would otherwise answer item-shaped on a visible registry and registry-shaped on an invisible one, which is a probe for which weddings have a list.
+
+The image route stays **unauthenticated on purpose**. A name is `registry-<uuid>`, minted per save and reachable only from the list the session now gates, so the bytes are not enumerable without that read — while authenticating them would put a session lookup on every image request on the page, the one place on the guest surface where requests arrive in dozens. If the couple's pictures ever become sensitive on their own, that route moves and `visibility: "public"` moves with it.
 
 `/registry/items/reorder` is registered **before** `/registry/items/:itemId` so the literal wins over the param. `:kind` is decoded through the same Effect Schema a body field would be — an unknown value 400s rather than falling through to a table by coincidence.
 
@@ -282,27 +305,66 @@ Candidates are filtered to `https:` **again in the browser** before any of them 
 
 ## Guest surface (`@cire/invites`)
 
-`src/lib/gift-registry.ts` is the client, `src/components/gift-registry/` is the UI: `GiftRegistrySection.tsx` (the section, both reads, every write) and `GiftRegistryItemCard.tsx` (one gift, its own claim form). Both design packs mount the section from `Document.astro` as a `client:visible={{ rootMargin: "600px" }}` island between `<InvitePage>` and `<SiteFooter>`.
+**The list has its own page: `/<slug>/registry`.** It used to be the last section of the invite. It is the one part of an invitation a guest comes *back* to — to see what is left, to change what they reserved, to open it in a shop — and none of that should mean scrolling the invitation again. It is also a link a couple can send on its own.
 
-**It is its own island, not a section inside `InvitePage`.** The public read is unauthenticated and `InvitePage`'s whole body is gated on a claim, so a section living inside it could not render for a visitor who has not entered their code. A signed-out guest sees the gifts and a line telling them to enter their invite code — never a button that can only 401.
+`src/lib/gift-registry.ts` is the client; `src/components/gift-registry/` is the UI:
+
+| File | What it is |
+|---|---|
+| `GiftRegistryDocument.astro` | The page shell: masthead, sticky return rail, footer, consent |
+| `GiftRegistryPage.tsx` | The page body — both reads, every write, the shelves |
+| `GiftRegistryItemCard.tsx` | One gift, with its own claim form |
+| `GiftRegistryTeaser.tsx` | The band left behind on the invite, linking to the page |
+
+`src/pages/[slug]/registry.astro` is the route, and it makes **one** read: the invite, which is public, so the couple's copy, colours and hero photo are server-rendered and the page paints as theirs immediately. The LIST cannot be server-rendered at all — `cire_session` is host-scoped to the API origin, so the browser never sends it to the guest Worker and there is no household for the server to be. The island makes that read. Both design packs mount the *teaser* from `Document.astro` as a `client:visible={{ rootMargin: "600px" }}` island between `<InvitePage>` and `<SiteFooter>`, where the section used to sit.
+
+**One shell, not one per design pack.** The packs differ in the invite's own structure; the gift list never has — it was one shared component in both, and its surface comes from the same derived palette, fonts and section tone every other section reads. If a pack ever forks the gift surfaces, the shell takes the pack as a prop rather than being duplicated.
+
+**The only 404 the route answers is an unknown wedding.** It cannot tell a missing list from a locked one without becoming an oracle for exactly what the API's single 404 code exists to hide: a page that 404s for "no registry" answers, to anyone holding a slug, a question the API refuses. A failed *invite* read still renders the page, with the built-in theme and copy — the list is what the page is for. Pinned by `pages/[slug]/registry.test.ts`, a source-text guard in the shape of `pages/index.test.ts`.
+
+**Four states, and the island decides which.** Its first job is the credentialed list read, so `client:load`, not `client:visible` — waiting for the viewport would mean waiting to find out whether the guest is allowed in at all.
+
+| The read says | The page shows |
+|---|---|
+| nothing yet | "Opening the couple's list…", a live region — the read cannot start until hydration |
+| `401` | `[data-gift-locked]`: "This gift list is for the couple's guests", and a button to the invitation. Not an error; nothing has gone wrong |
+| `404` | "The couple have closed their gift list", and the way back |
+| a transport failure, as the FIRST answer | "Could not reach the gift list" |
+| `200` | the intro, the ledger, the shelves |
+
+A transport failure that is *not* the first answer changes nothing at all: a list already on screen stays. `registry` holds the last list the server sent, `outcome` the last real answer, and the two are separate for exactly this.
+
+**It is still its own island.** `InvitePage`'s body is gated on a claim and reveals in place, so neither the band nor the page may live inside it — but both now read the same gate it does, and both listen for `CLAIM_SESSION_EVENT`: a guest who enters their code sees the band appear on the invitation without a reload, and a locked gift page opens in the same tab the moment the session lands.
+
+**The band is gone for a visitor who has not claimed.** No teaser, no link, no mention — the same silence every other claim-gated section keeps, rather than advertising a page that would only turn them away.
 
 **Counts, never names.** The card renders `giftRegistryRemainingCopy` ("1 of 2 left", "All reserved") and, for a taken item, "Another guest has this one covered." The only name on the page is this household's own `displayName`, read from the credentialed `…/registry/mine` route and echoed back to the people who typed it. Notes are never rendered at all — they are addressed to the couple. Pinned by tests in both component files that assert no `reserved by`-shaped text and no claimant identity in the DOM.
 
-**No optimistic update anywhere, on purpose.** Every count a guest reads came from a read the server had just answered. A claim that returns 409 `item_fully_claimed` refetches **both** reads, then says: *"Another guest reserved the last "X" a moment ago. The list below is up to date."* — and leaves the guest's form open with what they typed still in it. `applyOutcome` is the single place that decides what a write means: `ok` / `fully-claimed` / `item-gone` re-read both, `hidden` re-reads the list (which then 404s and unmounts the section, the honest end state), `signed-out` drops to the signed-out surface, and rate-limited / invalid / transport errors re-read nothing because nothing moved.
+**No optimistic update anywhere, on purpose.** Every count a guest reads came from a read the server had just answered. A claim that returns 409 `item_fully_claimed` refetches **both** reads, then says: *"Another guest reserved the last "X" a moment ago. The list below is up to date."* — and leaves the guest's form open with what they typed still in it. `applyOutcome` is the single place that decides what a write means: `ok` / `fully-claimed` / `item-gone` re-read both, `hidden` re-reads the list (which then 404s, and the page says the couple have closed their list, with a link back to the invitation), `signed-out` drops to the signed-out surface, and rate-limited / invalid / transport errors re-read nothing because nothing moved.
 
-**The list is keyed by id, not by item.** `<For>` reconciles by reference and every refetch parses fresh objects, so iterating the items would dispose and re-create every row on each re-read — throwing away the open claim form at precisely the moment the 409 path re-reads in order to show the new counts *beside* the words the guest just wrote. It iterates `itemIds()` and looks the item up in `itemsById()`.
+**The list is keyed by id, not by item — and the shelves by category string.** `<For>` reconciles by reference and every refetch parses fresh objects, so iterating the items would dispose and re-create every row on each re-read — throwing away the open claim form at precisely the moment the 409 path re-reads in order to show the new counts *beside* the words the guest just wrote. Rows iterate ids and look the item up in `itemsById()`; shelves iterate `groupKeys()` (the category string, `null` for the unlabelled tail — both primitives that compare equal) and look the group up in `groupsByKey()`. Keying the shelves on the rebuilt group objects would take every open form under them down with the shelf.
+
+**Shelves are the couple's own categories.** `groupGiftRegistryItems` keeps them in the order the list already carries (first mention wins — nothing is alphabetised behind their back), trims them so one spelling is one shelf, and puts everything ungrouped in one tail last, under "More gifts". When they grouped nothing, `hasGiftRegistryCategories` is false and no label is painted at all: one unlabelled shelf is a plain list, and heading it would name a distinction they never made.
+
+**The ledger line** above the list is what a page can say that a section could not: `giftRegistryAvailabilityCopy` ("6 of 14 still available", "Every gift has been reserved") on the left, and this household's own `giftRegistryClaimedCopy` ("You reserved 2 gifts") on the right when it has any. Counts only, same rule as the cards, and quantities rather than rows — one row for six glasses is six gifts to a guest. An empty list gets its own copy instead, never "0 of 0".
 
 **The reserve ceiling is not `remaining`.** The server's claim is an upsert whose availability guard excludes the caller's own row, so a household may raise its own reservation to `remaining + ownClaim.quantity` (capped at 99). A household holding both of two copies still sees a Change control, not a dead card.
 
 **`external_url` is re-checked at the render site.** `giftRegistryExternalHref` re-parses the column and returns `null` for anything that is not `https:` (and for embedded credentials), so a non-https value renders no link at all rather than an `<a href>`; the link carries `target="_blank" rel="noopener noreferrer"`. Same reasoning as **CON-S-L2** and as the organiser-side re-filter: a render site that trusts its input because of what the server promised is one API change away from being wrong.
 
-**Reads.** The public list read is uncredentialed and `no-store`. The household read passes `credentials: "include"` — the guest cookie is host-scoped to the API origin, which is a different origin from the guest site, and a cross-origin fetch on the default `same-origin` mode drops it silently. It is also gated on the `cire_claimed` hint cookie (`hasClaimedHint`, now exported from `claim-session.ts`): this section is public and every visitor scrolls past it, so an unconditional `…/registry/mine` would spend a guaranteed 401 **per page view** rather than per guest, against an account-wide Workers Free budget.
+**Reads.** Both reads are credentialed and `no-store`. The household read passes `credentials: "include"` — the guest cookie is host-scoped to the API origin, which is a different origin from the guest site, and a cross-origin fetch on the default `same-origin` mode drops it silently. It is also gated on the `cire_claimed` hint cookie (`hasClaimedHint`, exported from `claim-session.ts`): both surfaces are public and shareable, so an unconditional `…/registry/mine` would spend a guaranteed 401 **per page view** rather than per guest, against an account-wide Workers Free budget.
 
-**States that look alike and are not.** An unpublished or unentitled registry 404s and the section renders nothing at all; a published empty one renders its heading and "The couple haven't added any gifts yet." The shipping address renders only when the household read actually returned one — the field is optional on the wire and carries no reason, so absent covers both "the couple set none" and "you may not see it", and there is nothing honest to print in its place.
+**A failed re-read leaves what is on screen.** Only an answer replaces what is rendered: `ok` swaps the list, `401` locks it, `404` closes it, and a transport failure changes nothing. As a band at the foot of the invite, blanking on a blip cost a section nobody had scrolled to; on a page it would blank the page under someone reading it.
 
-**Copy and theme.** `registry_*` copy columns reach the island as `eyebrow` / `heading` / `body` props; `null` means the built-in default (`With Love` / `Gift Registry`), the same contract as the details section. Where both exist, the invite's own section copy wins over the registry module's `headline` / `message`, because it is section furniture themed with every other header. `ThemeSection` gains `"registry"`, so the section takes a tone through the same `sectionVars` allow-list as the rest.
+**States that look alike and are not.** An unpublished or unentitled registry 404s: the page says the couple have closed their list and the band renders nothing at all on the invite. A visitor with no claim gets a 401, which is a different page again — a way in, not a refusal. A published empty list renders its masthead and "The couple haven't added any gifts yet." The shipping address renders only when the household read actually returned one — the field is optional on the wire and carries no reason, so absent covers both "the couple set none" and "you may not see it", and there is nothing honest to print in its place.
 
-**Status is a live region at the section root**, never an overlay: this section sits among animated ones and any ancestor `transform` traps `position: fixed`. The claim form is inline in the card for the same reason.
+**Copy and theme.** `registry_*` copy columns reach both surfaces as `eyebrow` / `heading` / `body`; `null` means the built-in default (`With Love` / `Gift Registry`), the same contract as the details section. Where both exist, the invite's own section copy wins over the registry module's `headline` / `message`, because it is section furniture themed with every other header. Resolution is pure (`giftRegistryEyebrow` / `giftRegistryHeading` / `giftRegistryBody`) so the Astro shell can render the masthead server-side, and **blank counts as unset** — the old `??` chain let a heading saved as `""` beat both fallbacks, which on a page of its own is an empty browser tab. `ThemeSection` carries `"registry"`, so both surfaces take a tone through the same `sectionVars` allow-list as the rest, and the page's masthead reuses the invite hero's own server-blurred `hero-bg` variant at the same URL — already in cache for a guest who came from the invitation — with the organiser's crop honoured through `heroCropLayers`.
+
+**Where each half of that copy renders.** The masthead's eyebrow and heading come from the invite payload, which is public, so they are server-rendered; the module's own `headline` / `message` arrive with the gated list, so the **intro paragraph** is the island's and carries the whole chain (invite body, then module message). One paragraph, one place, and neither surface waits on the other.
+
+**The way back stays put.** The rail is `position: sticky` with its own `Z_LAYER.STICKY_RAIL` (20): every card below it paints a background and sits later in the document, so without a layer the rail is painted over by the list the moment it starts to matter.
+
+**Status is a live region at the page root**, never an overlay: this section sits among animated ones and any ancestor `transform` traps `position: fixed`. The claim form is inline in the card for the same reason.
 
 **`kind: "cash_fund"` is not special-cased.** It renders like any other item. Contributions land with Stripe Connect; a contribute flow over a backend that cannot take a charge would be UI standing in for something that does not exist.
 

@@ -167,9 +167,15 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
   return (
     <article
       data-gift-item={props.item.id}
-      class="border-border bg-surface-raised flex flex-col overflow-hidden rounded-sm border text-left"
-      // Reserve roughly a card while the section is skipped by
-      // `content-visibility`, so scrolling into a long list doesn't jump.
+      // `content-visibility:auto` on the same box that declares the reserve —
+      // the two only work as a pair, and the reserve was inert without it
+      // (P-W4). The list is now a whole page of up to 500 cards created at
+      // once, so skipping layout and paint for the off-screen ones is the
+      // difference on a phone. Focus and find-in-page still force-render a
+      // contained subtree, so an open claim form is unaffected.
+      class="border-border bg-surface-raised flex w-full flex-col overflow-hidden rounded-sm border text-left [content-visibility:auto]"
+      // Reserve roughly a card while it is skipped, so scrolling into a long
+      // list doesn't jump.
       style={{ "contain-intrinsic-size": "auto 22rem" }}
     >
       <Show when={props.imageBase}>

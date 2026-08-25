@@ -52,8 +52,9 @@ import {
 } from "./routes/registry";
 import {
   createRegistryGuestClaimRoutes,
+  createRegistryGuestImageRoutes,
+  createRegistryGuestListRoutes,
   createRegistryGuestMineRoutes,
-  createRegistryGuestRoutes,
 } from "./routes/registry-guest";
 import { createRsvpRoutes } from "./routes/rsvp";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
@@ -667,17 +668,21 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // cookie minted by a Turnstile-gated `/api/claim`, so a second bot check
       // here is pure friction. Claim + organiser login keep the gate.
       .use(createRsvpRoutes(db))
-      // Guest gift registry, three sibling instances by gate class: the public
-      // reads take no auth at all, `/registry/mine` needs the household cookie,
-      // and the two writes need that cookie PLUS a per-IP limiter an Elysia
-      // guard would otherwise spread over the read. Same no-Turnstile argument
-      // as RSVP above — the cookie came from a Turnstile-gated `/api/claim`.
+      // Guest gift registry, four sibling instances by gate class: the gift
+      // IMAGE read takes no auth (a per-save uuid name, and a session lookup on
+      // every image on a page of dozens is the wrong trade — see the route);
+      // the LIST read and `/registry/mine` both need the household cookie, and
+      // both check the family against the wedding; the two writes need that
+      // cookie PLUS a per-IP limiter an Elysia guard would otherwise spread
+      // over the reads. Same no-Turnstile argument as RSVP above — the cookie
+      // came from a Turnstile-gated `/api/claim`.
       //
       // Every route here is invisible without the `registry` entitlement, which
       // NO wedding holds: they answer 404 `registry_not_found`, not 402, because
-      // an unauthenticated caller must not learn which weddings have bought
-      // which features.
-      .use(createRegistryGuestRoutes(db, { assets, images }))
+      // no caller — anonymous, or holding a cookie for some other wedding —
+      // may learn which weddings have bought which features.
+      .use(createRegistryGuestImageRoutes(db, { assets, images }))
+      .use(createRegistryGuestListRoutes(db))
       .use(createRegistryGuestMineRoutes(db))
       .use(createRegistryGuestClaimRoutes(db, { limiter: registryGuestLimiter }))
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))

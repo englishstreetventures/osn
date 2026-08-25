@@ -404,6 +404,38 @@ describe("registryService.claim", () => {
   });
 
   it("fails 404-class for an item on another wedding", async () => {
+    // The household DOES belong to the wedding here; the item does not. That is
+    // the only order in which the item-shaped failure may be reached — see the
+    // test below for why.
+    const db = db0();
+    const [famA] = twoFamilies(db);
+    const exit = await run(
+      db,
+      registryService.claim({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: "reg_belongs_to_nobody",
+        familyId: famA,
+        quantity: 1,
+        status: "reserved",
+        note: null,
+        displayName: null,
+      }),
+    );
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      expect(exit.cause.toString()).toContain(new RegistryItemNotInWedding()._tag);
+    }
+  });
+
+  /**
+   * THE ORDER IS THE SECURITY PROPERTY (S-M1). A `cire_session` names a
+   * household, not a wedding, so a holder of any valid cookie can aim it at any
+   * slug. Checking the ITEM first told them whether the id they guessed exists
+   * on a wedding they cannot read; checking the FAMILY first tells them only
+   * what they already knew, and the route maps it to the same
+   * `registry_not_found` an invisible registry gives.
+   */
+  it("fails family-shaped, not item-shaped, for a household of another wedding", async () => {
     const db = db0();
     const [famA] = twoFamilies(db);
     const item = await ok(db, registryService.createItem(newItem()));
@@ -421,7 +453,8 @@ describe("registryService.claim", () => {
     );
     expect(Exit.isFailure(exit)).toBe(true);
     if (Exit.isFailure(exit)) {
-      expect(exit.cause.toString()).toContain(new RegistryItemNotInWedding()._tag);
+      expect(exit.cause.toString()).toContain("FamilyNotInWedding");
+      expect(exit.cause.toString()).not.toContain(new RegistryItemNotInWedding()._tag);
     }
   });
 });

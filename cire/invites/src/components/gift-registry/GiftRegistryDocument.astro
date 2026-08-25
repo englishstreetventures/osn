@@ -1,0 +1,190 @@
+---
+// The gift list's page shell — `/<slug>/registry`.
+//
+// WHY THERE IS ONE SHELL AND NOT ONE PER DESIGN PACK. The packs (`classic`,
+// `gala`) differ in the invite's own structure: where the hero title sits, how
+// the story column is laid out. The gift list has never been part of that — it
+// is one shared component in both packs, and its surface comes from the same
+// derived palette, fonts and section tone every other section reads. So the
+// page is design-agnostic on purpose: a wedding's list looks like that wedding
+// (its colours, its faces, its section tone) without either pack owning a copy
+// of this file. If a pack ever forks the gift surfaces, this shell takes the
+// pack as a prop rather than being duplicated.
+//
+// WHAT IS SERVER-RENDERED HERE, and what cannot be. The masthead comes from the
+// invite's own public payload, so the page paints the couple's band, colours and
+// heading immediately. The LIST cannot: it is gated on `cire_session`, a cookie
+// host-scoped to the API origin, which the browser therefore never sends to this
+// Worker. There is no household for the server to be, so the list is the
+// island's to fetch — see `GiftRegistryPage`.
+import '../../styles/global.css'
+import { apiPreconnectHref } from '../../lib/api-origin'
+import {
+  giftPageTitle,
+  giftRegistryEyebrow,
+  giftRegistryHeading,
+} from '../../lib/gift-registry'
+import { invitePath } from '../../lib/invite'
+import { Z_CLASS } from '../../lib/z-index'
+import { heroCropLayers, heroImgRevealClass } from '../image-crop'
+import { HERO_BG_VARIANT, variantSrc } from '../invite-images'
+import { filterThemeVars, paletteRootVars, sectionVars, styleAttr } from '../invite-theme'
+import type { InviteCustomisation } from '../../designs/types'
+import { GiftRegistryPage } from './GiftRegistryPage'
+import SiteFooter from '../SiteFooter.astro'
+import { ConsentBanner } from '../consent/ConsentBanner'
+
+interface Props {
+  /** cire-api origin the island fetches from at runtime. */
+  apiUrl: string
+  /** The wedding slug resolved from the request path. */
+  slug: string
+  /** Invite customisation for this slug — the couple's copy, theme and hero photo. */
+  invite: InviteCustomisation | null
+}
+
+const { apiUrl, slug, invite } = Astro.props
+
+// The masthead's own copy, from the invite payload — public, and the same words
+// the band on the invitation carries. The registry module's own `headline` /
+// `message` are the second half of that chain, and they arrive with the list, so
+// the island renders the intro paragraph rather than this shell. The heading
+// therefore resolves invite-copy-then-built-in here, and nowhere twice.
+const eyebrow = giftRegistryEyebrow(invite?.registry?.eyebrow)
+const heading = giftRegistryHeading(invite?.registry?.heading, null)
+const pageTitle = giftPageTitle(heading, invite?.hero.title)
+const inviteHref = invitePath(slug)
+
+// The couple's scheme, written into the SSR'd HTML so the FIRST paint is themed
+// — same as the invite's own document. Nothing on this page re-applies it: the
+// island revalidates the LIST, not the theme, and a colour change arriving
+// mid-scroll would repaint the page under a guest reading it for no gain.
+const paletteStyle = styleAttr(paletteRootVars(invite?.theme ?? null))
+
+// The gift surface's tone, filtered through the allow-list because it is spread
+// into a `style` object in the island.
+const registryVars = filterThemeVars(sectionVars(invite?.theme ?? null, 'registry'))
+
+// The masthead photo: the SAME server-blurred `hero-bg` variant the invite's
+// hero uses, at the same URL — so for the guest who came from the invitation it
+// is already in the browser cache and the band paints instantly. The organiser's
+// crop is honoured through the shared layer helpers (a cropped region rendered
+// as a cover background over the same blurred source), so the band frames what
+// they framed rather than whatever the centre of the photo happens to be.
+const heroBase = invite?.hero.imageUrl ? `${apiUrl}${invite.hero.imageUrl}` : null
+const mastheadSrc = heroBase ? variantSrc(heroBase, HERO_BG_VARIANT) : null
+const mastheadCrops = mastheadSrc
+  ? heroCropLayers(mastheadSrc, invite?.hero.imageCrop ?? null, invite?.hero.imageCropMobile ?? null)
+  : { wide: null, narrow: null }
+
+const apiPreconnect = apiPreconnectHref(apiUrl)
+---
+<!DOCTYPE html>
+<html lang="en" style={paletteStyle}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    {/* S-L1: keep the ?code= preview credential out of cross-origin Referer headers. */}
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <title>{pageTitle}</title>
+    {/* Both pools, for the same reasons the invite document warms both: the gift
+        pictures go to this origin without `crossorigin`, while the two
+        credentialed reads the island makes on mount are CORS requests and use
+        the other one. Both are on the critical path of this page. */}
+    {apiPreconnect && <link rel="preconnect" href={apiPreconnect} />}
+    {apiPreconnect && <link rel="preconnect" href={apiPreconnect} crossorigin />}
+    {/* No `preload` for the masthead, unlike the invite's own hero. The <img>
+        is already in this document's HTML, so a preload buys almost nothing on
+        discovery — while on a cold direct landing (this page is a link a couple
+        send on its own) it would put a 1600px decorative image ahead of the
+        island bundle and the two credentialed reads that decide what the page
+        says. Same trade as the closing band's phone-sized crop. */}
+  </head>
+  <body>
+    {/* THE WAY BACK, and it stays put. A gift list is long and is read with a
+        thumb; the link home must not be a scroll to the top of it. Sticky, on a
+        hairline, translucent so the list reads through it. */}
+    <nav
+      data-gift-rail
+      aria-label="Invitation"
+      class={`border-border bg-bg/85 sticky top-0 border-b backdrop-blur-sm ${Z_CLASS.STICKY_RAIL}`}
+    >
+      <div class="mx-auto flex max-w-[64rem] items-center px-6 py-3 md:px-8">
+        <a
+          href={inviteHref}
+          class="font-body text-text-muted hover:text-gold-ink focus-visible:ring-gold/60 inline-flex items-center gap-2 rounded-sm text-[0.72rem] tracking-[0.14em] uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+        >
+          <span aria-hidden="true">&larr;</span>
+          Back to the invitation
+        </a>
+      </div>
+    </nav>
+
+    {/* The masthead is a BAND, not a second hero. The invite opens full-screen
+        on the couple's photo; repeating that here would say "you are back at the
+        start" to a guest who came for the list. Same photo, same scrim, a third
+        of the height — enough to carry the couple's name into the page and hand
+        the heading over. */}
+    <header class="relative overflow-hidden">
+      {/* Default gradient — always the base layer, so a wedding with no photo
+          still gets a themed band rather than a flat rectangle. */}
+      <div
+        class="absolute inset-0"
+        style="background: linear-gradient(160deg, var(--invite-hero-grad-1) 0%, var(--invite-hero-grad-2) 40%, var(--invite-hero-grad-3) 100%);"
+      />
+      {mastheadSrc && (
+        <img
+          src={mastheadSrc}
+          sizes="100vw"
+          alt=""
+          class={`absolute inset-0 h-full w-full object-cover ${heroImgRevealClass(mastheadCrops)}`}
+        />
+      )}
+      {mastheadCrops.wide && (
+        <div
+          aria-hidden="true"
+          class="absolute inset-0 hidden h-full w-full bg-cover md:block"
+          style={mastheadCrops.wide}
+        />
+      )}
+      {mastheadCrops.narrow && (
+        <div
+          aria-hidden="true"
+          class="absolute inset-0 h-full w-full bg-cover md:hidden"
+          style={mastheadCrops.narrow}
+        />
+      )}
+      <div class="relative flex min-h-[34vh] flex-col items-center justify-center bg-[radial-gradient(ellipse_at_center,var(--invite-scrim-from)_0%,var(--invite-scrim-to)_100%)] px-6 py-14 text-center md:py-16">
+        <p class="font-body text-gold-ink mb-3 text-[0.72rem] tracking-[0.2em] uppercase">
+          {eyebrow}
+        </p>
+        {/* leading-[1.15] + pb, never leading-none: a descender in the couple's
+            own word for this page must keep its tail. */}
+        <h1 class="font-display text-gold max-w-full pb-1 text-[calc(clamp(2.25rem,6vw,3.5rem)*var(--invite-heading-scale,1))] leading-[1.15] [font-weight:var(--invite-heading-weight,300)] break-words [font-style:var(--invite-heading-style,normal)]">
+          {heading}
+        </h1>
+      </div>
+    </header>
+
+    {/* `client:load`, not `client:visible`: this island IS the page, and its
+        first job is a credentialed read that only it can make. Waiting for the
+        viewport would mean waiting to find out whether the guest is even
+        allowed in. */}
+    <GiftRegistryPage
+      client:load
+      apiUrl={apiUrl}
+      slug={slug}
+      inviteHref={inviteHref}
+      inviteBody={invite?.registry?.body ?? null}
+      themeVars={registryVars}
+    />
+
+    {/* Site-wide chrome: the couple's name over the legal links, exactly as on
+        the invitation this page belongs to. */}
+    <SiteFooter closing={invite?.hero.title ?? null} />
+    {/* Site-wide consent surface. `client:idle` so it never competes with the
+        page's first paint — nothing third-party can load before it hydrates
+        anyway, since every ConsentGate defaults to denied until then. */}
+    <ConsentBanner client:idle />
+  </body>
+</html>

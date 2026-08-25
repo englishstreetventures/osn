@@ -1,0 +1,49 @@
+---
+// Server-rendered, per-request gift-list route: `/<slug>/registry`.
+//
+// The list used to be the last section of `/<slug>`. It has its own page because
+// it is the one part of an invitation a guest RETURNS to — to see what is left,
+// to change what they reserved, to open it in a shop — and none of that should
+// mean scrolling the whole invitation again. It is also, now, a link a couple
+// can send on its own.
+//
+// ONE READ HAPPENS HERE, AND ONLY ONE. The invite payload is public, so the
+// couple's copy, colours and hero photo are server-rendered and the page paints
+// as theirs immediately. The LIST is not public — it is gated on the same
+// `cire_session` the rest of the invitation uses — and that cookie is
+// host-scoped to the API origin, so the browser never sends it to this Worker.
+// There is no household for the server to be. The island makes that read, and
+// what it gets back decides what the page says: the list, "enter your code on
+// the invitation", or "the couple have closed their gift list".
+//
+// SO THE ONLY 404 THIS ROUTE ANSWERS IS AN UNKNOWN WEDDING. It cannot tell a
+// missing list from a locked one without becoming an oracle for exactly what the
+// API's single 404 code exists to hide — a page that 404s for "no registry"
+// would answer, to anyone with a slug, a question the API refuses.
+import { fetchInvite, API_URL } from '../../lib/invite'
+import GiftRegistryDocument from '../../components/gift-registry/GiftRegistryDocument.astro'
+import NotFoundDocument from '../../components/NotFoundDocument.astro'
+
+const { slug } = Astro.params
+
+// A missing slug can't happen for `[slug]/registry` (Astro wouldn't match), but
+// guard so the fetch never runs with `undefined`.
+const result = slug ? await fetchInvite(slug) : ({ kind: 'not-found' } as const)
+
+// Unknown slug → a real 404, the same as the invitation itself gives. An API
+// error is NOT a 404: the wedding may be perfectly real, so the page renders
+// with built-in theme and copy and the island reports whatever it finds.
+if (result.kind === 'not-found') {
+  Astro.response.status = 404
+}
+
+const invite = result.kind === 'ok' ? result.invite : null
+---
+{result.kind === 'not-found' ? (
+  <NotFoundDocument
+    heading="Invitation not found"
+    body="We couldn't find an invitation at this link. Please check the link from your invite and try again."
+  />
+) : (
+  <GiftRegistryDocument apiUrl={API_URL} slug={slug!} invite={invite} />
+)}

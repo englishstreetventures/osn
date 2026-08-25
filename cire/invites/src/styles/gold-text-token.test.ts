@@ -163,6 +163,11 @@ const ALLOWED: { file: string; metal: number; reason: string }[] = [
     reason: "the 404 numeral — clamp(3rem,…) = 48px, large text",
   },
   {
+    file: "components/gift-registry/GiftRegistryDocument.astro",
+    metal: 1,
+    reason: "the gift page's masthead heading — clamp(2.25rem,…) × 0.85 = 30.6px, large text",
+  },
+  {
     file: "designs/classic/InviteHeader.tsx",
     metal: 2,
     reason: "the hero couple names — clamp(2.5rem,…) × 0.85 = 34px, large text",

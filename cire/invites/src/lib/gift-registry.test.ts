@@ -2,15 +2,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   claimGiftRegistryItem,
+  DEFAULT_GIFT_REGISTRY_EYEBROW,
+  DEFAULT_GIFT_REGISTRY_HEADING,
   fetchGiftRegistry,
   fetchGiftRegistryHousehold,
   formatGiftPrice,
+  giftPageTitle,
+  giftRegistryAvailability,
+  giftRegistryAvailabilityCopy,
+  giftRegistryBody,
+  giftRegistryClaimedCopy,
   giftRegistryExternalHref,
+  giftRegistryEyebrow,
+  giftRegistryHeading,
   giftRegistryImageBase,
+  giftRegistryPath,
   giftRegistryRemaining,
   giftRegistryRemainingCopy,
+  groupGiftRegistryItems,
+  hasGiftRegistryCategories,
   releaseGiftRegistryItem,
   sortGiftRegistryItems,
+  type GiftRegistryHouseholdClaim,
   type GiftRegistryItem,
 } from "./gift-registry";
 
@@ -75,7 +88,7 @@ function lastUrl(): string {
 }
 
 describe("fetchGiftRegistry", () => {
-  it("reads the public list without credentials and without cache", async () => {
+  it("reads the list with credentials and without cache", async () => {
     fetchMock.mockResolvedValueOnce(
       json({
         headline: null,
@@ -100,11 +113,19 @@ describe("fetchGiftRegistry", () => {
     });
     expect(lastUrl()).toBe(`${API}/api/invite/${SLUG}/registry`);
     expect(lastInit().cache).toBe("no-store");
-    // The public read must NOT carry the household cookie.
-    expect(lastInit().credentials).toBeUndefined();
+    // The list is for the couple's guests, so the read carries the household
+    // cookie — and `cire_session` is host-scoped to the API ORIGIN, a different
+    // origin from the guest site, so on the default `same-origin` mode it is
+    // dropped silently and every read reads as signed out forever.
+    expect(lastInit().credentials).toBe("include");
   });
 
-  it("treats 404 as hidden — unpublished, unentitled and unknown-slug alike", async () => {
+  it("treats 401 as signed out — a way in, not a failure", async () => {
+    fetchMock.mockResolvedValueOnce(json({ error: "Unauthorized" }, 401));
+    expect(await fetchGiftRegistry(API, SLUG)).toEqual({ kind: "signed-out" });
+  });
+
+  it("treats 404 as hidden — unpublished, unentitled, unknown-slug and another wedding alike", async () => {
     fetchMock.mockResolvedValueOnce(json({ error: "registry_not_found" }, 404));
     expect(await fetchGiftRegistry(API, SLUG)).toEqual({ kind: "hidden" });
   });
@@ -341,5 +362,158 @@ describe("giftRegistryImageBase", () => {
     expect(giftRegistryImageBase(API, SLUG, "a/b")).toBe(
       `${API}/api/invite/${SLUG}/registry/image/a%2Fb`,
     );
+  });
+});
+
+/**
+ * THE GIFT LIST'S OWN PAGE — the pure parts of it.
+ *
+ * Where it lives, what it is called, and how a whole list is read out in one
+ * line. All of it has to hold without a DOM, because the page's shell is Astro
+ * (there is no Astro test harness in this workspace) and the shell is where the
+ * heading, the title and the route all come from.
+ */
+describe("giftRegistryPath", () => {
+  it("points at the wedding's own gift page", () => {
+    expect(giftRegistryPath("anita-and-ben")).toBe("/anita-and-ben/registry");
+  });
+
+  it("encodes a slug that would otherwise change the URL's shape", () => {
+    // A slug is organiser input. Unencoded, `../` climbs out of the wedding and
+    // `?`/`#` truncate the path — a link that silently goes somewhere else.
+    expect(giftRegistryPath("a b")).toBe("/a%20b/registry");
+    expect(giftRegistryPath("../other")).toBe("/..%2Fother/registry");
+    expect(giftRegistryPath("a?b#c")).toBe("/a%3Fb%23c/registry");
+  });
+});
+
+describe("the section copy", () => {
+  it("prefers the invite's own copy, then the module's, then the built-in", () => {
+    expect(giftRegistryHeading("Gifts", "Our List")).toBe("Gifts");
+    expect(giftRegistryHeading(null, "Our List")).toBe("Our List");
+    expect(giftRegistryHeading(null, null)).toBe(DEFAULT_GIFT_REGISTRY_HEADING);
+    expect(giftRegistryEyebrow(null)).toBe(DEFAULT_GIFT_REGISTRY_EYEBROW);
+    expect(giftRegistryEyebrow("Thank You")).toBe("Thank You");
+    expect(giftRegistryBody("Invite copy", "Module copy")).toBe("Invite copy");
+    expect(giftRegistryBody(null, "Module copy")).toBe("Module copy");
+    expect(giftRegistryBody(null, null)).toBeNull();
+  });
+
+  /**
+   * Blank is unset, not an answer. A `??` chain took the first NON-NULL value,
+   * so a heading saved as `""` beat both the module's headline and the built-in
+   * default — an empty `<h1>`, and on the gift page an empty browser tab.
+   */
+  it("treats blank copy as unset", () => {
+    expect(giftRegistryHeading("   ", "Our List")).toBe("Our List");
+    expect(giftRegistryHeading("", "")).toBe(DEFAULT_GIFT_REGISTRY_HEADING);
+    expect(giftRegistryEyebrow("  ")).toBe(DEFAULT_GIFT_REGISTRY_EYEBROW);
+    expect(giftRegistryBody("", "  ")).toBeNull();
+  });
+});
+
+describe("giftPageTitle", () => {
+  it("names the couple first, like the invite's own title", () => {
+    expect(giftPageTitle("Gift Registry", "Anita & Ben")).toBe("Anita & Ben — Gift Registry");
+  });
+
+  it("stands on the heading alone when the couple set no title", () => {
+    expect(giftPageTitle("Gift Registry", null)).toBe("Gift Registry");
+    expect(giftPageTitle("Gift Registry", "")).toBe("Gift Registry");
+  });
+});
+
+describe("the ledger line", () => {
+  it("counts quantities, not rows", () => {
+    // One row for six glasses is six gifts to a guest, and five of them are
+    // still something they can act on.
+    const items = [
+      item({ id: "a", quantityWanted: 6, quantityClaimed: 1 }),
+      item({ id: "b", quantityWanted: 1, quantityClaimed: 0 }),
+    ];
+    expect(giftRegistryAvailability(items)).toEqual({ available: 6, total: 7 });
+    expect(giftRegistryAvailabilityCopy(items)).toBe("6 of 7 still available");
+  });
+
+  it("says nothing at all about an empty list", () => {
+    // An empty published list has its own copy; "0 of 0" is not a summary.
+    expect(giftRegistryAvailabilityCopy([])).toBeNull();
+  });
+
+  it("has its own words for a list with nothing left", () => {
+    expect(giftRegistryAvailabilityCopy([item({ quantityWanted: 2, quantityClaimed: 2 })])).toBe(
+      "Every gift has been reserved",
+    );
+  });
+
+  it("survives a row that says something impossible", () => {
+    // Over-claimed and negative rows exist (a restored backup, a migration).
+    // The one line that summarises the page must not print a negative number.
+    const items = [
+      item({ id: "a", quantityWanted: 1, quantityClaimed: 4 }),
+      item({ id: "b", quantityWanted: -3, quantityClaimed: 0 }),
+    ];
+    expect(giftRegistryAvailability(items)).toEqual({ available: 0, total: 1 });
+  });
+
+  it("counts this household's own reservations, and names no one", () => {
+    const claim = (quantity: number): GiftRegistryHouseholdClaim => ({
+      itemId: "gi-1",
+      quantity,
+      status: "reserved",
+      note: null,
+      displayName: "The Ashworths",
+    });
+    expect(giftRegistryClaimedCopy([])).toBeNull();
+    expect(giftRegistryClaimedCopy([claim(1)])).toBe("You reserved 1 gift");
+    expect(giftRegistryClaimedCopy([claim(1), claim(2)])).toBe("You reserved 3 gifts");
+    // Same clamp, and the same reason, as the availability line above: a
+    // restored backup or a migration can hand this a negative quantity, and
+    // "You reserved -1 gifts" is not a thing to print on a ledger.
+    expect(giftRegistryClaimedCopy([claim(-2), claim(3)])).toBe("You reserved 3 gifts");
+  });
+});
+
+describe("groupGiftRegistryItems", () => {
+  it("keeps the couple's categories in the order the list already carries", () => {
+    // First mention wins; nothing is alphabetised behind their back.
+    const groups = groupGiftRegistryItems([
+      item({ id: "a", category: "Kitchen" }),
+      item({ id: "b", category: "Bedroom" }),
+      item({ id: "c", category: "Kitchen" }),
+    ]);
+    expect(groups.map((group) => group.category)).toEqual(["Kitchen", "Bedroom"]);
+    expect(groups[0]?.items.map((i) => i.id)).toEqual(["a", "c"]);
+  });
+
+  it("puts everything ungrouped in one tail, last", () => {
+    const groups = groupGiftRegistryItems([
+      item({ id: "a", category: null }),
+      item({ id: "b", category: "Kitchen" }),
+      item({ id: "c", category: "   " }),
+    ]);
+    expect(groups.map((group) => group.category)).toEqual(["Kitchen", null]);
+    expect(groups[1]?.items.map((i) => i.id)).toEqual(["a", "c"]);
+  });
+
+  it("trims a category, so the same shelf under two spellings is one shelf", () => {
+    const groups = groupGiftRegistryItems([
+      item({ id: "a", category: "Kitchen" }),
+      item({ id: "b", category: " Kitchen " }),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.category).toBe("Kitchen");
+  });
+
+  it("reports whether any shelf is worth labelling", () => {
+    // One unlabelled group is a plain list — heading it "More gifts" would name
+    // a distinction the couple never made.
+    expect(hasGiftRegistryCategories(groupGiftRegistryItems([item({ category: null })]))).toBe(
+      false,
+    );
+    expect(hasGiftRegistryCategories(groupGiftRegistryItems([item({ category: "Kitchen" })]))).toBe(
+      true,
+    );
+    expect(hasGiftRegistryCategories([])).toBe(false);
   });
 });

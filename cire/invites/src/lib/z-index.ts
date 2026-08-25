@@ -69,6 +69,14 @@ export const Z_LAYER = {
   BASE: 0,
   /** An event card's own local stacking context. */
   EVENT_CARD: 10,
+  /**
+   * A sticky page rail — today the gift list's return link, which stays put
+   * while the list scrolls under it. Must be > EVENT_CARD and > BASE: every
+   * card on that page paints a background of its own and is LATER in the
+   * document, so without a layer of its own the rail is painted over by the
+   * list it is meant to float above. Below MODAL, like all page furniture.
+   */
+  STICKY_RAIL: 20,
   /** Modal backdrop + panel (`AnimatedModal`: details / RSVP dialogs). */
   MODAL: 100,
   /** Popover launched from inside a modal (e.g. Add-to-Calendar). Must be > MODAL. */
@@ -107,6 +115,7 @@ export type ZLayer = keyof typeof Z_LAYER;
 export const Z_CLASS = {
   BASE: "z-0",
   EVENT_CARD: "z-10",
+  STICKY_RAIL: "z-20",
   MODAL: "z-100",
   MODAL_POPOVER: "z-110",
   TOAST: "z-150",

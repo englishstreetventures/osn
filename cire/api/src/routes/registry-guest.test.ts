@@ -307,17 +307,18 @@ async function mine(app: App, cookie: string, slug = SLUG): Promise<HouseholdReg
   return (await res.json()) as HouseholdRegistryDto;
 }
 
-async function publicView(app: App, slug = SLUG): Promise<PublicRegistryDto> {
-  const res = await appRequest(app, guestBase(slug));
+async function listView(app: App, cookie: string, slug = SLUG): Promise<PublicRegistryDto> {
+  const res = await appRequest(app, guestBase(slug), { headers: { Cookie: cookie } });
   expect(res.status).toBe(200);
   return (await res.json()) as PublicRegistryDto;
 }
 
 describe("the guest registry is one 404, whatever the reason", () => {
   // Unknown slug, feature not bought, list not published: three completely
-  // different facts, and a guest URL is public and unauthenticated, so all three
-  // must answer identically. Anything else lets a stranger enumerate which
-  // weddings exist and which of them are quietly drafting a gift list.
+  // different facts, and all three must answer identically. Anything else lets
+  // a caller enumerate which weddings exist and which of them are quietly
+  // drafting a gift list — from the image route, which is unauthenticated, and
+  // from the gated routes to any guest who holds a code for one wedding.
   const scenarios = [
     ["an unknown slug", () => buildApp(), "no-such-wedding"],
     ["a wedding without the entitlement", () => buildApp({ entitled: false }), SLUG],
@@ -325,24 +326,22 @@ describe("the guest registry is one 404, whatever the reason", () => {
   ] as const;
 
   for (const [label, make, slug] of scenarios) {
-    it(`${label} → the same 404 on every public route`, async () => {
+    it(`${label} → the same 404 on the public image route`, async () => {
       const { app } = make();
-      for (const path of [guestBase(slug), `${guestBase(slug)}/image/${PAN_IMAGE}`]) {
-        const res = await appRequest(app, path);
-        expect(res.status).toBe(404);
-        expect(await res.json()).toEqual({ error: "registry_not_found" });
-      }
+      const res = await appRequest(app, `${guestBase(slug)}/image/${PAN_IMAGE}`);
+      expect(res.status).toBe(404);
+      expect(await res.json()).toEqual({ error: "registry_not_found" });
     });
 
     it(`${label} → the same 404 on every session-gated route`, async () => {
       const { app } = make();
       const cookie = await guestCookie(app);
 
-      const read = await appRequest(app, `${guestBase(slug)}/mine`, {
-        headers: { Cookie: cookie },
-      });
-      expect(read.status).toBe(404);
-      expect(await read.json()).toEqual({ error: "registry_not_found" });
+      for (const path of [guestBase(slug), `${guestBase(slug)}/mine`]) {
+        const read = await appRequest(app, path, { headers: { Cookie: cookie } });
+        expect(read.status).toBe(404);
+        expect(await read.json()).toEqual({ error: "registry_not_found" });
+      }
 
       const claimed = await claim(app, cookie, { quantity: 1 }, slug);
       expect(claimed.status).toBe(404);
@@ -356,6 +355,9 @@ describe("the guest registry is one 404, whatever the reason", () => {
 
   it("401s the session-gated routes with no cookie at all, before the slug is read", async () => {
     const { app } = buildApp();
+    // The LIST is one of them: a gift list names what a couple want and what it
+    // costs, and they only ever showed it to the people they invited.
+    expect((await appRequest(app, guestBase())).status).toBe(401);
     expect((await appRequest(app, `${guestBase()}/mine`)).status).toBe(401);
     const res = await appRequest(app, `${guestBase()}/items/${PAN}/claim`, {
       method: "POST",
@@ -366,9 +368,10 @@ describe("the guest registry is one 404, whatever the reason", () => {
   });
 });
 
-describe("GET /api/invite/:slug/registry (public)", () => {
-  it("returns the couple's copy and the list in sort order, no auth needed", async () => {
-    const body = await publicView(buildApp().app);
+describe("GET /api/invite/:slug/registry (sessionAuth)", () => {
+  it("returns the couple's copy and the list in sort order, to a household of this wedding", async () => {
+    const { app } = buildApp();
+    const body = await listView(app, await guestCookie(app));
     expect(body.headline).toBe("Gifts");
     expect(body.message).toBe("Your presence is the present.");
     expect(body.cashGiftsEnabled).toBe(false);
@@ -378,13 +381,16 @@ describe("GET /api/invite/:slug/registry (public)", () => {
   });
 
   it("is never cached — a stale list has two households buying the same pan", async () => {
-    const res = await appRequest(buildApp().app, guestBase());
+    const { app } = buildApp();
+    const res = await appRequest(app, guestBase(), {
+      headers: { Cookie: await guestCookie(app) },
+    });
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 
   it("reports the claimed total as an aggregate and nothing else about it", async () => {
     const { app } = buildApp();
-    const body = await publicView(app);
+    const body = await listView(app, await guestCookie(app));
     const pan = body.items.find((i) => i.id === PAN);
     expect(pan?.quantityWanted).toBe(2);
     expect(pan?.quantityClaimed).toBe(1); // the neighbour's claim, counted only
@@ -415,7 +421,9 @@ describe("GET /api/invite/:slug/registry (public)", () => {
 
   it("leaks no claimant, note, gift log, Stripe id or shipping address", async () => {
     const { app } = buildApp({ shippingAddress: "12 Wattle St, Fitzroy" });
-    const raw = await (await appRequest(app, guestBase())).text();
+    const raw = await (
+      await appRequest(app, guestBase(), { headers: { Cookie: await guestCookie(app) } })
+    ).text();
     for (const secret of [
       FOREIGN_NOTE,
       FOREIGN_DISPLAY_NAME,
@@ -522,7 +530,7 @@ describe("claim → purchased → release, over HTTP", () => {
       200,
     );
     expect((await mine(app, cookie)).claims[0]?.status).toBe("reserved");
-    expect((await publicView(app)).items.find((i) => i.id === PAN)?.quantityClaimed).toBe(2);
+    expect((await listView(app, cookie)).items.find((i) => i.id === PAN)?.quantityClaimed).toBe(2);
 
     // "Mark purchased" is the SAME endpoint with a different status — one unique
     // (item, family) row in two states, so there is no second write path to drift.
@@ -535,7 +543,7 @@ describe("claim → purchased → release, over HTTP", () => {
 
     expect((await release(app, cookie)).status).toBe(200);
     expect((await mine(app, cookie)).claims).toEqual([]); // released ⇒ not a claim
-    expect((await publicView(app)).items.find((i) => i.id === PAN)?.quantityClaimed).toBe(1);
+    expect((await listView(app, cookie)).items.find((i) => i.id === PAN)?.quantityClaimed).toBe(1);
 
     // The row survives as `released` rather than being deleted…
     const [family] = db
@@ -641,10 +649,11 @@ describe("a cookie for one wedding buys nothing on another", () => {
     const foreign = await guestCookie(app, FOREIGN_FAMILY);
     const res = await claim(app, foreign, { quantity: 1 });
     expect(res.status).toBe(404);
-    // Deliberately the item-shaped code, not a family-shaped one: a distinct
-    // code would confirm to the holder of any valid cookie that this item id
-    // exists on a wedding they cannot read.
-    expect(await res.json()).toEqual({ error: "registry_item_not_found" });
+    // The SAME code an unpublished or unentitled registry gives (S-M1). The
+    // family is checked BEFORE the item, so a holder of any valid cookie learns
+    // neither whether this wedding has a list nor whether the item id they
+    // guessed exists on it.
+    expect(await res.json()).toEqual({ error: "registry_not_found" });
   });
 
   it("cannot release another wedding's claim", async () => {
@@ -655,22 +664,41 @@ describe("a cookie for one wedding buys nothing on another", () => {
     const foreign = await guestCookie(app, FOREIGN_FAMILY);
     const res = await release(app, foreign);
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "registry_item_not_found" });
+    expect(await res.json()).toEqual({ error: "registry_not_found" });
     // The local household's claim is untouched.
     expect((await mine(app, local)).claims).toHaveLength(1);
   });
 
-  it("reads an empty household on another wedding's slug, never its claims", async () => {
+  it("cannot read another wedding's list at all", async () => {
+    // The whole point of the gate: one leaked code must not open every couple's
+    // list on the platform. The family is checked against the WEDDING, and the
+    // failure is the same 404 an unpublished list gets — a distinct code would
+    // confirm to any cookie-holder which weddings have a list.
+    const { app } = buildApp();
+    const foreign = await guestCookie(app, FOREIGN_FAMILY);
+    const res = await appRequest(app, guestBase(), { headers: { Cookie: foreign } });
+    expect(res.status).toBe(404);
+    const raw = await res.text();
+    expect(JSON.parse(raw)).toEqual({ error: "registry_not_found" });
+    // And the couple's own words are not in the body either.
+    expect(raw).not.toContain("Your presence is the present.");
+  });
+
+  it("cannot read its own household on another wedding's slug either", async () => {
+    // It used to answer 200 `{claims: []}` here — which, against a 404 for an
+    // unpublished list, let anyone holding any valid session walk slugs and
+    // learn which weddings have a published gift list (S-M1). Same 404 now.
     const { app } = buildApp({ shippingAddress: "12 Wattle St, Fitzroy" });
     const local = await guestCookie(app);
     expect((await claim(app, local, { quantity: 1 })).status).toBe(200);
 
     const foreign = await guestCookie(app, FOREIGN_FAMILY);
-    const view = await mine(app, foreign);
-    expect(view.claims).toEqual([]);
-    // No claim on this wedding ⇒ no address, even though a household of this
-    // wedding would see one.
-    expect(view.shippingAddress).toBeUndefined();
+    const res = await appRequest(app, `${guestBase()}/mine`, { headers: { Cookie: foreign } });
+    expect(res.status).toBe(404);
+    const raw = await res.text();
+    expect(JSON.parse(raw)).toEqual({ error: "registry_not_found" });
+    // And nothing of this wedding's household leaks in the body.
+    expect(raw).not.toContain("12 Wattle St");
   });
 
   it("works the other way round too — the bootstrap cookie is useless next door", async () => {
@@ -678,7 +706,7 @@ describe("a cookie for one wedding buys nothing on another", () => {
     const local = await guestCookie(app);
     const res = await claim(app, local, { quantity: 1 }, OTHER_SLUG, OTHER_ITEM);
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "registry_item_not_found" });
+    expect(await res.json()).toEqual({ error: "registry_not_found" });
   });
 });
 

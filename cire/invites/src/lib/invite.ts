@@ -81,3 +81,15 @@ export async function fetchInvite(slug: string): Promise<InviteFetch> {
 // the most-recently-created wedding. It was removed along with the
 // `GET /api/primary-wedding` endpoint it called — the bare domain now redirects
 // to the marketing site (see `MARKETING_URL` above and `pages/index.astro`).
+
+/**
+ * A wedding's invitation page — the route `[slug].astro` serves.
+ *
+ * Exists because the invite is now linked TO, not only landed on: the gift list
+ * lives at its own route (`giftRegistryPath`) and its way home has to be the
+ * same string the couple hand out. Encoded for the same reason the API encodes
+ * a slug it puts in a URL.
+ */
+export function invitePath(slug: string): string {
+  return `/${encodeURIComponent(slug)}`;
+}

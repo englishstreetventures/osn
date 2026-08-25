@@ -5,7 +5,7 @@ import { inviteTitle } from '../../lib/invite-title'
 import InviteHeader from './InviteHeader'
 import InvitePage from './InvitePage'
 import { filterThemeVars, paletteRootVars, sectionVars, styleAttr } from '../../components/invite-theme'
-import { GiftRegistrySection } from '../../components/gift-registry/GiftRegistrySection'
+import { GiftRegistryTeaser } from '../../components/gift-registry/GiftRegistryTeaser'
 import SiteFooter from '../../components/SiteFooter.astro'
 import { ConsentBanner } from '../../components/consent/ConsentBanner'
 import type { InviteDesignProps } from '../types'
@@ -40,9 +40,10 @@ const preloadHeroHref = heroBase ? `${heroBase}${heroSep}variant=hero-bg` : null
 // this is separate from the hero preload and why it carries no `crossorigin`.
 const apiPreconnect = apiPreconnectHref(apiUrl)
 
-// The gift-registry section's surface, resolved server-side from the same SSR
-// payload every other section uses. Filtered through the allow-list because it
-// is spread into a `style` object in the island.
+// The gift-list band's surface, resolved server-side from the same SSR payload
+// every other section uses — it keeps the registry section's own tone, so the
+// band and the page it links to sit on the same colour. Filtered through the
+// allow-list because it is spread into a `style` object in the island.
 const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, 'registry'))
 ---
 <!DOCTYPE html>
@@ -84,13 +85,16 @@ const registryVars = filterThemeVars(sectionVars(initialInvite?.theme ?? null, '
       details={initialInvite?.details ?? null}
       welcomeMessage={initialInvite?.welcome?.message ?? null}
     />
-    {/* The couple's gift list. Its OWN island, deliberately after InvitePage:
-        the public registry read is unauthenticated, so it must render for a
-        visitor who hasn't entered their code — which InvitePage, gated on a
-        claim, cannot do. `client:visible` because it is below the fold on every
-        invite; the section renders nothing at all when the registry is
-        unpublished or the wedding isn't entitled (that read 404s). */}
-    <GiftRegistrySection
+    {/* The couple's gift list — a band that links to it, not the list itself:
+        that lives at `/<slug>/registry` now, because it is the part of an
+        invitation a guest comes BACK to. Its OWN island, deliberately after
+        InvitePage, for a hydration reason rather than an auth one: `InvitePage`
+        reveals in place after a claim, and a band nested inside it would only
+        exist once that reveal had run. The band reads the same gate the rest of
+        the invitation does and renders NOTHING for a visitor with no claim (401)
+        or a wedding with no published list (404). `client:visible` because it is
+        below the fold on every invite. */}
+    <GiftRegistryTeaser
       client:visible={{ rootMargin: "600px" }}
       apiUrl={apiUrl}
       slug={slug}
