@@ -1,5 +1,12 @@
 # @osn/api
 
+## 0.26.14
+
+### Patch Changes
+
+- Updated dependencies [ee304e6]
+  - @shared/osn-auth-client@0.4.8
+
 ## 0.26.13
 
 ### Patch Changes
