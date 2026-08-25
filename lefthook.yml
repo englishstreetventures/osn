@@ -3,7 +3,11 @@ pre-commit:
   commands:
     lint:
       glob: "*.{js,jsx,ts,tsx}"
-      run: bunx --bun oxlint -c oxlintrc.json {staged_files}
+      # Chained, not a sibling command: `pre-commit` runs `parallel: true`, so
+      # a separate command gives no ordering guarantee against oxlint, and the
+      # vendored anti-slop plugin (oxlintrc.json's jsPlugins) could execute
+      # unverified anyway. `&&` is the only way this hook enforces order.
+      run: bash scripts/verify-vendored-anti-slop.sh && bunx --bun oxlint -c oxlintrc.json {staged_files}
     format:
       glob: "*.{js,jsx,ts,tsx}"
       # Vendored upstream source is left byte-identical so re-vendoring a newer

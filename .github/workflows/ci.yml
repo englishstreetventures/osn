@@ -15,6 +15,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # This is the job that runs `bun run lint` below, which executes the
+      # vendored anti-slop plugin (oxlintrc.json's jsPlugins). `script-tests`
+      # runs this same check, but in parallel with this job — so it verifies
+      # the tree independently of, not before, the run that matters. This
+      # copy has to come before oxlint actually runs it, hence first step
+      # after checkout, before install.
+      - name: Verify vendored anti-slop matches its checksums
+        run: bash scripts/verify-vendored-anti-slop.sh
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -180,25 +189,22 @@ jobs:
   script-tests:
     name: Scripts
     runs-on: ubuntu-latest
+    # The backstop under this job's own checks. Without it the job's ceiling
+    # is GitHub's six hours — and because the aggregate `ci` job `needs` it,
+    # and `CI` is a required check, a wedged runner here holds the merge gate
+    # open for that long. Five minutes is generous: the job does a checkout,
+    # a shasum, and `bun test ./scripts/` with no install.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
 
-      # tools/oxlint/anti-slop is excluded from oxfmt and ignored by oxlint (see
-      # its README), specifically so a re-vendor stays a plain copy with no
-      # formatting noise. That also means an edit to the vendored tree passes
-      # every other gate unnoticed — this is the one check that would catch it.
-      # No bun needed, so it runs right after checkout.
-      #
-      # `shasum -c` only verifies the paths SHA256SUMS lists — a file ADDED to
-      # the tree isn't in that list, so it has nothing to check it against and
-      # passes silently. The diff catches that half: it fails if the tracked
-      # file set drifts from SHA256SUMS in either direction, added or removed.
+      # No bun needed, so it runs right after checkout. The `lint` job runs
+      # this same script too, and that copy is the one that matters for
+      # ordering (see the comment there). This one stays because `script-tests`
+      # is the job that owns everything under scripts/, and a shasum costs
+      # nothing.
       - name: Verify vendored anti-slop matches its checksums
-        run: |
-          cd tools/oxlint/anti-slop
-          shasum -c SHA256SUMS
-          diff <(sed 's/^[0-9a-f]*  //' SHA256SUMS | sort) \
-               <(find . -type f ! -name SHA256SUMS | sed 's|^\./||' | sort)
+        run: bash scripts/verify-vendored-anti-slop.sh
 
       - uses: oven-sh/setup-bun@v2
         with:
