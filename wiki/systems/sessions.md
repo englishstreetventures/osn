@@ -5,7 +5,7 @@ related:
   - "[[identity-model]]"
   - "[[step-up]]"
   - "[[passkey-primary]]"
-last-reviewed: 2026-08-14
+last-reviewed: 2026-08-24
 ---
 
 # Session introspection + revocation
@@ -77,6 +77,8 @@ Per-account hard cap: `MAX_SESSIONS_PER_ACCOUNT = 50`. `issueTokens` LRU-evicts 
 | `POST /sessions/revoke-all-other` | Revoke every session EXCEPT the caller's current one |
 
 All endpoints authenticate via `Authorization: Bearer <access_token>` and resolve `accountId` server-side. A session handle from account A's log cannot be replayed to revoke a session in account B — the DELETE is scoped to the caller's own account.
+
+`GET /sessions` sets `Cache-Control: private, no-store` as the first statement of the handler, so even a rejection carries it (tracker#468). See `[[architecture/backend-patterns]]` §Cache-Control on Authenticated Routes for the rule and why it sits above the guards.
 
 ### Cross-device login
 

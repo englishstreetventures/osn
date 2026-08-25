@@ -292,6 +292,9 @@ export function createGraphRoutes(
       .get(
         "/connections",
         async ({ query, headers, set }) => {
+          // Per-user connection list — never cached or stored (tracker#468).
+          set.headers["cache-control"] = "private, no-store";
+
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
           try {
@@ -324,6 +327,9 @@ export function createGraphRoutes(
       .get(
         "/connections/pending",
         async ({ query, headers, set }) => {
+          // Per-user pending-request list — never cached or stored (tracker#468).
+          set.headers["cache-control"] = "private, no-store";
+
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
           try {
@@ -356,6 +362,9 @@ export function createGraphRoutes(
       .get(
         "/connections/sent",
         async ({ query, headers, set }) => {
+          // Per-user sent-request list — never cached or stored (tracker#468).
+          set.headers["cache-control"] = "private, no-store";
+
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
           try {
@@ -389,6 +398,9 @@ export function createGraphRoutes(
       .get(
         "/connections/:handle",
         async ({ params, headers, set }) => {
+          // Per-user connection status — never cached or stored (tracker#468).
+          set.headers["cache-control"] = "private, no-store";
+
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
           try {
@@ -495,6 +507,9 @@ export function createGraphRoutes(
       .get(
         "/blocks",
         async ({ query, headers, set }) => {
+          // Per-user block list — never cached or stored (tracker#468).
+          set.headers["cache-control"] = "private, no-store";
+
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
           try {
@@ -528,6 +543,9 @@ export function createGraphRoutes(
       .get(
         "/is-blocked/:handle",
         async ({ params, headers, set }) => {
+          // Per-user block-status check — never cached or stored (tracker#468).
+          set.headers["cache-control"] = "private, no-store";
+
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
           try {

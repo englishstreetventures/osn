@@ -133,6 +133,9 @@ export function createRecommendationRoutes(
       .get(
         "/connections",
         async ({ query, headers, set }) => {
+          // Per-user connection suggestions — never cached or stored (tracker#468).
+          set.headers["cache-control"] = "private, no-store";
+
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
           if (!(await requireRateLimit(rateLimiters.suggest, caller.profileId, set))) {
@@ -185,6 +188,9 @@ export function createRecommendationRoutes(
       .get(
         "/search",
         async ({ query, headers, set }) => {
+          // Per-user search results — never cached or stored (tracker#468).
+          set.headers["cache-control"] = "private, no-store";
+
           const caller = await requireAuth(headers.authorization, set);
           if (!caller) return { error: "Unauthorized" };
           if (!(await requireRateLimit(rateLimiters.search, caller.profileId, set))) {

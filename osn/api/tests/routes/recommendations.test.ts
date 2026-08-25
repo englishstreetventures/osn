@@ -97,6 +97,18 @@ describe("recommendations routes", () => {
     expect(json.suggestions).toEqual([]);
   });
 
+  // tracker#468: per-user connection suggestions — never cached or stored.
+  it("GET /recommendations/connections sets cache-control: private, no-store", async () => {
+    const alice = await registerAndGetToken("alice@example.com", "alice");
+    const res = await recsApp.handle(
+      new Request("http://localhost/recommendations/connections", {
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   it("returns FOF suggestions with mutual counts", async () => {
     const alice = await registerAndGetToken("a@e.com", "alice");
     const bob = await registerAndGetToken("b@e.com", "bob");
@@ -294,6 +306,18 @@ describe("recommendations routes", () => {
       // Alice herself is excluded; `alicia` is the only other `ali*` handle.
       expect(json.people?.map((r) => r.handle)).toEqual(["alicia"]);
       expect(json.people?.[0]!.connectionStatus).toBe("none");
+    });
+
+    // tracker#468: per-user search results — never cached or stored.
+    it("sets cache-control: private, no-store", async () => {
+      const alice = await registerAndGetToken("a@e.com", "alice");
+      const res = await recsApp.handle(
+        new Request("http://localhost/recommendations/search?q=ali", {
+          headers: { Authorization: `Bearer ${alice.token}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
     });
 
     it("reflects an in-flight request as pending_sent", async () => {

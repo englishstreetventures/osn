@@ -469,6 +469,20 @@ describe("auth routes", () => {
       expect(json.error).toBe("unsupported_grant_type");
     });
 
+    // tracker#466: RFC 6749 §5.1 / RFC 6750 §5.3 make no-store mandatory on
+    // token-endpoint responses. Set first, so even this rejection carries it.
+    it("sets cache-control: no-store, including on the unsupported_grant_type rejection", async () => {
+      const res = await app.handle(
+        new Request("http://localhost/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ grant_type: "implicit" }),
+        }),
+      );
+      expect(res.status).toBe(400);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+    });
+
     it("C2: replaying a rotated-out refresh cookie within grace is rejected but keeps the family alive", async () => {
       // Route-layer integration test for reuse detection. Service-level
       // coverage already exercises the detector in isolation; this one
@@ -1543,6 +1557,18 @@ describe("auth routes", () => {
       expect(json.profiles[0]!.handle).toBe("profilelist");
     });
 
+    // tracker#468: per-user profile list — never cached or stored.
+    it("sets cache-control: private, no-store", async () => {
+      const { accessToken } = await getAccessToken();
+      const res = await app.handle(
+        new Request("http://localhost/profiles/list", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
+    });
+
     it("returns error with an invalid token", async () => {
       const res = await app.handle(
         new Request("http://localhost/profiles/list", {
@@ -1757,6 +1783,24 @@ describe("auth routes", () => {
       }
     });
 
+    // tracker#467: the plaintext codes cross the wire here and only here —
+    // never cached or stored.
+    it("POST /recovery/generate sets cache-control: no-store", async () => {
+      const { accessToken, stepUpToken } = await registerForRecovery();
+      const res = await app.handle(
+        new Request("http://localhost/recovery/generate", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ step_up_token: stepUpToken }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+    });
+
     it("POST /recovery/generate without an access token returns 401", async () => {
       const res = await app.handle(
         new Request("http://localhost/recovery/generate", {
@@ -1825,11 +1869,31 @@ describe("auth routes", () => {
       expect(json.generatedAt).toBeTypeOf("number");
     });
 
+    it("GET /recovery/status sets cache-control: no-store", async () => {
+      const { accessToken } = await registerForRecovery();
+      const res = await app.handle(
+        new Request("http://localhost/recovery/status", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+    });
+
     // Counts only, no secret — but still the caller's own account, so an
     // anonymous read must not resolve to anybody's numbers.
     it("GET /recovery/status without an access token returns 401", async () => {
       const res = await app.handle(new Request("http://localhost/recovery/status"));
       expect(res.status).toBe(401);
+    });
+
+    // tracker#469: the assignment used to run after the DB read, inside the
+    // `try`, so the 401/429/500 paths never got it. Moved to the first
+    // statement — this is the rejection path a 200-only test cannot see.
+    it("GET /recovery/status sets cache-control: no-store even on the 401 rejection", async () => {
+      const res = await app.handle(new Request("http://localhost/recovery/status"));
+      expect(res.status).toBe(401);
+      expect(res.headers.get("cache-control")).toBe("no-store");
     });
 
     it("POST /login/recovery/complete returns a session cookie on success", async () => {
@@ -2110,6 +2174,22 @@ describe("auth routes", () => {
       expect(json.sessions).toHaveLength(1);
       expect(json.sessions[0]!.isCurrent).toBe(true);
       expect(json.sessions[0]!.id).toMatch(/^[0-9a-f]{16}$/);
+    });
+
+    // tracker#468: per-user session metadata, direct sibling of
+    // GET /account/security-events (tracker#346).
+    it("GET /sessions sets cache-control: private, no-store", async () => {
+      const { app: freshApp, accessToken, cookieHeader } = await setup();
+      const res = await freshApp.handle(
+        new Request("http://localhost/sessions", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Cookie: cookieHeader,
+          },
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
     });
 
     it("DELETE /sessions/:id clears the cookie when the caller revokes their own session", async () => {

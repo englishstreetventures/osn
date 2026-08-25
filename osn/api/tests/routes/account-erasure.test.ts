@@ -278,6 +278,17 @@ describe("account-erasure routes — response bodies", () => {
     expect(status.softDeletedAt!).toBeLessThanOrEqual(status.scheduledFor!);
   });
 
+  // tracker#468: per-user deletion status — never cached or stored.
+  it("GET /account/deletion-status sets cache-control: private, no-store", async () => {
+    const layer = createTestLayer();
+    const { app, authed } = await seed(layer);
+    const res = await app.handle(
+      new Request("http://localhost/account/deletion-status", { headers: authed }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   it("POST /account/restore returns the `cancelled` flag, and cancels for real", async () => {
     const layer = createTestLayer();
     const { auth, profile, app, authed } = await seed(layer);

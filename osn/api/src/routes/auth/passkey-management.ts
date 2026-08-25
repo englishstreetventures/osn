@@ -22,6 +22,9 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
       .get(
         "/passkeys",
         async ({ headers, set, server, request }) => {
+          // Per-user credential inventory — never cached or stored (tracker#468).
+          set.headers["cache-control"] = "private, no-store";
+
           const rlErr = await rateLimit(
             headers,
             socketIpOf({ server, request }),

@@ -146,6 +146,18 @@ describe("passkey management routes", () => {
       expect(json.passkeys[0]!.label).toBe("Laptop");
     });
 
+    // tracker#468: per-user credential inventory — never cached or stored.
+    it("sets cache-control: private, no-store", async () => {
+      const { tokens } = await seedAccount();
+      const res = await app.handle(
+        new Request("http://localhost/passkeys", {
+          headers: { Authorization: `Bearer ${tokens.accessToken}` },
+        }),
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
+    });
+
     // The route's `response` schema decides which keys reach the client:
     // anything it fails to declare is deleted from the body. Assert every
     // `PasskeySummary` field, including the nullable ones — a schema that

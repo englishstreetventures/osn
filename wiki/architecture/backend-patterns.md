@@ -20,7 +20,7 @@ packages:
   - "@osn/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-08-19
+last-reviewed: 2026-08-24
 ---
 
 # Backend Code Patterns
@@ -228,6 +228,30 @@ export const login = (input: LoginInput) =>
     ),
   );
 ```
+
+## Cache-Control on Authenticated Routes
+
+Every authenticated `@osn/api` route sets `Cache-Control` as the **first statement** of its handler — above the rate-limit call, above the auth guard, above anything that can return early:
+
+```typescript
+async ({ headers, set, server, request }) => {
+  // Per-user and sensitive — never cached or stored by a shared cache or
+  // the browser (tracker#346).
+  set.headers["cache-control"] = "private, no-store";
+
+  const rlErr = await rateLimit(...);
+  // ...
+};
+```
+
+Two values, chosen by what the response carries:
+
+- `private, no-store` — an authenticated per-user read (sessions, passkeys, recovery-code counts, graph/recommendation lists, profile data). RFC 9111 §3.5.
+- `no-store` — a token or credential response, where even `private` is too generous a promise to a shared cache (`/token`, `/recovery/generate`). RFC 6749 §5.1, RFC 6750 §5.3.
+
+First-statement placement is the rule, not a style choice. A 401, a 429, or a 500 is still a response with the caller's account tied to the request that produced it, and a proxy or browser cache does not know or care that the body was an error — it caches whatever `Cache-Control` allows on whatever status came back. An assignment placed after the auth guard or inside a `try` only reaches the 200 path; every rejection leaves the endpoint uncovered, which is exactly the gap tracker#469 found and fixed by moving the assignment up rather than adding a second one. A test that only checks the 200 case cannot see that gap, because the header still passes on the path it checks — assert the header on a 401 or 429, not only on success.
+
+This pattern started with `GET /account/security-events` (tracker#346) and now covers every authenticated route: tokens.ts, recovery.ts, sessions.ts, passkey-management.ts, profile-switch.ts, account-erasure.ts, graph.ts, recommendations.ts (tracker#466–470).
 
 ## Source Files
 

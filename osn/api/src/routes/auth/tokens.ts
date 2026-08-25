@@ -21,6 +21,11 @@ export function createTokenRoutes(ctx: AuthRouteContext) {
       .post(
         "/token",
         async ({ body, set, headers }) => {
+          // Token-endpoint response — never cached or stored (RFC 6749 §5.1,
+          // RFC 6750 §5.3), and above the guards so every rejection carries
+          // it too (tracker#466).
+          set.headers["cache-control"] = "no-store";
+
           const { grant_type } = body as { grant_type: string };
 
           if (grant_type !== "refresh_token") {

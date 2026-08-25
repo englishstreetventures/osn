@@ -65,6 +65,16 @@ describe("graph routes", () => {
     expect(res.status).toBe(401);
   });
 
+  // The header is set as the first statement of the handler precisely so a
+  // rejection carries it too — a 401 is still a response tied to the request
+  // that produced it, and a cache does not care that the body was an error.
+  // The 200 tests below cannot see that: they pass either way.
+  it("GET /graph/connections sets cache-control: private, no-store on the 401", async () => {
+    const res = await graphApp.handle(new Request("http://localhost/graph/connections"));
+    expect(res.status).toBe(401);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   // -------------------------------------------------------------------------
   // Connection flow
   // -------------------------------------------------------------------------
@@ -103,6 +113,19 @@ describe("graph routes", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { status: string };
     expect(json.status).toBe("pending_sent");
+  });
+
+  // tracker#468: per-user connection status — never cached or stored.
+  it("GET /graph/connections/:handle sets cache-control: private, no-store", async () => {
+    const alice = await registerAndGetToken("alice@example.com", "alice");
+    await registerAndGetToken("bob@example.com", "bob");
+    const res = await graphApp.handle(
+      new Request("http://localhost/graph/connections/bob", {
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("PATCH /graph/connections/:handle accept → connected", async () => {
@@ -169,6 +192,18 @@ describe("graph routes", () => {
     expect(json.connections[0].handle).toBe("bob");
   });
 
+  // tracker#468: per-user connection list — never cached or stored.
+  it("GET /graph/connections sets cache-control: private, no-store", async () => {
+    const alice = await registerAndGetToken("alice@example.com", "alice");
+    const res = await graphApp.handle(
+      new Request("http://localhost/graph/connections", {
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   it("GET /graph/connections/pending lists incoming requests", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
     const bob = await registerAndGetToken("bob@example.com", "bob");
@@ -189,6 +224,25 @@ describe("graph routes", () => {
     const json = (await res.json()) as { pending: { handle: string }[] };
     expect(json.pending).toHaveLength(1);
     expect(json.pending[0].handle).toBe("alice");
+  });
+
+  // tracker#468: per-user pending-request list — never cached or stored.
+  it("GET /graph/connections/pending sets cache-control: private, no-store", async () => {
+    const alice = await registerAndGetToken("alice@example.com", "alice");
+    const bob = await registerAndGetToken("bob@example.com", "bob");
+    await graphApp.handle(
+      new Request("http://localhost/graph/connections/bob", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+    const res = await graphApp.handle(
+      new Request("http://localhost/graph/connections/pending", {
+        headers: { Authorization: `Bearer ${bob.token}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("DELETE /graph/connections/:handle removes connection", async () => {
@@ -330,6 +384,18 @@ describe("graph routes", () => {
     expect(json.blocks[0].handle).toBe("bob");
   });
 
+  // tracker#468: per-user block list — never cached or stored.
+  it("GET /graph/blocks sets cache-control: private, no-store", async () => {
+    const alice = await registerAndGetToken("alice@example.com", "alice");
+    const res = await graphApp.handle(
+      new Request("http://localhost/graph/blocks", {
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   // -------------------------------------------------------------------------
   // Routing: static "pending" segment must not be swallowed by /:handle
   // -------------------------------------------------------------------------
@@ -392,6 +458,18 @@ describe("graph routes", () => {
     expect(recipientJson.sent).toHaveLength(0);
   });
 
+  // tracker#468: per-user sent-request list — never cached or stored.
+  it("GET /graph/connections/sent sets cache-control: private, no-store", async () => {
+    const alice = await registerAndGetToken("alice3@example.com", "alice3");
+    const res = await graphApp.handle(
+      new Request("http://localhost/graph/connections/sent", {
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   // -------------------------------------------------------------------------
   // isBlocked
   // -------------------------------------------------------------------------
@@ -408,6 +486,19 @@ describe("graph routes", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { blocked: boolean };
     expect(json.blocked).toBe(false);
+  });
+
+  // tracker#468: per-user block-status check — never cached or stored.
+  it("GET /graph/is-blocked/:handle sets cache-control: private, no-store", async () => {
+    const alice = await registerAndGetToken("alice@example.com", "alice");
+    await registerAndGetToken("bob@example.com", "bob");
+    const res = await graphApp.handle(
+      new Request("http://localhost/graph/is-blocked/bob", {
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("GET /graph/is-blocked/:handle returns true when caller blocked target", async () => {

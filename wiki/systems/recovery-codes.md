@@ -12,7 +12,7 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/ui"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-08-24
 ---
 # Recovery Codes
 
@@ -68,6 +68,8 @@ GET /recovery/status
 ```
 
 **No step-up.** The response carries counts only, never a code, and gating it would be circular — this answer is what tells a user whether starting a ceremony is worth it. It is still account-scoped, so an anonymous read returns 401. `generatedAt` is `max(created_at)` over the set (unix seconds); generation replaces the whole set atomically, so the newest row dates the set as a whole.
+
+Both `/recovery/generate` and `/recovery/status` set `Cache-Control: no-store` as the first statement of the handler (RFC 6749 §5.1, RFC 6750 §5.3) — for `/recovery/status` this used to run after the DB read, so the 401/429 paths never got it; it now runs first (tracker#467, tracker#469). See `[[architecture/backend-patterns]]` §Cache-Control on Authenticated Routes.
 
 ```
 POST /login/recovery/complete
