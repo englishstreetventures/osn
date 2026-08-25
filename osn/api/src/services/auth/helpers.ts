@@ -182,6 +182,12 @@ export async function verifyJwt(
     algorithms: ["ES256"],
     issuer,
     clockTolerance: 30,
+    // jose only checks `exp` when the claim is present, so a token minted
+    // without one never expires. Every token this verifier is meant to accept
+    // carries an `exp` — the 5-minute access token and the step-up token both
+    // set it — so requiring it costs nothing and closes the case where a
+    // signing key is used to mint one that does not.
+    requiredClaims: ["exp"],
   });
   return payload;
 }

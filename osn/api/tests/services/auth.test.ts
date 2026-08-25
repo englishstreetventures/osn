@@ -824,6 +824,26 @@ describe("verifyAccessToken", () => {
       expect(error.message).toContain("Invalid token claims");
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  // jose checks `exp` only when the claim is present, so a token minted
+  // without one would authenticate for as long as the signing key lives —
+  // no expiry, and nothing else in the verifier looks at token age.
+  // `requiredClaims: ["exp"]` is what makes this a rejection.
+  it.effect("rejects a token with no exp claim", () =>
+    Effect.gen(function* () {
+      const { SignJWT } = yield* Effect.tryPromise(() => import("jose"));
+      const everlasting = yield* Effect.tryPromise(() =>
+        new SignJWT({ sub: "usr_forged00000", email: "x@x.com", handle: "x", aud: "osn-access" })
+          .setProtectedHeader({ alg: "ES256", kid: config.jwtKid })
+          .setIssuedAt()
+          .setIssuer(config.issuerUrl)
+          .sign(config.jwtPrivateKey),
+      );
+      const error = yield* Effect.flip(auth.verifyAccessToken(everlasting));
+      expect(error._tag).toBe("AuthError");
+      expect(error.message).toContain("Invalid or expired access token");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
 });
 
 // ---------------------------------------------------------------------------

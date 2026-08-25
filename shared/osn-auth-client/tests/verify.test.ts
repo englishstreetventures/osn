@@ -93,6 +93,22 @@ describe("extractClaims", () => {
     expect(result).toBeNull();
   });
 
+  it("returns null for a token with no exp claim", async () => {
+    // jose validates `exp` only when it is present, so without
+    // `requiredClaims` this token would verify forever. The issuer never mints
+    // one — which is exactly why nothing else would catch it.
+    const token = await new SignJWT({ email: "alice@example.com", handle: "alice" })
+      .setProtectedHeader({ alg: "ES256", kid })
+      .setSubject("usr_alice")
+      .setIssuedAt()
+      .sign(signKey);
+
+    const result = await extractClaims(`Bearer ${token}`, "http://test/.well-known/jwks.json", {
+      testKey: verifyKey,
+    });
+    expect(result).toBeNull();
+  });
+
   it("does not export DEFAULT_JWKS_URL (env reads stay app-side)", () => {
     expect("DEFAULT_JWKS_URL" in verifyModule).toBe(false);
   });

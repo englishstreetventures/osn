@@ -87,6 +87,12 @@ async function verifyTokenWithKey(
       algorithms: ["ES256"],
       audience,
       clockTolerance: CLOCK_TOLERANCE_SECONDS,
+      // jose enforces `exp` only when the claim is there, so an access token
+      // minted without one would verify for as long as the signing key lives.
+      // The issuer always sets it (5-minute TTL), which makes requiring it
+      // free here and turns a missing `exp` into a terminal failure rather
+      // than a token that never ages out.
+      requiredClaims: ["exp"],
     };
     // Unset issuer ⇒ omit the option ⇒ jose does not enforce `iss` (X2).
     if (issuer) verifyOptions.issuer = issuer;
