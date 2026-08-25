@@ -42,9 +42,10 @@ fi
 if [ "$TARGET" = "dev" ]; then
   # Same guard the reset script uses: prove against wrangler.toml that [env.dev]
   # really is the disposable cire-db-dev and shares its id with nothing else.
-  # shellcheck source=scripts/cire-dev-db-guard.sh
-  . "$REPO_ROOT/scripts/cire-dev-db-guard.sh"
-  assert_cire_dev_db "$REPO_ROOT/cire/api/wrangler.toml"
+  bun "$REPO_ROOT/scripts/cire-dev-db-guard.ts" "$REPO_ROOT/cire/api/wrangler.toml"
+  # The guard above just proved [env.dev]'s D1 is named exactly this, so it is
+  # safe to use as a literal target here.
+  CIRE_DEV_DB_NAME="cire-db-dev"
   WRANGLER=(bunx wrangler --config ../api/wrangler.toml d1 execute "$CIRE_DEV_DB_NAME" --env dev --remote --yes)
 else
   WRANGLER=(bunx wrangler --config ../api/wrangler.toml d1 execute cire-db --local)

@@ -23,9 +23,11 @@ fi
 
 cd "$(dirname "$0")/.."
 
-# shellcheck source=scripts/cire-dev-db-guard.sh
-. ./scripts/cire-dev-db-guard.sh
-assert_cire_dev_db cire/api/wrangler.toml
+bun scripts/cire-dev-db-guard.ts cire/api/wrangler.toml
+
+# The guard above just proved [env.dev]'s D1 is named exactly this, so it is
+# safe to use as a literal target here.
+CIRE_DEV_DB_NAME="cire-db-dev"
 
 echo "db:reset:dev: dropping all tables in $CIRE_DEV_DB_NAME"
 bunx wrangler --config cire/api/wrangler.toml d1 execute "$CIRE_DEV_DB_NAME" \

@@ -200,17 +200,6 @@ jobs:
           diff <(sed 's/^[0-9a-f]*  //' SHA256SUMS | sort) \
                <(find . -type f ! -name SHA256SUMS | sed 's|^\./||' | sort)
 
-      # scripts/cire-dev-db-guard.sh is the only thing standing between the
-      # unattended `db:reset:dev` step and the live-wedding D1, and a weakened
-      # guard's failure mode is *passing* — nothing downstream would notice
-      # until the tables were gone. Its own tests therefore run on every PR,
-      # not just when someone remembers.
-      #
-      # (The changeset gate's two shell tests live in changeset-check.yml
-      # instead, beside the job whose scripts they self-test.)
-      - name: Test the cire dev-db guard
-        run: bash scripts/cire-dev-db-guard.test.sh
-
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
@@ -221,6 +210,15 @@ jobs:
       # tests had never run in CI at all. They do now, along with the D1
       # guard's — which is the pair that matters, since that guard decides
       # whether a deploy proceeds.
+      #
+      # scripts/cire-dev-db-guard.ts is the only thing standing between the
+      # unattended `db:reset:dev` step and the live-wedding D1, and a weakened
+      # guard's failure mode is *passing* — nothing downstream would notice
+      # until the tables were gone. Its own tests therefore run on every PR,
+      # not just when someone remembers.
+      #
+      # (The changeset gate's two shell tests live in changeset-check.yml
+      # instead, beside the job whose scripts they self-test.)
       #
       # The `./` in `bun test ./scripts/` is load-bearing. A bare `scripts/` is
       # a SUBSTRING filter on the test path, not a directory, so it also picks
