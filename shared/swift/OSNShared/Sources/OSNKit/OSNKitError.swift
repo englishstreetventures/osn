@@ -41,6 +41,30 @@ public enum OSNKitError: Error, Sendable, Equatable {
     /// all. Never treat an unrecognized response as success.
     case refreshResponseMalformed(status: Int)
 
+    /// The app's `Info.plist` carries no `OSNTier`. The value is written per
+    /// build configuration by XcodeGen from each app's `project.yml`, so this
+    /// means the target was built without that setting — a build-configuration
+    /// fault, not anything the user did.
+    ///
+    /// There is deliberately no default. A build whose tier cannot be read
+    /// must fail loudly, because the quiet alternative is a release that talks
+    /// to `localhost`.
+    case deploymentTierMissing(key: String)
+
+    /// `OSNTier` holds something outside `local` / `dev` / `staging` /
+    /// `production` — a typo in `project.yml`, which would otherwise resolve
+    /// to a silent fallback.
+    case deploymentTierUnknown(value: String)
+
+    /// This tier needs a host supplied by the build and none was. `dev` and
+    /// `staging` have no fixed osn-api host, and **no Pulse API host is
+    /// deployed at any tier**, so a Pulse build outside `local` has to be told
+    /// where its API lives.
+    case environmentURLMissing(key: String)
+
+    /// The build supplied a host, but it isn't a usable absolute URL.
+    case environmentURLInvalid(key: String, value: String)
+
     /// `SecItemAdd` failed while storing an access token.
     case keychainWriteFailed(status: OSStatus)
 
@@ -69,6 +93,14 @@ extension OSNKitError: CustomStringConvertible {
             return "POST /token returned invalid_grant: \(message). The session is gone; sign the user out."
         case .refreshResponseMalformed(let status):
             return "POST /token returned an unrecognized response (status \(status)). Refusing to treat it as success."
+        case .deploymentTierMissing(let key):
+            return "No \(key) in Info.plist. Each app's project.yml writes it per build configuration; this build has none, so there is no way to tell which tier it should talk to. Refusing to guess."
+        case .deploymentTierUnknown(let value):
+            return "Info.plist names an unknown tier: \(value). Expected one of \(DeploymentTier.allCases.map(\.rawValue).joined(separator: ", "))."
+        case .environmentURLMissing(let key):
+            return "No \(key) in Info.plist, and this tier has no fixed host to fall back to. Set it in the app's project.yml for this build configuration."
+        case .environmentURLInvalid(let key, let value):
+            return "\(key) in Info.plist is not a usable absolute URL: \(value)."
         case .keychainWriteFailed(let status):
             return "Keychain write failed (OSStatus \(status)) while storing the access token."
         case .keychainReadFailed(let status):

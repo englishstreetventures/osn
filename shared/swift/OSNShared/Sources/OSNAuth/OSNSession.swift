@@ -60,6 +60,12 @@ public final class OSNSession {
 
     public private(set) var state: SessionState = .restoring
 
+    /// The identity host this session talks to. Held so a caller building
+    /// its own OSNAuth client (e.g. Musubi's passkey list) uses the same one
+    /// rather than reaching for a literal — `MusubiAccountView` hardcoded
+    /// `.local` before this existed.
+    public let environment: Environment
+
     /// Shared cookie-jar-backed session and token refresher — every
     /// app-specific API client (e.g. `makePulseClient`) is built from these
     /// so it shares the same cookie jar and refresh-in-flight coalescing.
@@ -74,15 +80,20 @@ public final class OSNSession {
     /// a mock `URLSession` through it. This lets `OSNAuthTests` construct an
     /// `OSNSession` wired to `OSNTesting`'s `MockURLProtocol` and assert deterministically
     /// on its behaviour instead of depending on a real network call failing.
-    init(urlSession: URLSession, tokenRefresher: TokenRefresher, loginClient: PasskeyLoginClient) {
+    init(
+        environment: Environment,
+        urlSession: URLSession,
+        tokenRefresher: TokenRefresher,
+        loginClient: PasskeyLoginClient
+    ) {
+        self.environment = environment
         self.urlSession = urlSession
         self.tokenRefresher = tokenRefresher
         self.loginClient = loginClient
     }
 
     /// - Parameter environment: identity host for passkey ceremonies + token
-    ///   refresh. Defaults to `.local` — no deployed Pulse API host exists
-    ///   yet, so this is development-oriented, not a hardcoded prod value.
+    ///   refresh.
     /// - Throws: whatever `SharedCookieJar.makeSession()` throws
     ///   (`OSNKitError.appGroupContainerUnavailable` when the App Group
     ///   container doesn't resolve — the group is registered, so this means
@@ -90,11 +101,20 @@ public final class OSNSession {
     ///   see `pulse/ios/project.yml`). That is an infrastructure/build-config
     ///   failure, not a session state — there is no working `URLSession` to
     ///   hand out if it happens, so it isn't folded into `SessionState`.
-    public convenience init(environment: Environment = .local) throws {
+    ///
+    /// `environment` has no default. It defaulted to `.local`, which meant a
+    /// release build silently talked to `localhost`; app targets now derive it
+    /// from the build configuration via `Environment.resolve(info:)`.
+    public convenience init(environment: Environment) throws {
         let session = try SharedCookieJar.makeSession()
         let tokenRefresher = TokenRefresher(session: session, environment: environment)
         let loginClient = PasskeyLoginClient(session: session, environment: environment)
-        self.init(urlSession: session, tokenRefresher: tokenRefresher, loginClient: loginClient)
+        self.init(
+            environment: environment,
+            urlSession: session,
+            tokenRefresher: tokenRefresher,
+            loginClient: loginClient
+        )
     }
 
     /// Silent restore on launch. A throw from `TokenRefresher.refresh()`
