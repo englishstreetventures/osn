@@ -4,58 +4,6 @@ import OSNTesting
 import Testing
 @testable import OSNAuth
 
-/// Intercepts requests for one `URLSession` at a time — mirrors
-/// `OSNKitTests/TokenRefresherTests.swift`'s `MockURLProtocol`. Each test
-/// target needs its own copy since `URLProtocol` subclasses aren't shared
-/// across SPM targets.
-final class LoginMockURLProtocol: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var handler: (@Sendable (URLRequest) async throws -> (Int, [String: String], Data))?
-    nonisolated(unsafe) static var cookieStorage: HTTPCookieStorage?
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        guard let handler = Self.handler else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            return
-        }
-        Task {
-            do {
-                let (status, headers, data) = try await handler(request)
-                let response = HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: status,
-                    httpVersion: "HTTP/1.1",
-                    headerFields: headers
-                )!
-                if let url = request.url {
-                    let cookies = HTTPCookie.cookies(withResponseHeaderFields: headers, for: url)
-                    if !cookies.isEmpty {
-                        Self.cookieStorage?.setCookies(cookies, for: url, mainDocumentURL: nil)
-                    }
-                }
-                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-                client?.urlProtocol(self, didLoad: data)
-                client?.urlProtocolDidFinishLoading(self)
-            } catch {
-                client?.urlProtocol(self, didFailWithError: error)
-            }
-        }
-    }
-
-    override func stopLoading() {}
-}
-
-private func makeTestSession() -> URLSession {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [LoginMockURLProtocol.self]
-    configuration.httpShouldSetCookies = true
-    configuration.httpCookieAcceptPolicy = .always
-    LoginMockURLProtocol.cookieStorage = configuration.httpCookieStorage
-    return URLSession(configuration: configuration)
-}
-
 private func fixtureAssertion() -> AuthenticationResponseJSON {
     AuthenticationResponseJSON(
         id: "id",
@@ -79,10 +27,10 @@ struct PasskeyLoginClientCompleteTests {
     @Test func successfulCompletePersistsAccessTokenAndVerifiesCookie() async throws {
         try KeychainAccessTokenStore.delete()
         let environment = Environment.local
-        let session = makeTestSession()
+        let session = makeMockSession()
         let client = PasskeyLoginClient(session: session, environment: environment)
 
-        LoginMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             let body = """
             {"session":{"access_token":"at-passkey-1","token_type":"Bearer","expires_in":300,"scope":"openid profile"},
              "profile":{"id":"u1","handle":"someone","email":"someone@example.com","displayName":null,"avatarUrl":null}}
@@ -107,10 +55,10 @@ struct PasskeyLoginClientCompleteTests {
     @Test func completeWithoutRotatedCookieThrowsAndDoesNotPersist() async throws {
         try KeychainAccessTokenStore.delete()
         let environment = Environment.local
-        let session = makeTestSession()
+        let session = makeMockSession()
         let client = PasskeyLoginClient(session: session, environment: environment)
 
-        LoginMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             let body = """
             {"session":{"access_token":"at-passkey-2","token_type":"Bearer","expires_in":300,"scope":"openid profile"},
              "profile":{"id":"u1","handle":"someone","email":"someone@example.com","displayName":null,"avatarUrl":null}}

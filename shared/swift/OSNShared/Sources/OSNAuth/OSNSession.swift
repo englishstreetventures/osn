@@ -72,7 +72,7 @@ public final class OSNSession {
     /// `containerURLProvider` parameter: the public initializer always builds
     /// real dependencies from `environment`, and there is no way to swap in
     /// a mock `URLSession` through it. This lets `OSNAuthTests` construct an
-    /// `OSNSession` wired to `LoginMockURLProtocol` and assert deterministically
+    /// `OSNSession` wired to `OSNTesting`'s `MockURLProtocol` and assert deterministically
     /// on its behaviour instead of depending on a real network call failing.
     init(urlSession: URLSession, tokenRefresher: TokenRefresher, loginClient: PasskeyLoginClient) {
         self.urlSession = urlSession

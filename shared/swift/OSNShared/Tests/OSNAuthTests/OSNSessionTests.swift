@@ -18,15 +18,6 @@ private func makeJWT(sub: String, email: String, handle: String, displayName: St
     return "\(header).\(payload).\(signature)"
 }
 
-private func makeMockSession() -> URLSession {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [LoginMockURLProtocol.self]
-    configuration.httpShouldSetCookies = true
-    configuration.httpCookieAcceptPolicy = .always
-    LoginMockURLProtocol.cookieStorage = configuration.httpCookieStorage
-    return URLSession(configuration: configuration)
-}
-
 @MainActor
 private func makeOSNSession(environment: Environment, session: URLSession, tokenRefresher: TokenRefresher) -> OSNSession {
     OSNSession(
@@ -49,7 +40,7 @@ struct OSNSessionTests {
         let session = makeMockSession()
         let tokenRefresher = TokenRefresher(session: session, environment: environment)
 
-        LoginMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             let body = #"{"error":"invalid_grant","message":"session expired"}"#
             return (400, ["Content-Type": "application/json"], Data(body.utf8))
         }
@@ -67,7 +58,7 @@ struct OSNSessionTests {
         let session = makeMockSession()
         let tokenRefresher = TokenRefresher(session: session, environment: environment)
 
-        LoginMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             (200, [:], Data())
         }
 
@@ -85,7 +76,7 @@ struct OSNSessionTests {
         let tokenRefresher = TokenRefresher(session: session, environment: environment)
 
         let requestCount = Counter()
-        LoginMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             await requestCount.increment()
             let body = """
             {"access_token":"at-fresh-1","token_type":"Bearer","expires_in":300,"scope":"openid profile"}
@@ -118,7 +109,7 @@ struct OSNSessionTests {
         let tokenRefresher = TokenRefresher(session: session, environment: environment)
 
         let requestCount = Counter()
-        LoginMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             await requestCount.increment()
             return (200, [:], Data())
         }
@@ -143,7 +134,7 @@ struct OSNSessionTests {
         let tokenRefresher = TokenRefresher(session: session, environment: environment)
 
         let jwtA = makeJWT(sub: "profile-a", email: "a@example.com", handle: "alice", displayName: "Alice")
-        LoginMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             let body = """
             {"access_token":"\(jwtA)","token_type":"Bearer","expires_in":300,"scope":"openid profile"}
             """
@@ -193,7 +184,7 @@ struct OSNSessionTests {
         let tokenRefresher = TokenRefresher(session: session, environment: environment)
 
         let jwtA = makeJWT(sub: "profile-a", email: "a@example.com", handle: "alice", displayName: "Alice")
-        LoginMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             let body = """
             {"access_token":"\(jwtA)","token_type":"Bearer","expires_in":300,"scope":"openid profile"}
             """

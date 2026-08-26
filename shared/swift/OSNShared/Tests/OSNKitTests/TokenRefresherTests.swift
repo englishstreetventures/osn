@@ -1,67 +1,7 @@
 import Foundation
+import OSNTesting
 import Testing
 @testable import OSNKit
-
-/// Intercepts requests for one `URLSession` at a time. All `TokenRefresher`
-/// scenarios below share `Environment.local`'s fixed host, so — like
-/// `KeychainAccessTokenStoreTests` — they run as ordered steps inside a
-/// single `@Test` function rather than as separate concurrent ones.
-final class MockURLProtocol: URLProtocol, @unchecked Sendable {
-    // Set synchronously, then only ever read after the setting call's own
-    // `await` has already suspended — every scenario below is one sequential
-    // test body, never concurrent test functions racing this property.
-    nonisolated(unsafe) static var handler: (@Sendable (URLRequest) async throws -> (Int, [String: String], Data))?
-
-    // A custom URLProtocol's `didReceive` callback does not run the real
-    // transport's Set-Cookie extraction — Foundation only populates
-    // `httpCookieStorage` for actual network responses. Point this at the
-    // test session's own cookie storage so the mock can do that step by
-    // hand, matching what a genuine `/token` round trip would leave behind.
-    nonisolated(unsafe) static var cookieStorage: HTTPCookieStorage?
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        guard let handler = Self.handler else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            return
-        }
-        Task {
-            do {
-                let (status, headers, data) = try await handler(request)
-                let response = HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: status,
-                    httpVersion: "HTTP/1.1",
-                    headerFields: headers
-                )!
-                if let url = request.url {
-                    let cookies = HTTPCookie.cookies(withResponseHeaderFields: headers, for: url)
-                    if !cookies.isEmpty {
-                        Self.cookieStorage?.setCookies(cookies, for: url, mainDocumentURL: nil)
-                    }
-                }
-                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-                client?.urlProtocol(self, didLoad: data)
-                client?.urlProtocolDidFinishLoading(self)
-            } catch {
-                client?.urlProtocol(self, didFailWithError: error)
-            }
-        }
-    }
-
-    override func stopLoading() {}
-}
-
-private func makeTestSession() -> URLSession {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [MockURLProtocol.self]
-    configuration.httpShouldSetCookies = true
-    configuration.httpCookieAcceptPolicy = .always
-    MockURLProtocol.cookieStorage = configuration.httpCookieStorage
-    return URLSession(configuration: configuration)
-}
 
 extension KeychainSerialTests {
     // Also saves/deletes the real Keychain item (via TokenRefresher's calls
@@ -70,7 +10,7 @@ extension KeychainSerialTests {
     @Test func tokenRefresherScenarios() async throws {
     try KeychainAccessTokenStore.delete()
     let environment = Environment.local
-    let session = makeTestSession()
+    let session = makeMockSession()
     let refresher = TokenRefresher(session: session, environment: environment)
 
     // 1. Success: decodes the grant, persists the rotated cookie, saves the

@@ -5,58 +5,6 @@ import Testing
 @testable import MusubiFeature
 @testable import OSNAuth
 
-/// Intercepts requests for one `URLSession` at a time — mirrors
-/// `OSNAuthTests/PasskeyLoginClientTests.swift`'s `LoginMockURLProtocol`.
-/// Each test target needs its own copy since `URLProtocol` subclasses
-/// aren't shared across SPM targets (see the comment there).
-final class MusubiMockURLProtocol: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var handler: (@Sendable (URLRequest) async throws -> (Int, [String: String], Data))?
-    nonisolated(unsafe) static var cookieStorage: HTTPCookieStorage?
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        guard let handler = Self.handler else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            return
-        }
-        Task {
-            do {
-                let (status, headers, data) = try await handler(request)
-                let response = HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: status,
-                    httpVersion: "HTTP/1.1",
-                    headerFields: headers
-                )!
-                if let url = request.url {
-                    let cookies = HTTPCookie.cookies(withResponseHeaderFields: headers, for: url)
-                    if !cookies.isEmpty {
-                        Self.cookieStorage?.setCookies(cookies, for: url, mainDocumentURL: nil)
-                    }
-                }
-                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-                client?.urlProtocol(self, didLoad: data)
-                client?.urlProtocolDidFinishLoading(self)
-            } catch {
-                client?.urlProtocol(self, didFailWithError: error)
-            }
-        }
-    }
-
-    override func stopLoading() {}
-}
-
-private func makeMockSession() -> URLSession {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [MusubiMockURLProtocol.self]
-    configuration.httpShouldSetCookies = true
-    configuration.httpCookieAcceptPolicy = .always
-    MusubiMockURLProtocol.cookieStorage = configuration.httpCookieStorage
-    return URLSession(configuration: configuration)
-}
-
 @MainActor
 private func makeOSNSession(environment: Environment, session: URLSession, tokenRefresher: TokenRefresher) -> OSNSession {
     OSNSession(
@@ -112,7 +60,7 @@ struct FetchPasskeysTests {
         let session = makeMockSession()
         let tokenRefresher = TokenRefresher(session: session, environment: environment)
 
-        MusubiMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             let body = """
             {"access_token":"at-fresh-1","token_type":"Bearer","expires_in":300,"scope":"openid profile"}
             """
@@ -127,7 +75,7 @@ struct FetchPasskeysTests {
         await osnSession.restore()
         #expect(osnSession.state == .signedIn(nil))
 
-        MusubiMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             let body = """
             {"passkeys":[{"id":"pk-1","label":"iPhone","aaguid":null,"transports":null,"backupEligible":null,"backupState":null,"createdAt":1,"lastUsedAt":null}]}
             """
@@ -150,7 +98,7 @@ struct FetchPasskeysTests {
         let session = makeMockSession()
         let tokenRefresher = TokenRefresher(session: session, environment: environment)
 
-        MusubiMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             let body = """
             {"access_token":"at-fresh-2","token_type":"Bearer","expires_in":300,"scope":"openid profile"}
             """
@@ -165,7 +113,7 @@ struct FetchPasskeysTests {
         await osnSession.restore()
         #expect(osnSession.state == .signedIn(nil))
 
-        MusubiMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             let body = #"{"error":"server_error","message":"boom"}"#
             return (500, ["Content-Type": "application/json"], Data(body.utf8))
         }

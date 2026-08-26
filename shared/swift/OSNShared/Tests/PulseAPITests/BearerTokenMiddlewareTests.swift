@@ -7,64 +7,6 @@ import Testing
 
 @testable import PulseAPI
 
-/// Self-contained copy of `OSNKitTests`' `MockURLProtocol` pattern — this
-/// test target can't import `OSNKitTests` (separate test target), and the
-/// mock is small enough that duplicating it beats a shared-infra refactor.
-final class MiddlewareMockURLProtocol: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var handler: (@Sendable (URLRequest) async throws -> (Int, [String: String], Data))?
-
-    // A custom URLProtocol's `didReceive` callback does not run the real
-    // transport's Set-Cookie extraction — Foundation only populates
-    // `httpCookieStorage` for actual network responses. Point this at the
-    // test session's own cookie storage so the mock can do that step by
-    // hand, matching what a genuine `/token` round trip would leave behind
-    // (TokenRefresher checks the cookie actually landed in the jar).
-    nonisolated(unsafe) static var cookieStorage: HTTPCookieStorage?
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        guard let handler = Self.handler else {
-            client?.urlProtocol(self, didFailWithError: URLError(.badServerResponse))
-            return
-        }
-        Task {
-            do {
-                let (status, headers, data) = try await handler(request)
-                let response = HTTPURLResponse(
-                    url: request.url!,
-                    statusCode: status,
-                    httpVersion: "HTTP/1.1",
-                    headerFields: headers
-                )!
-                if let url = request.url {
-                    let cookies = HTTPCookie.cookies(withResponseHeaderFields: headers, for: url)
-                    if !cookies.isEmpty {
-                        Self.cookieStorage?.setCookies(cookies, for: url, mainDocumentURL: nil)
-                    }
-                }
-                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-                client?.urlProtocol(self, didLoad: data)
-                client?.urlProtocolDidFinishLoading(self)
-            } catch {
-                client?.urlProtocol(self, didFailWithError: error)
-            }
-        }
-    }
-
-    override func stopLoading() {}
-}
-
-private func makeTestSession() -> URLSession {
-    let configuration = URLSessionConfiguration.ephemeral
-    configuration.protocolClasses = [MiddlewareMockURLProtocol.self]
-    configuration.httpShouldSetCookies = true
-    configuration.httpCookieAcceptPolicy = .always
-    MiddlewareMockURLProtocol.cookieStorage = configuration.httpCookieStorage
-    return URLSession(configuration: configuration)
-}
-
 private actor Counter {
     private(set) var value = 0
     func increment() { value += 1 }
@@ -89,11 +31,11 @@ struct BearerTokenMiddlewareTests {
         try KeychainAccessTokenStore.delete()
         try KeychainAccessTokenStore.save("stale-token", expiresIn: -10)
 
-        let session = makeTestSession()
+        let session = makeMockSession()
         let refresher = TokenRefresher(session: session, environment: .local)
         let middleware = BearerTokenMiddleware(tokenRefresher: refresher)
 
-        MiddlewareMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             let body = #"{"access_token":"fresh-token","token_type":"Bearer","expires_in":300,"scope":"openid profile"}"#
             return (
                 200,
@@ -123,13 +65,13 @@ struct BearerTokenMiddlewareTests {
         try KeychainAccessTokenStore.delete()
         try KeychainAccessTokenStore.save("valid-token", expiresIn: 300)
 
-        let session = makeTestSession()
+        let session = makeMockSession()
         let refresher = TokenRefresher(session: session, environment: .local)
         let middleware = BearerTokenMiddleware(tokenRefresher: refresher)
 
         // No handler installed — a refresh call would crash the test by
         // hitting `didFailWithError`, proving the cached token was used.
-        MiddlewareMockURLProtocol.handler = nil
+        MockURLProtocol.handler = nil
 
         let seenAuthorization = Recorder<String?>()
         _ = try await middleware.intercept(
@@ -149,11 +91,11 @@ struct BearerTokenMiddlewareTests {
         try KeychainAccessTokenStore.delete()
         try KeychainAccessTokenStore.save("looks-valid", expiresIn: 300)
 
-        let session = makeTestSession()
+        let session = makeMockSession()
         let refresher = TokenRefresher(session: session, environment: .local)
         let middleware = BearerTokenMiddleware(tokenRefresher: refresher)
 
-        MiddlewareMockURLProtocol.handler = { _ in
+        MockURLProtocol.handler = { _ in
             let body = #"{"access_token":"rotated-token","token_type":"Bearer","expires_in":300,"scope":"openid profile"}"#
             return (
                 200,
@@ -188,7 +130,7 @@ struct BearerTokenMiddlewareTests {
         try KeychainAccessTokenStore.delete()
         try KeychainAccessTokenStore.save("looks-valid", expiresIn: 300)
 
-        let session = makeTestSession()
+        let session = makeMockSession()
         let refresher = TokenRefresher(session: session, environment: .local)
         let middleware = BearerTokenMiddleware(tokenRefresher: refresher)
 
