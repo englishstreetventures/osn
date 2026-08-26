@@ -8,6 +8,7 @@ import Testing
 @MainActor
 private func makeOSNSession(environment: Environment, session: URLSession, tokenRefresher: TokenRefresher) -> OSNSession {
     OSNSession(
+        environment: environment,
         urlSession: session,
         tokenRefresher: tokenRefresher,
         loginClient: PasskeyLoginClient(session: session, environment: environment)

@@ -1,6 +1,7 @@
 import AuthenticationServices
 import MusubiFeature
 import OSNAuth
+import OSNKit
 import SwiftUI
 import UIKit
 
@@ -23,7 +24,10 @@ struct MusubiApp: App {
             .task {
                 guard session == nil, sessionError == nil else { return }
                 do {
-                    session = try OSNSession()
+                    // The identity host comes from this build's configuration,
+                    // via `OSNTier` in Info.plist — never a `.local` default,
+                    // which would ship a release pointed at localhost.
+                    session = try OSNSession(environment: Environment.resolve())
                 } catch {
                     sessionError = String(describing: error)
                 }

@@ -27,12 +27,14 @@ public final class PulseSession {
     public let api: any APIProtocol
 
     /// - Parameters:
-    ///   - environment: identity host for passkey ceremonies + token
-    ///     refresh. Defaults to `.local` — no deployed Pulse API host exists
-    ///     yet, so this is development-oriented, not a hardcoded prod value.
-    ///   - pulseEnvironment: Pulse API host for `api`. Defaults to `.local`
-    ///     for the same reason.
-    public init(environment: Environment = .local, pulseEnvironment: PulseEnvironment = .local) throws {
+    ///   - environment: identity host for passkey ceremonies + token refresh.
+    ///   - pulseEnvironment: Pulse API host for `api`.
+    ///
+    /// Neither has a default. They used to default to `.local`, which meant a
+    /// release build silently talked to `localhost` — see
+    /// `Environment.resolve(info:)`, which the app target calls to derive
+    /// both from the build configuration.
+    public init(environment: Environment, pulseEnvironment: PulseEnvironment) throws {
         let auth = try OSNSession(environment: environment)
         self.auth = auth
         self.api = makePulseClient(environment: pulseEnvironment, session: auth.urlSession, tokenRefresher: auth.tokenRefresher)

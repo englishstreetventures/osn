@@ -225,6 +225,10 @@ wiki/business/
 # block in `project.yml`, same as it writes the `.xcodeproj` — the committed
 # source of truth is the YAML, not the generated plist.
 */ios/*.entitlements
+# Same deal for the Info.plist: XcodeGen writes it from the `info.properties`
+# block in `project.yml`, which is where the per-configuration tier and hosts
+# are declared. Committing the output would let it drift from that source.
+*/ios/*-Info.plist
 .build/
 DerivedData/
 .swiftpm/

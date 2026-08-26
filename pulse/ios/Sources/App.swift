@@ -1,5 +1,7 @@
 import AuthenticationServices
 import OSNAuth
+import OSNKit
+import PulseAPI
 import PulseFeature
 import SwiftUI
 import UIKit
@@ -23,7 +25,15 @@ struct PulseApp: App {
             .task {
                 guard session == nil, sessionError == nil else { return }
                 do {
-                    session = try PulseSession()
+                    // Both hosts come from this build's configuration, via
+                    // `OSNTier` in Info.plist — never a `.local` default, which
+                    // would ship a release pointed at localhost. A build that
+                    // cannot answer the question throws, and the `sessionError`
+                    // branch below says so instead of showing an empty feed.
+                    session = try PulseSession(
+                        environment: Environment.resolve(),
+                        pulseEnvironment: PulseEnvironment.resolve()
+                    )
                 } catch {
                     sessionError = String(describing: error)
                 }

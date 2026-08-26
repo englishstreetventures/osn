@@ -34,9 +34,31 @@ targets:
         DEVELOPMENT_TEAM: FV59Y8RSUH
         CODE_SIGN_STYLE: Automatic
         TARGETED_DEVICE_FAMILY: "1"
-        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
-        GENERATE_INFOPLIST_FILE: "YES"
         SWIFT_VERSION: "6.2"
+      configs:
+        # Read by `DeploymentTier.resolve()` through the Info.plist keys below.
+        # There is no default anywhere in the Swift code: a build that does not
+        # set these fails loudly rather than talking to localhost in release.
+        Debug:
+          OSN_TIER: local
+          OSN_ISSUER_URL: http://localhost:4000
+        Release:
+          OSN_TIER: production
+          # `production` resolves to the fixed id.musubi.social host in
+          # `Environment`, so this is unused there — kept for a dev/staging
+          # build, which has no fixed host.
+          OSN_ISSUER_URL: ""
+    # XcodeGen writes this plist, the same way it writes the entitlements file
+    # and the .xcodeproj — all three are gitignored. It replaces
+    # GENERATE_INFOPLIST_FILE because `INFOPLIST_KEY_*` build settings only
+    # cover Apple's own documented keys; a custom one like `OSNTier` cannot be
+    # injected that way, and the Swift side needs to read it at launch.
+    info:
+      path: Musubi-Info.plist
+      properties:
+        UILaunchScreen: {}
+        OSNTier: $(OSN_TIER)
+        OSNIssuerURL: $(OSN_ISSUER_URL)
     # The App Group `group.social.musubi.session` is registered under team
     # FV59Y8RSUH, so the shared cookie jar resolves and every OSN app signs in
     # once. The string must stay in step with
