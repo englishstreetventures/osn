@@ -106,6 +106,10 @@ public final class OSNSession {
     /// release build silently talked to `localhost`; app targets now derive it
     /// from the build configuration via `Environment.resolve(info:)`.
     public convenience init(environment: Environment) throws {
+        // Before anything reads the Keychain: move a pre-group item into the
+        // shared access group, so an app updating from an older build keeps
+        // its signed-in state. A no-op on every later launch, and off iOS.
+        try? KeychainAccessTokenStore.migrateToSharedAccessGroup()
         let session = try SharedCookieJar.makeSession()
         let tokenRefresher = TokenRefresher(session: session, environment: environment)
         let loginClient = PasskeyLoginClient(session: session, environment: environment)
@@ -173,15 +177,38 @@ public final class OSNSession {
         }
     }
 
+    /// Ends the session everywhere it is recorded: on the server, in the
+    /// Keychain, and in the shared cookie jar.
+    ///
     /// `TokenRefresher.logout()` already deletes the Keychain access token
     /// internally on every path (even a failed network call). The explicit
     /// `KeychainAccessTokenStore.delete()` here is defensive — `delete()`
     /// treats "already gone" as success (`errSecItemNotFound`), so calling
     /// it after `logout()` is a no-op, not a race.
+    ///
+    /// The cookie needs clearing by hand for a reason worth stating: the
+    /// server ends a session by returning clearing cookies from `POST
+    /// /logout`, so a request that never *reached* the server clears nothing.
+    /// The jar is shared across every OSN app in the App Group, so a stale
+    /// cookie left there is not just this app's problem — the next sibling to
+    /// foreground would present it and look signed in.
     public func signOut() async {
         try? await tokenRefresher.logout()
         try? KeychainAccessTokenStore.delete()
+        clearSessionCookie()
         state = .signedOut
+    }
+
+    /// Removes the session cookie for this environment from the shared jar.
+    /// The name is derived exactly as the server derives it — see
+    /// `sessionCookieName(for:)`, which is the one place that decides between
+    /// the `__Host-` and bare spellings.
+    private func clearSessionCookie() {
+        guard let storage = urlSession.configuration.httpCookieStorage else { return }
+        let name = sessionCookieName(for: environment)
+        for cookie in storage.cookies(for: environment.baseURL) ?? [] where cookie.name == name {
+            storage.deleteCookie(cookie)
+        }
     }
 
     /// Loads the Keychain-stored access token and refreshes it if it's

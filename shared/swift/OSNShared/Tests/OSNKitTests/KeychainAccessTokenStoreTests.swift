@@ -33,3 +33,30 @@ struct KeychainSerialTests {
         #expect(try KeychainAccessTokenStore.load() == nil)
     }
 }
+
+extension KeychainSerialTests {
+    /// The migration's reachable branch on this host.
+    ///
+    /// `accessGroup` is `nil` off iOS — an unentitled macOS process asking for
+    /// `kSecAttrAccessGroup` gets `errSecMissingEntitlement` (−34018) on every
+    /// call, which would turn all four Keychain-touching test targets red — so
+    /// the only branch `swift test` can execute is the early return. What it
+    /// does prove is that the migration is harmless where it cannot apply, and
+    /// that it never disturbs a stored token: the actual move between groups is
+    /// device-only and is verified by hand.
+    @Test func migrationIsANoOpWithNoAccessGroupConfigured() throws {
+        #expect(KeychainAccessTokenStore.accessGroup == nil, "off iOS this must stay nil, or the suite cannot run")
+
+        try KeychainAccessTokenStore.delete()
+        try KeychainAccessTokenStore.save("token-before", expiresIn: 300)
+
+        try KeychainAccessTokenStore.migrateToSharedAccessGroup()
+        #expect(try KeychainAccessTokenStore.load()?.token == "token-before")
+
+        // Idempotent: running it again changes nothing and raises nothing.
+        try KeychainAccessTokenStore.migrateToSharedAccessGroup()
+        #expect(try KeychainAccessTokenStore.load()?.token == "token-before")
+
+        try KeychainAccessTokenStore.delete()
+    }
+}

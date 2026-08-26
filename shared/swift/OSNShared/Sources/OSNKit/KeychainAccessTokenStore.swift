@@ -9,6 +9,82 @@ public enum KeychainAccessTokenStore {
     private static let service = "OSNKit.accessToken"
     private static let account = "current"
 
+    /// The Keychain access group the item lives in, or `nil` for an
+    /// app-private item.
+    ///
+    /// Without a group each app gets its **own** item, so signing out of Pulse
+    /// left Musubi's copy of the access token working for the rest of its
+    /// ≤5-minute TTL even though the shared session was already dead. iOS
+    /// accepts an App Group identifier here given the App Groups entitlement
+    /// both targets already declare, so this needs no new entitlement and no
+    /// provisioning-profile regeneration.
+    ///
+    /// `nil` off iOS, and that is not a detail: `swift test` runs on an
+    /// unentitled macOS host, and an unentitled process that asks for an
+    /// access group gets `errSecMissingEntitlement` (−34018) on *every* call.
+    /// Four test targets write to the real Keychain, so a hardcoded group
+    /// would turn the whole suite red. It is a `var` so a test can force
+    /// either branch.
+    #if os(iOS)
+    public nonisolated(unsafe) static var accessGroup: String? = osnSessionAppGroupIdentifier
+    #else
+    public nonisolated(unsafe) static var accessGroup: String? = nil
+    #endif
+
+    /// Moves a pre-existing app-private item into the shared access group,
+    /// once.
+    ///
+    /// Called from `OSNSession`'s initializer, which is the one place every
+    /// app builds a session, so an app updating from a build that predates
+    /// group sharing keeps its signed-in state instead of being silently
+    /// logged out.
+    ///
+    /// Idempotent by construction: it reads the ungrouped item first and
+    /// returns immediately when there is none, so a second run does nothing
+    /// rather than raising `errSecDuplicateItem` (−25299). A no-op when
+    /// `accessGroup` is `nil` — there is nowhere to migrate to.
+    public static func migrateToSharedAccessGroup() throws {
+        guard accessGroup != nil else { return }
+
+        // Named `legacyQuery`, not `query`: a local called `query` would shadow
+        // the `query(accessGroup:)` above, and the later call to it would
+        // resolve to the dictionary instead of the function.
+        let legacyQuery = query(accessGroup: nil)
+
+        var readQuery = legacyQuery
+        readQuery[kSecReturnData as String] = true
+        readQuery[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: AnyObject?
+        let status = SecItemCopyMatching(readQuery as CFDictionary, &result)
+        switch status {
+        case errSecItemNotFound:
+            return
+        case errSecSuccess:
+            break
+        default:
+            throw OSNKitError.keychainReadFailed(status: status)
+        }
+        guard let data = result as? Data else {
+            throw OSNKitError.keychainReadFailed(status: status)
+        }
+
+        // Write the grouped copy before dropping the original: a failure
+        // halfway leaves the user signed in rather than signed out.
+        SecItemDelete(baseQuery() as CFDictionary)
+        var write = baseQuery()
+        write[kSecValueData as String] = data
+        write[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        let writeStatus = SecItemAdd(write as CFDictionary, nil)
+        guard writeStatus == errSecSuccess else {
+            throw OSNKitError.keychainWriteFailed(status: writeStatus)
+        }
+
+        let deleteStatus = SecItemDelete(legacyQuery as CFDictionary)
+        guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
+            throw OSNKitError.keychainDeleteFailed(status: deleteStatus)
+        }
+    }
+
     /// A cached access token plus the moment it expires, so callers can
     /// judge freshness without a second round trip to the server.
     public struct StoredAccessToken: Sendable, Equatable {
@@ -67,10 +143,18 @@ public enum KeychainAccessTokenStore {
     }
 
     private static func baseQuery() -> [String: Any] {
-        [
+        query(accessGroup: accessGroup)
+    }
+
+    private static func query(accessGroup: String?) -> [String: Any] {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
         ]
+        if let accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+        return query
     }
 }
