@@ -172,13 +172,21 @@ Tracked with `C-` IDs in `xchromo/osn-tracker` under `label:compliance`:
    three checks that each cover a different failure:
    `tools/oxlint/anti-slop/SHA256SUMS`
    plus `scripts/verify-vendored-anti-slop.sh` catch a change to the tree's
-   contents or file set; the same script, given a base ref, also catches a
-   change to that tree with no matching change to the pinned commit, which is
-   what a self-certifying manifest cannot see; and `.github/CODEOWNERS` puts the
-   tree behind a named owner. What none of them do is compare the tree against
-   upstream — that claim rests on the pin and on whoever performs the next
-   re-vendor. Reviewing the pin is a manual step at each re-vendor, not a
-   scheduled control.
+   contents, its file set, or the mode of any file in it; the same script,
+   given a base ref, also catches a change to that tree with no matching change
+   to the pinned commit, which is what a self-certifying manifest cannot see;
+   and `.github/CODEOWNERS` puts the tree behind a named owner. What none of
+   them do is compare the tree against upstream — that claim rests on the pin
+   and on whoever performs the next re-vendor. Reviewing the pin is a manual
+   step at each re-vendor, not a scheduled control.
+
+   **Modes, added 2026-08-30:** contents and names were checked, modes were
+   not, so flipping a vendored file to `100755` passed both halves. Nothing
+   here is executed, so it was a stale guarantee rather than a live hole — but
+   the claim this control makes is byte-for-byte fidelity to a reviewed tree,
+   and a tracked attribute of every file in it was going unread. Now asserted
+   as an invariant (`100644`, or `120000` for a symlink) rather than recorded
+   in the manifest, which keeps `SHA256SUMS` a plain `shasum -c` file.
 6. **`security.txt` + VDP** — public coordinated-disclosure channel + 90-day disclosure clock. ID: **C-M8**.
 7. **Quarterly access review** — calendar event + checklist landing in `wiki/compliance/access-reviews/<YYYY>-<Q>.md`. ID: **C-L3**.
 8. **Org-level GitHub hardening** — required MFA, required signed commits, branch

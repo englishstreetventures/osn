@@ -61,6 +61,27 @@ cd "$root/$vendored"
 shasum -c SHA256SUMS
 diff <(sed 's/^[0-9a-f]*  //' SHA256SUMS | sort) \
      <(git ls-files | grep -v '^SHA256SUMS$' | sort)
+
+# Half 1b: modes. `shasum` hashes contents and the diff above compares names,
+# so flipping a vendored file from 100644 to 100755 passed both. Nothing here
+# is executed — oxlint imports the modules — so the executable bit changes
+# nothing at runtime, but the claim this tree makes is that it is byte-for-byte
+# what was reviewed, and a tracked attribute of every file in it was going
+# unchecked.
+#
+# Asserted as an invariant rather than recorded in a manifest: this is library
+# source, so every file is a plain non-executable blob (100644) and the only
+# other mode worth allowing is a symlink (120000), which `git ls-files` lists
+# and the recipe above deliberately includes. That needs no second manifest and
+# no generator/checker agreement to keep in step. A re-vendor that genuinely
+# brings an executable is a thing to look at, not to wave through.
+unexpected=$(git ls-files -s | awk '$1 != "100644" && $1 != "120000" { print $1, $4 }')
+if [ -n "$unexpected" ]; then
+  echo "❌ anti-slop: unexpected file mode in the vendored tree." >&2
+  echo "   Expected 100644 (or 120000 for a symlink); found:" >&2
+  echo "$unexpected" | sed 's/^/     /' >&2
+  exit 1
+fi
 cd "$root"
 
 if [ -z "$base" ]; then

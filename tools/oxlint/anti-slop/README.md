@@ -32,11 +32,17 @@ which lists a symlink like any other tracked path, while `-type f` silently skip
 one. Generator and checker have to agree on what counts as a file, or a vendored
 symlink shows up as a spurious diff on the next run.
 
-One thing neither half sees: a file's mode. `shasum` hashes contents, and the file
-set is a list of names, so flipping `100644` to `100755` on a vendored file passes
-both checks. Nothing in this tree is executed by the linter, so that is a stale
-guarantee rather than a live hole — but `git diff --summary` on the vendored path
-is the thing to read if a re-vendor ever looks clean and behaves differently.
+Modes are checked separately, and as an invariant rather than a manifest: every
+tracked file here must be `100644`, or `120000` for a symlink. `shasum` hashes
+contents and the file-set diff compares names, so a flip from `100644` to
+`100755` used to pass both. Nothing in this tree is executed — oxlint imports
+the modules — so the bit changes nothing at runtime; what it changed was the
+truth of the claim that this directory is byte-for-byte what was reviewed.
+
+Asserting the invariant rather than recording modes in `SHA256SUMS` keeps that
+file a plain `shasum -c`-readable manifest and means the recipe above needs no
+second column. A re-vendor that genuinely brings an executable file fails the
+check — which is the point: it is a thing to look at, not to wave through.
 
 Keep `oxlint` and `@oxlint/plugins` on the same version in `package.json` — the
 plugin API is not stable across minors.

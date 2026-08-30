@@ -91,6 +91,16 @@ git -C "$a" -c user.email=t@t -c user.name=t commit -qm add
 run_case "added tracked file fails" "$a" 1
 run_case "added tracked file fails with GIT_DIR set" "$a" 1 gitdir
 
+# A mode flip on a vendored file. Contents and the file set are both unchanged,
+# so `shasum -c` and the name diff pass — this is the case that used to land
+# with no guard firing at all.
+m="$tmp/chmod"
+make_fixture "$m"
+git -C "$m" update-index --chmod=+x tools/oxlint/anti-slop/index.ts
+git -C "$m" -c user.email=t@t -c user.name=t commit -qm chmod
+run_case "executable bit on a vendored file fails" "$m" 1
+run_case "executable bit on a vendored file fails with GIT_DIR set" "$m" 1 gitdir
+
 # The other direction: a file SHA256SUMS lists that is no longer tracked.
 d="$tmp/deleted"
 make_fixture "$d"
