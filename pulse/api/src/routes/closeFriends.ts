@@ -4,7 +4,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
 import { makeCallerResolver } from "../lib/caller";
-import { DEFAULT_JWKS_URL } from "../lib/jwks";
+import { DEFAULT_VERIFICATION, type OsnTokenVerification } from "../lib/jwks";
 import { checkWriteRateLimit, createDefaultWriteRateLimiter } from "../lib/rate-limit";
 import {
   addCloseFriend,
@@ -30,7 +30,7 @@ import { getConnectionIds, getProfileDisplays } from "../services/graphBridge";
  */
 export const createCloseFriendsRoutes = (
   dbLayer: Layer.Layer<Db> = DbLive,
-  jwksUrl: string = DEFAULT_JWKS_URL,
+  verification: OsnTokenVerification = DEFAULT_VERIFICATION,
   _testKey?: CryptoKey,
   /**
    * Per-USER limiter (keyed on `claims.profileId`) shared by the add +
@@ -41,7 +41,7 @@ export const createCloseFriendsRoutes = (
 ) => {
   // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
   const runtime = ManagedRuntime.make(dbLayer);
-  const resolveCaller = makeCallerResolver({ runtime, jwksUrl, testKey: _testKey });
+  const resolveCaller = makeCallerResolver({ runtime, verification, testKey: _testKey });
   return new Elysia({ prefix: "/close-friends" })
     .get(
       "/",

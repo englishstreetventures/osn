@@ -12,7 +12,7 @@ related:
   - "[[cire-vendors]]"
   - "[[musubi-identity-migration]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-08-15
+last-reviewed: 2026-08-30
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -368,6 +368,31 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | `OSN_ACCESS_TOKEN_TTL` / `OSN_REFRESH_TOKEN_TTL` | `[env.<env>.vars]` | Optional | Defaults 300s / 2592000s. |
 | `PULSE_API_URL` / `ZAP_API_URL` | `[env.<env>.vars]` | Optional | Outbound ARC key registration for account-erasure fan-out. |
 
+### 3.1b Access-token issuer pinning (all downstream Workers)
+
+Since 2026-08-30 every service that verifies an OSN access token pins the
+`iss` claim, not just the signature and audience. A token minted by a
+different OSN deployment verifies fine against its own JWKS; `iss` is the only
+claim that says which deployment minted it.
+
+That makes `OSN_ISSUER_URL` a **paired** value: the verifier's copy must equal
+what osn-api mints, byte for byte, so **the two flip in the same deploy**. A
+mismatch 401s every authenticated request, and the 401 is indistinguishable
+from an expired token — there is nothing in the response to say the issuer is
+wrong.
+
+| Worker | Var | Required? | Prod value |
+|---|---|---|---|
+| osn-api | `OSN_ISSUER_URL` | **Yes** | `https://id.musubi.social` — the value every row below must match |
+| cire-api | `OSN_ISSUER_URL` | **Yes — 503 without it** | `https://id.musubi.social` |
+| pulse-api | `OSN_ISSUER_URL` | **Yes** | `https://id.musubi.social` (no deploy job yet) |
+| zap-api | `OSN_ISSUER_URL` | **Yes** | `https://id.musubi.social` (prod D1 unprovisioned; deploy job skips) |
+
+A trailing slash on either side is tolerated — the comparison normalises both
+— but nothing else is. An **empty** value is rejected outright rather than
+read as "no issuer check": a half-configured tier fails closed instead of
+quietly accepting tokens from anywhere.
+
 ### 3.2 cire-api (Cloudflare Worker)
 
 | Name | How to set | Required? | Notes |
@@ -375,7 +400,7 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | D1 `database_id` | `wrangler.toml` (top-level + `[env.production]`) | **Yes** | §2.1 — `6e835474-e0a7-4db9-8883-3247c3c891cd`, already set. |
 | `WEB_ORIGIN` | `wrangler.toml` `[env.production.vars]` | **Yes** | Comma-sep allowlist; must include the guest, organiser **and** vendor origins. Each entry must be `https://…` or the Worker fails closed at the edge (`src/index.ts:59-74`). Prod = **`https://invite.cireweddings.com,https://host.cireweddings.com,https://vendor.cireweddings.com`**. |
 | `OSN_JWKS_URL` | `wrangler.toml` `[env.production.vars]` | **Yes** | Deployed osn-api JWKS URL (`<OSN_ISSUER_URL>/.well-known/jwks.json`). Prod = **`https://id.musubi.social/.well-known/jwks.json`**. |
-| `OSN_ISSUER_URL` | `wrangler.toml` `[env.production.vars]` | **Yes** | Deployed osn-api origin; must equal osn-api's own `OSN_ISSUER_URL`, since it is the `iss` claim cire checks. Prod = **`https://id.musubi.social`**. |
+| `OSN_ISSUER_URL` | `wrangler.toml` `[env.production.vars]` | **Yes — Worker answers 503 without it** | Deployed osn-api origin; must equal osn-api's own `OSN_ISSUER_URL`, since it is the `iss` claim cire checks. Since 2026-08-30 it is on the edge required-vars list (`cire/api/src/index.ts`), so an unset value takes the Worker down rather than falling back to the localhost default and 401ing every request with nothing to say why. Prod = **`https://id.musubi.social`**. |
 | `OSN_AUDIENCE` | `wrangler.toml` `[env.production.vars]` | **Yes** | `osn-access` (the user access-token audience). |
 | `CIRE_API_ARC_PRIVATE_KEY` | `wrangler secret put CIRE_API_ARC_PRIVATE_KEY` | **Conditional** | ES256 JWK (string). Only if guest account-linking is enabled (§6.2). Absent ⇒ linking `POST` answers 503 (`src/index.ts:78-85`, `services/osn-bridge.ts:99-113`). |
 | `CIRE_API_ARC_KEY_ID` | `wrangler secret put CIRE_API_ARC_KEY_ID` | **Conditional** | `kid` matching the public key registered in osn-api `service_accounts` for serviceId `cire-api`. §6.2 |

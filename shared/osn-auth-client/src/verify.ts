@@ -76,6 +76,20 @@ type VerifyOutcome =
    */
   | { kind: "terminal" };
 
+/**
+ * Drops one trailing `/`.
+ *
+ * `jose` compares `iss` byte for byte, so `https://id.musubi.social/` and
+ * `https://id.musubi.social` are different issuers. Six `wrangler.toml` blocks
+ * carry that value by hand, and a stray slash in any of them would 401 every
+ * authenticated request with nothing else to show for it. Normalising both
+ * sides removes the typo class — the same treatment CORS origins already get
+ * in `zap/api/src/lib/cors-config.ts`.
+ */
+function stripTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
 async function verifyTokenWithKey(
   token: string,
   key: CryptoKey,
@@ -94,9 +108,27 @@ async function verifyTokenWithKey(
       // than a token that never ages out.
       requiredClaims: ["exp"],
     };
-    // Unset issuer ⇒ omit the option ⇒ jose does not enforce `iss` (X2).
-    if (issuer) verifyOptions.issuer = issuer;
+    // Three states, not two. Omitting `issuer` entirely means the caller has
+    // not asked for the check — the rollout-safety posture the option shipped
+    // with. Supplying one enforces it. Supplying an EMPTY one is a
+    // misconfiguration, and the one case that must not resolve to "no check":
+    // an expected issuer read from an unset env var is exactly how a
+    // half-configured deployment would end up accepting tokens from any OSN
+    // install while looking configured. `extractClaims` rejects that before
+    // reaching here; this is the second half of the same guard.
+    if (issuer === "") return { kind: "terminal" };
     const { payload } = await jwtVerify(token, key, verifyOptions);
+    // `iss` is compared here rather than handed to `jose`, so both sides can
+    // be normalised. One check, not two: a token carrying no `iss` — or a
+    // non-string one — reduces to `""`, which never equals an expected issuer,
+    // since the empty case is rejected above. Adding `iss` to `requiredClaims`
+    // as well would be a second mechanism for the same rejection.
+    if (issuer !== undefined) {
+      const claimed = typeof payload.iss === "string" ? payload.iss : "";
+      if (stripTrailingSlash(claimed) !== stripTrailingSlash(issuer)) {
+        return { kind: "terminal" };
+      }
+    }
     const profileId = typeof payload.sub === "string" ? payload.sub : null;
     if (!profileId) return { kind: "terminal" };
     return {
@@ -127,6 +159,16 @@ export async function extractClaims(
   const token = authHeader.slice(7);
   const audience = options?.audience;
   const issuer = options?.issuer;
+
+  // An issuer asked for but empty is a configuration failure, not a request
+  // for no check. Fail closed here rather than silently verifying nothing —
+  // see `verifyTokenWithKey`.
+  //
+  // `=== ""` rather than `"issuer" in options`: a caller that spreads its
+  // config passes the key explicitly set to `undefined`, which `in` treats as
+  // present. Only the empty string is the misconfiguration; `undefined` is
+  // still the honest "not asking for this check".
+  if (options?.issuer === "") return null;
 
   let header: { kid?: string; alg?: string };
   try {

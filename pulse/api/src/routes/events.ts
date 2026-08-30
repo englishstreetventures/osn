@@ -13,7 +13,7 @@ import { Elysia, t } from "elysia";
 import { validateBbox } from "../lib/bbox";
 import { makeCallerResolver } from "../lib/caller";
 import { MAX_PRICE_MAJOR } from "../lib/currency";
-import { DEFAULT_JWKS_URL } from "../lib/jwks";
+import { DEFAULT_VERIFICATION, type OsnTokenVerification } from "../lib/jwks";
 import { MAX_EVENT_GUESTS } from "../lib/limits";
 import { checkWriteRateLimit, createDefaultWriteRateLimiter } from "../lib/rate-limit";
 import { shareSourceTypeBox, type ShareSource } from "../lib/shareSource";
@@ -309,7 +309,7 @@ export function createDefaultExposureRateLimiter(): RateLimiterBackend {
 
 export const createEventsRoutes = (
   dbLayer: Layer.Layer<Db> = DbLive,
-  jwksUrl: string = DEFAULT_JWKS_URL,
+  verification: OsnTokenVerification = DEFAULT_VERIFICATION,
   _testKey?: CryptoKey,
   /**
    * Per-IP rate limiter for `GET /events/discover`. Defaults to the in-memory
@@ -356,7 +356,7 @@ export const createEventsRoutes = (
 ) => {
   // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
   const runtime = ManagedRuntime.make(dbLayer);
-  const resolveCaller = makeCallerResolver({ runtime, jwksUrl, testKey: _testKey });
+  const resolveCaller = makeCallerResolver({ runtime, verification, testKey: _testKey });
   const eventCreateLimiter =
     writeRateLimiters.eventCreate ?? createDefaultWriteRateLimiter("event_create");
   const eventUpdateLimiter =

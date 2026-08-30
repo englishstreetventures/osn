@@ -25,6 +25,7 @@ vi.mock("../../src/services/graphBridge", () => ({
 }));
 
 import * as bridge from "../../src/services/graphBridge";
+import { TEST_VERIFICATION } from "../helpers/verification";
 
 const FUTURE = "2030-06-01T10:00:00.000Z";
 const LATER = "2030-06-02T10:00:00.000Z";
@@ -82,7 +83,7 @@ describe("GET /events/calendar", () => {
     vi.mocked(bridge.getProfileDisplays).mockReturnValue(
       Effect.succeed(new Map<string, ProfileDisplay>()),
     );
-    app = createEventsRoutes(createTestLayer(), "", testPublicKey);
+    app = createEventsRoutes(createTestLayer(), TEST_VERIFICATION, testPublicKey);
     meToken = await makeToken("usr_me");
     aliceToken = await makeToken("usr_alice");
   });
@@ -141,7 +142,7 @@ describe("GET /events/calendar", () => {
   });
 
   it("returns 500 when the calendar query fails", async () => {
-    const brokenApp = createEventsRoutes(brokenLayer(), "", testPublicKey);
+    const brokenApp = createEventsRoutes(brokenLayer(), TEST_VERIFICATION, testPublicKey);
     const res = await get(brokenApp, "/events/calendar", meToken);
     expect(res.status).toBe(500);
   });

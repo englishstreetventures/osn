@@ -7,6 +7,7 @@ import { createCloseFriendsRoutes } from "../../src/routes/closeFriends";
 import { createEventsRoutes } from "../../src/routes/events";
 import { createSeriesRoutes } from "../../src/routes/series";
 import { createTestLayer, seedEvent } from "../helpers/db";
+import { TEST_VERIFICATION } from "../helpers/verification";
 
 const block: RateLimiterBackend = { check: () => false };
 const throws: RateLimiterBackend = {
@@ -55,17 +56,33 @@ describe("per-user write rate limiting → 429", () => {
   });
 
   it("event create returns 429 when the limiter blocks", async () => {
-    const app = createEventsRoutes(layer, "", testPublicKey, undefined, undefined, undefined, {
-      eventCreate: block,
-    });
+    const app = createEventsRoutes(
+      layer,
+      TEST_VERIFICATION,
+      testPublicKey,
+      undefined,
+      undefined,
+      undefined,
+      {
+        eventCreate: block,
+      },
+    );
     const res = await send(app, "POST", "/events", token, { title: "X", startTime: FUTURE });
     expect(res.status).toBe(429);
   });
 
   it("event create fails closed (429) when the limiter throws", async () => {
-    const app = createEventsRoutes(layer, "", testPublicKey, undefined, undefined, undefined, {
-      eventCreate: throws,
-    });
+    const app = createEventsRoutes(
+      layer,
+      TEST_VERIFICATION,
+      testPublicKey,
+      undefined,
+      undefined,
+      undefined,
+      {
+        eventCreate: throws,
+      },
+    );
     const res = await send(app, "POST", "/events", token, { title: "X", startTime: FUTURE });
     expect(res.status).toBe(429);
   });
@@ -76,9 +93,17 @@ describe("per-user write rate limiting → 429", () => {
         Effect.provide(layer),
       ),
     );
-    const app = createEventsRoutes(layer, "", testPublicKey, undefined, undefined, undefined, {
-      eventUpdate: block,
-    });
+    const app = createEventsRoutes(
+      layer,
+      TEST_VERIFICATION,
+      testPublicKey,
+      undefined,
+      undefined,
+      undefined,
+      {
+        eventUpdate: block,
+      },
+    );
     const res = await send(app, "PATCH", `/events/${event.id}`, token, { title: "Y" });
     expect(res.status).toBe(429);
   });
@@ -87,9 +112,17 @@ describe("per-user write rate limiting → 429", () => {
     const event = await Effect.runPromise(
       seedEvent({ title: "E", startTime: FUTURE }).pipe(Effect.provide(layer)),
     );
-    const app = createEventsRoutes(layer, "", testPublicKey, undefined, undefined, undefined, {
-      rsvpUpsert: block,
-    });
+    const app = createEventsRoutes(
+      layer,
+      TEST_VERIFICATION,
+      testPublicKey,
+      undefined,
+      undefined,
+      undefined,
+      {
+        rsvpUpsert: block,
+      },
+    );
     const res = await send(app, "POST", `/events/${event.id}/rsvps`, token, { status: "going" });
     expect(res.status).toBe(429);
   });
@@ -100,9 +133,17 @@ describe("per-user write rate limiting → 429", () => {
         Effect.provide(layer),
       ),
     );
-    const app = createEventsRoutes(layer, "", testPublicKey, undefined, undefined, undefined, {
-      eventInvite: block,
-    });
+    const app = createEventsRoutes(
+      layer,
+      TEST_VERIFICATION,
+      testPublicKey,
+      undefined,
+      undefined,
+      undefined,
+      {
+        eventInvite: block,
+      },
+    );
     const res = await send(app, "POST", `/events/${event.id}/invite`, token, {
       profileIds: ["usr_bob"],
     });
@@ -115,9 +156,17 @@ describe("per-user write rate limiting → 429", () => {
         Effect.provide(layer),
       ),
     );
-    const app = createEventsRoutes(layer, "", testPublicKey, undefined, undefined, undefined, {
-      commsBlast: block,
-    });
+    const app = createEventsRoutes(
+      layer,
+      TEST_VERIFICATION,
+      testPublicKey,
+      undefined,
+      undefined,
+      undefined,
+      {
+        commsBlast: block,
+      },
+    );
     const res = await send(app, "POST", `/events/${event.id}/comms/blasts`, token, {
       channels: ["email"],
       body: "hi",
@@ -126,7 +175,9 @@ describe("per-user write rate limiting → 429", () => {
   });
 
   it("series create returns 429 when the limiter blocks", async () => {
-    const app = createSeriesRoutes(layer, "", testPublicKey, { seriesCreate: block });
+    const app = createSeriesRoutes(layer, TEST_VERIFICATION, testPublicKey, {
+      seriesCreate: block,
+    });
     const res = await send(app, "POST", "/series", token, {
       title: "S",
       rrule: "FREQ=WEEKLY;COUNT=3",
@@ -136,27 +187,37 @@ describe("per-user write rate limiting → 429", () => {
   });
 
   it("series patch returns 429 when the limiter blocks", async () => {
-    const app = createSeriesRoutes(layer, "", testPublicKey, { seriesUpdate: block });
+    const app = createSeriesRoutes(layer, TEST_VERIFICATION, testPublicKey, {
+      seriesUpdate: block,
+    });
     const res = await send(app, "PATCH", "/series/ser_nope", token, { title: "T" });
     expect(res.status).toBe(429);
   });
 
   it("close-friend add returns 429 when the limiter blocks", async () => {
-    const app = createCloseFriendsRoutes(layer, "", testPublicKey, block);
+    const app = createCloseFriendsRoutes(layer, TEST_VERIFICATION, testPublicKey, block);
     const res = await send(app, "POST", "/close-friends/usr_bob", token);
     expect(res.status).toBe(429);
   });
 
   it("close-friend remove fails closed (429) when the limiter throws", async () => {
-    const app = createCloseFriendsRoutes(layer, "", testPublicKey, throws);
+    const app = createCloseFriendsRoutes(layer, TEST_VERIFICATION, testPublicKey, throws);
     const res = await send(app, "DELETE", "/close-friends/usr_bob", token);
     expect(res.status).toBe(429);
   });
 
   it("does not rate-limit before authenticating (401 wins for anon)", async () => {
-    const app = createEventsRoutes(layer, "", testPublicKey, undefined, undefined, undefined, {
-      eventCreate: block,
-    });
+    const app = createEventsRoutes(
+      layer,
+      TEST_VERIFICATION,
+      testPublicKey,
+      undefined,
+      undefined,
+      undefined,
+      {
+        eventCreate: block,
+      },
+    );
     const res = await app.handle(
       new Request("http://localhost/events", {
         method: "POST",

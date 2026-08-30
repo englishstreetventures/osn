@@ -525,7 +525,7 @@ describe("venue routes", () => {
   it("returns 429 once the per-IP rate limit is exhausted", async () => {
     const layer = createTestLayer();
     const limiter = createRateLimiter({ maxRequests: 2, windowMs: 60_000 });
-    app = createVenuesRoutes(layer, "", undefined, limiter);
+    app = createVenuesRoutes(layer, undefined, undefined, limiter);
 
     expect((await get(app, "/venues")).status).toBe(200);
     expect((await get(app, "/venues")).status).toBe(200);

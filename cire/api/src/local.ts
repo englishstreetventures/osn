@@ -44,6 +44,7 @@ const app = createApp(db, {
   r2,
   assets,
   osnJwksUrl: process.env.OSN_JWKS_URL,
+  osnIssuerUrl: process.env.OSN_ISSUER_URL,
   osnAudience: process.env.OSN_AUDIENCE,
 });
 

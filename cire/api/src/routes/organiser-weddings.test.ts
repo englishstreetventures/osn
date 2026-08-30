@@ -110,6 +110,18 @@ describe("GET /api/organiser/weddings", () => {
     expect(res.status).toBe(401);
   });
 
+  // `iss` is pinned, so a token minted by a different OSN deployment is
+  // rejected even though its signature and audience are both fine. Signed with
+  // this suite's own key so the issuer is the only thing that differs — the
+  // wrong-key path is a separate case and would pass for the wrong reason.
+  it("returns 401 for a token from a different issuer", async () => {
+    const { app } = buildApp();
+    const res = await appRequest(app, "/api/organiser/weddings", {
+      headers: { Authorization: `Bearer ${await auth.signAsOtherIssuer(BOOTSTRAP_OWNER)}` },
+    });
+    expect(res.status).toBe(401);
+  });
+
   it("lists only the caller's weddings", async () => {
     const { app } = buildApp();
     const res = await get(app, "/api/organiser/weddings", BOOTSTRAP_OWNER);

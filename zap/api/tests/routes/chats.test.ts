@@ -15,7 +15,14 @@ beforeAll(async () => {
   testPublicKey = signer.publicKey;
 });
 
-const makeToken = (profileId: string) => signer.sign(profileId);
+/**
+ * The issuer these tests mint with, and the one the routes are told to expect.
+ * Both halves have to name it: a token whose `iss` does not match is rejected,
+ * which is the point of pinning it.
+ */
+const TEST_ISSUER = "https://id.test.invalid";
+
+const makeToken = (profileId: string) => signer.sign(profileId, { issuer: TEST_ISSUER });
 
 const json = (body: unknown) => JSON.stringify(body);
 
@@ -57,7 +64,7 @@ describe("chats routes", () => {
     // (which has its own dedicated suite below). Each test resets it.
     setConsentGate(() => Promise.resolve(true));
     layer = createTestLayer();
-    app = createChatsRoutes(layer, "", testPublicKey);
+    app = createChatsRoutes(layer, { jwksUrl: "", issuer: TEST_ISSUER }, testPublicKey);
     aliceToken = await makeToken("usr_alice");
     bobToken = await makeToken("usr_bob");
   });
@@ -102,6 +109,30 @@ describe("chats routes", () => {
       .setAudience("osn-access")
       .sign(new TextEncoder().encode("dev-secret-change-in-prod"));
     const res = await req(app, "GET", "/chats", { token: hs256 });
+    expect(res.status).toBe(401);
+  });
+
+  // The whole point of pinning `iss`. A different OSN deployment signs with a
+  // key its own JWKS vouches for, so the signature check passes and the
+  // audience matches — `iss` is the only claim that says which deployment
+  // minted it. Signed with THIS suite's key so nothing but the issuer differs.
+  it("GET /chats returns 401 for a token from a different issuer", async () => {
+    const otherIssuer = await signer.sign("usr_alice", { issuer: "https://id.evil.invalid" });
+    const res = await req(app, "GET", "/chats", { token: otherIssuer });
+    expect(res.status).toBe(401);
+  });
+
+  it("GET /chats returns 401 for a token with no issuer at all", async () => {
+    // The pre-enforcement shape: tokens minted before osn-api stamped `iss`.
+    // Every one of those expired within five minutes of the rollout, so a
+    // token arriving without one today is not a legacy token, it is a forgery
+    // or a misconfiguration — either way, not ours.
+    const noIssuer = await new SignJWT({ sub: "usr_alice" })
+      .setProtectedHeader({ alg: "ES256", kid: "test-kid" })
+      .setAudience("osn-access")
+      .setExpirationTime("5m")
+      .sign(signer.privateKey);
+    const res = await req(app, "GET", "/chats", { token: noIssuer });
     expect(res.status).toBe(401);
   });
 

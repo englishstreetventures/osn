@@ -5,6 +5,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
 import { validateBbox } from "../lib/bbox";
+import type { OsnTokenVerification } from "../lib/jwks";
 import { metricEventAccessDenied } from "../metrics";
 import { loadVisibleEvent } from "../services/eventAccess";
 import { getVenue, listAllVenues, listEventLineup, listVenueEvents } from "../services/venues";
@@ -163,7 +164,9 @@ export const createVenuesRoutes = (
   dbLayer: Layer.Layer<Db> = DbLive,
   // Auth params kept for symmetry with sibling route factories — venue
   // surfaces are public so we don't currently extract claims.
-  _jwksUrl: string = "",
+  // Unused: venues has no authenticated route. Kept so every route
+  // factory in this package has the same positional shape.
+  _verification?: OsnTokenVerification,
   _testKey?: CryptoKey,
   /**
    * Per-IP rate limiter for the /venues group. Defaults to the in-memory

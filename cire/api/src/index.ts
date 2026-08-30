@@ -55,6 +55,9 @@ export interface Env {
   WEB_ORIGIN: string;
   OSN_JWKS_URL: string;
   OSN_AUDIENCE: string;
+  // `OSN_ISSUER_URL` is both the expected `iss` on organiser access tokens
+  // and the OIDC issuer origin — one value, two uses, and it must equal
+  // osn-api's own `OSN_ISSUER_URL` byte for byte.
   // Organiser sign-in over OIDC. `OSN_ISSUER_URL` is the issuer origin
   // (`https://id.musubi.social`) and must equal the `iss` claim byte-for-byte;
   // `CIRE_API_ORIGIN` is this Worker's own public origin, used to build the
@@ -63,7 +66,7 @@ export interface Env {
   // the four missing ⇒ `/api/auth/oidc/*` answers 503 and nobody can sign in;
   // the guest invite site keeps working, so this is scoped to the routes that
   // genuinely cannot function, not the whole Worker.
-  OSN_ISSUER_URL?: string;
+  OSN_ISSUER_URL: string;
   CIRE_API_ORIGIN?: string;
   CIRE_OIDC_CLIENT_ID?: string;
   CIRE_OIDC_CLIENT_SECRET?: string;
@@ -181,6 +184,11 @@ const handler: ExportedHandler<Env> = {
       !env.DB && "DB",
       !env.WEB_ORIGIN && "WEB_ORIGIN",
       !env.OSN_JWKS_URL && "OSN_JWKS_URL",
+      // Required, not optional-with-a-default. The default is the localhost
+      // issuer, so an unset value in a deployed tier would expect
+      // `http://localhost:4000` and reject every real token — a total outage
+      // whose cause is invisible in the 401. Failing at startup names it.
+      !env.OSN_ISSUER_URL && "OSN_ISSUER_URL",
       !env.OSN_AUDIENCE && "OSN_AUDIENCE",
     ].filter(Boolean);
     if (missing.length > 0 || !env.DB) {
@@ -401,6 +409,7 @@ const handler: ExportedHandler<Env> = {
         assets: env.ASSETS,
         images: env.IMAGES,
         osnJwksUrl: env.OSN_JWKS_URL,
+        osnIssuerUrl: env.OSN_ISSUER_URL,
         osnAudience: env.OSN_AUDIENCE,
         oidc,
         // Back-channel revoke endpoint: enabled only when the shared secret is

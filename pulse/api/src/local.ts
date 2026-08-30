@@ -28,6 +28,14 @@ if (nonLocal && jwksUrl.startsWith("http://")) {
   throw new Error("OSN_JWKS_URL must use HTTPS in non-local environments");
 }
 
+// Same treatment for the expected `iss`: pinning it is what stops a token
+// from another OSN deployment verifying here, and a plaintext issuer in a
+// deployed tier is the same misconfiguration as a plaintext JWKS URL.
+const issuerUrl = process.env.OSN_ISSUER_URL ?? "http://localhost:4000";
+if (nonLocal && issuerUrl.startsWith("http://")) {
+  throw new Error("OSN_ISSUER_URL must use HTTPS in non-local environments");
+}
+
 // ---------------------------------------------------------------------------
 // Redis composition root — env-driven backend selection (mirrors osn/api).
 // `REDIS_URL` set → Redis-backed limiters (shared across processes, survives
@@ -91,7 +99,7 @@ if (nonLocal && !oidc) {
 }
 
 const appOptions: AppOptions = {
-  jwksUrl,
+  verification: { jwksUrl, issuer: issuerUrl },
   rateLimiters,
   clientIpConfig,
   corsOrigins,

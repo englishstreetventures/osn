@@ -17,6 +17,7 @@ vi.mock("../../src/services/graphBridge", () => ({
 }));
 
 import * as bridge from "../../src/services/graphBridge";
+import { TEST_VERIFICATION } from "../helpers/verification";
 
 const FUTURE = "2030-06-01T10:00:00.000Z";
 
@@ -82,7 +83,7 @@ describe("events routes — new config fields", () => {
       Effect.succeed(new Map<string, ProfileDisplay>()),
     );
     layer = createTestLayer();
-    app = createEventsRoutes(layer, "", testPublicKey);
+    app = createEventsRoutes(layer, TEST_VERIFICATION, testPublicKey);
     aliceToken = await makeToken("usr_alice");
   });
 
@@ -186,7 +187,7 @@ describe("RSVP routes", () => {
       ),
     );
     layer = createTestLayer();
-    app = createEventsRoutes(layer, "", testPublicKey);
+    app = createEventsRoutes(layer, TEST_VERIFICATION, testPublicKey);
     aliceToken = await makeToken("usr_alice");
     bobToken = await makeToken("usr_bob");
     const res = await post(app, "/events", { title: "Party", startTime: FUTURE }, aliceToken);
@@ -322,9 +323,18 @@ describe("Share-attribution routes", () => {
     // `app.handle(...)` there is no socket peer, so we declare a single
     // trusted proxy and feed a stable `x-forwarded-for` so the limiter can
     // resolve a keying IP (matches the osn/api auth-route test convention).
-    app = createEventsRoutes(layer, "", testPublicKey, undefined, undefined, undefined, undefined, {
-      trustedProxyCount: 1,
-    });
+    app = createEventsRoutes(
+      layer,
+      TEST_VERIFICATION,
+      testPublicKey,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        trustedProxyCount: 1,
+      },
+    );
     aliceToken = await makeToken("usr_alice");
     bobToken = await makeToken("usr_bob");
     const res = await post(app, "/events", { title: "Party", startTime: FUTURE }, aliceToken);
@@ -414,7 +424,7 @@ describe("ICS route", () => {
       Effect.succeed(new Map<string, ProfileDisplay>()),
     );
     layer = createTestLayer();
-    app = createEventsRoutes(layer, "", testPublicKey);
+    app = createEventsRoutes(layer, TEST_VERIFICATION, testPublicKey);
     aliceToken = await makeToken("usr_alice");
   });
 
@@ -556,7 +566,7 @@ describe("Comms routes", () => {
       Effect.succeed(new Map<string, ProfileDisplay>()),
     );
     layer = createTestLayer();
-    app = createEventsRoutes(layer, "", testPublicKey);
+    app = createEventsRoutes(layer, TEST_VERIFICATION, testPublicKey);
     aliceToken = await makeToken("usr_alice");
     bobToken = await makeToken("usr_bob");
     const res = await post(
@@ -647,7 +657,7 @@ describe("Private event visibility gate", () => {
       ),
     );
     layer = createTestLayer();
-    app = createEventsRoutes(layer, "", testPublicKey);
+    app = createEventsRoutes(layer, TEST_VERIFICATION, testPublicKey);
     aliceToken = await makeToken("usr_alice");
     bobToken = await makeToken("usr_bob");
 
@@ -802,7 +812,7 @@ describe("Event text field length caps (S-M3)", () => {
       Effect.succeed(new Map<string, ProfileDisplay>()),
     );
     layer = createTestLayer();
-    app = createEventsRoutes(layer, "", testPublicKey);
+    app = createEventsRoutes(layer, TEST_VERIFICATION, testPublicKey);
     aliceToken = await makeToken("usr_alice");
   });
 
@@ -854,7 +864,7 @@ describe("PATCH /me/settings", () => {
 
   beforeEach(async () => {
     layer = createTestLayer();
-    settingsApp = createSettingsRoutes(layer, "", testPublicKey);
+    settingsApp = createSettingsRoutes(layer, TEST_VERIFICATION, testPublicKey);
     aliceToken = await makeToken("usr_alice");
   });
 

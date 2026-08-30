@@ -39,9 +39,11 @@ migrations_dir = "../db/drizzle"
 
 [env.staging.vars]
 OSN_ENV = "staging"
-# TODO: real OSN issuer origin before staging deploy
-OSN_JWKS_URL = "https://osn-api.example.com/.well-known/jwks.json"
-OSN_ISSUER_URL = "https://osn-api.example.com"
+# Mirrors osn-api's own staging value, which is itself a placeholder until the
+# staging tier is real. Both move together: the verifier's expected issuer has
+# to equal what osn-api mints or every authenticated request 401s.
+OSN_JWKS_URL = "https://api.staging.osn.example/.well-known/jwks.json"
+OSN_ISSUER_URL = "https://api.staging.osn.example"
 # TODO: set once the Pulse domain is chosen. Must be same-site with the Pulse
 # web origin (`api.<pulse-domain>`) — the session cookie is host-scoped and
 # `SameSite=Lax`, so a cross-site API host is never sent one.
@@ -59,9 +61,12 @@ migrations_dir = "../db/drizzle"
 
 [env.production.vars]
 OSN_ENV = "production"
-# TODO: real OSN issuer origin before prod deploy
-OSN_JWKS_URL = "https://osn-api.example.com/.well-known/jwks.json"
-OSN_ISSUER_URL = "https://osn-api.example.com"
+# The OSN issuer is known regardless of which domain Pulse itself ends up on,
+# so these are real, not placeholders. OSN_ISSUER_URL must equal osn-api's own
+# value byte for byte — access-token verification pins it, and a mismatch 401s
+# every authenticated request — so the two flip in the same deploy.
+OSN_JWKS_URL = "https://id.musubi.social/.well-known/jwks.json"
+OSN_ISSUER_URL = "https://id.musubi.social"
 # TODO: set once the Pulse domain is chosen. Must be same-site with the Pulse
 # web origin (`api.<pulse-domain>`) — the session cookie is host-scoped and
 # `SameSite=Lax`, so a cross-site API host is never sent one.

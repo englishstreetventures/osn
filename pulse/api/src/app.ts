@@ -7,6 +7,7 @@ import type { ClientIpOptions } from "@shared/rate-limit";
 import type { Layer } from "effect";
 import { Elysia } from "elysia";
 
+import type { OsnTokenVerification } from "./lib/jwks";
 import { originGuard } from "./lib/origin-guard";
 import { makeMemoryRateLimiters, type PulseRateLimiters } from "./redis";
 import { createAccountRoutes } from "./routes/account";
@@ -29,7 +30,7 @@ export interface AppOptions {
    */
   dbLayer?: Layer.Layer<Db>;
   /** JWKS endpoint of the OSN issuer that signs access tokens. */
-  jwksUrl?: string;
+  verification?: OsnTokenVerification;
   /**
    * Rate limiter backends (W4). The composition root (`local.ts` long-lived
    * Bun host, or the per-isolate `index.ts` Worker) builds these from Redis
@@ -92,7 +93,7 @@ export interface AppOptions {
 export function createApp(options: AppOptions = {}) {
   const {
     dbLayer = DbLive,
-    jwksUrl,
+    verification,
     rateLimiters = makeMemoryRateLimiters(),
     clientIpConfig = {},
     corsOrigins,
@@ -166,7 +167,7 @@ export function createApp(options: AppOptions = {}) {
     .use(
       createEventsRoutes(
         dbLayer,
-        jwksUrl,
+        verification,
         undefined,
         discovery,
         share,
@@ -182,16 +183,16 @@ export function createApp(options: AppOptions = {}) {
       ),
     )
     .use(
-      createSeriesRoutes(dbLayer, jwksUrl, undefined, {
+      createSeriesRoutes(dbLayer, verification, undefined, {
         seriesCreate: write.series_create,
         seriesUpdate: write.series_update,
       }),
     )
-    .use(createVenuesRoutes(dbLayer, jwksUrl))
-    .use(createSettingsRoutes(dbLayer, jwksUrl))
-    .use(createCloseFriendsRoutes(dbLayer, jwksUrl, undefined, write.close_friend_mutate))
-    .use(createOnboardingRoutes(dbLayer, jwksUrl))
-    .use(createAccountRoutes(dbLayer, jwksUrl))
+    .use(createVenuesRoutes(dbLayer, verification))
+    .use(createSettingsRoutes(dbLayer, verification))
+    .use(createCloseFriendsRoutes(dbLayer, verification, undefined, write.close_friend_mutate))
+    .use(createOnboardingRoutes(dbLayer, verification))
+    .use(createAccountRoutes(dbLayer, verification))
     .use(createInternalRoutes(dbLayer));
 }
 

@@ -17,6 +17,16 @@ import { generateArcKeyPair } from "./jwk";
  * `@shared/crypto/testing`.
  */
 
+/**
+ * The `iss` these tokens carry unless a caller says otherwise.
+ *
+ * Matches osn-api's own local default (`osn/api/src/build-deps.ts`) and the
+ * default every downstream verifier falls back to, so a suite that injects a
+ * test key and leaves the verification config alone mints tokens its routes
+ * accept. Deployed tiers set both sides from `OSN_ISSUER_URL`.
+ */
+export const LOCAL_TEST_ISSUER = "http://localhost:4000";
+
 /** Claims a caller can vary per token. Everything else is fixed by the verifier contract. */
 export interface AccessTokenClaims {
   /** Optional `email` claim — some routes read it for profile bootstrapping. */
@@ -30,8 +40,14 @@ export interface AccessTokenClaims {
    * ±30s `clockTolerance`) to exercise the expired-token reject path.
    */
   expiresIn?: string;
-  /** Set an `iss` claim — cire pins the issuer, other verifiers ignore it. */
-  issuer?: string;
+  /**
+   * Override the `iss` claim. Defaults to `LOCAL_TEST_ISSUER`, because every
+   * downstream verifier now pins the issuer and a token minted without one is
+   * rejected — which is the whole point. Pass a different origin to exercise
+   * that rejection; pass `null` for a token carrying no `iss` at all, the
+   * shape that existed before osn-api stamped it.
+   */
+  issuer?: string | null;
   /** Override the `kid` header to exercise key-mismatch paths. */
   kid?: string;
 }
@@ -67,7 +83,8 @@ export async function makeAccessTokenSigner(): Promise<AccessTokenSigner> {
         .setIssuedAt()
         .setExpirationTime(claims.expiresIn ?? "5m");
 
-      if (claims.issuer !== undefined) jwt = jwt.setIssuer(claims.issuer);
+      const issuer = claims.issuer === undefined ? LOCAL_TEST_ISSUER : claims.issuer;
+      if (issuer !== null) jwt = jwt.setIssuer(issuer);
 
       return jwt.sign(privateKey);
     },

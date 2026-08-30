@@ -5,6 +5,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createEventsRoutes } from "../../src/routes/events";
 import { createTestLayer, seedEvent } from "../helpers/db";
+import { TEST_VERIFICATION } from "../helpers/verification";
 
 /**
  * P4: per-IP rate limiting on the unauthenticated share / exposure pings,
@@ -61,7 +62,8 @@ const buildApp = (
   layer: ReturnType<typeof createTestLayer>,
   share: RateLimiterBackend,
   exposure: RateLimiterBackend,
-) => createEventsRoutes(layer, "", testPublicKey, allow, share, exposure, {}, PROXIED);
+) =>
+  createEventsRoutes(layer, TEST_VERIFICATION, testPublicKey, allow, share, exposure, {}, PROXIED);
 
 describe("P4 — per-IP share / exposure rate limiting", () => {
   let layer: ReturnType<typeof createTestLayer>;

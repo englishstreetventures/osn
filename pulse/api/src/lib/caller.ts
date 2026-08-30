@@ -5,6 +5,7 @@ import { Effect, type ManagedRuntime } from "effect";
 import { metricCallerAuth } from "../metrics";
 import { webSessionService } from "../services/webSession";
 import { parseWebSessionToken } from "./cookie";
+import type { OsnTokenVerification } from "./jwks";
 
 /**
  * Resolve the caller of a Pulse request from either credential.
@@ -33,22 +34,26 @@ export interface CallerResolverOptions {
   /** The route factory's own runtime — the cookie lookup needs `Db`. */
   runtime: ManagedRuntime.ManagedRuntime<Db, never>;
   /** JWKS endpoint of the OSN issuer that signs access tokens. */
-  jwksUrl: string;
+  verification: OsnTokenVerification;
   /** Injected verifying key for tests (skips the JWKS fetch). */
   testKey?: CryptoKey | undefined;
 }
 
 export function makeCallerResolver({
   runtime,
-  jwksUrl,
+  verification,
   testKey,
 }: CallerResolverOptions): ResolveCaller {
   return async (headers) => {
     const authorization = headers["authorization"];
     if (authorization) {
-      const claims = await extractClaims(authorization, jwksUrl, {
+      const claims = await extractClaims(authorization, verification.jwksUrl, {
         testKey: testKey as CryptoKey,
         audience: "osn-access",
+        // Enforced, not optional. A token signed by a different OSN
+        // deployment verifies against its own JWKS perfectly well; `iss` is
+        // the only claim that says it was minted for this one.
+        issuer: verification.issuer,
       });
       metricCallerAuth("bearer", claims ? "ok" : "rejected");
       return claims;

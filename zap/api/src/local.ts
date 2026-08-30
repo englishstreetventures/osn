@@ -3,7 +3,7 @@ import { Effect, Logger } from "effect";
 
 import { createApp, SERVICE_NAME } from "./app";
 import { assertCorsOriginsConfigured, isNonLocalEnv, resolveCorsOrigins } from "./lib/cors-config";
-import { DEFAULT_JWKS_URL } from "./lib/jwks";
+import { DEFAULT_JWKS_URL, DEFAULT_VERIFICATION } from "./lib/jwks";
 import { registerWithOsnApi } from "./services/zapGraphBridge";
 
 // `local` environment entry point: long-lived Bun.serve process backed by
@@ -24,7 +24,7 @@ if (nonLocal && DEFAULT_JWKS_URL.startsWith("http://")) {
 const corsOrigins = resolveCorsOrigins(process.env);
 assertCorsOriginsConfigured(corsOrigins, nonLocal);
 
-const app = createApp({ jwksUrl: DEFAULT_JWKS_URL, corsOrigins });
+const app = createApp({ verification: DEFAULT_VERIFICATION, corsOrigins });
 
 const port = process.env.PORT || 3002;
 

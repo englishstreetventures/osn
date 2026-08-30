@@ -9,7 +9,7 @@ import { DbLive, type Db } from "@zap/db/service";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
-import { DEFAULT_JWKS_URL } from "../lib/jwks";
+import { DEFAULT_VERIFICATION, type OsnTokenVerification } from "../lib/jwks";
 import { MAX_CHAT_MEMBERS, MAX_CIPHERTEXT_LENGTH, MAX_NONCE_LENGTH } from "../lib/limits";
 import { metricAccessDenied } from "../metrics";
 import {
@@ -46,12 +46,16 @@ const ACCESS_AUDIENCE = "osn-access";
  */
 async function resolveProfileId(
   authHeader: string | undefined,
-  jwksUrl: string,
+  verification: OsnTokenVerification,
   testKey: CryptoKey | undefined,
 ): Promise<{ profileId: string } | null> {
-  const claims = await extractClaims(authHeader, jwksUrl, {
+  const claims = await extractClaims(authHeader, verification.jwksUrl, {
     testKey: testKey as CryptoKey,
     audience: ACCESS_AUDIENCE,
+    // Enforced, not optional. A token signed by a different OSN deployment
+    // verifies against its own JWKS perfectly well; `iss` is the only claim
+    // that says it was minted for this one.
+    issuer: verification.issuer,
   });
   if (!claims) return null;
   if (!claims.profileId.startsWith("usr_")) return null;
@@ -78,7 +82,7 @@ export function createDefaultZapRateLimiters(): ZapRateLimiters {
 
 export const createChatsRoutes = (
   dbLayer: Layer.Layer<Db> = DbLive,
-  jwksUrl: string = DEFAULT_JWKS_URL,
+  verification: OsnTokenVerification = DEFAULT_VERIFICATION,
   _testKey?: CryptoKey,
   rateLimiters: ZapRateLimiters = createDefaultZapRateLimiters(),
 ) => {
@@ -90,7 +94,7 @@ export const createChatsRoutes = (
       .get(
         "/",
         async ({ query, headers, set }) => {
-          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
+          const claims = await resolveProfileId(headers["authorization"], verification, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -124,7 +128,7 @@ export const createChatsRoutes = (
       .get(
         "/:id",
         async ({ params, headers, set }) => {
-          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
+          const claims = await resolveProfileId(headers["authorization"], verification, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -161,7 +165,7 @@ export const createChatsRoutes = (
             set.status = 429;
             return { message: "Too many requests" } as const;
           }
-          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
+          const claims = await resolveProfileId(headers["authorization"], verification, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -205,7 +209,7 @@ export const createChatsRoutes = (
       .patch(
         "/:id",
         async ({ params, body, headers, set }) => {
-          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
+          const claims = await resolveProfileId(headers["authorization"], verification, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -247,7 +251,7 @@ export const createChatsRoutes = (
       .get(
         "/:id/members",
         async ({ params, query, headers, set }) => {
-          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
+          const claims = await resolveProfileId(headers["authorization"], verification, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -291,7 +295,7 @@ export const createChatsRoutes = (
             set.status = 429;
             return { message: "Too many requests" } as const;
           }
-          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
+          const claims = await resolveProfileId(headers["authorization"], verification, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -348,7 +352,7 @@ export const createChatsRoutes = (
       .delete(
         "/:id/members/:profileId",
         async ({ params, headers, set }) => {
-          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
+          const claims = await resolveProfileId(headers["authorization"], verification, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -397,7 +401,7 @@ export const createChatsRoutes = (
             set.status = 429;
             return { message: "Too many requests" } as const;
           }
-          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
+          const claims = await resolveProfileId(headers["authorization"], verification, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;
@@ -440,7 +444,7 @@ export const createChatsRoutes = (
       .get(
         "/:id/messages",
         async ({ params, query, headers, set }) => {
-          const claims = await resolveProfileId(headers["authorization"], jwksUrl, _testKey);
+          const claims = await resolveProfileId(headers["authorization"], verification, _testKey);
           if (!claims) {
             set.status = 401;
             return { message: "Unauthorized" } as const;

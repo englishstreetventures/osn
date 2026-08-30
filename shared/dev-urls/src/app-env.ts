@@ -71,6 +71,14 @@ export const DEV_ENV = {
   "@zap/api": (urls: Urls, self: DevAppId, env: DevEnv) => ({
     // Zap's graph bridge calls osn-api server-to-server.
     OSN_API_URL: urls["@osn/api"],
+    // Where the access-token keys are and who must have minted the token.
+    // Both were missing, so zap fell back to its `http://localhost:4000`
+    // defaults while osn-api under portless mints
+    // `https://<prefix>id.musubi.localhost` — every bearer-authenticated zap
+    // route 401'd in the devloop. The JWKS half was already wrong before the
+    // issuer was pinned; the pin is what made it visible.
+    OSN_ISSUER_URL: urls["@osn/api"],
+    OSN_JWKS_URL: `${urls["@osn/api"]}/.well-known/jwks.json`,
     // Browsers that reach zap directly: pulse event chats, and the account app.
     ZAP_CORS_ORIGIN: devOriginList(["@pulse/web", "@osn/social"], self, env),
   }),

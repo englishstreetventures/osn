@@ -4,6 +4,7 @@ import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createEventsRoutes } from "../../src/routes/events";
 import { createTestLayer, seedEvent } from "../helpers/db";
+import { TEST_VERIFICATION } from "../helpers/verification";
 
 const FUTURE = "2030-06-01T10:00:00.000Z";
 
@@ -65,7 +66,7 @@ describe("events routes", () => {
 
   beforeEach(async () => {
     layer = createTestLayer();
-    app = createEventsRoutes(layer, "", testPublicKey);
+    app = createEventsRoutes(layer, TEST_VERIFICATION, testPublicKey);
     aliceToken = await makeToken("usr_alice");
   });
 
@@ -88,6 +89,24 @@ describe("events routes", () => {
 
   it("POST /events returns 401 when not authenticated", async () => {
     const res = await post(app, "/events", { title: "Concert", startTime: FUTURE });
+    expect(res.status).toBe(401);
+  });
+
+  // `iss` is pinned, so a token minted by a different OSN deployment is
+  // rejected even though its signature and audience are both fine — signed
+  // with this suite's own key so the issuer is the only difference.
+  it("POST /events returns 401 for a token from a different issuer", async () => {
+    const foreign = await signer.sign("usr_alice", { issuer: "https://id.evil.invalid" });
+    const res = await post(app, "/events", { title: "Concert", startTime: FUTURE }, foreign);
+    expect(res.status).toBe(401);
+  });
+
+  // The pre-enforcement shape: tokens minted before osn-api stamped `iss`.
+  // Every one of those expired within five minutes of that rollout, so a
+  // token arriving without one today is a forgery or a misconfiguration.
+  it("POST /events returns 401 for a token carrying no issuer", async () => {
+    const noIssuer = await signer.sign("usr_alice", { issuer: null });
+    const res = await post(app, "/events", { title: "Concert", startTime: FUTURE }, noIssuer);
     expect(res.status).toBe(401);
   });
 

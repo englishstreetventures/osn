@@ -46,7 +46,14 @@ OSN_ENV = "local"
 OSN_RP_ID = "localhost"
 OSN_RP_NAME = "OSN"
 OSN_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:5173,http://localhost:4326,http://localhost:4321"
-OSN_ISSUER_URL = "http://localhost:8787"
+# 4000, not wrangler's default 8787. Every consumer's local expectation is
+# `http://localhost:4000` — cire's and pulse's wrangler dev blocks, all three
+# `DEFAULT_ISSUER_URL`s, `build-deps.ts`'s own fallback and the shared test
+# signer. Now that access-token verification pins the issuer, a `wrangler dev`
+# minting 8787 would 401 every cross-service call with nothing in the response
+# to say why. Run this loop as `wrangler dev --port 4000` so the URL agrees
+# with the claim.
+OSN_ISSUER_URL = "http://localhost:4000"
 OSN_CORS_ORIGIN = "http://localhost:1422,http://localhost:1420,http://localhost:4322,http://localhost:4326,http://localhost:4321"
 # Where `GET /dev/login?return_to=…` may redirect. Its own list, NOT the CORS
 # one: a redirect target need not be an origin that fetches this Worker with

@@ -26,6 +26,7 @@ vi.mock("../../src/lib/osn-bridge", () => ({
 }));
 
 import * as bridge from "../../src/services/graphBridge";
+import { TEST_VERIFICATION } from "../helpers/verification";
 
 let signer: AccessTokenSigner;
 let testPublicKey: CryptoKey;
@@ -75,7 +76,7 @@ describe("onboarding routes", () => {
 
   beforeEach(async () => {
     const layer = createTestLayer();
-    app = createOnboardingRoutes(layer, "", testPublicKey);
+    app = createOnboardingRoutes(layer, TEST_VERIFICATION, testPublicKey);
     aliceToken = await makeToken("usr_alice");
     vi.mocked(bridge.getAccountIdForProfile).mockReturnValue(Effect.succeed("acc_alice"));
   });
@@ -241,7 +242,7 @@ describe("onboarding routes", () => {
       check: () => Promise.resolve(false),
       reset: () => Promise.resolve(),
     };
-    const denyApp = createOnboardingRoutes(layer, "", testPublicKey, denyAll);
+    const denyApp = createOnboardingRoutes(layer, TEST_VERIFICATION, testPublicKey, denyAll);
     const res = await post(denyApp, "/me/onboarding/complete", validBody, aliceToken);
     expect(res.status).toBe(429);
   });
@@ -250,7 +251,13 @@ describe("onboarding routes", () => {
     const layer = createTestLayer();
     const allowAll = { check: () => Promise.resolve(true), reset: () => Promise.resolve() };
     const denyAll = { check: () => Promise.resolve(false), reset: () => Promise.resolve() };
-    const denyApp = createOnboardingRoutes(layer, "", testPublicKey, allowAll, denyAll);
+    const denyApp = createOnboardingRoutes(
+      layer,
+      TEST_VERIFICATION,
+      testPublicKey,
+      allowAll,
+      denyAll,
+    );
     const res = await get(denyApp, "/me/onboarding", aliceToken);
     expect(res.status).toBe(429);
   });
@@ -262,7 +269,13 @@ describe("onboarding routes", () => {
       check: () => Promise.reject(new Error("backend down")),
       reset: () => Promise.resolve(),
     };
-    const failApp = createOnboardingRoutes(layer, "", testPublicKey, allowAll, throwing);
+    const failApp = createOnboardingRoutes(
+      layer,
+      TEST_VERIFICATION,
+      testPublicKey,
+      allowAll,
+      throwing,
+    );
     const res = await get(failApp, "/me/onboarding", aliceToken);
     expect(res.status).toBe(429);
   });

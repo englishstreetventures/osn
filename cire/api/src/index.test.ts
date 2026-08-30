@@ -40,6 +40,7 @@ const BASE_ENV = {
   OSN_ENV: "production",
   WEB_ORIGIN: "https://app.example.com",
   OSN_JWKS_URL: "https://id.example.com/.well-known/jwks.json",
+  OSN_ISSUER_URL: "https://id.example.com",
   OSN_AUDIENCE: "osn-access",
   // Deployed-tier boots now REQUIRE the claim rate-limit binding (fail-closed);
   // supply it so these tests exercise the happy boot path, not the guard.
@@ -127,6 +128,7 @@ describe("Worker boot (no bootstrap-owner config)", () => {
       DB,
       OSN_ENV: BASE_ENV.OSN_ENV,
       OSN_JWKS_URL: BASE_ENV.OSN_JWKS_URL,
+      OSN_ISSUER_URL: BASE_ENV.OSN_ISSUER_URL,
       OSN_AUDIENCE: BASE_ENV.OSN_AUDIENCE,
       CLAIM_RATE_LIMITER: fakeRateLimiter,
     } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];

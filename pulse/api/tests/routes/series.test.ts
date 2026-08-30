@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { createSeriesRoutes } from "../../src/routes/series";
 import { createTestLayer } from "../helpers/db";
+import { TEST_VERIFICATION } from "../helpers/verification";
 
 let signer: AccessTokenSigner;
 let testPublicKey: CryptoKey;
@@ -56,7 +57,7 @@ describe("series routes", () => {
 
   beforeEach(async () => {
     const layer = createTestLayer();
-    app = createSeriesRoutes(layer, "", testPublicKey);
+    app = createSeriesRoutes(layer, TEST_VERIFICATION, testPublicKey);
     aliceToken = await makeToken("usr_alice");
     bobToken = await makeToken("usr_bob");
   });

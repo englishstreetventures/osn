@@ -53,9 +53,14 @@ describe("buildDevEnv", () => {
     });
   });
 
-  it("gives @zap/api its CORS allowlist and S2S URL", () => {
+  it("gives @zap/api its CORS allowlist, S2S URL and token verification", () => {
     expect(buildDevEnv("@zap/api", urlFor("@zap/api"))).toEqual({
       OSN_API_URL: "https://id.musubi.localhost",
+      // Both halves of access-token verification. Without them zap kept its
+      // `http://localhost:4000` defaults while osn-api minted under the
+      // portless host, so every bearer-authenticated route 401'd.
+      OSN_ISSUER_URL: "https://id.musubi.localhost",
+      OSN_JWKS_URL: "https://id.musubi.localhost/.well-known/jwks.json",
       ZAP_CORS_ORIGIN: "https://pulse.localhost,https://musubi.localhost",
     });
   });

@@ -1,5 +1,9 @@
 import type { Db } from "@pulse/db/service";
-import { makeAccessTokenSigner, type AccessTokenSigner } from "@shared/crypto/testing";
+import {
+  LOCAL_TEST_ISSUER,
+  makeAccessTokenSigner,
+  type AccessTokenSigner,
+} from "@shared/crypto/testing";
 import { ManagedRuntime } from "effect";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -8,7 +12,12 @@ import { webSessionService, type WebIdentity } from "../../src/services/webSessi
 import { createTestLayer } from "../helpers/db";
 
 // The JWKS URL is never fetched: every verify path here is given `testKey`.
-const JWKS_URL = "http://localhost:4000/.well-known/jwks.json";
+const VERIFICATION = {
+  jwksUrl: "http://localhost:4000/.well-known/jwks.json",
+  // Matches what `makeAccessTokenSigner` stamps by default, so a
+  // token minted here is one these routes accept.
+  issuer: LOCAL_TEST_ISSUER,
+};
 
 const identity: WebIdentity = {
   osnProfileId: "usr_alice",
@@ -33,7 +42,7 @@ beforeEach(() => {
   runtime = ManagedRuntime.make(createTestLayer());
   resolveCaller = makeCallerResolver({
     runtime,
-    jwksUrl: JWKS_URL,
+    verification: VERIFICATION,
     testKey: signer.publicKey,
   });
 });

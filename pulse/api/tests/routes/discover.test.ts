@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createEventsRoutes } from "../../src/routes/events";
 import { createTestLayer, seedEvent } from "../helpers/db";
+import { TEST_VERIFICATION } from "../helpers/verification";
 
 /**
  * Permissive rate limiter for tests — never trips. Real per-IP limiter
@@ -47,7 +48,7 @@ describe("GET /events/discover", () => {
     layer = createTestLayer();
     app = createEventsRoutes(
       layer,
-      "",
+      TEST_VERIFICATION,
       testPublicKey,
       allowAllLimiter,
       undefined,
@@ -130,7 +131,7 @@ describe("GET /events/discover", () => {
     const blockingLimiter: RateLimiterBackend = { check: () => false };
     const blockedApp = createEventsRoutes(
       layer,
-      "",
+      TEST_VERIFICATION,
       testPublicKey,
       blockingLimiter,
       undefined,
@@ -151,7 +152,7 @@ describe("GET /events/discover", () => {
     };
     const failedApp = createEventsRoutes(
       layer,
-      "",
+      TEST_VERIFICATION,
       testPublicKey,
       failingLimiter,
       undefined,

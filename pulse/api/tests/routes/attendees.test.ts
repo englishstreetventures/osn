@@ -5,6 +5,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createEventsRoutes } from "../../src/routes/events";
 import { canViewAttendees } from "../../src/services/eventAccess";
 import { createTestLayer, seedEvent } from "../helpers/db";
+import { TEST_VERIFICATION } from "../helpers/verification";
 
 let signer: AccessTokenSigner;
 let testPublicKey: CryptoKey;
@@ -39,7 +40,7 @@ describe("GET /events/:id/rsvps — additive canViewAttendees flag", () => {
 
   beforeEach(async () => {
     layer = createTestLayer();
-    app = createEventsRoutes(layer, "", testPublicKey);
+    app = createEventsRoutes(layer, TEST_VERIFICATION, testPublicKey);
     const event = await Effect.runPromise(
       seedEvent({
         title: "Public",

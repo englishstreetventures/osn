@@ -5,7 +5,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { Elysia, t } from "elysia";
 
 import { makeCallerResolver } from "../lib/caller";
-import { DEFAULT_JWKS_URL } from "../lib/jwks";
+import { DEFAULT_VERIFICATION, type OsnTokenVerification } from "../lib/jwks";
 import { checkWriteRateLimit, createDefaultWriteRateLimiter } from "../lib/rate-limit";
 import { canViewEvent } from "../services/eventAccess";
 import {
@@ -87,7 +87,7 @@ const rruleInvalidReasonEnum = t.Union([
 
 export const createSeriesRoutes = (
   dbLayer: Layer.Layer<Db> = DbLive,
-  jwksUrl: string = DEFAULT_JWKS_URL,
+  verification: OsnTokenVerification = DEFAULT_VERIFICATION,
   _testKey?: CryptoKey,
   /**
    * Per-USER write limiters keyed on `claims.profileId` (W4). Defaults are
@@ -100,7 +100,7 @@ export const createSeriesRoutes = (
 ) => {
   // Layer graph built once per factory (convention: see osn/api/src/lib/route-runtime.ts) — not per request.
   const runtime = ManagedRuntime.make(dbLayer);
-  const resolveCaller = makeCallerResolver({ runtime, jwksUrl, testKey: _testKey });
+  const resolveCaller = makeCallerResolver({ runtime, verification, testKey: _testKey });
   const seriesCreateLimiter =
     writeRateLimiters.seriesCreate ?? createDefaultWriteRateLimiter("series_create");
   const seriesUpdateLimiter =

@@ -4,7 +4,7 @@ import { DbLive, type Db } from "@zap/db/service";
 import type { Layer } from "effect";
 import { Elysia } from "elysia";
 
-import { DEFAULT_JWKS_URL } from "./lib/jwks";
+import { DEFAULT_VERIFICATION, type OsnTokenVerification } from "./lib/jwks";
 import {
   createChatsRoutes,
   createDefaultZapRateLimiters,
@@ -22,12 +22,13 @@ export interface AppOptions {
    */
   dbLayer?: Layer.Layer<Db>;
   /**
-   * JWKS endpoint of the OSN issuer that signs access tokens (W1/W2 — ES256
-   * verification via `@shared/osn-auth-client`). Workers supply it from the
-   * `OSN_JWKS_URL` binding; the local dev server falls back to
-   * `DEFAULT_JWKS_URL`.
+   * Where the OSN issuer's access-token signing keys live, and the `iss` its
+   * tokens must carry (W1/W2 — ES256 verification via
+   * `@shared/osn-auth-client`). Workers supply both from the `OSN_JWKS_URL`
+   * and `OSN_ISSUER_URL` bindings; the local dev server falls back to
+   * `DEFAULT_VERIFICATION`.
    */
-  jwksUrl?: string;
+  verification?: OsnTokenVerification;
   /**
    * Per-IP write limiters (Cloudflare-keyed, S-H1). Defaults to in-memory
    * counters; a deployment that needs a globally-shared throttle wires a
@@ -50,7 +51,7 @@ export interface AppOptions {
 export function createApp(options: AppOptions = {}) {
   const {
     dbLayer = DbLive,
-    jwksUrl = DEFAULT_JWKS_URL,
+    verification = DEFAULT_VERIFICATION,
     rateLimiters = createDefaultZapRateLimiters(),
     corsOrigins,
   } = options;
@@ -63,7 +64,7 @@ export function createApp(options: AppOptions = {}) {
       .use(observabilityPlugin({ serviceName: SERVICE_NAME }))
       .use(healthRoutes({ serviceName: SERVICE_NAME }))
       .get("/", () => ({ status: "ok", service: SERVICE_NAME }))
-      .use(createChatsRoutes(dbLayer, jwksUrl, undefined, rateLimiters))
+      .use(createChatsRoutes(dbLayer, verification, undefined, rateLimiters))
       .use(createInternalRoutes(dbLayer))
   );
 }

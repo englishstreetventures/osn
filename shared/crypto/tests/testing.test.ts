@@ -1,7 +1,7 @@
 import { decodeProtectedHeader, jwtVerify } from "jose";
 import { describe, expect, it } from "vitest";
 
-import { makeAccessTokenSigner } from "../src/testing";
+import { LOCAL_TEST_ISSUER, makeAccessTokenSigner } from "../src/testing";
 
 // The pulse, zap and cire route suites all authenticate through this one
 // signer. If it stopped setting `aud`, or put `sub` in the header instead of
@@ -79,6 +79,38 @@ describe("makeAccessTokenSigner", () => {
     expect(await codeOf(jwtVerify(stepUp, signer.publicKey, { audience: AUD }))).toBe(
       "ERR_JWT_CLAIM_VALIDATION_FAILED",
     );
+  });
+
+  // Every downstream suite's tokens are accepted because of this default —
+  // pulse, zap and the sixteen cire suites all mint without naming an issuer
+  // and verify against a config expecting the local one. A change to the
+  // sentinel below would mint tokens no verifier accepts, and be diagnosed as
+  // a route bug in four packages.
+  it("stamps the local issuer by default, so downstream verifiers accept it", async () => {
+    const signer = await makeAccessTokenSigner();
+    const token = await signer.sign("usr_alice");
+
+    const { payload } = await jwtVerify(token, signer.publicKey, {
+      audience: AUD,
+      issuer: LOCAL_TEST_ISSUER,
+    });
+    expect(payload.iss).toBe(LOCAL_TEST_ISSUER);
+  });
+
+  // `null`, not `undefined`: the pre-enforcement shape, for driving the
+  // rejection path a verifier that pins the issuer must take.
+  it("mints no iss at all when the issuer is null", async () => {
+    const signer = await makeAccessTokenSigner();
+    const token = await signer.sign("usr_alice", { issuer: null });
+
+    const { payload } = await jwtVerify(token, signer.publicKey, { audience: AUD });
+    expect(payload.iss).toBeUndefined();
+
+    expect(
+      await codeOf(
+        jwtVerify(token, signer.publicKey, { audience: AUD, issuer: LOCAL_TEST_ISSUER }),
+      ),
+    ).toBe("ERR_JWT_CLAIM_VALIDATION_FAILED");
   });
 
   it("honours an issuer override so cire's issuer pinning is reachable", async () => {

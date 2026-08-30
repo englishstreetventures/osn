@@ -286,6 +286,84 @@ describe("extractClaims — negative + rotation paths", () => {
     expect(fetchCount).toBe(1); // resolve only, no rotation retry
   });
 
+  // The third state, and the one that matters most: an expected issuer that is
+  // present but EMPTY. That is what an unset `OSN_ISSUER_URL` var reaching the
+  // verifier looks like, and treating it as "no check" would let a
+  // half-configured deployment accept tokens from any OSN install while
+  // looking configured. It fails closed instead.
+  // The comparison is normalised on both sides, so an operator's stray slash
+  // in one of six hand-maintained wrangler blocks is not a silent outage.
+  it("tolerates a trailing slash on either side of the issuer", async () => {
+    const withSlash = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: kidA })
+      .setSubject("usr_a")
+      .setIssuer(`${ISS}/`)
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(keyA.signKey);
+
+    // Slash on the token only.
+    expect((await extractClaims(`Bearer ${withSlash}`, JWKS_URL, { issuer: ISS }))?.profileId).toBe(
+      "usr_a",
+    );
+    // Slash on the expected value only.
+    const plain = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: kidA })
+      .setSubject("usr_a")
+      .setIssuer(ISS)
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(keyA.signKey);
+    expect(
+      (await extractClaims(`Bearer ${plain}`, JWKS_URL, { issuer: `${ISS}/` }))?.profileId,
+    ).toBe("usr_a");
+  });
+
+  // Normalising a slash must not soften the check itself: a token with no
+  // `iss` at all is rejected whenever one is expected.
+  it("issuer set + token carrying no iss → null", async () => {
+    const noIssuer = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: kidA })
+      .setSubject("usr_a")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(keyA.signKey);
+
+    expect(await extractClaims(`Bearer ${noIssuer}`, JWKS_URL, { issuer: ISS })).toBeNull();
+  });
+
+  it("issuer set to an empty string → null, and never reaches the network", async () => {
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: kidA })
+      .setSubject("usr_a")
+      .setIssuer(ISS)
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(keyA.signKey);
+
+    const before = fetchCount;
+    const result = await extractClaims(`Bearer ${token}`, JWKS_URL, { issuer: "" });
+    expect(result).toBeNull();
+    // Rejected on the config, before any JWKS fetch — a misconfigured
+    // verifier should not also stampede the issuer.
+    expect(fetchCount).toBe(before);
+  });
+
+  it("issuer explicitly undefined → treated as unset, not as empty", async () => {
+    // A caller that spreads its config passes the key present-but-undefined.
+    // That is still the honest "not asking for this check", unlike "".
+    const token = await new SignJWT({})
+      .setProtectedHeader({ alg: "ES256", kid: kidA })
+      .setSubject("usr_a")
+      .setIssuer("https://anything.example.com")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(keyA.signKey);
+
+    const result = await extractClaims(`Bearer ${token}`, JWKS_URL, { issuer: undefined });
+    expect(result?.profileId).toBe("usr_a");
+  });
+
   it("issuer UNSET → any iss accepted (rollout safety: pre-O1 tokens verify)", async () => {
     // Token with an arbitrary iss, verified WITHOUT an expected issuer.
     const token = await new SignJWT({})
