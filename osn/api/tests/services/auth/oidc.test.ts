@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { clientNameSkeleton } from "../../../src/services/auth/oidc";
 
@@ -14,11 +14,24 @@ import { clientNameSkeleton } from "../../../src/services/auth/oidc";
  * the test pollutes the prototype itself with a single-character property to
  * prove the guard checks OWN membership rather than trusting on that absence.
  */
+afterEach(() => {
+  // Same reason as the guard in AuthorizePage.test.tsx:127-135: a `finally`
+  // does not run when vitest abandons a timed-out test body, so one hang
+  // would leak `Object.prototype.δ` into every later test in this file. This
+  // runs on every exit path; the `try`/`finally` below stays too, keeping the
+  // pollution window as short as it is today.
+  delete (Object.prototype as Record<string, unknown>).δ;
+});
+
 describe("clientNameSkeleton", () => {
   it("does not fold a character that is only an inherited property", () => {
     const proto = Object.prototype as Record<string, string>;
     // "δ" (Greek delta) is not a key CONFUSABLE_FOLD owns.
     expect(Object.hasOwn(proto, "δ")).toBe(false);
+    // Baseline, taken before the prototype is polluted: proves the
+    // post-pollution assertion below is evidence that pollution changed
+    // nothing, not merely a description of the function's normal output.
+    expect(clientNameSkeleton("aδb")).toBe("ab");
     // Non-enumerable, so no `for...in` anywhere in the realm can see it while
     // the test holds it. Removed again in the `finally`.
     Object.defineProperty(proto, "δ", {

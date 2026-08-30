@@ -15,7 +15,8 @@ const GRID_COLS: GridColumnClasses = {
   5: "grid-cols-5",
 };
 
-const gridCols = (count: number): string => (count in GRID_COLS ? GRID_COLS[count] : "grid-cols-4");
+const gridCols = (count: number): string =>
+  Object.hasOwn(GRID_COLS, count) ? GRID_COLS[count] : "grid-cols-4";
 
 /**
  * The mobile shell's primary navigation: a fixed bottom tab bar, rendered
