@@ -21,7 +21,6 @@
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",
-    "@testing-library/jest-dom": "^6.10.0",
     "@shared/typescript-config": "workspace:*",
     "solid-js": "^1.9.14",
     "vite-plugin-solid": "^2.11.14",

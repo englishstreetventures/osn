@@ -1,6 +1,12 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalPassThroughEnv": ["PORTLESS"],
+  // `shared/test-config/no-jest-dom.ts` belongs to no package, so no task's
+  // `inputs` hash covers it — every consumer's `test` result would stay cached
+  // across an edit to it, including an edit that put executable code in a file
+  // whose whole contract is to hold none. Listed here, a change to it
+  // invalidates every task in the repo, which is the blunt version of correct.
+  "globalDependencies": ["shared/test-config/no-jest-dom.ts"],
   "tasks": {
     "build": {
       "dependsOn": [

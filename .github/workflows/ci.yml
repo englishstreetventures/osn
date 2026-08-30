@@ -238,6 +238,13 @@ jobs:
       - name: Test the scripts
         run: bun run test:scripts
 
+      # The guard's own tests run in the step above; this step runs it against
+      # this repo's real vitest configs. Both halves are needed — a test suite
+      # over synthetic fixtures proves the guard works, not that the tree it is
+      # guarding still passes it.
+      - name: Check jest-dom suppression markers
+        run: bun run check:jest-dom-markers
+
       # A prior version of this job ran `checkReleaseAgeExcludes` only from
       # `bun test`, which imports the pure function and feeds it synthetic
       # TOML — the `import.meta.main` CLI block (the part that reads the real

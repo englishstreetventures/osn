@@ -7,7 +7,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-08-28
 ---
 
 # Component Lab
@@ -128,9 +128,12 @@ The `test` script that does exist covers two pure helpers, `titleFromPath` and
 wrong control still accepts input. Its config leaves out `vite-plugin-solid`,
 which every other Solid package here uses. The plugin adds a
 `@testing-library/jest-dom` setup file to any test run and the run dies without
-that dependency, which a tool testing two pure functions should not carry. The
-price is that no test here can import a `.tsx` file, and it is why
-`inferControl` sits in `infer-control.ts` rather than beside the panel it feeds.
+that dependency, which a tool testing two pure functions should not carry. Every
+other Solid package suppresses that injection with a marker in `setupFiles`
+instead — see [[testing-patterns]] — but a lab that imports no `.tsx` file has
+nothing to gain from the plugin either way. The price is that no test here can
+import a `.tsx` file, and it is why `inferControl` sits in `infer-control.ts`
+rather than beside the panel it feeds.
 
 ## HTML in canvas
 
