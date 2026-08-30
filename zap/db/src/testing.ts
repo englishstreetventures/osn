@@ -46,6 +46,13 @@ function buildSchemaSql(): string[] {
 
 /** Apply the full Zap schema to an in-memory bun:sqlite handle. */
 export function applySchema(sqlite: Database): void {
+  // SQLite defaults `foreign_keys` to OFF. D1 enforces them, so without this a
+  // test database accepts writes production rejects — a statement that orphans
+  // a row, or deletes a parent before its children, passes the whole suite and
+  // fails on deploy with `FOREIGN KEY constraint failed`. Applied here rather
+  // than at each call site so every test database built from the live schema
+  // agrees with production about what is a legal write.
+  sqlite.run("PRAGMA foreign_keys = ON");
   for (const stmt of createSchemaSql()) sqlite.run(stmt);
 }
 

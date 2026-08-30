@@ -75,7 +75,12 @@ export interface DevLoginConfig {
 const provision = Effect.gen(function* () {
   const { db } = yield* Db;
   const now = new Date();
-  yield* Effect.promise(() =>
+  // `tryPromise`, not `promise`. `promise` declares the batch infallible, and
+  // it is not: every insert here references a row another insert may have
+  // skipped through `onConflictDoNothing`, so with foreign keys enforced the
+  // batch can reject. Declared infallible, that arrived as a defect and
+  // escaped the caller's handling entirely.
+  yield* Effect.tryPromise(() =>
     commitBatch(db, [
       db
         .insert(accounts)
@@ -168,7 +173,19 @@ export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConf
 
       let profile = yield* auth.findProfileById(DEV_PRINCIPAL.profileId);
       if (!profile) {
-        yield* provision;
+        // A provisioning failure is caught, not propagated, so it lands on the
+        // same path as a provision that ran but left no row: re-read, find
+        // nothing, return `null`, and let the caller answer 500
+        // `provisioning_failed`. That is what this function's contract already
+        // says, and it was only true while the batch could not fail — with
+        // foreign keys enforced it can, because a handle squatter makes the
+        // `users` insert a no-op and the `organisations` row that references
+        // that profile then has no owner to point at. Letting the error escape
+        // gave a 400, which says the caller sent something wrong when the
+        // truth is that the server could not provision.
+        yield* provision.pipe(
+          Effect.catchAll((cause) => Effect.logError("dev-login: provisioning failed", { cause })),
+        );
         profile = yield* auth.findProfileById(DEV_PRINCIPAL.profileId);
       }
       if (!profile) return null;

@@ -1,7 +1,7 @@
 import { it, expect, describe } from "@effect/vitest";
 import { accounts, organisations } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
 import { beforeAll } from "vitest";
 
@@ -22,6 +22,29 @@ beforeAll(async () => {
   config = await makeTestAuthConfig();
   auth = createAuthService(config);
 });
+
+/**
+ * Deletes an `organisations` row while leaving its `organisation_members`
+ * rows in place — a state the service layer cannot produce, and one the
+ * database now refuses: `deleteOrganisation` removes the memberships and the
+ * organisation in one batch, and foreign keys are enforced.
+ *
+ * The tests below need it anyway, because the branch it exercises is real: the
+ * fan-out and the label hydration are two statements, so an organisation
+ * deleted between them lands exactly there. Dropping the pragma around this
+ * one statement is what lets a test reach a race that a single transaction
+ * cannot hold — and doing it here, in one named helper, keeps the exception
+ * visible rather than spread across three tests.
+ */
+const deleteOrganisationRowOnly = (organisationId: string) =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    yield* Effect.promise(async () => {
+      await db.run(sql`PRAGMA foreign_keys = OFF`);
+      await db.delete(organisations).where(eq(organisations.id, organisationId));
+      await db.run(sql`PRAGMA foreign_keys = ON`);
+    });
+  });
 
 // Connect two users bidirectionally (request + accept).
 const connect = (a: string, b: string) =>
@@ -323,8 +346,7 @@ describe("suggestConnections", () => {
       yield* connect(alice.id, cara.id);
       yield* connect(cara.id, dana.id);
 
-      const { db } = yield* Db;
-      yield* Effect.promise(() => db.delete(organisations).where(eq(organisations.id, beta.id)));
+      yield* deleteOrganisationRowOnly(beta.id);
 
       const result = yield* recs.suggestConnections(alice.id);
       const byHandle = new Map(result.map((x) => [x.handle, x.sharedOrganisation]));
@@ -384,8 +406,7 @@ describe("suggestConnections", () => {
       const org = yield* orgs.createOrganisation(alice.id, "acme", "Acme Inc");
       yield* orgs.addMember(org.id, alice.id, dana.id, "member");
 
-      const { db } = yield* Db;
-      yield* Effect.promise(() => db.delete(organisations).where(eq(organisations.id, org.id)));
+      yield* deleteOrganisationRowOnly(org.id);
 
       const result = yield* recs.suggestConnections(alice.id);
       expect(result).toHaveLength(1);
@@ -410,8 +431,7 @@ describe("suggestConnections", () => {
       // bob is suggested while the organisation exists.
       expect((yield* recs.suggestConnections(alice.id)).map((x) => x.handle)).toEqual(["bob"]);
 
-      const { db } = yield* Db;
-      yield* Effect.promise(() => db.delete(organisations).where(eq(organisations.id, org.id)));
+      yield* deleteOrganisationRowOnly(org.id);
 
       expect(yield* recs.suggestConnections(alice.id)).toEqual([]);
     }).pipe(Effect.provide(createTestLayer())),

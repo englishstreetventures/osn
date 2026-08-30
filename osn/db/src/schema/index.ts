@@ -322,9 +322,15 @@ export const emailChanges = sqliteTable(
   "email_changes",
   {
     id: text("id").primaryKey(), // "ech_" prefix
-    accountId: text("account_id")
-      .notNull()
-      .references(() => accounts.id),
+    // No `.references(accounts.id)`, deliberately. `hardDeleteAccount`
+    // (`osn/api/src/services/account-erasure.ts`) removes the `accounts` row
+    // and KEEPS these under Art. 6(1)(c), so the column outlives its parent by
+    // design — and a column that must outlive its parent cannot have a foreign
+    // key to it. With the constraint in place the final `delete(accounts)`
+    // failed, taking the whole erasure batch with it, so Art. 17 deletion
+    // could never complete against a database that enforces foreign keys.
+    // Retention is enforced by the sweeper, not by a reference.
+    accountId: text("account_id").notNull(),
     previousEmail: text("previous_email").notNull(),
     newEmail: text("new_email").notNull(),
     /** Unix seconds */
@@ -360,9 +366,15 @@ export const securityEvents = sqliteTable(
   "security_events",
   {
     id: text("id").primaryKey(), // "sev_" prefix
-    accountId: text("account_id")
-      .notNull()
-      .references(() => accounts.id),
+    // No `.references(accounts.id)`, deliberately. `hardDeleteAccount`
+    // (`osn/api/src/services/account-erasure.ts`) removes the `accounts` row
+    // and KEEPS these under Art. 6(1)(c), so the column outlives its parent by
+    // design — and a column that must outlive its parent cannot have a foreign
+    // key to it. With the constraint in place the final `delete(accounts)`
+    // failed, taking the whole erasure batch with it, so Art. 17 deletion
+    // could never complete against a database that enforces foreign keys.
+    // Retention is enforced by the sweeper, not by a reference.
+    accountId: text("account_id").notNull(),
     /**
      * Bounded kind enum — see SecurityEventKind in @shared/observability.
      * Enforced at the service boundary, not the column level, so adding

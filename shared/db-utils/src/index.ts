@@ -62,6 +62,14 @@ export async function createDrizzleClient<S extends DrizzleSchema>(
   const { Database } = (await import(bunSqlite)) as typeof import("bun:sqlite");
   const { drizzle } = (await import(bunSqliteDriver)) as typeof import("drizzle-orm/bun-sqlite");
   const sqlite = new Database(dbPath);
+  // SQLite defaults `foreign_keys` to OFF, so every reference declared in the
+  // schema is unenforced on Bun while D1 enforces them. That makes the cheap,
+  // fast environment the permissive one: a statement that orphans a row, or
+  // deletes a parent before its children, passes the whole suite and fails on
+  // deploy with `FOREIGN KEY constraint failed`. Turning it on here is what
+  // makes local runs and tests agree with production about what is a legal
+  // write.
+  sqlite.run("PRAGMA foreign_keys = ON");
   return drizzle(sqlite, { schema });
 }
 

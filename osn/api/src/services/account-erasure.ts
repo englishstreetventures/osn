@@ -546,6 +546,21 @@ const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasur
                 db
                   .delete(organisationMembers)
                   .where(inArray(organisationMembers.profileId, profileIds)),
+                // OIDC provider records (Art. 17). Both are account-scoped and
+                // PII-bearing: `oauth_consents` names every relying party the
+                // user linked, `oauth_authorization_codes` is a live grant in
+                // flight. A deletion mid-flow must take the pending code with
+                // it — leaving it would let an outstanding code redeem against
+                // a tombstoned account.
+                //
+                // Above the `users` delete, not below it: both carry a
+                // `profile_id` referencing `users.id`, so removing the profiles
+                // first orphans them and the whole batch fails on a database
+                // that enforces foreign keys.
+                db.delete(oauthConsents).where(eq(oauthConsents.accountId, accountId)),
+                db
+                  .delete(oauthAuthorizationCodes)
+                  .where(eq(oauthAuthorizationCodes.accountId, accountId)),
                 db.delete(users).where(eq(users.accountId, accountId)),
               ]
             : []),
@@ -554,15 +569,6 @@ const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasur
           db.delete(passkeys).where(eq(passkeys.accountId, accountId)),
           db.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
           db.delete(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
-          // OIDC provider records (Art. 17). Both are account-scoped and
-          // PII-bearing: `oauth_consents` names every relying party the user
-          // linked, `oauth_authorization_codes` is a live grant in flight. A
-          // deletion mid-flow must take the pending code with it — leaving it
-          // would let an outstanding code redeem against a tombstoned account.
-          db.delete(oauthConsents).where(eq(oauthConsents.accountId, accountId)),
-          db
-            .delete(oauthAuthorizationCodes)
-            .where(eq(oauthAuthorizationCodes.accountId, accountId)),
           // Clients the account REGISTERED (owner side): disable them and
           // sever the ownership link. The rows themselves stay — other users'
           // consents reference them by client_id, and once unlinked they hold
