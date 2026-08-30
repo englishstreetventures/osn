@@ -76,8 +76,8 @@ export function storeBeforeImage(
 
     yield* Effect.tryPromise({
       try: async () => {
-        await r2.put(ek, eventsCsv);
-        await r2.put(gk, guestsCsv);
+        const results = await Promise.allSettled([r2.put(ek, eventsCsv), r2.put(gk, guestsCsv)]);
+        for (const r of results) if (r.status === "rejected") throw r.reason;
       },
       catch: (cause) => new R2Error({ reason: "before-image store failed", cause }),
     });
@@ -98,8 +98,8 @@ export function storeUpload(
 
     yield* Effect.tryPromise({
       try: async () => {
-        await r2.put(ek, eventsCsv);
-        await r2.put(gk, guestsCsv);
+        const results = await Promise.allSettled([r2.put(ek, eventsCsv), r2.put(gk, guestsCsv)]);
+        for (const r of results) if (r.status === "rejected") throw r.reason;
       },
       catch: (cause) => new R2Error({ reason: "store failed", cause }),
     });

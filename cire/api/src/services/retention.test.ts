@@ -27,11 +27,13 @@ const YEAR_MS = 365 * 24 * 60 * 60 * 1000;
  * In-memory delete-only R2 stub recording every key passed to `.delete()`.
  * Supports BOTH the single-key and the array (multi-key) delete form so the
  * reaper's array-first/per-key-fallback path is exercised. `failKeys` forces a
- * throw for the named keys (best-effort path); `arrayOnly: false` simulates a
- * binding that rejects the array form (the test-stub case).
+ * throw for the named keys (best-effort path); `rejectArray` simulates a
+ * binding that throws synchronously on the array form (falls back to
+ * per-key); `rejectArrayAsync` simulates a binding whose array form rejects
+ * asynchronously (a real delete failure — no per-key fallback).
  */
 function createDeleteStub(
-  opts: { failKeys?: Set<string>; rejectArray?: boolean } = {},
+  opts: { failKeys?: Set<string>; rejectArray?: boolean; rejectArrayAsync?: boolean } = {},
 ): DeletableBucket & {
   deleted: Set<string>;
 } {
@@ -46,6 +48,7 @@ function createDeleteStub(
     delete(keys: string | string[]) {
       if (Array.isArray(keys)) {
         if (opts.rejectArray) throw new Error("array delete unsupported");
+        if (opts.rejectArrayAsync) return Promise.reject(new Error("array delete failed"));
         for (const k of keys) removeOne(k);
       } else {
         removeOne(keys);
@@ -537,6 +540,39 @@ describe("retentionService.sweepExpiredGuestData", () => {
         const sheets = createDeleteStub({ rejectArray: true });
         yield* retentionService.sweepExpiredGuestData(now, { sheets });
         for (const k of sheetKeys) expect(sheets.deleted.has(k)).toBe(true);
+      }),
+    ),
+  );
+
+  it(
+    "does not fall back to per-key delete when the array form rejects asynchronously",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        const { weddingId, guestId, sheetKeys } = yield* makeWedding({
+          eventDates: ["2024-06-01"],
+          withImport: true,
+        });
+        // rejectArrayAsync ⇒ the array delete rejects after being called — a
+        // real delete failure, not a feature gap, so there is no per-key retry.
+        const sheets = createDeleteStub({ rejectArrayAsync: true });
+
+        // The sweep still resolves (best-effort) and the D1 rows are gone.
+        const deleted = yield* retentionService.sweepExpiredGuestData(now, { sheets });
+        expect(deleted).toBeGreaterThanOrEqual(1);
+        expect(
+          (yield* dbQuery(() => db.select().from(guests).where(eq(guests.id, guestId)).all()))
+            .length,
+        ).toBe(0);
+        expect(
+          (yield* dbQuery(() =>
+            db.select().from(imports).where(eq(imports.weddingId, weddingId)).all(),
+          )).length,
+        ).toBe(0);
+        // No per-key fallback ran, so nothing was recorded as deleted.
+        for (const k of sheetKeys) expect(sheets.deleted.has(k)).toBe(false);
+        expect(sheets.deleted.size).toBe(0);
       }),
     ),
   );

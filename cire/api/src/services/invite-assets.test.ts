@@ -3,6 +3,7 @@ import { describe, it, expect } from "bun:test";
 import { Effect } from "effect";
 
 import {
+  AssetR2Error,
   AssetsR2Service,
   createAssetsStub,
   deleteAsset,
@@ -61,6 +62,23 @@ describe("invite-assets R2 round-trip", () => {
       fetchAsset("assets/missing").pipe(Effect.provideService(AssetsR2Service, stub)),
     );
     expect(exit._tag).toBe("Failure");
+  });
+
+  it("fails deleteAsset with AssetR2Error when the delete rejects", async () => {
+    // A backend whose delete rejects — exercises the call sites in
+    // invite.ts / event-image.ts that catch this and log a warning instead
+    // of failing the request.
+    const failing = {
+      put: () => Promise.resolve(),
+      get: () => Promise.resolve(null),
+      delete: () => Promise.reject(new Error("delete failed")),
+    };
+    const error = await Effect.runPromise(
+      Effect.flip(deleteAsset("assets/whatever")).pipe(
+        Effect.provideService(AssetsR2Service, failing),
+      ),
+    );
+    expect(error).toBeInstanceOf(AssetR2Error);
   });
 });
 

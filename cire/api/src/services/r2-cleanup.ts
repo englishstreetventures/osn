@@ -23,7 +23,9 @@ import { metricR2ObjectsSwept } from "../metrics";
  *  - **Bounded.** Keys are deduped and chunked so a purge touching many objects
  *    respects the Worker CPU/subrequest budget; each chunk is one `delete([...])`
  *    multi-key call where the binding supports it (Cloudflare R2), falling back
- *    to per-key deletes (the in-memory test stub / any single-key binding).
+ *    to per-key deletes only when a binding rejects the array form
+ *    *synchronously* — an asynchronous rejection is a real delete failure, not
+ *    a feature gap, so it is counted as failed rather than retried per-key.
  *  - **Metric.** Emits the bounded-cardinality `cire.r2.objects.swept` counter
  *    (`bucket` ∈ sheets|assets, `result` ∈ ok|error) — count is the number of
  *    keys in the request, so the sum tracks reclaimed objects per bucket.
@@ -36,7 +38,10 @@ export type R2BucketLabel = "sheets" | "assets";
  * Minimal delete-only R2 surface. Cloudflare's `R2Bucket` satisfies this
  * structurally and additionally accepts `string[]` for a single multi-key
  * delete; the in-memory test stubs implement only the single-key form. We
- * feature-detect the array form at call time so both work.
+ * feature-detect the array form at call time so both work — but only a
+ * *synchronous* throw from `bucket.delete(batch)` is treated as "form not
+ * supported"; a rejected promise is a genuine delete failure and is not
+ * retried per-key.
  *
  * The result is `Promise<void> | void`, matching the real backend: R2's
  * `delete` resolves `Promise<void>` (the ambient `R2Bucket` from
@@ -98,12 +103,19 @@ export function reapR2Objects(
         try: async () => {
           // Cloudflare R2's `delete` accepts `string[]` (one multi-key request);
           // the in-memory test stub / any single-key binding may not. Attempt the
-          // array form first, fall back to per-key deletes if it throws.
+          // array form first, fall back to per-key deletes only when the call
+          // throws synchronously — an async rejection is a real failure, not a
+          // feature gap, and must not be masked by a per-key retry.
+          let pending: Promise<void> | undefined;
           try {
-            await bucket.delete(batch);
-            return;
+            pending = Promise.resolve(bucket.delete(batch));
           } catch {
-            // Binding rejected the array form — fall through to per-key deletes.
+            // Binding rejected the array form synchronously — fall through to per-key.
+            pending = undefined;
+          }
+          if (pending) {
+            await pending;
+            return;
           }
           for (const key of batch) {
             // eslint-disable-next-line no-await-in-loop

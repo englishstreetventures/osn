@@ -2,7 +2,14 @@ import { describe, it, expect } from "bun:test";
 
 import { Effect, Layer } from "effect";
 
-import { R2Service, createR2Stub, fetchUpload, storeUpload, R2Error } from "./r2-imports";
+import {
+  R2Service,
+  createR2Stub,
+  fetchUpload,
+  storeBeforeImage,
+  storeUpload,
+  R2Error,
+} from "./r2-imports";
 
 describe("R2Service (in-memory stub)", () => {
   it("stores and fetches an uploaded events.csv + guests.csv pair", async () => {
@@ -31,6 +38,42 @@ describe("R2Service (in-memory stub)", () => {
 
     const error = await Effect.runPromise(
       Effect.flip(fetchUpload("imports/missing/events.csv")).pipe(Effect.provide(layer)),
+    );
+    expect(error).toBeInstanceOf(R2Error);
+  });
+
+  it("fails storeUpload with R2Error when one of the two puts rejects", async () => {
+    // Only one of the pair rejects — exercises the Promise.allSettled path
+    // that throws the first rejection rather than adopting Promise.all's.
+    const partiallyFailing = {
+      put: (key: string) =>
+        key.endsWith("guests.csv") ? Promise.reject(new Error("put failed")) : Promise.resolve(),
+      get: () => Promise.resolve(null),
+      delete: () => Promise.resolve(),
+    };
+    const layer = Layer.succeed(R2Service, partiallyFailing);
+
+    const error = await Effect.runPromise(
+      Effect.flip(storeUpload("events,csv\n", "guests,csv\n", "import-fail")).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    expect(error).toBeInstanceOf(R2Error);
+  });
+
+  it("fails storeBeforeImage with R2Error when one of the two puts rejects", async () => {
+    const partiallyFailing = {
+      put: (key: string) =>
+        key.endsWith("events.csv") ? Promise.reject(new Error("put failed")) : Promise.resolve(),
+      get: () => Promise.resolve(null),
+      delete: () => Promise.resolve(),
+    };
+    const layer = Layer.succeed(R2Service, partiallyFailing);
+
+    const error = await Effect.runPromise(
+      Effect.flip(storeBeforeImage("events,csv\n", "guests,csv\n", "import-fail")).pipe(
+        Effect.provide(layer),
+      ),
     );
     expect(error).toBeInstanceOf(R2Error);
   });
