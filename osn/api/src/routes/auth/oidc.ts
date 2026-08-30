@@ -96,7 +96,7 @@ const AUTHORIZE_ERROR_COPY = {
 const hasAuthorizeErrorCopy = (code: string): code is keyof typeof AUTHORIZE_ERROR_COPY =>
   Object.hasOwn(AUTHORIZE_ERROR_COPY, code);
 
-const renderAuthorizeErrorPage = (code: string): string => {
+export const renderAuthorizeErrorPage = (code: string): string => {
   const message = hasAuthorizeErrorCopy(code)
     ? AUTHORIZE_ERROR_COPY[code]
     : AUTHORIZE_ERROR_COPY.invalid_request;

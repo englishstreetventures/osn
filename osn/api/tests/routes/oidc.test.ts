@@ -17,10 +17,12 @@ import { makeLogEmailLive } from "@shared/email";
 import { Layer } from "effect";
 import { describe, it, expect, beforeAll } from "vitest";
 
+import { createDefaultAuthRateLimiters } from "../../src/routes/auth/limiters";
+import { renderAuthorizeErrorPage } from "../../src/routes/auth/oidc";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // S-M34: wrapped factory (trust XFF under app.handle). See helpers/routes.
-import { createAuthRoutes } from "../helpers/routes";
+import { createAuthRoutes, type AuthRateLimiters } from "../helpers/routes";
 
 const REDIRECT_URI = "https://rp.example.com/callback";
 const VERIFIER = "test-code-verifier-0123456789abcdefghijklmnopqrstuvwxyz";
@@ -330,6 +332,75 @@ describe("GET /authorize", () => {
     const loc = new URL(res.headers.get("location")!);
     expect(loc.origin + loc.pathname).toBe(REDIRECT_URI);
     expect(loc.searchParams.get("error")).toBe("invalid_request");
+  });
+
+  it("serves the rendered rate_limited error page when the oidcAuthorize limiter denies (#465)", async () => {
+    const { layer } = createTestLayerWithSqlite();
+    const rec = makeLogEmailLive();
+    const limiters: AuthRateLimiters = {
+      ...createDefaultAuthRateLimiters(),
+      oidcAuthorize: { check: async () => false },
+    };
+    const app = createAuthRoutes(config, Layer.merge(layer, rec.layer), undefined, limiters);
+
+    const res = await app.handle(new Request(authorizeUrl(goodParams)));
+
+    expect(res.status).toBe(429);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const body = await res.text();
+    expect(body).toContain("Too many sign-in attempts");
+  });
+});
+
+describe("renderAuthorizeErrorPage", () => {
+  it("renders each known code's own copy (#492 item 1)", () => {
+    const invalidClient = renderAuthorizeErrorPage("invalid_client");
+    expect(invalidClient).toContain("We don't recognise the app that sent you here");
+    expect(invalidClient).toContain("<code>invalid_client</code>");
+    // The three codes are distinguishable, not three copies of one assertion.
+    expect(invalidClient).not.toContain("This sign-in link is malformed or has expired");
+
+    const invalidRequest = renderAuthorizeErrorPage("invalid_request");
+    expect(invalidRequest).toContain("This sign-in link is malformed or has expired");
+    expect(invalidRequest).toContain("<code>invalid_request</code>");
+
+    const rateLimited = renderAuthorizeErrorPage("rate_limited");
+    expect(rateLimited).toContain("Too many sign-in attempts");
+    expect(rateLimited).toContain("<code>rate_limited</code>");
+  });
+
+  it("falls back to the invalid_request copy for an unrecognised code (#492 item 2)", () => {
+    const html = renderAuthorizeErrorPage("server_error");
+    expect(html).toContain("This sign-in link is malformed or has expired");
+    expect(html).toContain("<code>server_error</code>");
+  });
+
+  it("does not leak the built-in Object.prototype.constructor (#464)", () => {
+    const html = renderAuthorizeErrorPage("constructor");
+    expect(html).toContain("This sign-in link is malformed or has expired");
+    expect(html).not.toContain("native code");
+  });
+
+  it("does not resolve a planted Object.prototype member as copy (#492 item 3)", () => {
+    // S-L3-shaped guard pin, matching the house form in
+    // osn/social/tests/components/AuthorizePage.test.tsx. Non-enumerable, so
+    // no unrelated `for...in` loop across the test run can see it, and
+    // removed again in `finally`.
+    const proto = Object.prototype as Record<string, unknown>;
+    expect(Object.hasOwn(proto, "plantedCopy")).toBe(false);
+    Object.defineProperty(proto, "plantedCopy", {
+      value: "Leaked copy",
+      configurable: true,
+      enumerable: false,
+      writable: true,
+    });
+    try {
+      const html = renderAuthorizeErrorPage("plantedCopy");
+      expect(html).not.toContain("Leaked copy");
+      expect(html).toContain("This sign-in link is malformed or has expired");
+    } finally {
+      delete proto.plantedCopy;
+    }
   });
 });
 
