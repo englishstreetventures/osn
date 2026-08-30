@@ -130,9 +130,9 @@ public final class OSNSession {
     public func restore() async {
         state = .restoring
         do {
-            try await tokenRefresher.refresh()
+            let grant = try await tokenRefresher.refresh()
             state = .signedIn(nil)
-            reconcileIdentity()
+            reconcileIdentity(token: grant.accessToken)
         } catch {
             state = .signedOut
         }
@@ -211,32 +211,50 @@ public final class OSNSession {
         }
     }
 
-    /// Loads the Keychain-stored access token and refreshes it if it's
-    /// missing or expires within the next 30 seconds; otherwise does
-    /// nothing. `RequestHelpers.applyBearerAccessToken` pastes whatever
-    /// token is currently in the Keychain onto a request with no expiry
-    /// check and no 401-retry, so a caller that skips this and waits out
-    /// the 5-minute access-token TTL (`wiki/systems/identity-model.md`)
-    /// 401s on its next request — e.g. the Musubi account screen's
-    /// `PasskeyManagementClient.list()`. `TokenRefresher.refresh()` already
-    /// persists the refreshed token to the Keychain; this method never
-    /// writes to it directly.
+    /// Reconciles the on-screen identity against the access token in the
+    /// Keychain, refreshing that token first when it is missing or within
+    /// `AccessTokenProvider.expirySkew` of expiry.
+    ///
+    /// This is the S-H1 hook, not the request-auth hook: the `OSNAuth`
+    /// clients go through `AuthenticatedTransport`, which resolves and
+    /// refreshes a token of its own and retries a 401, so no call site has
+    /// to remember to call this first to make its request authenticate. What
+    /// it still owns is the identity check — a sibling app sharing this
+    /// Keychain slot may have rotated the token to a *different* user's, and
+    /// a screen about to show or act on identity-bearing data wants that
+    /// caught before it renders.
+    ///
+    /// One Keychain read on both paths: the loaded token is handed straight
+    /// to `reconcileIdentity(token:)` rather than read a second time, and on
+    /// the refresh path the grant's own token is used.
+    /// `TokenRefresher.refresh()` persists it to the Keychain; this method
+    /// never writes there directly.
     public func ensureFreshAccessToken() async throws {
-        let stored = try KeychainAccessTokenStore.load()
-        let isFresh = stored.map { $0.expiresAt.timeIntervalSinceNow > 30 } ?? false
-        guard !isFresh else {
-            reconcileIdentity()
+        // `AccessTokenProvider.storedAccessToken()` rather than
+        // `KeychainAccessTokenStore.load()` directly: this class is
+        // `@MainActor`, and the load is a synchronous IPC to `securityd`.
+        // The provider's accessor is `@concurrent`, so the read runs on the
+        // cooperative pool and only the state write below lands back here.
+        let stored = try await AccessTokenProvider.storedAccessToken()
+        if let stored, stored.expiresAt.timeIntervalSinceNow > AccessTokenProvider.expirySkew {
+            reconcileIdentity(token: stored.token)
             return
         }
-        try await tokenRefresher.refresh()
-        reconcileIdentity()
+        let grant = try await tokenRefresher.refresh()
+        reconcileIdentity(token: grant.accessToken)
     }
 
-    /// S-H1: every authenticated call goes through `ensureFreshAccessToken()`,
-    /// so reconciling here on both the already-fresh and just-refreshed paths
-    /// closes the hole — a sibling app rotating the shared Keychain token to a
-    /// different user's is caught on the very next call this app makes, not
-    /// just at launch.
+    /// S-H1: reconciling on both the already-fresh and the just-refreshed
+    /// path means a sibling app rotating the shared Keychain token to a
+    /// different user's is caught on the next call that goes through
+    /// `ensureFreshAccessToken()`, not just at launch.
+    ///
+    /// `AuthenticatedTransport` resolves its own token and does *not*
+    /// reconcile — it is a transport, and it has no view of `state`. So a
+    /// screen that shows or acts on identity still calls
+    /// `ensureFreshAccessToken()` first; dropping that call now costs the
+    /// identity check rather than the request's authentication, which is a
+    /// quieter failure and worth knowing before deleting one.
     ///
     /// Loads whatever access token is in the Keychain right now, decodes its
     /// claims (`AccessTokenClaims`, not signature-verified — see its doc),
@@ -248,9 +266,17 @@ public final class OSNSession {
     /// when the reconciled profile equals the cached one, so `@Observable`
     /// doesn't churn on every call.
     private func reconcileIdentity() {
+        reconcileIdentity(token: (try? KeychainAccessTokenStore.load())?.token)
+    }
+
+    /// The same reconciliation against a token the caller already holds, so
+    /// a call that has just read or just been handed one does not pay for a
+    /// second `SecItemCopyMatching` — a synchronous IPC to `securityd`, and
+    /// a hitch when it happens on the main actor. `nil` means "no token",
+    /// which `reconciledProfile` fails closed on.
+    private func reconcileIdentity(token: String?) {
         guard case .signedIn(let cached) = state else { return }
-        let stored = try? KeychainAccessTokenStore.load()
-        let claims = stored.flatMap { AccessTokenClaims(jwt: $0.token) }
+        let claims = token.flatMap { AccessTokenClaims(jwt: $0) }
         let reconciled = reconciledProfile(cached: cached, claims: claims)
         guard reconciled != cached else { return }
         state = .signedIn(reconciled)

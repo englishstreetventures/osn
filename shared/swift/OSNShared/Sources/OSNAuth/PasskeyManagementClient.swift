@@ -10,28 +10,29 @@ import OSNKit
 /// delete"). This is intentional server behavior to mirror, not a bug to
 /// "fix" to a separate `passkey_rename` purpose.
 public final class PasskeyManagementClient: Sendable {
-    private let session: URLSession
+    private let transport: AuthenticatedTransport
     private let environment: Environment
 
-    public init(session: URLSession, environment: Environment) {
-        self.session = session
+    /// - Parameter tokenRefresher: the session's own refresher, never a
+    ///   freshly built one. `TokenRefresher` coalesces concurrent `/token`
+    ///   requests per instance, and every grant rotates the session cookie,
+    ///   so two refreshers sharing one cookie jar race and the loser replays
+    ///   a rotated-out cookie — which trips reuse detection and revokes the
+    ///   whole session family. `OSNSession.tokenRefresher` is public for
+    ///   exactly this.
+    public init(session: URLSession, environment: Environment, tokenRefresher: TokenRefresher) {
+        self.transport = AuthenticatedTransport(
+            session: session,
+            environment: environment,
+            tokenRefresher: tokenRefresher
+        )
         self.environment = environment
     }
 
     public func list() async throws -> [PasskeySummary] {
         var request = URLRequest(url: environment.baseURL.appendingPathComponent("passkeys"))
         request.httpMethod = "GET"
-        try RequestHelpers.applyBearerAccessToken(to: &request)
-
-        let (data, response) = try await session.data(for: request)
-        let http = try Self.httpResponse(response)
-        guard http.statusCode == 200 else {
-            throw RequestHelpers.opaqueFailure(status: http.statusCode, data: data)
-        }
-        guard let decoded = try? JSONDecoder().decode(PasskeyListResponse.self, from: data) else {
-            throw OSNAuthError.responseMalformed(status: http.statusCode)
-        }
-        return decoded.passkeys
+        return try await transport.decode(PasskeyListResponse.self, from: request).passkeys
     }
 
     /// `stepUpToken` must have been minted via `StepUpPasskeyClient` with
@@ -47,17 +48,11 @@ public final class PasskeyManagementClient: Sendable {
         request.httpMethod = "PATCH"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue(stepUpToken, forHTTPHeaderField: "X-Step-Up-Token")
-        try RequestHelpers.applyBearerAccessToken(to: &request)
         request.httpBody = try JSONEncoder().encode(RenameRequestBody(label: label))
 
-        let (data, response) = try await session.data(for: request)
-        let http = try Self.httpResponse(response)
-        guard http.statusCode == 200 else {
-            throw RequestHelpers.opaqueFailure(status: http.statusCode, data: data)
-        }
-        guard let decoded = try? JSONDecoder().decode(PasskeyRenameResult.self, from: data),
-              decoded.success else {
-            throw OSNAuthError.responseMalformed(status: http.statusCode)
+        let result = try await transport.decode(PasskeyRenameResult.self, from: request)
+        guard result.success else {
+            throw OSNAuthError.responseMalformed(status: 200)
         }
     }
 
@@ -67,23 +62,7 @@ public final class PasskeyManagementClient: Sendable {
         var request = URLRequest(url: environment.baseURL.appendingPathComponent("passkeys/\(id)"))
         request.httpMethod = "DELETE"
         request.setValue(stepUpToken, forHTTPHeaderField: "X-Step-Up-Token")
-        try RequestHelpers.applyBearerAccessToken(to: &request)
 
-        let (data, response) = try await session.data(for: request)
-        let http = try Self.httpResponse(response)
-        guard http.statusCode == 200 else {
-            throw RequestHelpers.opaqueFailure(status: http.statusCode, data: data)
-        }
-        guard let decoded = try? JSONDecoder().decode(PasskeyDeleteResult.self, from: data) else {
-            throw OSNAuthError.responseMalformed(status: http.statusCode)
-        }
-        return decoded
-    }
-
-    private static func httpResponse(_ response: URLResponse) throws -> HTTPURLResponse {
-        guard let http = response as? HTTPURLResponse else {
-            throw OSNAuthError.responseMalformed(status: -1)
-        }
-        return http
+        return try await transport.decode(PasskeyDeleteResult.self, from: request)
     }
 }

@@ -77,6 +77,12 @@
   `RequestHelpers.applyBearerAccessToken`'s no-expiry-check/no-401-retry
   behavior. A load failure surfaces inline in the view (error text + Retry
   button) and never touches `session.state`.
+  **Superseded 2026-08-30** (tracker#532, tracker#533):
+  `applyBearerAccessToken` is gone, and `AuthenticatedTransport` resolves and
+  refreshes the token for every `OSNAuth` client and retries a 401, so the
+  call no longer has to come first for the request to authenticate. It stays
+  in `MusubiAccountView` as the S-H1 identity check, which is a different
+  job.
 - `osn/ios/` mirrors `pulse/ios/` (`project.yml`, `Sources/App.swift`):
   bundle id `social.musubi.app`, same team/App-Group/associated-domain
   entitlements. AASA
@@ -254,4 +260,7 @@ lie.
   whatever it reads), per-app request attribution (S-L1), the 30s-skew
   literal and 401-retry behaviour (P-W2), the hard-coded `Environment.local`
   in the test helpers above, and moving the mock `URLProtocol` into
-  `OSNTesting`.
+  `OSNTesting`. Of those, the mock has since moved to `OSNTesting`, and the
+  skew literal plus the missing 401 retry were filed as tracker#533 with the
+  duplicate Keychain read (P-W1) as tracker#532 and closed together on
+  2026-08-30 by `AccessTokenProvider` and `AuthenticatedTransport`.

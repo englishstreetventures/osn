@@ -128,4 +128,68 @@ struct FetchPasskeysTests {
 
         try KeychainAccessTokenStore.delete()
     }
+
+    /// `fetchPasskeys` resolves a token twice — once in
+    /// `ensureFreshAccessToken()` for the S-H1 identity check, once inside
+    /// `AuthenticatedTransport` for the request itself. Both read the skew
+    /// allowance from `AccessTokenProvider`, so the second must find the
+    /// token the first just persisted and refresh nothing.
+    ///
+    /// Worth pinning because the failure is silent and expensive: if the two
+    /// ever disagree, this screen fires two `/token` grants back to back, and
+    /// every grant rotates the session cookie the whole App Group shares.
+    @Test func loadingTheScreenSpendsExactlyOneTokenGrant() async throws {
+        try KeychainAccessTokenStore.delete()
+        let environment = Environment.local
+        let session = makeMockSession()
+        let tokenRefresher = TokenRefresher(session: session, environment: environment)
+
+        let osnSession = makeOSNSession(environment: environment, session: session, tokenRefresher: tokenRefresher)
+
+        // Signed in with a token inside the skew allowance, so
+        // `ensureFreshAccessToken()` is forced down its refresh branch.
+        MockURLProtocol.handler = { _ in
+            let body = """
+            {"access_token":"at-restored","token_type":"Bearer","expires_in":300,"scope":"openid profile"}
+            """
+            return (
+                200,
+                ["Content-Type": "application/json", "Set-Cookie": "osn_session=rotated-3; Path=/"],
+                Data(body.utf8)
+            )
+        }
+        await osnSession.restore()
+        #expect(osnSession.state == .signedIn(nil))
+        try KeychainAccessTokenStore.save("at-about-to-expire", expiresIn: 5)
+
+        let tokenGrants = Counter()
+        MockURLProtocol.handler = { request in
+            if request.url?.path.hasSuffix("/token") == true {
+                await tokenGrants.increment()
+                let body = """
+                {"access_token":"at-refreshed","token_type":"Bearer","expires_in":300,"scope":"openid profile"}
+                """
+                return (
+                    200,
+                    ["Content-Type": "application/json", "Set-Cookie": "osn_session=rotated-4; Path=/"],
+                    Data(body.utf8)
+                )
+            }
+            let body = """
+            {"passkeys":[{"id":"pk-1","label":"iPhone","aaguid":null,"transports":null,"backupEligible":null,"backupState":null,"createdAt":1,"lastUsedAt":null}]}
+            """
+            return (200, ["Content-Type": "application/json"], Data(body.utf8))
+        }
+
+        _ = try await fetchPasskeys(session: osnSession)
+
+        #expect(await tokenGrants.value == 1)
+
+        try KeychainAccessTokenStore.delete()
+    }
+}
+
+private actor Counter {
+    private(set) var value = 0
+    func increment() { value += 1 }
 }

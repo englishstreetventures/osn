@@ -83,6 +83,10 @@ public struct MusubiAccountView: View {
 @MainActor
 func fetchPasskeys(session: OSNSession) async throws -> [PasskeySummary] {
     try await session.ensureFreshAccessToken()
-    let client = PasskeyManagementClient(session: session.urlSession, environment: session.environment)
+    let client = PasskeyManagementClient(
+        session: session.urlSession,
+        environment: session.environment,
+        tokenRefresher: session.tokenRefresher
+    )
     return try await client.list()
 }

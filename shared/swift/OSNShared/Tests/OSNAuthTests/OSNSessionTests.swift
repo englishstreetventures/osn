@@ -212,6 +212,72 @@ struct OSNSessionTests {
 
         try KeychainAccessTokenStore.delete()
     }
+
+    /// Third S-H1 case, and the one the refresh branch owns: the stored token
+    /// is *expiring*, so `ensureFreshAccessToken()` refreshes rather than
+    /// reading the stored token, and must reconcile against the token the
+    /// grant returned.
+    ///
+    /// Three distinct JWTs, so the assertion can only pass for the right
+    /// reason: A is what restore left on screen, B is what sits in the
+    /// Keychain, C is what `/token` hands back. Reconciling against the
+    /// stored token would land on B, and against nothing would land on
+    /// `.signedIn(nil)`.
+    @Test func ensureFreshAccessTokenReconcilesAgainstTheGrantOnTheRefreshPath() async throws {
+        try KeychainAccessTokenStore.delete()
+        let environment = Environment.local
+        let session = makeMockSession()
+        let tokenRefresher = TokenRefresher(session: session, environment: environment)
+
+        let jwtA = makeJWT(sub: "profile-a", email: "a@example.com", handle: "alice", displayName: "Alice")
+        MockURLProtocol.handler = { _ in
+            let body = """
+            {"access_token":"\(jwtA)","token_type":"Bearer","expires_in":300,"scope":"openid profile"}
+            """
+            return (
+                200,
+                ["Content-Type": "application/json", "Set-Cookie": "osn_session=rotated-a3; Path=/"],
+                Data(body.utf8)
+            )
+        }
+
+        let osnSession = await makeOSNSession(environment: environment, session: session, tokenRefresher: tokenRefresher)
+        await osnSession.restore()
+        guard case .signedIn(let profileA) = osnSession.state, profileA?.id == "profile-a" else {
+            Issue.record("expected .signedIn(profile-a) after restore, got \(osnSession.state)")
+            try KeychainAccessTokenStore.delete()
+            return
+        }
+
+        // In the Keychain: B, and expiring, so the skew allowance forces a
+        // refresh instead of a read.
+        let jwtB = makeJWT(sub: "profile-b", email: "b@example.com", handle: "bob", displayName: "Bob")
+        try KeychainAccessTokenStore.save(jwtB, expiresIn: 5)
+
+        // What `/token` answers with: C.
+        let jwtC = makeJWT(sub: "profile-c", email: "c@example.com", handle: "carol", displayName: "Carol")
+        MockURLProtocol.handler = { _ in
+            let body = """
+            {"access_token":"\(jwtC)","token_type":"Bearer","expires_in":300,"scope":"openid profile"}
+            """
+            return (
+                200,
+                ["Content-Type": "application/json", "Set-Cookie": "osn_session=rotated-c; Path=/"],
+                Data(body.utf8)
+            )
+        }
+
+        try await osnSession.ensureFreshAccessToken()
+
+        guard case .signedIn(let reconciled) = osnSession.state else {
+            Issue.record("expected .signedIn after ensureFreshAccessToken, got \(osnSession.state)")
+            try KeychainAccessTokenStore.delete()
+            return
+        }
+        #expect(reconciled?.id == "profile-c")
+
+        try KeychainAccessTokenStore.delete()
+    }
 }
 
 private actor Counter {

@@ -7,17 +7,13 @@ struct ServerErrorBody: Decodable {
     let message: String?
 }
 
+/// What is left of the per-client request plumbing once
+/// `AuthenticatedTransport` owns the authenticated path: the response
+/// mapping and the ceremony helpers that both authenticated and
+/// unauthenticated clients share. Applying the bearer token lived here too
+/// until the transport took it over — it pasted on whatever the Keychain
+/// held, with no expiry check and no retry.
 enum RequestHelpers {
-    /// Sets `Authorization: Bearer …` from the Keychain-stored access token.
-    /// Throws `.accessTokenMissing` rather than sending an unauthenticated
-    /// request that the server would just 401/403 anyway.
-    static func applyBearerAccessToken(to request: inout URLRequest) throws {
-        guard let stored = try KeychainAccessTokenStore.load() else {
-            throw OSNAuthError.accessTokenMissing
-        }
-        request.setValue("Bearer \(stored.token)", forHTTPHeaderField: "Authorization")
-    }
-
     /// Trap 6 / brief §2 — verifies the session cookie actually landed in
     /// the shared jar after a successful `/login/passkey/complete`, mirroring
     /// `TokenRefresher.verifySessionCookiePersisted()` in `OSNKit` exactly
