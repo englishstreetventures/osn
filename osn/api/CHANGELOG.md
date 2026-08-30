@@ -1,5 +1,11 @@
 # @osn/osn
 
+## 3.20.22
+
+### Patch Changes
+
+- 93b8474: Fix `publicError`'s `_tag` walk to stop charging the 512-node traversal budget for primitive property values, so a wide chain of string fields no longer exhausts the budget before a real tagged error is found and misreported as a 400. Also replace the queue's `Array#shift()` with a read cursor, so the walk is linear in the number of nodes visited instead of quadratic.
+
 ## 3.20.21
 
 ### Patch Changes
