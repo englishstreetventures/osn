@@ -26,6 +26,15 @@
 set -euo pipefail
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 
+# Git exports GIT_DIR to every hook it runs, and with GIT_DIR set and no
+# GIT_WORK_TREE, `git ls-files` bases itself on the work-tree root whatever the
+# working directory is. Under lefthook's pre-commit that made the listing below
+# return all ~1800 tracked files instead of the vendored subtree's dozen, so the
+# diff failed and no commit touching a .js/.ts file could be made without
+# LEFTHOOK=0. Clearing the inherited variables puts discovery back on the
+# working directory, which is what every other git call here assumes.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+
 cd "$(dirname "$0")/.."
 
 cd tools/oxlint/anti-slop

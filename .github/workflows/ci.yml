@@ -206,6 +206,14 @@ jobs:
       - name: Verify vendored anti-slop matches its checksums
         run: bash scripts/verify-vendored-anti-slop.sh
 
+      # The guard's own tests, beside the run that uses it. They exercise it in
+      # throwaway git repos rather than this checkout, and one case exports
+      # GIT_DIR the way git does for every hook — the state that once made the
+      # guard list the whole repo instead of the vendored subtree and blocked
+      # every local commit.
+      - name: Test the vendored anti-slop guard
+        run: bash scripts/verify-vendored-anti-slop.test.sh
+
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: .bun-version
