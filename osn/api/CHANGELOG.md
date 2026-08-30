@@ -1,5 +1,22 @@
 # @osn/osn
 
+## 3.20.21
+
+### Patch Changes
+
+- 518bc7d: Stop suppressing `no-await-in-loop` where the awaits do not actually need to be sequential.
+
+  `commitBatch` in `@shared/db-utils` chains its bun:sqlite fallback statements instead of looping over them, keeping the children-first ordering the caller built without disabling the rule.
+
+  In `@osn/api`, the outbound ARC key registration in `outbound-arc.ts` registered with each downstream one after the next; the downstreams are independent and registration is an idempotent upsert, so both calls now go out together and a failure on a configured stack still aborts boot. The NDJSON fan-out in `account-export.ts` reads its response with `for await` rather than a manual reader loop, which also means abandoning the generator cancels the stream instead of leaving the downstream sending a bundle nobody is reading.
+
+  No behaviour change. The one remaining disable is the keyset pagination generator, where each page's cursor comes from the page before it.
+
+- Updated dependencies [518bc7d]
+  - @shared/db-utils@0.6.3
+  - @osn/db@0.20.8
+  - @shared/crypto@0.10.9
+
 ## 3.20.20
 
 ### Patch Changes
