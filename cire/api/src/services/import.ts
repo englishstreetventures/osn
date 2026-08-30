@@ -787,8 +787,12 @@ const MAX_STATEMENTS_PER_BATCH = 50;
  */
 async function commitWriteSet(db: Db, statements: BatchItem<"sqlite">[]): Promise<void> {
   if (statements.length === 0) return;
+  // Bound and captured before the guard, so the narrowing survives into the
+  // chain below — a property read off a mutable object does not — and so the
+  // driver method keeps its receiver.
   const batchable = db as BatchableDb;
-  if (typeof batchable.batch === "function") {
+  const batch = typeof batchable.batch === "function" ? batchable.batch.bind(batchable) : null;
+  if (batch) {
     // INVARIANT (dependency ordering): `statements` is built in strict
     // FK-dependency order by applyImport (removes → event creates →
     // family creates → guest creates → link creates, etc.). Splitting that
@@ -807,17 +811,25 @@ async function commitWriteSet(db: Db, statements: BatchItem<"sqlite">[]): Promis
     // add cross-batch transaction machinery (it doesn't exist on D1); chunking
     // + revert is the tradeoff. Chunks stay small + the whole import is well
     // under the 30s wall-clock, so the partial-apply window is narrow.
+    const chunks: BatchStatements[] = [];
     for (let i = 0; i < statements.length; i += MAX_STATEMENTS_PER_BATCH) {
-      const chunk = statements.slice(i, i + MAX_STATEMENTS_PER_BATCH) as BatchStatements;
-      // eslint-disable-next-line no-await-in-loop -- chunks are dependency-ordered; they MUST run serially
-      await batchable.batch(chunk);
+      chunks.push(statements.slice(i, i + MAX_STATEMENTS_PER_BATCH) as BatchStatements);
     }
+    // Chained, never gathered: the ordering invariant above is the whole point,
+    // and `Promise.all` would dispatch a child's chunk alongside its parent's.
+    await chunks.reduce<Promise<unknown>>(
+      (chain, chunk) => chain.then(() => batch(chunk)),
+      Promise.resolve<unknown>(undefined),
+    );
     return;
   }
   // Sequential FK order is required and bun:sqlite has no batch; these run
-  // in-process (no network round-trip) so awaiting each in turn is fine.
-  // eslint-disable-next-line no-await-in-loop
-  for (const stmt of statements) await stmt;
+  // in-process (no network round-trip), and chaining them keeps the order the
+  // statement list was built in.
+  await statements.reduce<Promise<unknown>>(
+    (chain, stmt) => chain.then(() => stmt),
+    Promise.resolve<unknown>(undefined),
+  );
 }
 
 export function applyImport(

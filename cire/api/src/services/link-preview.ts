@@ -713,6 +713,10 @@ export async function guardedFetch(args: GuardedFetchArgs): Promise<GuardedFetch
   let base: string | null = null;
 
   for (let hop = 0; hop <= maxRedirects; hop++) {
+    // Sequential by nature: this hop's URL is the previous hop's Location
+    // header, so there is no set of checks to run together — and the check has
+    // to clear before the fetch that follows it, or the SSRF guard would be
+    // racing the request it exists to prevent.
     // eslint-disable-next-line no-await-in-loop
     const checked = await checkUrl(current, base, guard);
     if (typeof checked === "string") {
@@ -888,6 +892,11 @@ async function resolveCandidates(
     if (out.length >= MAX_IMAGES) break;
     // Entities are decoded HERE rather than at scan time (P-W1): only the
     // candidates that reach this loop are worth the string work.
+    //
+    // Sequential on purpose, and NOT a `Promise.all` over `ranked`: the break
+    // above stops at MAX_IMAGES, so checking the candidates together would
+    // resolve hosts the picker never reaches and push DoH lookups past the cap
+    // `warmHosts` was written to respect.
     // eslint-disable-next-line no-await-in-loop
     const checked = await checkUrl(decodeEntities(candidate.url), finalUrl.href, guard);
     // A `javascript:` / `data:` src, a private host, an unparseable value — all

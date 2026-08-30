@@ -165,9 +165,13 @@ export async function commitBatch<S extends DrizzleSchema>(
     await db.batch(statements as [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]]);
     return;
   }
-  // Sequential FK order, in-process — bun:sqlite has no batch.
-  /* eslint-disable-next-line no-await-in-loop */
-  for (const stmt of statements) await stmt;
+  // Sequential FK order, in-process — bun:sqlite has no batch. Chained rather
+  // than gathered with `Promise.all`: the caller built the list children-first
+  // and running it together would drop a parent out from under a child.
+  await statements.reduce<Promise<unknown>>(
+    (chain, stmt) => chain.then(() => stmt),
+    Promise.resolve<unknown>(undefined),
+  );
 }
 
 /**

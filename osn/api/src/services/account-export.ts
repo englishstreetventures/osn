@@ -143,17 +143,19 @@ async function* fanOutSection(
       yield jsonLine({ degraded: ds.namespace, reason: `http_${res.status}` });
       return;
     }
-    const reader = res.body?.getReader();
-    if (!reader) {
+    const body = res.body;
+    if (!body) {
       yield jsonLine({ degraded: ds.namespace, reason: "no_response_body" });
       return;
     }
     const decoder = new TextDecoder();
     let buf = "";
-    for (;;) {
-      // eslint-disable-next-line no-await-in-loop -- streaming read loop
-      const { done, value } = await reader.read();
-      if (done) break;
+    // Async iteration rather than a reader loop: a stream arrives one chunk at
+    // a time, so there is no set of promises to run together here. Leaving the
+    // loop — by a throw, or by the consumer abandoning this generator — runs
+    // the iterator's `return()`, which cancels the stream and stops the
+    // downstream sending the rest of a bundle nobody is reading.
+    for await (const value of body) {
       buf += decoder.decode(value, { stream: true });
       let nl: number;
       while ((nl = buf.indexOf("\n")) >= 0) {

@@ -82,8 +82,14 @@ export async function commitBatch(db: Db, statements: BatchItem<"sqlite">[]): Pr
     await batchable.batch(statements as BatchStatements);
     return;
   }
-  // eslint-disable-next-line no-await-in-loop
-  for (const stmt of statements) await stmt;
+  // bun:sqlite (tests/local): no `.batch()`. Callers hand these over in FK
+  // order — children before parents — so the statements are chained rather
+  // than gathered with `Promise.all`, which would run a parent's write
+  // alongside the child's and lose the ordering the caller relies on.
+  await statements.reduce<Promise<unknown>>(
+    (chain, stmt) => chain.then(() => stmt),
+    Promise.resolve<unknown>(undefined),
+  );
 }
 
 /**
@@ -93,6 +99,30 @@ export async function commitBatch(db: Db, statements: BatchItem<"sqlite">[]): Pr
  * chunking (`services/import.ts`).
  */
 export const MAX_STATEMENTS_PER_BATCH = 50;
+
+/**
+ * Pack groups into chunks of at most `MAX_STATEMENTS_PER_BATCH` statements,
+ * never splitting a group across two chunks. Shared by
+ * {@link commitGroupedBatches} and {@link commitGroupedBatchesReturning} so the
+ * two cannot drift. The final chunk is always returned, even when empty — the
+ * grouped-batch caller hands an empty chunk to {@link commitBatch}, which no-ops
+ * on it, and the returning caller pops it to decide where the tail read rides.
+ * A single group larger than the ceiling becomes its own oversized chunk rather
+ * than being silently split; D1 rejects it, which is the correct loud failure.
+ */
+function chunkGroups(groups: BatchItem<"sqlite">[][]): BatchItem<"sqlite">[][] {
+  const chunks: BatchItem<"sqlite">[][] = [];
+  let chunk: BatchItem<"sqlite">[] = [];
+  for (const group of groups) {
+    if (chunk.length > 0 && chunk.length + group.length > MAX_STATEMENTS_PER_BATCH) {
+      chunks.push(chunk);
+      chunk = [];
+    }
+    chunk.push(...group);
+  }
+  chunks.push(chunk);
+  return chunks;
+}
 
 /**
  * Commit GROUPS of statements in batches of at most `MAX_STATEMENTS_PER_BATCH`,
@@ -107,16 +137,12 @@ export const MAX_STATEMENTS_PER_BATCH = 50;
  * correct loud failure for an unshaped caller.
  */
 export async function commitGroupedBatches(db: Db, groups: BatchItem<"sqlite">[][]): Promise<void> {
-  let chunk: BatchItem<"sqlite">[] = [];
-  for (const group of groups) {
-    if (chunk.length > 0 && chunk.length + group.length > MAX_STATEMENTS_PER_BATCH) {
-      // eslint-disable-next-line no-await-in-loop
-      await commitBatch(db, chunk);
-      chunk = [];
-    }
-    chunk.push(...group);
-  }
-  await commitBatch(db, chunk);
+  // Chained, not gathered: chunk N+1 may depend on rows chunk N wrote, which
+  // is exactly why the set was split in the first place.
+  await chunkGroups(groups).reduce<Promise<void>>(
+    (chain, chunk) => chain.then(() => commitBatch(db, chunk)),
+    Promise.resolve(),
+  );
 }
 
 /**
@@ -157,37 +183,38 @@ export async function commitGroupedBatchesReturning<T>(
   groups: BatchItem<"sqlite">[][],
   tail: ReturningTail<T>,
 ): Promise<T[]> {
+  // Bound and captured before the guard, so the narrowing survives into the
+  // closure below — a property read off a mutable object does not — and so the
+  // driver method keeps its receiver.
   const batchable = db as BatchableDb;
-  if (typeof batchable.batch !== "function") {
-    for (const group of groups) {
-      for (const stmt of group) {
-        // eslint-disable-next-line no-await-in-loop
-        await stmt;
-      }
-    }
+  const batch = typeof batchable.batch === "function" ? batchable.batch.bind(batchable) : null;
+  if (!batch) {
+    // Same FK ordering as commitBatch's fallback, so the same chain.
+    await groups
+      .flat()
+      .reduce<Promise<unknown>>(
+        (chain, stmt) => chain.then(() => stmt),
+        Promise.resolve<unknown>(undefined),
+      );
     return await tail;
   }
 
-  const chunks: BatchItem<"sqlite">[][] = [];
-  let chunk: BatchItem<"sqlite">[] = [];
-  for (const group of groups) {
-    if (chunk.length > 0 && chunk.length + group.length > MAX_STATEMENTS_PER_BATCH) {
-      chunks.push(chunk);
-      chunk = [];
-    }
-    chunk.push(...group);
-  }
-  if (chunk.length + 1 <= MAX_STATEMENTS_PER_BATCH) {
-    chunks.push([...chunk, tail]);
+  const chunks = chunkGroups(groups);
+  const last = chunks.pop() ?? [];
+  if (last.length + 1 <= MAX_STATEMENTS_PER_BATCH) {
+    chunks.push([...last, tail]);
   } else {
-    chunks.push(chunk, [tail]);
+    chunks.push(last, [tail]);
   }
 
-  let tailRows: T[] = [];
-  for (const c of chunks) {
-    // eslint-disable-next-line no-await-in-loop
-    const results = await batchable.batch(c as BatchStatements);
-    tailRows = results[results.length - 1] as T[];
-  }
-  return tailRows;
+  // Chained for the same reason as commitGroupedBatches, and because only the
+  // LAST batch's result is wanted: the tail read rides in it by construction.
+  return await chunks.reduce<Promise<T[]>>(
+    (chain, c) =>
+      chain.then(async () => {
+        const results = await batch(c as BatchStatements);
+        return results[results.length - 1] as T[];
+      }),
+    Promise.resolve<T[]>([]),
+  );
 }

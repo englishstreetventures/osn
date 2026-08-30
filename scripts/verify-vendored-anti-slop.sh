@@ -13,7 +13,18 @@
 # this check claims to cover; it lists symlinks (`find -type f` silently
 # skips them); it needs no `sed` to strip a `./` prefix; and it works with no
 # `bun install` — the CI callers run before or without one.
+#
+# The unsets matter. Git exports GIT_DIR (and friends) to its hooks, and in a
+# linked worktree that value is an absolute path, so it still resolves after
+# the `cd` below. `git ls-files` then treats the work tree root as the current
+# directory, ignores the vendored subdirectory entirely, and lists all ~2300
+# tracked files — the diff fails against a 21-line SHA256SUMS every time. Off
+# the hook path the same command works, which is what makes it confusing. In
+# the main checkout GIT_DIR is the relative `.git`, which stops resolving once
+# we `cd`, so git rediscovers the repository from the current directory and
+# the check passes; the bug only ever bites in a worktree.
 set -euo pipefail
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
 
 cd "$(dirname "$0")/.."
 
