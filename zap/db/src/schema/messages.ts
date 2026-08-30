@@ -41,7 +41,12 @@ export const messages = sqliteTable(
   },
   (t) => [
     index("messages_chat_idx").on(t.chatId),
-    index("messages_chat_created_idx").on(t.chatId, t.createdAt),
+    // (chat_id, created_at, id), not (chat_id, created_at). Both list paths
+    // page with a composite `(createdAt, id)` keyset and order by both columns
+    // — created_at has second resolution and is not unique, so a `createdAt`
+    // tiebreak is what keeps pages disjoint. Without `id` in the index the
+    // planner can satisfy the filter but not the ordering, and sorts.
+    index("messages_chat_created_idx").on(t.chatId, t.createdAt, t.id),
     index("messages_sender_idx").on(t.senderProfileId),
   ],
 );

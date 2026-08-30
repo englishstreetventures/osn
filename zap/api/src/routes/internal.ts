@@ -375,6 +375,15 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
 
           const result = await runtime.runPromise(
             listC2bMessages(params.chatId, { limit, before }).pipe(
+              // An unknown `before` cursor. Reported rather than silently
+              // restarting at page 1, which would send the caller round the
+              // same page for ever.
+              Effect.catchTag("ValidationError", () =>
+                Effect.sync(() => {
+                  set.status = 400;
+                  return { error: "Invalid cursor" } as const;
+                }),
+              ),
               Effect.catchTag("ChatNotFound", () =>
                 Effect.sync(() => {
                   set.status = 404;

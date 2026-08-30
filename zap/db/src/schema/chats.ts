@@ -30,7 +30,18 @@ export const chats = sqliteTable(
   },
   (t) => [
     index("chats_type_idx").on(t.type),
-    index("chats_class_idx").on(t.class),
+    // No index on `class`. It has two values and they are heavily skewed
+    // (c2c greatly outnumbers c2b), and the one query that filters on it
+    // (`loadC2bMessages`, `zap/api/src/routes/internal.ts`) reaches `chats`
+    // through an inner join on the primary key — `EXPLAIN QUERY PLAN` gives
+    // the identical plan with the index and without it:
+    //
+    //   SEARCH m USING INDEX chat_members_profile_idx (profile_id=?)
+    //   SEARCH c USING INDEX sqlite_autoindex_chats_1 (id=?)
+    //
+    // So it was never an access path, only a write to maintain on every chat
+    // insert. Add a partial `WHERE class = 'c2b'` index if a query ever scans
+    // chats by class alone.
     index("chats_event_id_idx").on(t.eventId),
     index("chats_created_by_profile_id_idx").on(t.createdByProfileId),
   ],

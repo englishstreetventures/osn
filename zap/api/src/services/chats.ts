@@ -12,6 +12,7 @@ import {
   MAX_CHAT_TITLE_LENGTH,
   MAX_MEMBER_LIMIT,
 } from "../lib/limits";
+import { storedNow } from "../lib/storedNow";
 import { metricChatCreated, metricMemberAdded, metricMemberRemoved } from "../metrics";
 import { checkConsent, ConsentDenied } from "./consent";
 
@@ -219,19 +220,25 @@ export const createChat = (
     });
 
     const id = "chat_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-    const now = new Date();
+    const now = storedNow();
+
+    // `class` is written explicitly rather than left to the column default.
+    // The row below is what the caller gets back, so a value the database
+    // fills in is a value this object would have to guess — and guessing it
+    // wrong is the failure mode the removed read-back used to hide.
+    const row: Chat = {
+      id,
+      type: validated.type,
+      class: "c2c",
+      title: validated.title ?? null,
+      eventId: validated.eventId ?? null,
+      createdByProfileId: creatorProfileId,
+      createdAt: now,
+      updatedAt: now,
+    };
 
     yield* Effect.tryPromise({
-      try: () =>
-        db.insert(chats).values({
-          id,
-          type: validated.type,
-          title: validated.title ?? null,
-          eventId: validated.eventId ?? null,
-          createdByProfileId: creatorProfileId,
-          createdAt: now,
-          updatedAt: now,
-        }),
+      try: () => db.insert(chats).values(row),
       catch: (cause) => new DatabaseError({ cause }),
     });
 
@@ -265,9 +272,8 @@ export const createChat = (
     }
 
     metricChatCreated(validated.type, "ok");
-    return yield* getChat(id).pipe(
-      Effect.mapError((e) => (e instanceof ChatNotFound ? new DatabaseError({ cause: e }) : e)),
-    );
+    // Returned from the values just written — see `provisionC2bChat`.
+    return row;
   }).pipe(Effect.withSpan("zap.chats.create"));
 
 export const updateChat = (
@@ -496,20 +502,21 @@ export const provisionC2bChat = (input: {
     }
 
     const id = "chat_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-    const now = new Date();
+    const now = storedNow();
+
+    const row: Chat = {
+      id,
+      type: "group",
+      class: "c2b",
+      title: validated.title ?? null,
+      eventId: null,
+      createdByProfileId: validated.createdByProfileId,
+      createdAt: now,
+      updatedAt: now,
+    };
 
     yield* Effect.tryPromise({
-      try: () =>
-        db.insert(chats).values({
-          id,
-          type: "group",
-          class: "c2b",
-          title: validated.title ?? null,
-          eventId: null,
-          createdByProfileId: validated.createdByProfileId,
-          createdAt: now,
-          updatedAt: now,
-        }),
+      try: () => db.insert(chats).values(row),
       catch: (cause) => new DatabaseError({ cause }),
     });
 
@@ -526,9 +533,11 @@ export const provisionC2bChat = (input: {
       catch: (cause) => new DatabaseError({ cause }),
     });
 
-    return yield* getChat(id).pipe(
-      Effect.mapError((e) => (e instanceof ChatNotFound ? new DatabaseError({ cause: e }) : e)),
-    );
+    // Returned from the values just written rather than read back. Every
+    // column is known here — nothing is defaulted or computed by the database
+    // — so `getChat` was a further round-trip that could only return what we
+    // already had, plus a `ChatNotFound` branch that could not happen.
+    return row;
   }).pipe(Effect.withSpan("zap.chats.provision_c2b"));
 
 // ---------------------------------------------------------------------------

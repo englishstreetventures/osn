@@ -10,54 +10,25 @@ import {
   type Message,
 } from "@zap/db/schema";
 import { Db } from "@zap/db/service";
+import { applySchema } from "@zap/db/testing";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect, Layer } from "effect";
 
+/**
+ * A fresh in-memory database with the live `@zap/db` schema applied.
+ *
+ * `applySchema` emits the DDL from the Drizzle schema itself, so this cannot
+ * drift from what `zap/db` declares or what the migrations build. It replaced a
+ * hand-written `CREATE TABLE`/`CREATE INDEX` block that was a third, unpinned
+ * copy of the schema: dropping `chats_class_idx` meant editing it by hand, and
+ * a stale index — or a missing `UNIQUE (chat_id, profile_id)` — left every
+ * constraint test in this package asserting the DDL its author typed rather
+ * than the shape production enforces. `wiki/conventions/testing-patterns.md`
+ * names that anti-pattern; `osn/api` and `pulse/api` already use this seam.
+ */
 export function createTestLayer() {
   const sqlite = new Database(":memory:");
-  sqlite.run(`
-    CREATE TABLE chats (
-      id TEXT PRIMARY KEY,
-      type TEXT NOT NULL,
-      class TEXT NOT NULL DEFAULT 'c2c',
-      title TEXT,
-      event_id TEXT,
-      created_by_profile_id TEXT NOT NULL,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
-  sqlite.run(`CREATE INDEX chats_type_idx ON chats (type)`);
-  sqlite.run(`CREATE INDEX chats_class_idx ON chats (class)`);
-  sqlite.run(`CREATE INDEX chats_event_id_idx ON chats (event_id)`);
-  sqlite.run(`CREATE INDEX chats_created_by_profile_id_idx ON chats (created_by_profile_id)`);
-  sqlite.run(`
-    CREATE TABLE chat_members (
-      id TEXT PRIMARY KEY,
-      chat_id TEXT NOT NULL REFERENCES chats(id),
-      profile_id TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'member',
-      joined_at INTEGER NOT NULL,
-      UNIQUE (chat_id, profile_id)
-    )
-  `);
-  sqlite.run(`CREATE INDEX chat_members_chat_idx ON chat_members (chat_id)`);
-  sqlite.run(`CREATE INDEX chat_members_profile_idx ON chat_members (profile_id)`);
-  sqlite.run(`
-    CREATE TABLE messages (
-      id TEXT PRIMARY KEY,
-      chat_id TEXT NOT NULL REFERENCES chats(id),
-      sender_profile_id TEXT NOT NULL,
-      ciphertext TEXT,
-      nonce TEXT,
-      body TEXT,
-      created_at INTEGER NOT NULL,
-      expires_at INTEGER
-    )
-  `);
-  sqlite.run(`CREATE INDEX messages_chat_idx ON messages (chat_id)`);
-  sqlite.run(`CREATE INDEX messages_chat_created_idx ON messages (chat_id, created_at)`);
-  sqlite.run(`CREATE INDEX messages_sender_idx ON messages (sender_profile_id)`);
+  applySchema(sqlite);
   const db = drizzle(sqlite, { schema });
   return Layer.succeed(Db, { db });
 }

@@ -554,6 +554,40 @@ describe("zap internal routes — ARC-gated /internal/chats (chat:c2b)", () => {
     expect(listed.messages[0]!.id).toBe(sent.messageId);
     expect(listed.messages[0]!.body).toBe("Hello from host!");
     expect(listed.messages[0]!.senderProfileId).toBe("usr_host");
+    // The wire-level half of the `storedNow` contract: the timestamp the POST
+    // reports and the one the GET reports are the same string. Untruncated,
+    // the write would answer "…:00.123Z" and every later read "…:00.000Z".
+    expect(listed.messages[0]!.createdAt).toBe(sent.createdAt);
+  });
+
+  // ── unknown cursor ───────────────────────────────────────────────────────
+
+  it("GET messages with an unknown before cursor → 400", async () => {
+    const layer = createTestLayer();
+    const app = createInternalRoutes(layer);
+    const arc = await registerC2bAndMintToken(app, privateKey, publicKeyJwk);
+
+    const provRes = await post(
+      app,
+      "/internal/chats",
+      { memberProfileIds: ["usr_guest", "usr_host"], createdByProfileId: "usr_host" },
+      `ARC ${arc}`,
+    );
+    const { chatId } = (await provRes.json()) as { chatId: string };
+    await post(
+      app,
+      `/internal/chats/${chatId}/messages`,
+      { senderProfileId: "usr_host", body: "Hello" },
+      `ARC ${arc}`,
+    );
+
+    // Previously this answered 200 with page 1, so a caller paginating with a
+    // stale cursor looped over the newest page instead of being told.
+    const res = await get(app, `/internal/chats/${chatId}/messages`, `ARC ${arc}`, {
+      before: "msg_nonexistent",
+    });
+    expect(res.status).toBe(400);
+    expect((await res.json()) as { error: string }).toEqual({ error: "Invalid cursor" });
   });
 
   // ── 409 on c2c chat ──────────────────────────────────────────────────────

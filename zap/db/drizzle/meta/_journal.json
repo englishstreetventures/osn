@@ -15,6 +15,20 @@
       "when": 1784440693574,
       "tag": "0001_solid_mimic",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1788086113971,
+      "tag": "0002_complete_sabra",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788086694601,
+      "tag": "0003_ordinary_stepford_cuckoos",
+      "breakpoints": true
     }
   ]
 }
