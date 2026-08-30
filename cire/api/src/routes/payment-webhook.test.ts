@@ -2,6 +2,7 @@ import { describe, it, expect } from "bun:test";
 
 import { createApp } from "../app";
 import { createDb, seedDb } from "../db/setup";
+import { jsonBody } from "../test-helpers";
 import { createPaymentWebhookSkeleton } from "./payment-webhook";
 
 // Elysia 1.4.x requires app.fetch (absolute URL) rather than app.handle —
@@ -16,7 +17,7 @@ describe("payment webhook skeleton (Phase 1 — inert)", () => {
       new Request("http://localhost/api/payments/webhook", { method: "POST", body: "{}" }),
     );
     expect(res.status).toBe(501);
-    expect(await res.json()).toEqual({ error: "not_implemented" });
+    expect(await jsonBody(res)).toEqual({ error: "not_implemented" });
   });
 });
 
@@ -48,6 +49,6 @@ describe("payment webhook mount invariant via createApp", () => {
       }),
     );
     expect(res.status).toBe(501);
-    expect(await res.json()).toEqual({ error: "not_implemented" });
+    expect(await jsonBody(res)).toEqual({ error: "not_implemented" });
   });
 });

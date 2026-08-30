@@ -14,7 +14,9 @@ const withDb = effWith(TestDbLayer);
 function pickFamilyId(): Effect.Effect<string, never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    const [first] = db.select({ id: families.id }).from(families).all();
+    const [first] = yield* Effect.promise(() =>
+      Promise.resolve(db.select({ id: families.id }).from(families).all()),
+    );
     if (!first) throw new Error("seed missing families");
     return first.id;
   });
@@ -44,7 +46,9 @@ describe("sessionService.create", () => {
         const before = Date.now();
         const { token, expiresAt } = yield* sessionService.create(familyId, 60);
         // Row is keyed by the SHA-256 hash, not the raw token.
-        const [row] = db.select().from(sessions).where(eq(sessions.familyId, familyId)).all();
+        const [row] = yield* Effect.promise(() =>
+          Promise.resolve(db.select().from(sessions).where(eq(sessions.familyId, familyId)).all()),
+        );
         expect(row).toBeDefined();
         expect(row!.familyId).toBe(familyId);
         expect(row!.token).not.toBe(token);
@@ -64,7 +68,9 @@ describe("sessionService.create", () => {
         const familyId = yield* pickFamilyId();
         const { token } = yield* sessionService.create(familyId);
         // Raw token must NOT appear in the table.
-        const [rawHit] = db.select().from(sessions).where(eq(sessions.token, token)).all();
+        const [rawHit] = yield* Effect.promise(() =>
+          Promise.resolve(db.select().from(sessions).where(eq(sessions.token, token)).all()),
+        );
         expect(rawHit).toBeUndefined();
         // Hashed lookup must hit and the column shape is 64 lowercase hex chars.
         const expectedHash = Array.from(
@@ -76,7 +82,9 @@ describe("sessionService.create", () => {
         )
           .map((b) => b.toString(16).padStart(2, "0"))
           .join("");
-        const [hashHit] = db.select().from(sessions).where(eq(sessions.token, expectedHash)).all();
+        const [hashHit] = yield* Effect.promise(() =>
+          Promise.resolve(db.select().from(sessions).where(eq(sessions.token, expectedHash)).all()),
+        );
         expect(hashHit).toBeDefined();
         expect(hashHit!.token).toMatch(/^[0-9a-f]{64}$/);
       }),
@@ -195,7 +203,9 @@ describe("sessionService.revokeAllForFamily", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const allFamilies = db.select({ id: families.id }).from(families).all();
+        const allFamilies = yield* Effect.promise(() =>
+          Promise.resolve(db.select({ id: families.id }).from(families).all()),
+        );
         const target = allFamilies[0]!.id;
         const other = allFamilies[1]!.id;
         const a = yield* sessionService.create(target);
@@ -247,7 +257,8 @@ describe("sessionService.sweepExpired", () => {
   function countSessions(): Effect.Effect<number, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      return db.select().from(sessions).all().length;
+      const rows = yield* Effect.promise(() => Promise.resolve(db.select().from(sessions).all()));
+      return rows.length;
     });
   }
 
@@ -256,7 +267,10 @@ describe("sessionService.sweepExpired", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const familyId = db.select({ id: families.id }).from(families).all()[0]!.id;
+        const familyRows = yield* Effect.promise(() =>
+          Promise.resolve(db.select({ id: families.id }).from(families).all()),
+        );
+        const familyId = familyRows[0]!.id;
         const now = new Date("2026-06-17T04:00:00.000Z");
 
         // Two already-expired (one long dead, one just-now), one live.
@@ -278,7 +292,10 @@ describe("sessionService.sweepExpired", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const familyId = db.select({ id: families.id }).from(families).all()[0]!.id;
+        const familyRows = yield* Effect.promise(() =>
+          Promise.resolve(db.select({ id: families.id }).from(families).all()),
+        );
+        const familyId = familyRows[0]!.id;
         const now = new Date("2026-06-17T04:00:00.000Z");
 
         yield* insertSession(familyId, now);

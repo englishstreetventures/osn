@@ -7,6 +7,7 @@ import { Effect, Layer, Schema } from "effect";
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { createDb, seedBootstrapWedding } from "../db/setup";
+import type { TestDb } from "../db/setup";
 import { DesiredState } from "../schemas/import";
 import type { ParsedEvent, ParsedFamily } from "../schemas/import";
 import { applyImport, diffAgainstDb } from "./import";
@@ -28,7 +29,7 @@ const GUESTS_CSV = [
   "2,Sampleton,Cleo,Sampleton,yes,no",
 ].join("\n");
 
-async function seededWedding(): Promise<Db> {
+async function seededWedding(): Promise<TestDb> {
   const db = createDb(":memory:");
   seedBootstrapWedding(db);
   const layer = Layer.succeed(DbService, db);

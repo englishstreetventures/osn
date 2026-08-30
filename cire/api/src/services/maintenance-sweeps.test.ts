@@ -6,24 +6,25 @@ import { Effect, Layer } from "effect";
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { createDb, seedBootstrapWedding } from "../db/setup";
+import type { TestDb } from "../db/setup";
 import { maintenanceSweeps, PREVIEW_STALE_AFTER_MS } from "./maintenance-sweeps";
 import type { DeletableBucket } from "./r2-cleanup";
 
 const NOW = new Date("2026-07-30T04:00:00.000Z");
 
-function makeDb(): { db: Db; layer: Layer.Layer<DbService> } {
+function makeDb(): { db: TestDb; layer: Layer.Layer<DbService> } {
   const db = createDb(":memory:");
   seedBootstrapWedding(db);
   return { db, layer: Layer.succeed(DbService, db) };
 }
 
-function seedListing(db: Db, id: string): void {
+function seedListing(db: TestDb, id: string): void {
   db.insert(directoryVendors)
     .values({ id, name: "Vendor", listed: "draft", createdAt: NOW, updatedAt: NOW })
     .run();
 }
 
-function seedClaim(db: Db, id: string, expiresAt: Date, consumedAt: Date | null = null): void {
+function seedClaim(db: TestDb, id: string, expiresAt: Date, consumedAt: Date | null = null): void {
   db.insert(vendorClaims)
     .values({
       id,
@@ -37,7 +38,12 @@ function seedClaim(db: Db, id: string, expiresAt: Date, consumedAt: Date | null 
     .run();
 }
 
-function seedImport(db: Db, id: string, status: "preview" | "applied", uploadedAt: number): void {
+function seedImport(
+  db: TestDb,
+  id: string,
+  status: "preview" | "applied",
+  uploadedAt: number,
+): void {
   db.insert(imports)
     .values({
       id,

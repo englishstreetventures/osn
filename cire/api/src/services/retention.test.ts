@@ -13,7 +13,7 @@ import {
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { DbService } from "../db";
+import { DbService, dbQuery } from "../db";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 import type { DeletableBucket } from "./r2-cleanup";
@@ -234,25 +234,33 @@ describe("retentionService.sweepExpiredGuestData", () => {
         // was seeded; the metric subject must be exactly 1.
         expect(deleted).toBe(1);
 
-        const guestRows = db.select().from(guests).where(eq(guests.id, guestId)).all();
+        const guestRows = yield* dbQuery(() =>
+          db.select().from(guests).where(eq(guests.id, guestId)).all(),
+        );
         expect(guestRows.length).toBe(0);
-        const rsvpRows = db.select().from(rsvps).where(eq(rsvps.id, rsvpId)).all();
+        const rsvpRows = yield* dbQuery(() =>
+          db.select().from(rsvps).where(eq(rsvps.id, rsvpId)).all(),
+        );
         expect(rsvpRows.length).toBe(0);
         // The invitation links go via the sweep's own explicit delete, not FK
         // cascade (two were seeded — one per event).
-        const linkRows = db
-          .select()
-          .from(guestEvents)
-          .where(eq(guestEvents.guestId, guestId))
-          .all();
+        const linkRows = yield* dbQuery(() =>
+          db.select().from(guestEvents).where(eq(guestEvents.guestId, guestId)).all(),
+        );
         expect(linkRows.length).toBe(0);
         // The family row (a guest-PII container) goes too.
-        const famRows = db.select().from(families).where(eq(families.id, familyId)).all();
+        const famRows = yield* dbQuery(() =>
+          db.select().from(families).where(eq(families.id, familyId)).all(),
+        );
         expect(famRows.length).toBe(0);
         // The wedding + its events shell is intentionally kept.
-        const evRows = db.select().from(events).where(eq(events.weddingId, weddingId)).all();
+        const evRows = yield* dbQuery(() =>
+          db.select().from(events).where(eq(events.weddingId, weddingId)).all(),
+        );
         expect(evRows.length).toBe(2);
-        const wedRows = db.select().from(weddings).where(eq(weddings.id, weddingId)).all();
+        const wedRows = yield* dbQuery(() =>
+          db.select().from(weddings).where(eq(weddings.id, weddingId)).all(),
+        );
         expect(wedRows.length).toBe(1);
       }),
     ),
@@ -268,7 +276,9 @@ describe("retentionService.sweepExpiredGuestData", () => {
 
         yield* retentionService.sweepExpiredGuestData(now);
 
-        const remaining = db.select().from(rsvps).where(eq(rsvps.guestId, guestId)).all();
+        const remaining = yield* dbQuery(() =>
+          db.select().from(rsvps).where(eq(rsvps.guestId, guestId)).all(),
+        );
         expect(remaining.length).toBe(0);
       }),
     ),
@@ -287,8 +297,13 @@ describe("retentionService.sweepExpiredGuestData", () => {
 
         yield* retentionService.sweepExpiredGuestData(now);
 
-        expect(db.select().from(guests).where(eq(guests.id, guestId)).all().length).toBe(1);
-        expect(db.select().from(rsvps).where(eq(rsvps.id, rsvpId)).all().length).toBe(1);
+        expect(
+          (yield* dbQuery(() => db.select().from(guests).where(eq(guests.id, guestId)).all()))
+            .length,
+        ).toBe(1);
+        expect(
+          (yield* dbQuery(() => db.select().from(rsvps).where(eq(rsvps.id, rsvpId)).all())).length,
+        ).toBe(1);
       }),
     ),
   );
@@ -308,8 +323,13 @@ describe("retentionService.sweepExpiredGuestData", () => {
 
         yield* retentionService.sweepExpiredGuestData(now);
 
-        expect(db.select().from(guests).where(eq(guests.id, guestId)).all().length).toBe(1);
-        expect(db.select().from(rsvps).where(eq(rsvps.id, rsvpId)).all().length).toBe(1);
+        expect(
+          (yield* dbQuery(() => db.select().from(guests).where(eq(guests.id, guestId)).all()))
+            .length,
+        ).toBe(1);
+        expect(
+          (yield* dbQuery(() => db.select().from(rsvps).where(eq(rsvps.id, rsvpId)).all())).length,
+        ).toBe(1);
       }),
     ),
   );
@@ -331,8 +351,13 @@ describe("retentionService.sweepExpiredGuestData", () => {
 
         yield* retentionService.sweepExpiredGuestData(now);
 
-        expect(db.select().from(guests).where(eq(guests.id, guestId)).all().length).toBe(1);
-        expect(db.select().from(rsvps).where(eq(rsvps.id, rsvpId)).all().length).toBe(1);
+        expect(
+          (yield* dbQuery(() => db.select().from(guests).where(eq(guests.id, guestId)).all()))
+            .length,
+        ).toBe(1);
+        expect(
+          (yield* dbQuery(() => db.select().from(rsvps).where(eq(rsvps.id, rsvpId)).all())).length,
+        ).toBe(1);
       }),
     ),
   );
@@ -349,7 +374,10 @@ describe("retentionService.sweepExpiredGuestData", () => {
 
         yield* retentionService.sweepExpiredGuestData(now);
 
-        expect(db.select().from(guests).where(eq(guests.id, guestId)).all().length).toBe(0);
+        expect(
+          (yield* dbQuery(() => db.select().from(guests).where(eq(guests.id, guestId)).all()))
+            .length,
+        ).toBe(0);
       }),
     ),
   );
@@ -367,7 +395,10 @@ describe("retentionService.sweepExpiredGuestData", () => {
 
         yield* retentionService.sweepExpiredGuestData(now);
 
-        expect(db.select().from(guests).where(eq(guests.id, guestId)).all().length).toBe(0);
+        expect(
+          (yield* dbQuery(() => db.select().from(guests).where(eq(guests.id, guestId)).all()))
+            .length,
+        ).toBe(0);
       }),
     ),
   );
@@ -382,7 +413,10 @@ describe("retentionService.sweepExpiredGuestData", () => {
 
         yield* retentionService.sweepExpiredGuestData(now);
 
-        expect(db.select().from(guests).where(eq(guests.id, guestId)).all().length).toBe(1);
+        expect(
+          (yield* dbQuery(() => db.select().from(guests).where(eq(guests.id, guestId)).all()))
+            .length,
+        ).toBe(1);
       }),
     ),
   );
@@ -400,9 +434,11 @@ describe("retentionService.sweepExpiredGuestData", () => {
 
         yield* retentionService.sweepExpiredGuestData(now);
 
-        expect(db.select().from(imports).where(eq(imports.weddingId, weddingId)).all().length).toBe(
-          0,
-        );
+        expect(
+          (yield* dbQuery(() =>
+            db.select().from(imports).where(eq(imports.weddingId, weddingId)).all(),
+          )).length,
+        ).toBe(0);
       }),
     ),
   );
@@ -418,7 +454,10 @@ describe("retentionService.sweepExpiredGuestData", () => {
 
         const deleted = yield* retentionService.sweepExpiredGuestData(now);
         expect(deleted).toBeGreaterThanOrEqual(1);
-        expect(db.select().from(guests).where(eq(guests.id, guestId)).all().length).toBe(0);
+        expect(
+          (yield* dbQuery(() => db.select().from(guests).where(eq(guests.id, guestId)).all()))
+            .length,
+        ).toBe(0);
       }),
     ),
   );
@@ -467,15 +506,19 @@ describe("retentionService.sweepExpiredGuestData", () => {
         // Sheets reaped…
         for (const k of sheetKeys) expect(sheets.deleted.has(k)).toBe(true);
         // …but the customisation row + its image keys survive in D1.
-        const cust = db
-          .select()
-          .from(weddingInviteCustomisations)
-          .where(eq(weddingInviteCustomisations.weddingId, weddingId))
-          .all();
+        const cust = yield* dbQuery(() =>
+          db
+            .select()
+            .from(weddingInviteCustomisations)
+            .where(eq(weddingInviteCustomisations.weddingId, weddingId))
+            .all(),
+        );
         expect(cust.length).toBe(1);
         expect(cust[0]?.heroImageKey).not.toBeNull();
         // And the event row keeps its image key.
-        const evs = db.select().from(events).where(eq(events.weddingId, weddingId)).all();
+        const evs = yield* dbQuery(() =>
+          db.select().from(events).where(eq(events.weddingId, weddingId)).all(),
+        );
         expect(evs.some((e) => e.eventImageKey !== null)).toBe(true);
       }),
     ),
@@ -515,10 +558,15 @@ describe("retentionService.sweepExpiredGuestData", () => {
         // The sweep still resolves (no rejection) and the D1 rows are gone.
         const deleted = yield* retentionService.sweepExpiredGuestData(now, { sheets });
         expect(deleted).toBeGreaterThanOrEqual(1);
-        expect(db.select().from(guests).where(eq(guests.id, guestId)).all().length).toBe(0);
-        expect(db.select().from(imports).where(eq(imports.weddingId, weddingId)).all().length).toBe(
-          0,
-        );
+        expect(
+          (yield* dbQuery(() => db.select().from(guests).where(eq(guests.id, guestId)).all()))
+            .length,
+        ).toBe(0);
+        expect(
+          (yield* dbQuery(() =>
+            db.select().from(imports).where(eq(imports.weddingId, weddingId)).all(),
+          )).length,
+        ).toBe(0);
         // The failing keys were never recorded as deleted.
         for (const k of sheetKeys) expect(sheets.deleted.has(k)).toBe(false);
       }),
@@ -562,9 +610,11 @@ describe("retentionService.sweepExpiredGuestData", () => {
         yield* retentionService.sweepExpiredGuestData(now, { sheets });
 
         // The `imports` rows are gone…
-        expect(db.select().from(imports).where(eq(imports.weddingId, weddingId)).all().length).toBe(
-          0,
-        );
+        expect(
+          (yield* dbQuery(() =>
+            db.select().from(imports).where(eq(imports.weddingId, weddingId)).all(),
+          )).length,
+        ).toBe(0);
         // …yet every sheet key they referenced was reaped (proving pre-delete collect).
         for (const k of sheetKeys) expect(sheets.deleted.has(k)).toBe(true);
         expect(sheets.deleted.size).toBe(sheetKeys.length);

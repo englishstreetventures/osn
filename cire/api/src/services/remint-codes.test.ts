@@ -5,15 +5,15 @@ import { and, eq, ne } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService } from "../db";
-import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
+import type { TestDb } from "../db/setup";
 import { remintCodesService } from "./remint-codes";
 
-function run<A, E>(db: Db, eff: Effect.Effect<A, E, DbService>): Promise<A> {
+function run<A, E>(db: TestDb, eff: Effect.Effect<A, E, DbService>): Promise<A> {
   return Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
 }
 
-function guestFamilies(db: Db, weddingId: string) {
+function guestFamilies(db: TestDb, weddingId: string) {
   return db
     .select({
       id: families.id,

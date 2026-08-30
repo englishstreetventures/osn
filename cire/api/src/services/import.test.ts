@@ -16,11 +16,17 @@ import { Effect, Exit, Layer } from "effect";
 import { DbService } from "../db";
 import type { Db } from "../db";
 import { createDb, seedBootstrapWedding, seedDb } from "../db/setup";
-import type { ParsedEvent, ParsedFamily } from "../schemas/import";
+import type { ImportPlan, ParsedEvent, ParsedFamily } from "../schemas/import";
 import { claimService } from "./claim";
 import { entitlementService } from "./entitlements";
 import { hostCodeService } from "./host-code";
-import { applyImport, diffAgainstDb, mintEventSlug, mintUniqueEventSlug } from "./import";
+import {
+  applyImport,
+  diffAgainstDb,
+  mintEventSlug,
+  mintUniqueEventSlug,
+  StaleDesiredState,
+} from "./import";
 import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
 
 /** Build a fresh in-memory DB layer for each test. */
@@ -642,6 +648,7 @@ describe("applyImport: chunks a large diff into ≤50-statement batches", () => 
       familyId: f.id,
       firstName: `First${i}`,
       lastName: `Last${i}`,
+      nickname: null,
       sortOrder: 0,
     }));
     const eventLinkCreates = guestCreates.map((g) => ({ guestId: g.id, eventId }));
@@ -847,7 +854,7 @@ function planCreatingNGuests(
   db: ReturnType<typeof createDb>,
   n: number,
   weddingId = BOOTSTRAP_WEDDING_ID,
-): Effect.Effect<import("../schemas/import").ImportPlan, never, DbService> {
+): Effect.Effect<ImportPlan, StaleDesiredState, never> {
   return Effect.gen(function* () {
     // One family, N guests, no events.
     const parsedFamily: ParsedFamily = {
@@ -941,29 +948,30 @@ describe("applyImport — capacity enforcement", () => {
     );
 
     // Adding 1 real guest → 99+1=100 ≤ 100 → should succeed.
+    const oneMoreFamilyId = crypto.randomUUID();
     const addOnePlan: import("../schemas/import").ImportPlan = {
       eventCreates: [],
       eventUpdates: [],
       eventRemoves: [],
-      familyCreates: [{ id: crypto.randomUUID(), publicId: "ONE-MORE-CAP", familyName: "OneMore" }],
+      familyCreates: [{ id: oneMoreFamilyId, publicId: "ONE-MORE-CAP", familyName: "OneMore" }],
       familyUpdates: [],
       familyRemoves: [],
-      guestCreates: [],
+      guestCreates: [
+        {
+          id: crypto.randomUUID(),
+          familyId: oneMoreFamilyId,
+          firstName: "Last",
+          lastName: "Guest",
+          nickname: null,
+          sortOrder: 0,
+        },
+      ],
       guestUpdates: [],
       guestRemoves: [],
       eventLinkCreates: [],
       eventLinkRemoves: [],
       warnings: [],
     };
-    const oneMoreFamilyId = addOnePlan.familyCreates[0]!.id;
-    addOnePlan.guestCreates.push({
-      id: crypto.randomUUID(),
-      familyId: oneMoreFamilyId,
-      firstName: "Last",
-      lastName: "Guest",
-      nickname: null,
-      sortOrder: 0,
-    });
     const exit1 = await Effect.runPromiseExit(
       applyImport("imp_cap_host_2", addOnePlan, BOOTSTRAP_WEDDING_ID).pipe(
         Effect.provideService(DbService, db),
@@ -972,28 +980,30 @@ describe("applyImport — capacity enforcement", () => {
     expect(Exit.isSuccess(exit1)).toBe(true);
 
     // Now adding 1 more real guest → 100+1=101 > 100 → should fail.
+    const overflowFamilyId = crypto.randomUUID();
     const overflowPlan: import("../schemas/import").ImportPlan = {
       eventCreates: [],
       eventUpdates: [],
       eventRemoves: [],
-      familyCreates: [{ id: crypto.randomUUID(), publicId: "TOO-MANY-CAP", familyName: "TooMany" }],
+      familyCreates: [{ id: overflowFamilyId, publicId: "TOO-MANY-CAP", familyName: "TooMany" }],
       familyUpdates: [],
       familyRemoves: [],
-      guestCreates: [],
+      guestCreates: [
+        {
+          id: crypto.randomUUID(),
+          familyId: overflowFamilyId,
+          firstName: "Overflow",
+          lastName: "Guest",
+          nickname: null,
+          sortOrder: 0,
+        },
+      ],
       guestUpdates: [],
       guestRemoves: [],
       eventLinkCreates: [],
       eventLinkRemoves: [],
       warnings: [],
     };
-    overflowPlan.guestCreates.push({
-      id: crypto.randomUUID(),
-      familyId: overflowPlan.familyCreates[0]!.id,
-      firstName: "Overflow",
-      lastName: "Guest",
-      nickname: null,
-      sortOrder: 0,
-    });
     const exit2 = await Effect.runPromiseExit(
       applyImport("imp_cap_host_3", overflowPlan, BOOTSTRAP_WEDDING_ID).pipe(
         Effect.provideService(DbService, db),

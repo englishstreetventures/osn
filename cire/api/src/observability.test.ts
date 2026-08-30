@@ -33,7 +33,10 @@ async function captureLogs(run: () => unknown | Promise<unknown>): Promise<strin
   const sink = (...args: unknown[]): void => {
     lines.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));
   };
-  const c = globalThis.console;
+  // `console` is an ambient `const` in both the Workers and Bun type
+  // declarations, so it never merges into `typeof globalThis`'s properties —
+  // it exists on the real global object at runtime regardless.
+  const c = (globalThis as typeof globalThis & { console: Console }).console;
   const original = { log: c.log, info: c.info, warn: c.warn, error: c.error, debug: c.debug };
   Object.assign(c, { log: sink, info: sink, warn: sink, error: sink, debug: sink });
   try {

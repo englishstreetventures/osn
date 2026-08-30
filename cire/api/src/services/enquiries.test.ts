@@ -13,8 +13,8 @@ import { eq } from "drizzle-orm";
 import { Effect, Exit } from "effect";
 
 import { DbService } from "../db";
-import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
+import type { TestDb } from "../db/setup";
 import type { DirectoryVendorRow } from "./directory";
 import {
   createEnquiryService,
@@ -33,7 +33,7 @@ const UNCLAIMED_VENDOR_ID = "dv_unclaimed";
 const VENDOR_PROFILE_ID = "usr_vendor";
 const ORGANISER_PROFILE_ID = "usr_organiser";
 
-function db0(): Db {
+function db0(): TestDb {
   const db = createDb(":memory:");
   seedDb(db);
   const now = new Date();
@@ -64,7 +64,7 @@ function db0(): Db {
   return db;
 }
 
-const run = <A, E>(db: Db, eff: Effect.Effect<A, E, DbService>) =>
+const run = <A, E>(db: TestDb, eff: Effect.Effect<A, E, DbService>) =>
   Effect.runPromiseExit(eff.pipe(Effect.provideService(DbService, db)));
 
 // ---------------------------------------------------------------------------
@@ -171,7 +171,7 @@ const openInput = (
 };
 
 // Read an enquiry row straight from the DB, cast to EnquiryRow for reuse.
-function readEnquiry(db: Db, id: string): EnquiryRow {
+function readEnquiry(db: TestDb, id: string): EnquiryRow {
   const row = db.select().from(vendorEnquiries).where(eq(vendorEnquiries.id, id)).get();
   if (!row) throw new Error(`enquiry ${id} not found`);
   return row as unknown as EnquiryRow;
@@ -543,7 +543,7 @@ describe("enquiryService.addToBudget", () => {
 
     const res = await run(
       db,
-      svc.addToBudget({ enquiry: enq, vendorName: "Bloom & Co", category: "florist" }),
+      svc.addToBudget({ enquiry: enq, vendorName: "Bloom & Co", category: "florals" }),
     );
     if (!Exit.isSuccess(res)) throw new Error("addToBudget failed");
 
@@ -554,7 +554,7 @@ describe("enquiryService.addToBudget", () => {
       .get();
     expect(item).toBeTruthy();
     expect(item!.name).toBe("Bloom & Co");
-    expect(item!.category).toBe("florist");
+    expect(item!.category).toBe("florals");
     expect(item!.quotedMinor).toBe(250000);
     expect(item!.estimateMinor).toBeNull();
   });

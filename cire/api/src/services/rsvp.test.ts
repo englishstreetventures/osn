@@ -20,11 +20,15 @@ const RECEPTION_ID = eventsData.reception.id;
 function lookupGuest(firstName: string) {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    const [row] = db
-      .select({ id: guests.id, familyId: guests.familyId })
-      .from(guests)
-      .where(eq(guests.firstName, firstName))
-      .all();
+    const [row] = yield* Effect.promise(() =>
+      Promise.resolve(
+        db
+          .select({ id: guests.id, familyId: guests.familyId })
+          .from(guests)
+          .where(eq(guests.firstName, firstName))
+          .all(),
+      ),
+    );
     if (!row) throw new Error(`Guest ${firstName} not found in seed data`);
     return row;
   });
@@ -122,14 +126,18 @@ describe("rsvpService.submitRsvp", () => {
           dietaryConsent: true,
         });
 
-        const [row] = db
-          .select({
-            at: rsvpsTable.dietaryConsentAt,
-            version: rsvpsTable.dietaryConsentVersion,
-          })
-          .from(rsvpsTable)
-          .where(and(eq(rsvpsTable.guestId, priya.id), eq(rsvpsTable.eventId, RECEPTION_ID)))
-          .all();
+        const [row] = yield* Effect.promise(() =>
+          Promise.resolve(
+            db
+              .select({
+                at: rsvpsTable.dietaryConsentAt,
+                version: rsvpsTable.dietaryConsentVersion,
+              })
+              .from(rsvpsTable)
+              .where(and(eq(rsvpsTable.guestId, priya.id), eq(rsvpsTable.eventId, RECEPTION_ID)))
+              .all(),
+          ),
+        );
         expect(row?.version).toBe(DIETARY_CONSENT_VERSION);
         expect(row?.at).toBeInstanceOf(Date);
         expect(row!.at!.getTime()).toBeGreaterThanOrEqual(before);
@@ -153,13 +161,20 @@ describe("rsvpService.submitRsvp", () => {
           dietaryConsent: false,
         });
         const read = () =>
-          db
-            .select({ at: rsvpsTable.dietaryConsentAt, version: rsvpsTable.dietaryConsentVersion })
-            .from(rsvpsTable)
-            .where(and(eq(rsvpsTable.guestId, priya.id), eq(rsvpsTable.eventId, RECEPTION_ID)))
-            .all()[0];
-        expect(read()?.at).toBeNull();
-        expect(read()?.version).toBeNull();
+          Effect.promise(() =>
+            Promise.resolve(
+              db
+                .select({
+                  at: rsvpsTable.dietaryConsentAt,
+                  version: rsvpsTable.dietaryConsentVersion,
+                })
+                .from(rsvpsTable)
+                .where(and(eq(rsvpsTable.guestId, priya.id), eq(rsvpsTable.eventId, RECEPTION_ID)))
+                .all(),
+            ).then((rows) => rows[0]),
+          );
+        expect((yield* read())?.at).toBeNull();
+        expect((yield* read())?.version).toBeNull();
 
         // Consent given on re-submit → record stamped.
         yield* rsvpService.submitRsvp({
@@ -169,7 +184,7 @@ describe("rsvpService.submitRsvp", () => {
           dietary: "Halal",
           dietaryConsent: true,
         });
-        expect(read()?.version).toBe(DIETARY_CONSENT_VERSION);
+        expect((yield* read())?.version).toBe(DIETARY_CONSENT_VERSION);
 
         // Dietary removed → consent record cleared (no special-category data left).
         yield* rsvpService.submitRsvp({
@@ -179,8 +194,8 @@ describe("rsvpService.submitRsvp", () => {
           dietary: "",
           dietaryConsent: false,
         });
-        expect(read()?.at).toBeNull();
-        expect(read()?.version).toBeNull();
+        expect((yield* read())?.at).toBeNull();
+        expect((yield* read())?.version).toBeNull();
       }),
     ),
   );
@@ -299,16 +314,23 @@ describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {
         ]);
 
         const consentFor = (eventId: string) =>
-          db
-            .select({ at: rsvpsTable.dietaryConsentAt, version: rsvpsTable.dietaryConsentVersion })
-            .from(rsvpsTable)
-            .where(and(eq(rsvpsTable.guestId, ada.id), eq(rsvpsTable.eventId, eventId)))
-            .all()[0];
+          Effect.promise(() =>
+            Promise.resolve(
+              db
+                .select({
+                  at: rsvpsTable.dietaryConsentAt,
+                  version: rsvpsTable.dietaryConsentVersion,
+                })
+                .from(rsvpsTable)
+                .where(and(eq(rsvpsTable.guestId, ada.id), eq(rsvpsTable.eventId, eventId)))
+                .all(),
+            ).then((rows) => rows[0]),
+          );
 
-        expect(consentFor(HINDU_ID)?.version).toBe(DIETARY_CONSENT_VERSION);
-        expect(consentFor(HINDU_ID)?.at).toBeInstanceOf(Date);
-        expect(consentFor(RECEPTION_ID)?.at).toBeNull();
-        expect(consentFor(RECEPTION_ID)?.version).toBeNull();
+        expect((yield* consentFor(HINDU_ID))?.version).toBe(DIETARY_CONSENT_VERSION);
+        expect((yield* consentFor(HINDU_ID))?.at).toBeInstanceOf(Date);
+        expect((yield* consentFor(RECEPTION_ID))?.at).toBeNull();
+        expect((yield* consentFor(RECEPTION_ID))?.version).toBeNull();
       }),
     ),
   );

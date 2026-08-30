@@ -4,8 +4,8 @@ import { BOOTSTRAP_WEDDING_ID, events, weddingHosts, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../app";
-import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
+import type { TestDb } from "../db/setup";
 import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -96,7 +96,7 @@ async function req(
 const SETTINGS_PATH = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/settings`;
 
 /** First seeded event of the bootstrap wedding — the target for location tests. */
-function firstEventId(db: Db): string {
+function firstEventId(db: TestDb): string {
   const row = db
     .select({ id: events.id })
     .from(events)
@@ -585,7 +585,7 @@ describe("event location config is gone (dropped by migration 0036)", () => {
   });
 });
 
-function getWedding(db: Db) {
+function getWedding(db: TestDb) {
   const row = db.select().from(weddings).where(eq(weddings.id, BOOTSTRAP_WEDDING_ID)).get();
   if (!row) throw new Error("bootstrap wedding missing");
   return row;

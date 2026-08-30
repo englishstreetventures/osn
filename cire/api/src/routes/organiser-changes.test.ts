@@ -16,7 +16,7 @@ import { eq } from "drizzle-orm";
 import { createApp } from "../app";
 import { createDb, seedBootstrapWedding } from "../db/setup";
 import { createR2Stub } from "../services/r2-imports";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -418,7 +418,7 @@ describe("POST /changes/preview — parse errors locate the problem", () => {
     });
 
     expect(res.status).toBe(422);
-    expect(await res.json()).toEqual({
+    expect(await jsonBody(res)).toEqual({
       error: "Malformed spreadsheet",
       reason: "Start must be an ISO-8601 timestamp",
       row: 2,
@@ -473,7 +473,7 @@ describe("POST /changes/preview — parse errors locate the problem", () => {
     const { app } = buildApp();
     const res = await ownerPost(app, `${CHANGES_BASE}/preview`, { eventsCsv: "" });
     expect(res.status).toBe(422);
-    expect(await res.json()).toEqual({
+    expect(await jsonBody(res)).toEqual({
       error: "Malformed spreadsheet",
       reason: "empty events sheet",
       row: null,
@@ -501,7 +501,7 @@ describe("POST /changes/preview — parse errors locate the problem", () => {
 
     const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
     expect(applyRes.status).toBe(422);
-    expect(await applyRes.json()).toEqual({
+    expect(await jsonBody(applyRes)).toEqual({
       error: "Malformed spreadsheet",
       reason: "Start must be an ISO-8601 timestamp",
       row: 2,
@@ -1140,7 +1140,7 @@ describe("authz — /changes gate", () => {
       body: JSON.stringify({ eventsCsv: EVENTS_CSV, guestsCsv: GUESTS_CSV }),
     });
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "read_only_role" });
+    expect(await jsonBody(res)).toEqual({ error: "read_only_role" });
   });
 
   it("lets an editor co-host preview + apply", async () => {
@@ -1437,7 +1437,7 @@ describe("GET /changes/list — history paging", () => {
       headers: { Authorization: `Bearer ${await auth.sign("usr_list_viewer")}` },
     });
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "read_only_role" });
+    expect(await jsonBody(res)).toEqual({ error: "read_only_role" });
   });
 
   it("clamps `?limit` to 1..100", async () => {

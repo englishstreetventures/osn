@@ -5,7 +5,7 @@ import { Elysia } from "elysia";
 
 import type { Db } from "../db";
 import { createDb } from "../db/setup";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody } from "../test-helpers";
 import { weddingOwner } from "./wedding-owner";
 
 const WEDDING_ID = "wed_alice";
@@ -42,21 +42,21 @@ describe("weddingOwner", () => {
     const app = buildApp("usr_mallory");
     const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "forbidden" });
+    expect(await jsonBody(res)).toEqual({ error: "forbidden" });
   });
 
   it("returns 200 and derives weddingId when the owner matches", async () => {
     const app = buildApp(OWNER);
     const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ weddingId: WEDDING_ID });
+    expect(await jsonBody(res)).toEqual({ weddingId: WEDDING_ID });
   });
 
   it("returns 404 when the wedding does not exist", async () => {
     const app = buildApp(OWNER);
     const res = await appRequest(app, "/weddings/wed_nope/probe");
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "wedding_not_found" });
+    expect(await jsonBody(res)).toEqual({ error: "wedding_not_found" });
   });
 
   it("returns 401 when no osnProfileId was derived upstream", async () => {

@@ -7,7 +7,7 @@ import { createApp } from "../app";
 import { createDb, seedDb } from "../db/setup";
 import { createDirectoryService } from "../services/directory";
 import type { VendorDto } from "../services/vendors";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -257,13 +257,13 @@ describe("vendor CRM routes", () => {
   it("GET /vendors → 402 payment_required when wedding lacks `vendors`", async () => {
     const res = await req(buildApp({ grantVendors: false }), "GET", base, OWNER);
     expect(res.status).toBe(402);
-    expect(await res.json()).toEqual({ error: "payment_required", entitlement: "vendors" });
+    expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "vendors" });
   });
 
   it("POST /vendors → 402 payment_required when wedding lacks `vendors`", async () => {
     const res = await req(buildApp({ grantVendors: false }), "POST", base, EDITOR, VENDOR);
     expect(res.status).toBe(402);
-    expect(await res.json()).toEqual({ error: "payment_required", entitlement: "vendors" });
+    expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "vendors" });
   });
 
   it("a VIEWER still gets 403 (role wins over 402) on the write route", async () => {

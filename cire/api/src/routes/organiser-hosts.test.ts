@@ -9,7 +9,7 @@ import type { AppOptions } from "../app";
 import type { Db } from "../db";
 import { createDb } from "../db/setup";
 import type { OsnHandleResolver, OsnProfileDisplayResolver } from "../services/osn-bridge";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -183,7 +183,7 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
 
     const res = await req(app, "POST", hostsPath, COHOST, { handle: "dave" });
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "owner_is_host" });
+    expect(await jsonBody(res)).toEqual({ error: "owner_is_host" });
     const rows = db
       .select({ id: weddingHosts.id })
       .from(weddingHosts)
@@ -197,7 +197,7 @@ describe("POST /api/organiser/weddings/:weddingId/hosts (add by handle)", () => 
     seedHostSeat(db, COHOST, "viewer");
     const res = await req(app, "POST", hostsPath, COHOST, { handle: "carol" });
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "read_only_role" });
+    expect(await jsonBody(res)).toEqual({ error: "read_only_role" });
   });
 
   it("returns 404 for an unknown wedding", async () => {
@@ -538,7 +538,7 @@ describe("PUT /api/organiser/weddings/:weddingId/hosts/:osnProfileId/role", () =
     const { app } = buildApp();
     const res = await req(app, "PUT", `${hostsPath}/usr_ghost/role`, OWNER, { role: "viewer" });
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "host_not_found" });
+    expect(await jsonBody(res)).toEqual({ error: "host_not_found" });
   });
 
   it("returns 400 for a bad role value", async () => {
@@ -607,7 +607,14 @@ describe("co-host dashboard access (weddingMember)", () => {
     const res = await req(app, "GET", "/api/organiser/weddings", COHOST);
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      weddings: { id: string; role: string; entitlements: string[]; guestCap: number }[];
+      weddings: {
+        id: string;
+        slug: string;
+        displayName: string;
+        role: string;
+        entitlements: string[];
+        guestCap: number;
+      }[];
     };
     expect(body.weddings).toEqual([
       // The seed omits `role`, landing on the legacy DDL default 'host'
@@ -638,7 +645,14 @@ describe("co-host dashboard access (weddingMember)", () => {
     const res = await req(app, "GET", "/api/organiser/weddings", "usr_list_viewer");
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      weddings: { id: string; role: string; entitlements: string[]; guestCap: number }[];
+      weddings: {
+        id: string;
+        slug: string;
+        displayName: string;
+        role: string;
+        entitlements: string[];
+        guestCap: number;
+      }[];
     };
     expect(body.weddings).toEqual([
       {

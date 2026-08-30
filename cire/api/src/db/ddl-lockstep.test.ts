@@ -296,7 +296,16 @@ function snapshotDrizzleTable(table: SQLiteTable): { name: string; shape: TableS
   };
 }
 
-const drizzleTables = Object.values(cireSchema).filter((v): v is SQLiteTable => is(v, SQLiteTable));
+// `cireSchema` also exports plain constants (e.g. `BOOTSTRAP_WEDDING_ID`)
+// alongside the Drizzle table objects, so the exported-value union includes
+// string literals no `SQLiteTable`-typed predicate can be assignable to
+// directly (TS2677). Narrow through an intermediate `undefined` instead.
+function asDrizzleTable(v: unknown): SQLiteTable | undefined {
+  return is(v, SQLiteTable) ? v : undefined;
+}
+const drizzleTables = Object.values(cireSchema)
+  .map(asDrizzleTable)
+  .filter((v): v is SQLiteTable => v !== undefined);
 
 // Snapshot then release the native handle — the diffs below only need the
 // plain snapshot objects (P-I1).

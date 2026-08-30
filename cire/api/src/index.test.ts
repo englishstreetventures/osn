@@ -4,6 +4,7 @@ import { Miniflare } from "miniflare";
 
 import { DDL } from "./db/setup";
 import handler from "./index";
+import { jsonBody } from "./test-helpers";
 
 // Boot-time behaviour of the Worker entry point. The organiser dashboard must
 // serve ANY authenticated OSN user with NO special bootstrap config — there is
@@ -45,7 +46,31 @@ const BASE_ENV = {
   CLAIM_RATE_LIMITER: fakeRateLimiter,
 };
 
-const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as ExecutionContext;
+// Minimal concrete stand-in for the ambient `Span` abstract class — these
+// boot tests never actually create a span, so the shape only needs to
+// satisfy `Tracing.Span`'s constructor type.
+class StubSpan {
+  get isTraced(): boolean {
+    return false;
+  }
+  setAttribute(_key: string, _value?: boolean | number | string): void {}
+  end(): void {}
+}
+
+const ctx: ExecutionContext = {
+  waitUntil: () => {},
+  passThroughOnException: () => {},
+  props: undefined,
+  tracing: {
+    enterSpan: () => {
+      throw new Error("tracing not available in this test context");
+    },
+    startActiveSpan: () => {
+      throw new Error("tracing not available in this test context");
+    },
+    Span: StubSpan,
+  },
+};
 
 beforeAll(async () => {
   // Clear the ambient tier so every case is driven purely by its `env` binding.
@@ -82,7 +107,7 @@ afterAll(async () => {
 
 describe("Worker boot (no bootstrap-owner config)", () => {
   it("boots + serves WITHOUT BOOTSTRAP_OWNER_PROFILE_ID in a deployed env (no 503)", async () => {
-    const env = { ...BASE_ENV, DB } as unknown as Parameters<typeof handler.fetch>[1];
+    const env = { ...BASE_ENV, DB } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
     const res = await handler.fetch!(
       new Request("https://api.example.com/api/organiser/weddings"),
       env,
@@ -104,7 +129,7 @@ describe("Worker boot (no bootstrap-owner config)", () => {
       OSN_JWKS_URL: BASE_ENV.OSN_JWKS_URL,
       OSN_AUDIENCE: BASE_ENV.OSN_AUDIENCE,
       CLAIM_RATE_LIMITER: fakeRateLimiter,
-    } as unknown as Parameters<typeof handler.fetch>[1];
+    } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1];
     const res = await handler.fetch!(
       new Request("https://api.example.com/api/organiser/weddings"),
       env,
@@ -127,7 +152,7 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
   const runFetch = (env: Record<string, unknown>) =>
     handler.fetch!(
       new Request("https://api.example.com/api/organiser/weddings"),
-      { DB, ...env } as unknown as Parameters<typeof handler.fetch>[1],
+      { DB, ...env } as unknown as Parameters<NonNullable<typeof handler.fetch>>[1],
       ctx,
     );
 
@@ -141,7 +166,7 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
   it("fail-closes 503 in a deployed tier when the binding is absent", async () => {
     const res = await runFetch(withoutBindingAt("production"));
     expect(res.status).toBe(503);
-    expect(await res.json()).toEqual({
+    expect(await jsonBody(res)).toEqual({
       error: "Worker misconfigured: missing CLAIM_RATE_LIMITER binding",
     });
   });

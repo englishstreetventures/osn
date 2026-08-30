@@ -48,21 +48,29 @@ function rsvp(
 }
 
 /** A guest by first name in the bootstrap wedding (seed mints random ids). */
-function guestByName(db: Db, firstName: string): { id: string } {
-  const row = db
-    .select({ id: guests.id })
-    .from(guests)
-    .where(eq(guests.firstName, firstName))
-    .all()[0];
-  if (!row) throw new Error(`no guest named ${firstName}`);
-  return row;
+function guestByName(db: Db, firstName: string): Effect.Effect<{ id: string }> {
+  return Effect.gen(function* () {
+    const rows = yield* Effect.promise(() =>
+      Promise.resolve(
+        db.select({ id: guests.id }).from(guests).where(eq(guests.firstName, firstName)).all(),
+      ),
+    );
+    const row = rows[0];
+    if (!row) throw new Error(`no guest named ${firstName}`);
+    return row;
+  });
 }
 
 /** An event id by slug. */
-function eventBySlug(db: Db, slug: string): { id: string } {
-  const row = db.select({ id: events.id }).from(events).where(eq(events.slug, slug)).all()[0];
-  if (!row) throw new Error(`no event ${slug}`);
-  return row;
+function eventBySlug(db: Db, slug: string): Effect.Effect<{ id: string }> {
+  return Effect.gen(function* () {
+    const rows = yield* Effect.promise(() =>
+      Promise.resolve(db.select({ id: events.id }).from(events).where(eq(events.slug, slug)).all()),
+    );
+    const row = rows[0];
+    if (!row) throw new Error(`no event ${slug}`);
+    return row;
+  });
 }
 
 describe("rsvpExportService.build", () => {
@@ -134,13 +142,10 @@ describe("rsvpExportService.build", () => {
         const db = yield* DbService;
         const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
         // Resolve each export event's startAt and assert non-decreasing order.
-        const startById = new Map(
-          db
-            .select({ id: events.id, startAt: events.startAt })
-            .from(events)
-            .all()
-            .map((e) => [e.id, e.startAt]),
+        const eventRows = yield* Effect.promise(() =>
+          Promise.resolve(db.select({ id: events.id, startAt: events.startAt }).from(events).all()),
         );
+        const startById = new Map(eventRows.map((e) => [e.id, e.startAt]));
         const starts = data.events.map((e) => Date.parse(startById.get(e.id) ?? ""));
         for (let i = 1; i < starts.length; i += 1) {
           expect(starts[i]! >= starts[i - 1]!).toBe(true);
@@ -156,10 +161,10 @@ describe("rsvpExportService.build", () => {
         const db = yield* DbService;
         // Ada (TESTONE family) is invited to catholic, hindu, reception — NOT
         // kitchen-tea / mehendi.
-        const ada = guestByName(db, "Ada");
-        const catholic = eventBySlug(db, "catholic");
-        const hindu = eventBySlug(db, "hindu");
-        const reception = eventBySlug(db, "reception");
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
+        const hindu = yield* eventBySlug(db, "hindu");
+        const reception = yield* eventBySlug(db, "reception");
 
         // attending catholic (with dietary), declined hindu, maybe reception,
         // no rsvp for the others she's invited to (none here — she's invited to
@@ -179,7 +184,7 @@ describe("rsvpExportService.build", () => {
         expect(cellFor(hindu.id)).toBe("not_attending");
         expect(cellFor(reception.id)).toBe("no_response");
         // She is NOT invited to kitchen-tea → blank cell.
-        const kitchenTea = eventBySlug(db, "kitchen-tea");
+        const kitchenTea = yield* eventBySlug(db, "kitchen-tea");
         expect(cellFor(kitchenTea.id)).toBe("not_invited");
       }),
     ),
@@ -190,8 +195,8 @@ describe("rsvpExportService.build", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const ada = guestByName(db, "Ada");
-        const reception = eventBySlug(db, "reception");
+        const ada = yield* guestByName(db, "Ada");
+        const reception = yield* eventBySlug(db, "reception");
         rsvp(db, ada.id, reception.id, "maybe");
         const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
         const adaRow = data.rows.find((r) => r.firstName === "Ada")!;
@@ -206,8 +211,8 @@ describe("rsvpExportService.build", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const ada = guestByName(db, "Ada");
-        const catholic = eventBySlug(db, "catholic");
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
         rsvp(db, ada.id, catholic.id, "attending", "Vegetarian, no nuts");
         const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
         const adaRow = data.rows.find((r) => r.firstName === "Ada")!;
@@ -237,9 +242,9 @@ describe("rsvpExportService.build", () => {
         // column has to drop one of two answers that are BOTH true — and the
         // caterer for each event needs their own.
         const db = yield* DbService;
-        const ada = guestByName(db, "Ada");
-        const catholic = eventBySlug(db, "catholic");
-        const reception = eventBySlug(db, "reception");
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
+        const reception = yield* eventBySlug(db, "reception");
         rsvp(db, ada.id, catholic.id, "attending", "Fish only");
         rsvp(db, ada.id, reception.id, "attending", "Vegetarian");
 
@@ -270,8 +275,8 @@ describe("rsvpExportService.build", () => {
         // sitting beside an empty status reads as a bug, and no caterer is
         // cooking for a guest who isn't on the list.
         const db = yield* DbService;
-        const ada = guestByName(db, "Ada");
-        const catholic = eventBySlug(db, "catholic");
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
         rsvp(db, ada.id, catholic.id, "attending", "Fish only");
         db.delete(guestEvents)
           .where(and(eq(guestEvents.guestId, ada.id), eq(guestEvents.eventId, catholic.id)))
@@ -415,12 +420,12 @@ describe("rsvp-export CSV serialisation", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const ada = guestByName(db, "Ada");
-        const catholic = eventBySlug(db, "catholic");
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
         // An organiser-recorded RSVP; a self-submitted one stays "Guest".
         rsvp(db, ada.id, catholic.id, "attending", "", "organiser_attested");
-        const bo = guestByName(db, "Bo");
-        const reception = eventBySlug(db, "reception");
+        const bo = yield* guestByName(db, "Bo");
+        const reception = yield* eventBySlug(db, "reception");
         rsvp(db, bo.id, reception.id, "attending", "", "guest");
         const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
         const adaRow = data.rows.find((r) => r.firstName === "Ada");
@@ -441,9 +446,9 @@ describe("rsvp-export CSV serialisation", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const ada = guestByName(db, "Ada");
-        const catholic = eventBySlug(db, "catholic");
-        const hindu = eventBySlug(db, "hindu");
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
+        const hindu = yield* eventBySlug(db, "hindu");
         rsvp(db, ada.id, catholic.id, "attending");
         rsvp(db, ada.id, hindu.id, "declined");
         const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
@@ -472,8 +477,8 @@ describe("rsvp-export CSV serialisation", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const ada = guestByName(db, "Ada");
-        const catholic = eventBySlug(db, "catholic");
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
         rsvp(db, ada.id, catholic.id, "attending", "Vegetarian, no nuts");
         const data = yield* rsvpExportService.build(BOOTSTRAP_WEDDING_ID);
         const csv = toCsv(data);
@@ -506,9 +511,9 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const ada = guestByName(db, "Ada");
-        const bo = guestByName(db, "Bo");
-        const catholic = eventBySlug(db, "catholic");
+        const ada = yield* guestByName(db, "Ada");
+        const bo = yield* guestByName(db, "Bo");
+        const catholic = yield* eventBySlug(db, "catholic");
         rsvp(db, ada.id, catholic.id, "attending", "Gluten free");
         rsvp(db, bo.id, catholic.id, "declined");
 
@@ -534,8 +539,8 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const ada = guestByName(db, "Ada");
-        const catholic = eventBySlug(db, "catholic");
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
         rsvp(db, ada.id, catholic.id, "attending");
         const view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
         const event = view.events.find((e) => e.id === catholic.id)!;
@@ -551,8 +556,8 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const ada = guestByName(db, "Ada");
-        const catholic = eventBySlug(db, "catholic");
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
 
         // Before any reply: Ada (invited to catholic) is in `unresponded`.
         let view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
@@ -575,8 +580,8 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const ada = guestByName(db, "Ada");
-        const catholic = eventBySlug(db, "catholic");
+        const ada = yield* guestByName(db, "Ada");
+        const catholic = yield* eventBySlug(db, "catholic");
         rsvp(db, ada.id, catholic.id, "attending", "", "organiser_attested");
         const view = yield* rsvpExportService.buildView(BOOTSTRAP_WEDDING_ID);
         const event = view.events.find((e) => e.id === catholic.id)!;
@@ -592,7 +597,7 @@ describe("rsvpExportService.buildView (in-dashboard read-only view)", () => {
       Effect.gen(function* () {
         const db = yield* DbService;
         const now = new Date();
-        const catholic = eventBySlug(db, "catholic");
+        const catholic = yield* eventBySlug(db, "catholic");
         db.insert(families)
           .values({
             id: "fam_host_view",

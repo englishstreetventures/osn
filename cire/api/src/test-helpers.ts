@@ -32,6 +32,39 @@ export function appRequest(
 }
 
 /**
+ * A parsed JSON value. Response bodies in tests are asserted with
+ * `expect(await jsonBody(res)).toEqual(...)` — `expect(x)` is overloaded, and
+ * bun-types' `Response.json(): Promise<any>` resolves the first overload,
+ * `(actual?: never) => Matchers<undefined>`, instead of the generic one, so
+ * that assertion fails to typecheck against anything but `undefined`.
+ * `JsonValue` isn't assignable to `never`, so it skips straight to the
+ * generic overload.
+ */
+export type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly JsonValue[]
+  | { readonly [key: string]: JsonValue };
+
+export function jsonBody(res: Response): Promise<JsonValue> {
+  return res.json();
+}
+
+/**
+ * Builds a `globalThis.fetch`-assignable mock. A plain async-function literal
+ * isn't structurally `typeof fetch` — the real `fetch` carries a `preconnect`
+ * method the literal lacks — so `Object.assign` attaches a no-op one instead
+ * of casting through `unknown`.
+ */
+export function mockFetch(
+  impl: (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>,
+): typeof fetch {
+  return Object.assign(impl, { preconnect: () => {} });
+}
+
+/**
  * Wraps an Effect as a bun:test-compatible callback.
  * Usage: it('name', eff(Effect.gen(function*() { ... })))
  */

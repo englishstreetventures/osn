@@ -8,8 +8,8 @@ import { Effect } from "effect";
 
 import { createApp } from "../app";
 import { DbService } from "../db";
-import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
+import type { TestDb } from "../db/setup";
 import { parseSessionToken } from "../lib/cookie";
 import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import { hostCodeService } from "../services/host-code";
@@ -30,7 +30,7 @@ interface RsvpOk {
   }>;
 }
 
-let db: Db;
+let db: TestDb;
 let app: ReturnType<typeof createApp>;
 let sharmaGuestId: string;
 let wilsonJamesGuestId: string;
@@ -57,29 +57,33 @@ const post = (body: unknown, cookie: string | null) =>
       Origin: "http://localhost:4321",
     };
     if (cookie) headers["Cookie"] = cookie;
-    return app.fetch(
-      new Request("http://localhost/api/rsvp", {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-      }),
+    return Promise.resolve(
+      app.fetch(
+        new Request("http://localhost/api/rsvp", {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        }),
+      ),
     );
   });
 
 const claim = (publicId: string) =>
   Effect.promise(() =>
-    app.fetch(
-      new Request("http://localhost/api/claim", {
-        method: "POST",
-        // `cf-connecting-ip` simulates the CF edge for the fail-closed limiter
-        // (C4); `Origin` satisfies the CSRF origin guard (C5).
-        headers: {
-          "Content-Type": "application/json",
-          "cf-connecting-ip": "203.0.113.7",
-          Origin: "http://localhost:4321",
-        },
-        body: JSON.stringify({ publicId }),
-      }),
+    Promise.resolve(
+      app.fetch(
+        new Request("http://localhost/api/claim", {
+          method: "POST",
+          // `cf-connecting-ip` simulates the CF edge for the fail-closed limiter
+          // (C4); `Origin` satisfies the CSRF origin guard (C5).
+          headers: {
+            "Content-Type": "application/json",
+            "cf-connecting-ip": "203.0.113.7",
+            Origin: "http://localhost:4321",
+          },
+          body: JSON.stringify({ publicId }),
+        }),
+      ),
     ),
   );
 
@@ -418,17 +422,19 @@ describe("POST /api/rsvp", () => {
       Effect.gen(function* () {
         const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
         const res = yield* Effect.promise(() =>
-          app.fetch(
-            new Request("http://localhost/api/rsvp", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                Cookie: cookie,
-                Origin: "http://localhost:4321",
-                "Content-Length": String(512 * 1024),
-              },
-              body: JSON.stringify({ rsvps: [] }),
-            }),
+          Promise.resolve(
+            app.fetch(
+              new Request("http://localhost/api/rsvp", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Cookie: cookie,
+                  Origin: "http://localhost:4321",
+                  "Content-Length": String(512 * 1024),
+                },
+                body: JSON.stringify({ rsvps: [] }),
+              }),
+            ),
           ),
         );
         expect(res.status).toBe(413);

@@ -4,8 +4,8 @@ import { BOOTSTRAP_WEDDING_ID, events, guests, rsvps, weddings, weddingHosts } f
 import { and, eq } from "drizzle-orm";
 
 import { createApp } from "../app";
-import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
+import type { TestDb } from "../db/setup";
 import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -22,13 +22,13 @@ beforeAll(async () => {
 });
 
 /** An event id by slug in the bootstrap wedding. */
-function eventBySlug(db: Db, slug: string): string {
+function eventBySlug(db: TestDb, slug: string): string {
   const row = db.select({ id: events.id }).from(events).where(eq(events.slug, slug)).get();
   if (!row) throw new Error(`no event ${slug}`);
   return row.id;
 }
 
-function guestByName(db: Db, firstName: string): string {
+function guestByName(db: TestDb, firstName: string): string {
   const row = db
     .select({ id: guests.id })
     .from(guests)
@@ -90,7 +90,7 @@ async function put(
   return appRequest(app, path, { method: "PUT", headers, body: JSON.stringify(body) });
 }
 
-const rsvpPath = (db: Db, guestName = "Ada", slug = "hindu") =>
+const rsvpPath = (db: TestDb, guestName = "Ada", slug = "hindu") =>
   `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests/${guestByName(db, guestName)}/rsvps/${eventBySlug(db, slug)}`;
 
 const OK_BODY = { status: "attending" as const };

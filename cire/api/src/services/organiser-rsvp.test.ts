@@ -12,15 +12,15 @@ import {
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
-import type { Db } from "../db";
 import { DbService } from "../db";
 import { createDb, seedDb } from "../db/setup";
+import type { TestDb } from "../db/setup";
 import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import { organiserRsvpService } from "./organiser-rsvp";
 
 // Ada (Testfamily) is invited to catholic + hindu + reception, NOT mehendi.
 // (Mirrors the guest RSVP route test fixtures.)
-let db: Db;
+let db: TestDb;
 let adaId: string;
 
 /** An event id by slug in the bootstrap wedding. */

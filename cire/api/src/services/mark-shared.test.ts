@@ -5,11 +5,11 @@ import { and, eq, ne } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService } from "../db";
-import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
+import type { TestDb } from "../db/setup";
 import { markSharedService } from "./mark-shared";
 
-function aFamily(db: Db) {
+function aFamily(db: TestDb) {
   return db
     .select({ id: families.id, codeSharedAt: families.codeSharedAt })
     .from(families)

@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 
 import { generateArcKeyPair, exportKeyToJwk, importKeyFromJwk } from "@shared/crypto/jwk";
 
+import { mockFetch } from "../test-helpers";
 import {
   createAccountResolverFromEnv,
   createArcAccountResolver,
@@ -29,11 +30,11 @@ describe("createArcAccountResolver", () => {
   it("signs an ARC token and resolves the account id from osn-api", async () => {
     const { privateKey } = await testKeyMaterial();
     let seen: { url: string; auth: string | null } | undefined;
-    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = mockFetch(async (url: string | URL | Request, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       seen = { url: String(url), auth: headers.get("authorization") };
       return new Response(JSON.stringify({ accountId: "acc_xyz" }), { status: 200 });
-    }) as typeof fetch;
+    });
 
     const resolve = createArcAccountResolver({
       osnApiUrl: "https://osn.example/",
@@ -61,10 +62,12 @@ describe("createArcAccountResolver", () => {
 
   it("returns profile_not_found on a 404", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ error: "Profile not found" }), {
-        status: 404,
-      })) as typeof fetch;
+    globalThis.fetch = mockFetch(
+      async () =>
+        new Response(JSON.stringify({ error: "Profile not found" }), {
+          status: 404,
+        }),
+    );
 
     const resolve = createArcAccountResolver({
       osnApiUrl: "https://osn.example",
@@ -76,7 +79,7 @@ describe("createArcAccountResolver", () => {
 
   it("throws on a non-404 error status (treated as osn unavailable)", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+    globalThis.fetch = mockFetch(async () => new Response("boom", { status: 500 }));
 
     const resolve = createArcAccountResolver({
       osnApiUrl: "https://osn.example",
@@ -88,8 +91,7 @@ describe("createArcAccountResolver", () => {
 
   it("throws when the response is missing accountId", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({}), { status: 200 })) as typeof fetch;
+    globalThis.fetch = mockFetch(async () => new Response(JSON.stringify({}), { status: 200 }));
 
     const resolve = createArcAccountResolver({
       osnApiUrl: "https://osn.example",
@@ -115,8 +117,9 @@ describe("createAccountResolverFromEnv", () => {
     // Sanity: the JWK round-trips to an importable key.
     await importKeyFromJwk(jwk);
 
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ accountId: "acc_env" }), { status: 200 })) as typeof fetch;
+    globalThis.fetch = mockFetch(
+      async () => new Response(JSON.stringify({ accountId: "acc_env" }), { status: 200 }),
+    );
 
     const resolve = await createAccountResolverFromEnv({
       osnApiUrl: "https://osn.example",
@@ -157,13 +160,13 @@ describe("createArcHandleResolver", () => {
   it("signs an ARC token and resolves a profile id from osn-api", async () => {
     const { privateKey } = await testKeyMaterial();
     let seen: { url: string; auth: string | null } | undefined;
-    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = mockFetch(async (url: string | URL | Request, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       seen = { url: String(url), auth: headers.get("authorization") };
       return new Response(JSON.stringify({ profileId: "usr_alice", handle: "alice" }), {
         status: 200,
       });
-    }) as typeof fetch;
+    });
 
     const resolve = createArcHandleResolver({
       osnApiUrl: "https://osn.example/",
@@ -181,10 +184,12 @@ describe("createArcHandleResolver", () => {
 
   it("returns profile_not_found on a 404", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ error: "Profile not found" }), {
-        status: 404,
-      })) as typeof fetch;
+    globalThis.fetch = mockFetch(
+      async () =>
+        new Response(JSON.stringify({ error: "Profile not found" }), {
+          status: 404,
+        }),
+    );
 
     const resolve = createArcHandleResolver({
       osnApiUrl: "https://osn.example",
@@ -196,7 +201,7 @@ describe("createArcHandleResolver", () => {
 
   it("throws on a non-404 error status (treated as osn unavailable → 502)", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+    globalThis.fetch = mockFetch(async () => new Response("boom", { status: 500 }));
 
     const resolve = createArcHandleResolver({
       osnApiUrl: "https://osn.example",
@@ -208,8 +213,7 @@ describe("createArcHandleResolver", () => {
 
   it("throws when the response is missing profileId", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({}), { status: 200 })) as typeof fetch;
+    globalThis.fetch = mockFetch(async () => new Response(JSON.stringify({}), { status: 200 }));
 
     const resolve = createArcHandleResolver({
       osnApiUrl: "https://osn.example",
@@ -221,8 +225,9 @@ describe("createArcHandleResolver", () => {
 
   it("echoes the requested handle when osn omits it from the response", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ profileId: "usr_alice" }), { status: 200 })) as typeof fetch;
+    globalThis.fetch = mockFetch(
+      async () => new Response(JSON.stringify({ profileId: "usr_alice" }), { status: 200 }),
+    );
 
     const resolve = createArcHandleResolver({
       osnApiUrl: "https://osn.example",
@@ -245,10 +250,12 @@ describe("createHandleResolverFromEnv", () => {
 
   it("builds a working resolver when all config is present", async () => {
     const { jwk } = await testKeyMaterial();
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ profileId: "usr_env", handle: "env" }), {
-        status: 200,
-      })) as typeof fetch;
+    globalThis.fetch = mockFetch(
+      async () =>
+        new Response(JSON.stringify({ profileId: "usr_env", handle: "env" }), {
+          status: 200,
+        }),
+    );
 
     const resolve = await createHandleResolverFromEnv({
       osnApiUrl: "https://osn.example",
@@ -286,7 +293,7 @@ describe("createArcHandleSearchResolver", () => {
   it("signs an ARC token and returns the suggestion list from osn-api", async () => {
     const { privateKey } = await testKeyMaterial();
     let seen: { url: string; auth: string | null } | undefined;
-    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = mockFetch(async (url: string | URL | Request, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       seen = { url: String(url), auth: headers.get("authorization") };
       return new Response(
@@ -298,7 +305,7 @@ describe("createArcHandleSearchResolver", () => {
         }),
         { status: 200 },
       );
-    }) as typeof fetch;
+    });
 
     const resolve = createArcHandleSearchResolver({
       osnApiUrl: "https://osn.example/",
@@ -320,10 +327,10 @@ describe("createArcHandleSearchResolver", () => {
   it("returns an empty list for a blank prefix without calling osn-api", async () => {
     const { privateKey } = await testKeyMaterial();
     let called = false;
-    globalThis.fetch = (async () => {
+    globalThis.fetch = mockFetch(async () => {
       called = true;
       return new Response(JSON.stringify({ profiles: [] }), { status: 200 });
-    }) as typeof fetch;
+    });
 
     const resolve = createArcHandleSearchResolver({
       osnApiUrl: "https://osn.example",
@@ -336,7 +343,7 @@ describe("createArcHandleSearchResolver", () => {
 
   it("FAIL-SOFT: returns an empty list on a non-ok status (osn unavailable)", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+    globalThis.fetch = mockFetch(async () => new Response("boom", { status: 500 }));
 
     const resolve = createArcHandleSearchResolver({
       osnApiUrl: "https://osn.example",
@@ -348,9 +355,9 @@ describe("createArcHandleSearchResolver", () => {
 
   it("FAIL-SOFT: returns an empty list when fetch throws", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () => {
+    globalThis.fetch = mockFetch(async () => {
       throw new Error("network down");
-    }) as typeof fetch;
+    });
 
     const resolve = createArcHandleSearchResolver({
       osnApiUrl: "https://osn.example",
@@ -362,17 +369,19 @@ describe("createArcHandleSearchResolver", () => {
 
   it("skips malformed rows and coerces a non-string displayName to null", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          profiles: [
-            { id: "usr_ok", handle: "ok", displayName: 42 },
-            { id: 99, handle: "bad-id" },
-            { handle: "no-id" },
-          ],
-        }),
-        { status: 200 },
-      )) as typeof fetch;
+    globalThis.fetch = mockFetch(
+      async () =>
+        new Response(
+          JSON.stringify({
+            profiles: [
+              { id: "usr_ok", handle: "ok", displayName: 42 },
+              { id: 99, handle: "bad-id" },
+              { handle: "no-id" },
+            ],
+          }),
+          { status: 200 },
+        ),
+    );
 
     const resolve = createArcHandleSearchResolver({
       osnApiUrl: "https://osn.example",
@@ -397,10 +406,12 @@ describe("createHandleSearchResolverFromEnv", () => {
 
   it("builds a working resolver when all config is present", async () => {
     const { jwk } = await testKeyMaterial();
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ profiles: [{ id: "usr_env", handle: "env" }] }), {
-        status: 200,
-      })) as typeof fetch;
+    globalThis.fetch = mockFetch(
+      async () =>
+        new Response(JSON.stringify({ profiles: [{ id: "usr_env", handle: "env" }] }), {
+          status: 200,
+        }),
+    );
 
     const resolve = await createHandleSearchResolverFromEnv({
       osnApiUrl: "https://osn.example",
@@ -440,7 +451,7 @@ describe("createArcConnectionSearchResolver", () => {
   it("signs an ARC token and returns the viewer's matching connections", async () => {
     const { privateKey } = await testKeyMaterial();
     let seen: { url: string; auth: string | null } | undefined;
-    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = mockFetch(async (url: string | URL | Request, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       seen = { url: String(url), auth: headers.get("authorization") };
       return new Response(
@@ -452,7 +463,7 @@ describe("createArcConnectionSearchResolver", () => {
         }),
         { status: 200 },
       );
-    }) as typeof fetch;
+    });
 
     const resolve = createArcConnectionSearchResolver({
       osnApiUrl: "https://osn.example/",
@@ -476,12 +487,12 @@ describe("createArcConnectionSearchResolver", () => {
   it("DOES call osn-api for a blank query — that is the on-focus case", async () => {
     const { privateKey } = await testKeyMaterial();
     let seenUrl: string | undefined;
-    globalThis.fetch = (async (url: string | URL | Request) => {
+    globalThis.fetch = mockFetch(async (url: string | URL | Request) => {
       seenUrl = String(url);
       return new Response(JSON.stringify({ profiles: [{ id: "usr_bob", handle: "bob" }] }), {
         status: 200,
       });
-    }) as typeof fetch;
+    });
 
     const resolve = createArcConnectionSearchResolver({
       osnApiUrl: "https://osn.example",
@@ -501,10 +512,10 @@ describe("createArcConnectionSearchResolver", () => {
   it("returns an empty list without calling osn-api when the viewer id is blank", async () => {
     const { privateKey } = await testKeyMaterial();
     let called = false;
-    globalThis.fetch = (async () => {
+    globalThis.fetch = mockFetch(async () => {
       called = true;
       return new Response(JSON.stringify({ profiles: [] }), { status: 200 });
-    }) as typeof fetch;
+    });
 
     const resolve = createArcConnectionSearchResolver({
       osnApiUrl: "https://osn.example",
@@ -517,7 +528,7 @@ describe("createArcConnectionSearchResolver", () => {
 
   it("FAIL-SOFT: returns an empty list on a non-ok status (osn unavailable)", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+    globalThis.fetch = mockFetch(async () => new Response("boom", { status: 500 }));
 
     const resolve = createArcConnectionSearchResolver({
       osnApiUrl: "https://osn.example",
@@ -529,9 +540,9 @@ describe("createArcConnectionSearchResolver", () => {
 
   it("FAIL-SOFT: returns an empty list when fetch throws", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () => {
+    globalThis.fetch = mockFetch(async () => {
       throw new Error("network down");
-    }) as typeof fetch;
+    });
 
     const resolve = createArcConnectionSearchResolver({
       osnApiUrl: "https://osn.example",
@@ -543,17 +554,19 @@ describe("createArcConnectionSearchResolver", () => {
 
   it("skips malformed rows and coerces a non-string displayName to null", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          profiles: [
-            { id: "usr_ok", handle: "ok", displayName: 42 },
-            { id: 99, handle: "bad-id" },
-            { handle: "no-id" },
-          ],
-        }),
-        { status: 200 },
-      )) as typeof fetch;
+    globalThis.fetch = mockFetch(
+      async () =>
+        new Response(
+          JSON.stringify({
+            profiles: [
+              { id: "usr_ok", handle: "ok", displayName: 42 },
+              { id: 99, handle: "bad-id" },
+              { handle: "no-id" },
+            ],
+          }),
+          { status: 200 },
+        ),
+    );
 
     const resolve = createArcConnectionSearchResolver({
       osnApiUrl: "https://osn.example",
@@ -583,10 +596,12 @@ describe("createConnectionSearchResolverFromEnv", () => {
 
   it("builds a working resolver when all config is present", async () => {
     const { jwk } = await testKeyMaterial();
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ profiles: [{ id: "usr_env", handle: "env" }] }), {
-        status: 200,
-      })) as typeof fetch;
+    globalThis.fetch = mockFetch(
+      async () =>
+        new Response(JSON.stringify({ profiles: [{ id: "usr_env", handle: "env" }] }), {
+          status: 200,
+        }),
+    );
 
     const resolve = await createConnectionSearchResolverFromEnv({
       osnApiUrl: "https://osn.example",
@@ -627,7 +642,7 @@ describe("createArcProfileOrgsResolver", () => {
   it("signs an ARC token with org:read scope and returns org summaries", async () => {
     const { privateKey } = await testKeyMaterial();
     let seen: { url: string; auth: string | null } | undefined;
-    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = mockFetch(async (url: string | URL | Request, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       seen = { url: String(url), auth: headers.get("authorization") };
       return new Response(
@@ -649,7 +664,7 @@ describe("createArcProfileOrgsResolver", () => {
         }),
         { status: 200 },
       );
-    }) as typeof fetch;
+    });
 
     const resolve = createArcProfileOrgsResolver({
       osnApiUrl: "https://osn.example/",
@@ -687,7 +702,7 @@ describe("createArcProfileOrgsResolver", () => {
 
   it("FAIL-SOFT: returns [] on a non-ok status (osn unavailable)", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+    globalThis.fetch = mockFetch(async () => new Response("boom", { status: 500 }));
 
     const resolve = createArcProfileOrgsResolver({
       osnApiUrl: "https://osn.example",
@@ -699,9 +714,9 @@ describe("createArcProfileOrgsResolver", () => {
 
   it("FAIL-SOFT: returns [] when fetch throws (network down)", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () => {
+    globalThis.fetch = mockFetch(async () => {
       throw new Error("network down");
-    }) as typeof fetch;
+    });
 
     const resolve = createArcProfileOrgsResolver({
       osnApiUrl: "https://osn.example",
@@ -716,11 +731,11 @@ describe("createArcOrgMembershipResolver", () => {
   it("signs an ARC token with org:read scope and returns the role", async () => {
     const { privateKey } = await testKeyMaterial();
     let seen: { url: string; auth: string | null } | undefined;
-    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    globalThis.fetch = mockFetch(async (url: string | URL | Request, init?: RequestInit) => {
       const headers = new Headers(init?.headers);
       seen = { url: String(url), auth: headers.get("authorization") };
       return new Response(JSON.stringify({ role: "admin" }), { status: 200 });
-    }) as typeof fetch;
+    });
 
     const resolve = createArcOrgMembershipResolver({
       osnApiUrl: "https://osn.example/",
@@ -747,8 +762,9 @@ describe("createArcOrgMembershipResolver", () => {
 
   it("returns 'member' when the role is member", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ role: "member" }), { status: 200 })) as typeof fetch;
+    globalThis.fetch = mockFetch(
+      async () => new Response(JSON.stringify({ role: "member" }), { status: 200 }),
+    );
 
     const resolve = createArcOrgMembershipResolver({
       osnApiUrl: "https://osn.example",
@@ -760,7 +776,7 @@ describe("createArcOrgMembershipResolver", () => {
 
   it("FAIL-SOFT: returns null on a non-ok status (osn unavailable)", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+    globalThis.fetch = mockFetch(async () => new Response("boom", { status: 500 }));
 
     const resolve = createArcOrgMembershipResolver({
       osnApiUrl: "https://osn.example",
@@ -772,9 +788,9 @@ describe("createArcOrgMembershipResolver", () => {
 
   it("FAIL-SOFT: returns null when fetch throws (network down)", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () => {
+    globalThis.fetch = mockFetch(async () => {
       throw new Error("network down");
-    }) as typeof fetch;
+    });
 
     const resolve = createArcOrgMembershipResolver({
       osnApiUrl: "https://osn.example",
@@ -786,8 +802,9 @@ describe("createArcOrgMembershipResolver", () => {
 
   it("FAIL-SOFT: returns null when role is an unrecognised value", async () => {
     const { privateKey } = await testKeyMaterial();
-    globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ role: "superadmin" }), { status: 200 })) as typeof fetch;
+    globalThis.fetch = mockFetch(
+      async () => new Response(JSON.stringify({ role: "superadmin" }), { status: 200 }),
+    );
 
     const resolve = createArcOrgMembershipResolver({
       osnApiUrl: "https://osn.example",

@@ -4,8 +4,8 @@ import { BOOTSTRAP_WEDDING_ID, events, families, guests, guestEvents } from "@ci
 import { Cause, Effect, Exit, Layer, Option } from "effect";
 
 import { DbService } from "../db";
-import type { Db } from "../db";
 import { createDb, seedBootstrapWedding } from "../db/setup";
+import type { TestDb } from "../db/setup";
 import type { ParsedEvent, ParsedFamily } from "../schemas/import";
 import { applyImport, diffAgainstDb } from "./import";
 
@@ -22,7 +22,7 @@ import { applyImport, diffAgainstDb } from "./import";
  * That is the bug class pinned here.
  */
 
-function freshDb(): { db: Db; layer: Layer.Layer<DbService> } {
+function freshDb(): { db: TestDb; layer: Layer.Layer<DbService> } {
   const db = createDb(":memory:");
   seedBootstrapWedding(db);
   return { db, layer: Layer.succeed(DbService, db) };
@@ -55,7 +55,7 @@ function guest(firstName: string, lastName: string, id?: string) {
 /** Seed one household straight from a desired state, then read back its rows. */
 async function seedHousehold(
   layer: Layer.Layer<DbService>,
-  db: Db,
+  db: TestDb,
   familyName: string,
   members: { firstName: string; lastName: string }[],
 ) {
@@ -251,7 +251,7 @@ describe("diffAgainstDb — an existing row is claimed by at most one desired ro
 
 describe("diffAgainstDb — events reconcile by the same identity rules", () => {
   /** Seed a wedding with two named events, and hand back their rows. */
-  async function seedEvents(layer: Layer.Layer<DbService>, db: Db, names: string[]) {
+  async function seedEvents(layer: Layer.Layer<DbService>, db: TestDb, names: string[]) {
     const desired: ParsedEvent[] = names.map((name, i) => ({ ...CEREMONY, name, sortOrder: i }));
     await Effect.runPromise(
       Effect.gen(function* () {

@@ -21,7 +21,7 @@ import type {
   OutputFormat,
 } from "../services/invite-image-transform";
 import type { HouseholdRegistryDto, PublicRegistryDto } from "../services/registry";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody } from "../test-helpers";
 
 const SLUG = "cire-wedding";
 const OTHER_WEDDING_ID = "wed_other";
@@ -330,7 +330,7 @@ describe("the guest registry is one 404, whatever the reason", () => {
       const { app } = make();
       const res = await appRequest(app, `${guestBase(slug)}/image/${PAN_IMAGE}`);
       expect(res.status).toBe(404);
-      expect(await res.json()).toEqual({ error: "registry_not_found" });
+      expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
     });
 
     it(`${label} → the same 404 on every session-gated route`, async () => {
@@ -340,16 +340,16 @@ describe("the guest registry is one 404, whatever the reason", () => {
       for (const path of [guestBase(slug), `${guestBase(slug)}/mine`]) {
         const read = await appRequest(app, path, { headers: { Cookie: cookie } });
         expect(read.status).toBe(404);
-        expect(await read.json()).toEqual({ error: "registry_not_found" });
+        expect(await jsonBody(read)).toEqual({ error: "registry_not_found" });
       }
 
       const claimed = await claim(app, cookie, { quantity: 1 }, slug);
       expect(claimed.status).toBe(404);
-      expect(await claimed.json()).toEqual({ error: "registry_not_found" });
+      expect(await jsonBody(claimed)).toEqual({ error: "registry_not_found" });
 
       const released = await release(app, cookie, slug);
       expect(released.status).toBe(404);
-      expect(await released.json()).toEqual({ error: "registry_not_found" });
+      expect(await jsonBody(released)).toEqual({ error: "registry_not_found" });
     });
   }
 
@@ -536,7 +536,7 @@ describe("claim → purchased → release, over HTTP", () => {
     // (item, family) row in two states, so there is no second write path to drift.
     const purchased = await claim(app, cookie, { quantity: 1, status: "purchased" });
     expect(purchased.status).toBe(200);
-    expect(await purchased.json()).toEqual({ ok: true });
+    expect(await jsonBody(purchased)).toEqual({ ok: true });
     const afterPurchase = await mine(app, cookie);
     expect(afterPurchase.claims[0]?.status).toBe("purchased");
     expect(afterPurchase.claims[0]?.displayName).toBeNull(); // omitted ⇒ cleared
@@ -589,7 +589,7 @@ describe("claim → purchased → release, over HTTP", () => {
     // too many, and the caller may not see why (that would name the neighbour).
     const res = await claim(app, cookie, { quantity: 2 });
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "item_fully_claimed" });
+    expect(await jsonBody(res)).toEqual({ error: "item_fully_claimed" });
 
     expect((await claim(app, cookie, { quantity: 1 })).status).toBe(200);
   });
@@ -599,7 +599,7 @@ describe("claim → purchased → release, over HTTP", () => {
     const cookie = await guestCookie(app);
     const res = await claim(app, cookie, { quantity: 1 }, SLUG, "reg_nope");
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "registry_item_not_found" });
+    expect(await jsonBody(res)).toEqual({ error: "registry_item_not_found" });
   });
 });
 
@@ -610,7 +610,7 @@ describe("guest claim request bodies", () => {
     for (const quantity of [0, -1, 100, 1.5, "1"]) {
       const res = await claim(app, cookie, { quantity });
       expect(res.status).toBe(400);
-      expect(await res.json()).toEqual({ error: "Missing or invalid fields" });
+      expect(await jsonBody(res)).toEqual({ error: "Missing or invalid fields" });
     }
   });
 
@@ -653,7 +653,7 @@ describe("a cookie for one wedding buys nothing on another", () => {
     // family is checked BEFORE the item, so a holder of any valid cookie learns
     // neither whether this wedding has a list nor whether the item id they
     // guessed exists on it.
-    expect(await res.json()).toEqual({ error: "registry_not_found" });
+    expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
   });
 
   it("cannot release another wedding's claim", async () => {
@@ -664,7 +664,7 @@ describe("a cookie for one wedding buys nothing on another", () => {
     const foreign = await guestCookie(app, FOREIGN_FAMILY);
     const res = await release(app, foreign);
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "registry_not_found" });
+    expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
     // The local household's claim is untouched.
     expect((await mine(app, local)).claims).toHaveLength(1);
   });
@@ -706,7 +706,7 @@ describe("a cookie for one wedding buys nothing on another", () => {
     const local = await guestCookie(app);
     const res = await claim(app, local, { quantity: 1 }, OTHER_SLUG, OTHER_ITEM);
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "registry_not_found" });
+    expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
   });
 });
 
@@ -739,7 +739,7 @@ describe("GET /api/invite/:slug/registry/image/:name", () => {
     ]) {
       const res = await appRequest(app, `${guestBase()}/image/${name}`);
       expect(res.status).toBe(404);
-      expect(await res.json()).toEqual({ error: "registry_not_found" });
+      expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
     }
     // These collapse in the URL parser before routing, so they match no route
     // at all — still 404, but the framework's, not ours.
@@ -757,7 +757,7 @@ describe("GET /api/invite/:slug/registry/image/:name", () => {
     const { app } = buildApp();
     const res = await appRequest(app, `${guestBase()}/image/registry-missing`);
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "registry_not_found" });
+    expect(await jsonBody(res)).toEqual({ error: "registry_not_found" });
   });
 
   it("ignores the client ?v= for cache keying — looping ?v= re-bills nothing (S-M1)", async () => {

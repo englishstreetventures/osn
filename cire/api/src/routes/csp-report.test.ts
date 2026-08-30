@@ -29,12 +29,14 @@ function post(
     "cf-connecting-ip": opts.ip ?? TEST_CF_IP,
   };
   if (opts.contentLength !== undefined) headers["Content-Length"] = opts.contentLength;
-  return app.fetch(
-    new Request("http://localhost/api/csp-report", {
-      method: "POST",
-      headers,
-      body: opts.body,
-    }),
+  return Promise.resolve(
+    app.fetch(
+      new Request("http://localhost/api/csp-report", {
+        method: "POST",
+        headers,
+        body: opts.body,
+      }),
+    ),
   );
 }
 

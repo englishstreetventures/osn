@@ -48,7 +48,9 @@ describe("organiserSessionService.create", () => {
       Effect.gen(function* () {
         const db = yield* DbService;
         const created = yield* organiserSessionService.create(identity());
-        const rows = db.select().from(organiserSessions).all();
+        const rows = yield* Effect.promise(() =>
+          Promise.resolve(db.select().from(organiserSessions).all()),
+        );
         expect(rows).toHaveLength(1);
         expect(rows[0]!.token).not.toBe(created.token);
         expect(rows[0]!.token).toMatch(/^[0-9a-f]{64}$/);

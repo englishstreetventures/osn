@@ -16,8 +16,8 @@ import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../app";
-import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
+import type { TestDb } from "../db/setup";
 import { appRequest } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
@@ -49,7 +49,7 @@ function buildApp() {
   return { db, app };
 }
 
-function seedOtherWedding(db: Db) {
+function seedOtherWedding(db: TestDb) {
   const now = new Date();
   db.insert(weddings)
     .values({
@@ -390,7 +390,7 @@ describe("GET /api/organiser/weddings/:weddingId/households", () => {
   const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/households`;
 
   /** A household with no guests at all — the row the guest read can't describe. */
-  function seedEmptyHousehold(db: Db) {
+  function seedEmptyHousehold(db: TestDb) {
     db.insert(families)
       .values({
         id: "fam_codeonly",
@@ -562,7 +562,7 @@ describe("POST /api/organiser/weddings/:weddingId/families/:familyId/regenerate-
   }
 
   /** A real family id in the bootstrap wedding (seed mints random UUIDs). */
-  function aBootstrapFamily(db: Db): { id: string; publicId: string } {
+  function aBootstrapFamily(db: TestDb): { id: string; publicId: string } {
     const row = db
       .select({ id: families.id, publicId: families.publicId })
       .from(families)
@@ -727,7 +727,7 @@ describe("POST /api/organiser/weddings/:weddingId/remint (C3)", () => {
     });
   }
 
-  function guestFamilyCodes(db: Db, weddingId: string) {
+  function guestFamilyCodes(db: TestDb, weddingId: string) {
     return db
       .select({ id: families.id, publicId: families.publicId })
       .from(families)
@@ -825,7 +825,7 @@ describe("POST /api/organiser/weddings/:weddingId/remint (C3)", () => {
 });
 
 describe("POST /api/organiser/weddings/:weddingId/families/:familyId/mark-shared", () => {
-  function aBootstrapFamily(db: Db): { id: string } {
+  function aBootstrapFamily(db: TestDb): { id: string } {
     const row = db
       .select({ id: families.id })
       .from(families)
@@ -923,7 +923,7 @@ describe("POST /api/organiser/weddings/:weddingId/families/:familyId/mark-shared
 describe("POST /api/organiser/weddings/:weddingId/families/:familyId/deactivate + reactivate", () => {
   const COHOST = "usr_cohost_deact";
 
-  function aBootstrapFamily(db: Db): { id: string; publicId: string } {
+  function aBootstrapFamily(db: TestDb): { id: string; publicId: string } {
     const row = db
       .select({ id: families.id, publicId: families.publicId })
       .from(families)
@@ -933,7 +933,7 @@ describe("POST /api/organiser/weddings/:weddingId/families/:familyId/deactivate 
     return row;
   }
 
-  function seedCohost(db: Db) {
+  function seedCohost(db: TestDb) {
     db.insert(weddingHosts)
       .values({
         id: "whost_deact",
@@ -1059,7 +1059,7 @@ describe("GET /api/organiser/weddings/:weddingId/rsvps.csv", () => {
   const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/rsvps.csv`;
 
   /** Make `usr_cohost` a co-host of the bootstrap wedding. */
-  function seedCohost(db: Db) {
+  function seedCohost(db: TestDb) {
     db.insert(weddingHosts)
       .values({
         id: "whost_export",
@@ -1073,7 +1073,7 @@ describe("GET /api/organiser/weddings/:weddingId/rsvps.csv", () => {
   }
 
   /** Plant one attending RSVP (with dietary) for some guest so the CSV has content. */
-  function seedOneRsvp(db: Db) {
+  function seedOneRsvp(db: TestDb) {
     const guest = db.select({ id: guests.id }).from(guests).all()[0]!;
     const link = db
       .select({ eventId: guestEvents.eventId })
@@ -1163,7 +1163,7 @@ describe("GET /api/organiser/weddings/:weddingId/guests.csv", () => {
   const COHOST = "usr_cohost_guestscsv";
   const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/guests.csv`;
 
-  function seedCohost(db: Db) {
+  function seedCohost(db: TestDb) {
     db.insert(weddingHosts)
       .values({
         id: "whost_guestscsv",
@@ -1227,7 +1227,7 @@ describe("GET /api/organiser/weddings/:weddingId/events.csv", () => {
   const COHOST = "usr_cohost_eventscsv";
   const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/events.csv`;
 
-  function seedCohost(db: Db) {
+  function seedCohost(db: TestDb) {
     db.insert(weddingHosts)
       .values({
         id: "whost_eventscsv",
@@ -1291,7 +1291,7 @@ describe("GET /api/organiser/weddings/:weddingId/rsvps (read-only JSON view)", (
   const COHOST = "usr_cohost_view";
   const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/rsvps`;
 
-  function seedCohost(db: Db) {
+  function seedCohost(db: TestDb) {
     db.insert(weddingHosts)
       .values({
         id: "whost_view",
@@ -1305,7 +1305,7 @@ describe("GET /api/organiser/weddings/:weddingId/rsvps (read-only JSON view)", (
   }
 
   /** Plant one attending RSVP (with dietary) for some invited guest. */
-  function seedOneRsvp(db: Db) {
+  function seedOneRsvp(db: TestDb) {
     const guest = db.select({ id: guests.id }).from(guests).all()[0]!;
     const link = db
       .select({ eventId: guestEvents.eventId })
@@ -1378,7 +1378,7 @@ describe("GET /api/organiser/weddings/:weddingId/export/{events,guests}.csv", ()
   const eventsPath = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/export/events.csv`;
   const guestsPath = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/export/guests.csv`;
 
-  function seedCohost(db: Db) {
+  function seedCohost(db: TestDb) {
     db.insert(weddingHosts)
       .values({
         id: "whost_stateexport",

@@ -13,7 +13,7 @@ import { makeLogEmailLive } from "@shared/email";
 import { createApp } from "../app";
 import { createDb, seedDb } from "../db/setup";
 import { createDirectoryService } from "../services/directory";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -273,7 +273,7 @@ describe("vendor directory browse route", () => {
     const app = buildApp({ grantVendors: false });
     const res = await req(app, base, OWNER);
     expect(res.status).toBe(402);
-    expect(await res.json()).toEqual({ error: "payment_required", entitlement: "vendors" });
+    expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "vendors" });
   });
 
   it("with the `vendors` entitlement granted, GET /directory passes the gate (not 402)", async () => {
@@ -471,7 +471,7 @@ describe("vendor directory write routes (add-from-directory)", () => {
     const app = buildWriteApp({ grantVendors: false });
     const res = await postAdd(app, LA, { category: "venue" }, EDITOR);
     expect(res.status).toBe(402);
-    expect(await res.json()).toEqual({ error: "payment_required", entitlement: "vendors" });
+    expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "vendors" });
   });
 
   it("a VIEWER still gets 403 (role wins over 402) on the write route", async () => {

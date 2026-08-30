@@ -8,7 +8,7 @@ import type { Db } from "../db";
 import { DbService } from "../db";
 import { createDb } from "../db/setup";
 import { entitlementService } from "../services/entitlements";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody } from "../test-helpers";
 import { weddingEntitlement } from "./wedding-entitlement";
 
 /** A stub Db whose every query throws a transient error — simulates D1 defect. */
@@ -62,14 +62,14 @@ describe("weddingEntitlement", () => {
     );
     const res = await appRequest(app, "/w/wed_x/thing");
     expect(res.status).toBe(402);
-    expect(await res.json()).toEqual({ error: "payment_required", entitlement: "vendors" });
+    expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "vendors" });
   });
 
   it("402 payment_required + entitlement when the wedding lacks the pack", async () => {
     const db = buildDb();
     const res = await appRequest(appFor(db), "/w/wed_x/thing");
     expect(res.status).toBe(402);
-    expect(await res.json()).toEqual({ error: "payment_required", entitlement: "vendors" });
+    expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "vendors" });
   });
 
   it("passes through when the wedding holds the pack", async () => {
@@ -81,6 +81,6 @@ describe("weddingEntitlement", () => {
     );
     const res = await appRequest(appFor(db), "/w/wed_y/thing");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
+    expect(await jsonBody(res)).toEqual({ ok: true });
   });
 });

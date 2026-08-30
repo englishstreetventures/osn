@@ -5,7 +5,7 @@ import { sql } from "drizzle-orm";
 
 import { createApp } from "./app";
 import { createDb } from "./db/setup";
-import { appRequest } from "./test-helpers";
+import { appRequest, jsonBody } from "./test-helpers";
 
 // CORS + not-found behavior only — no DB rows needed.
 const db = createDb(":memory:");
@@ -56,7 +56,7 @@ describe("not-found handler", () => {
   it("returns the JSON 404 contract for unknown paths", async () => {
     const res = await appRequest(app, "/nope");
     expect(res.status).toBe(404);
-    expect(await res.json()).toEqual({ error: "Not found" });
+    expect(await jsonBody(res)).toEqual({ error: "Not found" });
   });
 
   // `GET /api/primary-wedding` was a PUBLIC, unauthenticated read returning the
@@ -84,7 +84,10 @@ async function captureLogs(run: () => unknown | Promise<unknown>): Promise<strin
   const sink = (...args: unknown[]): void => {
     lines.push(args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" "));
   };
-  const c = globalThis.console;
+  // `console` is an ambient `const` in both the Workers and Bun type
+  // declarations, so it never merges into `typeof globalThis`'s properties —
+  // it exists on the real global object at runtime regardless.
+  const c = (globalThis as typeof globalThis & { console: Console }).console;
   const original = { log: c.log, info: c.info, warn: c.warn, error: c.error, debug: c.debug };
   Object.assign(c, { log: sink, info: sink, warn: sink, error: sink, debug: sink });
   try {
@@ -124,7 +127,7 @@ describe("unhandled errors", () => {
       body: JSON.stringify({ publicId: "TESTONE-IVY-AA11" }),
     });
     expect(res.status).toBe(500);
-    expect(await res.json()).toEqual({ error: "Internal error" });
+    expect(await jsonBody(res)).toEqual({ error: "Internal error" });
   });
 
   // OBS-S-L2: the structured error log must carry a NON-SENSITIVE identifier

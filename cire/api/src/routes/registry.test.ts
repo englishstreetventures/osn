@@ -8,7 +8,7 @@ import { createDb, seedDb } from "../db/setup";
 import { createAssetsStub, MAX_IMAGE_BYTES } from "../services/invite-assets";
 import type { LinkPreviewOptions } from "../services/link-preview";
 import type { RegistryItemDto, RegistrySnapshot } from "../services/registry";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -146,7 +146,7 @@ describe("registry ships locked", () => {
     it(`${method} ${path.replace(base, "…")} → 402 payment_required`, async () => {
       const res = await req(buildApp(), method, path, OWNER, body);
       expect(res.status).toBe(402);
-      expect(await res.json()).toEqual({ error: "payment_required", entitlement: "registry" });
+      expect(await jsonBody(res)).toEqual({ error: "payment_required", entitlement: "registry" });
     });
   }
 
@@ -423,7 +423,7 @@ describe("POST /registry/link-preview", () => {
     const app = buildApp({ grantRegistry: true, linkPreview: okOptions() });
     const res = await req(app, "POST", previewPath, EDITOR, { url: "https://shop.example/pan" });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
+    expect(await jsonBody(res)).toEqual({
       title: "Copper saucepan",
       siteName: "Kitchen Co",
       images: ["https://cdn.example/pan.jpg", "https://shop.example/gallery/pan-2.jpg"],
@@ -466,7 +466,7 @@ describe("POST /registry/link-preview", () => {
     });
     const res = await req(app, "POST", previewPath, EDITOR, { url: "https://rebind.example/pan" });
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "blocked_url" });
+    expect(await jsonBody(res)).toEqual({ error: "blocked_url" });
   });
 
   it("502s when the page cannot be fetched", async () => {
@@ -684,7 +684,7 @@ describe("registry image saves", () => {
     });
     expect(res.status).toBe(400);
     // No reason disclosed — that is what keeps this from being a network scanner.
-    expect(await res.json()).toEqual({ error: "blocked_url" });
+    expect(await jsonBody(res)).toEqual({ error: "blocked_url" });
     expect(assets._store.size).toBe(0);
   });
 

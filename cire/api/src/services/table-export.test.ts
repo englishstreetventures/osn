@@ -51,10 +51,12 @@ describe("tableExportService.guestsCsv", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const fam = db
-          .select({ id: families.id, publicId: families.publicId })
-          .from(families)
-          .all()[0]!;
+        const famRows = yield* Effect.promise(() =>
+          Promise.resolve(
+            db.select({ id: families.id, publicId: families.publicId }).from(families).all(),
+          ),
+        );
+        const fam = famRows[0]!;
         const sent = new Date("2026-06-01T00:00:00Z");
         const opened = new Date("2026-06-02T00:00:00Z");
         db.update(families)
@@ -100,7 +102,10 @@ describe("tableExportService.guestsCsv", () => {
           })
           .run();
         // A guest-supplied formula in a name cell must come out defused.
-        const someGuest = db.select({ id: guests.id }).from(guests).all()[0]!;
+        const guestRows = yield* Effect.promise(() =>
+          Promise.resolve(db.select({ id: guests.id }).from(guests).all()),
+        );
+        const someGuest = guestRows[0]!;
         db.update(guests).set({ firstName: "=EVIL()" }).where(eq(guests.id, someGuest.id)).run();
 
         const csv = yield* tableExportService.guestsCsv(BOOTSTRAP_WEDDING_ID);
@@ -217,7 +222,10 @@ describe("tableExportService.eventsCsv", () => {
         expect(endsAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/);
 
         const db = yield* DbService;
-        const catholic = db.select().from(events).where(eq(events.slug, "catholic")).all()[0]!;
+        const catholicRows = yield* Effect.promise(() =>
+          Promise.resolve(db.select().from(events).where(eq(events.slug, "catholic")).all()),
+        );
+        const catholic = catholicRows[0]!;
         // …and the stored value really does carry an offset, so the assertion
         // above is a strip rather than a vacuous check against offset-less data.
         expect(catholic.startAt).toMatch(/[+-]\d{2}:\d{2}$/);
@@ -231,12 +239,16 @@ describe("tableExportService.eventsCsv", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const catholic = db.select().from(events).where(eq(events.slug, "catholic")).all()[0]!;
-        const expected = db
-          .select()
-          .from(guestEvents)
-          .where(eq(guestEvents.eventId, catholic.id))
-          .all().length;
+        const catholicRows = yield* Effect.promise(() =>
+          Promise.resolve(db.select().from(events).where(eq(events.slug, "catholic")).all()),
+        );
+        const catholic = catholicRows[0]!;
+        const expectedRows = yield* Effect.promise(() =>
+          Promise.resolve(
+            db.select().from(guestEvents).where(eq(guestEvents.eventId, catholic.id)).all(),
+          ),
+        );
+        const expected = expectedRows.length;
 
         const csv = yield* tableExportService.eventsCsv(BOOTSTRAP_WEDDING_ID);
         const row = lines(csv).find((r) => r.startsWith("Catholic Ceremony"))!;
@@ -252,11 +264,12 @@ describe("tableExportService.eventsCsv", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const catholic = db
-          .select({ id: events.id })
-          .from(events)
-          .where(eq(events.slug, "catholic"))
-          .all()[0]!;
+        const catholicRows = yield* Effect.promise(() =>
+          Promise.resolve(
+            db.select({ id: events.id }).from(events).where(eq(events.slug, "catholic")).all(),
+          ),
+        );
+        const catholic = catholicRows[0]!;
         db.update(events)
           .set({ pinterestUrl: "javascript:alert(1)" })
           .where(eq(events.id, catholic.id))

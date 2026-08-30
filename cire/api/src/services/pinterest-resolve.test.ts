@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
+import { mockFetch } from "../test-helpers";
 import { canonicalizePinterestBoardUrl, isPinItHost, resolvePinUrl } from "./pinterest-resolve";
 
 describe("canonicalizePinterestBoardUrl", () => {
@@ -207,8 +208,7 @@ describe("resolvePinUrl", () => {
   });
 
   it("does not fetch a plain-http pin.it input (https-only allowlist)", async () => {
-    const fetchImpl = (() =>
-      Promise.reject(new Error("should not fetch http")) as unknown) as typeof fetch;
+    const fetchImpl = mockFetch(() => Promise.reject(new Error("should not fetch http")));
     expect(await resolvePinUrl("http://pin.it/abc", { fetchImpl })).toBe("http://pin.it/abc");
   });
 

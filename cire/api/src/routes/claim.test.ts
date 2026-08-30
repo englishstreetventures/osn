@@ -24,12 +24,17 @@ interface FamilyMember {
   eventIds: string[];
 }
 
+interface ClaimEvent {
+  id: string;
+  name: string;
+}
+
 interface ClaimOk {
   familyId: string;
   publicId: string;
   familyName: string;
   members: FamilyMember[];
-  events: unknown[];
+  events: ClaimEvent[];
   rsvps: unknown[];
   rsvpDeadline: unknown;
   closing: { message: string | null };
@@ -49,16 +54,18 @@ beforeAll(() => {
 // rate-limited route needs one in tests.
 const post = (body: unknown) =>
   Effect.promise(() =>
-    app.fetch(
-      new Request("http://localhost/api/claim", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "cf-connecting-ip": "203.0.113.7",
-          Origin: "http://localhost:4321",
-        },
-        body: JSON.stringify(body),
-      }),
+    Promise.resolve(
+      app.fetch(
+        new Request("http://localhost/api/claim", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "cf-connecting-ip": "203.0.113.7",
+            Origin: "http://localhost:4321",
+          },
+          body: JSON.stringify(body),
+        }),
+      ),
     ),
   );
 
@@ -144,16 +151,18 @@ describe("POST /api/claim", () => {
     eff(
       Effect.gen(function* () {
         const res = yield* Effect.promise(() =>
-          app.fetch(
-            new Request("http://localhost/api/claim", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "cf-connecting-ip": "203.0.113.7",
-                Origin: "http://localhost:4321",
-              },
-              body: "{not-json",
-            }),
+          Promise.resolve(
+            app.fetch(
+              new Request("http://localhost/api/claim", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "cf-connecting-ip": "203.0.113.7",
+                  Origin: "http://localhost:4321",
+                },
+                body: "{not-json",
+              }),
+            ),
           ),
         );
         expect(res.status).toBe(400);
@@ -402,7 +411,6 @@ describe("GET /api/claim/session", () => {
         status: "attending",
         dietary: "no shellfish",
         createdAt: new Date(),
-        updatedAt: new Date(),
       })
       .onConflictDoNothing()
       .run();

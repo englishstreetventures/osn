@@ -23,7 +23,7 @@ import type {
   ImageTransformHandle,
   OutputFormat,
 } from "../services/invite-image-transform";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -297,7 +297,6 @@ describe("PUT /invite/text (organiser)", () => {
         registryHeading: "Our Registry",
         registryBody: "Your presence is the present.",
         registryTone: "card",
-        createdAt: new Date(),
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
@@ -608,7 +607,7 @@ describe("co-host invite access (weddingMember)", () => {
       }),
     });
     expect(write.status).toBe(403);
-    expect(await write.json()).toEqual({ error: "read_only_role" });
+    expect(await jsonBody(write)).toEqual({ error: "read_only_role" });
 
     const image = await appRequest(app, `${orgBase.replace("/invite", "")}/invite/image/hero`, {
       method: "POST",

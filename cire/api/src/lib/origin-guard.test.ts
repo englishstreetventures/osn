@@ -4,6 +4,7 @@ import { createRateLimiter } from "@shared/rate-limit";
 
 import { createApp } from "../app";
 import { createDb, seedDb } from "../db/setup";
+import { jsonBody } from "../test-helpers";
 
 // A real app with a configured allowlist so the guard is active. The bootstrap
 // seed gives us a valid claim code (TESTONE-IVY-AA11) to exercise /api/rsvp's
@@ -34,13 +35,13 @@ describe("origin guard (C5 / S-L3)", () => {
   it("403s a state-changing POST with a missing Origin", async () => {
     const res = await send("/api/claim", "POST", null);
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "forbidden", message: "Missing Origin header" });
+    expect(await jsonBody(res)).toEqual({ error: "forbidden", message: "Missing Origin header" });
   });
 
   it("403s a state-changing POST with a mismatched Origin", async () => {
     const res = await send("/api/claim", "POST", "http://evil.example");
     expect(res.status).toBe(403);
-    expect(await res.json()).toEqual({ error: "forbidden", message: "Origin not allowed" });
+    expect(await jsonBody(res)).toEqual({ error: "forbidden", message: "Origin not allowed" });
   });
 
   it("lets a state-changing POST with an allowlisted Origin through to the handler", async () => {

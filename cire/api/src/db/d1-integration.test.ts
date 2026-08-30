@@ -198,6 +198,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           eventId: EVENT_A,
           status: "attending",
           dietary: "none",
+          dietaryConsent: false,
         }),
       );
       let rows = await run(rsvpService.getRsvpsForFamily(FAMILY_ID));
@@ -211,6 +212,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           eventId: EVENT_A,
           status: "declined",
           dietary: "veg",
+          dietaryConsent: false,
         }),
       );
       rows = await run(rsvpService.getRsvpsForFamily(FAMILY_ID));
@@ -256,6 +258,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
             familyId: newFamilyId,
             firstName: "Carol",
             lastName: "New",
+            nickname: null,
             sortOrder: 0,
           },
         ],

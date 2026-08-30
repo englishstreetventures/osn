@@ -437,7 +437,7 @@ CREATE INDEX IF NOT EXISTS registry_contributions_wedding_created_idx ON registr
 CREATE INDEX IF NOT EXISTS registry_contributions_item_idx ON registry_contributions(item_id);
 `;
 
-export function createDb(path: string = ":memory:"): Db {
+export function createDb(path: string = ":memory:") {
   const sqlite = new Database(path);
   // bun:sqlite does not enforce foreign keys by default — without this the
   // REFERENCES clauses above are inert and tests would pass on FK-violating
@@ -446,6 +446,12 @@ export function createDb(path: string = ":memory:"): Db {
   sqlite.exec(DDL);
   return drizzle(sqlite, { schema });
 }
+
+// The precise sync-only shape createDb() returns — narrower than the
+// production Db union (which must also cover D1's async driver). Test-local
+// helpers that only ever see a createDb() handle should take this, not Db,
+// so .all()/.get() keep their sync return types inside the helper body.
+export type TestDb = ReturnType<typeof createDb>;
 
 // Sample wedding for local dev + the test suite — every seeded family/event is
 // scoped to it. Owned by the fixed dev id (DEV_OWNER_PROFILE_ID); exported so

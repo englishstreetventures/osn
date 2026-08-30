@@ -7,7 +7,7 @@ import { createRateLimiter } from "@shared/rate-limit";
 import { createApp } from "../app";
 import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
-import { appRequest } from "../test-helpers";
+import { appRequest, jsonBody } from "../test-helpers";
 import {
   TEST_ISSUER,
   TEST_PROFILE_ID,
@@ -48,7 +48,7 @@ const mkApp = (db: Db, opts: Parameters<typeof createApp>[1] = {}) =>
 
 /** Reads one named cookie out of a response's repeated `Set-Cookie` headers. */
 const setCookie = (res: Response, name: string): string | undefined =>
-  res.headers.getSetCookie().find((c) => c.startsWith(`${name}=`));
+  res.headers.getAll("set-cookie").find((c: string) => c.startsWith(`${name}=`));
 
 const cookieValue = (header: string): string => header.split(";")[0]!.split("=")[1]!;
 
@@ -101,7 +101,7 @@ describe("GET /api/auth/oidc/start", () => {
     const app = mkApp(freshDb(), { oidc: issuer.config() });
     const res = await appRequest(app, "/api/auth/oidc/start?return_to=https://evil.test/steal");
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "invalid_return_to" });
+    expect(await jsonBody(res)).toEqual({ error: "invalid_return_to" });
     expect(res.headers.get("location")).toBeNull();
   });
 
@@ -292,7 +292,7 @@ describe("GET /api/auth/session", () => {
     const app = mkApp(freshDb(), { oidc: issuer.config() });
     const res = await appRequest(app, "/api/auth/session");
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ signedIn: false });
+    expect(await jsonBody(res)).toEqual({ signedIn: false });
   });
 
   it("reports signed out for a token that was never issued", async () => {
@@ -301,7 +301,7 @@ describe("GET /api/auth/session", () => {
       headers: { cookie: `${ORGANISER_COOKIE_NAME}=nosuchtoken` },
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ signedIn: false });
+    expect(await jsonBody(res)).toEqual({ signedIn: false });
   });
 
   it("returns the profile snapshot for a live session", async () => {
@@ -329,7 +329,7 @@ describe("GET /api/auth/session", () => {
     const res = await appRequest(app, "/api/auth/session", {
       headers: { cookie: `${GUEST_COOKIE_NAME}=somethingelse` },
     });
-    expect(await res.json()).toEqual({ signedIn: false });
+    expect(await jsonBody(res)).toEqual({ signedIn: false });
   });
 });
 
@@ -350,14 +350,14 @@ describe("POST /api/auth/signout", () => {
     const after = await appRequest(app, "/api/auth/session", {
       headers: { cookie: `${ORGANISER_COOKIE_NAME}=${token}` },
     });
-    expect(await after.json()).toEqual({ signedIn: false });
+    expect(await jsonBody(after)).toEqual({ signedIn: false });
   });
 
   it("answers 200 with no cookie — signing out is idempotent", async () => {
     const app = mkApp(freshDb(), { oidc: issuer.config() });
     const res = await appRequest(app, "/api/auth/signout", { method: "POST" });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
+    expect(await jsonBody(res)).toEqual({ ok: true });
     expect(setCookie(res, ORGANISER_COOKIE_NAME)).toContain("Max-Age=0");
   });
 
@@ -394,7 +394,7 @@ describe("POST /api/auth/signout", () => {
       const res = await appRequest(app, "/api/auth/session", {
         headers: { cookie: `${ORGANISER_COOKIE_NAME}=${token}` },
       });
-      expect(await res.json()).toEqual({ signedIn: false });
+      expect(await jsonBody(res)).toEqual({ signedIn: false });
     }
   });
 

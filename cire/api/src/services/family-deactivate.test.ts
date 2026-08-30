@@ -15,14 +15,21 @@ import { familyDeactivateService } from "./family-deactivate";
 const withDb = effWith(TestDbLayer);
 
 /** A real guest family id + code in the seeded bootstrap wedding. */
-function aFamily(db: Db): { id: string; publicId: string } {
-  const row = db
-    .select({ id: families.id, publicId: families.publicId })
-    .from(families)
-    .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
-    .all()[0];
-  if (!row) throw new Error("no bootstrap family seeded");
-  return row;
+function aFamily(db: Db): Effect.Effect<{ id: string; publicId: string }> {
+  return Effect.gen(function* () {
+    const rows = yield* Effect.promise(() =>
+      Promise.resolve(
+        db
+          .select({ id: families.id, publicId: families.publicId })
+          .from(families)
+          .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+          .all(),
+      ),
+    );
+    const row = rows[0];
+    if (!row) throw new Error("no bootstrap family seeded");
+    return row;
+  });
 }
 
 describe("familyDeactivateService.setDeactivated", () => {
@@ -31,7 +38,7 @@ describe("familyDeactivateService.setDeactivated", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const fam = aFamily(db);
+        const fam = yield* aFamily(db);
 
         const off = yield* familyDeactivateService.setDeactivated(
           BOOTSTRAP_WEDDING_ID,
@@ -40,11 +47,15 @@ describe("familyDeactivateService.setDeactivated", () => {
         );
         expect(off.familyId).toBe(fam.id);
         expect(off.deactivatedAt).toBeGreaterThan(0);
-        const [afterOff] = db
-          .select({ deactivatedAt: families.deactivatedAt })
-          .from(families)
-          .where(eq(families.id, fam.id))
-          .all();
+        const [afterOff] = yield* Effect.promise(() =>
+          Promise.resolve(
+            db
+              .select({ deactivatedAt: families.deactivatedAt })
+              .from(families)
+              .where(eq(families.id, fam.id))
+              .all(),
+          ),
+        );
         expect(afterOff!.deactivatedAt).not.toBeNull();
 
         const on = yield* familyDeactivateService.setDeactivated(
@@ -53,11 +64,15 @@ describe("familyDeactivateService.setDeactivated", () => {
           false,
         );
         expect(on.deactivatedAt).toBeNull();
-        const [afterOn] = db
-          .select({ deactivatedAt: families.deactivatedAt })
-          .from(families)
-          .where(eq(families.id, fam.id))
-          .all();
+        const [afterOn] = yield* Effect.promise(() =>
+          Promise.resolve(
+            db
+              .select({ deactivatedAt: families.deactivatedAt })
+              .from(families)
+              .where(eq(families.id, fam.id))
+              .all(),
+          ),
+        );
         expect(afterOn!.deactivatedAt).toBeNull();
       }),
     ),
@@ -68,7 +83,7 @@ describe("familyDeactivateService.setDeactivated", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const fam = aFamily(db);
+        const fam = yield* aFamily(db);
         const now = new Date();
         db.insert(sessions)
           .values({
@@ -96,7 +111,7 @@ describe("familyDeactivateService.setDeactivated", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const fam = aFamily(db);
+        const fam = yield* aFamily(db);
         // The family exists, but not under this (different) wedding id — the
         // scope check finds no row and rejects.
         const error = yield* Effect.flip(
@@ -143,11 +158,15 @@ describe("claimService.lookup rejects a deactivated family like an unknown code"
         expect(before.publicId).toBe("TESTONE-IVY-AA11");
 
         const db = yield* DbService;
-        const [fam] = db
-          .select({ id: families.id })
-          .from(families)
-          .where(eq(families.publicId, "TESTONE-IVY-AA11"))
-          .all();
+        const [fam] = yield* Effect.promise(() =>
+          Promise.resolve(
+            db
+              .select({ id: families.id })
+              .from(families)
+              .where(eq(families.publicId, "TESTONE-IVY-AA11"))
+              .all(),
+          ),
+        );
 
         yield* familyDeactivateService.setDeactivated(BOOTSTRAP_WEDDING_ID, fam!.id, true);
 
@@ -172,7 +191,12 @@ describe("schema lockstep", () => {
   it("createDb applies the deactivated_at column", () => {
     const db = createDb(":memory:");
     seedDb(db);
-    const fam = aFamily(db);
+    const fam = db
+      .select({ id: families.id, publicId: families.publicId })
+      .from(families)
+      .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+      .all()[0];
+    if (!fam) throw new Error("no bootstrap family seeded");
     const [row] = db
       .select({ deactivatedAt: families.deactivatedAt })
       .from(families)

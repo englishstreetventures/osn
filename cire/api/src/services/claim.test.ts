@@ -13,14 +13,21 @@ import { effWith } from "../test-helpers";
 import { claimService, InvalidCredentials } from "./claim";
 
 /** Read a family's `first_opened_at` (epoch-ms or null) by public id. */
-function firstOpenedAt(db: Db, publicId: string): number | null {
-  const row = db
-    .select({ firstOpenedAt: families.firstOpenedAt })
-    .from(families)
-    .where(eq(families.publicId, publicId))
-    .all()[0];
-  if (!row) throw new Error(`no family ${publicId}`);
-  return row.firstOpenedAt === null ? null : row.firstOpenedAt.getTime();
+function firstOpenedAt(db: Db, publicId: string): Effect.Effect<number | null> {
+  return Effect.gen(function* () {
+    const rows = yield* Effect.promise(() =>
+      Promise.resolve(
+        db
+          .select({ firstOpenedAt: families.firstOpenedAt })
+          .from(families)
+          .where(eq(families.publicId, publicId))
+          .all(),
+      ),
+    );
+    const row = rows[0];
+    if (!row) throw new Error(`no family ${publicId}`);
+    return row.firstOpenedAt === null ? null : row.firstOpenedAt.getTime();
+  });
 }
 
 const withDb = effWith(TestDbLayer);
@@ -278,11 +285,11 @@ describe("claimService.lookup — first-open recording", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        expect(firstOpenedAt(db, "TESTONE-IVY-AA11")).toBeNull();
+        expect(yield* firstOpenedAt(db, "TESTONE-IVY-AA11")).toBeNull();
 
         yield* claimService.lookup("TESTONE-IVY-AA11");
 
-        const opened = firstOpenedAt(db, "TESTONE-IVY-AA11");
+        const opened = yield* firstOpenedAt(db, "TESTONE-IVY-AA11");
         expect(opened).not.toBeNull();
         expect(opened).toBeGreaterThan(0);
       }),
@@ -295,12 +302,12 @@ describe("claimService.lookup — first-open recording", () => {
       Effect.gen(function* () {
         const db = yield* DbService;
         yield* claimService.lookup("TESTONE-IVY-AA11");
-        const first = firstOpenedAt(db, "TESTONE-IVY-AA11");
+        const first = yield* firstOpenedAt(db, "TESTONE-IVY-AA11");
         expect(first).not.toBeNull();
 
         // Re-claim (e.g. a guest re-opening the link / a page reload).
         yield* claimService.lookup("TESTONE-IVY-AA11");
-        const second = firstOpenedAt(db, "TESTONE-IVY-AA11");
+        const second = yield* firstOpenedAt(db, "TESTONE-IVY-AA11");
         // Unchanged: reflects first contact, not the latest open.
         expect(second).toBe(first);
       }),
@@ -329,7 +336,7 @@ describe("claimService.lookup — first-open recording", () => {
         const result = yield* claimService.lookup("HOST-PREVIEWCODE0000");
         // The organiser's own preview — never counts as a guest opening.
         expect(result.preview).toBe(true);
-        expect(firstOpenedAt(db, "HOST-PREVIEWCODE0000")).toBeNull();
+        expect(yield* firstOpenedAt(db, "HOST-PREVIEWCODE0000")).toBeNull();
       }),
     ),
   );
@@ -435,14 +442,21 @@ describe("claimService.lookup — first-open recording", () => {
 
 describe("claimService.restore", () => {
   /** The family id behind a public claim code, for calling `restore` directly. */
-  function familyIdFor(db: Db, publicId: string): string {
-    const row = db
-      .select({ id: families.id })
-      .from(families)
-      .where(eq(families.publicId, publicId))
-      .all()[0];
-    if (!row) throw new Error(`no family ${publicId}`);
-    return row.id;
+  function familyIdFor(db: Db, publicId: string): Effect.Effect<string> {
+    return Effect.gen(function* () {
+      const rows = yield* Effect.promise(() =>
+        Promise.resolve(
+          db
+            .select({ id: families.id })
+            .from(families)
+            .where(eq(families.publicId, publicId))
+            .all(),
+        ),
+      );
+      const row = rows[0];
+      if (!row) throw new Error(`no family ${publicId}`);
+      return row.id;
+    });
   }
 
   it(
@@ -451,7 +465,7 @@ describe("claimService.restore", () => {
       Effect.gen(function* () {
         const db = yield* DbService;
         const claimed = yield* claimService.lookup("TESTONE-IVY-AA11");
-        const restored = yield* claimService.restore(familyIdFor(db, "TESTONE-IVY-AA11"));
+        const restored = yield* claimService.restore(yield* familyIdFor(db, "TESTONE-IVY-AA11"));
         // Whole-object, not field-by-field: `buildClaimResponse` exists precisely
         // so the two entry points cannot serve different views of one household,
         // and a whole-object compare pins every field ClaimResponse ever gains.
@@ -465,15 +479,15 @@ describe("claimService.restore", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        expect(firstOpenedAt(db, "TESTONE-IVY-AA11")).toBeNull();
+        expect(yield* firstOpenedAt(db, "TESTONE-IVY-AA11")).toBeNull();
 
-        yield* claimService.restore(familyIdFor(db, "TESTONE-IVY-AA11"));
+        yield* claimService.restore(yield* familyIdFor(db, "TESTONE-IVY-AA11"));
 
         // Still null. This is the invariant the shared `buildClaimResponse`
         // creates room to break: moving the first-open write into the builder
         // would compile, keep every other test green, and start stamping
         // `first_opened_at` (and inflating `invite_opened`) on every page load.
-        expect(firstOpenedAt(db, "TESTONE-IVY-AA11")).toBeNull();
+        expect(yield* firstOpenedAt(db, "TESTONE-IVY-AA11")).toBeNull();
       }),
     ),
   );
@@ -484,12 +498,12 @@ describe("claimService.restore", () => {
       Effect.gen(function* () {
         const db = yield* DbService;
         yield* claimService.lookup("TESTONE-IVY-AA11");
-        const first = firstOpenedAt(db, "TESTONE-IVY-AA11");
+        const first = yield* firstOpenedAt(db, "TESTONE-IVY-AA11");
         expect(first).not.toBeNull();
 
-        yield* claimService.restore(familyIdFor(db, "TESTONE-IVY-AA11"));
+        yield* claimService.restore(yield* familyIdFor(db, "TESTONE-IVY-AA11"));
 
-        expect(firstOpenedAt(db, "TESTONE-IVY-AA11")).toBe(first);
+        expect(yield* firstOpenedAt(db, "TESTONE-IVY-AA11")).toBe(first);
       }),
     ),
   );
@@ -542,7 +556,7 @@ describe("claimService.restore", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const id = familyIdFor(db, "TESTFOR-JOY-DD44");
+        const id = yield* familyIdFor(db, "TESTFOR-JOY-DD44");
         db.update(families).set({ deactivatedAt: new Date() }).where(eq(families.id, id)).run();
 
         const err = yield* Effect.flip(claimService.restore(id));

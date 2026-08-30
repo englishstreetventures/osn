@@ -4,7 +4,7 @@ import { BOOTSTRAP_WEDDING_ID, events, families, guestEvents, guests, weddings }
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
-import { DbService } from "../db";
+import { DbService, dbQuery } from "../db";
 import { TestDbLayer } from "../db/test-layer";
 import type { ParsedFamily } from "../schemas/import";
 import { effWith } from "../test-helpers";
@@ -37,12 +37,13 @@ describe("stateExportService.eventsCsv", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const seeded = db
-          .select({ name: events.name, sortOrder: events.sortOrder })
-          .from(events)
-          .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
-          .all()
-          .toSorted((a, b) => a.sortOrder - b.sortOrder);
+        const seeded = (yield* dbQuery(() =>
+          db
+            .select({ name: events.name, sortOrder: events.sortOrder })
+            .from(events)
+            .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
+            .all(),
+        )).toSorted((a, b) => a.sortOrder - b.sortOrder);
 
         const csv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID);
         const rows = lines(csv).slice(1);
@@ -65,11 +66,13 @@ describe("stateExportService.eventsCsv", () => {
         const csv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID, "full");
         expect(lines(csv)[0]!.endsWith(",Event ID")).toBe(true);
         const db = yield* DbService;
-        const [anyEvent] = db
-          .select({ id: events.id })
-          .from(events)
-          .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
-          .all();
+        const [anyEvent] = yield* dbQuery(() =>
+          db
+            .select({ id: events.id })
+            .from(events)
+            .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
+            .all(),
+        );
         expect(csv).toContain(anyEvent!.id);
       }),
     ),
@@ -90,11 +93,13 @@ describe("stateExportService.eventsCsv", () => {
         expect(csv).not.toMatch(/T\d{2}:\d{2}(:\d{2})?(Z|[+-]\d{2}:\d{2})/);
 
         const db = yield* DbService;
-        const stored = db
-          .select({ startAt: events.startAt })
-          .from(events)
-          .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
-          .all();
+        const stored = yield* dbQuery(() =>
+          db
+            .select({ startAt: events.startAt })
+            .from(events)
+            .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
+            .all(),
+        );
         // …and the stored values really do carry one, so this is a strip rather
         // than a vacuous assertion about data that never had an offset.
         expect(stored.some((e) => /[+-]\d{2}:\d{2}$/.test(e.startAt))).toBe(true);
@@ -118,11 +123,13 @@ describe("stateExportService.guestsCsv", () => {
         // Standard fidelity: neutral grouping keys, NO claim codes, no UUIDs.
         expect(lines(csv)[1]!.startsWith("fam-001,")).toBe(true);
         const db = yield* DbService;
-        const codes = db
-          .select({ publicId: families.publicId })
-          .from(families)
-          .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
-          .all();
+        const codes = yield* dbQuery(() =>
+          db
+            .select({ publicId: families.publicId })
+            .from(families)
+            .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+            .all(),
+        );
         for (const c of codes) expect(csv).not.toContain(c.publicId);
       }),
     ),
@@ -135,11 +142,13 @@ describe("stateExportService.guestsCsv", () => {
         const csv = yield* stateExportService.guestsCsv(BOOTSTRAP_WEDDING_ID, "full");
         expect(lines(csv)[0]!.endsWith(",Family Code,Guest ID")).toBe(true);
         const db = yield* DbService;
-        const fams = db
-          .select({ id: families.id, publicId: families.publicId })
-          .from(families)
-          .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
-          .all();
+        const fams = yield* dbQuery(() =>
+          db
+            .select({ id: families.id, publicId: families.publicId })
+            .from(families)
+            .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+            .all(),
+        );
         for (const f of fams) {
           expect(csv).toContain(f.id);
           expect(csv).toContain(f.publicId);
@@ -217,14 +226,16 @@ describe("round trip: export → parse → diff is a fixpoint", () => {
 
         const db = yield* DbService;
         for (const eu of plan.eventUpdates) {
-          const [row] = db.select().from(events).where(eq(events.id, eu.id)).all();
+          const [row] = yield* dbQuery(() =>
+            db.select().from(events).where(eq(events.id, eu.id)).all(),
+          );
           expect(eu.event.name).toBe(row!.name);
           expect(eu.event.startAt).toBe(row!.startAt);
           expect(eu.event.endAt).toBe(row!.endAt);
           expect(eu.event.timezone).toBe(row!.timezone);
           expect(eu.event.address ?? null).toBe(row!.address);
           expect(eu.event.dressCodeDescription ?? null).toBe(row!.dressCodeDescription);
-          expect(JSON.stringify(eu.event.dressCodePalette)).toBe(row!.dressCodePalette);
+          expect(JSON.stringify(eu.event.dressCodePalette)).toBe(row!.dressCodePalette!);
           expect(eu.event.sortOrder).toBe(row!.sortOrder);
         }
       }),
@@ -274,12 +285,14 @@ describe("round trip: hostile + sparse inputs (T-S1/T-S2)", () => {
           .run();
         // Invite an existing guest to both colliding events — the links are
         // exactly what T-S1's silent-drop bug would lose.
-        const [someGuest] = db
-          .select({ id: guests.id })
-          .from(guests)
-          .innerJoin(families, eq(guests.familyId, families.id))
-          .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
-          .all();
+        const [someGuest] = yield* dbQuery(() =>
+          db
+            .select({ id: guests.id })
+            .from(guests)
+            .innerJoin(families, eq(guests.familyId, families.id))
+            .where(eq(families.weddingId, BOOTSTRAP_WEDDING_ID))
+            .all(),
+        );
         db.insert(guestEvents).values({ guestId: someGuest!.id, eventId: "evt_guest_id" }).run();
         db.insert(guestEvents).values({ guestId: someGuest!.id, eventId: "evt_family_code" }).run();
         // T-S2: a non-null nickname must round-trip too.
@@ -320,11 +333,13 @@ describe("defensive normalisation (T-S3)", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        const [anyEvent] = db
-          .select({ id: events.id })
-          .from(events)
-          .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
-          .all();
+        const [anyEvent] = yield* dbQuery(() =>
+          db
+            .select({ id: events.id })
+            .from(events)
+            .where(eq(events.weddingId, BOOTSTRAP_WEDDING_ID))
+            .all(),
+        );
         // Hostile values a future writer (the E5 editor) could store — the
         // import parser could never have produced these.
         db.update(events)
@@ -337,7 +352,9 @@ describe("defensive normalisation (T-S3)", () => {
 
         const csv = yield* stateExportService.eventsCsv(BOOTSTRAP_WEDDING_ID);
         const parsed = yield* parseEventsCsv(csv);
-        const row = db.select().from(events).where(eq(events.id, anyEvent!.id)).all()[0]!;
+        const row = (yield* dbQuery(() =>
+          db.select().from(events).where(eq(events.id, anyEvent!.id)).all(),
+        ))[0]!;
         const reParsed = parsed.find((e) => e.name === row.name)!;
         // Still ONE swatch (delimiters stripped, not split into extra swatches)
         // with the colour intact, and the unsafe URL exported as blank.

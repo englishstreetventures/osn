@@ -5,10 +5,11 @@ import { createStaticFlags } from "@shared/feature-flags";
 import { createRateLimiter } from "@shared/rate-limit";
 
 import { createApp } from "../app";
-import type { Db } from "../db";
 import { createDb, seedDb } from "../db/setup";
+import type { TestDb } from "../db/setup";
 import { parseSessionToken } from "../lib/cookie";
 import type { OsnAccountResolver } from "../services/osn-bridge";
+import { jsonBody } from "../test-helpers";
 import { makeOsnTestAuth } from "../test-helpers/osn-token";
 import type { OsnTestAuth } from "../test-helpers/osn-token";
 
@@ -44,7 +45,7 @@ function buildApp(resolver: OsnAccountResolver | "disabled" = okResolver, linkin
   return { db, app };
 }
 
-function guestIdByName(db: Db, firstName: string): string {
+function guestIdByName(db: TestDb, firstName: string): string {
   const row = db
     .select({ id: guests.id, firstName: guests.firstName })
     .from(guests)
@@ -89,12 +90,14 @@ function postLink(
   };
   if (opts.cookie) headers["Cookie"] = opts.cookie;
   if (opts.bearer) headers["Authorization"] = `Bearer ${opts.bearer}`;
-  return app.fetch(
-    new Request("http://localhost/api/account/link", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ guestId: opts.guestId }),
-    }),
+  return Promise.resolve(
+    app.fetch(
+      new Request("http://localhost/api/account/link", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ guestId: opts.guestId }),
+      }),
+    ),
   );
 }
 
@@ -118,7 +121,7 @@ describe("POST /api/account/link", () => {
 
     const res = await postLink(app, { cookie, bearer, guestId });
     expect(res.status).toBe(201);
-    expect(await res.json()).toEqual({ linked: true, guestId });
+    expect(await jsonBody(res)).toEqual({ linked: true, guestId });
 
     const rows = db.select().from(guestAccountLinks).all();
     expect(rows).toHaveLength(1);
@@ -204,7 +207,7 @@ describe("POST /api/account/link", () => {
     // C6: the link rotated the session — reuse the fresh cookie for the retry.
     const res = await postLink(app, { cookie: rotatedCookie(first, cookie), bearer, guestId });
     expect(res.status).toBe(409);
-    expect(await res.json()).toEqual({ error: "already_linked" });
+    expect(await jsonBody(res)).toEqual({ error: "already_linked" });
   });
 
   // AL-S-L2: the "same account, different seat" conflict must be
@@ -226,7 +229,7 @@ describe("POST /api/account/link", () => {
     });
     expect(res.status).toBe(409);
     // Same opaque body as the guest-already-linked 409 — no `account_already_in_family`.
-    expect(await res.json()).toEqual({ error: "already_linked" });
+    expect(await jsonBody(res)).toEqual({ error: "already_linked" });
   });
 
   it("returns 404 when OSN reports the profile does not exist", async () => {
@@ -310,7 +313,7 @@ describe("DELETE /api/account/link/:guestId", () => {
 
     const res1 = await del();
     expect(res1.status).toBe(200);
-    expect(await res1.json()).toEqual({ linked: false, guestId });
+    expect(await jsonBody(res1)).toEqual({ linked: false, guestId });
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(0);
 
     // Second delete still succeeds (idempotent).
