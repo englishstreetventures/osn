@@ -1,5 +1,14 @@
 # @osn/pulse
 
+## 0.22.27
+
+### Patch Changes
+
+- Updated dependencies [70ac0f3]
+  - @osn/ui@1.10.2
+  - @shared/rp-auth@0.2.2
+  - @shared/toast@0.1.1
+
 ## 0.22.26
 
 ### Patch Changes

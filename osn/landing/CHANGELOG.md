@@ -1,5 +1,11 @@
 # @osn/landing
 
+## 0.1.7
+
+### Patch Changes
+
+- 70ac0f3: Drop the unused `@testing-library/jest-dom` devDependency from every package that declared it but imports no matcher, now that `vite-plugin-solid` no longer injects its setup file. Guard the suppression markers in CI, and list the marker file under turbo's `globalDependencies` so an edit to it can no longer be served from cache.
+
 ## 0.1.6
 
 ### Patch Changes
