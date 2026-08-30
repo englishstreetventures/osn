@@ -20,6 +20,8 @@ export {
   type HttpInFlightAttrs,
 } from "./http";
 
+export { RESULT_VALUES } from "./attrs";
+
 export {
   type Result,
   type AuthMethod,

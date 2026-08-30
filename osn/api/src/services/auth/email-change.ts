@@ -29,6 +29,16 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
   const EMAIL_CHANGE_LIMIT = 2;
   const EMAIL_CHANGE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
 
+  /**
+   * Drop a pending change on a path that is already failing. The store is a
+   * network hop in production, and `Effect.promise` would turn a blip there
+   * into a defect — a 500 in place of the 4xx the caller has earned, and the
+   * outcome bucket the caller-facing failure was meant to record. The entry
+   * carries a TTL, so losing the delete costs nothing but the wait.
+   */
+  const dropPending = (accountId: string) =>
+    Effect.tryPromise(() => stores.pendingEmailChanges.delete(accountId)).pipe(Effect.ignore);
+
   const beginEmailChange = (
     accountId: string,
     newEmail: string,
@@ -55,7 +65,12 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       }
 
       const currentAccount = yield* Effect.tryPromise({
-        try: () => db.select().from(accounts).where(eq(accounts.id, accountId)).limit(1),
+        try: () =>
+          db
+            .select({ email: accounts.email })
+            .from(accounts)
+            .where(eq(accounts.id, accountId))
+            .limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
       const account = currentAccount[0];
@@ -72,7 +87,14 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       // email change must match. The UNIQUE(email) constraint at `complete`
       // is the real defence against a race-winning swap.
       const collision = yield* Effect.tryPromise({
-        try: () => db.select().from(accounts).where(eq(accounts.email, normalised)).limit(1),
+        // P-I1: projecting the indexed column alone lets UNIQUE(email) answer
+        // the probe from the index without reading the account row.
+        try: () =>
+          db
+            .select({ email: accounts.email })
+            .from(accounts)
+            .where(eq(accounts.email, normalised))
+            .limit(1),
         catch: (cause) => new DatabaseError({ cause }),
       });
       if (collision.length > 0) {
@@ -175,7 +197,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         // O3: persist the attempt bump + carry remaining TTL (store doesn't alias).
         const attempts = pending.attempts + 1;
         if (attempts >= MAX_OTP_ATTEMPTS) {
-          yield* Effect.promise(() => stores.pendingEmailChanges.delete(accountId));
+          yield* dropPending(accountId);
         } else {
           yield* Effect.promise(() =>
             stores.pendingEmailChanges.set(
@@ -199,7 +221,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       const preflight = yield* Effect.tryPromise({
         try: async () => {
           const [acct] = await db
-            .select()
+            .select({ email: accounts.email })
             .from(accounts)
             .where(eq(accounts.id, accountId))
             .limit(1);
@@ -236,7 +258,10 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
             // Atomic batch on D1, sequential on bun:sqlite. A half-applied
             // change would leave a potentially-compromised session alive with a
             // stale email claim, so the email swap + audit row + session wipe
-            // commit together.
+            // commit together. The guarantee is D1's, not this function's — on
+            // the local bun:sqlite driver the statements run one after another
+            // and a mid-chain failure can leave the swap applied without the
+            // audit row or the session wipe.
             await commitBatch(db, [
               db
                 .update(accounts)
@@ -263,7 +288,18 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
             return { ok: true as const, email: pending.newEmail };
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            if (/UNIQUE|constraint/i.test(msg)) {
+            // Only a uniqueness violation is a genuine caller-facing conflict
+            // (another account already claimed the address). NOT NULL / FOREIGN
+            // KEY / CHECK constraint failures are DB faults, not user races —
+            // they must surface as DatabaseError, not get mapped to a benign
+            // "someone else got there first" outcome.
+            //
+            // Both spellings are accepted because the two drivers do not agree:
+            // bun:sqlite raises `UNIQUE constraint failed: accounts.email`, and
+            // a driver that reports the SQLite result code instead would carry
+            // `SQLITE_CONSTRAINT_UNIQUE`. Neither spelling can match a NOT NULL,
+            // FOREIGN KEY or CHECK failure, so the narrowing holds.
+            if (/UNIQUE constraint|SQLITE_CONSTRAINT_UNIQUE/i.test(msg)) {
               return { ok: false as const, reason: "conflict" as const };
             }
             throw e;
@@ -276,7 +312,18 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         // Only "conflict" can come out of the narrowed TX (preflight
         // already rejected not_found / rate_limit). Map to a generic
         // error that matches the begin-path enumeration posture.
-        return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
+        //
+        // The pending change is deleted here, not just left to expire. The
+        // address is claimed by another account, so every retry of this
+        // ceremony fails the same way; holding the entry only keeps the
+        // OTP-attempts counter open against a target the caller cannot have.
+        // (Not an absolute impossibility — the winner could later move off the
+        // address — but then a fresh `begin` is the honest way back in.)
+        // Matches the lockout branch above.
+        yield* dropPending(accountId);
+        return yield* Effect.fail(
+          new AuthError({ message: "Invalid or expired code", metricResult: "conflict" }),
+        );
       }
 
       yield* Effect.promise(() => stores.pendingEmailChanges.delete(accountId));

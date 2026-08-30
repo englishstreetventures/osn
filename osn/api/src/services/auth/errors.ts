@@ -1,3 +1,4 @@
+import type { Result } from "@shared/observability/metrics";
 import { Data } from "effect";
 
 // ---------------------------------------------------------------------------
@@ -6,6 +7,12 @@ import { Data } from "effect";
 
 export class AuthError extends Data.TaggedError("AuthError")<{
   readonly message: string;
+  /**
+   * Overrides the metric bucket `classifyError` would infer from the
+   * message. Set it where the caller-facing message is deliberately
+   * vague and the true outcome would otherwise be unobservable.
+   */
+  readonly metricResult?: Result;
 }> {}
 
 export class DatabaseError extends Data.TaggedError("DatabaseError")<{

@@ -9,7 +9,7 @@ related:
   - "[[tracing]]"
   - "[[feature-checklist]]"
 packages: ["@shared/observability", "@osn/api", "@pulse/api", "@shared/crypto"]
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-30
 ---
 # Metrics
 
@@ -122,12 +122,39 @@ export const LATENCY_BUCKETS_S = [
 ### Shared attribute types (`shared/observability/src/metrics/attrs.ts`)
 
 ```typescript
-export type Result = "ok" | "error" | "unauthorized" | "rate_limited" | "not_found";
+// `Result` is derived from a runtime tuple so the type and the set that
+// `classifyError` validates against cannot drift apart.
+export const RESULT_VALUES = [
+  "ok", "error", "unauthorized", "forbidden",
+  "not_found", "rate_limited", "validation_error", "conflict",
+] as const;
+export type Result = (typeof RESULT_VALUES)[number];
+
 export type AuthMethod = "passkey" | "recovery_code" | "refresh";
 export type ArcVerifyResult =
   | "ok" | "expired" | "bad_signature" | "unknown_issuer"
   | "scope_denied" | "audience_mismatch";
 ```
+
+#### Overriding the inferred result
+
+`classifyError` (`osn/api/src/metrics.ts`) normally infers the `result` bucket
+from the error's tag and then from keywords in its message. That inference is
+wrong wherever the caller-facing message is deliberately vague, because the
+message no longer describes what happened.
+
+`AuthError` therefore carries an optional `metricResult`, and `classifyError`
+honours it ahead of every inference — but only on that tag, so an error rebuilt
+from an upstream JSON body cannot steer a bucket, and only when the value is a
+member of `RESULT_VALUES`, so the attribute stays bounded.
+
+The one use today: a `completeEmailChange` that loses the `UNIQUE(email)` race
+returns "Invalid or expired code" — byte-identical to a wrong OTP, so the
+endpoint does not confirm that an address is taken — and sets
+`metricResult: "conflict"`. **A `conflict` spike on the email-change dashboard
+means lost races, not validation errors, and the caller saw a 400 whose body
+says nothing about a conflict.** Set the field wherever a message is vague on
+purpose; do not set it to make an ordinary failure read better.
 
 ### Domain metrics (`osn/api/src/metrics.ts`)
 

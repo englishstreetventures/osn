@@ -10,16 +10,19 @@
  * existing union without thinking about cardinality impact.
  */
 
+export const RESULT_VALUES = [
+  "ok",
+  "error",
+  "unauthorized",
+  "forbidden",
+  "not_found",
+  "rate_limited",
+  "validation_error",
+  "conflict",
+] as const;
+
 /** Generic outcome for any operation. Keep the set small. */
-export type Result =
-  | "ok"
-  | "error"
-  | "unauthorized"
-  | "forbidden"
-  | "not_found"
-  | "rate_limited"
-  | "validation_error"
-  | "conflict";
+export type Result = (typeof RESULT_VALUES)[number];
 
 /** Auth methods supported by OSN Core. Passkey (incl. security keys) is the only primary login factor; recovery_code is the "lost device" escape hatch; refresh tracks token refresh cycles. */
 export type AuthMethod = "passkey" | "recovery_code" | "refresh";
