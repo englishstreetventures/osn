@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, render, screen } from "@solidjs/testing-library";
+import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { __resetBudgetCache, type BudgetSnapshot, setCachedBudget } from "../lib/budget-store";

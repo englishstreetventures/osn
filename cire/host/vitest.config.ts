@@ -56,6 +56,7 @@ export default defineConfig({
           // NODE process, and a browser test's `Intl` reads the browser's zone,
           // not the runner's — see the note on the browser project below.
           env: { TZ: "Australia/Sydney" },
+          setupFiles: ["../../shared/test-config/no-jest-dom.ts"],
         },
       },
       {

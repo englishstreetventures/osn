@@ -6,6 +6,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.{ts,tsx}"],
+    setupFiles: ["../../shared/test-config/no-jest-dom.ts"],
     coverage: {
       provider: "istanbul",
       include: ["src/**/*.{ts,tsx}"],

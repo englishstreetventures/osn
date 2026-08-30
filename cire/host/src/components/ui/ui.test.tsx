@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, render } from "@solidjs/testing-library";
+import "@testing-library/jest-dom/vitest";
 import { createSignal } from "solid-js";
 import { afterEach, describe, expect, it } from "vitest";
 

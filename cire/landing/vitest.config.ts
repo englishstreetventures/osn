@@ -7,5 +7,6 @@ export default defineConfig({
     environment: "jsdom",
     transformMode: { web: [/\.[jt]sx?$/] },
     passWithNoTests: true,
+    setupFiles: ["../../shared/test-config/no-jest-dom.ts"],
   },
 });

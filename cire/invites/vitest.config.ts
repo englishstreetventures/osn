@@ -74,6 +74,7 @@ export default defineConfig({
           transformMode: { web: [/\.[jt]sx?$/] },
           passWithNoTests: true,
           exclude: ["**/node_modules/**", "**/dist/**", "**/*.browser.test.{ts,tsx}"],
+          setupFiles: ["../../shared/test-config/no-jest-dom.ts"],
         },
       },
       {

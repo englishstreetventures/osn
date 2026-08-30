@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { derivePalette, PALETTE_PRESETS, typographyVar } from "@cire/theme";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library";
+import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**

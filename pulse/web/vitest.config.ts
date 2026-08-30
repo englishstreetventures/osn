@@ -6,6 +6,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.{ts,tsx}"],
+    setupFiles: ["../../shared/test-config/no-jest-dom.ts"],
     // Allow async event handlers to throw unhandled rejections without failing
     // the suite — this mirrors real browser behaviour where onSubmit rejection
     // is silently swallowed. Required to test the `if (error) throw error` path
