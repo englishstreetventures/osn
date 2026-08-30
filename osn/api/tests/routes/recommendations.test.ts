@@ -144,6 +144,37 @@ describe("recommendations routes", () => {
     expect(json.suggestions[0]!.sharedOrganisation).toBeNull();
   });
 
+  // The hydrated organisation label is built after ranking and then has to
+  // survive the route's TypeBox `response` schema. Every other card in these
+  // tests carries `sharedOrganisation: null`, so a shape drift in the
+  // non-null branch would surface as a 500 in production rather than a red
+  // test.
+  it("serialises a non-null sharedOrganisation through the response schema", async () => {
+    const alice = await registerAndGetToken("a@e.com", "alice");
+    const bob = await registerAndGetToken("b@e.com", "bob");
+    const org = await runWithLayer(
+      createOrganisationService().createOrganisation(alice.profileId, "acme", "Acme Inc"),
+    );
+    await runWithLayer(
+      createOrganisationService().addMember(org.id, alice.profileId, bob.profileId, "member"),
+    );
+
+    const res = await recsApp.handle(
+      new Request("http://localhost/recommendations/connections", {
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { suggestions: Array<Record<string, unknown>> };
+    expect(json.suggestions).toHaveLength(1);
+    expect(json.suggestions[0]!.handle).toBe("bob");
+    expect(json.suggestions[0]!.reason).toBe("shared_organisation");
+    expect(json.suggestions[0]!.sharedOrganisation).toEqual({
+      handle: "acme",
+      name: "Acme Inc",
+    });
+  });
+
   // -------------------------------------------------------------------------
   // Limit parsing (T-S1)
   // -------------------------------------------------------------------------

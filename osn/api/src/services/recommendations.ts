@@ -68,8 +68,34 @@ const MAX_FOF_FANOUT_ROWS = 10_000;
  * Cap on the co-member fan-out from the caller's organisations. Same shape of
  * defence as MAX_FOF_FANOUT_ROWS: membership of one very large organisation
  * must not turn a suggestion request into an unbounded read.
+ *
+ * It is a budget for the whole fan-out, not per organisation, and the rows
+ * arrive ordered by `(organisation_id, profile_id)` — so a caller in one large
+ * organisation fills the budget from that organisation alone and never sees a
+ * co-member from any other. Organisation ids are random, so which one wins is
+ * a fixed draw per caller. Tracked as its own finding; the fix is a
+ * per-organisation budget rather than a bigger global one.
  */
 const MAX_ORG_COMEMBER_ROWS = 2_000;
+
+/**
+ * The organisation label on a suggestion card, or `null`.
+ *
+ * `null` for a candidate with no shared organisation, and also for one whose
+ * organisation row is missing — an organisation deleted between the fan-out
+ * and the hydration. Dropping the label is the right answer there: the
+ * suggestion itself still stands on its mutual connections, and a card that
+ * names an organisation that no longer exists is worse than one that names
+ * none.
+ */
+function hydrateOrganisation(
+  organisationId: string | null,
+  organisationMap: Map<string, { handle: string; name: string }>,
+): { handle: string; name: string } | null {
+  if (organisationId === null) return null;
+  const organisation = organisationMap.get(organisationId);
+  return organisation ? { handle: organisation.handle, name: organisation.name } : null;
+}
 
 /**
  * Minimum query length for search, full stop. One character is enough because
@@ -488,23 +514,38 @@ export function createRecommendationService() {
                 catch: (cause) => new DatabaseError({ cause }),
               }),
           myOrgIds.length === 0
-            ? Effect.succeed(
-                [] as { profileId: string; organisationHandle: string; organisationName: string }[],
-              )
+            ? Effect.succeed([] as { profileId: string; organisationId: string }[])
             : Effect.tryPromise({
+                // Ids only. This reads up to MAX_ORG_COMEMBER_ROWS rows and at
+                // most `safeLimit` candidates survive ranking, so joining
+                // `organisations` here re-serialised a handle and a name for
+                // every row to throw away roughly forty out of forty-one of
+                // them. The surviving organisations are hydrated in step 5,
+                // alongside the profiles, from a set that is already small.
+                //
+                // The ORDER BY pins what was left to the planner. Without
+                // one the row order under the LIMIT is unspecified — in
+                // practice SQLite already walked `org_members_pair_idx` in
+                // this order, so `EXPLAIN QUERY PLAN` is identical either way
+                // and no behaviour changes today. What it buys is that the
+                // slice stays the same slice if the planner ever chooses
+                // differently, which matters because org-only candidates all
+                // tie at `mutualCount: 0` and are separated only by the id
+                // tiebreak in step 4. It costs nothing: the index is UNIQUE
+                // on exactly (organisation_id, profile_id), so this is its own
+                // order and adds no sort.
+                //
+                // What the ordering does NOT fix is which organisations the
+                // cap reaches — see the note on MAX_ORG_COMEMBER_ROWS.
                 try: () =>
                   db
                     .select({
                       profileId: organisationMembers.profileId,
-                      organisationHandle: organisations.handle,
-                      organisationName: organisations.name,
+                      organisationId: organisationMembers.organisationId,
                     })
                     .from(organisationMembers)
-                    .innerJoin(
-                      organisations,
-                      eq(organisations.id, organisationMembers.organisationId),
-                    )
                     .where(inArray(organisationMembers.organisationId, myOrgIds))
+                    .orderBy(organisationMembers.organisationId, organisationMembers.profileId)
                     .limit(MAX_ORG_COMEMBER_ROWS),
                 catch: (cause) => new DatabaseError({ cause }),
               }),
@@ -516,7 +557,8 @@ export function createRecommendationService() {
       interface Candidate {
         mutualCount: number;
         organisationCount: number;
-        sharedOrganisation: { handle: string; name: string } | null;
+        /** Hydrated to a handle and a name in step 5, for survivors only. */
+        sharedOrganisationId: string | null;
       }
       const candidates = new Map<string, Candidate>();
       const candidateFor = (id: string): Candidate => {
@@ -525,7 +567,7 @@ export function createRecommendationService() {
         const fresh: Candidate = {
           mutualCount: 0,
           organisationCount: 0,
-          sharedOrganisation: null,
+          sharedOrganisationId: null,
         };
         candidates.set(id, fresh);
         return fresh;
@@ -551,16 +593,18 @@ export function createRecommendationService() {
         candidate.organisationCount += 1;
         // First organisation wins as the label — one is all a card can show,
         // and `organisationCount` already carries the "how many" signal.
-        candidate.sharedOrganisation ??= {
-          handle: row.organisationHandle,
-          name: row.organisationName,
-        };
+        // "First" is now well defined: the fan-out is ordered by
+        // (organisation_id, profile_id), so the same caller gets the same
+        // organisation on the card every time.
+        candidate.sharedOrganisationId ??= row.organisationId;
       }
 
       if (candidates.size === 0) return [];
 
-      // Step 4: rank. Mutual connections outrank shared organisations; handle
-      // breaks ties so the list is stable between requests.
+      // Step 4: rank. Mutual connections outrank shared organisations; the
+      // profile id breaks ties so the list is stable between requests. The id,
+      // not the handle — ids are unique outright, and the comparison below has
+      // always used them whatever this comment said.
       const sorted = [...candidates.entries()]
         .toSorted(
           ([idA, a], [idB, b]) =>
@@ -571,31 +615,76 @@ export function createRecommendationService() {
         .slice(0, safeLimit);
 
       const candidateIds = sorted.map(([id]) => id);
+      const survivingOrgIds = [
+        ...new Set(sorted.map(([, c]) => c.sharedOrganisationId).filter((id) => id !== null)),
+      ];
 
-      // Step 5: hydrate. The accounts join drops candidates whose account is
-      // tombstoned (Art. 17 erasure pending) so a mid-deletion profile is
-      // never suggested.
-      const profiles = yield* Effect.tryPromise({
-        try: () =>
-          db
-            .select({
-              id: users.id,
-              handle: users.handle,
-              displayName: users.displayName,
-              avatarUrl: users.avatarUrl,
-            })
-            .from(users)
-            .innerJoin(accounts, eq(users.accountId, accounts.id))
-            .where(and(inArray(users.id, candidateIds), isNull(accounts.deletedAt))),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
+      // Step 5: hydrate the survivors — profiles and organisation labels.
+      //
+      // Both reads depend only on `sorted`, so they run concurrently. Running
+      // the organisations query after the profiles one would add a fourth
+      // serial wave: on D1 every statement is a network round trip, worth
+      // milliseconds, while the row-building this change avoids is worth tens
+      // of microseconds. A serial hydration would have spent the saving
+      // several times over on latency for every caller.
+      //
+      // The accounts join drops candidates whose account is tombstoned
+      // (Art. 17 erasure pending) so a mid-deletion profile is never
+      // suggested. At most `safeLimit` candidates reach here and they share
+      // organisations, so `survivingOrgIds` is a handful of ids — the set the
+      // fan-out used to read thousands of `organisations` rows to produce.
+      const [profiles, organisationRows] = yield* Effect.all(
+        [
+          Effect.tryPromise({
+            try: () =>
+              db
+                .select({
+                  id: users.id,
+                  handle: users.handle,
+                  displayName: users.displayName,
+                  avatarUrl: users.avatarUrl,
+                })
+                .from(users)
+                .innerJoin(accounts, eq(users.accountId, accounts.id))
+                .where(and(inArray(users.id, candidateIds), isNull(accounts.deletedAt))),
+            catch: (cause) => new DatabaseError({ cause }),
+          }),
+          survivingOrgIds.length === 0
+            ? Effect.succeed([] as { id: string; handle: string; name: string }[])
+            : Effect.tryPromise({
+                try: () =>
+                  db
+                    .select({
+                      id: organisations.id,
+                      handle: organisations.handle,
+                      name: organisations.name,
+                    })
+                    .from(organisations)
+                    .where(inArray(organisations.id, survivingOrgIds)),
+                catch: (cause) => new DatabaseError({ cause }),
+              }),
+        ],
+        { concurrency: "unbounded" },
+      );
 
       const profileMap = new Map(profiles.map((p) => [p.id, p]));
+      const organisationMap = new Map(organisationRows.map((o) => [o.id, o]));
 
       return sorted
         .map(([id, candidate]) => {
           const p = profileMap.get(id);
           if (!p) return null;
+          const sharedOrganisation = hydrateOrganisation(
+            candidate.sharedOrganisationId,
+            organisationMap,
+          );
+          // A candidate whose only basis was a shared organisation, and whose
+          // organisation no longer exists, has no basis left — drop them
+          // rather than assert `shared_organisation` and name nothing. This
+          // restores exactly what the fan-out's old inner join to
+          // `organisations` did, at the point where both facts are already in
+          // hand and without paying for the join.
+          if (candidate.mutualCount === 0 && sharedOrganisation === null) return null;
           return {
             handle: p.handle,
             displayName: p.displayName,
@@ -605,7 +694,7 @@ export function createRecommendationService() {
               candidate.mutualCount > 0
                 ? ("mutual_connections" as const)
                 : ("shared_organisation" as const),
-            sharedOrganisation: candidate.sharedOrganisation,
+            sharedOrganisation,
           };
         })
         .filter((s): s is Suggestion => s !== null);
