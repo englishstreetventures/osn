@@ -256,4 +256,48 @@ describe("Zap DDL lockstep", () => {
     expect(nonTableObjects(emittedDb())).toEqual(nonTableObjects(migratedDb()));
     expect(checks(emittedDb())).toEqual(checks(migratedDb()));
   });
+
+  // `drizzle-kit generate` reads the journal and the latest snapshot, not the
+  // `.sql` files this suite otherwise applies. A journal that has lost an
+  // entry — a hand edit, a half-resolved merge conflict, a partial commit —
+  // makes the next `generate` re-emit a migration already applied to
+  // production D1, and re-running a `DROP INDEX` or `CREATE INDEX` against a
+  // real database is a hard error.
+  //
+  // Scope, stated plainly: this checks the bookkeeping — that the journal, the
+  // `.sql` files and the snapshot files name the same set of migrations, in
+  // the same order. It does NOT check a snapshot's *contents* against the
+  // schema, so a snapshot resolved by picking a side in a merge keeps its
+  // filename and passes here. That is a separate check and a heavier one; it
+  // needs `drizzle-kit generate` to run and produce nothing.
+  it("keeps drizzle/meta's bookkeeping in step with the migrations beside it", () => {
+    const journal = JSON.parse(
+      readFileSync(join(MIGRATIONS_DIR, "meta", "_journal.json"), "utf8"),
+    ) as { entries: { idx: number; tag: string }[] };
+
+    // Pairing and contiguity, before the set comparisons — sorting throws both
+    // away. `drizzle-kit` names the next migration from the last entry's idx,
+    // so a swapped pair or a gap produces a wrongly numbered migration and a
+    // snapshot that does not correspond to its `.sql`.
+    journal.entries.forEach((e, i) => {
+      expect(e.idx).toBe(i);
+      expect(e.tag.startsWith(String(e.idx).padStart(4, "0"))).toBe(true);
+    });
+
+    const tags = journal.entries.map((e) => e.tag).toSorted();
+    const basenames = migrationFiles()
+      .map((f) => f.replace(/\.sql$/, ""))
+      .toSorted();
+    // Both directions: a `.sql` with no journal entry never runs, and a
+    // journal entry with no `.sql` breaks the next generate.
+    expect(tags).toEqual(basenames);
+
+    const snapshots = readdirSync(join(MIGRATIONS_DIR, "meta"))
+      .filter((f) => f.endsWith("_snapshot.json"))
+      .map((f) => f.replace(/_snapshot\.json$/, ""))
+      .toSorted();
+    expect(snapshots).toEqual(
+      journal.entries.map((e) => String(e.idx).padStart(4, "0")).toSorted(),
+    );
+  });
 });

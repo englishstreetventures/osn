@@ -67,6 +67,20 @@ export class NotC2bChat extends Data.TaggedError("NotC2bChat")<{
   readonly chatId: string;
 }> {}
 
+/**
+ * The mirror: a c2c-only operation attempted on a c2b chat.
+ *
+ * `class` is the encryption and visibility contract — a c2b chat is
+ * server-visible, moderatable and DSAR-exportable by definition. An encrypted
+ * message written into one is none of those: the export filters on a non-null
+ * `body` so the row is dropped silently, and the internal reader renders it as
+ * an empty string with no signal that content was withheld. Both write paths
+ * have to enforce the column or it stops describing the rows underneath it.
+ */
+export class NotC2cChat extends Data.TaggedError("NotC2cChat")<{
+  readonly chatId: string;
+}> {}
+
 // ---------------------------------------------------------------------------
 // Effect schemas (service-layer validation)
 // ---------------------------------------------------------------------------
@@ -276,30 +290,73 @@ export const createChat = (
     return row;
   }).pipe(Effect.withSpan("zap.chats.create"));
 
+/**
+ * Rejects a `c2b` chat on the public, member-facing API.
+ *
+ * `class` is not a per-verb rule. A c2b chat's membership is cire's to grant
+ * and revoke through the ARC-gated internal routes, and its messages are
+ * server-visible by definition — so every c2c-shaped operation has to refuse
+ * one, whether it reads, writes or changes who is in it. Without that, the
+ * guards depend on accidents: a c2b chat has no admin (`provisionC2bChat`
+ * writes `role: "member"` for everyone), so `assertAdmin` happens to close
+ * the admin-only paths, and the first flow that promotes a c2b member opens
+ * them all again.
+ */
+const assertC2c = (chat: Chat): Effect.Effect<void, NotC2cChat> =>
+  chat.class === "c2c" ? Effect.void : Effect.fail(new NotC2cChat({ chatId: chat.id }));
+
 export const updateChat = (
   id: string,
   data: unknown,
   requestingProfileId: string,
-): Effect.Effect<Chat, ChatNotFound | NotChatAdmin | ValidationError | DatabaseError, Db> =>
+): Effect.Effect<
+  Chat,
+  ChatNotFound | NotChatAdmin | NotC2cChat | ValidationError | DatabaseError,
+  Db
+> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
-    yield* getChat(id);
+    // The row this returns, built from what was already read plus what is
+    // about to be written — so the second `getChat` that used to follow the
+    // update is gone. `storedNow()` is what makes that safe: Drizzle stores a
+    // timestamp as whole seconds, and an untruncated `Date` here would make
+    // the response disagree with every later read of the same row.
+    const chat = yield* getChat(id);
 
     // Check that the requesting user is an admin.
     yield* assertAdmin(id, requestingProfileId);
+
+    // After the authorisation gate, not before — see `addMember`. A 409 "not
+    // a c2c chat" reaching a caller with no standing in the chat would tell
+    // them the id names a commercial conversation.
+    yield* assertC2c(chat);
 
     const validated = yield* Schema.decodeUnknown(UpdateChatSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 
-    const now = new Date();
+    const now = storedNow();
     yield* Effect.tryPromise({
       try: () =>
         db.update(chats).set({ title: validated.title, updatedAt: now }).where(eq(chats.id, id)),
       catch: (cause) => new DatabaseError({ cause }),
     });
 
-    return yield* getChat(id);
+    // `?? chat.title`, not `validated.title`. Drizzle omits an `undefined`
+    // field from the SET clause, so a request that sends no title leaves the
+    // stored one alone — and the row handed back has to say the same. The
+    // read-back this replaced got that right by accident; the compiler caught
+    // it here, which is the argument for annotating these rows at all.
+    // `=== undefined`, not `??`. Drizzle filters exactly `undefined` out of
+    // the SET clause; a `null` would be written. The schema rejects `null`
+    // today, so the two behave alike — but the moment "send null to clear the
+    // title" is added, `??` would write NULL and hand the caller back the old
+    // title, breaking the one property this conversion rests on.
+    return {
+      ...chat,
+      title: validated.title === undefined ? chat.title : validated.title,
+      updatedAt: now,
+    };
   }).pipe(Effect.withSpan("zap.chats.update"));
 
 export const addMember = (
@@ -310,6 +367,7 @@ export const addMember = (
   ChatMember,
   | ChatNotFound
   | NotChatAdmin
+  | NotC2cChat
   | MemberLimitReached
   | AlreadyMember
   | ConsentDenied
@@ -321,6 +379,12 @@ export const addMember = (
     const { db } = yield* Db;
     const chat = yield* getChat(chatId);
     yield* assertAdmin(chatId, requestingProfileId);
+
+    // After the authorisation gate, not before. `assertC2c` answers 409 "not a
+    // c2c chat", which to a caller with no standing in the chat would say the
+    // id names a commercial conversation — the same disclosure the two public
+    // message routes order around. Members and admins already know.
+    yield* assertC2c(chat);
 
     // Z3: a DM is sealed at two members — no widening into a group via add.
     if (chat.type === "dm") {
@@ -360,26 +424,25 @@ export const addMember = (
     }
 
     const id = "cmem_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-    const now = new Date();
+    const now = storedNow();
+    // Annotated `: ChatMember` so every column is required here — a column
+    // added to the schema later breaks the build rather than quietly going
+    // missing from what callers get back.
+    const row: ChatMember = {
+      id,
+      chatId,
+      profileId,
+      role: "member",
+      joinedAt: now,
+    };
     yield* Effect.tryPromise({
-      try: () =>
-        db.insert(chatMembers).values({
-          id,
-          chatId,
-          profileId,
-          role: "member",
-          joinedAt: now,
-        }),
+      try: () => db.insert(chatMembers).values(row),
       catch: (cause) => new DatabaseError({ cause }),
     });
     metricMemberAdded("ok");
 
-    const [member] = yield* Effect.tryPromise({
-      try: (): Promise<ChatMember[]> =>
-        db.select().from(chatMembers).where(eq(chatMembers.id, id)) as Promise<ChatMember[]>,
-      catch: (cause) => new DatabaseError({ cause }),
-    });
-    return member!;
+    // Returned from the values just written — see `provisionC2bChat`.
+    return row;
   }).pipe(Effect.withSpan("zap.chats.add_member"));
 
 export const removeMember = (
@@ -388,12 +451,12 @@ export const removeMember = (
   requestingProfileId: string,
 ): Effect.Effect<
   void,
-  ChatNotFound | NotChatAdmin | NotChatMember | LastAdmin | DatabaseError,
+  ChatNotFound | NotChatAdmin | NotChatMember | NotC2cChat | LastAdmin | DatabaseError,
   Db
 > =>
   Effect.gen(function* () {
     const { db } = yield* Db;
-    yield* getChat(chatId);
+    const chat = yield* getChat(chatId);
 
     // Allow self-removal (leaving) or admin removal of others.
     if (profileId !== requestingProfileId) {
@@ -414,6 +477,14 @@ export const removeMember = (
     if (memberRows.length === 0) {
       return yield* Effect.fail(new NotChatMember({ chatId }));
     }
+
+    // Below every gate, not above them. `assertC2c` answers 409 "not a c2c
+    // chat", which to a caller with no standing in the chat would say the id
+    // names a commercial conversation — the same disclosure the two public
+    // message routes order around. Self-removal has no admin check, so the
+    // membership lookup above is the gate on that path, and this has to sit
+    // under it to be behind one.
+    yield* assertC2c(chat);
 
     // Z5: never strand a chat with zero admins. If the target is the last
     // remaining admin, the removal (self-leave included) is rejected — an

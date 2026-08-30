@@ -13,7 +13,7 @@ import {
 } from "../lib/limits";
 import { storedNow } from "../lib/storedNow";
 import { metricMessageSent, metricMessagesListed } from "../metrics";
-import { NotC2bChat } from "./chats";
+import { NotC2bChat, NotC2cChat } from "./chats";
 
 // ---------------------------------------------------------------------------
 // Tagged errors
@@ -59,7 +59,11 @@ export const sendMessage = (
   chatId: string,
   senderProfileId: string,
   data: unknown,
-): Effect.Effect<Message, ChatNotFound | NotChatMember | ValidationError | DatabaseError, Db> =>
+): Effect.Effect<
+  Message,
+  ChatNotFound | NotChatMember | NotC2cChat | ValidationError | DatabaseError,
+  Db
+> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
 
@@ -76,6 +80,20 @@ export const sendMessage = (
 
     // Verify sender is a member.
     yield* assertMember(chatId, senderProfileId);
+
+    // Assert this is a c2c chat — the mirror of `sendC2bMessage`'s check.
+    // Without it a member of a c2b chat could write ciphertext into it through
+    // this route, producing a row that escapes both the DSAR export and every
+    // moderation path, in the one chat class that promises both.
+    //
+    // AFTER the membership check, unlike `sendC2bMessage`, and the difference
+    // is the audience. That one is ARC-gated and only cire calls it. This one
+    // is public, so a class check ahead of membership would answer 409 "not a
+    // c2c chat" to any authenticated stranger holding a chat id — telling them
+    // which ids are commercial. Members already know.
+    if (chat.class !== "c2c") {
+      return yield* Effect.fail(new NotC2cChat({ chatId }));
+    }
 
     const validated = yield* Schema.decodeUnknown(SendMessageSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
@@ -110,7 +128,11 @@ export const listMessages = (
   chatId: string,
   profileId: string,
   opts: { limit?: number; cursor?: string } = {},
-): Effect.Effect<Message[], ChatNotFound | NotChatMember | ValidationError | DatabaseError, Db> =>
+): Effect.Effect<
+  Message[],
+  ChatNotFound | NotChatMember | NotC2cChat | ValidationError | DatabaseError,
+  Db
+> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
 
@@ -126,6 +148,17 @@ export const listMessages = (
 
     // Verify user is a member.
     yield* assertMember(chatId, profileId);
+
+    // The read half of the same rule the write path enforces. Without it the
+    // public route serves a c2b chat's plaintext `body` column to any member,
+    // going round the ARC-gated, `chat:c2b`-scoped reader that is supposed to
+    // be the only way to it — and hands a client written to decrypt messages
+    // rows whose `ciphertext` and `nonce` are both null.
+    //
+    // After the membership check, for the reason `sendMessage` gives.
+    if (chatRows[0]!.class !== "c2c") {
+      return yield* Effect.fail(new NotC2cChat({ chatId }));
+    }
 
     const limit = Math.min(Math.max(1, opts.limit ?? DEFAULT_MESSAGE_LIMIT), MAX_MESSAGE_LIMIT);
 

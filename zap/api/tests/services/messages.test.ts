@@ -240,6 +240,82 @@ describe("messages service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
+  // The mirror of the case below. `class` is the encryption and visibility
+  // contract: a ciphertext row inside a c2b chat is dropped from the DSAR
+  // export (which filters on a non-null body) and rendered as an empty string
+  // by the internal reader, so it escapes both the export and moderation in
+  // the one chat class that promises both.
+  // The read route's half of the non-disclosure property. It carries the same
+  // comment as `sendMessage` and the same risk on the same public surface —
+  // and is the more attractive probe of the two, needing no request body.
+  it.effect("listMessages does not disclose the class to a non-member", () =>
+    Effect.gen(function* () {
+      const chat = yield* provisionC2bChat({
+        memberProfileIds: ["usr_a", "usr_b"],
+        createdByProfileId: "usr_a",
+      });
+      const result = yield* Effect.either(listMessages(chat.id, "usr_outsider"));
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) expect(result.left._tag).toBe("NotChatMember");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // The read half. Without it the public route serves a c2b chat's plaintext
+  // `body` to any member, going round the ARC-gated `chat:c2b` reader that is
+  // supposed to be the only way to it.
+  it.effect("listMessages fails NotC2cChat on a c2b chat", () =>
+    Effect.gen(function* () {
+      const chat = yield* provisionC2bChat({
+        memberProfileIds: ["usr_a", "usr_b"],
+        createdByProfileId: "usr_a",
+      });
+      yield* sendC2bMessage(chat.id, "usr_a", { body: "commercially sensitive" });
+
+      const result = yield* Effect.either(listMessages(chat.id, "usr_a"));
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) expect(result.left._tag).toBe("NotC2cChat");
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("sendMessage fails NotC2cChat on a c2b chat", () =>
+    Effect.gen(function* () {
+      const chat = yield* provisionC2bChat({
+        memberProfileIds: ["usr_a", "usr_b"],
+        createdByProfileId: "usr_a",
+      });
+
+      const result = yield* Effect.either(
+        sendMessage(chat.id, "usr_a", { ciphertext: "dGVzdA==", nonce: "bm9uY2U=" }),
+      );
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("NotC2cChat");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // The guard runs AFTER the membership check, so a non-member learns nothing
+  // about the chat's class. This is a public route: answering "not a c2c
+  // chat" to any authenticated stranger holding a chat id would tell them
+  // which ids are commercial. `sendC2bMessage` orders it the other way round
+  // because that route is ARC-gated and only cire reaches it.
+  it.effect("sendMessage does not disclose the class to a non-member", () =>
+    Effect.gen(function* () {
+      const chat = yield* provisionC2bChat({
+        memberProfileIds: ["usr_a", "usr_b"],
+        createdByProfileId: "usr_a",
+      });
+
+      const result = yield* Effect.either(
+        sendMessage(chat.id, "usr_outsider", { ciphertext: "dGVzdA==", nonce: "bm9uY2U=" }),
+      );
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("NotChatMember");
+      }
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
   it.effect("sendC2bMessage fails NotC2bChat on a c2c chat", () =>
     Effect.gen(function* () {
       const chat = yield* seedChat({ type: "group" });

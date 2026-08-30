@@ -378,6 +378,15 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
               // An unknown `before` cursor. Reported rather than silently
               // restarting at page 1, which would send the caller round the
               // same page for ever.
+              //
+              // 400, not the 422 the public `/chats` routes answer for the
+              // same condition. That split is deliberate and it is per
+              // surface, not per condition: every `ValidationError` on this
+              // ARC-gated internal API is a 400 (see the message-send route
+              // above), and every one on the public API is a 422. One
+              // consumer reads this surface, and a caller that talked to both
+              // would otherwise have to branch on which is which anyway —
+              // what costs is the rule being unwritten, not the rule.
               Effect.catchTag("ValidationError", () =>
                 Effect.sync(() => {
                   set.status = 400;

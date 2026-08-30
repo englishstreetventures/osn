@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 
 import { createChatsRoutes } from "../../src/routes/chats";
 import { setConsentGate } from "../../src/services/consent";
-import { createTestLayer, seedChat, seedMember } from "../helpers/db";
+import { createTestLayer, seedC2bChat, seedChat, seedMember } from "../helpers/db";
 
 let signer: AccessTokenSigner;
 let testPublicKey: CryptoKey;
@@ -586,6 +586,91 @@ describe("chats routes", () => {
       body: { ciphertext: "x", nonce: "y" },
     });
     expect(res.status).toBe(403);
+  });
+
+  // The public message route is the c2c one. Writing ciphertext into a c2b
+  // chat through it would produce a row the DSAR export drops and moderation
+  // cannot read, in the one class that promises both — so the class mismatch
+  // is a 409, even for a member.
+  it("POST /chats/:id/messages returns 409 on a c2b chat", async () => {
+    const c2bChat = await Effect.runPromise(
+      seedC2bChat({ type: "group" }).pipe(Effect.provide(layer)),
+    );
+    await Effect.runPromise(
+      seedMember(c2bChat.id, "usr_alice", "member").pipe(Effect.provide(layer)),
+    );
+
+    const res = await req(app, "POST", `/chats/${c2bChat.id}/messages`, {
+      token: aliceToken,
+      body: { ciphertext: "x", nonce: "y" },
+    });
+    expect(res.status).toBe(409);
+    expect((await body(res)).message).toBe("Not a c2c chat");
+  });
+
+  // One per route that maps `NotC2cChat`. Without these, deleting a
+  // `catchTag` leaves the tagged error escaping `runPromise` and Elysia
+  // answering 500 — on a path cire depends on — with the whole suite still
+  // green. The service tests assert the `_tag`, which is exactly what stays
+  // right while the status silently becomes 500.
+  it("PATCH /chats/:id returns 409 on a c2b chat", async () => {
+    const c2bChat = await Effect.runPromise(
+      seedC2bChat({ type: "group" }).pipe(Effect.provide(layer)),
+    );
+    await Effect.runPromise(
+      seedMember(c2bChat.id, "usr_alice", "admin").pipe(Effect.provide(layer)),
+    );
+
+    const res = await req(app, "PATCH", `/chats/${c2bChat.id}`, {
+      token: aliceToken,
+      body: { title: "Nope" },
+    });
+    expect(res.status).toBe(409);
+    expect((await body(res)).message).toBe("Not a c2c chat");
+  });
+
+  it("POST /chats/:id/members returns 409 on a c2b chat", async () => {
+    const c2bChat = await Effect.runPromise(
+      seedC2bChat({ type: "group" }).pipe(Effect.provide(layer)),
+    );
+    await Effect.runPromise(
+      seedMember(c2bChat.id, "usr_alice", "admin").pipe(Effect.provide(layer)),
+    );
+
+    const res = await req(app, "POST", `/chats/${c2bChat.id}/members`, {
+      token: aliceToken,
+      body: { profileId: "usr_carol" },
+    });
+    expect(res.status).toBe(409);
+    expect((await body(res)).message).toBe("Not a c2c chat");
+  });
+
+  it("DELETE /chats/:id/members/:profileId returns 409 on a c2b chat", async () => {
+    const c2bChat = await Effect.runPromise(
+      seedC2bChat({ type: "group" }).pipe(Effect.provide(layer)),
+    );
+    await Effect.runPromise(
+      seedMember(c2bChat.id, "usr_alice", "member").pipe(Effect.provide(layer)),
+    );
+
+    const res = await req(app, "DELETE", `/chats/${c2bChat.id}/members/usr_alice`, {
+      token: aliceToken,
+    });
+    expect(res.status).toBe(409);
+    expect((await body(res)).message).toBe("Not a c2c chat");
+  });
+
+  it("GET /chats/:id/messages returns 409 on a c2b chat", async () => {
+    const c2bChat = await Effect.runPromise(
+      seedC2bChat({ type: "group" }).pipe(Effect.provide(layer)),
+    );
+    await Effect.runPromise(
+      seedMember(c2bChat.id, "usr_alice", "member").pipe(Effect.provide(layer)),
+    );
+
+    const res = await req(app, "GET", `/chats/${c2bChat.id}/messages`, { token: aliceToken });
+    expect(res.status).toBe(409);
+    expect((await body(res)).message).toBe("Not a c2c chat");
   });
 
   it("GET /chats/:id/messages returns messages for member", async () => {

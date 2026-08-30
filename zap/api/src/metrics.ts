@@ -66,7 +66,7 @@ type WsDeliveredAttrs = {
 };
 
 type AccessDeniedSurface = "chat" | "messages" | "members";
-type AccessDeniedReason = "not_member" | "blocked" | "not_found";
+type AccessDeniedReason = "not_member" | "blocked" | "not_found" | "wrong_class";
 
 type AccessDeniedAttrs = {
   surface: AccessDeniedSurface;
