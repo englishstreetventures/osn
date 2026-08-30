@@ -90,4 +90,29 @@ describe("publicError", () => {
     for (let i = 0; i < 600; i++) node = { next: node };
     expect(publicError(node)).toEqual({ status: 400, body: { error: "invalid_request" } });
   });
+
+  // tracker#473: a wide-but-shallow cause chain (many string fields per hop)
+  // must not spend the 512-node budget on primitives. Against the unfixed
+  // walk — which dequeues (and so charges budget for) every pushed value,
+  // primitives included — this chain exhausts the budget before reaching the
+  // tagged node and falls through to 400; that is the bug this test pins.
+  it("reaches a tagged error past a wide chain of primitive fields", () => {
+    let node: Record<string, unknown> = { _tag: "DatabaseError" };
+    for (let hop = 0; hop < 10; hop++) {
+      const wide: Record<string, unknown> = { cause: node };
+      for (let f = 0; f < 60; f++) wide[`field${f}`] = `value${f}`;
+      node = wide;
+    }
+    expect(publicError(node)).toEqual({ status: 500, body: { error: "internal_error" } });
+  });
+
+  // The #473 seed narrowing's regression test: a primitive `e` must not reach
+  // `Reflect.ownKeys`, which throws on a primitive in strict mode.
+  it.each([["a string error"], [null]])(
+    "falls through for a primitive %p without throwing",
+    (e) => {
+      expect(() => publicError(e)).not.toThrow();
+      expect(publicError(e)).toEqual({ status: 400, body: { error: "invalid_request" } });
+    },
+  );
 });
