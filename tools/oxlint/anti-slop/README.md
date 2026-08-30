@@ -18,7 +18,7 @@ cp -R anti-slop-<sha>/src/. tools/oxlint/anti-slop/
 rm -f tools/oxlint/anti-slop/rules/*.test.ts
 curl -sL https://raw.githubusercontent.com/dmmulroy/anti-slop/<sha>/LICENSE \
   -o tools/oxlint/anti-slop/LICENSE
-(cd tools/oxlint/anti-slop && find . -type f ! -name SHA256SUMS | sed 's|^\./||' | \
+(cd tools/oxlint/anti-slop && find . ! -type d ! -name SHA256SUMS | sed 's|^\./||' | \
   LC_ALL=C sort | xargs shasum -a 256 > SHA256SUMS)
 ```
 
@@ -26,6 +26,17 @@ The `sed` strips `find`'s leading `./` — the committed `SHA256SUMS` lists bare
 like `index.ts`, not `./index.ts`, so a `find .`-based recipe with no `sed` produces a
 file that hashes identically but diffs on every line. `LC_ALL=C` pins the sort order
 so the recipe reproduces the same byte order on any machine's locale.
+
+`! -type d`, not `-type f`: the checker compares this list against `git ls-files`,
+which lists a symlink like any other tracked path, while `-type f` silently skips
+one. Generator and checker have to agree on what counts as a file, or a vendored
+symlink shows up as a spurious diff on the next run.
+
+One thing neither half sees: a file's mode. `shasum` hashes contents, and the file
+set is a list of names, so flipping `100644` to `100755` on a vendored file passes
+both checks. Nothing in this tree is executed by the linter, so that is a stale
+guarantee rather than a live hole — but `git diff --summary` on the vendored path
+is the thing to read if a re-vendor ever looks clean and behaves differently.
 
 Keep `oxlint` and `@oxlint/plugins` on the same version in `package.json` — the
 plugin API is not stable across minors.

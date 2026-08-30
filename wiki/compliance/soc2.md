@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[observability/overview]]"
   - "[[cire]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-30
 ---
 
 # SOC 2
@@ -160,9 +160,37 @@ Tracked with `C-` IDs in `xchromo/osn-tracker` under `label:compliance`:
 3. **Backup + DR plan + first restore drill** — [[backup-dr]]. ID: **C-M6**.
 4. **Incident response runbook** — [[breach-response]]. Shared with GDPR. ID: **C-M1** (same row).
 5. **Dependency CVE scanning in CI** — `osv-scanner` step running on PRs. Fail on critical, warn on high. ID: **C-M7**.
+
+   **Vendored dependencies.** One dependency does not come from a registry and so
+   is invisible to a scanner keyed on `bun.lock`: `tools/oxlint/anti-slop` is a
+   verbatim copy of [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop),
+   MIT licensed (`tools/oxlint/anti-slop/LICENSE`, vendored beside the code),
+   pinned to upstream commit `446268e5d15baa968eaec669ff65358d36ae6259`
+   (2026-08-14). Upstream publishes no package — the plugin is meant to be copied
+   in — so there is no version to resolve, no integrity hash from a registry and
+   no advisory feed to subscribe to. Integrity is asserted in-repo instead, by
+   three checks that each cover a different failure:
+   `tools/oxlint/anti-slop/SHA256SUMS`
+   plus `scripts/verify-vendored-anti-slop.sh` catch a change to the tree's
+   contents or file set; the same script, given a base ref, also catches a
+   change to that tree with no matching change to the pinned commit, which is
+   what a self-certifying manifest cannot see; and `.github/CODEOWNERS` puts the
+   tree behind a named owner. What none of them do is compare the tree against
+   upstream — that claim rests on the pin and on whoever performs the next
+   re-vendor. Reviewing the pin is a manual step at each re-vendor, not a
+   scheduled control.
 6. **`security.txt` + VDP** — public coordinated-disclosure channel + 90-day disclosure clock. ID: **C-M8**.
 7. **Quarterly access review** — calendar event + checklist landing in `wiki/compliance/access-reviews/<YYYY>-<Q>.md`. ID: **C-L3**.
-8. **Org-level GitHub hardening** — required MFA, required signed commits, branch protection, codeowners on prod paths. ID: **C-L4**.
+8. **Org-level GitHub hardening** — required MFA, required signed commits, branch
+   protection, codeowners on prod paths. ID: **C-L4**. **Partly done (2026-08-30):**
+   branch protection is ruleset `13921406` (active), and `.github/CODEOWNERS`
+   names an owner for the CI wiring, the guard scripts, the files that decide a
+   guard runs (`package.json`, `bunfig.toml`, `oxlintrc.json`, `lefthook.yml`),
+   the dependency pins (`bun.lock`, `.bun-version`), the vendored plugin tree and
+   the five `wrangler.toml`/`wrangler.jsonc` files. **Not yet a gate:** the
+   ruleset requires zero approving reviews and no code-owner review, since there
+   is one maintainer; required MFA and required signed commits are org settings
+   and are unset. Full state and what unblocks each in [[access-control]].
 9. **Penetration test** — third-party annual pen-test before Type II. Plan budget. ID: **C-L5**.
 10. **Insurance** — cyber + E&O. Quote before first paying customer. ID: **C-L6**.
 11. **Cire observability adoption** — `@cire/api` does not yet carry

@@ -1,22 +1,46 @@
 # The guards that keep this repo honest, and the things they guard. `.github/`
 # is self-owning, so neither this file nor the CI wiring can change without an
 # owner's review. GitHub applies the LAST matching pattern for a given path —
-# every pattern here names the same owner and none of them overlap, so order
-# is not load-bearing today, but a later pattern that overlaps an earlier one
-# and names a different owner would win.
+# every pattern here names the same owner, so order is not load-bearing today
+# even where two patterns overlap (`tools/oxlint/house/package.json` matches
+# both `package.json` and `/tools/oxlint/**`), but a later pattern that overlaps
+# an earlier one and names a different owner would win.
 /.github/            @chav-aniket
 /scripts/            @chav-aniket
-/bunfig.toml         @chav-aniket
 
 # The indirection the guards run through. Owning the workflow without owning
 # these leaves the cheapest bypass unreviewed: every CI step calls a guard by
 # script name out of `package.json`, `oxlintrc.json` decides that the vendored
 # oxlint plugin is the one that runs, and `lefthook.yml` is the local half.
-/package.json        @chav-aniket
+#
+# `package.json` and `bunfig.toml` are deliberately unanchored, so they match at
+# any depth. A workspace `package.json` can add a lifecycle script or move a
+# guard behind a different name, and Bun reads `bunfig.toml` relative to the
+# working directory — `deploy.yml` and several package scripts run with `--cwd`,
+# so a second one further down the tree would take effect without ever touching
+# the root file.
+package.json         @chav-aniket
+bunfig.toml          @chav-aniket
 /oxlintrc.json       @chav-aniket
 /lefthook.yml        @chav-aniket
 
-# Vendored upstream source (see tools/oxlint/anti-slop/README.md). An edit
-# here bypasses oxfmt and oxlint by design — only the SHA256SUMS check in CI
-# catches drift — so a change to this tree gets a human owner's eyes.
+# What the dependency soak actually resolves to. `bunfig.toml` sets the policy;
+# these two decide which bytes land. `bun.lock` pins every resolved version and
+# integrity hash, and `.bun-version` picks the Bun that installs them and that
+# every CI job runs on.
+/bun.lock            @chav-aniket
+/.bun-version        @chav-aniket
+
+# Production topology. These files name the routes, the D1 and KV bindings and
+# the environment each Worker deploys to, so an edit here can point a live
+# hostname at a different database without touching a line of application code.
+wrangler.toml        @chav-aniket
+wrangler.jsonc       @chav-aniket
+
+# Vendored upstream source (see tools/oxlint/anti-slop/README.md). An edit here
+# bypasses oxfmt and oxlint by design; the CI guard (verify-vendored-anti-slop.sh)
+# catches the shape of a change — `SHA256SUMS` that the tree no longer matches
+# its manifest, or a pin in `README.md` left unmoved by a change to the source —
+# but it can't say whether the new code is upstream's. That is what a human
+# owner is for.
 /tools/oxlint/**     @chav-aniket

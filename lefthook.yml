@@ -38,3 +38,12 @@ pre-push:
       # that's confirmed unreachable in any deployed Worker / production path,
       # and note its drop-trigger inline — then prune it once upstream ships.
       run: bun audit --audit-level=high
+    release-age:
+      # The third guard over the same dependency surface, and the one that
+      # covers the soak policy itself rather than the packages under it: every
+      # `minimumReleaseAgeExcludes` entry must carry an unexpired
+      # `# DROP AFTER <name> <YYYY-MM-DD>` marker, and `minimumReleaseAge`
+      # itself must not fall below three days. CI ran this from the start; the
+      # local half was missing, so an expired marker was only ever found after
+      # a push.
+      run: bun run check:release-age-excludes

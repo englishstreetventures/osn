@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[cire-auth]]"
   - "[[cire]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-30
 ---
 
 # Access Control
@@ -167,6 +167,25 @@ Tracked with `C-` IDs:
 1. **Quarterly access matrix** — first cycle: 2026-Q3. ID: **C-M5** (also in [[soc2]]).
 2. **Quarterly access review** — first cycle: 2026-Q3. ID: **C-L3**.
 3. **`admin_actions` audit log** — append-only constraint + Grafana mirror. ID: **C-M16**.
-4. **GitHub org hardening** — required hardware-key MFA, signed commits, branch protection, codeowners on prod paths. ID: **C-L4**.
+4. **GitHub org hardening** — required hardware-key MFA, signed commits, branch
+   protection, codeowners on prod paths. ID: **C-L4**. **Partly done (2026-08-30):**
+   `.github/CODEOWNERS` now names an owner for the paths that decide whether a
+   guard runs at all — `/.github/`, `/scripts/`, `/bunfig.toml`, `package.json`
+   (unanchored, so every workspace manifest matches), `/oxlintrc.json`,
+   `/lefthook.yml`, `/bun.lock`, `/.bun-version` and `/tools/oxlint/**`. Branch
+   protection is ruleset `13921406` on `xchromo/osn` (active: pull request
+   required, linear history, no deletion, no force-push, `CI` and
+   `Require changeset` as required status checks).
+   **Still open, and the honest state of the control:** that ruleset sets
+   `required_approving_review_count: 0` and `require_code_owner_review: false`,
+   because there is one maintainer and a review requirement nobody else can
+   satisfy would only block every merge. So CODEOWNERS routes a review request
+   today; it does not gate a merge. Also still open: the five production
+   topology files (`cire/api/wrangler.toml`, `osn/api/wrangler.toml`,
+   `pulse/api/wrangler.toml`, `zap/api/wrangler.toml`,
+   `cire/invites/wrangler.jsonc`) are owned by the same patterns but under the
+   same un-enforced review; required hardware-key MFA and required signed
+   commits are org-level settings and are not set. Both of those, and turning
+   code-owner review back on, land when a second maintainer does.
 5. **Tailscale or equivalent bastion** — for direct DB access; no public DB endpoint. ID: **C-L21** (decision: bastion vs read-replica vs CLI proxy).
 6. **Departure runbook** — checklist above formalised. ID: **C-L22**.

@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { checkReleaseAgeExcludes } from "./check-release-age-excludes";
+import { checkReleaseAgeExcludes, findStrayBunfigs } from "./check-release-age-excludes";
 
 const NOW = new Date("2026-08-24T00:00:00Z");
 
@@ -139,4 +139,18 @@ minimumReleaseAgeExcludes = []
 test("minimumReleaseAge exactly at the 3-day floor passes", () => {
   const toml = bunfig("[]", "", "259200");
   expect(checkReleaseAgeExcludes(toml, NOW)).toEqual([]);
+});
+
+test("the root bunfig.toml is not itself a stray", () => {
+  expect(findStrayBunfigs(["bunfig.toml", "package.json", "oxlintrc.json"])).toEqual([]);
+});
+
+test("a bunfig.toml anywhere below the root is a stray", () => {
+  expect(
+    findStrayBunfigs(["bunfig.toml", "cire/api/bunfig.toml", "tools/lab/bunfig.toml"]),
+  ).toEqual(["cire/api/bunfig.toml", "tools/lab/bunfig.toml"]);
+});
+
+test("a file whose name merely ends in bunfig.toml is not a stray", () => {
+  expect(findStrayBunfigs(["bunfig.toml", "docs/not-a-bunfig.toml"])).toEqual([]);
 });

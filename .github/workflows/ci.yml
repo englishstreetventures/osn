@@ -8,6 +8,16 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+# Every job here reads the checkout and reports through the check run the
+# workflow already owns. Nothing writes an issue, a comment, a release or a
+# package, so the default token — which is write-all on a repository that has
+# not been switched over — is far more than the work needs, and a compromised
+# dependency running inside a job inherits whatever the token can do. The
+# deploy, release and secret workflows already declare their own; this one was
+# the gap.
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint & Format
@@ -203,14 +213,37 @@ jobs:
       # ordering (see the comment there). This one stays because `script-tests`
       # is the job that owns everything under scripts/, and a shasum costs
       # nothing.
+      #
+      # One script, two halves. Half 1 — the tree matches its own SHA256SUMS —
+      # always runs. Half 2 needs a base ref to diff against, so it only runs
+      # where there is one: it catches a change to vendored source with no
+      # matching move of the pinned upstream commit in that directory's
+      # README, which is either an edit to code the README says is never
+      # edited or a re-vendor that forgot the pin. Both are invisible to
+      # `shasum -c`, because regenerating the manifest certifies whatever the
+      # tree now holds.
       - name: Verify vendored anti-slop matches its checksums
+        if: github.event_name != 'pull_request'
         run: bash scripts/verify-vendored-anti-slop.sh
 
+      # `actions/checkout` clones at depth 1, so the base commit has to be
+      # fetched before the guard can read it. One `--depth=1` fetch of that
+      # single commit is enough: the guard diffs two trees, which needs no
+      # common ancestor between them.
+      - name: Verify vendored anti-slop matches its checksums and pin
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          bash scripts/verify-vendored-anti-slop.sh "$BASE_SHA"
+
       # The guard's own tests, beside the run that uses it. They exercise it in
-      # throwaway git repos rather than this checkout, and one case exports
-      # GIT_DIR the way git does for every hook — the state that once made the
+      # throwaway git repos rather than this checkout — one case exports
+      # GIT_DIR the way git does for every hook, the state that once made the
       # guard list the whole repo instead of the vendored subtree and blocked
-      # every local commit.
+      # every local commit; others build a base and a head commit to drive the
+      # pin half. They run on every event, unlike the pin half itself.
       - name: Test the vendored anti-slop guard
         run: bash scripts/verify-vendored-anti-slop.test.sh
 
