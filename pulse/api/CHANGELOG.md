@@ -1,5 +1,12 @@
 # @osn/api
 
+## 0.26.18
+
+### Patch Changes
+
+- Updated dependencies [5d8417f]
+  - @zap/db@0.5.10
+
 ## 0.26.17
 
 ### Patch Changes
