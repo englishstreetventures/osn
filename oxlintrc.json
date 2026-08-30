@@ -139,7 +139,16 @@
     // to silence it are both worse: a `type Unparsed = unknown` alias launders
     // the rule while changing nothing, and a real `JsonValue` union converts
     // ~149 lint hits into ~149 call-site assertions feeding the backlog above.
-    "anti-slop/no-unknown-parameters": "off"
+    "anti-slop/no-unknown-parameters": "off",
+
+    // house — rules written here, in tools/oxlint/house, for a bug class this
+    // repo has hit and no published rule covers.
+    //
+    // A guard that narrows to a map's key type must test Object.hasOwn, never
+    // `key in MAP`: `in` walks the prototype chain, so `constructor`,
+    // `toString` and `__proto__` satisfy the guard and the predicate then
+    // claims an inherited Object.prototype member is a real entry.
+    "house/no-in-operator-key-guard": "error"
   },
   "overrides": [
     {
@@ -190,7 +199,10 @@
       }
     }
   ],
-  "jsPlugins": [{ "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" }],
+  "jsPlugins": [
+    { "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" },
+    { "name": "house", "specifier": "./tools/oxlint/house/index.ts" }
+  ],
   "ignorePatterns": [
     "node_modules",
     "dist",

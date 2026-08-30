@@ -1,0 +1,16 @@
+{
+  "name": "@tools/oxlint-house",
+  "private": true,
+  "type": "module",
+  "description": "House Oxlint rules — repo-specific lint rules, kept out of the vendored anti-slop tree",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@oxlint/plugins": "1.78.0",
+    "@shared/typescript-config": "workspace:*",
+    "oxlint": "1.78.0",
+    "typescript": "^6.0.3"
+  }
+}

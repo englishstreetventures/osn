@@ -665,6 +665,15 @@
         "vitest": "^4.1.10",
       },
     },
+    "tools/oxlint/house": {
+      "name": "@tools/oxlint-house",
+      "devDependencies": {
+        "@oxlint/plugins": "1.78.0",
+        "@shared/typescript-config": "workspace:*",
+        "oxlint": "1.78.0",
+        "typescript": "^6.0.3",
+      },
+    },
     "zap/api": {
       "name": "@zap/api",
       "version": "0.8.22",
@@ -1552,6 +1561,8 @@
     "@tokenizer/token": ["@tokenizer/token@0.3.0", "", {}, "sha512-OvjF+z51L3ov0OyAU0duzsYuvO01PH7x4t6DJx+guahgTnBHkhJdG7soQeTSFLWN3efnHyibZ4Z8l2EuWwJN3A=="],
 
     "@tools/lab": ["@tools/lab@workspace:tools/lab"],
+
+    "@tools/oxlint-house": ["@tools/oxlint-house@workspace:tools/oxlint/house"],
 
     "@turbo/darwin-64": ["@turbo/darwin-64@2.10.7", "", { "os": "darwin", "cpu": "x64" }, "sha512-/c9cSBRermWDv85oufLhoH6XRLOVbvzJLRd+WLyfJCP+i0HFLQj4PVNDrHcY17/ve5l8X0Oua4bJBqJUgJPnZA=="],
 

@@ -151,9 +151,11 @@ Both limits belong to the technique, not the helper.
 
 ## Gates
 
-`tools/lab` is a workspace (`tools/lab` in the root `workspaces` array, not
-`tools/*` — `tools/oxlint` holds vendored plugin source and no package.json).
+`tools/lab` is a workspace, and the root `workspaces` array names each one in
+`tools/` by path (`tools/lab`, `tools/oxlint/house`) rather than globbing
+`tools/*`. The glob would sweep in `tools/oxlint/anti-slop`, which is vendored
+upstream source with no package.json of its own.
 `scripts/validate-changesets.sh` scans `tools/` alongside the product directories
-so a changeset naming `@tools/lab` validates; `fmt` and `fmt:check` list
-`tools/lab` explicitly, so the vendored `tools/oxlint/anti-slop` is never
+so a changeset naming `@tools/lab` validates; `fmt` and `fmt:check` list the two
+workspace paths explicitly, for the same reason, so the vendored tree is never
 reformatted.

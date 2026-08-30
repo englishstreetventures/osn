@@ -6,7 +6,7 @@ related:
   - "[[backend-patterns]]"
   - "[[schema-layers]]"
   - "[[commands]]"
-last-reviewed: 2026-08-28
+last-reviewed: 2026-08-30
 ---
 
 # Testing Patterns
@@ -177,6 +177,57 @@ bun run --cwd zap/api test:d1
 ```
 
 Run serially. Concurrent Miniflare workerd instances contend and fail spuriously, which is why the root script pins `--concurrency=1`. Both `ci.yml` and `deploy.yml` run this lane; before 2026-08 neither did, and zap's test sat failing on a stale fixture for as long as it took someone to run it by hand.
+
+## Testing an oxlint rule
+
+`tools/oxlint/house` holds the repo's own oxlint rules, and its tests are the odd
+one out: they run under `bun test`, not vitest, and they lint fixtures instead of
+calling a function.
+
+`@oxlint/plugins` ships no `RuleTester` — the package is four files and exports
+`definePlugin`, `defineRule` and `eslintCompatPlugin`, nothing else. So a rule
+test writes its fixtures to a temp directory along with a config that enables
+that one rule, runs the real `oxlint` binary over them, and asserts on the JSON:
+
+```jsonc
+{
+  "diagnostics": [
+    {
+      "message": "…",
+      "code": "house(no-in-operator-key-guard)",
+      "severity": "error",
+      "filename": "/abs/path/bad.ts",
+      "labels": [{ "span": { "offset": 118, "length": 12, "line": 4, "column": 9 } }]
+    }
+  ]
+}
+```
+
+Four things about that output are worth knowing before you write assertions:
+
+- **`code` is `plugin(rule)`**, not `plugin/rule` — the config key and the
+  diagnostic code are spelled differently.
+- **`filename` is absolute**, so match on the basename.
+- **oxlint exits non-zero when it finds anything.** Read stdout and ignore the
+  exit code; treating it as failure makes every red fixture look like a crashed
+  run.
+- **The plugin `specifier` in the temp config must be an absolute path.** The
+  `cwd` may be the temp directory: `@oxlint/plugins` resolves from the plugin
+  file's own location, not the config's.
+
+Turning the whole `correctness` category off in that config (`"categories":
+{"correctness": "off"}`, `"plugins": []`) is what keeps a fixture's other
+problems out of the result, so the assertion is about the rule under test.
+
+Fixtures earn their place by pinning a decision. `no-in-operator-key-guard`
+matches the parameter a type predicate narrows, not the literal
+`is keyof typeof MAP` syntax, so it carries a fixture for the aliased form the
+repo actually contains — and negative fixtures for `#brand in value` and for a
+string-literal discriminant, both of which are also `in` inside a predicate and
+both of which must stay silent.
+
+The rule itself is wired into `oxlintrc.json` as a second `jsPlugins` entry, so
+`bun run lint` runs it over the whole repo like any published rule.
 
 ## Running Tests
 

@@ -1,0 +1,14 @@
+{
+  "extends": "@shared/typescript-config/base.json",
+  "compilerOptions": {
+    // toSorted() in the tests; ES2022 predates it.
+    "lib": ["ES2023"],
+    "types": ["bun-types"],
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "declarationMap": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": ["index.ts", "rules", "tests"]
+}
