@@ -109,6 +109,24 @@ describe("recommendations routes", () => {
     expect(res.headers.get("cache-control")).toBe("private, no-store");
   });
 
+  // osn-tracker#311 (timestamp half): a list this endpoint never caches or
+  // stores otherwise gives the client no way to say how fresh it is.
+  it("GET /recommendations/connections returns a generatedAt timestamp", async () => {
+    const alice = await registerAndGetToken("a@e.com", "alice");
+    const before = new Date();
+    const res = await recsApp.handle(
+      new Request("http://localhost/recommendations/connections", {
+        headers: { Authorization: `Bearer ${alice.token}` },
+      }),
+    );
+    const after = new Date();
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as { generatedAt: string };
+    const generatedAt = new Date(json.generatedAt);
+    expect(generatedAt.getTime()).toBeGreaterThanOrEqual(before.getTime());
+    expect(generatedAt.getTime()).toBeLessThanOrEqual(after.getTime());
+  });
+
   it("returns FOF suggestions with mutual counts", async () => {
     const alice = await registerAndGetToken("a@e.com", "alice");
     const bob = await registerAndGetToken("b@e.com", "bob");

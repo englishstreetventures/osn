@@ -1,5 +1,5 @@
 import { it, expect, describe } from "@effect/vitest";
-import { accounts, organisations } from "@osn/db/schema";
+import { accounts, organisationMembers, organisations, users } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { eq, sql } from "drizzle-orm";
 import { Effect } from "effect";
@@ -448,6 +448,151 @@ describe("suggestConnections", () => {
       const result = yield* recs.suggestConnections(alice.id);
       expect(result).toEqual([]);
     }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // osn-tracker#574: the co-member fan-out used to be one query bounded by
+  // MAX_ORG_COMEMBER_ROWS across ALL the caller's organisations, ordered
+  // `(organisation_id, profile_id)`. Whichever organisation the caller
+  // belonged to happened to sort first absorbed the whole budget, and every
+  // other organisation contributed nothing — a fixed draw per caller, since
+  // organisation ids don't change. This seeds exactly that shape: one
+  // organisation alone big enough to have exhausted the old global budget,
+  // and two small ones that used to be starved by it.
+  it.effect(
+    "every organisation the caller belongs to contributes candidates, not just the biggest one",
+    () =>
+      Effect.gen(function* () {
+        const alice = yield* auth.registerProfile("a@e.com", "alice");
+        const smallOneMember = yield* auth.registerProfile("s1@e.com", "smallone");
+        const smallTwoMember = yield* auth.registerProfile("s2@e.com", "smalltwo");
+
+        const { db } = yield* Db;
+        const now = new Date();
+
+        // The three organisations and alice's (+ the two real members')
+        // memberships are inserted directly, bypassing the org service, so
+        // their ids are controlled rather than random. `org_0_big` sorts
+        // before the other two — the exact shape that used to matter: under
+        // the old single global `ORDER BY organisation_id LIMIT
+        // MAX_ORG_COMEMBER_ROWS`, whichever organisation sorted first
+        // absorbed the budget before the query ever reached the others. With
+        // 2 001 members, `org_0_big` alone exceeds the entire 2 000-row
+        // budget, so the old query would return zero rows for `org_1_small`
+        // and `org_2_small` regardless of how few members they have.
+        yield* Effect.promise(async () => {
+          await db.insert(organisations).values([
+            {
+              id: "org_0_big",
+              handle: "big",
+              name: "Big Org",
+              ownerId: alice.id,
+              createdAt: now,
+              updatedAt: now,
+            },
+            {
+              id: "org_1_small",
+              handle: "small1",
+              name: "Small One",
+              ownerId: alice.id,
+              createdAt: now,
+              updatedAt: now,
+            },
+            {
+              id: "org_2_small",
+              handle: "small2",
+              name: "Small Two",
+              ownerId: alice.id,
+              createdAt: now,
+              updatedAt: now,
+            },
+          ]);
+          await db.insert(organisationMembers).values([
+            {
+              id: "orgm_alice_big",
+              organisationId: "org_0_big",
+              profileId: alice.id,
+              role: "admin",
+              createdAt: now,
+            },
+            {
+              id: "orgm_alice_s1",
+              organisationId: "org_1_small",
+              profileId: alice.id,
+              role: "admin",
+              createdAt: now,
+            },
+            {
+              id: "orgm_alice_s2",
+              organisationId: "org_2_small",
+              profileId: alice.id,
+              role: "admin",
+              createdAt: now,
+            },
+            {
+              id: "orgm_s1_member",
+              organisationId: "org_1_small",
+              profileId: smallOneMember.id,
+              role: "member",
+              createdAt: now,
+            },
+            {
+              id: "orgm_s2_member",
+              organisationId: "org_2_small",
+              profileId: smallTwoMember.id,
+              role: "member",
+              createdAt: now,
+            },
+          ]);
+        });
+
+        // Bulk-inserted directly too: 2 001 rows is MAX_ORG_COMEMBER_ROWS
+        // (2 000) + 1, more than the entire old global budget on its own.
+        // Ids are chosen to sort AFTER any handle the auth service generates
+        // (`usr_` + lowercase hex) so they never crowd the two real members
+        // above out of the final ranking's id tiebreak — this test is about
+        // the fan-out reading from every organisation, not about which
+        // candidate wins ties.
+        const FILLER_COUNT = 2_001;
+        const fillerAccounts = Array.from({ length: FILLER_COUNT }, (_, i) => ({
+          id: `acc_zzz_filler_${String(i).padStart(5, "0")}`,
+          email: `filler${i}@example.com`,
+          passkeyUserId: crypto.randomUUID(),
+          createdAt: now,
+          updatedAt: now,
+        }));
+        const fillerUsers = fillerAccounts.map((a, i) => ({
+          id: `usr_zzz_filler_${String(i).padStart(5, "0")}`,
+          accountId: a.id,
+          handle: `zzzfiller${i}`,
+          createdAt: now,
+          updatedAt: now,
+        }));
+        const fillerMemberships = fillerUsers.map((u, i) => ({
+          id: `orgm_zzz_filler_${String(i).padStart(5, "0")}`,
+          organisationId: "org_0_big",
+          profileId: u.id,
+          role: "member" as const,
+          createdAt: now,
+        }));
+        const CHUNK = 200;
+        yield* Effect.promise(async () => {
+          for (let i = 0; i < FILLER_COUNT; i += CHUNK) {
+            // eslint-disable-next-line no-await-in-loop -- sequential bulk
+            // seeding chunks; each chunk depends on nothing but must land
+            // before the assertions below run.
+            await db.insert(accounts).values(fillerAccounts.slice(i, i + CHUNK));
+            // eslint-disable-next-line no-await-in-loop
+            await db.insert(users).values(fillerUsers.slice(i, i + CHUNK));
+            // eslint-disable-next-line no-await-in-loop
+            await db.insert(organisationMembers).values(fillerMemberships.slice(i, i + CHUNK));
+          }
+        });
+
+        const result = yield* recs.suggestConnections(alice.id, 50);
+        const handles = new Set(result.map((s) => s.handle));
+        expect(handles.has("smallone")).toBe(true);
+        expect(handles.has("smalltwo")).toBe(true);
+      }).pipe(Effect.provide(createTestLayer())),
   );
 });
 

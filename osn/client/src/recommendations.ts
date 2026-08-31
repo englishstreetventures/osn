@@ -58,7 +58,7 @@ export interface RecommendationClient {
   suggestConnections(
     token: string,
     options?: { limit?: number },
-  ): Promise<{ suggestions: Suggestion[] }>;
+  ): Promise<{ suggestions: Suggestion[]; generatedAt: string }>;
   /**
    * Search people and organisations for autocomplete. A query with no word
    * characters left after trimming and stripping a leading `@` comes back as
@@ -93,7 +93,10 @@ export function createRecommendationClient(
     suggestConnections: async (token, options) => {
       const limit = options?.limit;
       const qs = limit !== undefined ? `?limit=${encodeURIComponent(String(limit))}` : "";
-      return authGet<{ suggestions: Suggestion[] }>(`${base}/connections${qs}`, token);
+      return authGet<{ suggestions: Suggestion[]; generatedAt: string }>(
+        `${base}/connections${qs}`,
+        token,
+      );
     },
 
     search: async (token, query, options) => {

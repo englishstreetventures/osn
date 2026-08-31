@@ -147,7 +147,12 @@ export function createRecommendationRoutes(
             const suggestions = await run(
               recommendations.suggestConnections(caller.profileId, limit),
             );
-            return { suggestions };
+            // The list itself is never cached or stored (see the header
+            // above), but the caller has no other way to tell how fresh it
+            // is — this is that timestamp, set at request time, not read
+            // from anywhere stored (osn-tracker#311; the cache half of that
+            // issue, #588, is a separate change pending a staleness call).
+            return { suggestions, generatedAt: new Date().toISOString() };
           } catch {
             set.status = 500;
             return { error: "Request failed" };
@@ -162,7 +167,11 @@ export function createRecommendationRoutes(
           response: {
             // An empty list is the normal answer for a new account with no
             // connections and no organisation — not a 404.
-            200: t.Object({ suggestions: t.Array(suggestionSummary) }),
+            200: t.Object({
+              suggestions: t.Array(suggestionSummary),
+              /** When this list was generated — set at request time, never cached. */
+              generatedAt: t.String({ format: "date-time" }),
+            }),
             401: errorResponse,
             429: errorResponse,
             // The fan-out is several queries deep; anything it throws is

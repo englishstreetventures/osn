@@ -18,7 +18,7 @@ import {
   tokensPrefixName,
 } from "@shared/db-utils/search";
 import { and, asc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
-import { alias, type SQLiteColumn } from "drizzle-orm/sqlite-core";
+import { alias, unionAll, type SQLiteColumn } from "drizzle-orm/sqlite-core";
 import { Data, Effect } from "effect";
 
 // ---------------------------------------------------------------------------
@@ -69,14 +69,43 @@ const MAX_FOF_FANOUT_ROWS = 10_000;
  * defence as MAX_FOF_FANOUT_ROWS: membership of one very large organisation
  * must not turn a suggestion request into an unbounded read.
  *
- * It is a budget for the whole fan-out, not per organisation, and the rows
- * arrive ordered by `(organisation_id, profile_id)` — so a caller in one large
- * organisation fills the budget from that organisation alone and never sees a
- * co-member from any other. Organisation ids are random, so which one wins is
- * a fixed draw per caller. Tracked as its own finding; the fix is a
- * per-organisation budget rather than a bigger global one.
+ * This used to be a budget for the whole fan-out, filled by one query ordered
+ * `(organisation_id, profile_id)` — so a caller in one large organisation
+ * filled the budget from that organisation alone and never saw a co-member
+ * from any other, and a caller in fifty organisations of 250 members each saw
+ * co-members from about eight of them, every time, because organisation ids
+ * are random and the draw is fixed per caller (osn-tracker#574). It is now
+ * split evenly across the caller's organisations — see the query that reads
+ * it, below — so this constant is the *total* budget and each organisation's
+ * actual share is `MAX_ORG_COMEMBER_ROWS / (number of the caller's
+ * organisations)`.
  */
 const MAX_ORG_COMEMBER_ROWS = 2_000;
+
+/**
+ * Arms per `UNION ALL` batch in the co-member fan-out query, below
+ * (osn-tracker#589, P-C1).
+ *
+ * D1 does not run on `bun:sqlite`, which is what this repo's local/test
+ * engine uses and where a compound `SELECT` may carry up to SQLite's own
+ * default of 500 terms. D1 runs on workerd's embedded SQLite, and workerd
+ * calls `sqlite3_limit(db, SQLITE_LIMIT_COMPOUND_SELECT, 5)` when it opens a
+ * connection (cloudflare/workerd#795, landed in #796) — a deliberate,
+ * compiled-in ceiling, not a measured-under-load estimate. Confirmed three
+ * ways rather than taken on any one of them: bisected against this repo's
+ * pinned Miniflare version (a 5-arm `UNION ALL` succeeds, 6 throws
+ * `D1_ERROR: too many terms in compound SELECT`); read directly out of
+ * workerd's own `src/workerd/api/tests/sql-test.js` at HEAD, which asserts
+ * that exact 5/6 boundary; and read out of the PR that set the limit.
+ * Cloudflare's D1 limits page documents no compound-select limit at all, so
+ * there is no published figure to reconcile this against — the workerd
+ * source is the ground truth, and Miniflare reproduces it exactly.
+ *
+ * No margin taken below 5: unlike a heuristic threshold, this number cannot
+ * drift request to request, so shaving it further would only shrink the
+ * common single-query case for no safety gained.
+ */
+const MAX_ORG_COMEMBER_ARMS_PER_QUERY = 5;
 
 /**
  * The organisation label on a suggestion card, or `null`.
@@ -515,39 +544,138 @@ export function createRecommendationService() {
               }),
           myOrgIds.length === 0
             ? Effect.succeed([] as { profileId: string; organisationId: string }[])
-            : Effect.tryPromise({
-                // Ids only. This reads up to MAX_ORG_COMEMBER_ROWS rows and at
+            : Effect.gen(function* () {
+                // Ids only. This reads at most MAX_ORG_COMEMBER_ROWS rows and at
                 // most `safeLimit` candidates survive ranking, so joining
                 // `organisations` here re-serialised a handle and a name for
                 // every row to throw away roughly forty out of forty-one of
                 // them. The surviving organisations are hydrated in step 5,
                 // alongside the profiles, from a set that is already small.
                 //
-                // The ORDER BY pins what was left to the planner. Without
-                // one the row order under the LIMIT is unspecified — in
-                // practice SQLite already walked `org_members_pair_idx` in
-                // this order, so `EXPLAIN QUERY PLAN` is identical either way
-                // and no behaviour changes today. What it buys is that the
-                // slice stays the same slice if the planner ever chooses
-                // differently, which matters because org-only candidates all
-                // tie at `mutualCount: 0` and are separated only by the id
-                // tiebreak in step 4. It costs nothing: the index is UNIQUE
-                // on exactly (organisation_id, profile_id), so this is its own
-                // order and adds no sort.
+                // Batched `UNION ALL`: one statement per group of up to
+                // MAX_ORG_COMEMBER_ARMS_PER_QUERY (5) of the caller's
+                // organisations, the batches run concurrently and merged here
+                // in application code (osn-tracker#574, reopened as
+                // osn-tracker#589 / P-C1 — see that constant's comment for why
+                // 5, not the 50 this originally unioned in one statement). The
+                // query both versions replaced gave the whole budget to one
+                // global `ORDER BY (organisation_id, profile_id) LIMIT
+                // MAX_ORG_COMEMBER_ROWS` — see the note on that constant for
+                // why that starved every organisation but the lowest-id one.
+                // Splitting the budget per organisation, with its own `ORDER
+                // BY profile_id LIMIT <share>`, is what fixes it: every
+                // organisation the caller belongs to contributes candidates,
+                // not just whichever one sorts first — batching changes how
+                // many round trips that takes, not which organisations
+                // contribute.
                 //
-                // What the ordering does NOT fix is which organisations the
-                // cap reaches — see the note on MAX_ORG_COMEMBER_ROWS.
-                try: () =>
-                  db
-                    .select({
-                      profileId: organisationMembers.profileId,
-                      organisationId: organisationMembers.organisationId,
-                    })
-                    .from(organisationMembers)
-                    .where(inArray(organisationMembers.organisationId, myOrgIds))
-                    .orderBy(organisationMembers.organisationId, organisationMembers.profileId)
-                    .limit(MAX_ORG_COMEMBER_ROWS),
-                catch: (cause) => new DatabaseError({ cause }),
+                // The issue that reported the starvation proposed a window
+                // function (`ROW_NUMBER() OVER (PARTITION BY organisation_id
+                // ORDER BY profile_id)`, filtered to `rn <= share`) instead.
+                // That is still the wrong fix: a window function's `PARTITION
+                // BY` filters *after* the window scan, so it still reads
+                // every membership row of every organisation the caller
+                // belongs to — exactly the unbounded read
+                // MAX_ORG_COMEMBER_ROWS exists to prevent. `json_each()` was
+                // also considered, for a single statement carrying the whole
+                // organisation list as one bound JSON array — D1 does expose
+                // that function, confirmed against Miniflare, but it does
+                // not fit this shape: giving each organisation its own
+                // `ORDER BY … LIMIT <share>` needs a per-row-correlated
+                // subquery in the `FROM` clause, and this SQLite build has no
+                // implicit `LATERAL` (`no such column: je.value` — confirmed
+                // against Miniflare rather than assumed). It stays useful
+                // elsewhere for a flat `IN`-style list past the
+                // 100-bound-parameter cap; it does not replace a per-group
+                // `LIMIT`.
+                //
+                // Measured on real (Miniflare/workerd) D1, three organisations
+                // of 600/300/100 members, cap 150, share 50: the pre-#574
+                // global query read 151 rows for 150 results, and the window
+                // function read 2,860 for the same 150. Both the single-
+                // statement `UNION ALL` this batching replaces and the
+                // batched form read exactly 150 — batching changes round-trip
+                // count, not rows read. A single organisation with 50,000
+                // members would still cost the window function 50,000+ rows
+                // read on every request, forever — the same failure this
+                // constant was added to stop.
+                //
+                // The share is MAX_ORG_COMEMBER_ROWS divided evenly by the
+                // caller's actual organisation count, not by the 50-org cap or
+                // the batch size — a caller in one organisation gets the whole
+                // budget (same as the query this replaces did), a caller in
+                // three splits it three ways, and a caller at the
+                // 50-organisation cap gets the same 40-per-organisation worst
+                // case a fixed division would have given throughout. Integer
+                // division: the remainder — at most `myOrgIds.length - 1` rows
+                // of budget — goes to no organisation. Handing it to whichever
+                // organisation sorts first would reintroduce, in miniature,
+                // the exact bias this change exists to remove.
+                //
+                // Each arm is wrapped as a subquery (`.as(...)` then an outer
+                // `.select().from(...)`) because SQLite's compound-select
+                // grammar does not give a non-final arm of a UNION its own
+                // ORDER BY/LIMIT — only a derived-table subquery gets one.
+                // Confirmed against a real SQLite engine: the unwrapped form
+                // (`... LIMIT ? UNION ALL SELECT ...`) is a syntax error
+                // ("ORDER BY clause should come after UNION ALL not before"),
+                // not merely unidiomatic.
+                //
+                // `myOrgIds` is sorted once, up front, and cut into batches in
+                // that order, so the merged result reproduces the old query's
+                // `(organisation_id, profile_id)` order: batch 0's rows are
+                // fully emitted before batch 1's, arm N's rows before arm
+                // N+1's within a batch, and each arm is itself ordered by
+                // `profile_id`. `Effect.all` returns results in input order
+                // regardless of which batch's query resolves first, so that
+                // order survives the concurrency below. That keeps "first
+                // organisation wins the label" in step 3 deterministic across
+                // requests, same as the comment there has always promised.
+                const orgComemberShare = Math.floor(MAX_ORG_COMEMBER_ROWS / myOrgIds.length);
+                const sortedOrgIds = [...myOrgIds].toSorted();
+                const batches: string[][] = [];
+                for (let i = 0; i < sortedOrgIds.length; i += MAX_ORG_COMEMBER_ARMS_PER_QUERY) {
+                  batches.push(sortedOrgIds.slice(i, i + MAX_ORG_COMEMBER_ARMS_PER_QUERY));
+                }
+
+                const batchResults = yield* Effect.all(
+                  batches.map((batchOrgIds) =>
+                    Effect.tryPromise({
+                      try: () => {
+                        const arms = batchOrgIds.map((organisationId, index) => {
+                          const capped = db
+                            .select({
+                              profileId: organisationMembers.profileId,
+                              organisationId: organisationMembers.organisationId,
+                            })
+                            .from(organisationMembers)
+                            .where(eq(organisationMembers.organisationId, organisationId))
+                            .orderBy(asc(organisationMembers.profileId))
+                            .limit(orgComemberShare)
+                            .as(`org_share_${index}`);
+                          return db
+                            .select({
+                              profileId: capped.profileId,
+                              organisationId: capped.organisationId,
+                            })
+                            .from(capped);
+                        });
+                        return arms.length === 1
+                          ? arms[0]!
+                          : unionAll(arms[0]!, arms[1]!, ...arms.slice(2));
+                      },
+                      catch: (cause) => new DatabaseError({ cause }),
+                    }),
+                  ),
+                  // Bounded, not "unbounded": at the 50-organisation cap this
+                  // is 10 batches, and the same care that caps one query's
+                  // arms at 5 caps how many of those queries run at once,
+                  // rather than opening 10 concurrent D1 round trips for a
+                  // single request.
+                  { concurrency: MAX_ORG_COMEMBER_ARMS_PER_QUERY },
+                );
+
+                return batchResults.flat();
               }),
         ],
         { concurrency: "unbounded" },

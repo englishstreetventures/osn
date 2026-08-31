@@ -17,7 +17,7 @@ related:
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-08-31
 ---
 
 # Social Graph
@@ -128,17 +128,19 @@ The `:handle` route parameter uses TypeBox `HandleParam` with regex + length bou
 2. Build the exclusion set: self, every counterpart on an existing edge, and everyone blocked either way. Pending edges count, so a request already in flight never resurfaces as a suggestion whose Connect button would fail with "Connection already exists".
 3. Fan out twice, each branch skipped when its seed set is empty:
    - **Friends-of-friends** — accepted connections of the caller's first 500 accepted connections, capped at **10 000 rows**.
-   - **Organisation co-members** — members of the caller's organisations, capped at **2 000 rows**.
+   - **Organisation co-members** — members of the caller's organisations, capped at **2 000 rows total**, split evenly across the caller's organisations (`MAX_ORG_COMEMBER_ROWS` divided by how many organisations the caller belongs to) so one organisation can no longer absorb the whole budget and starve the rest (osn-tracker#574).
 4. Tally `mutualCount` and shared organisations per candidate in JS with an O(1) `Set` on the caller's direct connections.
 5. Rank by mutual count desc, then shared-organisation count desc, then profile ID (stable ties). Slice to `limit` (bounded `[1, 50]` at the HTTP boundary).
 6. Hydrate the top N via `users ⋈ accounts WHERE deleted_at IS NULL`, so a tombstoned account is never suggested.
 
 Each suggestion carries a `reason` (`mutual_connections` | `shared_organisation`) naming the strongest signal, plus `sharedOrganisation` as card context when there is one. `reason` is what the Discover card turns into "3 mutual connections" or "Also in Acme Inc".
 
+`GET /recommendations/connections` also returns `generatedAt` (ISO 8601, set at request time) alongside `suggestions`, so a client can tell how fresh a list is (osn-tracker#311). The list itself is still never cached or stored server-side — a short-lived cache is the separate, not-yet-decided osn-tracker#588.
+
 Current shape prioritises correctness + bounded cost over peak throughput. Next steps are open issues in `xchromo/osn`:
 
 - **P-W6** — short-lived per-caller cache (5-15 min) so a Discover-page visit doesn't re-run the pipeline.
-- **P-W7** — push aggregation to SQL (`GROUP BY … ORDER BY … LIMIT`) and add compound indexes `connections(status, requester_id)` / `connections(status, addressee_id)`.
+- **P-W7** — push aggregation to SQL (`GROUP BY … ORDER BY … LIMIT`) is still open. This line used to also propose two compound indexes, `connections(status, requester_id)` / `connections(status, addressee_id)` — **don't add them.** Measured on real D1: the existing `connections_requester_idx` / `connections_addressee_idx` already give a MULTI-INDEX OR, and the proposed indexes cut rows_read only 120 → 112 (about 7%) — and on a fresh un-`ANALYZE`d database the planner instead picked `(status, addressee_id)` and scanned every accepted edge, a strict regression. `status` has two values; it is the worst possible leading column. The measurements are recorded on osn-tracker#312 and #278. If a real need is ever proven, the right shape is `(requester_id, status, addressee_id)` — the selective column first, not `status`.
 
 Privacy: the endpoint returns `mutualCount` alongside each suggestion. This leaks graph-inference signal — see `S-L4` in `xchromo/osn-tracker` for the bucketing follow-up.
 

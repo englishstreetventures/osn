@@ -9447,6 +9447,10 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "generatedAt": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
                     "suggestions": {
                       "items": {
                         "properties": {
@@ -9508,7 +9512,8 @@
                     }
                   },
                   "required": [
-                    "suggestions"
+                    "suggestions",
+                    "generatedAt"
                   ],
                   "type": "object"
                 }
