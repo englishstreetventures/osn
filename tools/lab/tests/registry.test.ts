@@ -1,10 +1,11 @@
 /**
  * The lab's pure helpers.
  *
- * Stories themselves carry no gate — nothing in CI renders one, by design. But
- * `titleFromPath` names every row in the sidebar and `inferControl` picks every
- * editor in the args panel, and both fail quietly: a wrong title still renders,
- * a wrong control still accepts input. Those are worth pinning.
+ * Stories are gated next door, in `stories.test.tsx`, which imports every one
+ * of them and renders the ones that can run headless. This file covers the two
+ * helpers that fail quietly instead: `titleFromPath` names every row in the
+ * sidebar and `inferControl` picks every editor in the args panel, and a wrong
+ * title still renders while a wrong control still accepts input.
  */
 import { describe, expect, it } from "vitest";
 

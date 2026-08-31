@@ -12,7 +12,10 @@ import {
 import { ThreeCanvas } from "../lab/three.tsx";
 import type { Story, StoryArgs } from "../lab/types.ts";
 
-export const meta = { title: "lab/three", layout: "fullscreen" as const };
+// `headless: false` — every story here builds a `WebGLRenderer`, which needs a
+// GPU context no headless DOM provides. The smoke test imports the file and
+// stops there.
+export const meta = { title: "lab/three", layout: "fullscreen" as const, headless: false };
 
 interface SpinArgs extends StoryArgs {
   figure: "cube" | "knot";

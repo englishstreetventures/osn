@@ -55,6 +55,16 @@ export interface StoryMeta {
   /** Overrides the path-derived sidebar title, e.g. `"osn/ui/Button"`. */
   title?: string;
   layout?: StoryLayout;
+  /**
+   * Set `false` when the file cannot render outside a real browser — a WebGL
+   * canvas is the case that exists today. The smoke test then stops at
+   * importing the file instead of rendering its stories.
+   *
+   * Defaults to `true`, so a new story is gated unless its author says why it
+   * cannot be. Opting out is a statement about the story's dependencies, not
+   * about how finished it is.
+   */
+  headless?: boolean;
 }
 
 /**
@@ -76,4 +86,6 @@ export interface StoryEntry {
   file: string;
   story: Story;
   layout: StoryLayout;
+  /** False when the story needs a real browser — see `StoryMeta.headless`. */
+  headless: boolean;
 }

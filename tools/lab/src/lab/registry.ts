@@ -100,6 +100,7 @@ export async function loadRegistry(): Promise<Registry> {
           file: path,
           story,
           layout: (story.layout ?? meta.layout ?? "centered") as StoryLayout,
+          headless: meta.headless !== false,
         });
       }
     }),

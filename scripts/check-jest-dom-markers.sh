@@ -8,12 +8,11 @@
 # gate stays green and every Solid package pays for the matchers again.
 #
 # A grep, not a resolver: this job installs nothing, so the config is text. It
-# matches the import statement rather than the plugin's bare name, because
-# `tools/lab/vitest.config.ts` explains at length why it leaves the plugin out
-# and would otherwise be checked for a marker it must not have. Naming jest-dom
-# in a comment and nowhere else would still satisfy the second grep, which is
-# the price of not running a bundler here. It catches the deletion, which is the
-# way this actually regresses.
+# matches the import statement rather than the plugin's bare name, so a config
+# that only mentions the plugin in prose is not asked for a marker it does not
+# need. Naming jest-dom in a comment and nowhere else would still satisfy the
+# second grep, which is the price of not running a bundler here. It catches the
+# deletion, which is the way this actually regresses.
 set -euo pipefail
 
 root="${1:-$(git rev-parse --show-toplevel)}"

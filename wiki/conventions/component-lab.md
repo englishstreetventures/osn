@@ -7,7 +7,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-08-28
+last-reviewed: 2026-08-31
 ---
 
 # Component Lab
@@ -119,21 +119,45 @@ import into the lab depends on this.
 `export const Thing = () => <div />` work with no config. It also means an
 exported helper shows up in the sidebar — keep helpers unexported.
 
-**Stories are not tests and carry no gate.** Nothing in CI renders a story.
-`check` typechecks the lab, `lint` and `fmt:check` cover it. A component whose
-behaviour matters still needs a real test — see [[testing-patterns]].
+**Stories are not tests, but they do carry a gate.** `tools/lab/tests/stories.test.tsx`
+imports every file the registry globs match and renders every story that can run
+headless, asserting only that nothing throws and `loadRegistry()` reports no
+failures. It says nothing about how a story looks — that is the thing a bench
+exists for and the thing no assertion can reach. A component whose *behaviour*
+matters still needs a real test — see [[testing-patterns]].
 
-The `test` script that does exist covers two pure helpers, `titleFromPath` and
+The gate exists because a bench that has silently stopped mounting is worse than
+no bench: you reach for it precisely when you are changing what it exercises,
+and a story that throws on import becomes a `LoadFailure` row in the sidebar
+rather than a red build. `@shared/toast` and `@shared/sortable` are the case
+that made it necessary — their co-located benches are the only coverage of drag
+feel, the shift/settle animation and toast enter/leave.
+
+**A story that cannot run headless opts out**, in its own `meta`:
+
+```tsx
+export const meta = { layout: "fullscreen" as const, headless: false };
+```
+
+The smoke test then imports the file and stops there. `headless` defaults to
+`true`, so a new story is gated unless its author says why it cannot be, and
+opting out is a statement about the story's dependencies — a `WebGLRenderer`
+needs a GPU context no headless DOM provides — not about how finished it is.
+Both three.js stories in `src/stories/` carry it.
+
+The `test` script also covers two pure helpers, `titleFromPath` and
 `inferControl`, because both fail quietly: a wrong title still renders a row, a
-wrong control still accepts input. Its config leaves out `vite-plugin-solid`,
-which every other Solid package here uses. The plugin adds a
-`@testing-library/jest-dom` setup file to any test run and the run dies without
-that dependency, which a tool testing two pure functions should not carry. Every
-other Solid package suppresses that injection with a marker in `setupFiles`
-instead — see [[testing-patterns]] — but a lab that imports no `.tsx` file has
-nothing to gain from the plugin either way. The price is that no test here can
-import a `.tsx` file, and it is why `inferControl` sits in `infer-control.ts`
-rather than beside the panel it feeds.
+wrong control still accepts input.
+
+Rendering `.tsx` needs `vite-plugin-solid`, which every other Solid package here
+uses and which the lab's config used to leave out. The plugin prepends a
+`@testing-library/jest-dom` setup file to any test run unless an existing
+`setupFiles` entry already has `jest-dom` in its path; `shared/test-config/no-jest-dom.ts`
+is that entry — the same marker every other Solid package uses, see
+[[testing-patterns]]. The DOM itself is per-file: the config's `environment`
+stays `node`, and `stories.test.tsx` asks for `happy-dom` with a first-line
+`// @vitest-environment happy-dom` pragma, so the pure-helper tests keep paying
+nothing for a DOM they never touch.
 
 ## HTML in canvas
 

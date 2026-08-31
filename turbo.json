@@ -26,19 +26,43 @@
     "lint": {},
     "fmt": {},
     "check": {},
+    // `inputs` below is *subtractive*, not an allowlist. Turborepo's default is
+    // "every non-gitignored file in the package", and naming any input replaces
+    // that default outright — so a hand-written list is a promise that nothing
+    // outside it can change a test result, and a wrong promise shows up as a
+    // stale green run rather than a loud failure. Three packages keep tests
+    // outside `src/` and `tests/` (`cire/api/scripts`, `cire/db/seed`,
+    // `pulse/landing/functions`), and `osn/db`, `pulse/db` and `zap/db` read
+    // `drizzle/*.sql` off disk while testing, so an allowlist missing either
+    // would report a migration change as already-passing. `$TURBO_DEFAULT$`
+    // keeps the default set and subtracts from it, which puts the risk the
+    // other way round: the worst a wrong exclusion does is re-run a suite that
+    // did not need re-running.
     "test": {
       "dependsOn": [
         "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
       ]
     },
     "test:d1": {
       "dependsOn": [
         "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
       ]
     },
     "test:browser": {
       "dependsOn": [
         "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "!**/*.md"
       ],
       "passThroughEnv": [
         "VITEST_BROWSER_EXECUTABLE_PATH",

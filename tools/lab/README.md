@@ -99,6 +99,21 @@ export const meta = { title: "osn/ui/Button", layout: "centered" as const };
 `fullscreen` (no padding, for canvases). Without `title`, the sidebar name comes
 from the file path.
 
+`meta.headless` is the one flag with a gate behind it. `tests/stories.test.tsx`
+imports every story file and renders every story, so a bench that has quietly
+stopped mounting fails the build instead of showing up as a sidebar error row
+nobody sees. Set `headless: false` when the file cannot render outside a real
+browser — a `WebGLRenderer` needs a GPU context happy-dom does not have — and
+the smoke test stops at importing it:
+
+```tsx
+export const meta = { title: "lab/three", layout: "fullscreen" as const, headless: false };
+```
+
+It defaults to `true`, so a new story is gated unless its author says why it
+cannot be. Opting out describes the story's dependencies, not how finished it
+is.
+
 ## Where stories live
 
 Two homes, both auto-discovered:
