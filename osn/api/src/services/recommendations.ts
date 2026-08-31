@@ -42,6 +42,19 @@ export class DatabaseError extends Data.TaggedError("DatabaseError")<{
  * Prevents a hub user with thousands of connections from producing an
  * unbounded FOF fan-out (P-C1). Tuned for the "enough candidates to produce
  * a good top-N list" sweet spot.
+ *
+ * Bounds two things that must stay in lockstep: the size of `myConnectionIds`
+ * below (which step 3 uses to tell "one of my connections" from "a
+ * candidate") and the seed subquery the FOF query correlates against (see
+ * that query for why it no longer binds `myConnectionIds` itself). Until
+ * osn-tracker#589 this constant also stood in, unintentionally, as the only
+ * thing stopping the FOF query from binding more parameters than D1 allows
+ * — 500 ids bound into two `inArray` calls is 1,000 binds, D1's documented
+ * cap is 100 per query, and nobody had checked the second number against
+ * the first. 51 accepted connections was already over it, so every caller
+ * past that point got a 500 in production. The query now binds `profileId`
+ * once regardless of how large this constant is, so raising it is a
+ * decision about read cost and recall, never one that can reopen that bug.
  */
 const MAX_MY_CONNECTIONS_FOR_FOF = 500;
 
@@ -496,6 +509,30 @@ export function createRecommendationService() {
       // Accepted edges seed the FOF fan-out; *every* edge (pending included)
       // is an exclusion, so someone with a request already in flight is never
       // re-suggested — connecting to them would fail with "already exists".
+      //
+      // This is no longer bound into the FOF query below — see that query
+      // for why — but step 3 still uses it (as `myConnectionIdSet`) to tell
+      // "one of my connections" from "a candidate" on each fan-out row, so
+      // this slice has to describe the same cap the query's own seed
+      // subquery applies. They read the caller's edges independently and
+      // SQLite gives no ordering guarantee over an unindexed `LIMIT`, so for
+      // a caller past MAX_MY_CONNECTIONS_FOR_FOF accepted connections the
+      // two reads can choose slightly different subsets of the *same*
+      // snapshot. `myEdgeRows` is capped too (`MAX_MY_EDGE_ROWS`, 1 000),
+      // not uncapped, so `excludeIds` below cannot be assumed to catch
+      // whatever this slice misses on ordering grounds alone. Measured
+      // instead of assumed: for a caller with 500–1,000 accepted
+      // connections, both this `LIMIT` and the seed subquery's `LIMIT`
+      // compile to the same `MULTI-INDEX OR` plan over the same two
+      // indexes and select the identical subset, so that ordering
+      // divergence does not in practice produce a wrong suggestion.
+      //
+      // A second, unrelated divergence is real, though: the seed subquery
+      // runs later than this read, in its own D1 round trip, so it can see
+      // a connection accepted for the caller *after* this snapshot was
+      // taken — a temporal gap this slice cannot close no matter how it is
+      // capped. See the fresh re-check before hydration, below (S-H1),
+      // which is what actually closes that one.
       const myConnectionIds = myEdgeRows
         .filter((r) => r.status === "accepted")
         .map(counterpartOf)
@@ -523,8 +560,58 @@ export function createRecommendationService() {
           myConnectionIds.length === 0
             ? Effect.succeed([] as { requesterId: string; addresseeId: string }[])
             : Effect.tryPromise({
-                try: () =>
-                  db
+                try: () => {
+                  // The old shape bound `myConnectionIds` into two `inArray`
+                  // calls — once per edge direction — so the bind count grew
+                  // with the caller's connection count and D1's 100-bound-
+                  // parameter cap turned into a production 500 past 50
+                  // accepted connections (osn-tracker#589). This binds only
+                  // `profileId`, a fixed number of times, however large
+                  // `myConnectionIds` is.
+                  //
+                  // `IN (<subquery>)` rather than `IN (<literal list>)`: the
+                  // subquery re-reads the caller's own accepted edges inside
+                  // the database instead of round-tripping them through this
+                  // process as bound parameters. `.limit()` mirrors the JS
+                  // slice above and for the same reason — see
+                  // MAX_MY_CONNECTIONS_FOR_FOF — not to stay under any bind
+                  // cap, since none applies here.
+                  //
+                  // A correlated `EXISTS` (the shape osn-tracker#589
+                  // proposed) was measured and rejected: on real
+                  // (Miniflare/workerd) D1, `EXPLAIN QUERY PLAN` showed it as
+                  // `SCAN c` with a `CORRELATED SCALAR SUBQUERY` run once per
+                  // row of the outer table — a full scan of every accepted
+                  // connection *in the system*, 1,000 rows read on a fixture
+                  // where this shape reads 484, for the identical result.
+                  // That cost grows with the whole table, not with the
+                  // caller's own graph, which is the wrong axis. This shape
+                  // instead gets flattened by SQLite into a `LIST SUBQUERY` —
+                  // one pass over `connections_requester_idx` /
+                  // `connections_addressee_idx` to build a Bloom filter, then
+                  // the same `MULTI-INDEX OR` seek over those two indexes the
+                  // old query got. 484 rows read against the old query's 400,
+                  // for a caller with 40 accepted connections against the
+                  // identical 240-row result — the cost of materialising the
+                  // seed set once rather than pasting it in as literals, and
+                  // it does not grow with the size of the table.
+                  const myConnectionsSeed = db
+                    .select({
+                      counterpart: sql<string>`(CASE WHEN ${connections.requesterId} = ${profileId} THEN ${connections.addresseeId} ELSE ${connections.requesterId} END)`,
+                    })
+                    .from(connections)
+                    .where(
+                      and(
+                        eq(connections.status, "accepted"),
+                        or(
+                          eq(connections.requesterId, profileId),
+                          eq(connections.addresseeId, profileId),
+                        ),
+                      ),
+                    )
+                    .limit(MAX_MY_CONNECTIONS_FOR_FOF);
+
+                  return db
                     .select({
                       requesterId: connections.requesterId,
                       addresseeId: connections.addresseeId,
@@ -534,12 +621,13 @@ export function createRecommendationService() {
                       and(
                         eq(connections.status, "accepted"),
                         or(
-                          inArray(connections.requesterId, myConnectionIds),
-                          inArray(connections.addresseeId, myConnectionIds),
+                          inArray(connections.requesterId, myConnectionsSeed),
+                          inArray(connections.addresseeId, myConnectionsSeed),
                         ),
                       ),
                     )
-                    .limit(MAX_FOF_FANOUT_ROWS),
+                    .limit(MAX_FOF_FANOUT_ROWS);
+                },
                 catch: (cause) => new DatabaseError({ cause }),
               }),
           myOrgIds.length === 0
@@ -742,9 +830,137 @@ export function createRecommendationService() {
         )
         .slice(0, safeLimit);
 
-      const candidateIds = sorted.map(([id]) => id);
+      // Step 4.5: fresh re-check (osn-tracker#589 follow-up, S-H1).
+      //
+      // Steps 1 and 2 are two separate, un-transacted D1 round trips — no
+      // `db.batch`/`db.transaction` joins them. Step 1 snapshots the
+      // caller's edges into `myEdgeRows`; step 2's FOF seed subquery
+      // re-reads `connections` live, at whatever the table holds when step
+      // 2 actually runs, not when step 1 ran. If a connection is accepted
+      // for the caller in that window — the same account, a second request
+      // in flight from another tab or device — its id was never seen by
+      // `myEdgeRows`, so it is in neither `myConnectionIdSet` nor
+      // `excludeIds`, but it IS inside the live seed subquery's result. The
+      // fan-out row for that edge is then misclassified in step 3: neither
+      // `isMutualRequester` nor `isMutualAddressee` is true (both compare
+      // against the stale set), so the code takes the "candidate" branch,
+      // and `excludeIds.has(candidateId)` misses it too. The caller's own
+      // brand-new connection would come back as "someone you may know."
+      // `profileId` is always the caller's own, so this can only misfile
+      // the owner's freshest edge against themselves — never leak or
+      // block-bypass another account's state.
+      //
+      // Fixed by re-reading, fresh, immediately before hydration, for just
+      // the ids that survived ranking — at most `safeLimit` (≤ 50), so this
+      // cannot reopen #589's 100-bound cap. That safety is measured, not
+      // asserted: naively filtering with `or(inArray(requesterId, ids),
+      // inArray(addresseeId, ids))` binds the id list TWICE, the same
+      // mistake #589 fixed, and at safeLimit's ceiling of 50 that is 102
+      // params (`bun run` against `.toSQL()` — 2 profileId equality binds +
+      // 2 × 50-id `inArray`s — over D1's 100-per-statement cap). Each query
+      // below instead runs the id filter once, against a subquery that
+      // projects the counterpart id itself, so the id list is bound once:
+      // 3 profileId binds (one in the `CASE`, two in the seed `WHERE`) + up
+      // to 50 for the single `inArray` = 53 params, confirmed the same way.
+      // No status filter on the connections re-check — any row, pending or
+      // accepted, means "no longer a suggestion", same as `excludeIds`
+      // above already treats every edge, not just accepted ones.
+      //
+      // `db.batch()` across steps 1 and 2 was considered instead and
+      // rejected without running it: D1's docs do not state that a batch is
+      // snapshot-isolated against a concurrent write from a different
+      // request, and this repo has already been burned three times (see
+      // MAX_MY_CONNECTIONS_FOR_FOF and MAX_ORG_COMEMBER_ARMS_PER_QUERY,
+      // above) by taking an engine property on faith instead of measuring
+      // it. A bounded re-check needs no such assumption: it is correct
+      // whether or not D1 batches are isolated, so it costs one extra
+      // pair of round trips to avoid depending on an unverified guarantee.
+      //
+      // No backfill: a dropped candidate is not replaced from the next rank
+      // down. That would need re-ranking against a larger candidate pool,
+      // which is a recall decision, not this fix's job — the caller sees a
+      // list one entry shorter on the rare request that races its own
+      // second tab, never a wrong one.
+      const rankedIds = sorted.map(([id]) => id);
+      const recheckExcludedIds =
+        rankedIds.length === 0
+          ? new Set<string>()
+          : yield* Effect.tryPromise({
+              try: async () => {
+                const freshConnectionCounterparts = db
+                  .select({
+                    counterpart:
+                      sql<string>`(CASE WHEN ${connections.requesterId} = ${profileId} THEN ${connections.addresseeId} ELSE ${connections.requesterId} END)`.as(
+                        "counterpart",
+                      ),
+                  })
+                  .from(connections)
+                  .where(
+                    or(
+                      eq(connections.requesterId, profileId),
+                      eq(connections.addresseeId, profileId),
+                    ),
+                  )
+                  // Bounded, like every other read in this function. The
+                  // `IN (rankedIds)` that narrows this to the <=50 ids we
+                  // actually care about is applied in the OUTER query, so
+                  // without a limit here the inner read walks every edge the
+                  // caller has — 2,000 rows read to answer a question about
+                  // 50 — on a query that now runs on every request whether or
+                  // not anything raced. Same cap and same reasoning as step
+                  // 1's read of this table: a candidate that appears among
+                  // the caller's most recent MAX_MY_EDGE_ROWS edges is
+                  // caught, which is the approximation this file already
+                  // accepts everywhere else.
+                  .limit(MAX_MY_EDGE_ROWS)
+                  .as("fresh_connection_counterparts");
+
+                const freshBlockCounterparts = db
+                  .select({
+                    counterpart:
+                      sql<string>`(CASE WHEN ${blocks.blockerId} = ${profileId} THEN ${blocks.blockedId} ELSE ${blocks.blockerId} END)`.as(
+                        "counterpart",
+                      ),
+                  })
+                  .from(blocks)
+                  .where(or(eq(blocks.blockerId, profileId), eq(blocks.blockedId, profileId)))
+                  // Same bound, same reason. Step 1's own block read is
+                  // uncapped, but it is one read per request against a table
+                  // that is small per caller by nature; this one sits on the
+                  // hot path beside the connections read above and should not
+                  // be the single place a caller's graph size is unbounded.
+                  .limit(MAX_MY_EDGE_ROWS)
+                  .as("fresh_block_counterparts");
+
+                const [freshEdges, freshBlocks] = await Promise.all([
+                  db
+                    .select({ counterpart: freshConnectionCounterparts.counterpart })
+                    .from(freshConnectionCounterparts)
+                    .where(inArray(freshConnectionCounterparts.counterpart, rankedIds)),
+                  db
+                    .select({ counterpart: freshBlockCounterparts.counterpart })
+                    .from(freshBlockCounterparts)
+                    .where(inArray(freshBlockCounterparts.counterpart, rankedIds)),
+                ]);
+
+                return new Set([
+                  ...freshEdges.map((r) => r.counterpart),
+                  ...freshBlocks.map((r) => r.counterpart),
+                ]);
+              },
+              catch: (cause) => new DatabaseError({ cause }),
+            });
+
+      const survivors =
+        recheckExcludedIds.size === 0
+          ? sorted
+          : sorted.filter(([id]) => !recheckExcludedIds.has(id));
+
+      if (survivors.length === 0) return [];
+
+      const candidateIds = survivors.map(([id]) => id);
       const survivingOrgIds = [
-        ...new Set(sorted.map(([, c]) => c.sharedOrganisationId).filter((id) => id !== null)),
+        ...new Set(survivors.map(([, c]) => c.sharedOrganisationId).filter((id) => id !== null)),
       ];
 
       // Step 5: hydrate the survivors — profiles and organisation labels.
@@ -798,7 +1014,7 @@ export function createRecommendationService() {
       const profileMap = new Map(profiles.map((p) => [p.id, p]));
       const organisationMap = new Map(organisationRows.map((o) => [o.id, o]));
 
-      return sorted
+      return survivors
         .map(([id, candidate]) => {
           const p = profileMap.get(id);
           if (!p) return null;

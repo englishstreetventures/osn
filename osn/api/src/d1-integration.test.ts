@@ -19,7 +19,7 @@ import { Db } from "@osn/db/service";
 import { createSchemaSql } from "@osn/db/testing";
 import { commitBatch, createD1Db } from "@shared/db-utils";
 import { eq } from "drizzle-orm";
-import { Cause, Effect, Layer, Option, Runtime } from "effect";
+import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
 import { UNIQUE_CONSTRAINT_ERROR } from "./lib/unique-constraint";
@@ -110,6 +110,70 @@ function trackRowsRead(
       return total;
     },
   };
+}
+
+/**
+ * Wraps a D1 binding so the first statement whose SQL text contains
+ * `sqlHint` does not actually run against the database until `beforeQuery`
+ * has resolved.
+ *
+ * This is the test seam for S-H1 (osn-tracker#589 follow-up): the race it
+ * fixes needs a real write to land in the gap between `suggestConnections`'s
+ * step 1 (`myEdgeRows`, a snapshot) and step 2 (the FOF fan-out, whose seed
+ * subquery reads `connections` live) — a gap with a genuine D1 round trip in
+ * it, not something a single in-process call can reproduce by itself.
+ * Racing two real overlapping HTTP requests against the same Miniflare
+ * instance would depend on scheduler timing and be flaky by construction;
+ * this instead hooks the exact D1 call boundary the race depends on and
+ * forces the write to land inside it, deterministically, every run.
+ *
+ * `.bind()` returns synchronously (`D1PreparedStatement`'s real shape), so
+ * the injection can't happen there — it has to happen on the method that
+ * actually issues the query. Drizzle's D1 driver calls `.raw()` for an
+ * explicit-field-list `select` (see `trackRowsRead`'s doc above), but this
+ * wraps `.raw()`, `.all()` and `.run()` alike so it works regardless of
+ * which one a given query shape uses.
+ */
+function raceInsertBeforeQuery(
+  base: DrizzleD1,
+  sqlHint: string,
+  beforeQuery: () => Promise<void>,
+): DrizzleD1 {
+  let armed = true;
+  return new Proxy(base, {
+    get(target, prop, receiver) {
+      if (prop !== "prepare") return Reflect.get(target, prop, receiver);
+      return (query: string) => {
+        const stmt = target.prepare(query);
+        if (!armed || !query.includes(sqlHint)) return stmt;
+        return new Proxy(stmt, {
+          get(stmtTarget, stmtProp, stmtReceiver) {
+            if (stmtProp !== "bind") return Reflect.get(stmtTarget, stmtProp, stmtReceiver);
+            return (...values: unknown[]) => {
+              const bound = stmtTarget.bind(...values);
+              return new Proxy(bound, {
+                get(boundTarget, boundProp, boundReceiver) {
+                  if (boundProp !== "raw" && boundProp !== "all" && boundProp !== "run") {
+                    return Reflect.get(boundTarget, boundProp, boundReceiver);
+                  }
+                  const orig = (
+                    Reflect.get(boundTarget, boundProp, boundReceiver) as (
+                      ...args: unknown[]
+                    ) => unknown
+                  ).bind(boundTarget);
+                  return async (...args: unknown[]) => {
+                    armed = false; // once only — the seed subquery re-runs inside the same statement, not as a separate prepare
+                    await beforeQuery();
+                    return orig(...args);
+                  };
+                },
+              });
+            };
+          },
+        });
+      };
+    },
+  });
 }
 
 const seedAccount = async (): Promise<void> => {
@@ -458,23 +522,31 @@ describe("osn/api recommendations co-member fan-out over real D1 (Miniflare)", (
 });
 
 describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
-  it("suggestConnections throws once the caller's accepted-connection count pushes the FOF query past D1's 100-bound-parameter cap", async () => {
-    // The FOF fan-out (services/recommendations.ts) binds `myConnectionIds`
-    // TWICE — once per edge direction, in
-    // `inArray(requesterId, ids) OR inArray(addresseeId, ids)`.
-    // MAX_MY_CONNECTIONS_FOR_FOF allows up to 500 ids (1 000 binds), but D1's
+  it("suggestConnections succeeds well past the caller's accepted-connection count that used to push the FOF query over D1's 100-bound-parameter cap", async () => {
+    // Was: the FOF fan-out (services/recommendations.ts) bound
+    // `myConnectionIds` TWICE — once per edge direction, in
+    // `inArray(requesterId, ids) OR inArray(addresseeId, ids)`. D1's
     // documented cap is 100 bound parameters per query
     // (developers.cloudflare.com/d1/platform/limits/: "Maximum bound
     // parameters per query | 100", applying per statement including within a
-    // batch). 51 accepted connections already produces 102 binds — over the
-    // cap — so `GET /recommendations/connections` already fails in
-    // production for any caller with more than 50 accepted connections.
+    // batch), so 51 accepted connections already produced 102 binds and threw
+    // `D1_ERROR: too many SQL variables` — a real production failure for any
+    // caller past 50 accepted connections (osn-tracker#589).
     //
-    // Confirmed empirically against THIS Miniflare version before writing
-    // this test: it enforces the same 100-parameter cap D1 documents (100
-    // bound params succeeds, 101 throws "too many SQL variables"), so this
-    // is real coverage of the failure, not a false negative that only
-    // production would catch.
+    // Fixed by binding `profileId` instead of the id list: the FOF query now
+    // reads the caller's own accepted edges through a correlated `IN
+    // (<subquery>)` rather than pasting them in as literals, so its bind
+    // count is fixed regardless of how many connections the caller has — see
+    // the query in services/recommendations.ts for the full account,
+    // including why a correlated `EXISTS` (D1's plan showed a full table
+    // scan) was measured and rejected in favour of this shape.
+    //
+    // This test keeps the same 60-accepted-connection fixture the
+    // characterisation test used — well past the old 50-connection cliff,
+    // and confirmed empirically against this Miniflare version to still
+    // enforce D1's 100-bound-parameter cap the old shape blew through — and
+    // now asserts the call succeeds and returns real friend-of-friend
+    // suggestions, over real (Miniflare/workerd) D1.
     const callerId = "usr_bindtest_caller";
     const callerAccountId = "acc_bindtest_caller";
     const ts = new Date();
@@ -493,7 +565,7 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
       updatedAt: ts,
     });
 
-    const FRIEND_COUNT = 60; // 2 x 60 = 120 binds, over D1's 100-bind cap
+    const FRIEND_COUNT = 60; // 2 x 60 = 120 binds under the old shape, over D1's 100-bind cap
     for (let i = 0; i < FRIEND_COUNT; i++) {
       const friendAccountId = `acc_bindtest_f${i}`;
       const friendId = `usr_bindtest_f${i}`;
@@ -524,32 +596,177 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
       });
     }
 
-    const recs = createRecommendationService();
-    let threw = false;
-    let message = "";
-    try {
-      await run(recs.suggestConnections(callerId));
-    } catch (e) {
-      threw = true;
-      // The Effect error channel wraps three deep here: the service's own
-      // `DatabaseError`, wrapping drizzle's `DrizzleQueryError`, wrapping the
-      // real `D1_ERROR: too many SQL variables …` — walk `.cause` down to the
-      // bottom rather than asserting on the generic outer message.
-      // `Effect.runPromise` rejects with a `FiberFailure` wrapping the typed
-      // failure, never the tagged error itself — same unwrap `safe-error.ts`
-      // does for route handlers (Runtime.isFiberFailure → Cause.failureOption).
-      const failure = Runtime.isFiberFailure(e)
-        ? Option.getOrNull(Cause.failureOption(e[Runtime.FiberFailureCauseId]))
-        : e;
-      let cause: unknown = failure;
-      for (let depth = 0; depth < 5; depth++) {
-        const next = (cause as { cause?: unknown } | undefined)?.cause;
-        if (next === undefined || next === null) break;
-        cause = next;
-      }
-      message = cause instanceof Error ? cause.message : String(cause);
+    // A handful of the caller's friends each have one connection of their
+    // own beyond the caller — real friend-of-friend candidates, so this
+    // proves the query returns *correct* suggestions past the old cliff, not
+    // merely that it avoids throwing.
+    const FOF_CANDIDATE_COUNT = 3;
+    for (let i = 0; i < FOF_CANDIDATE_COUNT; i++) {
+      const candidateAccountId = `acc_bindtest_fof${i}`;
+      const candidateId = `usr_bindtest_fof${i}`;
+      // eslint-disable-next-line no-await-in-loop -- sequential, FK-ordered seeding
+      await rawDb.insert(accounts).values({
+        id: candidateAccountId,
+        email: `bindtest-fof${i}@example.com`,
+        passkeyUserId: crypto.randomUUID(),
+        createdAt: ts,
+        updatedAt: ts,
+      });
+      // eslint-disable-next-line no-await-in-loop
+      await rawDb.insert(users).values({
+        id: candidateId,
+        accountId: candidateAccountId,
+        handle: `bindtestfof${i}`,
+        createdAt: ts,
+        updatedAt: ts,
+      });
+      // eslint-disable-next-line no-await-in-loop
+      await rawDb.insert(connections).values({
+        id: `conn_bindtest_fof_${i}`,
+        requesterId: `usr_bindtest_f${i}`, // one of the caller's direct friends
+        addresseeId: candidateId,
+        status: "accepted",
+        createdAt: ts,
+        updatedAt: ts,
+      });
     }
-    expect(threw).toBe(true);
-    expect(message).toContain("too many SQL variables");
+
+    const recs = createRecommendationService();
+    const suggestions = await run(recs.suggestConnections(callerId, 50));
+
+    const suggestedHandles = suggestions.map((s) => s.handle);
+    for (let i = 0; i < FOF_CANDIDATE_COUNT; i++) {
+      expect(suggestedHandles).toContain(`bindtestfof${i}`);
+    }
+    // None of the caller's own 60 direct friends should ever come back as a
+    // suggestion — they are already connections, not candidates.
+    for (const s of suggestions) {
+      expect(s.handle.startsWith("bindtestf") && !s.handle.startsWith("bindtestfof")).toBe(false);
+    }
+  });
+
+  it("does not suggest a connection the caller accepted, in a second in-flight request, between step 1 and the FOF fan-out (S-H1)", async () => {
+    // osn-tracker#589 follow-up. `suggestConnections` reads the caller's own
+    // context in two separate, un-transacted D1 round trips: step 1
+    // (`myEdgeRows`, a snapshot) and step 2 (the FOF fan-out, whose seed
+    // subquery re-reads `connections` live). If the caller accepts a new
+    // connection in the gap between them — the same account, a second
+    // request in flight from another tab or device — that connection's id
+    // was never seen by step 1's snapshot, so it lands in neither
+    // `myConnectionIdSet` nor `excludeIds`, but the live seed subquery sees
+    // it. Before the fix, the fan-out row for that brand-new edge was
+    // misclassified as a candidate rather than a mutual connection, and
+    // nothing downstream re-checked it: the caller's own newest connection
+    // came back as "someone you may know."
+    //
+    // Reproducing the race with two real overlapping HTTP requests would
+    // depend on scheduler timing and be flaky by construction. Instead this
+    // uses `raceInsertBeforeQuery` (above) as a test seam: it hooks the
+    // exact D1 statement the race depends on — the FOF fan-out SELECT,
+    // identified by its compiled SQL text, confirmed against this Miniflare
+    // version rather than guessed — and forces the caller's new connection
+    // to commit immediately before that statement actually runs. That lands
+    // the write inside the real gap `suggestConnections` leaves open,
+    // deterministically, without touching the service under test.
+    const callerId = "usr_racetest_caller";
+    const callerAccountId = "acc_racetest_caller";
+    const ts = new Date();
+    await rawDb.insert(accounts).values({
+      id: callerAccountId,
+      email: "racetest-caller@example.com",
+      passkeyUserId: crypto.randomUUID(),
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    await rawDb.insert(users).values({
+      id: callerId,
+      accountId: callerAccountId,
+      handle: "racetest_caller",
+      createdAt: ts,
+      updatedAt: ts,
+    });
+
+    // An existing accepted friend, seeded before the race — this is what
+    // keeps `myConnectionIds` non-empty at step 1, so the FOF fan-out branch
+    // actually runs rather than being skipped for an empty seed set.
+    const friendId = "usr_racetest_friend";
+    await rawDb.insert(accounts).values({
+      id: "acc_racetest_friend",
+      email: "racetest-friend@example.com",
+      passkeyUserId: crypto.randomUUID(),
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    await rawDb.insert(users).values({
+      id: friendId,
+      accountId: "acc_racetest_friend",
+      handle: "racetest_friend",
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    await rawDb.insert(connections).values({
+      id: "conn_racetest_friend",
+      requesterId: friendId,
+      addresseeId: callerId,
+      status: "accepted",
+      createdAt: ts,
+      updatedAt: ts,
+    });
+
+    // The user who becomes a connection mid-flight. The user/account rows
+    // must already exist — only the `connections` row is inserted during
+    // the race, since that edge is the thing the race actually creates.
+    const lateId = "usr_racetest_late";
+    await rawDb.insert(accounts).values({
+      id: "acc_racetest_late",
+      email: "racetest-late@example.com",
+      passkeyUserId: crypto.randomUUID(),
+      createdAt: ts,
+      updatedAt: ts,
+    });
+    await rawDb.insert(users).values({
+      id: lateId,
+      accountId: "acc_racetest_late",
+      handle: "racetest_late",
+      createdAt: ts,
+      updatedAt: ts,
+    });
+
+    const racedD1 = raceInsertBeforeQuery(
+      d1,
+      // The FOF fan-out SELECT (services/recommendations.ts) — confirmed
+      // against this Miniflare version's actual compiled SQL. Distinct from
+      // step 1's `myEdgeRows` select, which also selects `"status"` and so
+      // does not contain this exact substring.
+      '"requester_id", "addressee_id" from "connections"',
+      async () => {
+        await rawDb.insert(connections).values({
+          id: "conn_racetest_late",
+          requesterId: lateId,
+          addresseeId: callerId,
+          status: "accepted",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      },
+    );
+    const racedLayer = Layer.succeed(Db, { db: createD1Db(racedD1, schema) });
+
+    const recs = createRecommendationService();
+    const suggestions = await Effect.runPromise(
+      recs.suggestConnections(callerId, 50).pipe(Effect.provide(racedLayer)),
+    );
+
+    // The race landed for real — this is not a no-op fixture.
+    const lateEdge = await rawDb
+      .select()
+      .from(connections)
+      .where(eq(connections.id, "conn_racetest_late"));
+    expect(lateEdge).toHaveLength(1);
+
+    // The caller's own brand-new connection must never come back as
+    // "someone you may know" — that is the S-H1 fix.
+    const suggestedHandles = suggestions.map((s) => s.handle);
+    expect(suggestedHandles).not.toContain("racetest_late");
   });
 });
