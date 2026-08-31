@@ -1,5 +1,66 @@
 # @osn/osn
 
+## 3.20.29
+
+### Patch Changes
+
+- 3b668c4: P-C1 (osn-tracker#589) — `GET /recommendations/connections` threw for any
+  caller with more than 50 accepted connections. The friends-of-friends fan-out
+  bound the caller's connection ids twice, once per edge direction, and D1 caps
+  a query at 100 bound parameters — 51 accepted connections already produced
+  102 binds and threw `D1_ERROR: too many SQL variables` in production.
+
+  Fixed by binding `profileId` instead of the id list: the fan-out now reads
+  the caller's own accepted edges through a correlated `IN (<subquery>)`
+  rather than pasting them in as literals, so the bind count is fixed
+  regardless of how many connections the caller has. Measured on real
+  (Miniflare/workerd) D1: a correlated `EXISTS` was tried first and rejected
+  (it planned as a full scan of the whole `connections` table); the
+  `IN (<subquery>)` shape uses the same indexes the original query did and
+  reads 484 rows against the old shape's 400 for an identical 40-connection
+  result set.
+
+  `osn/api/src/d1-integration.test.ts` had a characterisation test pinning the
+  broken behaviour (added on the parent branch); it now asserts the call
+  succeeds with a connection count well past the old cliff and returns the
+  correct friend-of-friend candidates.
+
+  Security review of that fix found a regression it introduced (S-H1): the
+  fan-out's new seed subquery reads `connections` live, in its own D1 round
+  trip, separate from the earlier snapshot `suggestConnections` takes of the
+  caller's own edges — a window the old, single-snapshot query could not open.
+  A connection the caller accepted from a second in-flight request, in that
+  window, was misclassified as a suggestion candidate rather than a mutual
+  connection, so the caller's own brand-new connection could come back as
+  "someone you may know." Fixed by re-checking, fresh, against `connections`
+  and `blocks` immediately before hydration, for just the ids that survived
+  ranking (at most 50) — bound once per query via the same `IN (<subquery>)`
+  shape, 53 params measured against real D1, not the 102 a naive two-sided
+  `inArray` would cost at that size.
+
+- 423dbd5: Connection recommendations (`GET /recommendations/connections`):
+
+  - **Fixed** (osn-tracker#574): the organisation co-member fan-out was one query
+    bounded by a single global row cap, ordered by organisation id — so whichever
+    organisation the caller happened to belong to sorted first absorbed the whole
+    budget, and every other organisation contributed nothing, permanently (50
+    organisations of 250 members each, only ~8 ever won). The fan-out is now a
+    `UNION ALL` of a per-organisation subselect each bounded by its own share of
+    the budget, so every organisation the caller belongs to contributes
+    candidates.
+  - **Fixed** (osn-tracker#589, P-C1 — the fix above's own regression): that
+    `UNION ALL` was one statement for up to 50 organisations, which throws on
+    real D1 for any caller in 6 or more — D1 runs on workerd's embedded SQLite,
+    capped at 5 terms in a compound `SELECT`, not the 500-term default
+    `bun:sqlite` (and the original comment) assumed. The fan-out now runs in
+    batches of at most 5 organisations per statement, executed concurrently and
+    merged in application code, so a caller in any number of organisations up to
+    the 50-organisation cap gets a result instead of a 500.
+  - Added `generatedAt` (ISO 8601) to the response, alongside `suggestions`, so a
+    client can tell how fresh a list is (osn-tracker#311, timestamp half only —
+    the cache half is a separate, undecided change). `@osn/client`'s
+    `suggestConnections` return type carries the new field.
+
 ## 3.20.28
 
 ### Patch Changes
