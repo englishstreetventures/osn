@@ -54,6 +54,8 @@ gh issue create --repo xchromo/osn --type Feature --label product:cire --title "
 
 `/new-feat` opens a well-formed issue; `/prep-pr` files findings at the end of a review. Label and type definitions, and the Project setup, are in `[[wiki/runbooks/github-issues-setup]]`; how a finding is filed is in `[[wiki/conventions/review-findings]]`.
 
+One label is orthogonal to all of that: **`needs:decision`**, on both repos. It means the next step needs a choice only the repo owner can make. An agent working the backlog writes what the issue is and what it proposes, applies the label, and moves to a different issue — one open question never parks the queue. See `[[wiki/conventions/review-findings]]` §When the fix needs a decision from the owner.
+
 **Never delete an issue — close it.** The history matters.
 
 **Every issue body stands on its own.** Someone opens it months later with nothing checked out. Name the file and line; state the concrete fix or the observable "done when"; spell out the acronyms. A body whose content is a pointer — "see the TODO", "per `wiki/todo/api.md`", "migrated from …" — is a bookmark, not an issue, and the 2026-08-15 migration deleted every page those pointers named. Where a wiki page adds real context, reference it by **repo path** (`wiki/systems/rate-limiting.md`) and restate the fact in the issue anyway: a `[[wikilink]]` does not resolve on GitHub.

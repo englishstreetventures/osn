@@ -5,7 +5,7 @@ tags: [convention, review]
 related:
   - "[[contributing]]"
   - "[[stacked-prs]]"
-last-reviewed: 2026-08-19
+last-reviewed: 2026-08-31
 ---
 
 # Review Finding IDs
@@ -97,6 +97,34 @@ Rules:
 - Several findings from one piece of work go on **stacked PRs**, one fix per PR, base of each set to the one below it -- see [[stacked-prs]].
 
 `T-*` test findings are not filed. They are coverage gaps, not defects -- `/prep-pr` Step 4 raises them and they get closed in the branch or waved through.
+
+## When the fix needs a decision from the owner
+
+Some issues cannot be closed by anyone but the repo owner: the fix is a choice between two defensible designs, or it costs money, or it changes a public contract. An agent working the backlog must not guess at those, and must not stop on them either -- one open question is not a reason for the other hundred issues to sit still.
+
+Label it and move on:
+
+```bash
+gh issue edit <n> --repo xchromo/osn-tracker --add-label "needs:decision"
+```
+
+`needs:decision` exists on both repos. It is orthogonal to `product:`, `area:` and `severity:` -- it says the issue is parked on a person, not what kind of work it is.
+
+Before the label goes on, the body has to carry exactly two things, in this order:
+
+1. **What the issue actually is** -- the file and line, the current behaviour, and why it is wrong. The same standard as any other body: someone opens it months later with nothing checked out.
+2. **A proposed solution, with the trade-off named** -- the option you would take, what it costs, and what the alternative buys instead. "Needs a decision" without a proposal hands the owner the whole problem back; the point of the label is that the thinking is done and only the choice is left.
+
+A body that says no more than "blocked, needs input" is not an issue, it is an interruption. Write the proposal first, then apply the label, then pick up a different issue.
+
+Filter for them when the owner sits down to clear the queue:
+
+```bash
+gh issue list --repo xchromo/osn --label needs:decision --state open --limit 1000
+gh issue list --repo xchromo/osn-tracker --label needs:decision --state open --limit 1000
+```
+
+Remove the label once the decision is recorded in a comment; the issue then goes back to being ordinary work.
 
 ## Usage in PR Comments
 

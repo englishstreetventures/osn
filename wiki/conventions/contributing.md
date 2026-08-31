@@ -7,7 +7,7 @@ related:
   - "[[review-findings]]"
   - "[[stacked-prs]]"
   - "[[testing-patterns]]"
-last-reviewed: 2026-08-19
+last-reviewed: 2026-08-31
 ---
 
 # Contributing
@@ -93,8 +93,10 @@ Before opening a PR, verify:
 
 - [ ] Feature branch (not main)
 - [ ] Base branch correct -- `main`, or the parent branch if this PR is stacked, and the stack registered with `gh stack link` ([[stacked-prs]])
-- [ ] Changeset included (`bun run changeset`)
-- [ ] Changeset package names match workspace `name` fields
+- [ ] Changeset included, or the diff genuinely needs none -- `git diff --name-only origin/main...HEAD | ./scripts/changeset-required.sh` answers `required` or `skip`
+- [ ] Changeset valid (`./scripts/validate-changesets.sh`) -- package names match workspace `name` fields, and no changeset mixes ignored with versioned packages
+- [ ] Lockfile honest (`bun install --frozen-lockfile`) -- if `bun.lock` is in the diff, this must pass without rewriting it. An install on one machine prunes entries for every platform it is not running on; splice the entry by hand rather than committing that
+- [ ] Vitest DOM markers intact (`bun run check:jest-dom-markers`) -- every `vitest.config.ts` using `vite-plugin-solid` still names a `jest-dom` path in `setupFiles`
 - [ ] Tests pass (`bun run --cwd <package> test:run`)
 - [ ] Linting passes (`bun run lint`)
 - [ ] Formatting passes (`bun run fmt:check`)

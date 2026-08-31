@@ -35,4 +35,11 @@ for repo in xchromo/osn xchromo/osn-tracker; do
   create "severity:info" "ededed" "Informational"
 
   create "epic" "3e4b9e" "Parent issue with sub-issues"
+
+  # Orthogonal to every label above: a state, not a category. An agent working
+  # the backlog applies it when the next step needs a choice only the repo
+  # owner can make, writes the choice up in the body, and moves to another
+  # issue rather than guessing. Its own colour, because sharing the security
+  # red would make a parked question look like a critical finding.
+  create "needs:decision" "e99695" "Blocked on a decision from the repo owner; do not action without one"
 done
