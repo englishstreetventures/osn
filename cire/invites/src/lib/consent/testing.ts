@@ -1,5 +1,5 @@
 import type { ConsentCategory } from "./categories";
-import { CONSENT_COOKIE_NAME } from "./cookie";
+import { CONSENT_COOKIE_NAME, PREFIXED_CONSENT_COOKIE_NAME } from "./cookie";
 import {
   type ConsentGrants,
   defaultGrants,
@@ -21,10 +21,15 @@ import { resetConsentStoreForTest } from "./store";
  * hand-rolled approximation of one that might no longer parse.
  */
 
-/** Delete the consent cookie and return the store to its pre-hydration state. */
+/**
+ * Delete the consent cookie — both names, since a browser-tier test running
+ * on https may have left the `__Host-` form set by a real `saveConsent` call —
+ * and return the store to its pre-hydration state.
+ */
 export function resetConsentForTest(): void {
   if (typeof document !== "undefined") {
     document.cookie = `${CONSENT_COOKIE_NAME}=; Path=/; Max-Age=0`;
+    document.cookie = `${PREFIXED_CONSENT_COOKIE_NAME}=; Path=/; Max-Age=0; Secure`;
   }
   resetConsentStoreForTest();
 }

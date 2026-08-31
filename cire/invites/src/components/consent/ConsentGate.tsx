@@ -5,6 +5,7 @@ import {
   grantCategory,
   hydrateConsent,
   isCategoryGranted,
+  noteGatedContentLoaded,
   openConsentPreferences,
 } from "../../lib/consent/store";
 import { vendorById } from "../../lib/consent/vendors";
@@ -56,6 +57,19 @@ export function ConsentGate(props: ConsentGateProps) {
   // so a stored refusal is never briefly overridden by the opt-out default.
   onMount(hydrateConsent);
 
+  // Whether this gate ever actually ran third-party code decides whether a
+  // later refusal has anything to tear down — see `noteGatedContentLoaded`.
+  // Read inside the `Show`'s children so it runs when children render, not on
+  // the placeholder branch, and only for a `"gated"` vendor: an `"always"`
+  // vendor was never blocked by this switch, so revoking the category changes
+  // nothing it is doing and a reload would clear nothing.
+  const noteLoaded = () => {
+    if (vendorById(props.vendor)?.enforcement === "gated") {
+      noteGatedContentLoaded(props.category);
+    }
+    return props.children;
+  };
+
   return (
     <Show
       when={isCategoryGranted(props.category)}
@@ -63,7 +77,7 @@ export function ConsentGate(props: ConsentGateProps) {
         props.fallback ?? <ConsentPlaceholder category={props.category} vendor={props.vendor} />
       }
     >
-      {props.children}
+      {noteLoaded()}
     </Show>
   );
 }

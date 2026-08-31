@@ -1,7 +1,11 @@
 import { createSignal } from "solid-js";
 
-import type { ConsentCategory } from "./categories";
-import { readConsentFromDocument, writeConsentToDocument } from "./cookie";
+import { CONSENT_CATEGORIES, type ConsentCategory } from "./categories";
+import {
+  migrateBareConsentCookie,
+  readConsentFromDocument,
+  writeConsentToDocumentAndVerify,
+} from "./cookie";
 import {
   allGrants,
   type ConsentGrants,
@@ -12,6 +16,7 @@ import {
   normaliseGrants,
   preDecisionGrants,
 } from "./record";
+import { gatedVendorsInCategory } from "./vendors";
 
 /**
  * The shared, page-wide consent state.
@@ -75,6 +80,12 @@ function clearLegacyPinterestConsent(): void {
 export function hydrateConsent(): void {
   if (hydrated()) return;
   clearLegacyPinterestConsent();
+  // Move an already-decided guest onto the `__Host-` name before reading. It
+  // has to happen here, on the read path, because the write path never runs
+  // again for them: their stored choice reads back fine, so the banner stays
+  // away and nothing would ever perform the secure write the fix for
+  // osn-tracker#163 depends on. See `migrateBareConsentCookie`.
+  migrateBareConsentCookie();
   setRecord(readConsentFromDocument());
   setHydrated(true);
 }
@@ -121,12 +132,113 @@ export function closeConsentPreferences(): void {
   setPreferencesOpen(false);
 }
 
-/** Persist `grants` as the guest's decision and close the dialog. */
+/**
+ * The reload triggered by a granted → revoked transition (see
+ * {@link saveConsent}). A module-level reference rather than a direct
+ * `location.reload()` call, so a test can substitute a spy in place of it. The
+ * alternative — stubbing out the global `location` object — breaks every other
+ * jsdom test in the same file that happens to touch `location` or navigation,
+ * because jsdom exposes exactly one `window.location` per test document; a
+ * narrow, purpose-built seam avoids that.
+ */
+function defaultReloadPage(): void {
+  location.reload();
+}
+
+/** See `resetConsentStoreForTest`'s doc for why the test default is this, not {@link defaultReloadPage}. */
+function noopReloadPageForTest(): void {
+  // Intentionally does nothing.
+}
+
+let reloadPage: () => void = defaultReloadPage;
+
+/** Test-only: substitute {@link reloadPage}. Reset by `resetConsentStoreForTest`. */
+export function setReloadPageForTest(fn: () => void): void {
+  reloadPage = fn;
+}
+
+/**
+ * Does moving from `previous` to `next` revoke a category that governs at
+ * least one `"gated"` vendor?
+ *
+ * Category-level, not vendor-level, because a category is the unit the toggle
+ * actually grants or revokes. Only `"gated"` vendors count: an `"always"`
+ * vendor was never blocked by this category's switch, so revoking the category
+ * changes nothing that vendor is doing.
+ */
+function revokesGatedCategory(previous: ConsentGrants, next: ConsentGrants): boolean {
+  return CONSENT_CATEGORIES.some(
+    (category) =>
+      previous[category] &&
+      !next[category] &&
+      gatedVendorsInCategory(category).length > 0 &&
+      loadedGatedCategories.has(category),
+  );
+}
+
+/**
+ * Categories whose gated content actually rendered during this visit.
+ *
+ * The reload exists to tear down third-party code that already ran. If none
+ * ever ran, there is nothing to tear down and the reload is pure cost — and
+ * that is the COMMON path, not the rare one: both gated vendors (the Pinterest
+ * board and the Google Maps preview) mount only inside a click-opened event
+ * details sheet, while the banner appears immediately, so a guest who lands and
+ * presses "Reject all" has almost never opened one. Reloading them would spend
+ * a full document load, every island's hydration and a re-fetch of the invite
+ * to clear nothing at all.
+ *
+ * A plain module-level `Set`, not a signal: nothing renders from it, it only
+ * has to be readable at save time, and a signal would invalidate the store's
+ * subscribers on every gate mount for no benefit. It resets on reload, which is
+ * exactly right — a reload is what clears the thing it tracks.
+ */
+const loadedGatedCategories = new Set<ConsentCategory>();
+
+/**
+ * Record that a gated vendor's content rendered. Called by `ConsentGate` when
+ * it actually renders children for a `"gated"` vendor — not when it renders the
+ * placeholder, which runs no third-party code.
+ */
+export function noteGatedContentLoaded(category: ConsentCategory): void {
+  loadedGatedCategories.add(category);
+}
+
+/**
+ * Persist `grants` as the guest's decision and close the dialog.
+ *
+ * CON-S-M1: switching a gated category off unmounts its embeds (see
+ * `ConsentGate`), but that only stops FURTHER requests — a vendor's script
+ * that already ran (globals it set, listeners it attached, its own storage) is
+ * still live in the page for the rest of the visit. Under the opt-out defaults
+ * this is the common case, not an edge one: the banner appears after the
+ * gated embeds have already loaded, so "Reject all" is nearly always clicked
+ * with a third-party context already running.
+ *
+ * The only clean teardown is a reload, and it is gated on two conditions, both
+ * load-bearing:
+ *
+ *  1. Granted → revoked ONLY. Not revoked → granted (nothing to tear down),
+ *     not a no-op save (nothing changed), not a first-time grant (nothing was
+ *     ever running to begin with).
+ *  2. The cookie write must have actually SUCCEEDED, checked by reading it
+ *     back ({@link writeConsentToDocumentAndVerify}) rather than trusting that
+ *     the write call merely returned — it swallows failures by design. A
+ *     reload on an unpersisted refusal would throw the choice away on the very
+ *     reload meant to enforce it, which is worse than the bug being fixed:
+ *     the guest would watch the page reload believing they had just refused,
+ *     and land back on the opt-out defaults with no record of having tried.
+ */
 export function saveConsent(grants: ConsentGrants): void {
+  const previous = currentGrants();
   const next = makeConsentRecord(normaliseGrants(grants), new Date());
-  writeConsentToDocument(next);
+  const written = writeConsentToDocumentAndVerify(next);
   setRecord(next);
   setPreferencesOpen(false);
+
+  if (written && revokesGatedCategory(previous, next.grants)) {
+    reloadPage();
+  }
 }
 
 /** "Accept all" — every category on. */
@@ -220,10 +332,21 @@ export function claimConsentDialogHost(): ConsentDialogHostClaim {
  * Test-only: return the store to its pre-hydration state. Lets a test simulate
  * a fresh page load after seeding or clearing `document.cookie`, without a real
  * reload (the module is evaluated once per test file).
+ *
+ * Also returns {@link reloadPage} to a no-op, NOT {@link defaultReloadPage}.
+ * `location.reload()` is unimplemented in jsdom and logs a "Not implemented:
+ * navigation" warning on every call, so a gate/banner test that happens to
+ * drive a real granted → revoked save (most of them do, incidentally, when
+ * asserting teardown) would otherwise spam that warning for a reload it never
+ * asked about. A test that means to assert the reload itself calls
+ * {@link setReloadPageForTest} with its own spy after this runs, same as any
+ * other test-only default here.
  */
 export function resetConsentStoreForTest(): void {
   setRecord(null);
   setHydrated(false);
   setPreferencesOpen(false);
   setDialogHostId(null);
+  reloadPage = noopReloadPageForTest;
+  loadedGatedCategories.clear();
 }

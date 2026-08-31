@@ -7,7 +7,7 @@ related:
   - "[[deferred-decisions]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-08-31
 ---
 
 # OSN Wiki
@@ -32,7 +32,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[cire-platform-plan]] — cire's build plan from digital invite to wedding-management platform
 - [[cire-invite-builder]] — organiser-editable invite images + copy (slots, storage, API, guest rendering)
 - [[cire-guest-event-editor]] — the interactive events + guests editor alongside the CSV schema
-- [[cire-consent]] — cire's site-wide cookie/third-party consent: categories, vendor registry, the `cire_consent` record
+- [[cire-consent]] — cire's site-wide cookie/third-party consent: categories, vendor registry, the `__Host-cire_consent` record
 - [[cire-host-portal-layout]] — how the organiser portal decides widths: `page-frame`, `auto-grid`, named container queries
 
 ## Systems

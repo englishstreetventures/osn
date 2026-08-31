@@ -141,14 +141,18 @@ export function ConsentPreferences() {
           Choose what this invite is allowed to load. You can change this at any time from the link
           in the footer of any page.
         </p>
-        {/* S-M1 residual, stated rather than glossed over: switching a category
-            off stops anything further loading, but code from that company which
-            already ran during this visit stays in the page until it is
-            reloaded. Claiming a clean revocation without a reload would
-            overstate what the toggle does. */}
+        {/* CON-S-M1: turning off a category whose content already ran this
+            visit reloads the page — see `saveConsent` in
+            `lib/consent/store.ts` — so that company's code is cleared, not
+            just stopped from running again. Stated here rather than left
+            implicit, because a silent reload the guest didn't expect is its
+            own kind of surprising. Hedged on "if", because the reload only
+            happens when there is something to clear (P-W1): a guest who never
+            opened an event's details sheet loaded no embed, and reloading them
+            would cost a full page load to clear nothing. */}
         <p class="font-body text-text-muted/80 mt-1.5 text-[0.76rem] leading-relaxed">
-          Switching something off takes effect straight away for anything not yet loaded. To also
-          clear content already loaded during this visit, reload the page afterwards.
+          Switching something off takes effect straight away. If content from that company already
+          loaded during this visit, the page reloads to clear it.
         </p>
 
         <div class="mt-5 flex flex-col gap-4">
