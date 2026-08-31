@@ -11,13 +11,14 @@ tags:
   - effect
 status: current
 related:
+  - "[[d1-limits]]"
   - "[[backend-patterns]]"
   - "[[testing-patterns]]"
 packages:
   - "@pulse/api"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-31
 ---
 
 # Schema Layers

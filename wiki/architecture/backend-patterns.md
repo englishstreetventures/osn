@@ -11,6 +11,7 @@ tags:
   - effect
 status: current
 related:
+  - "[[d1-limits]]"
   - "[[schema-layers]]"
   - "[[testing-patterns]]"
   - "[[observability/overview]]"
@@ -20,7 +21,7 @@ packages:
   - "@osn/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-08-24
+last-reviewed: 2026-08-31
 ---
 
 # Backend Code Patterns

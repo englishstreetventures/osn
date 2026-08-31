@@ -10,12 +10,13 @@ tags:
   - pulse
 status: current
 related:
+  - "[[d1-limits]]"
   - "[[s2s-patterns]]"
   - "[[pulse-close-friends]]"
   - "[[pulse]]"
 packages:
   - "@pulse/api"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-08-31
 ---
 
 # Platform Limits

@@ -123,6 +123,24 @@ Work is tracked in GitHub Issues, not in a markdown checklist. Two repos:
 
 `xchromo/osn` is public. A finding names an unpatched route, so filing one there publishes it. **Route by kind, not by severity** — an `S-`, `P-`, or `C-` ID always goes to the tracker, however minor it looks.
 
+### Auditing a defect class
+
+When a finding turns out to be an instance of a class — "this query does X, and
+X is wrong" — the audit that follows has to enumerate the **shapes** X can take,
+not just re-grep the form you happened to find first. Ask what other syntax has
+the same property, and check each: a helper call, a raw `sql` template, a
+different builder method, an implicit form.
+
+This is not theoretical. An audit for one D1 bind-cap bug grepped `inArray` and
+declared four siblings. It missed the two worst instances in the codebase —
+both multi-row `INSERT`s, which bind one parameter *per column per row* and so
+break an order of magnitude sooner than the id-list form that was searched for.
+One of them was a GDPR erasure path that could never complete. See
+`[[wiki/systems/d1-limits]]`.
+
+Report the shapes you enumerated and the verdict on each, so the next reader
+knows what was searched for and what was not.
+
 ### New findings from Step 6
 
 One issue per finding that this branch does **not** fix. Title leads with the finding ID; body keeps the same four fields the PR uses.
@@ -301,7 +319,14 @@ unverified — say so plainly rather than leaving it implied.>
 
 ### Section rules
 
-**Issues.** One row per issue. A same-repo issue closes on merge with plain `Closes #<n>` — put that line under the table, one per issue, since a table cell does not trigger GitHub's closing keyword. A tracker issue needs the full `Closes xchromo/osn-tracker#<n>`; that works cross-repo with write access to both, but verify it actually closed after the merge and close it by hand if not.
+**Issues.** One row per issue. **"Opened" means issues raised *against this
+branch* — findings from its own review, or work this branch deliberately split
+out.** An issue found while auditing something else, in another package, or in
+a file this branch never touches does not belong in the table however it was
+discovered: listing it implies a relationship the PR does not have, and a
+reviewer then has to work out which rows are actually theirs. Mention a
+cross-package audit in one line of prose under **Out of scope** and let the
+tracker hold the results. A same-repo issue closes on merge with plain `Closes #<n>` — put that line under the table, one per issue, since a table cell does not trigger GitHub's closing keyword. A tracker issue needs the full `Closes xchromo/osn-tracker#<n>`; that works cross-repo with write access to both, but verify it actually closed after the merge and close it by hand if not.
 
 **A PR on `xchromo/osn` is public.** Reference a tracker issue by number and finding ID only — never paste its title, its file:line, or a word of its body. `xchromo/osn-tracker#412 — S-M1` is the whole entry.
 
