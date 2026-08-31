@@ -158,7 +158,7 @@ export const createRegistryReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions)
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingMember(db))
+        .use(weddingMember(db, "registry"))
         .use(weddingEntitlement(db, "registry"))
         .get("/registry", async ({ weddingId, query, set }) => {
           if (!weddingId) return internalSync(set);
@@ -216,7 +216,7 @@ export const createRegistryWriteRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingEditor(db))
+        .use(weddingEditor(db, "registry"))
         .use(weddingEntitlement(db, "registry"))
         .put(
           "/registry/settings",
@@ -430,7 +430,7 @@ export const createRegistryLinkPreviewRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingEditor(db))
+        .use(weddingEditor(db, "registry"))
         .use(weddingEntitlement(db, "registry"))
         .use(rateLimitMiddlewareByUser(deps.limiter))
         .post(
@@ -549,7 +549,7 @@ export const createRegistryImageRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingEditor(db))
+        .use(weddingEditor(db, "registry"))
         .use(weddingEntitlement(db, "registry"))
         .use(rateLimitMiddlewareByUser(deps.limiter))
         .post(
@@ -691,7 +691,7 @@ export const createRegistryImageServeRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingMember(db))
+        .use(weddingMember(db, "registry"))
         .use(weddingEntitlement(db, "registry"))
         .get("/registry/image/:name", ({ weddingId, params, query, request, set }) => {
           if (!weddingId) return internalSync(set);

@@ -31,3 +31,32 @@ export function hasWeddingGateError(ctx: unknown): boolean {
   if (typeof ctx !== "object" || ctx === null || !("weddingGateError" in ctx)) return false;
   return Boolean(ctx.weddingGateError);
 }
+
+/**
+ * The entitlement presence check a role gate (weddingMember/weddingEditor)
+ * already folded into its OWN authorize() query, when it was called with an
+ * `entitlementKey` (P-W1). `weddingEntitlement(db, key)` reads this instead of
+ * running its own query — but only trusts it when the fold's `key` matches
+ * ITS key; a mismatch (or absence, e.g. the role gate ran with no key, or this
+ * gate is mounted standalone in a test) returns `undefined` so the caller
+ * falls back to its own query rather than trust a wrong answer.
+ */
+export function readWeddingEntitlementFold(
+  ctx: unknown,
+): { key: string; entitled: boolean } | undefined {
+  if (typeof ctx !== "object" || ctx === null || !("weddingEntitlementFold" in ctx)) {
+    return undefined;
+  }
+  const fold = (ctx as { weddingEntitlementFold: unknown }).weddingEntitlementFold;
+  if (
+    typeof fold !== "object" ||
+    fold === null ||
+    !("key" in fold) ||
+    !("entitled" in fold) ||
+    typeof fold.key !== "string" ||
+    typeof fold.entitled !== "boolean"
+  ) {
+    return undefined;
+  }
+  return { key: fold.key, entitled: fold.entitled };
+}

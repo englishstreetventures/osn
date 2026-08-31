@@ -69,7 +69,7 @@ export const createVendorDirectoryReadRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingMember(db))
+        .use(weddingMember(db, "vendors"))
         .use(weddingEntitlement(db, "vendors"))
         .use(rateLimitMiddlewareByUser(limiter))
         .get("/directory", async ({ weddingId, query, set }) => {
@@ -106,7 +106,7 @@ export const createVendorDirectoryWriteRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingEditor(db))
+        .use(weddingEditor(db, "vendors"))
         .use(weddingEntitlement(db, "vendors"))
         .use(rateLimitMiddlewareByUser(limiter))
         .post(

@@ -31,7 +31,12 @@ import type {
   ParsedEvent,
   ParsedFamily,
 } from "../schemas/import";
-import { entitlementService, CapacityExceeded } from "./entitlements";
+import {
+  entitlementService,
+  CapacityExceeded,
+  BASE_GUEST_CAP,
+  CAPACITY_ENTITLEMENT_KEYS,
+} from "./entitlements";
 import { generateFamilyCode } from "./family-code";
 import type { CodeStyle } from "./family-code";
 import { resolvePinUrl } from "./pinterest-resolve";
@@ -714,24 +719,48 @@ export function diffAgainstDb(
     // block lives in applyImport — this warning lets the preview UI surface the
     // issue before the organiser commits. Host-preview families are excluded from
     // the current-guest count (same join + ne(kind,'host') as entitlementService).
+    //
+    // `derivedCap` rides on the returned plan so `applyImport` doesn't re-scan
+    // the SAME entitlement rows a second time in the SAME request (P-W2) — see
+    // `applyImport`'s call to `assertGuestCapacity`. It's set ONLY when this
+    // block actually ran the entitlement query below; the pre-check branch
+    // (P-I2) proves the cap can't matter without ever learning its real value,
+    // so it leaves `derivedCap` unset and `applyImport` falls back to its own
+    // (still cheap, still narrowed) query — correct either way, per
+    // `assertGuestCapacity`'s "never a way to skip the check" contract.
+    let derivedCap: number | undefined;
     if (guestCreates.length > 0) {
-      const entRows = yield* dbQuery(() =>
-        db
-          .select({ e: weddingEntitlements.entitlement })
-          .from(weddingEntitlements)
-          .where(eq(weddingEntitlements.weddingId, weddingId))
-          .all(),
-      );
-      const cap = entitlementService.deriveCap((entRows as { e: string }[]).map((r) => r.e));
       // `existingGuests` was already fetched above with ne(families.kind, 'host'),
       // so it already excludes host-preview guests. The resulting headcount after
       // this plan: current real guests minus removals plus new creates.
       const currentRealGuests = existingGuests.length;
       const resulting = currentRealGuests - guestRemoves.length + guestCreates.length;
-      if (resulting > cap) {
-        warnings.push(
-          `This import brings you to ${resulting} guests; your plan is capped at ${cap}. Upgrade to add more.`,
+      // P-I2: `resulting` can only rise as far as `currentRealGuests +
+      // guestCreates.length` (removes only ever bring it DOWN), and the cap can
+      // never fall below `BASE_GUEST_CAP` — so once that upper bound sits at or
+      // under the floor, no entitlement row on earth could make this breach.
+      // Skip the query entirely rather than fetch rows whose answer is moot.
+      if (currentRealGuests + guestCreates.length > BASE_GUEST_CAP) {
+        // P-I3: only the two capacity keys can raise the cap above the floor —
+        // narrow the scan instead of pulling every entitlement row.
+        const entRows = yield* dbQuery(() =>
+          db
+            .select({ e: weddingEntitlements.entitlement })
+            .from(weddingEntitlements)
+            .where(
+              and(
+                eq(weddingEntitlements.weddingId, weddingId),
+                inArray(weddingEntitlements.entitlement, CAPACITY_ENTITLEMENT_KEYS),
+              ),
+            )
+            .all(),
         );
+        derivedCap = entitlementService.deriveCap((entRows as { e: string }[]).map((r) => r.e));
+        if (resulting > derivedCap) {
+          warnings.push(
+            `This import brings you to ${resulting} guests; your plan is capped at ${derivedCap}. Upgrade to add more.`,
+          );
+        }
       }
     }
 
@@ -748,6 +777,7 @@ export function diffAgainstDb(
       eventLinkCreates,
       eventLinkRemoves,
       warnings,
+      derivedCap,
     };
   }).pipe(Effect.withSpan("cire.import.diff"));
 }
@@ -1057,7 +1087,15 @@ export function applyImport(
     // and a negative or zero incoming can never exceed.
     const netGuestDelta = plan.guestCreates.length - plan.guestRemoves.length;
     if (netGuestDelta > 0) {
-      yield* entitlementService.assertGuestCapacity(weddingId, netGuestDelta);
+      // `plan.derivedCap` — set by `diffAgainstDb` in the SAME request when its
+      // own preview warning already ran the entitlement query (P-W2) — lets
+      // this skip a second scan of the same rows. Absent (a plan built before
+      // this field existed, the P-I2 pre-check branch that proved the cap
+      // couldn't matter without learning it, or any other caller of
+      // `applyImport`), `assertGuestCapacity` runs its own query and enforces
+      // exactly as it always has — a missing cap is never a reason to skip
+      // the check.
+      yield* entitlementService.assertGuestCapacity(weddingId, netGuestDelta, plan.derivedCap);
     }
 
     statements.push(...finalize);

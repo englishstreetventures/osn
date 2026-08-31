@@ -65,7 +65,7 @@ export const createVendorReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingMember(db))
+        .use(weddingMember(db, "vendors"))
         .use(weddingEntitlement(db, "vendors"))
         .get("/vendors", async ({ weddingId, set }) => {
           if (!weddingId) return internalSync(set);
@@ -109,7 +109,7 @@ export const createVendorWriteRoutes = (
     .use(osnAuth(osnAuthOptions))
     .group("/weddings/:weddingId", (group) =>
       group
-        .use(weddingEditor(db))
+        .use(weddingEditor(db, "vendors"))
         .use(weddingEntitlement(db, "vendors"))
         .post(
           "/vendors",

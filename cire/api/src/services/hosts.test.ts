@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { weddingHosts, weddings } from "@cire/db";
+import { weddingEntitlements, weddingHosts, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -479,5 +479,142 @@ describe("hostsService.authorize", () => {
   it("returns null for an unknown wedding", async () => {
     const db = buildDb();
     expect(await run(db, hostsService.authorize("wed_nope", OWNER))).toBeNull();
+  });
+
+  it("omits `entitled` entirely when no entitlementKey is given", async () => {
+    const db = buildDb();
+    const now = new Date();
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: WEDDING_ID,
+        entitlement: "vendors",
+        source: "comp",
+        grantedAt: now,
+        grantedBy: OWNER,
+      })
+      .run();
+    const result = await run(db, hostsService.authorize(WEDDING_ID, OWNER));
+    expect(result?.entitled).toBeUndefined();
+  });
+});
+
+describe("hostsService.authorize — entitlement fold (P-W1)", () => {
+  it("owner branch: entitled:true when the wedding holds the key, folded into the same query", async () => {
+    const db = buildDb();
+    const now = new Date();
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: WEDDING_ID,
+        entitlement: "vendors",
+        source: "comp",
+        grantedAt: now,
+        grantedBy: OWNER,
+      })
+      .run();
+    const result = await run(db, hostsService.authorize(WEDDING_ID, OWNER, "vendors"));
+    expect(result).toEqual({
+      ownerOsnProfileId: OWNER,
+      isOwner: true,
+      isHost: false,
+      role: "owner",
+      entitled: true,
+    });
+  });
+
+  it("owner branch: entitled:false when the wedding lacks the key", async () => {
+    const db = buildDb();
+    const result = await run(db, hostsService.authorize(WEDDING_ID, OWNER, "vendors"));
+    expect(result?.entitled).toBe(false);
+  });
+
+  it("owner branch: entitled reflects the SPECIFIC key asked for, not just any grant", async () => {
+    const db = buildDb();
+    const now = new Date();
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: WEDDING_ID,
+        entitlement: "ai",
+        source: "comp",
+        grantedAt: now,
+        grantedBy: OWNER,
+      })
+      .run();
+    const result = await run(db, hostsService.authorize(WEDDING_ID, OWNER, "vendors"));
+    expect(result?.entitled).toBe(false);
+  });
+
+  it("co-host branch: entitled:true when the wedding holds the key", async () => {
+    const db = buildDb();
+    const now = new Date();
+    await run(
+      db,
+      hostsService.add({
+        weddingId: WEDDING_ID,
+        osnProfileId: ALICE,
+        addedByOsnProfileId: OWNER,
+        ownerOsnProfileId: OWNER,
+        role: "editor",
+      }),
+    );
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: WEDDING_ID,
+        entitlement: "registry",
+        source: "comp",
+        grantedAt: now,
+        grantedBy: OWNER,
+      })
+      .run();
+    const result = await run(db, hostsService.authorize(WEDDING_ID, ALICE, "registry"));
+    expect(result).toEqual({
+      ownerOsnProfileId: OWNER,
+      isOwner: false,
+      isHost: true,
+      role: "editor",
+      entitled: true,
+    });
+  });
+
+  it("co-host branch: entitled:false when the wedding lacks the key", async () => {
+    const db = buildDb();
+    await run(
+      db,
+      hostsService.add({
+        weddingId: WEDDING_ID,
+        osnProfileId: ALICE,
+        addedByOsnProfileId: OWNER,
+        ownerOsnProfileId: OWNER,
+        role: "editor",
+      }),
+    );
+    const result = await run(db, hostsService.authorize(WEDDING_ID, ALICE, "registry"));
+    expect(result?.entitled).toBe(false);
+  });
+
+  it("stranger branch: role:null and entitled:false — no query answer is meaningful without a role", async () => {
+    const db = buildDb();
+    const now = new Date();
+    db.insert(weddingEntitlements)
+      .values({
+        weddingId: WEDDING_ID,
+        entitlement: "vendors",
+        source: "comp",
+        grantedAt: now,
+        grantedBy: OWNER,
+      })
+      .run();
+    const result = await run(db, hostsService.authorize(WEDDING_ID, "usr_stranger", "vendors"));
+    expect(result).toEqual({
+      ownerOsnProfileId: OWNER,
+      isOwner: false,
+      isHost: false,
+      role: null,
+      entitled: false,
+    });
+  });
+
+  it("unknown wedding: still null, entitlementKey doesn't change that", async () => {
+    const db = buildDb();
+    expect(await run(db, hostsService.authorize("wed_nope", OWNER, "vendors"))).toBeNull();
   });
 });

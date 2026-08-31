@@ -1,5 +1,7 @@
 import { Effect, Layer } from "effect";
 
+import type { Db } from "./db";
+
 /** Default `cf-connecting-ip` injected for tests — simulates the Cloudflare edge
  *  so the fail-closed rate limiter (C4) resolves a real IP instead of denying. */
 export const TEST_CF_IP = "203.0.113.7";
@@ -80,4 +82,28 @@ export function effWith<R>(layer: Layer.Layer<R>) {
   return <A>(effect: Effect.Effect<A, unknown, R>): (() => Promise<A>) =>
     () =>
       Effect.runPromise(effect.pipe(Effect.provide(layer)));
+}
+
+/**
+ * Wraps a real `Db` so every call to `.select()` is counted — the entry
+ * point of every read query this codebase issues (`dbQuery(() =>
+ * db.select()...all())`). Nothing in the test suite mocks the driver (real
+ * bun:sqlite backs every test `Db`), so this is the mechanism for proving a
+ * "this many D1 round trips" claim: count `.select()` invocations rather than
+ * assert on a call log no service exposes. Built via prototype delegation
+ * (`Object.create(db)` plus one overridden own property) rather than a
+ * `Proxy` + `Reflect.get`, so every other method (`.insert`/`.update`/
+ * `.delete`/`.$client`/…) keeps its real, typed behaviour untouched.
+ */
+export function countingDb(db: Db) {
+  let n = 0;
+  const counted: Db = Object.create(db);
+  Object.defineProperty(counted, "select", {
+    enumerable: true,
+    value: (fields?: Parameters<typeof db.select>[0]) => {
+      n++;
+      return fields === undefined ? db.select() : db.select(fields);
+    },
+  });
+  return { db: counted, selectCount: () => n };
 }

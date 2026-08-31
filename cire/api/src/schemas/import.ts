@@ -207,6 +207,16 @@ export const ImportPlan = Schema.Struct({
   eventLinkCreates: Schema.Array(EventLink),
   eventLinkRemoves: Schema.Array(EventLink),
   warnings: Schema.Array(Schema.String),
+  /**
+   * The wedding's guest-capacity ceiling, when `diffAgainstDb`'s preview
+   * warning already derived it from the entitlement set (P-W2) — lets
+   * `applyImport` enforce the cap without re-scanning the same rows in the
+   * SAME request. Absent whenever the preview never needed the real cap
+   * (P-I2's pre-check proved the import couldn't breach it, or `guestCreates`
+   * was empty); `applyImport` MUST keep enforcing the cap itself in that case,
+   * never treat absence as "no cap".
+   */
+  derivedCap: Schema.optional(Schema.Number),
 });
 export type ImportPlan = Schema.Schema.Type<typeof ImportPlan>;
 

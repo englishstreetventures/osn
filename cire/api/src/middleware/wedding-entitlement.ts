@@ -6,7 +6,7 @@ import type { Db } from "../db";
 import { runCire } from "../observability";
 import { entitlementService } from "../services/entitlements";
 import type { EntitlementKey } from "../services/entitlements";
-import { hasWeddingGateError } from "./upstream-context";
+import { hasWeddingGateError, readWeddingEntitlementFold } from "./upstream-context";
 
 interface EntitlementGateError {
   status: number;
@@ -31,6 +31,16 @@ interface EntitlementGateError {
  * Skipping it keeps the status ordering the routes are tested against (401, then
  * 403 `read_only_role`, then 402 `payment_required`) and denies an anonymous
  * caller a free D1 read on every request.
+ *
+ * P-W1: every mount site sits directly behind `weddingMember()`/`weddingEditor()`
+ * (see those files), which — called with this SAME `key` — already folded the
+ * entitlement presence check into its own authorize() query, no extra round
+ * trip. This derive picks that answer up via `readWeddingEntitlementFold`
+ * rather than running `entitlementService.has()` itself, so a gated route no
+ * longer pays for a THIRD query on top of the role gate's own. The `has()` call
+ * survives as a fallback for the (currently only-in-tests) case of this gate
+ * mounted standalone with no preceding role gate, or one that ran without a
+ * key — it must still answer correctly there, just at the old cost.
  */
 export function weddingEntitlement(db: Db, key: EntitlementKey) {
   return new Elysia()
@@ -48,17 +58,21 @@ export function weddingEntitlement(db: Db, key: EntitlementKey) {
           } as EntitlementGateError | undefined,
         };
       }
-      const entitled = await runCire(
-        entitlementService.has(weddingId, key).pipe(
-          Effect.provideService(DbService, db),
-          Effect.catchAllDefect(() =>
-            Effect.logWarning("cire.entitlement.gate check failed — failing closed").pipe(
-              Effect.annotateLogs({ weddingId, entitlement: key }),
-              Effect.as(false),
-            ),
-          ),
-        ),
-      );
+      const fold = readWeddingEntitlementFold(ctx);
+      const entitled =
+        fold && fold.key === key
+          ? fold.entitled
+          : await runCire(
+              entitlementService.has(weddingId, key).pipe(
+                Effect.provideService(DbService, db),
+                Effect.catchAllDefect(() =>
+                  Effect.logWarning("cire.entitlement.gate check failed — failing closed").pipe(
+                    Effect.annotateLogs({ weddingId, entitlement: key }),
+                    Effect.as(false),
+                  ),
+                ),
+              ),
+            );
       return {
         entitlementGateError: entitled
           ? (undefined as EntitlementGateError | undefined)
