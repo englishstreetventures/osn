@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { createMemoryClient } from "../src/client";
+import { createMemoryClient, toRedisReply } from "../src/client";
 import { RATE_LIMIT_SCRIPT } from "../src/rate-limiter";
 
 describe("createMemoryClient — sweep (P-W2)", () => {
@@ -43,5 +43,42 @@ describe("createMemoryClient — eval script guard (X5)", () => {
     await expect(client.eval(evilDelete, ["k1"], [1, 1000])).rejects.toThrow(
       /cannot execute arbitrary Lua/,
     );
+  });
+});
+
+describe("toRedisReply — array replies are not rebuilt when already clean (P-I2)", () => {
+  it("hands back the same array when every element is already a RESP value", () => {
+    const input = [1, "a", true, null];
+    expect(toRedisReply(input)).toBe(input);
+  });
+
+  it("hands back the same array when a nested array is clean too", () => {
+    const input = [1, ["a", [true, null]], "b"];
+    expect(toRedisReply(input)).toBe(input);
+  });
+
+  it("rebuilds an array holding a bigint, coercing it to a number", () => {
+    const input = [1, 42n];
+    const result = toRedisReply(input);
+    expect(result).not.toBe(input);
+    expect(result).toEqual([1, 42]);
+  });
+
+  it("rebuilds an array holding undefined, normalising it to null", () => {
+    const input = [1, undefined];
+    const result = toRedisReply(input);
+    expect(result).not.toBe(input);
+    expect(result).toEqual([1, null]);
+  });
+
+  it("rebuilds an outer array whose nested array needs coercing", () => {
+    const input = [1, [42n]];
+    const result = toRedisReply(input);
+    expect(result).not.toBe(input);
+    expect(result).toEqual([1, [42]]);
+  });
+
+  it("still throws on a value RESP cannot carry, however deeply nested", () => {
+    expect(() => toRedisReply([1, [{ not: "a RESP value" }]])).toThrow(/not a RESP value/);
   });
 });
