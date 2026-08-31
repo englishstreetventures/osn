@@ -1,5 +1,6 @@
+import { Db } from "@pulse/db/service";
 import { makeAccessTokenSigner, type AccessTokenSigner } from "@shared/crypto/testing";
-import { Effect } from "effect";
+import { Effect, ManagedRuntime } from "effect";
 import { describe, it, expect, beforeAll, vi } from "vitest";
 
 import { createTestLayer } from "../helpers/db";
@@ -21,6 +22,7 @@ vi.mock("../../src/lib/osn-bridge", () => ({
 }));
 
 import { createAccountRoutes } from "../../src/routes/account";
+import { webSessionService, type WebIdentity } from "../../src/services/webSession";
 import { TEST_VERIFICATION } from "../helpers/verification";
 
 let signer: AccessTokenSigner;
@@ -37,7 +39,37 @@ function makeApp() {
   return createAccountRoutes(createTestLayer(), TEST_VERIFICATION, testPublicKey);
 }
 
+/**
+ * An app plus a runtime over the SAME layer, so a session minted here is one
+ * the app's own `resolveCaller` can read. `makeApp()` builds its layer
+ * internally, which is right for a case that only needs isolation — but a
+ * cookie test needs to write a session row the app will then look up.
+ */
+function makeAppWithSharedDb() {
+  const layer = createTestLayer();
+  return {
+    app: createAccountRoutes(layer, TEST_VERIFICATION, testPublicKey),
+    runtime: ManagedRuntime.make(layer),
+  };
+}
+
+const identity: WebIdentity = {
+  osnProfileId: "usr_cookie",
+  osnSub: "pairwise-sub-for-pulse",
+  email: "cookie@example.com",
+  handle: "cookie",
+  displayName: "Cookie",
+  avatarUrl: null,
+};
+
 describe("account routes — auth gates", () => {
+  // One app for the cases rejected inside `resolveCaller`, which never reach a
+  // handler and so never touch the database — a fresh schema-applied in-memory
+  // DB and a `ManagedRuntime` per case bought isolation nothing needed, and
+  // left a sqlite handle open each time. The step-up case below is the
+  // exception and says so.
+  const app = makeApp();
+
   it.each([
     ["DELETE", "/account"],
     ["POST", "/account/restore"],
@@ -47,7 +79,7 @@ describe("account routes — auth gates", () => {
       method === "DELETE"
         ? { method, headers: { "content-type": "application/json" }, body: JSON.stringify({}) }
         : { method };
-    const res = await makeApp().handle(new Request(`http://localhost${path}`, init));
+    const res = await app.handle(new Request(`http://localhost${path}`, init));
     expect(res.status).toBe(401);
   });
 
@@ -57,7 +89,7 @@ describe("account routes — auth gates", () => {
     // `resolveCaller` lib layer (see caller.test.ts). Distinct from a
     // stale *cookie session* — this is a bearer token, no cookie involved.
     const expired = await signer.sign("usr_expired", { expiresIn: "-120s" });
-    const res = await makeApp().handle(
+    const res = await app.handle(
       new Request("http://localhost/account/deletion-status", {
         headers: { authorization: `Bearer ${expired}` },
       }),
@@ -67,6 +99,9 @@ describe("account routes — auth gates", () => {
 
   it("DELETE /account returns 403 without a step-up token", async () => {
     const token = await makeToken("usr_gate");
+    // Its own app: this is the one case in the block that gets PAST
+    // `resolveCaller` and reaches a handler, so it touches the database and
+    // wants isolation like the runtime-wiring cases below.
     const res = await makeApp().handle(
       new Request("http://localhost/account", {
         method: "DELETE",
@@ -76,6 +111,57 @@ describe("account routes — auth gates", () => {
     );
     expect(res.status).toBe(403);
     expect(((await res.json()) as { error: string }).error).toBe("step_up_required");
+  });
+});
+
+// `/account` holds the DSAR-critical handlers, and the web app cannot present
+// a bearer token — it authenticates with the `pulse_web_session` cookie that
+// `makeCallerResolver` accepts as the second credential. Every case in this
+// file used a bearer token, so if `createAccountRoutes` stopped forwarding
+// `headers["cookie"]`, or a handler read `headers.authorization` directly
+// instead of going through `resolveCaller`, every web client would lose
+// delete, restore and deletion-status while the suite stayed green.
+describe("account routes — cookie credential", () => {
+  const mintCookie = async (runtime: ManagedRuntime.ManagedRuntime<Db, never>) => {
+    const created = await runtime.runPromise(webSessionService.create(identity));
+    return `pulse_web_session=${created.token}`;
+  };
+
+  it("GET /account/deletion-status authenticates with the session cookie", async () => {
+    const { app, runtime } = makeAppWithSharedDb();
+    const res = await app.handle(
+      new Request("http://localhost/account/deletion-status", {
+        headers: { cookie: await mintCookie(runtime) },
+      }),
+    );
+    expect(res.status).toBe(200);
+    // The same body the bearer path returns — the credential decides who the
+    // caller is, not what they get back.
+    expect(await res.json()).toEqual({ scheduled: false });
+  });
+
+  it("POST /account/restore authenticates with the session cookie", async () => {
+    const { app, runtime } = makeAppWithSharedDb();
+    const res = await app.handle(
+      new Request("http://localhost/account/restore", {
+        method: "POST",
+        headers: { cookie: await mintCookie(runtime) },
+      }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  // The negative half: a cookie that names no live session is not a
+  // credential. Without this the two cases above would pass just as happily
+  // against a handler that ignored the cookie and authenticated nobody.
+  it("returns 401 for a session cookie that names no live session", async () => {
+    const { app } = makeAppWithSharedDb();
+    const res = await app.handle(
+      new Request("http://localhost/account/deletion-status", {
+        headers: { cookie: "pulse_web_session=not-a-real-token" },
+      }),
+    );
+    expect(res.status).toBe(401);
   });
 });
 
