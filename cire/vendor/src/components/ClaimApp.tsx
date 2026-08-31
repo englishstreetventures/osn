@@ -4,7 +4,7 @@ import { createResource, createSignal, onCleanup, onMount, Show } from "solid-js
 import { haptic } from "../lib/haptics";
 import { CIRE_API_URL } from "../lib/osn";
 import { initTheme } from "../lib/theme";
-import { consumeClaim, fetchClaimPreview } from "../lib/vendor-store";
+import { consumeClaim, fetchClaimPreview, seedClaimedListing } from "../lib/vendor-store";
 import type { OrgSummary } from "../lib/vendor-store";
 import OrgPicker from "./OrgPicker";
 import Button from "./ui/Button";
@@ -48,7 +48,10 @@ function ClaimContent() {
   // Step 4: Consume the claim on org pick.
   const handleClaim = async (org: OrgSummary) => {
     try {
-      await consumeClaim(authFetch, token(), org.id);
+      const listing = await consumeClaim(authFetch, token(), org.id);
+      // Hand the listing forward across the full-page redirect below, so the
+      // editor doesn't re-fetch what this call already got back (VP-P-W2).
+      seedClaimedListing(org.id, listing);
       haptic("commit");
       sessionStorage.removeItem(CLAIM_TOKEN_KEY);
       window.location.href = "/#/orgs/" + org.id;

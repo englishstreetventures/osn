@@ -279,25 +279,32 @@ export function createVendorEnquiriesRoutes(
               const body = yield* Schema.decodeUnknown(QuoteBody)(raw);
               const enquiry = yield* loadEnquiryForVendor(db, orgMembership, params.id, profileId);
               if (!enquiry) return yield* notFound(set);
-              // Resolve the CRM vendor's name for the quote email/chat body.
-              const [vendorRow] = yield* dbQuery(() =>
-                db
-                  .select({ name: vendors.name })
-                  .from(vendors)
-                  .where(eq(vendors.id, enquiry.vendorId))
-                  .all(),
+              // The vendor name and the wedding currency are independent single-row
+              // lookups — run them together instead of two serial round trips.
+              const [[vendorRow], [weddingRow]] = yield* Effect.all(
+                [
+                  // Resolve the CRM vendor's name for the quote email/chat body.
+                  dbQuery(() =>
+                    db
+                      .select({ name: vendors.name })
+                      .from(vendors)
+                      .where(eq(vendors.id, enquiry.vendorId))
+                      .all(),
+                  ),
+                  // The quote is formatted in the wedding's own currency (NOT NULL,
+                  // default 'AUD'); only the display string is affected — stored
+                  // `quoted_minor` is currency-agnostic integer cents.
+                  dbQuery(() =>
+                    db
+                      .select({ currency: weddings.currency })
+                      .from(weddings)
+                      .where(eq(weddings.id, enquiry.weddingId))
+                      .all(),
+                  ),
+                ],
+                { concurrency: "unbounded" },
               );
               const vendorName = (vendorRow as { name: string } | undefined)?.name ?? "Vendor";
-              // The quote is formatted in the wedding's own currency (NOT NULL,
-              // default 'AUD'); only the display string is affected — stored
-              // `quoted_minor` is currency-agnostic integer cents.
-              const [weddingRow] = yield* dbQuery(() =>
-                db
-                  .select({ currency: weddings.currency })
-                  .from(weddings)
-                  .where(eq(weddings.id, enquiry.weddingId))
-                  .all(),
-              );
               const currency = (weddingRow as { currency: string } | undefined)?.currency ?? "AUD";
               const quoteInput: QuoteEnquiryInput = {
                 enquiry,

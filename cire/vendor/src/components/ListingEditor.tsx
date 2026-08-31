@@ -5,7 +5,7 @@ import { createEffect, createMemo, createResource, createSignal, For, Show } fro
 import { friendlyError } from "../lib/api";
 import { haptic } from "../lib/haptics";
 import { categoryLabel, SERVICE_CATEGORIES } from "../lib/service-categories";
-import { fetchListing, putListing } from "../lib/vendor-store";
+import { fetchListing, putListing, takeSeededListing } from "../lib/vendor-store";
 import Button from "./ui/Button";
 import Card, { CardEyebrow } from "./ui/Card";
 import Chip from "./ui/Chip";
@@ -42,8 +42,15 @@ interface ListingEditorProps {
 export default function ListingEditor(props: ListingEditorProps) {
   const { authFetch } = useAuth();
 
-  // Load the listing (may be null for a brand-new org).
-  const [listing] = createResource(() => fetchListing(authFetch, props.orgId));
+  // Load the listing (may be null for a brand-new org). A claim that just
+  // redirected here may have left the listing seeded in sessionStorage
+  // (VP-P-W2) — use it once instead of re-fetching what consumeClaim already
+  // returned.
+  const [listing] = createResource(async () => {
+    const seeded = takeSeededListing(props.orgId);
+    if (seeded !== undefined) return seeded;
+    return fetchListing(authFetch, props.orgId);
+  });
 
   // ── Form signals ─────────────────────────────────────────────────────────
   const [name, setName] = createSignal("");

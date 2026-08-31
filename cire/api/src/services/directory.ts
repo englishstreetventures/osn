@@ -647,16 +647,22 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
             .run(),
         );
 
-        // Fetch updated listing + categories
-        const [updated] = yield* dbQuery(() =>
-          db
-            .select()
-            .from(directoryVendors)
-            .where(eq(directoryVendors.id, claimRow.directoryVendorId))
-            .all(),
+        // Fetch updated listing + categories — both keyed on the already-known
+        // directoryVendorId, so run them together instead of serially.
+        const [[updated], categories] = yield* Effect.all(
+          [
+            dbQuery(() =>
+              db
+                .select()
+                .from(directoryVendors)
+                .where(eq(directoryVendors.id, claimRow.directoryVendorId))
+                .all(),
+            ),
+            fetchCategories(claimRow.directoryVendorId),
+          ],
+          { concurrency: "unbounded" },
         );
         const dvRow = updated as DvRow;
-        const categories = yield* fetchCategories(dvRow.id);
         return toDto(dvRow, categories);
       }).pipe(Effect.withSpan("cire.directory.consumeClaim"));
     },
@@ -798,16 +804,23 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
     getLiveListingById(id: string): Effect.Effect<ListingDto | null, never, DbService> {
       return Effect.gen(function* () {
         const db = yield* DbService;
-        const [row] = yield* dbQuery(() =>
-          db
-            .select()
-            .from(directoryVendors)
-            .where(and(eq(directoryVendors.id, id), eq(directoryVendors.listed, "live")))
-            .all(),
+        // The row fetch and the category fetch are both keyed on `id` — no
+        // dependency between them — so run them together.
+        const [[row], categories] = yield* Effect.all(
+          [
+            dbQuery(() =>
+              db
+                .select()
+                .from(directoryVendors)
+                .where(and(eq(directoryVendors.id, id), eq(directoryVendors.listed, "live")))
+                .all(),
+            ),
+            fetchCategories(id),
+          ],
+          { concurrency: "unbounded" },
         );
         if (!row) return null;
         const dvRow = row as DvRow;
-        const categories = yield* fetchCategories(dvRow.id);
         return toDto(dvRow, categories);
       }).pipe(Effect.withSpan("cire.directory.getLiveListingById"));
     },
