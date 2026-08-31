@@ -76,8 +76,19 @@ export function peekCachedBudget(weddingId: string): BudgetSnapshot | null {
 }
 
 export function invalidateBudget(weddingId: string): void {
-  cache.delete(weddingId);
+  entryFor(weddingId).setSnapshot(null);
+  // A load already in flight was issued against PRE-mutation state, so its
+  // snapshot is stale the moment this runs. Clearing the signal alone is not
+  // enough — the fetch's own `.then` would still write it in AFTER this call —
+  // so the wedding's GENERATION is bumped too, and a resolving fetch from an
+  // older generation discards its result instead of caching it.
+  inflight.delete(weddingId);
+  generation.set(weddingId, generationOf(weddingId) + 1);
 }
+
+/** Monotonic per-wedding load generation, bumped by every invalidation. */
+const generation = new Map<string, number>();
+const generationOf = (weddingId: string) => generation.get(weddingId) ?? 0;
 
 /** Reactive spend-so-far for the Overview widget: `null` until first load. */
 export function spentSoFar(weddingId: string): number | null {
@@ -109,11 +120,21 @@ export function ensureBudgetLoaded(
   if (hasCachedBudget(weddingId)) return Promise.resolve();
   let pending = inflight.get(weddingId);
   if (!pending) {
-    pending = fetcher()
+    const startedAt = generationOf(weddingId);
+    const load = fetcher()
       .then((snap) => {
+        // A newer invalidation landed while this was in flight — its snapshot
+        // describes state that has since been mutated, so drop it rather than
+        // cache it.
+        if (generationOf(weddingId) !== startedAt) return;
         setCachedBudget(weddingId, snap);
       })
-      .finally(() => inflight.delete(weddingId));
+      .finally(() => {
+        // Only clear the slot if it is still OURS: an invalidation may already
+        // have replaced it with a newer load.
+        if (inflight.get(weddingId) === load) inflight.delete(weddingId);
+      });
+    pending = load;
     inflight.set(weddingId, pending);
   }
   return pending;
@@ -123,4 +144,5 @@ export function ensureBudgetLoaded(
 export function __resetBudgetCache(): void {
   cache.clear();
   inflight.clear();
+  generation.clear();
 }

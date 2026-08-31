@@ -77,12 +77,11 @@ export default function EnquiriesView(props: EnquiriesViewProps) {
     const id = selectedId();
     if (!id) return;
     await replyEnquiry(authFetch, props.weddingId, id, message);
-    // Refresh the inbox row by writing through the LIVE signal.
-    // `invalidateEnquiries` + `ensureEnquiriesLoaded` can NOT do that job:
-    // invalidate DELETES the cache entry, so the reload mints a brand new
-    // signal and the inbox — which used to be unmounted here but now stays
-    // mounted beside the thread — would keep its subscription to the orphan.
-    // The round-trip would be paid and nothing on screen would change.
+    // Refresh the inbox row by writing through the LIVE signal, not by
+    // invalidate-then-reload. `invalidateEnquiries` now notifies the same
+    // signal the mounted inbox reads, so a reload WOULD reach it — but it
+    // would still cost a whole-list round-trip to learn one row's new
+    // timestamp, which is exactly the round-trip ENQ-P-I1 (below) paid down.
     //
     // ENQ-P-I1: refetching the WHOLE inbox to learn one row's new timestamp
     // was a list-sized round-trip per reply. The server's reply path sets only

@@ -4,6 +4,7 @@ import {
   __resetRegistryCache,
   ensureRegistryLoaded,
   type GiftLogEntry,
+  hasCachedRegistry,
   invalidateRegistry,
   peekCachedRegistry,
   registryAccessor,
@@ -132,5 +133,63 @@ describe("registry-store", () => {
     // Claims race against each other, so one can land past the wanted count. A
     // negative "still wanted" would read as a fault.
     expect(stillWanted(item({ quantityWanted: 1, quantityClaimed: 2 }))).toBe(0);
+  });
+
+  /**
+   * The regression test for the actual bug: `entryFor` mints the signal once
+   * and a mounted Registry view captures that accessor at mount. Deleting
+   * the map entry on invalidate would leave that accessor pointed at a
+   * signal nothing writes to again — a dead view showing a stale snapshot
+   * forever. The fix writes THROUGH the signal, so an accessor captured
+   * before invalidate still observes the transition.
+   */
+  it("a mounted consumer's captured accessor observes null after invalidate", async () => {
+    await ensureRegistryLoaded("wed_1", async () => snapshot());
+    const mounted = registryAccessor("wed_1"); // captured once, as a real mount would
+    expect(mounted()).not.toBeNull();
+    invalidateRegistry("wed_1");
+    expect(mounted()).toBeNull();
+  });
+
+  it("hasCachedRegistry is false after invalidate, so the next load refetches", async () => {
+    await ensureRegistryLoaded("wed_1", async () => snapshot());
+    expect(hasCachedRegistry("wed_1")).toBe(true);
+    invalidateRegistry("wed_1");
+    expect(hasCachedRegistry("wed_1")).toBe(false);
+    let calls = 0;
+    await ensureRegistryLoaded("wed_1", async () => {
+      calls += 1;
+      return snapshot();
+    });
+    expect(calls).toBe(1);
+  });
+
+  /**
+   * A fetch already in flight when the invalidate runs was issued against
+   * PRE-mutation state. Clearing the signal alone would not stop its `.then`
+   * writing that stale snapshot in afterwards — the generation bump does.
+   */
+  it("does not adopt a fetch that was in flight when the cache was invalidated", async () => {
+    let resolveStale!: (s: RegistrySnapshot) => void;
+    const stale = new Promise<RegistrySnapshot>((r) => {
+      resolveStale = r;
+    });
+    const pending = ensureRegistryLoaded("wed_1", () => stale);
+
+    invalidateRegistry("wed_1");
+    resolveStale(snapshot({ items: [item({ id: "stale" })] }));
+    await pending;
+
+    const fresh = async () => snapshot({ items: [item({ id: "fresh" })] });
+    await ensureRegistryLoaded("wed_1", fresh);
+
+    expect(registryAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["fresh"]);
+  });
+
+  it("peekCachedRegistry reflects fresh data after an invalidate/reload cycle", async () => {
+    await ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "a" })] }));
+    invalidateRegistry("wed_1");
+    await ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "b" })] }));
+    expect(peekCachedRegistry("wed_1")?.items.map((i) => i.id)).toEqual(["b"]);
   });
 });

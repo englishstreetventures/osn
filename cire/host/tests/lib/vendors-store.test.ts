@@ -72,4 +72,49 @@ describe("vendors-store", () => {
     await Promise.all([p1, p2]);
     expect(calls).toBe(1);
   });
+
+  /**
+   * The regression test for the actual bug: `entryFor` mints the signal once
+   * and a mounted Vendors view captures that accessor at mount. Deleting the
+   * map entry on invalidate would leave that accessor pointed at a signal
+   * nothing writes to again — a dead view showing stale rows forever. The fix
+   * writes THROUGH the signal, so an accessor captured before invalidate
+   * still observes the transition.
+   */
+  it("a mounted consumer's captured accessor observes null after invalidate", async () => {
+    await ensureVendorsLoaded("wed_1", async () => [vendor({})]);
+    const mounted = vendorsAccessor("wed_1"); // captured once, as a real mount would
+    expect(mounted()).not.toBeNull();
+    invalidateVendors("wed_1");
+    expect(mounted()).toBeNull();
+  });
+
+  /**
+   * A fetch already in flight when the invalidate runs was issued against
+   * PRE-mutation state. Clearing the signal alone would not stop its `.then`
+   * writing those stale rows in afterwards — the generation bump does.
+   */
+  it("does not adopt a fetch that was in flight when the cache was invalidated", async () => {
+    let resolveStale!: (rows: VendorRow[]) => void;
+    const stale = new Promise<VendorRow[]>((r) => {
+      resolveStale = r;
+    });
+    const pending = ensureVendorsLoaded("wed_1", () => stale);
+
+    invalidateVendors("wed_1");
+    resolveStale([vendor({ id: "stale" })]);
+    await pending;
+
+    const fresh = async () => [vendor({ id: "fresh" })];
+    await ensureVendorsLoaded("wed_1", fresh);
+
+    expect(vendorsAccessor("wed_1")()?.map((v) => v.id)).toEqual(["fresh"]);
+  });
+
+  it("peekCachedVendors reflects fresh rows after an invalidate/reload cycle", async () => {
+    await ensureVendorsLoaded("wed_1", async () => [vendor({ id: "a" })]);
+    invalidateVendors("wed_1");
+    await ensureVendorsLoaded("wed_1", async () => [vendor({ id: "b" })]);
+    expect(peekCachedVendors("wed_1")?.map((v) => v.id)).toEqual(["b"]);
+  });
 });

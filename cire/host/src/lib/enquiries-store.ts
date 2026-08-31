@@ -64,8 +64,19 @@ export function peekCachedEnquiries(weddingId: string): EnquiryListItem[] | null
 }
 
 export function invalidateEnquiries(weddingId: string): void {
-  cache.delete(weddingId);
+  entryFor(weddingId).setEnquiries(null);
+  // A load already in flight was issued against PRE-mutation state, so its rows
+  // are stale the moment this runs. Clearing the signal alone is not enough —
+  // the fetch's own `.then` would still write them in AFTER this call — so the
+  // wedding's GENERATION is bumped too, and a resolving fetch from an older
+  // generation discards its result instead of caching it.
+  inflight.delete(weddingId);
+  generation.set(weddingId, generationOf(weddingId) + 1);
 }
+
+/** Monotonic per-wedding load generation, bumped by every invalidation. */
+const generation = new Map<string, number>();
+const generationOf = (weddingId: string) => generation.get(weddingId) ?? 0;
 
 export function upsertCachedEnquiry(weddingId: string, next: EnquiryListItem): void {
   const cur = peekCachedEnquiries(weddingId) ?? [];
@@ -85,12 +96,21 @@ export function ensureEnquiriesLoaded(
   if (hasCachedEnquiries(weddingId)) return Promise.resolve();
   let pending = inflight.get(weddingId);
   if (!pending) {
-    pending = fetcher()
+    const startedAt = generationOf(weddingId);
+    const load = fetcher()
       .then((items) => {
+        // A newer invalidation landed while this was in flight — its rows
+        // describe state that has since been mutated, so drop them rather than
+        // cache them.
+        if (generationOf(weddingId) !== startedAt) return;
         setCachedEnquiries(weddingId, items);
-        return undefined;
       })
-      .finally(() => inflight.delete(weddingId));
+      .finally(() => {
+        // Only clear the slot if it is still OURS: an invalidation may already
+        // have replaced it with a newer load.
+        if (inflight.get(weddingId) === load) inflight.delete(weddingId);
+      });
+    pending = load;
     inflight.set(weddingId, pending);
   }
   return pending;
@@ -100,4 +120,5 @@ export function ensureEnquiriesLoaded(
 export function __resetEnquiriesCache(): void {
   cache.clear();
   inflight.clear();
+  generation.clear();
 }

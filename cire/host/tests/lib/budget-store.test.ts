@@ -6,7 +6,10 @@ import {
   type BudgetSnapshot,
   budgetAccessor,
   ensureBudgetLoaded,
+  hasCachedBudget,
+  invalidateBudget,
   type PaymentRow,
+  peekCachedBudget,
   spentSoFar,
   upcomingPayments,
 } from "../../src/lib/budget-store";
@@ -84,5 +87,63 @@ describe("budget-store", () => {
       }),
     );
     expect(upcomingPayments("wed_1").map((p) => p.id)).toEqual(["p2", "p1"]);
+  });
+
+  /**
+   * The regression test for the actual bug: `entryFor` mints the signal once
+   * and a mounted Budget view captures that accessor at mount. Deleting the
+   * map entry on invalidate would leave that accessor pointed at a signal
+   * nothing writes to again — a dead view showing stale figures forever. The
+   * fix writes THROUGH the signal, so an accessor captured before invalidate
+   * still observes the transition.
+   */
+  it("a mounted consumer's captured accessor observes null after invalidate", async () => {
+    await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({})] }));
+    const mounted = budgetAccessor("wed_1"); // captured once, as a real mount would
+    expect(mounted()).not.toBeNull();
+    invalidateBudget("wed_1");
+    expect(mounted()).toBeNull();
+  });
+
+  it("hasCachedBudget is false after invalidate, so the next load refetches", async () => {
+    await ensureBudgetLoaded("wed_1", async () => snap({}));
+    expect(hasCachedBudget("wed_1")).toBe(true);
+    invalidateBudget("wed_1");
+    expect(hasCachedBudget("wed_1")).toBe(false);
+    let calls = 0;
+    await ensureBudgetLoaded("wed_1", async () => {
+      calls += 1;
+      return snap({});
+    });
+    expect(calls).toBe(1);
+  });
+
+  /**
+   * A fetch already in flight when the invalidate runs was issued against
+   * PRE-mutation state. Clearing the signal alone would not stop its `.then`
+   * writing that stale snapshot in afterwards — the generation bump does.
+   */
+  it("does not adopt a fetch that was in flight when the cache was invalidated", async () => {
+    let resolveStale!: (s: BudgetSnapshot) => void;
+    const stale = new Promise<BudgetSnapshot>((r) => {
+      resolveStale = r;
+    });
+    const pending = ensureBudgetLoaded("wed_1", () => stale);
+
+    invalidateBudget("wed_1");
+    resolveStale(snap({ items: [item({ id: "stale" })] }));
+    await pending;
+
+    const fresh = async () => snap({ items: [item({ id: "fresh" })] });
+    await ensureBudgetLoaded("wed_1", fresh);
+
+    expect(budgetAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["fresh"]);
+  });
+
+  it("peekCachedBudget reflects fresh data after an invalidate/reload cycle", async () => {
+    await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "a" })] }));
+    invalidateBudget("wed_1");
+    await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "b" })] }));
+    expect(peekCachedBudget("wed_1")?.items.map((i) => i.id)).toEqual(["b"]);
   });
 });
