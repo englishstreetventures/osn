@@ -1,5 +1,16 @@
 # @osn/osn
 
+## 3.20.28
+
+### Patch Changes
+
+- e38d6de: Email change and registration now correctly tell a real database fault apart from a genuine duplicate-address conflict, and a rate-capped account can no longer learn whether an email address is taken by watching which check fails first.
+- Updated dependencies [e38d6de]
+- Updated dependencies [e9ba055]
+  - @osn/db@0.20.10
+  - @shared/redis@0.4.6
+  - @shared/crypto@0.10.13
+
 ## 3.20.27
 
 ### Patch Changes
