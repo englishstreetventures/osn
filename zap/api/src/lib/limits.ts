@@ -37,3 +37,18 @@ export const MAX_MEMBER_LIMIT = MAX_CHAT_MEMBERS;
 
 /** Max length of a server-visible c2b message body (plaintext chars). */
 export const MAX_BODY_LENGTH = 8_000;
+
+/**
+ * Maximum member rows per INSERT statement in a batched chat-creation write.
+ * A member row binds 5 parameters (id, chat_id, profile_id, role,
+ * joined_at) — 20 rows/statement keeps each INSERT at 100 bound parameters,
+ * D1's per-query ceiling.
+ */
+export const MAX_MEMBER_ROWS_PER_INSERT = 20;
+
+/**
+ * Maximum profile IDs accepted per DSAR export request. Each ID is one bound
+ * parameter in the `IN (...)` clauses the account-export loaders build —
+ * capped to stay under D1's ~100-bound-parameter ceiling per query.
+ */
+export const MAX_EXPORT_PROFILE_IDS = 100;

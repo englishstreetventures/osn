@@ -11,6 +11,7 @@ import {
   requireArc,
   revokeServiceKey,
 } from "../lib/arc-middleware";
+import { MAX_CHAT_MEMBERS, MAX_EXPORT_PROFILE_IDS } from "../lib/limits";
 import { provisionC2bChat } from "../services/chats";
 import { sendC2bMessage, listC2bMessages } from "../services/messages";
 
@@ -95,19 +96,21 @@ const loadC2bMessages = (
   Effect.gen(function* () {
     if (profileIds.length === 0) return [];
     const { db } = yield* Db;
-    // First find the c2b chat IDs this set of profiles belongs to.
-    const memberRows = yield* Effect.promise(
-      (): Promise<{ chatId: string }[]> =>
-        db
-          .select({ chatId: chatMembers.chatId })
-          .from(chatMembers)
-          .innerJoin(chats, and(eq(chats.id, chatMembers.chatId), eq(chats.class, "c2b")))
-          .where(inArray(chatMembers.profileId, [...profileIds])) as Promise<{ chatId: string }[]>,
-    );
-    if (memberRows.length === 0) return [];
-    const c2bChatIds = [...new Set(memberRows.map((r) => r.chatId))];
+    // Single 3-table join replaces the old two-query pair (c2b chat ids for
+    // the profiles, then messages by `inArray(messages.chatId, c2bChatIds)`)
+    // — the second query's `IN` list was unbounded in parameters, so a
+    // profile in more than ~100 c2b chats failed the export outright. Only
+    // `profileIds` is bound here.
     // Read only `body` — never `ciphertext` or `nonce`.
     // isNotNull(body): defence-in-depth — only c2b bodies, never a stray null.
+    // groupBy(messages.id), not DISTINCT: the join duplicates a message row
+    // when two exported profiles share a chat. DISTINCT applies to the
+    // *projected* columns, and the projection deliberately has no
+    // `messages.id` — two genuinely different messages in the same chat with
+    // the same body and the same second-resolution `createdAt` would collapse
+    // into one and the data subject would silently lose a message. Grouping
+    // by a non-projected column (the message's own primary key) is valid
+    // SQLite and keeps them apart.
     // orderBy + limit: bounds the fetch to keep the export within Worker memory/CPU.
     const msgRows = yield* Effect.promise(
       (): Promise<{ chatId: string; body: string; createdAt: Date }[]> =>
@@ -118,7 +121,10 @@ const loadC2bMessages = (
             createdAt: messages.createdAt,
           })
           .from(messages)
-          .where(and(inArray(messages.chatId, c2bChatIds), isNotNull(messages.body)))
+          .innerJoin(chatMembers, eq(chatMembers.chatId, messages.chatId))
+          .innerJoin(chats, and(eq(chats.id, messages.chatId), eq(chats.class, "c2b")))
+          .where(and(inArray(chatMembers.profileId, [...profileIds]), isNotNull(messages.body)))
+          .groupBy(messages.id)
           .orderBy(desc(messages.createdAt))
           .limit(MAX_EXPORT_C2B_MESSAGES) as Promise<
           { chatId: string; body: string; createdAt: Date }[]
@@ -234,6 +240,15 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
           );
           if (!caller) return { error: "Unauthorized" };
 
+          // Bound at the boundary rather than letting D1 fail the export: each
+          // profile id is one bound parameter in the `inArray(...)` clauses
+          // both loaders below build, so an unbounded list risks D1's
+          // ~100-bound-parameter ceiling per query.
+          if (body.profile_ids.length > MAX_EXPORT_PROFILE_IDS) {
+            set.status = 400;
+            return { error: `profile_ids exceeds max of ${MAX_EXPORT_PROFILE_IDS}` };
+          }
+
           const [membershipRecords, c2bMessageRecords] = await runtime.runPromise(
             Effect.all([loadChatMemberships(body.profile_ids), loadC2bMessages(body.profile_ids)]),
           );
@@ -295,7 +310,7 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
         },
         {
           body: t.Object({
-            memberProfileIds: t.Array(t.String(), { minItems: 2 }),
+            memberProfileIds: t.Array(t.String(), { minItems: 2, maxItems: MAX_CHAT_MEMBERS }),
             createdByProfileId: t.String({ minLength: 1 }),
             title: t.Optional(t.String()),
           }),

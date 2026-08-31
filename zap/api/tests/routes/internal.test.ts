@@ -1,9 +1,9 @@
 import { exportKeyToJwk, generateArcKeyPair, signArcToken } from "@shared/crypto/jwk";
-import type { Chat } from "@zap/db/schema";
 import { Effect } from "effect";
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from "vitest";
 
 import { _resetServiceKeysForTests } from "../../src/lib/arc-middleware";
+import { MAX_EXPORT_PROFILE_IDS } from "../../src/lib/limits";
 import { createInternalRoutes } from "../../src/routes/internal";
 import {
   createTestLayer,
@@ -338,6 +338,78 @@ describe("zap internal routes — ARC-gated account-export", () => {
     ).record;
     expect(firstRecord.body).toBe("msg-newest");
     expect(firstRecord.createdAt).toBe(t2.toISOString());
+  });
+
+  it("rejects profile_ids over the export cap with 400", async () => {
+    const app = createInternalRoutes(createTestLayer());
+    await post(app, "/internal/register-service", registerBody(), `Bearer ${SECRET}`);
+
+    const arc = await signArcToken(privateKey, {
+      iss: "osn-api",
+      aud: "zap-api",
+      scope: "account:export",
+      kid: KID,
+    });
+    const overCap = Array.from({ length: MAX_EXPORT_PROFILE_IDS + 1 }, (_, i) => `usr_${i}`);
+    const res = await post(
+      app,
+      "/internal/account-export",
+      { account_id: "acc_x", profile_ids: overCap },
+      `ARC ${arc}`,
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: `profile_ids exceeds max of ${MAX_EXPORT_PROFILE_IDS}`,
+    });
+  });
+
+  it("keeps two distinct c2b messages that share a body and same-second createdAt (groupBy, not DISTINCT)", async () => {
+    const layer = createTestLayer();
+    const app = createInternalRoutes(layer);
+    await post(app, "/internal/register-service", registerBody(), `Bearer ${SECRET}`);
+
+    const c2bChat = await Effect.runPromise(
+      seedC2bChat({ type: "group" }).pipe(Effect.provide(layer)),
+    );
+    await Effect.runPromise(
+      seedMember(c2bChat.id, "usr_dup", "member").pipe(Effect.provide(layer)),
+    );
+
+    // Both timestamps round to the same integer second once stored (the
+    // `createdAt` column is second-resolution) — two genuinely different
+    // messages, same body, same stored second.
+    const first = new Date("2024-06-01T12:00:00.100Z");
+    const second = new Date("2024-06-01T12:00:00.900Z");
+    await Effect.runPromise(
+      seedC2bMessage(c2bChat.id, "usr_dup", "same body text", first).pipe(Effect.provide(layer)),
+    );
+    await Effect.runPromise(
+      seedC2bMessage(c2bChat.id, "usr_dup", "same body text", second).pipe(Effect.provide(layer)),
+    );
+
+    const arc = await signArcToken(privateKey, {
+      iss: "osn-api",
+      aud: "zap-api",
+      scope: "account:export",
+      kid: KID,
+    });
+    const res = await post(
+      app,
+      "/internal/account-export",
+      { account_id: "acc_dup", profile_ids: ["usr_dup"] },
+      `ARC ${arc}`,
+    );
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const c2bLines = text
+      .split("\n")
+      .filter(Boolean)
+      .filter((l) => (JSON.parse(l) as { section: string }).section === "zap.c2b_messages");
+
+    // A `.distinct()` on the projected {chatId, body, createdAt} columns
+    // would collapse these into one row, silently dropping a message from
+    // the DSAR export. `.groupBy(messages.id)` must keep both.
+    expect(c2bLines).toHaveLength(2);
   });
 });
 

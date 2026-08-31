@@ -1,7 +1,15 @@
+import { Database } from "bun:sqlite";
+
 import { it } from "@effect/vitest";
+import * as schema from "@zap/db/schema";
+import { chats as chatsTable, chatMembers } from "@zap/db/schema";
+import { Db } from "@zap/db/service";
+import { applySchema } from "@zap/db/testing";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { Effect, Either } from "effect";
 import { describe, expect, beforeEach, afterEach } from "vitest";
 
+import { MAX_CHAT_MEMBERS } from "../../src/lib/limits";
 import {
   createChat,
   getChat,
@@ -11,6 +19,7 @@ import {
   removeMember,
   getChatMembers,
   provisionC2bChat,
+  isUniqueConstraintFailure,
 } from "../../src/services/chats";
 import { setConsentGate, resetConsentGate } from "../../src/services/consent";
 import { createTestLayer, seedC2bChat, seedChat, seedMember } from "../helpers/db";
@@ -842,4 +851,199 @@ describe("chats service", () => {
       expect(returned.createdAt.getTime() % 1000).toBe(0);
     }).pipe(Effect.provide(createTestLayer())),
   );
+
+  // ── over-cap rejection happens before any downstream call ───────────────
+
+  it.effect("createChat rejects memberProfileIds over the cap without ever checking consent", () =>
+    Effect.gen(function* () {
+      let consentCalls = 0;
+      setConsentGate(() => {
+        consentCalls++;
+        return Promise.resolve(true);
+      });
+      const overCap = Array.from({ length: MAX_CHAT_MEMBERS + 1 }, (_, i) => `usr_overflow_${i}`);
+      const result = yield* Effect.either(
+        createChat({ type: "group", memberProfileIds: overCap }, "usr_alice"),
+      );
+      expect(Either.isLeft(result)).toBe(true);
+      if (Either.isLeft(result)) {
+        expect(result.left._tag).toBe("ValidationError");
+      }
+      // Schema.maxItems rejects at decode time — checkConsent must never run.
+      expect(consentCalls).toBe(0);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect(
+    "provisionC2bChat rejects memberProfileIds over the cap without creating a chat row",
+    () =>
+      Effect.gen(function* () {
+        const overCap = Array.from({ length: MAX_CHAT_MEMBERS + 1 }, (_, i) => `usr_overflow_${i}`);
+        const result = yield* Effect.either(
+          provisionC2bChat({ memberProfileIds: overCap, createdByProfileId: "usr_a" }),
+        );
+        expect(Either.isLeft(result)).toBe(true);
+        if (Either.isLeft(result)) {
+          expect(result.left._tag).toBe("ValidationError");
+        }
+        // provisionC2bChat has no consent gate to count (cire-trusted path), so
+        // the proof that nothing downstream ran is that no chat row exists.
+        const { db } = yield* Db;
+        const rows = yield* Effect.promise(() => db.select().from(chatsTable));
+        expect(rows).toHaveLength(0);
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // ── MAX_MEMBER_ROWS_PER_INSERT chunking (20 rows/statement) ──────────────
+
+  it.effect("createChat lands every member across more than one chunked INSERT", () =>
+    Effect.gen(function* () {
+      // 25 invited members + the creator = 26 rows, split by chunkRows into a
+      // 20-row batch and a 6-row batch. All 26 must land regardless of the
+      // chunk boundary.
+      const memberIds = Array.from({ length: 25 }, (_, i) => `usr_member_${i}`);
+      const chat = yield* createChat({ type: "group", memberProfileIds: memberIds }, "usr_alice");
+      const { members } = yield* getChatMembers(chat.id);
+      expect(members).toHaveLength(26);
+      const profileIds = new Set(members.map((m) => m.profileId));
+      expect(profileIds.has("usr_alice")).toBe(true);
+      for (const id of memberIds) expect(profileIds.has(id)).toBe(true);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  it.effect("provisionC2bChat lands every member across more than one chunked INSERT", () =>
+    Effect.gen(function* () {
+      const memberIds = Array.from({ length: 26 }, (_, i) => `usr_biz_${i}`);
+      const chat = yield* provisionC2bChat({
+        memberProfileIds: memberIds,
+        createdByProfileId: memberIds[0]!,
+      });
+      const { members } = yield* getChatMembers(chat.id);
+      expect(members).toHaveLength(26);
+      const profileIds = new Set(members.map((m) => m.profileId));
+      for (const id of memberIds) expect(profileIds.has(id)).toBe(true);
+    }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  // ── addMember insert-level isUniqueConstraintFailure catch (TOCTOU) ──────
+
+  it.effect(
+    "concurrent addMember for the same profile yields exactly one success and one AlreadyMember",
+    () =>
+      Effect.gen(function* () {
+        const chat = yield* seedChat({ type: "group" });
+        yield* seedMember(chat.id, "usr_alice", "admin");
+
+        // Both fibers pass the pre-check's dup-count read before either
+        // inserts, so the real discriminator here is the insert's
+        // `isUniqueConstraintFailure` catch, not the P-W2 pre-check fold.
+        // Interleaving is scheduler-dependent, not guaranteed identical on
+        // every run — the assertion is on the aggregate outcome, not on
+        // which fiber hits the catch.
+        const [r1, r2] = yield* Effect.all(
+          [
+            Effect.either(addMember(chat.id, "usr_racer", "usr_alice")),
+            Effect.either(addMember(chat.id, "usr_racer", "usr_alice")),
+          ],
+          { concurrency: "unbounded" },
+        );
+        const outcomes = [r1, r2];
+        const rights = outcomes.filter(Either.isRight);
+        const lefts = outcomes.filter(Either.isLeft);
+        expect(rights).toHaveLength(1);
+        expect(lefts).toHaveLength(1);
+        expect(lefts[0]!.left._tag).toBe("AlreadyMember");
+
+        const { members } = yield* getChatMembers(chat.id);
+        expect(members).toHaveLength(2);
+        expect(members.filter((m) => m.profileId === "usr_racer")).toHaveLength(1);
+      }).pipe(Effect.provide(createTestLayer())),
+  );
+
+  describe("isUniqueConstraintFailure", () => {
+    it("matches an unwrapped bun:sqlite-style top-level message", () => {
+      const error = new Error(
+        "UNIQUE constraint failed: chat_members.chat_id, chat_members.profile_id",
+      );
+      expect(isUniqueConstraintFailure(error)).toBe(true);
+    });
+
+    it("matches a D1-style error wrapped one level in .cause", () => {
+      const driverError = new Error(
+        "UNIQUE constraint failed: chat_members.chat_id, chat_members.profile_id",
+      );
+      const wrapped = new Error("Failed query: insert into chat_members ...", {
+        cause: driverError,
+      });
+      expect(isUniqueConstraintFailure(wrapped)).toBe(true);
+    });
+
+    it("matches at the deepest checked level (5 nested errors, depth 4)", () => {
+      const bottom = new Error(
+        "UNIQUE constraint failed: chat_members.chat_id, chat_members.profile_id",
+      );
+      const level3 = new Error("level3", { cause: bottom });
+      const level2 = new Error("level2", { cause: level3 });
+      const level1 = new Error("level1", { cause: level2 });
+      const top = new Error("top", { cause: level1 });
+      expect(isUniqueConstraintFailure(top)).toBe(true);
+    });
+
+    it("does not match past the 5-level bound", () => {
+      const bottom = new Error(
+        "UNIQUE constraint failed: chat_members.chat_id, chat_members.profile_id",
+      );
+      const level4 = new Error("level4", { cause: bottom });
+      const level3 = new Error("level3", { cause: level4 });
+      const level2 = new Error("level2", { cause: level3 });
+      const level1 = new Error("level1", { cause: level2 });
+      const top = new Error("top", { cause: level1 });
+      expect(isUniqueConstraintFailure(top)).toBe(false);
+    });
+
+    it("does not match a differently-shaped constraint failure", () => {
+      expect(isUniqueConstraintFailure(new Error("FOREIGN KEY constraint failed"))).toBe(false);
+    });
+
+    it("does not match a non-Error value", () => {
+      expect(isUniqueConstraintFailure("boom")).toBe(false);
+      expect(isUniqueConstraintFailure(undefined)).toBe(false);
+      expect(isUniqueConstraintFailure(null)).toBe(false);
+    });
+
+    it("matches a genuine bun:sqlite error from a real duplicate insert", async () => {
+      const sqlite = new Database(":memory:");
+      applySchema(sqlite);
+      const db = drizzle(sqlite, { schema });
+      const chatId = "chat_unique_test";
+      const now = new Date();
+      await db.insert(chatsTable).values({
+        id: chatId,
+        type: "group",
+        class: "c2c",
+        title: null,
+        eventId: null,
+        createdByProfileId: "usr_alice",
+        createdAt: now,
+        updatedAt: now,
+      });
+      const memberRow = {
+        id: "cmem_unique_test",
+        chatId,
+        profileId: "usr_bob",
+        role: "member" as const,
+        joinedAt: now,
+      };
+      await db.insert(chatMembers).values(memberRow);
+
+      let captured: unknown;
+      try {
+        await db.insert(chatMembers).values({ ...memberRow, id: "cmem_unique_test_2" });
+      } catch (error) {
+        captured = error;
+      }
+      expect(captured).toBeDefined();
+      expect(isUniqueConstraintFailure(captured)).toBe(true);
+    });
+  });
 });

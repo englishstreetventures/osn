@@ -1,7 +1,8 @@
+import { commitBatch } from "@shared/db-utils";
 import { chats, chatMembers } from "@zap/db/schema";
 import type { Chat, ChatMember } from "@zap/db/schema";
 import { Db } from "@zap/db/service";
-import { and, asc, count, desc, eq, lt, or } from "drizzle-orm";
+import { and, asc, count, desc, eq, lt, or, sql } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
 import {
@@ -11,6 +12,7 @@ import {
   MAX_CHAT_MEMBERS,
   MAX_CHAT_TITLE_LENGTH,
   MAX_MEMBER_LIMIT,
+  MAX_MEMBER_ROWS_PER_INSERT,
 } from "../lib/limits";
 import { storedNow } from "../lib/storedNow";
 import { metricChatCreated, metricMemberAdded, metricMemberRemoved } from "../metrics";
@@ -89,7 +91,10 @@ const ChatTypeEnum = Schema.Literal("dm", "group", "event");
 const TitleString = Schema.String.pipe(Schema.maxLength(MAX_CHAT_TITLE_LENGTH));
 
 const ProvisionC2bChatSchema = Schema.Struct({
-  memberProfileIds: Schema.Array(Schema.String).pipe(Schema.minItems(2)),
+  memberProfileIds: Schema.Array(Schema.String).pipe(
+    Schema.minItems(2),
+    Schema.maxItems(MAX_CHAT_MEMBERS),
+  ),
   createdByProfileId: Schema.String,
   title: Schema.optional(TitleString),
 });
@@ -98,12 +103,61 @@ const CreateChatSchema = Schema.Struct({
   type: ChatTypeEnum,
   title: Schema.optional(TitleString),
   eventId: Schema.optional(Schema.String),
-  memberProfileIds: Schema.optional(Schema.Array(Schema.String)),
+  memberProfileIds: Schema.optional(
+    Schema.Array(Schema.String).pipe(Schema.maxItems(MAX_CHAT_MEMBERS)),
+  ),
 });
 
 const UpdateChatSchema = Schema.Struct({
   title: Schema.optional(TitleString),
 });
+
+// ---------------------------------------------------------------------------
+// Write helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Splits an array of already-built row objects into chunks of at most
+ * `size`. Used to keep a single batched INSERT's bound-parameter count under
+ * D1's per-query ceiling — chunking rows, not pre-built statement groups, so
+ * this is a fresh, differently-shaped helper from `cire/api`'s
+ * `chunkGroups`, not a port of it.
+ */
+const chunkRows = <T>(rows: readonly T[], size: number): T[][] => {
+  const chunks: T[][] = [];
+  for (let i = 0; i < rows.length; i += size) {
+    chunks.push(rows.slice(i, i + size));
+  }
+  return chunks;
+};
+
+/**
+ * Detects a SQLite unique-constraint failure by walking a bounded number of
+ * `.cause` levels (5) and testing each level's `message`.
+ *
+ * D1's session wraps every failure in `DrizzleQueryError`
+ * (`drizzle-orm/d1/session.js`): the top-level `.message` is `"Failed
+ * query: …"` and the driver error carrying `UNIQUE constraint failed:
+ * chat_members.chat_id, chat_members.profile_id` sits one level down in
+ * `.cause`. bun:sqlite's session does not wrap (no `queryWithCache` call in
+ * `drizzle-orm/bun-sqlite/session.js`), so locally the substring is already
+ * at the top level — walking still finds it there on the first iteration.
+ * Matches on the message substring only, never on the constraint name
+ * (`chat_members_pair_idx`), which never appears in the error text.
+ */
+export const isUniqueConstraintFailure = (error: unknown): boolean => {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5; depth++) {
+    if (!(current instanceof Error)) {
+      return false;
+    }
+    if (current.message.includes("UNIQUE constraint failed")) {
+      return true;
+    }
+    current = current.cause;
+  }
+  return false;
+};
 
 // ---------------------------------------------------------------------------
 // Service functions
@@ -251,39 +305,46 @@ export const createChat = (
       updatedAt: now,
     };
 
-    yield* Effect.tryPromise({
-      try: () => db.insert(chats).values(row),
-      catch: (cause) => new DatabaseError({ cause }),
-    });
+    // Creator as admin, plus the already consent-checked + de-duped initial
+    // members — one row array, one batch, rather than three sequential
+    // round trips.
+    const creatorMemberRow = {
+      id: "cmem_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+      chatId: id,
+      profileId: creatorProfileId,
+      role: "admin" as const,
+      joinedAt: now,
+    };
+    const otherMemberRows = initialMembers.map((uid) => ({
+      id: "cmem_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+      chatId: id,
+      profileId: uid,
+      role: "member" as const,
+      joinedAt: now,
+    }));
+    const allMemberRows = [creatorMemberRow, ...otherMemberRows];
 
-    // Add creator as admin member.
-    const memberId = "cmem_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    // FK-first ordering: the chat row is inserted before any member row,
+    // which references it. Chunked at MAX_MEMBER_ROWS_PER_INSERT rows per
+    // INSERT to stay under D1's ~100-bound-parameter ceiling — up to
+    // MAX_CHAT_MEMBERS+1 (501) member rows here (the creator plus up to
+    // MAX_CHAT_MEMBERS others, the schema's cap on `memberProfileIds`)
+    // chunks into ceil(501/20) = 26 INSERTs, plus the chat INSERT itself =
+    // 27 statements — under D1's 50-queries-per-invocation Free-tier bound.
+    // Atomic on D1 (`db.batch`); on bun:sqlite `commitBatch` chains the
+    // statements sequentially with no rollback, which is not a regression
+    // versus the three separate awaits this replaces — no test may assert
+    // joint rollback there.
     yield* Effect.tryPromise({
       try: () =>
-        db.insert(chatMembers).values({
-          id: memberId,
-          chatId: id,
-          profileId: creatorProfileId,
-          role: "admin",
-          joinedAt: now,
-        }),
+        commitBatch(db, [
+          db.insert(chats).values(row),
+          ...chunkRows(allMemberRows, MAX_MEMBER_ROWS_PER_INSERT).map((chunk) =>
+            db.insert(chatMembers).values(chunk),
+          ),
+        ]),
       catch: (cause) => new DatabaseError({ cause }),
     });
-
-    // Batch-insert initial members (already consent-checked + de-duped).
-    if (initialMembers.length > 0) {
-      const memberRows = initialMembers.map((uid) => ({
-        id: "cmem_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
-        chatId: id,
-        profileId: uid,
-        role: "member" as const,
-        joinedAt: now,
-      }));
-      yield* Effect.tryPromise({
-        try: () => db.insert(chatMembers).values(memberRows),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-    }
 
     metricChatCreated(validated.type, "ok");
     // Returned from the values just written — see `provisionC2bChat`.
@@ -321,10 +382,38 @@ export const updateChat = (
     // update is gone. `storedNow()` is what makes that safe: Drizzle stores a
     // timestamp as whole seconds, and an untruncated `Date` here would make
     // the response disagree with every later read of the same row.
-    const chat = yield* getChat(id);
+    //
+    // One LEFT JOIN replaces the separate `getChat` + `assertAdmin` lookups —
+    // the nested `chat` projection carries the whole row (this function
+    // spreads `{ ...chat, ... }` below) and `role` says whether the
+    // requester is a member at all.
+    const rows = yield* Effect.tryPromise({
+      try: (): Promise<{ chat: Chat; role: ChatMember["role"] | null }[]> =>
+        db
+          .select({ chat: chats, role: chatMembers.role })
+          .from(chats)
+          .leftJoin(
+            chatMembers,
+            and(eq(chatMembers.chatId, chats.id), eq(chatMembers.profileId, requestingProfileId)),
+          )
+          .where(eq(chats.id, id))
+          .limit(1) as Promise<{ chat: Chat; role: ChatMember["role"] | null }[]>,
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+    if (rows.length === 0) {
+      return yield* Effect.fail(new ChatNotFound({ id }));
+    }
+    const { chat, role } = rows[0]!;
 
-    // Check that the requesting user is an admin.
-    yield* assertAdmin(id, requestingProfileId);
+    // `role` null (no membership row) or a non-"admin" role both mean "not an
+    // admin" and must fail `NotChatAdmin`, never `NotChatMember` — the
+    // deleted `assertAdmin` filtered `role = 'admin'` in its WHERE clause, so
+    // a non-admin AND a non-member both fell through to `NotChatAdmin`. A
+    // "natural" fold that maps the null case to `NotChatMember` would
+    // silently change this route's status from 403 to 404.
+    if (role !== "admin") {
+      return yield* Effect.fail(new NotChatAdmin({ chatId: id }));
+    }
 
     // After the authorisation gate, not before — see `addMember`. A 409 "not
     // a c2c chat" reaching a caller with no standing in the chat would tell
@@ -377,8 +466,30 @@ export const addMember = (
 > =>
   Effect.gen(function* () {
     const { db } = yield* Db;
-    const chat = yield* getChat(chatId);
-    yield* assertAdmin(chatId, requestingProfileId);
+    // One LEFT JOIN replaces the separate `getChat` + `assertAdmin` lookups —
+    // see `updateChat` for the same fold and the same null-vs-non-admin note.
+    const chatRows = yield* Effect.tryPromise({
+      try: (): Promise<{ chat: Chat; role: ChatMember["role"] | null }[]> =>
+        db
+          .select({ chat: chats, role: chatMembers.role })
+          .from(chats)
+          .leftJoin(
+            chatMembers,
+            and(eq(chatMembers.chatId, chats.id), eq(chatMembers.profileId, requestingProfileId)),
+          )
+          .where(eq(chats.id, chatId))
+          .limit(1) as Promise<{ chat: Chat; role: ChatMember["role"] | null }[]>,
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+    if (chatRows.length === 0) {
+      return yield* Effect.fail(new ChatNotFound({ id: chatId }));
+    }
+    const { chat, role } = chatRows[0]!;
+    // `role` null (no membership row) or a non-"admin" role both fail
+    // `NotChatAdmin`, never `NotChatMember` — see `updateChat`'s fold for why.
+    if (role !== "admin") {
+      return yield* Effect.fail(new NotChatAdmin({ chatId }));
+    }
 
     // After the authorisation gate, not before. `assertC2c` answers 409 "not a
     // c2c chat", which to a caller with no standing in the chat would say the
@@ -395,31 +506,31 @@ export const addMember = (
     // profile being added. Fail-closed on graph-unreachable.
     yield* checkConsent(requestingProfileId, profileId);
 
-    // P-W2: check the member count with COUNT(*) instead of loading every
-    // member row (up to MAX_CHAT_MEMBERS) into memory.
-    const countRows = yield* Effect.tryPromise({
-      try: (): Promise<{ value: number }[]> =>
+    // P-W2/cap+duplicate fold: one query over chat_members instead of a
+    // COUNT(*) followed by a separate indexed duplicate lookup. `sum()` from
+    // drizzle-orm 0.45.2 is typed `SQL<string | null>`
+    // (`sql\`sum(...)\`.mapWith(String)`), which does not typecheck against a
+    // numeric comparison — the raw `sql<number>` template is used instead.
+    // `sum` over zero matching rows is SQL NULL, hence the `dup ?? 0` guard;
+    // `count()` already maps with `Number`, so `total` needs no guard.
+    const capRows = yield* Effect.tryPromise({
+      try: (): Promise<{ total: number; dup: number | null }[]> =>
         db
-          .select({ value: count() })
+          .select({
+            total: count(),
+            dup: sql<number>`sum(${chatMembers.profileId} = ${profileId})`,
+          })
           .from(chatMembers)
-          .where(eq(chatMembers.chatId, chatId)) as Promise<{ value: number }[]>,
+          .where(eq(chatMembers.chatId, chatId)) as Promise<
+          { total: number; dup: number | null }[]
+        >,
       catch: (cause) => new DatabaseError({ cause }),
     });
-    if ((countRows[0]?.value ?? 0) >= MAX_CHAT_MEMBERS) {
+    const { total, dup } = capRows[0]!;
+    if (total >= MAX_CHAT_MEMBERS) {
       return yield* Effect.fail(new MemberLimitReached({ chatId }));
     }
-
-    // Check if already a member (single indexed lookup on the unique pair).
-    const duplicate = yield* Effect.tryPromise({
-      try: (): Promise<{ id: string }[]> =>
-        db
-          .select({ id: chatMembers.id })
-          .from(chatMembers)
-          .where(and(eq(chatMembers.chatId, chatId), eq(chatMembers.profileId, profileId)))
-          .limit(1) as Promise<{ id: string }[]>,
-      catch: (cause) => new DatabaseError({ cause }),
-    });
-    if (duplicate.length > 0) {
+    if ((dup ?? 0) > 0) {
       return yield* Effect.fail(new AlreadyMember({ chatId, profileId }));
     }
 
@@ -435,15 +546,58 @@ export const addMember = (
       role: "member",
       joinedAt: now,
     };
+    // The cap/duplicate check above narrows the concurrent-duplicate window
+    // but cannot close it (P-I/TOCTOU) — two concurrent adds of the *same*
+    // profile can both pass it and both reach this INSERT. The unique
+    // constraint on (chat_id, profile_id) is the real guard: catch its
+    // failure and resolve to `AlreadyMember` (409) rather than `DatabaseError`
+    // (500). This fixes concurrent duplicate adds only — the member *cap* has
+    // a separate, pre-existing TOCTOU (two concurrent adds of *different*
+    // profiles can both read `total = 499` and both insert), which this does
+    // not close and is not a regression.
     yield* Effect.tryPromise({
       try: () => db.insert(chatMembers).values(row),
-      catch: (cause) => new DatabaseError({ cause }),
+      catch: (cause) =>
+        isUniqueConstraintFailure(cause)
+          ? new AlreadyMember({ chatId, profileId })
+          : new DatabaseError({ cause }),
     });
     metricMemberAdded("ok");
 
     // Returned from the values just written — see `provisionC2bChat`.
     return row;
   }).pipe(Effect.withSpan("zap.chats.add_member"));
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+// Still used by `removeMember` (admin-removing-another-member path) — not a
+// fold target in this plan, only `updateChat` and `addMember` are.
+const assertAdmin = (
+  chatId: string,
+  profileId: string,
+): Effect.Effect<void, NotChatAdmin | DatabaseError, Db> =>
+  Effect.gen(function* () {
+    const { db } = yield* Db;
+    const rows = yield* Effect.tryPromise({
+      try: (): Promise<ChatMember[]> =>
+        db
+          .select()
+          .from(chatMembers)
+          .where(
+            and(
+              eq(chatMembers.chatId, chatId),
+              eq(chatMembers.profileId, profileId),
+              eq(chatMembers.role, "admin"),
+            ),
+          ) as Promise<ChatMember[]>,
+      catch: (cause) => new DatabaseError({ cause }),
+    });
+    if (rows.length === 0) {
+      return yield* Effect.fail(new NotChatAdmin({ chatId }));
+    }
+  });
 
 export const removeMember = (
   chatId: string,
@@ -586,11 +740,6 @@ export const provisionC2bChat = (input: {
       updatedAt: now,
     };
 
-    yield* Effect.tryPromise({
-      try: () => db.insert(chats).values(row),
-      catch: (cause) => new DatabaseError({ cause }),
-    });
-
     // Insert all members (no role distinction — cire is the trusted authorizer).
     const memberRows = memberSet.map((profileId) => ({
       id: "cmem_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),
@@ -599,8 +748,24 @@ export const provisionC2bChat = (input: {
       role: "member" as const,
       joinedAt: now,
     }));
+
+    // FK-first ordering: the chat row is inserted before any member row,
+    // which references it. Chunked at MAX_MEMBER_ROWS_PER_INSERT rows per
+    // INSERT to stay under D1's ~100-bound-parameter ceiling — up to
+    // MAX_CHAT_MEMBERS (500) rows here chunks into ceil(500/20) = 25
+    // INSERTs, plus the chat INSERT itself = 26 statements — under D1's
+    // 50-queries-per-invocation Free-tier bound. Atomic on D1 (`db.batch`);
+    // on bun:sqlite `commitBatch` chains the statements sequentially with
+    // no rollback, which is not a regression versus the two separate awaits
+    // this replaces — no test may assert joint rollback there.
     yield* Effect.tryPromise({
-      try: () => db.insert(chatMembers).values(memberRows),
+      try: () =>
+        commitBatch(db, [
+          db.insert(chats).values(row),
+          ...chunkRows(memberRows, MAX_MEMBER_ROWS_PER_INSERT).map((chunk) =>
+            db.insert(chatMembers).values(chunk),
+          ),
+        ]),
       catch: (cause) => new DatabaseError({ cause }),
     });
 
@@ -632,34 +797,5 @@ export const assertMember = (
     });
     if (rows.length === 0) {
       return yield* Effect.fail(new NotChatMember({ chatId }));
-    }
-  });
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-const assertAdmin = (
-  chatId: string,
-  profileId: string,
-): Effect.Effect<void, NotChatAdmin | DatabaseError, Db> =>
-  Effect.gen(function* () {
-    const { db } = yield* Db;
-    const rows = yield* Effect.tryPromise({
-      try: (): Promise<ChatMember[]> =>
-        db
-          .select()
-          .from(chatMembers)
-          .where(
-            and(
-              eq(chatMembers.chatId, chatId),
-              eq(chatMembers.profileId, profileId),
-              eq(chatMembers.role, "admin"),
-            ),
-          ) as Promise<ChatMember[]>,
-      catch: (cause) => new DatabaseError({ cause }),
-    });
-    if (rows.length === 0) {
-      return yield* Effect.fail(new NotChatAdmin({ chatId }));
     }
   });
