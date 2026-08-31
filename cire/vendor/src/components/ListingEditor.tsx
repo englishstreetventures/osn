@@ -64,9 +64,13 @@ export default function ListingEditor(props: ListingEditorProps) {
   // Money: displayed in major units (dollars); "" means null (no value set).
   const [priceMin, setPriceMin] = createSignal("");
   const [priceMax, setPriceMax] = createSignal("");
-  // Per-key checked state: Record<categoryKey, boolean>.
-  // Reading `checked()[key]` inside <For> is isolated to that row — toggling one key
-  // only re-runs the expression for that checkbox (VP-P-W1).
+  // Per-key checked state: Record<categoryKey, boolean>, held as one signal.
+  // `toggleCategory` below spreads a fresh object on every toggle, so every
+  // row's `checked()[key]` read re-runs on every toggle, not just the one
+  // that changed — this is a single signal, not one per key, and SolidJS has
+  // no way to see that only one property moved. That recomputes 14 boolean
+  // lookups per toggle (`SERVICE_CATEGORIES` has 14 entries), which costs
+  // nothing worth a per-key signal split (xchromo/osn-tracker#132).
   const [checked, setChecked] = createSignal<Record<string, boolean>>({});
 
   const [seeded, setSeeded] = createSignal(false);
@@ -241,6 +245,11 @@ export default function ListingEditor(props: ListingEditorProps) {
                 onInput={(e) => setDescription(e.currentTarget.value)}
                 rows={3}
                 maxLength={2000}
+                // This form sits inside `createAutoSize()`'s frame, whose
+                // reflow guard watches width only — dragging this box's own
+                // resize grip at a fixed width reads as a content change on
+                // every delivery (xchromo/osn-tracker#130).
+                resize="none"
               />
             )}
           </Field>

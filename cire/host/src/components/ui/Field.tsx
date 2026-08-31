@@ -74,14 +74,39 @@ export function Input(props: InputProps) {
   return <input type="text" {...rest} class={controlClass(own.size, own.class)} />;
 }
 
-export type TextareaProps = Omit<SafeProps<"textarea">, "size"> & { size?: ControlSize };
+export type TextareaResize = "y" | "none";
 
-/** A multi-line box. `resize-y` on purpose: sideways resize breaks the column
- *  it sits in, and no-resize takes away the one control a host has over a long
- *  note. */
+const TEXTAREA_RESIZE = {
+  y: "resize-y",
+  none: "resize-none",
+} satisfies Readonly<Record<TextareaResize, string>>;
+
+export type TextareaProps = Omit<SafeProps<"textarea">, "size"> & {
+  size?: ControlSize;
+  /** `"y"` (the default) on purpose: sideways resize breaks the column a
+   *  textarea sits in, and no-resize takes away the one control a host has
+   *  over a long note. `"none"` exists for the one place that default is
+   *  wrong — a textarea inside `ModuleShell`'s auto-sized frame
+   *  (`lib/auto-size.ts`). That observer's reflow guard watches width only;
+   *  dragging this textarea's own resize grip changes height at a fixed
+   *  width, which the guard reads as a content change on every delivery
+   *  (xchromo/osn-tracker#130). A caller cannot fix this by passing
+   *  `class="resize-none"`: this component appends its own resize class
+   *  after `own.class`, so both land on the element and Tailwind resolves
+   *  the conflict by the two utilities' order in the generated stylesheet,
+   *  not by attribute order — the caller's class does not reliably win. */
+  resize?: TextareaResize;
+};
+
+/** A multi-line box. */
 export function Textarea(props: TextareaProps) {
-  const [own, rest] = splitProps(props, ["size", "class"]);
-  return <textarea {...rest} class={`${controlClass(own.size, own.class)} resize-y`} />;
+  const [own, rest] = splitProps(props, ["size", "class", "resize"]);
+  return (
+    <textarea
+      {...rest}
+      class={`${controlClass(own.size, own.class)} ${TEXTAREA_RESIZE[own.resize ?? "y"]}`}
+    />
+  );
 }
 
 export type SelectProps = Omit<SafeProps<"select">, "size"> & { size?: ControlSize };

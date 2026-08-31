@@ -15,8 +15,11 @@ import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
          first page a host sees, and it is the one most likely to be opened at
          night. It must not paint a frame of the wrong theme. -->
     <script is:inline set:html={THEME_BOOT_SCRIPT}></script>
-    <Font cssVariable="--font-ui" preload />
-    <Font cssVariable="--font-flair" preload />
+    <!-- A bare `preload` ignores each face's `unicode-range` and fetches
+         every subset unconditionally — naming the subset keeps the preload
+         to what the page can actually use (xchromo/osn-tracker#129). -->
+    <Font cssVariable="--font-ui" preload={[{ subset: "latin" }]} />
+    <Font cssVariable="--font-flair" preload={[{ subset: "latin" }]} />
   </head>
   <body>
     <!-- Same `page-frame` gutters as the dashboard, with its own measure: a

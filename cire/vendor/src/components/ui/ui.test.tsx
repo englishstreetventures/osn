@@ -245,6 +245,25 @@ describe("Field", () => {
     expect(screen.getByLabelText("Reply")).toBeInTheDocument();
   });
 
+  it("lets a long description grow downwards but not sideways by default", () => {
+    // Sideways resize breaks the column the textarea sits in; no resize at
+    // all takes away the one control a vendor has over a long description.
+    const { getByRole } = render(() => <Textarea aria-label="Description" />);
+    expect(getByRole("textbox").className).toContain("resize-y");
+  });
+
+  it("turns off resize for a textarea sitting inside an auto-sized frame", () => {
+    // xchromo/osn-tracker#130: `createAutoSize()`'s reflow guard (wrapping
+    // `ListingEditor`) watches width only, so dragging a `resize-y` grip at
+    // a fixed width reads as a content change on every delivery.
+    // `resize="none"` is the escape hatch — and it has to win over the
+    // default class, not just add to it.
+    const { getByRole } = render(() => <Textarea aria-label="Description" resize="none" />);
+    const className = getByRole("textbox").className;
+    expect(className).toContain("resize-none");
+    expect(className).not.toContain("resize-y");
+  });
+
   it("wires a select the same way", () => {
     render(() => (
       <Field label="Price band">

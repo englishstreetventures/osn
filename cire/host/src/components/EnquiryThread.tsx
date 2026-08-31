@@ -144,6 +144,12 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
                 value={draft()}
                 onInput={(e) => setDraft(e.currentTarget.value)}
                 rows={3}
+                // Every module view renders inside `ModuleShell`'s
+                // auto-sized frame, whose reflow guard watches width only —
+                // dragging this box's own resize grip at a fixed width
+                // reads as a content change on every delivery
+                // (xchromo/osn-tracker#130).
+                resize="none"
               />
             )}
           </Field>

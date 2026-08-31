@@ -178,6 +178,12 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
             <Textarea
               {...field}
               rows={3}
+              // Inside VendorApp's createAutoSize() panel, same as
+              // ListingEditor's description box: a fixed-width height drag
+              // reads as a content swap to the frame's `lastWidth !== width`
+              // guard and restarts a transition per observer delivery
+              // (osn-tracker#130).
+              resize="none"
               placeholder="Write a reply…"
               value={draft()}
               onInput={(e) => setDraft(e.currentTarget.value)}

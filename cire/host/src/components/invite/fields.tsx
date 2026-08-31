@@ -100,6 +100,12 @@ export function TextAreaField(props: {
         value={props.value}
         maxlength={props.maxLength}
         onInput={(e) => props.onInput(e.currentTarget.value)}
+        // The invite builder is a module view, and every module view renders
+        // inside `ModuleShell`'s auto-sized frame, whose reflow guard
+        // watches width only — dragging this box's own resize grip at a
+        // fixed width reads as a content change on every delivery
+        // (xchromo/osn-tracker#130).
+        resize="none"
       />
       <Show when={props.hint}>
         <span class="font-body text-text-muted text-[0.72rem] italic">{props.hint}</span>

@@ -17,9 +17,13 @@ import { THEME_BOOT_SCRIPT } from '../lib/theme-boot'
     <script is:inline set:html={THEME_BOOT_SCRIPT}></script>
     <!-- Self-hosted; see the `fonts` block in astro.config.mjs. Both faces are
          preloaded because both are above the fold — the wordmark is Cormorant
-         and everything beside it is Schibsted. -->
-    <Font cssVariable="--font-ui" preload />
-    <Font cssVariable="--font-flair" preload />
+         and everything beside it is Schibsted. A bare `preload` ignores each
+         face's `unicode-range` and fetches every subset unconditionally —
+         `latin-ext` included, for a page that never renders a codepoint out
+         of `latin`. Naming the subset here keeps the preload to what the
+         page can actually use (xchromo/osn-tracker#129). -->
+    <Font cssVariable="--font-ui" preload={[{ subset: "latin" }]} />
+    <Font cssVariable="--font-flair" preload={[{ subset: "latin" }]} />
   </head>
   <body>
     <!--

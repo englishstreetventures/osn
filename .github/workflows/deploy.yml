@@ -175,6 +175,23 @@ jobs:
             ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-build-
 
+      # See ci.yml's `build-test` job for why this is keyed on the three
+      # astro.config.mjs files rather than bun.lock or github.sha — Astro's
+      # font-metadata cache is a function of which families each config
+      # asks for, and restoring it here turns this workflow's own `bun run
+      # build` into a cache hit against fonts.google.com too
+      # (xchromo/osn-tracker#128).
+      - name: Cache Astro font metadata
+        uses: actions/cache@v4
+        with:
+          path: |
+            cire/vendor/node_modules/.astro
+            cire/host/node_modules/.astro
+            cire/landing/node_modules/.astro
+          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'cire/vendor/astro.config.mjs', 'cire/host/astro.config.mjs', 'cire/landing/astro.config.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-astro-fonts-
+
       - name: Install dependencies
         run: bun install
 
@@ -539,6 +556,21 @@ jobs:
             ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-build-
 
+      # See ci.yml's `build-test` job for the reasoning behind this key.
+      # `PUBLIC_CIRE_API_URL` differs between this dev build and the
+      # production one below, and turbo.json's `build` task hashes
+      # `PUBLIC_*` env vars as inputs — so this job's `bun run build` is
+      # always a turbo cache MISS against the `build` job above and really
+      # runs `astro build` again, hitting fonts.google.com again unless this
+      # restores what that fetch produced (xchromo/osn-tracker#128).
+      - name: Cache Astro font metadata
+        uses: actions/cache@v4
+        with:
+          path: cire/host/node_modules/.astro
+          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'cire/host/astro.config.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-astro-fonts-
+
       - name: Install dependencies
         run: bun install
 
@@ -606,6 +638,16 @@ jobs:
             ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-build-
 
+      # See ci.yml's `build-test` job for the reasoning behind this key, and
+      # the dev job above for why this always misses turbo's own cache.
+      - name: Cache Astro font metadata
+        uses: actions/cache@v4
+        with:
+          path: cire/host/node_modules/.astro
+          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'cire/host/astro.config.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-astro-fonts-
+
       - name: Install dependencies
         run: bun install
 
@@ -665,6 +707,17 @@ jobs:
             ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-build-
 
+      # See ci.yml's `build-test` job for the reasoning behind this key, and
+      # the cire/host dev job above for why this always misses turbo's own
+      # cache.
+      - name: Cache Astro font metadata
+        uses: actions/cache@v4
+        with:
+          path: cire/vendor/node_modules/.astro
+          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'cire/vendor/astro.config.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-astro-fonts-
+
       - name: Install dependencies
         run: bun install
 
@@ -722,6 +775,17 @@ jobs:
             ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-build-
 
+      # See ci.yml's `build-test` job for the reasoning behind this key, and
+      # the cire/host dev job above for why this always misses turbo's own
+      # cache.
+      - name: Cache Astro font metadata
+        uses: actions/cache@v4
+        with:
+          path: cire/vendor/node_modules/.astro
+          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'cire/vendor/astro.config.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-astro-fonts-
+
       - name: Install dependencies
         run: bun install
 
@@ -777,6 +841,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-build-
+
+      # See ci.yml's `build-test` job for the reasoning behind this key, and
+      # the cire/host dev job above for why this always misses turbo's own
+      # cache.
+      - name: Cache Astro font metadata
+        uses: actions/cache@v4
+        with:
+          path: cire/landing/node_modules/.astro
+          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'cire/landing/astro.config.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-astro-fonts-
 
       - name: Install dependencies
         run: bun install
@@ -836,6 +911,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-build-${{ hashFiles('bun.lock') }}-
             ${{ runner.os }}-turbo-build-
+
+      # See ci.yml's `build-test` job for the reasoning behind this key, and
+      # the cire/host dev job above for why this always misses turbo's own
+      # cache.
+      - name: Cache Astro font metadata
+        uses: actions/cache@v4
+        with:
+          path: cire/landing/node_modules/.astro
+          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'cire/landing/astro.config.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-astro-fonts-
 
       - name: Install dependencies
         run: bun install

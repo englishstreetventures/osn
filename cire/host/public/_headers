@@ -7,6 +7,16 @@
   Reporting-Endpoints: csp-endpoint="https://api.cireweddings.com/api/csp-report"
   Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob: https://api.cireweddings.com http://localhost:8787; connect-src 'self' https://api.cireweddings.com http://localhost:8787; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; report-uri https://api.cireweddings.com/api/csp-report; report-to csp-endpoint
 
+# Long-cache the immutable, content-hashed Astro bundles — this now includes
+# the self-hosted font files (Schibsted Grotesk, Cormorant Garamond), which
+# used to come from fonts.gstatic.com with this exact header and lost it on
+# the move to our own origin (xchromo/osn-tracker#131). Every path under
+# /_astro/ carries a content hash in the filename, so a year-long cache is
+# unconditionally safe: a changed file is a new URL, never the same one with
+# different bytes.
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
 # The organiser portal is a STATIC Astro build on Cloudflare Pages, so the asset
 # layer serves every response and this file covers all of them. (The guest site
 # can't do that — it's an SSR Worker, which is why cire/invites carries the same

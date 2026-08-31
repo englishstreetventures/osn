@@ -133,6 +133,34 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-turbo-build-
 
+      # `@cire/vendor`, `@cire/host` and `@cire/landing` declare
+      # `provider: fontProviders.google()`, which makes `astro build` fetch
+      # `https://fonts.google.com/metadata/fonts` — Astro's own font
+      # metadata cache for that fetch lives at each package's default
+      # `cacheDir`, `node_modules/.astro` (xchromo/osn-tracker#128). None of
+      # this job's other caches cover it: the bun cache above only holds
+      # installed packages, and the turbo cache is keyed per-commit on
+      # purpose (see the `typecheck` job's comment on why) so it can't be
+      # the thing that survives across runs here. What decides whether this
+      # cache is still correct is which font families each config asks for,
+      # not the lockfile or the commit — so, following the same reasoning
+      # the other caches in this file use (key on whatever the cache's
+      # correctness actually depends on), this one is keyed on the three
+      # `astro.config.mjs` files. Restoring it turns most CI runs' font
+      # fetch into a cache hit, which is directly the fix for #128: a build
+      # that never has to call `fonts.google.com` can't be broken by that
+      # endpoint 403ing.
+      - name: Cache Astro font metadata
+        uses: actions/cache@v4
+        with:
+          path: |
+            cire/vendor/node_modules/.astro
+            cire/host/node_modules/.astro
+            cire/landing/node_modules/.astro
+          key: ${{ runner.os }}-astro-fonts-${{ hashFiles('bun.lock', 'cire/vendor/astro.config.mjs', 'cire/host/astro.config.mjs', 'cire/landing/astro.config.mjs') }}
+          restore-keys: |
+            ${{ runner.os }}-astro-fonts-
+
       - name: Install dependencies
         run: bun install
 

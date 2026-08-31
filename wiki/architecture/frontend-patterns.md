@@ -21,7 +21,7 @@ related:
 packages:
   - "@pulse/web"
   - "@osn/ui"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-08-31
 ---
 
 # Frontend Patterns
@@ -179,6 +179,31 @@ with a negative margin" trick inverts on a sticky element: a negative bottom mar
 A full-bleed sticky action bar must instead have the scroll container drop its own
 bottom padding and let the bar own the edge, plus its `env(safe-area-inset-bottom)`
 — the `flushBottom` prop on `AnimatedModal`, used by cire's `RsvpModal`.
+
+### A width-only reflow guard cannot see a drag that only changes height
+
+`createAutoSize()` (`cire/vendor/src/lib/auto-size.ts`, byte-identical in
+`cire/host`) animates a frame's height on a `ResizeObserver` delivery, and
+guards against animating a plain text reflow (a narrower window rewrapping
+the content) by comparing the observed width to the last one: unchanged width
+means real content changed, not layout. That guard has one blind spot —
+anything that changes height at a **fixed** width reads as a content change
+on every delivery, because the one signal the guard checks did not move.
+
+A `resize-y` `<textarea>` is exactly that case. Dragging its resize grip
+changes height continuously at a fixed width, so every delivery inside the
+frame's animation cap sets `overflow: hidden`, `contain: layout paint` and a
+fresh transition it never finishes, forcing a synchronous
+`getBoundingClientRect()` per frame — the reflow the guard exists to prevent,
+arriving through the one axis it does not watch. `Textarea`'s `resize` prop
+(`cire/host` and `cire/vendor` `components/ui/Field.tsx`, default `"y"`) is
+the fix: opt a textarea out of user-resize when it sits inside an
+auto-sized frame. Passing `class="resize-none"` at a call site does **not**
+work — `Field.tsx` appends its own resize class after the caller's, so both
+land on the element and Tailwind resolves the conflict by the two utilities'
+order in the generated stylesheet, not by attribute order. Reach for a real
+prop, not a class override, whenever a component appends its own class after
+the caller's (xchromo/osn-tracker#130).
 
 ## Source Files
 

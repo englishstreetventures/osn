@@ -52,9 +52,12 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).href : As
       <style is:inline>[data-reveal]{opacity:1 !important;transform:none !important}</style>
     </noscript>
     <!-- Both faces are above the fold — the wordmark is Cormorant, the copy beside
-         it is Lato — so both preload. -->
-    <Font cssVariable="--font-cormorant" preload />
-    <Font cssVariable="--font-lato" preload />
+         it is Lato — so both preload. A bare `preload` ignores each face's
+         `unicode-range` and fetches every subset unconditionally — naming
+         the subset keeps the preload to what the page can actually use
+         (xchromo/osn-tracker#129). -->
+    <Font cssVariable="--font-cormorant" preload={[{ subset: "latin" }]} />
+    <Font cssVariable="--font-lato" preload={[{ subset: "latin" }]} />
   </head>
   <body>
     <div class="page-root">
