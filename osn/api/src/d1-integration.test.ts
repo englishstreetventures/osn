@@ -14,11 +14,12 @@ import {
 import * as schema from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { createSchemaSql } from "@osn/db/testing";
-import { createD1Db } from "@shared/db-utils";
+import { commitBatch, createD1Db } from "@shared/db-utils";
 import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
+import { UNIQUE_CONSTRAINT_ERROR } from "./lib/unique-constraint";
 import { cancelErasure, getDeletionStatus, requestErasure } from "./services/account-erasure";
 
 // Integration tests against a REAL (workerd-backed) D1 database via Miniflare.
@@ -111,5 +112,49 @@ describe("osn/api account erasure over real D1 (Miniflare)", () => {
     const acct = await rawDb.select().from(accounts).where(eq(accounts.id, ACCOUNT_ID));
     expect(acct[0]!.deletedAt).toBeNull();
     expect((await run(getDeletionStatus(ACCOUNT_ID))).scheduled).toBe(false);
+  });
+});
+
+describe("UNIQUE_CONSTRAINT_ERROR over real D1 (Miniflare)", () => {
+  it("matches a duplicate-email conflict raised through commitBatch", async () => {
+    const ts = new Date();
+    let threw = false;
+    try {
+      await commitBatch(rawDb, [
+        rawDb.insert(accounts).values({
+          id: "acc_d1test_dup",
+          email: "d1@example.com", // already seeded on ACCOUNT_ID
+          passkeyUserId: crypto.randomUUID(),
+          createdAt: ts,
+          updatedAt: ts,
+        }),
+      ]);
+    } catch (e) {
+      threw = true;
+      const msg = e instanceof Error ? e.message : String(e);
+      expect(UNIQUE_CONSTRAINT_ERROR.test(msg)).toBe(true);
+    }
+    expect(threw).toBe(true);
+  });
+
+  it("does not match a foreign-key violation raised through commitBatch", async () => {
+    const ts = new Date();
+    let threw = false;
+    try {
+      await commitBatch(rawDb, [
+        rawDb.insert(users).values({
+          id: "usr_d1test_orphan",
+          accountId: "acc_does_not_exist",
+          handle: "orphan",
+          createdAt: ts,
+          updatedAt: ts,
+        }),
+      ]);
+    } catch (e) {
+      threw = true;
+      const msg = e instanceof Error ? e.message : String(e);
+      expect(UNIQUE_CONSTRAINT_ERROR.test(msg)).toBe(false);
+    }
+    expect(threw).toBe(true);
   });
 });

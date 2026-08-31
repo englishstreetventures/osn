@@ -8,7 +8,7 @@ import { beforeAll } from "vitest";
 import { createInMemoryRotatedSessionStore } from "../../src/lib/rotated-session-store";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
-import { createTestLayer } from "../helpers/db";
+import { createTestLayer, createTestLayerWithSqlite } from "../helpers/db";
 
 /**
  * Build a fresh auth service + OTP-capturing email recorder + merged
@@ -436,6 +436,69 @@ describe("beginRegistration + completeRegistration", () => {
       expect(err.message).toContain("already registered");
     }).pipe(Effect.provide(layer));
   });
+
+  // #557: a non-uniqueness constraint failure at the write must surface as
+  // DatabaseError, never get folded into the generic "already registered"
+  // AuthError the genuine-conflict path returns. `completeRegistration`
+  // builds its own accounts+users insert with internally-consistent foreign
+  // keys, so a FK violation can't be induced through the service itself — a
+  // trigger stands in for "some other constraint failed", raising a
+  // constraint-worded message that does not contain "UNIQUE", which is
+  // exactly the string the old `/UNIQUE|constraint/i` pattern matched by
+  // mistake.
+  it.effect("surfaces a non-uniqueness constraint failure as DatabaseError", () => {
+    const email = makeLogEmailLive();
+    const { layer: dbLayer, sqlite } = createTestLayerWithSqlite();
+    const layer = Layer.merge(dbLayer, email.layer);
+    const svc = createAuthService(config);
+    const latestCode = (): string | undefined => {
+      const all = email.recorded();
+      for (let i = all.length - 1; i >= 0; i--) {
+        const m = all[i].text.match(/code is: (\d{6})/);
+        if (m) return m[1];
+      }
+      return undefined;
+    };
+    return Effect.gen(function* () {
+      yield* svc.beginRegistration("regfault@example.com", "regfaultuser", "1990-01-01");
+      const code = latestCode();
+      sqlite.run(`
+        CREATE TRIGGER reject_users_insert_regfault BEFORE INSERT ON users
+        BEGIN SELECT RAISE(ABORT, 'CHECK constraint failed: users'); END;
+      `);
+      const err = yield* Effect.flip(svc.completeRegistration("regfault@example.com", code!));
+      expect(err._tag).toBe("DatabaseError");
+    }).pipe(Effect.provide(layer));
+  });
+
+  // #557: pins the *direction* of the narrowed match — a genuine duplicate
+  // must still land on the caller-facing AuthError (not DatabaseError), and
+  // the pending entry must survive so a retry is possible (registration.ts
+  // :393-396). Distinct from the S-H4 test above: that one only asserts the
+  // error class and message; this one proves survival by re-driving the
+  // exact same code and observing the same conflict again, rather than the
+  // "Invalid or expired code" a wiped pending entry would produce instead.
+  it.effect(
+    "a genuine duplicate email still resolves to AuthError, and the pending entry survives for retry",
+    () => {
+      const { svc, captured, layer } = makeAuth();
+      return Effect.gen(function* () {
+        yield* svc.beginRegistration("realdup@example.com", "realdupuser", "1990-01-01");
+        const code = captured.code;
+        // Someone else wins the race for the SAME email via the legacy path
+        // before our OTP is redeemed.
+        yield* svc.registerProfile("realdup@example.com", "otherhandle");
+        const first = yield* Effect.flip(svc.completeRegistration("realdup@example.com", code!));
+        expect(first._tag).toBe("AuthError");
+        expect(first.message).toContain("already registered");
+        // Retried with the same code: if the pending entry had been wiped,
+        // this would fail "Invalid or expired code" instead.
+        const retry = yield* Effect.flip(svc.completeRegistration("realdup@example.com", code!));
+        expect(retry._tag).toBe("AuthError");
+        expect(retry.message).toContain("already registered");
+      }).pipe(Effect.provide(layer));
+    },
+  );
 
   it.effect(
     "T-M2: begin fails with AuthError (not EmailError) when email transport rejects",

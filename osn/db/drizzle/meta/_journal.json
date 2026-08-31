@@ -43,6 +43,13 @@
       "when": 1788097202987,
       "tag": "0005_goofy_gwen_stacy",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788103572019,
+      "tag": "0006_burly_lucky_pierre",
+      "breakpoints": true
     }
   ]
 }

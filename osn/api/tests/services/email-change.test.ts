@@ -1,7 +1,6 @@
 import { it, expect, describe } from "@effect/vitest";
 import { Db } from "@osn/db/service";
-import { makeLogEmailLive } from "@shared/email";
-import { Effect, Layer } from "effect";
+import { Effect } from "effect";
 import { beforeAll } from "vitest";
 
 import { createAuthService } from "../../src/services/auth";
@@ -17,10 +16,9 @@ import { createTestLayerWithSqlite } from "../helpers/db";
  * fault-injection trigger the service layer has no route to create.
  */
 function makeEmailCapture() {
-  const email = makeLogEmailLive();
-  const { layer: dbLayer, sqlite } = createTestLayerWithSqlite();
+  const { layer, sqlite, email } = createTestLayerWithSqlite();
   return {
-    layer: Layer.merge(dbLayer, email.layer),
+    layer,
     sqlite,
     captured: {
       codes: () =>
@@ -313,9 +311,12 @@ describe("beginEmailChange + completeEmailChange", () => {
 
   // Regression pin for S1: a non-uniqueness constraint failure at the write
   // must surface as DatabaseError, never get folded into the same generic
-  // AuthError the OTP-mismatch/UNIQUE-conflict paths return. No FK
-  // enforcement exists anywhere in this tree to trigger a real one, so a
-  // fault-injection trigger stands in for "some other constraint failed".
+  // AuthError the OTP-mismatch/UNIQUE-conflict paths return. FK enforcement
+  // is on in this tree (`PRAGMA foreign_keys = ON`, see `@osn/db/testing`),
+  // but `email_changes.accountId` deliberately carries no FK reference (see
+  // the schema comment on that column), so no real FK violation is reachable
+  // through this table — a fault-injection trigger stands in for "some other
+  // constraint failed".
   it.effect("surfaces a non-uniqueness constraint failure as DatabaseError", () => {
     const { layer, captured, sqlite } = makeEmailCapture();
     return Effect.gen(function* () {
@@ -522,6 +523,51 @@ describe("beginEmailChange + completeEmailChange", () => {
       const err = yield* Effect.flip(performChange("ec-cap-3@example.com"));
       expect(err._tag).toBe("AuthError");
       expect(err.message).toMatch(/limit reached/i);
+    }).pipe(Effect.provide(layer));
+  });
+
+  // #559 S-H2: the 7-day cap check must run BEFORE the collision probe, so a
+  // capped caller can't tell a taken address from a free one by comparing
+  // which failure they get. Drives the cap directly via raw rows (cheaper
+  // than two full ceremonies) rather than reusing "enforces 2-per-7-days
+  // cap" above.
+  it.effect("caps identically regardless of whether the target address is taken", () => {
+    const { layer, captured, sqlite } = makeEmailCapture();
+    return Effect.gen(function* () {
+      const { auth, profile } = yield* setup(
+        "ec-capcollision@example.com",
+        "eccapcollision",
+        captured,
+      );
+      // Another account already owns this address.
+      yield* auth.registerProfile("ec-capcollision-taken@example.com", "eccapcollisiontaken");
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      for (const suffix of ["1", "2"]) {
+        sqlite
+          .query(
+            `INSERT INTO email_changes (id, account_id, previous_email, new_email, completed_at)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+          .run(
+            `ech_capcollision_${suffix}`,
+            profile.accountId,
+            "ec-capcollision-old@example.com",
+            `ec-capcollision-new-${suffix}@example.com`,
+            nowSec,
+          );
+      }
+
+      const takenErr = yield* Effect.flip(
+        auth.beginEmailChange(profile.accountId, "ec-capcollision-taken@example.com"),
+      );
+      const freeErr = yield* Effect.flip(
+        auth.beginEmailChange(profile.accountId, "ec-capcollision-free@example.com"),
+      );
+      expect(takenErr._tag).toBe("AuthError");
+      expect(freeErr._tag).toBe("AuthError");
+      expect(takenErr.message).toMatch(/limit reached/i);
+      expect(freeErr.message).toBe(takenErr.message);
     }).pipe(Effect.provide(layer));
   });
 });

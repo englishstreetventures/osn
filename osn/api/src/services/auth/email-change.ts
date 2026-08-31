@@ -11,6 +11,7 @@ import { type EmailError, EmailService } from "@shared/email";
 import { and, count as countFn, eq, gte, ne } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 
+import { UNIQUE_CONSTRAINT_ERROR } from "../../lib/unique-constraint";
 import {
   metricAuthOtpSent,
   metricSessionSecurityInvalidation,
@@ -81,29 +82,12 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         return yield* Effect.fail(new AuthError({ message: "New email matches current email" }));
       }
 
-      // S-H2: silently succeed on collisions — an authenticated caller
-      // must not learn whether another account owns an email. Registration
-      // treats this as first-class (see the `beginRegistration` comment);
-      // email change must match. The UNIQUE(email) constraint at `complete`
-      // is the real defence against a race-winning swap.
-      const collision = yield* Effect.tryPromise({
-        // P-I1: projecting the indexed column alone lets UNIQUE(email) answer
-        // the probe from the index without reading the account row.
-        try: () =>
-          db
-            .select({ email: accounts.email })
-            .from(accounts)
-            .where(eq(accounts.email, normalised))
-            .limit(1),
-        catch: (cause) => new DatabaseError({ cause }),
-      });
-      if (collision.length > 0) {
-        return { sent: true };
-      }
-
       // P-W3: 2-per-7-days cap uses an indexed aggregate instead of a full
-      // history fetch. `email_changes_completed_at_idx` + the account filter
-      // serve the predicate.
+      // history fetch. `email_changes_account_completed_at_idx` serves the
+      // predicate (accountId + completedAt range) in one scan. This runs
+      // BEFORE the collision probe below (S-H2): a capped caller must not be
+      // able to tell a taken address from a free one by watching which check
+      // fails first.
       const windowStart = Math.floor(Date.now() / 1000) - EMAIL_CHANGE_WINDOW_SECONDS;
       const recentCount = yield* Effect.tryPromise({
         try: async () => {
@@ -124,6 +108,26 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         return yield* Effect.fail(
           new AuthError({ message: "Email change limit reached (2 per 7 days)" }),
         );
+      }
+
+      // S-H2: silently succeed on collisions — an authenticated caller
+      // must not learn whether another account owns an email. Registration
+      // treats this as first-class (see the `beginRegistration` comment);
+      // email change must match. The UNIQUE(email) constraint at `complete`
+      // is the real defence against a race-winning swap.
+      const collision = yield* Effect.tryPromise({
+        // P-I1: projecting the indexed column alone lets UNIQUE(email) answer
+        // the probe from the index without reading the account row.
+        try: () =>
+          db
+            .select({ email: accounts.email })
+            .from(accounts)
+            .where(eq(accounts.email, normalised))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      if (collision.length > 0) {
+        return { sent: true };
       }
 
       const code = genOtpCode();
@@ -289,17 +293,10 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
             // Only a uniqueness violation is a genuine caller-facing conflict
-            // (another account already claimed the address). NOT NULL / FOREIGN
-            // KEY / CHECK constraint failures are DB faults, not user races —
-            // they must surface as DatabaseError, not get mapped to a benign
-            // "someone else got there first" outcome.
-            //
-            // Both spellings are accepted because the two drivers do not agree:
-            // bun:sqlite raises `UNIQUE constraint failed: accounts.email`, and
-            // a driver that reports the SQLite result code instead would carry
-            // `SQLITE_CONSTRAINT_UNIQUE`. Neither spelling can match a NOT NULL,
-            // FOREIGN KEY or CHECK failure, so the narrowing holds.
-            if (/UNIQUE constraint|SQLITE_CONSTRAINT_UNIQUE/i.test(msg)) {
+            // (another account already claimed the address); see
+            // `UNIQUE_CONSTRAINT_ERROR` for the full justification, shared
+            // with `registration.ts`.
+            if (UNIQUE_CONSTRAINT_ERROR.test(msg)) {
               return { ok: false as const, reason: "conflict" as const };
             }
             throw e;

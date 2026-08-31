@@ -337,7 +337,12 @@ export const emailChanges = sqliteTable(
     completedAt: integer("completed_at").notNull(),
   },
   (t) => [
-    index("email_changes_account_idx").on(t.accountId),
+    // Serves the 2-per-7-days cap predicate (accountId filter + completedAt
+    // range) as a single index scan instead of an accountId-only scan
+    // followed by a filter.
+    index("email_changes_account_completed_at_idx").on(t.accountId, t.completedAt),
+    // Kept for a future retention sweeper (not yet built) that will need to
+    // find rows past the retention window irrespective of account.
     index("email_changes_completed_at_idx").on(t.completedAt),
   ],
 );

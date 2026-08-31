@@ -12,9 +12,12 @@ export function createTestLayer() {
 }
 
 /**
- * Same layer, plus the raw SQLite handle behind it. Tests that need to seed a
- * table with no route to write it — the OAuth client registry, for one — insert
- * through this handle rather than through a fixture the service does not have.
+ * Same layer, plus the raw SQLite handle behind it and the email recorder
+ * used to build it. Tests that need to seed a table with no route to write
+ * it — the OAuth client registry, for one — insert through `sqlite` rather
+ * than through a fixture the service does not have; tests that need to
+ * assert on captured sends read `email.recorded()` rather than building a
+ * second email layer to merge in.
  */
 export function createTestLayerWithSqlite() {
   const sqlite = new Database(":memory:");
@@ -24,23 +27,8 @@ export function createTestLayerWithSqlite() {
   applySchema(sqlite);
   const db = drizzle(sqlite, { schema });
   const dbLayer = Layer.succeed(Db, { db });
-  const emailLayer = makeLogEmailLive().layer;
-  return { layer: Layer.merge(dbLayer, emailLayer), sqlite, db };
-}
-
-/**
- * Variant of `createTestLayer()` that exposes the email recorder so
- * tests can assert on captured sends. Replaces the old pattern of
- * setting a `sendEmail` callback in `AuthConfig`.
- */
-export function createTestLayerWithEmailRecorder() {
-  const inner = createTestLayer();
   const email = makeLogEmailLive();
-  return {
-    layer: Layer.merge(inner, email.layer),
-    recorded: email.recorded,
-    reset: email.reset,
-  };
+  return { layer: Layer.merge(dbLayer, email.layer), sqlite, db, email };
 }
 
 // Re-export for tests that want to build their own capture recorder.
