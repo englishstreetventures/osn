@@ -63,6 +63,9 @@ export function budgetAccessor(weddingId: string): Accessor<BudgetSnapshot | nul
   return entryFor(weddingId).snapshot;
 }
 
+/** Subscribes only when the entry already exists — a read from a cold cache
+ *  registers no dependency. Never use it for a value a view must track; use
+ *  the accessor for that. */
 export function hasCachedBudget(weddingId: string): boolean {
   return !stale.has(weddingId) && cache.get(weddingId)?.snapshot() != null;
 }
@@ -71,6 +74,9 @@ export function setCachedBudget(weddingId: string, snapshot: BudgetSnapshot): vo
   entryFor(weddingId).setSnapshot(snapshot);
 }
 
+/** Subscribes only when the entry already exists — a read from a cold cache
+ *  registers no dependency. Never use it for a value a view must track; use
+ *  the accessor for that. */
 export function peekCachedBudget(weddingId: string): BudgetSnapshot | null {
   return cache.get(weddingId)?.snapshot() ?? null;
 }
@@ -86,7 +92,13 @@ export function invalidateBudget(weddingId: string): void {
   // A load already in flight was issued against PRE-mutation state, so its
   // snapshot describes state that has since been mutated: the wedding's
   // GENERATION is bumped too, and a resolving fetch from an older generation
-  // discards its result instead of caching it.
+  // discards its result instead of caching it. Dropping the in-flight slot
+  // here (not just bumping the generation) means the next
+  // `ensureBudgetLoaded` does not join that doomed fetch — it starts a new
+  // one, at the cost of one extra request. That is the right trade: joining
+  // would await a promise whose result the generation guard is about to
+  // discard, leaving the caller with `false` and the view unrefreshed until
+  // whatever call comes next.
   inflight.delete(weddingId);
   generation.set(weddingId, generationOf(weddingId) + 1);
 }
@@ -120,13 +132,13 @@ export function upcomingPayments(weddingId: string): PaymentRow[] {
     });
 }
 
-const inflight = new Map<string, Promise<void>>();
+const inflight = new Map<string, Promise<boolean>>();
 
 export function ensureBudgetLoaded(
   weddingId: string,
   fetcher: () => Promise<BudgetSnapshot>,
-): Promise<void> {
-  if (hasCachedBudget(weddingId)) return Promise.resolve();
+): Promise<boolean> {
+  if (hasCachedBudget(weddingId)) return Promise.resolve(true);
   let pending = inflight.get(weddingId);
   if (!pending) {
     const startedAt = generationOf(weddingId);
@@ -136,9 +148,10 @@ export function ensureBudgetLoaded(
           // A newer invalidation landed while this was in flight — its snapshot
           // describes state that has since been mutated, so drop it rather than
           // cache it.
-          if (generationOf(weddingId) !== startedAt) return;
+          if (generationOf(weddingId) !== startedAt) return false;
           setCachedBudget(weddingId, snap);
           stale.delete(weddingId);
+          return true;
         },
         (err: unknown) => {
           // The refetch was refused or failed. The rows still on screen were

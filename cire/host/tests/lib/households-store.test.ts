@@ -51,6 +51,13 @@ describe("ensureHouseholdsLoaded", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it("resolves true after a normal load, and true again on a cache hit without refetching", async () => {
+    const fetcher = vi.fn(async () => [ROW]);
+    await expect(ensureHouseholdsLoaded("wed_1", fetcher)).resolves.toBe(true);
+    await expect(ensureHouseholdsLoaded("wed_1", fetcher)).resolves.toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects every waiter on failure, caches nothing, and retries next call", async () => {
     const failing = vi.fn(async () => {
       throw new Error("network down");
@@ -208,7 +215,7 @@ describe("ensureHouseholdsLoaded", () => {
 
     invalidateHouseholds("wed_1"); // a second invalidate, while that load is still in flight
     release();
-    await pending;
+    await expect(pending).resolves.toBe(false);
 
     expect(householdsAccessor("wed_1")()?.map((h) => h.familyId)).toEqual(["seed"]);
     expect(hasCachedHouseholds("wed_1")).toBe(false);

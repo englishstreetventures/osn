@@ -39,6 +39,13 @@ describe("ensureEventsLoaded", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it("resolves true after a normal load, and true again on a cache hit without refetching", async () => {
+    const fetcher = vi.fn(async () => [ROW]);
+    await expect(ensureEventsLoaded("wed_1", fetcher)).resolves.toBe(true);
+    await expect(ensureEventsLoaded("wed_1", fetcher)).resolves.toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects every waiter on failure, caches nothing, and retries next call", async () => {
     const failing = vi.fn(async () => {
       throw new Error("network down");
@@ -174,7 +181,7 @@ describe("ensureEventsLoaded", () => {
 
     invalidateEvents("wed_1"); // a second invalidate, while that load is still in flight
     release();
-    await pending;
+    await expect(pending).resolves.toBe(false);
 
     expect(eventsAccessor("wed_1")()?.map((r) => r.id)).toEqual(["seed"]);
     expect(hasCachedEvents("wed_1")).toBe(false);

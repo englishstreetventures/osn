@@ -51,6 +51,9 @@ export function enquiriesAccessor(weddingId: string): Accessor<EnquiryListItem[]
   return entryFor(weddingId).enquiries;
 }
 
+/** Subscribes only when the entry already exists — a read from a cold cache
+ *  registers no dependency. Never use it for a value a view must track; use
+ *  the accessor for that. */
 export function hasCachedEnquiries(weddingId: string): boolean {
   return !stale.has(weddingId) && cache.get(weddingId)?.enquiries() != null;
 }
@@ -59,6 +62,9 @@ export function setCachedEnquiries(weddingId: string, items: EnquiryListItem[]):
   entryFor(weddingId).setEnquiries(items);
 }
 
+/** Subscribes only when the entry already exists — a read from a cold cache
+ *  registers no dependency. Never use it for a value a view must track; use
+ *  the accessor for that. */
 export function peekCachedEnquiries(weddingId: string): EnquiryListItem[] | null {
   return cache.get(weddingId)?.enquiries() ?? null;
 }
@@ -74,7 +80,12 @@ export function invalidateEnquiries(weddingId: string): void {
   // A load already in flight was issued against PRE-mutation state, so its
   // rows describe state that has since been mutated: the wedding's GENERATION
   // is bumped too, and a resolving fetch from an older generation discards its
-  // result instead of caching it.
+  // result instead of caching it. Dropping the in-flight slot here (not just
+  // bumping the generation) means the next `ensureEnquiriesLoaded` does not
+  // join that doomed fetch — it starts a new one, at the cost of one extra
+  // request. That is the right trade: joining would await a promise whose
+  // result the generation guard is about to discard, leaving the caller with
+  // `false` and the view unrefreshed until whatever call comes next.
   inflight.delete(weddingId);
   generation.set(weddingId, generationOf(weddingId) + 1);
 }
@@ -88,7 +99,11 @@ const generationOf = (weddingId: string) => generation.get(weddingId) ?? 0;
 const stale = new Set<string>();
 
 export function upsertCachedEnquiry(weddingId: string, next: EnquiryListItem): void {
-  const cur = peekCachedEnquiries(weddingId) ?? [];
+  const cur = peekCachedEnquiries(weddingId);
+  // `null` is "not loaded", not "no rows". Writing a one-row list here would both
+  // hide the rest and flip `hasCachedEnquiries` to true, suppressing the refetch
+  // that would have restored them.
+  if (cur == null) return;
   const without = cur.filter((e) => e.id !== next.id);
   setCachedEnquiries(
     weddingId,
@@ -96,13 +111,13 @@ export function upsertCachedEnquiry(weddingId: string, next: EnquiryListItem): v
   );
 }
 
-const inflight = new Map<string, Promise<void>>();
+const inflight = new Map<string, Promise<boolean>>();
 
 export function ensureEnquiriesLoaded(
   weddingId: string,
   fetcher: () => Promise<EnquiryListItem[]>,
-): Promise<void> {
-  if (hasCachedEnquiries(weddingId)) return Promise.resolve();
+): Promise<boolean> {
+  if (hasCachedEnquiries(weddingId)) return Promise.resolve(true);
   let pending = inflight.get(weddingId);
   if (!pending) {
     const startedAt = generationOf(weddingId);
@@ -112,9 +127,10 @@ export function ensureEnquiriesLoaded(
           // A newer invalidation landed while this was in flight — its rows
           // describe state that has since been mutated, so drop them rather than
           // cache them.
-          if (generationOf(weddingId) !== startedAt) return;
+          if (generationOf(weddingId) !== startedAt) return false;
           setCachedEnquiries(weddingId, items);
           stale.delete(weddingId);
+          return true;
         },
         (err: unknown) => {
           // The refetch was refused or failed. The rows still on screen were
