@@ -64,7 +64,7 @@ export function budgetAccessor(weddingId: string): Accessor<BudgetSnapshot | nul
 }
 
 export function hasCachedBudget(weddingId: string): boolean {
-  return cache.get(weddingId)?.snapshot() != null;
+  return !stale.has(weddingId) && cache.get(weddingId)?.snapshot() != null;
 }
 
 export function setCachedBudget(weddingId: string, snapshot: BudgetSnapshot): void {
@@ -76,12 +76,17 @@ export function peekCachedBudget(weddingId: string): BudgetSnapshot | null {
 }
 
 export function invalidateBudget(weddingId: string): void {
-  entryFor(weddingId).setSnapshot(null);
+  // A mounted Budget view is still rendering the last-known snapshot, and
+  // pulling it out from under that view for one round trip is the flicker
+  // this cache exists to avoid — so the signal is left alone and the wedding
+  // is marked `stale` instead. `hasCachedBudget` treats a stale id as a miss,
+  // which is what makes the next `ensureBudgetLoaded` actually refetch rather
+  // than short-circuiting on the (still-present) cached value.
+  stale.add(weddingId);
   // A load already in flight was issued against PRE-mutation state, so its
-  // snapshot is stale the moment this runs. Clearing the signal alone is not
-  // enough — the fetch's own `.then` would still write it in AFTER this call —
-  // so the wedding's GENERATION is bumped too, and a resolving fetch from an
-  // older generation discards its result instead of caching it.
+  // snapshot describes state that has since been mutated: the wedding's
+  // GENERATION is bumped too, and a resolving fetch from an older generation
+  // discards its result instead of caching it.
   inflight.delete(weddingId);
   generation.set(weddingId, generationOf(weddingId) + 1);
 }
@@ -89,6 +94,10 @@ export function invalidateBudget(weddingId: string): void {
 /** Monotonic per-wedding load generation, bumped by every invalidation. */
 const generation = new Map<string, number>();
 const generationOf = (weddingId: string) => generation.get(weddingId) ?? 0;
+
+/** Wedding ids whose cached rows are known out of date but still worth showing
+ *  while the refetch is in flight. */
+const stale = new Set<string>();
 
 /** Reactive spend-so-far for the Overview widget: `null` until first load. */
 export function spentSoFar(weddingId: string): number | null {
@@ -122,13 +131,29 @@ export function ensureBudgetLoaded(
   if (!pending) {
     const startedAt = generationOf(weddingId);
     const load = fetcher()
-      .then((snap) => {
-        // A newer invalidation landed while this was in flight — its snapshot
-        // describes state that has since been mutated, so drop it rather than
-        // cache it.
-        if (generationOf(weddingId) !== startedAt) return;
-        setCachedBudget(weddingId, snap);
-      })
+      .then(
+        (snap) => {
+          // A newer invalidation landed while this was in flight — its snapshot
+          // describes state that has since been mutated, so drop it rather than
+          // cache it.
+          if (generationOf(weddingId) !== startedAt) return;
+          setCachedBudget(weddingId, snap);
+          stale.delete(weddingId);
+        },
+        (err: unknown) => {
+          // The refetch was refused or failed. The rows still on screen were
+          // fetched under an authorisation this request could not confirm, so
+          // they stop being shown: a demoted organiser must not keep reading
+          // budget figures behind an error banner. Same generation guard — if a
+          // newer invalidation has landed, a newer load owns the entry and this
+          // one touches nothing.
+          if (generationOf(weddingId) === startedAt) {
+            entryFor(weddingId).setSnapshot(null);
+            stale.delete(weddingId);
+          }
+          throw err;
+        },
+      )
       .finally(() => {
         // Only clear the slot if it is still OURS: an invalidation may already
         // have replaced it with a newer load.
@@ -145,4 +170,5 @@ export function __resetBudgetCache(): void {
   cache.clear();
   inflight.clear();
   generation.clear();
+  stale.clear();
 }

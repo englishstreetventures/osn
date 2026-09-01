@@ -77,7 +77,7 @@ describe("ensureHouseholdsLoaded", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
-  it("refetches after invalidation (e.g. a change apply)", async () => {
+  it("hasCachedHouseholds is false after invalidate, so the next load refetches", async () => {
     const fetcher = vi.fn(async () => [ROW]);
     await ensureHouseholdsLoaded("wed_1", fetcher);
     expect(hasCachedHouseholds("wed_1")).toBe(true);
@@ -108,6 +108,7 @@ describe("ensureHouseholdsLoaded", () => {
 
     expect(fresh).toHaveBeenCalledTimes(1);
     expect(householdsAccessor("wed_1")()?.map((h) => h.familyId)).toEqual(["fam_fresh"]);
+    expect(hasCachedHouseholds("wed_1")).toBe(true);
   });
 
   /**
@@ -116,14 +117,68 @@ describe("ensureHouseholdsLoaded", () => {
    * entry on invalidate would leave that accessor pointed at a signal nothing
    * writes to again — a dead view showing stale rows forever. The fix writes
    * THROUGH the signal, so an accessor captured before invalidate still
-   * observes the transition.
+   * observes it.
+   *
+   * What changed since: invalidate used to null that signal outright, which
+   * flashed the editor empty on every organiser edit while the background
+   * refetch ran. It now leaves the rows in place and marks the wedding
+   * `stale` instead — a mounted editor keeps rendering the last-known rows
+   * across the invalidate.
    */
-  it("a mounted consumer's captured accessor observes null after invalidate", async () => {
+  it("a mounted consumer's captured accessor keeps the previous rows after invalidate", async () => {
     const fetcher = vi.fn(async () => [ROW]);
     await ensureHouseholdsLoaded("wed_1", fetcher);
     const mounted = householdsAccessor("wed_1"); // captured once, as a real mount would
     expect(mounted()).toEqual([ROW]);
     invalidateHouseholds("wed_1");
-    expect(mounted()).toBeNull();
+    expect(mounted()).toEqual([ROW]);
+    expect(hasCachedHouseholds("wed_1")).toBe(false);
+  });
+
+  it("ensureHouseholdsLoaded refetches after invalidate and replaces the stale rows on success", async () => {
+    await ensureHouseholdsLoaded("wed_1", async () => [{ ...ROW, familyId: "a" }]);
+    invalidateHouseholds("wed_1");
+    await ensureHouseholdsLoaded("wed_1", async () => [{ ...ROW, familyId: "b" }]);
+    expect(householdsAccessor("wed_1")()?.map((h) => h.familyId)).toEqual(["b"]);
+    expect(hasCachedHouseholds("wed_1")).toBe(true);
+  });
+
+  /**
+   * Security property, not an optimisation: the refetch after invalidate is
+   * also the re-authorization check. A demoted organiser must not keep
+   * reading the last-known household list behind an error banner just
+   * because the stale-while-revalidate contract kept the old rows on screen
+   * — a refused/failed refetch has to blank the signal and rethrow so the
+   * caller sees the failure too.
+   */
+  it("ensureHouseholdsLoaded blanks the signal and rethrows when the refetch is refused", async () => {
+    await ensureHouseholdsLoaded("wed_1", async () => [ROW]);
+    invalidateHouseholds("wed_1");
+    const refusal = new Error("403");
+    await expect(
+      ensureHouseholdsLoaded("wed_1", async () => {
+        throw refusal;
+      }),
+    ).rejects.toBe(refusal);
+    expect(householdsAccessor("wed_1")()).toBeNull();
+  });
+
+  // households-store has no setCachedHouseholds/peekCachedHouseholds bypass —
+  // ensureHouseholdsLoaded is the only way to write its cache, so this can't
+  // use the same bypass-write proof the other stores use. It instead shows
+  // the same fact indirectly: if reset left `stale` set for wed_1, this fresh
+  // load's success would have nothing to clear and no later assertion could
+  // tell the difference — so we pin the weaker but still real property that a
+  // reset wedding behaves as never-loaded at all.
+  it("__resetHouseholdsCache clears cached rows so a later ensure treats the wedding as unseen", async () => {
+    await ensureHouseholdsLoaded("wed_1", async () => [ROW]);
+    invalidateHouseholds("wed_1"); // marks wed_1 stale
+    __resetHouseholdsCache();
+    expect(hasCachedHouseholds("wed_1")).toBe(false);
+    expect(householdsAccessor("wed_1")()).toBeNull();
+    const fetcher = vi.fn(async () => [{ ...ROW, familyId: "fam_after_reset" }]);
+    await ensureHouseholdsLoaded("wed_1", fetcher);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(hasCachedHouseholds("wed_1")).toBe(true);
   });
 });

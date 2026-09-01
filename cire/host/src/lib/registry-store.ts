@@ -119,7 +119,7 @@ export function registryAccessor(weddingId: string): Accessor<RegistrySnapshot |
 }
 
 export function hasCachedRegistry(weddingId: string): boolean {
-  return cache.get(weddingId)?.snapshot() != null;
+  return !stale.has(weddingId) && cache.get(weddingId)?.snapshot() != null;
 }
 
 export function setCachedRegistry(weddingId: string, snapshot: RegistrySnapshot): void {
@@ -131,24 +131,28 @@ export function peekCachedRegistry(weddingId: string): RegistrySnapshot | null {
 }
 
 /**
- * Drop the cached snapshot, keeping the SIGNAL.
+ * Mark the cached snapshot stale, keeping both the SIGNAL and its VALUE.
  *
  * Deleting the map entry would mint a fresh signal on the next `entryFor`, and
  * every view that captured the old accessor at mount would then read a signal
  * nothing writes to again — a dead view with stale content. This was the
  * repo-wide `P-W2` in `[[cire/wiki/todo/perf]]`; every sibling cache
  * (`vendors-store`, `budget-store`, `tasks-store`, `enquiries-store`,
- * `events-store`, `guests-store`, `households-store`) now notifies the same
- * way.
+ * `events-store`, `guests-store`, `households-store`) still notifies the same
+ * way. What changed since is the VALUE: nulling it out here used to hide the
+ * gift list and log behind a loading flash on every organiser edit, so the
+ * snapshot is left in place and the wedding is marked `stale` instead.
+ * `hasCachedRegistry` treats a stale id as a miss, which is what makes the
+ * next `ensureRegistryLoaded` actually refetch rather than short-circuiting
+ * on the (still-present) cached value.
  *
  * A load already in flight was issued against PRE-invalidation state, so its
- * snapshot is stale the moment this runs. Clearing the signal alone is not
- * enough — the fetch's own `.then` would still write it in AFTER this call —
- * so the wedding's GENERATION is bumped too, and a resolving fetch from an
- * older generation discards its result instead of caching it.
+ * snapshot describes state that has since been mutated: the wedding's
+ * GENERATION is bumped too, and a resolving fetch from an older generation
+ * discards its result instead of caching it.
  */
 export function invalidateRegistry(weddingId: string): void {
-  entryFor(weddingId).setSnapshot(null);
+  stale.add(weddingId);
   inflight.delete(weddingId);
   generation.set(weddingId, generationOf(weddingId) + 1);
 }
@@ -156,6 +160,10 @@ export function invalidateRegistry(weddingId: string): void {
 /** Monotonic per-wedding load generation, bumped by every invalidation. */
 const generation = new Map<string, number>();
 const generationOf = (weddingId: string) => generation.get(weddingId) ?? 0;
+
+/** Wedding ids whose cached snapshot is known out of date but still worth
+ *  showing while the refetch is in flight. */
+const stale = new Set<string>();
 
 /** How many of an item's wanted quantity are still unspoken for. Never negative
  *  — a race can land one claim past the wanted count, and a negative "still
@@ -175,13 +183,29 @@ export function ensureRegistryLoaded(
   if (!pending) {
     const startedAt = generationOf(weddingId);
     const load = fetcher()
-      .then((snap) => {
-        // A newer invalidation landed while this was in flight — its snapshot
-        // describes state that has since been mutated, so drop it rather than
-        // cache it.
-        if (generationOf(weddingId) !== startedAt) return;
-        setCachedRegistry(weddingId, snap);
-      })
+      .then(
+        (snap) => {
+          // A newer invalidation landed while this was in flight — its snapshot
+          // describes state that has since been mutated, so drop it rather than
+          // cache it.
+          if (generationOf(weddingId) !== startedAt) return;
+          setCachedRegistry(weddingId, snap);
+          stale.delete(weddingId);
+        },
+        (err: unknown) => {
+          // The refetch was refused or failed. The snapshot still on screen was
+          // fetched under an authorisation this request could not confirm, so
+          // it stops being shown: a demoted organiser must not keep reading
+          // registry detail behind an error banner. Same generation guard — if
+          // a newer invalidation has landed, a newer load owns the entry and
+          // this one touches nothing.
+          if (generationOf(weddingId) === startedAt) {
+            entryFor(weddingId).setSnapshot(null);
+            stale.delete(weddingId);
+          }
+          throw err;
+        },
+      )
       .finally(() => {
         // Only clear the slot if it is still OURS: an invalidation may already
         // have replaced it with a newer load.
@@ -198,4 +222,5 @@ export function __resetRegistryCache(): void {
   cache.clear();
   inflight.clear();
   generation.clear();
+  stale.clear();
 }

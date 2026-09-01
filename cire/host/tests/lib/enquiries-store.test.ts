@@ -78,14 +78,21 @@ describe("enquiries-store", () => {
    * entry on invalidate would leave that accessor pointed at a signal nothing
    * writes to again — a dead view showing stale rows forever. The fix writes
    * THROUGH the signal, so an accessor captured before invalidate still
-   * observes the transition.
+   * observes it.
+   *
+   * What changed since: invalidate used to null that signal outright, which
+   * flashed the inbox empty on every mutation while the background refetch
+   * ran. It now leaves the rows in place and marks the wedding `stale`
+   * instead — a mounted inbox keeps rendering the last-known rows across the
+   * invalidate.
    */
-  it("a mounted consumer's captured accessor observes null after invalidate", () => {
+  it("a mounted consumer's captured accessor keeps the previous rows after invalidate", () => {
     setCachedEnquiries("wed_1", [item()]);
     const mounted = enquiriesAccessor("wed_1"); // captured once, as a real mount would
     expect(mounted()).toHaveLength(1);
     invalidateEnquiries("wed_1");
-    expect(mounted()).toBeNull();
+    expect(mounted()).toHaveLength(1);
+    expect(hasCachedEnquiries("wed_1")).toBe(false);
   });
 
   it("hasCachedEnquiries is false after invalidate", () => {
@@ -115,6 +122,7 @@ describe("enquiries-store", () => {
     await ensureEnquiriesLoaded("wed_1", fresh);
 
     expect(peekCachedEnquiries("wed_1")?.map((r) => r.id)).toEqual(["fresh"]);
+    expect(hasCachedEnquiries("wed_1")).toBe(true);
   });
 
   it("upsertCachedEnquiry and peekCachedEnquiries still work after an invalidate/reload cycle", async () => {
@@ -154,6 +162,36 @@ describe("enquiries-store", () => {
       return [item()];
     });
     expect(recoveringCalls).toBe(1);
+  });
+
+  /**
+   * Security property, not an optimisation: the refetch after invalidate is
+   * also the re-authorization check. A demoted organiser must not keep
+   * reading the last-known inbox behind an error banner just because the
+   * stale-while-revalidate contract kept the old rows on screen — a
+   * refused/failed refetch has to blank the signal and rethrow so the caller
+   * sees the failure too.
+   */
+  it("ensureEnquiriesLoaded blanks the signal and rethrows when the refetch is refused", async () => {
+    setCachedEnquiries("wed_1", [item({ id: "enq_1" })]);
+    invalidateEnquiries("wed_1");
+    const refusal = new Error("403");
+    await expect(
+      ensureEnquiriesLoaded("wed_1", async () => {
+        throw refusal;
+      }),
+    ).rejects.toBe(refusal);
+    expect(enquiriesAccessor("wed_1")()).toBeNull();
+  });
+
+  it("__resetEnquiriesCache clears the stale flag along with the cache", async () => {
+    setCachedEnquiries("wed_1", [item({ id: "enq_1" })]);
+    invalidateEnquiries("wed_1"); // marks wed_1 stale
+    __resetEnquiriesCache();
+    // A stale flag surviving the reset would make every future write via
+    // `setCachedEnquiries` (not `ensureEnquiriesLoaded`) look like a stale
+    // hit forever, since only `ensureEnquiriesLoaded`'s success path clears it.
+    setCachedEnquiries("wed_1", [item({ id: "enq_2" })]);
     expect(hasCachedEnquiries("wed_1")).toBe(true);
   });
 });

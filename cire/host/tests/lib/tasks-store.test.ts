@@ -7,6 +7,7 @@ import {
   invalidateTasks,
   openTaskCount,
   peekCachedTasks,
+  setCachedTasks,
   taskCounts,
   type TaskRow,
   tasksAccessor,
@@ -69,12 +70,13 @@ describe("tasks-store", () => {
    * forever. The fix writes THROUGH the signal, so an accessor captured
    * before invalidate still observes the transition.
    */
-  it("a mounted consumer's captured accessor observes null after invalidate", async () => {
+  it("a mounted consumer's captured accessor keeps the previous tasks after invalidate", async () => {
     await ensureTasksLoaded("wed_1", async () => [row({})]);
     const mounted = tasksAccessor("wed_1"); // captured once, as a real mount would
     expect(mounted()).not.toBeNull();
     invalidateTasks("wed_1");
-    expect(mounted()).toBeNull();
+    expect(mounted()).not.toBeNull();
+    expect(hasCachedTasks("wed_1")).toBe(false);
   });
 
   it("hasCachedTasks is false after invalidate, so the next load refetches", async () => {
@@ -110,6 +112,7 @@ describe("tasks-store", () => {
     await ensureTasksLoaded("wed_1", fresh);
 
     expect(tasksAccessor("wed_1")()?.map((t) => t.id)).toEqual(["fresh"]);
+    expect(hasCachedTasks("wed_1")).toBe(true);
   });
 
   it("peekCachedTasks reflects fresh rows after an invalidate/reload cycle", async () => {
@@ -148,6 +151,44 @@ describe("tasks-store", () => {
       return [row({})];
     });
     expect(recoveringCalls).toBe(1);
+  });
+
+  it("ensureTasksLoaded refetches after invalidate and replaces the stale rows on success", async () => {
+    await ensureTasksLoaded("wed_1", async () => [row({ id: "a" })]);
+    invalidateTasks("wed_1");
+    await ensureTasksLoaded("wed_1", async () => [row({ id: "b" })]);
+    expect(tasksAccessor("wed_1")()?.map((t) => t.id)).toEqual(["b"]);
+    expect(hasCachedTasks("wed_1")).toBe(true);
+  });
+
+  /**
+   * Security property, not an optimisation: the refetch after invalidate is
+   * also the re-authorization check. A demoted organiser must not keep
+   * reading the last-known checklist behind an error banner just because the
+   * stale-while-revalidate contract kept the old tasks on screen — a
+   * refused/failed refetch has to blank the signal and rethrow so the caller
+   * sees the failure too.
+   */
+  it("ensureTasksLoaded blanks the signal and rethrows when the refetch is refused", async () => {
+    await ensureTasksLoaded("wed_1", async () => [row({})]);
+    invalidateTasks("wed_1");
+    const refusal = new Error("403");
+    await expect(
+      ensureTasksLoaded("wed_1", async () => {
+        throw refusal;
+      }),
+    ).rejects.toBe(refusal);
+    expect(tasksAccessor("wed_1")()).toBeNull();
+  });
+
+  it("__resetTasksCache clears the stale flag along with the cache", async () => {
+    await ensureTasksLoaded("wed_1", async () => [row({ id: "a" })]);
+    invalidateTasks("wed_1"); // marks wed_1 stale
+    __resetTasksCache();
+    // A stale flag surviving the reset would make every future write via
+    // `setCachedTasks` (not `ensureTasksLoaded`) look like a stale hit
+    // forever, since only `ensureTasksLoaded`'s success path clears it.
+    setCachedTasks("wed_1", [row({ id: "b" })]);
     expect(hasCachedTasks("wed_1")).toBe(true);
   });
 });

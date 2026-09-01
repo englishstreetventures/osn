@@ -125,7 +125,7 @@ export default function RegistryView(props: RegistryViewProps) {
   const reload = async () => {
     invalidateRegistry(props.weddingId);
     try {
-      setCachedRegistry(props.weddingId, await load());
+      await ensureRegistryLoaded(props.weddingId, load);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Couldn't refresh your registry.");

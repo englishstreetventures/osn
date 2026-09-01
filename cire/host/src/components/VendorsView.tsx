@@ -95,7 +95,7 @@ export default function VendorsView(props: VendorsViewProps) {
   const reload = async () => {
     invalidateVendors(props.weddingId);
     try {
-      setCachedVendors(props.weddingId, await load());
+      await ensureVendorsLoaded(props.weddingId, load);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Couldn't refresh your vendors.");

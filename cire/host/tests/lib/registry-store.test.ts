@@ -10,6 +10,7 @@ import {
   registryAccessor,
   type RegistryItem,
   type RegistrySnapshot,
+  setCachedRegistry,
   stillWanted,
 } from "../../src/lib/registry-store";
 
@@ -106,11 +107,17 @@ describe("registry-store", () => {
     expect(snap.settings.weddingId).toBe("wed_1");
   });
 
-  it("invalidateRegistry clears the cache", async () => {
+  it("invalidateRegistry marks the cache stale without nulling the raw signal", async () => {
     await ensureRegistryLoaded("wed_1", async () => snapshot());
     expect(peekCachedRegistry("wed_1")).not.toBeNull();
     invalidateRegistry("wed_1");
-    expect(peekCachedRegistry("wed_1")).toBeNull();
+    // `hasCachedRegistry` is the miss check now — it consults the `stale` set,
+    // which is exactly what makes the next `ensureRegistryLoaded` refetch.
+    expect(hasCachedRegistry("wed_1")).toBe(false);
+    // `peekCachedRegistry` reads the signal directly and doesn't consult
+    // `stale`, so it still sees the last-known snapshot here — the same known
+    // limitation (tracked in #620) noted on the vendors store.
+    expect(peekCachedRegistry("wed_1")).not.toBeNull();
   });
 
   it("inflight deduplication: two concurrent calls fire the fetcher once", async () => {
@@ -143,12 +150,13 @@ describe("registry-store", () => {
    * forever. The fix writes THROUGH the signal, so an accessor captured
    * before invalidate still observes the transition.
    */
-  it("a mounted consumer's captured accessor observes null after invalidate", async () => {
+  it("a mounted consumer's captured accessor keeps the previous snapshot after invalidate", async () => {
     await ensureRegistryLoaded("wed_1", async () => snapshot());
     const mounted = registryAccessor("wed_1"); // captured once, as a real mount would
     expect(mounted()).not.toBeNull();
     invalidateRegistry("wed_1");
-    expect(mounted()).toBeNull();
+    expect(mounted()).not.toBeNull();
+    expect(hasCachedRegistry("wed_1")).toBe(false);
   });
 
   it("hasCachedRegistry is false after invalidate, so the next load refetches", async () => {
@@ -184,6 +192,7 @@ describe("registry-store", () => {
     await ensureRegistryLoaded("wed_1", fresh);
 
     expect(registryAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["fresh"]);
+    expect(hasCachedRegistry("wed_1")).toBe(true);
   });
 
   it("peekCachedRegistry reflects fresh data after an invalidate/reload cycle", async () => {
@@ -222,6 +231,44 @@ describe("registry-store", () => {
       return snapshot();
     });
     expect(recoveringCalls).toBe(1);
+  });
+
+  it("ensureRegistryLoaded refetches after invalidate and replaces the stale snapshot on success", async () => {
+    await ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "a" })] }));
+    invalidateRegistry("wed_1");
+    await ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "b" })] }));
+    expect(registryAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["b"]);
+    expect(hasCachedRegistry("wed_1")).toBe(true);
+  });
+
+  /**
+   * Security property, not an optimisation: the refetch after invalidate is
+   * also the re-authorization check. A demoted organiser must not keep
+   * reading the last-known registry behind an error banner just because the
+   * stale-while-revalidate contract kept the old snapshot on screen — a
+   * refused/failed refetch has to blank the signal and rethrow so the caller
+   * sees the failure too.
+   */
+  it("ensureRegistryLoaded blanks the signal and rethrows when the refetch is refused", async () => {
+    await ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "a" })] }));
+    invalidateRegistry("wed_1");
+    const refusal = new Error("403");
+    await expect(
+      ensureRegistryLoaded("wed_1", async () => {
+        throw refusal;
+      }),
+    ).rejects.toBe(refusal);
+    expect(registryAccessor("wed_1")()).toBeNull();
+  });
+
+  it("__resetRegistryCache clears the stale flag along with the cache", async () => {
+    await ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "a" })] }));
+    invalidateRegistry("wed_1"); // marks wed_1 stale
+    __resetRegistryCache();
+    // A stale flag surviving the reset would make every future write via
+    // `setCachedRegistry` (not `ensureRegistryLoaded`) look like a stale hit
+    // forever, since only `ensureRegistryLoaded`'s success path clears it.
+    setCachedRegistry("wed_1", snapshot({ items: [item({ id: "b" })] }));
     expect(hasCachedRegistry("wed_1")).toBe(true);
   });
 });

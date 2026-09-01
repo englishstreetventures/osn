@@ -10,6 +10,7 @@ import {
   invalidateBudget,
   type PaymentRow,
   peekCachedBudget,
+  setCachedBudget,
   spentSoFar,
   upcomingPayments,
 } from "../../src/lib/budget-store";
@@ -95,14 +96,21 @@ describe("budget-store", () => {
    * map entry on invalidate would leave that accessor pointed at a signal
    * nothing writes to again — a dead view showing stale figures forever. The
    * fix writes THROUGH the signal, so an accessor captured before invalidate
-   * still observes the transition.
+   * still observes it.
+   *
+   * What changed since: invalidate used to null that signal outright, which
+   * flashed the Budget view empty on every organiser edit while the
+   * background refetch ran. It now leaves the snapshot in place and marks the
+   * wedding `stale` instead — a mounted view keeps rendering the last-known
+   * figures across the invalidate.
    */
-  it("a mounted consumer's captured accessor observes null after invalidate", async () => {
+  it("a mounted consumer's captured accessor keeps the previous snapshot after invalidate", async () => {
     await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({})] }));
     const mounted = budgetAccessor("wed_1"); // captured once, as a real mount would
     expect(mounted()).not.toBeNull();
     invalidateBudget("wed_1");
-    expect(mounted()).toBeNull();
+    expect(mounted()).not.toBeNull();
+    expect(hasCachedBudget("wed_1")).toBe(false);
   });
 
   it("hasCachedBudget is false after invalidate, so the next load refetches", async () => {
@@ -120,15 +128,16 @@ describe("budget-store", () => {
 
   /**
    * A fetch already in flight when the invalidate runs was issued against
-   * PRE-mutation state. Clearing the signal alone would not stop its `.then`
-   * writing that stale snapshot in afterwards — the generation bump does.
+   * PRE-mutation state. Leaving the signal alone would not stop its `.then`
+   * writing that stale snapshot in afterwards — the generation bump does,
+   * discarding the abandoned load's result outright rather than caching it.
    */
   it("does not adopt a fetch that was in flight when the cache was invalidated", async () => {
     let resolveStale!: (s: BudgetSnapshot) => void;
-    const stale = new Promise<BudgetSnapshot>((r) => {
+    const staleFetch = new Promise<BudgetSnapshot>((r) => {
       resolveStale = r;
     });
-    const pending = ensureBudgetLoaded("wed_1", () => stale);
+    const pending = ensureBudgetLoaded("wed_1", () => staleFetch);
 
     invalidateBudget("wed_1");
     resolveStale(snap({ items: [item({ id: "stale" })] }));
@@ -138,6 +147,9 @@ describe("budget-store", () => {
     await ensureBudgetLoaded("wed_1", fresh);
 
     expect(budgetAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["fresh"]);
+    // The abandoned load's `.then` returned early without touching `stale`, so
+    // only the fresh, in-generation load clearing it counts.
+    expect(hasCachedBudget("wed_1")).toBe(true);
   });
 
   it("peekCachedBudget reflects fresh data after an invalidate/reload cycle", async () => {
@@ -176,6 +188,13 @@ describe("budget-store", () => {
       return snap({ items: [item({})] });
     });
     expect(recoveringCalls).toBe(1);
+  });
+
+  it("ensureBudgetLoaded refetches after invalidate and replaces the stale snapshot on success", async () => {
+    await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "a" })] }));
+    invalidateBudget("wed_1");
+    await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "b" })] }));
+    expect(budgetAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["b"]);
     expect(hasCachedBudget("wed_1")).toBe(true);
   });
 
@@ -218,5 +237,36 @@ describe("budget-store", () => {
     await Promise.all([loadB, thirdCaller]);
 
     expect(budgetAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["fresh-b"]);
+  });
+
+  /**
+   * Security property, not an optimisation: the refetch after invalidate is
+   * also the re-authorization check. A demoted organiser must not keep
+   * reading the last-known budget behind an error banner just because the
+   * stale-while-revalidate contract kept the old snapshot on screen — a
+   * refused/failed refetch has to blank the signal and rethrow so the caller
+   * sees the failure too.
+   */
+  it("ensureBudgetLoaded blanks the signal and rethrows when the refetch is refused", async () => {
+    await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "a" })] }));
+    invalidateBudget("wed_1");
+    const refusal = new Error("403");
+    await expect(
+      ensureBudgetLoaded("wed_1", async () => {
+        throw refusal;
+      }),
+    ).rejects.toBe(refusal);
+    expect(budgetAccessor("wed_1")()).toBeNull();
+  });
+
+  it("__resetBudgetCache clears the stale flag along with the cache", async () => {
+    await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "a" })] }));
+    invalidateBudget("wed_1"); // marks wed_1 stale
+    __resetBudgetCache();
+    // A stale flag surviving the reset would make every future write via
+    // `setCachedBudget` (not `ensureBudgetLoaded`) look like a stale hit
+    // forever, since only `ensureBudgetLoaded`'s success path clears it.
+    setCachedBudget("wed_1", snap({ items: [item({ id: "b" })] }));
+    expect(hasCachedBudget("wed_1")).toBe(true);
   });
 });

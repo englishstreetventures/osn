@@ -7,6 +7,7 @@ import {
   eventsAccessor,
   hasCachedEvents,
   invalidateEvents,
+  setCachedEvents,
 } from "../../src/lib/events-store";
 
 /**
@@ -68,7 +69,8 @@ describe("ensureEventsLoaded", () => {
   /**
    * The invalidate-then-reload path a change apply runs. Dropping the cache entry
    * alone leaves the in-flight fetch's own `.then` free to write PRE-mutation rows
-   * into a fresh entry — i.e. the row the organiser just deleted comes back.
+   * into a fresh entry — i.e. the row the organiser just deleted comes back. The
+   * generation bump discards that abandoned load's result outright.
    */
   it("does not adopt a fetch that was in flight when the cache was invalidated", async () => {
     let resolveStale!: (rows: EventRow[]) => void;
@@ -86,6 +88,7 @@ describe("ensureEventsLoaded", () => {
 
     expect(fresh).toHaveBeenCalledTimes(1);
     expect(eventsAccessor("wed_1")()?.map((r) => r.id)).toEqual(["fresh"]);
+    expect(hasCachedEvents("wed_1")).toBe(true);
   });
 
   /**
@@ -94,13 +97,59 @@ describe("ensureEventsLoaded", () => {
    * map entry on invalidate would leave that accessor pointed at a signal
    * nothing writes to again — a dead view showing stale rows forever. The fix
    * writes THROUGH the signal, so an accessor captured before invalidate
-   * still observes the transition.
+   * still observes it.
+   *
+   * What changed since: invalidate used to null that signal outright, which
+   * flashed the table empty on every organiser edit while the background
+   * refetch ran. It now leaves the rows in place and marks the wedding
+   * `stale` instead — a mounted table keeps rendering the last-known rows
+   * across the invalidate.
    */
-  it("a mounted consumer's captured accessor observes null after invalidate", async () => {
+  it("a mounted consumer's captured accessor keeps the previous rows after invalidate", async () => {
     await ensureEventsLoaded("wed_1", async () => [ROW]);
     const mounted = eventsAccessor("wed_1"); // captured once, as a real mount would
     expect(mounted()).toEqual([ROW]);
     invalidateEvents("wed_1");
-    expect(mounted()).toBeNull();
+    expect(mounted()).toEqual([ROW]);
+    expect(hasCachedEvents("wed_1")).toBe(false);
+  });
+
+  it("ensureEventsLoaded refetches after invalidate and replaces the stale rows on success", async () => {
+    await ensureEventsLoaded("wed_1", async () => [{ ...ROW, id: "a" }]);
+    invalidateEvents("wed_1");
+    await ensureEventsLoaded("wed_1", async () => [{ ...ROW, id: "b" }]);
+    expect(eventsAccessor("wed_1")()?.map((r) => r.id)).toEqual(["b"]);
+    expect(hasCachedEvents("wed_1")).toBe(true);
+  });
+
+  /**
+   * Security property, not an optimisation: the refetch after invalidate is
+   * also the re-authorization check. A demoted organiser must not keep
+   * reading the last-known events behind an error banner just because the
+   * stale-while-revalidate contract kept the old rows on screen — a
+   * refused/failed refetch has to blank the signal and rethrow so the caller
+   * sees the failure too.
+   */
+  it("ensureEventsLoaded blanks the signal and rethrows when the refetch is refused", async () => {
+    await ensureEventsLoaded("wed_1", async () => [ROW]);
+    invalidateEvents("wed_1");
+    const refusal = new Error("403");
+    await expect(
+      ensureEventsLoaded("wed_1", async () => {
+        throw refusal;
+      }),
+    ).rejects.toBe(refusal);
+    expect(eventsAccessor("wed_1")()).toBeNull();
+  });
+
+  it("__resetEventsCache clears the stale flag along with the cache", async () => {
+    await ensureEventsLoaded("wed_1", async () => [ROW]);
+    invalidateEvents("wed_1"); // marks wed_1 stale
+    __resetEventsCache();
+    // A stale flag surviving the reset would make every future write via
+    // `setCachedEvents` (not `ensureEventsLoaded`) look like a stale hit
+    // forever, since only `ensureEventsLoaded`'s success path clears it.
+    setCachedEvents("wed_1", [{ ...ROW, id: "b" }]);
+    expect(hasCachedEvents("wed_1")).toBe(true);
   });
 });
