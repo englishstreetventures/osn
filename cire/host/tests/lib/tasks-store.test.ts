@@ -191,4 +191,31 @@ describe("tasks-store", () => {
     setCachedTasks("wed_1", [row({ id: "b" })]);
     expect(hasCachedTasks("wed_1")).toBe(true);
   });
+  /**
+   * A load that resolves after a NEWER invalidate has landed must do nothing at
+   * all: it neither writes its checklist rows nor clears the stale mark. Both halves
+   * matter — writing would restore state the organiser has already mutated
+   * past, and clearing would let the next `ensureTasksLoaded` short-circuit on
+   * rows no in-generation load ever confirmed.
+   */
+  it("a generation-stale success writes no rows and leaves the wedding stale", async () => {
+    await ensureTasksLoaded("wed_1", async () => [row({ id: "seed" })]);
+    invalidateTasks("wed_1");
+
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const pending = ensureTasksLoaded("wed_1", async () => {
+      await gate;
+      return [row({ id: "abandoned" })];
+    });
+
+    invalidateTasks("wed_1"); // a second invalidate, while that load is still in flight
+    release();
+    await pending;
+
+    expect(tasksAccessor("wed_1")()?.map((t) => t.id)).toEqual(["seed"]);
+    expect(hasCachedTasks("wed_1")).toBe(false);
+  });
 });

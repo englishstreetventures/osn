@@ -162,4 +162,31 @@ describe("ensureGuestsLoaded", () => {
     setCachedGuests("wed_1", [{ ...ROW, familyId: "b" }]);
     expect(hasCachedGuests("wed_1")).toBe(true);
   });
+  /**
+   * A load that resolves after a NEWER invalidate has landed must do nothing at
+   * all: it neither writes its guest rows nor clears the stale mark. Both halves
+   * matter — writing would restore state the organiser has already mutated
+   * past, and clearing would let the next `ensureGuestsLoaded` short-circuit on
+   * rows no in-generation load ever confirmed.
+   */
+  it("a generation-stale success writes no rows and leaves the wedding stale", async () => {
+    await ensureGuestsLoaded("wed_1", async () => [{ ...ROW, familyId: "seed" }]);
+    invalidateGuests("wed_1");
+
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const pending = ensureGuestsLoaded("wed_1", async () => {
+      await gate;
+      return [{ ...ROW, familyId: "abandoned" }];
+    });
+
+    invalidateGuests("wed_1"); // a second invalidate, while that load is still in flight
+    release();
+    await pending;
+
+    expect(guestsAccessor("wed_1")()?.map((r) => r.familyId)).toEqual(["seed"]);
+    expect(hasCachedGuests("wed_1")).toBe(false);
+  });
 });

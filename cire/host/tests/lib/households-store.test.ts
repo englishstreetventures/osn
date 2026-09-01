@@ -181,4 +181,31 @@ describe("ensureHouseholdsLoaded", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(hasCachedHouseholds("wed_1")).toBe(true);
   });
+  /**
+   * A load that resolves after a NEWER invalidate has landed must do nothing at
+   * all: it neither writes its household rows nor clears the stale mark. Both halves
+   * matter — writing would restore state the organiser has already mutated
+   * past, and clearing would let the next `ensureHouseholdsLoaded` short-circuit on
+   * rows no in-generation load ever confirmed.
+   */
+  it("a generation-stale success writes no rows and leaves the wedding stale", async () => {
+    await ensureHouseholdsLoaded("wed_1", async () => [{ ...ROW, familyId: "seed" }]);
+    invalidateHouseholds("wed_1");
+
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const pending = ensureHouseholdsLoaded("wed_1", async () => {
+      await gate;
+      return [{ ...ROW, familyId: "abandoned" }];
+    });
+
+    invalidateHouseholds("wed_1"); // a second invalidate, while that load is still in flight
+    release();
+    await pending;
+
+    expect(householdsAccessor("wed_1")()?.map((h) => h.familyId)).toEqual(["seed"]);
+    expect(hasCachedHouseholds("wed_1")).toBe(false);
+  });
 });

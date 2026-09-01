@@ -194,4 +194,31 @@ describe("enquiries-store", () => {
     setCachedEnquiries("wed_1", [item({ id: "enq_2" })]);
     expect(hasCachedEnquiries("wed_1")).toBe(true);
   });
+  /**
+   * A load that resolves after a NEWER invalidate has landed must do nothing at
+   * all: it neither writes its enquiry rows nor clears the stale mark. Both halves
+   * matter — writing would restore state the organiser has already mutated
+   * past, and clearing would let the next `ensureEnquiriesLoaded` short-circuit on
+   * rows no in-generation load ever confirmed.
+   */
+  it("a generation-stale success writes no rows and leaves the wedding stale", async () => {
+    await ensureEnquiriesLoaded("wed_1", async () => [item({ id: "seed" })]);
+    invalidateEnquiries("wed_1");
+
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const pending = ensureEnquiriesLoaded("wed_1", async () => {
+      await gate;
+      return [item({ id: "abandoned" })];
+    });
+
+    invalidateEnquiries("wed_1"); // a second invalidate, while that load is still in flight
+    release();
+    await pending;
+
+    expect(enquiriesAccessor("wed_1")()?.map((r) => r.id)).toEqual(["seed"]);
+    expect(hasCachedEnquiries("wed_1")).toBe(false);
+  });
 });

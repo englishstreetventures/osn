@@ -120,7 +120,7 @@ describe("vendors-store", () => {
     await ensureVendorsLoaded("wed_1", fresh);
 
     expect(vendorsAccessor("wed_1")()?.map((v) => v.id)).toEqual(["fresh"]);
-    expect(peekCachedVendors("wed_1")).not.toBeNull();
+    expect(hasCachedVendors("wed_1")).toBe(true);
   });
 
   it("peekCachedVendors reflects fresh rows after an invalidate/reload cycle", async () => {
@@ -166,7 +166,7 @@ describe("vendors-store", () => {
     invalidateVendors("wed_1");
     await ensureVendorsLoaded("wed_1", async () => [vendor({ id: "b" })]);
     expect(vendorsAccessor("wed_1")()?.map((v) => v.id)).toEqual(["b"]);
-    expect(peekCachedVendors("wed_1")).not.toBeNull();
+    expect(hasCachedVendors("wed_1")).toBe(true);
   });
 
   /**
@@ -197,6 +197,33 @@ describe("vendors-store", () => {
     // `setCachedVendors` (not `ensureVendorsLoaded`) look like a stale hit
     // forever, since only `ensureVendorsLoaded`'s success path clears it.
     setCachedVendors("wed_1", [vendor({ id: "b" })]);
-    expect(peekCachedVendors("wed_1")).not.toBeNull();
+    expect(hasCachedVendors("wed_1")).toBe(true);
+  });
+  /**
+   * A load that resolves after a NEWER invalidate has landed must do nothing at
+   * all: it neither writes its vendor rows nor clears the stale mark. Both halves
+   * matter — writing would restore state the organiser has already mutated
+   * past, and clearing would let the next `ensureVendorsLoaded` short-circuit on
+   * rows no in-generation load ever confirmed.
+   */
+  it("a generation-stale success writes no rows and leaves the wedding stale", async () => {
+    await ensureVendorsLoaded("wed_1", async () => [vendor({ id: "seed" })]);
+    invalidateVendors("wed_1");
+
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const pending = ensureVendorsLoaded("wed_1", async () => {
+      await gate;
+      return [vendor({ id: "abandoned" })];
+    });
+
+    invalidateVendors("wed_1"); // a second invalidate, while that load is still in flight
+    release();
+    await pending;
+
+    expect(vendorsAccessor("wed_1")()?.map((v) => v.id)).toEqual(["seed"]);
+    expect(hasCachedVendors("wed_1")).toBe(false);
   });
 });

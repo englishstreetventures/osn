@@ -271,4 +271,31 @@ describe("registry-store", () => {
     setCachedRegistry("wed_1", snapshot({ items: [item({ id: "b" })] }));
     expect(hasCachedRegistry("wed_1")).toBe(true);
   });
+  /**
+   * A load that resolves after a NEWER invalidate has landed must do nothing at
+   * all: it neither writes its registry items nor clears the stale mark. Both halves
+   * matter — writing would restore state the organiser has already mutated
+   * past, and clearing would let the next `ensureRegistryLoaded` short-circuit on
+   * rows no in-generation load ever confirmed.
+   */
+  it("a generation-stale success writes no rows and leaves the wedding stale", async () => {
+    await ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "seed" })] }));
+    invalidateRegistry("wed_1");
+
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const pending = ensureRegistryLoaded("wed_1", async () => {
+      await gate;
+      return snapshot({ items: [item({ id: "abandoned" })] });
+    });
+
+    invalidateRegistry("wed_1"); // a second invalidate, while that load is still in flight
+    release();
+    await pending;
+
+    expect(registryAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["seed"]);
+    expect(hasCachedRegistry("wed_1")).toBe(false);
+  });
 });
