@@ -170,6 +170,22 @@ jobs:
       - name: Test
         run: bun run test
 
+      # Tracker #287: the cire/invites SSR Worker bundle reached 470 KB gzip
+      # unnoticed — a whole animation library in the server module graph with
+      # nothing there calling it, and three drift-guard tests routed as pages.
+      # `bun run build` above already produced `cire/invites/dist/server`, so
+      # measuring it here costs a few seconds and puts the budget check on the
+      # merge gate. The deploy workflow runs the same script, but only after a
+      # merge to main — which is one merge too late to stop the regression.
+      #
+      # It reads the `dist/server` the Build step already made and takes
+      # ~0.15s, so it sits after Test deliberately: a size trip fails the
+      # job either way, and running it last means the author still gets the
+      # test result in the same round trip.
+      - name: Guard cire/invites SSR bundle size
+        run: ./scripts/guard-ssr-size.sh
+        working-directory: cire/invites
+
       # The four d1-integration.test.ts files live outside the vitest `include`
       # glob (`tests/**/*.test.ts`), so `bun run test` never reaches them. They
       # are the only coverage of the ASYNCHRONOUS D1 driver that dev/staging/prod

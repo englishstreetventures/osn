@@ -20,7 +20,8 @@ import { describe, expect, it } from "vitest";
  *    which is the moment it matters.
  *
  * There is no Astro test harness in this workspace, so this is a source-text
- * guard in the same shape as `pages/index.test.ts` and `pages/[slug]/registry.test.ts`.
+ * guard in the same shape as `pages/_index.test.ts` and
+ * `pages/[slug]/_registry.test.ts`.
  */
 describe("GiftRegistryDocument.astro (the gift page's shell)", () => {
   const source = readFileSync(join(import.meta.dirname, "GiftRegistryDocument.astro"), "utf8");

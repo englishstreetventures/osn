@@ -1,3 +1,12 @@
+/*
+ * Underscore-prefixed on purpose. Astro routes every file under `src/pages`, so
+ * without that prefix this drift guard is BUILT AND DEPLOYED: `/index.test`,
+ * `/legal-pages.test` and `/<slug>/registry.test` were all live routes on the
+ * guest site, and the vitest the three of them import was a 534 KB (119 KB
+ * gzip) chunk in the SSR Worker — 28% of the bundle (tracker #287). A leading
+ * `_` is what excludes a file from Astro's router; it stays colocated beside
+ * the `.astro` it reads, and vitest's default include still picks it up.
+ */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -26,7 +35,7 @@ import { describe, expect, it } from "vitest";
  * The route renders whole documents, so there is no DOM to assert against and no
  * Astro test harness in this workspace. A source-text guard is the cheapest
  * thing that can actually fail when the contract is reverted — the same approach
- * `pages/index.test.ts` takes over the bare-domain route.
+ * `pages/_index.test.ts` takes over the bare-domain route.
  */
 describe("pages/[slug]/registry.astro (the gift list's route)", () => {
   const source = readFileSync(join(import.meta.dirname, "registry.astro"), "utf8");

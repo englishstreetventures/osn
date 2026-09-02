@@ -397,6 +397,17 @@ jobs:
           PUBLIC_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
           PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
 
+      # Tracker #287: this Worker's SSR bundle reached 470 KB gzip unnoticed,
+      # from two separate mistakes — the whole `motion` library in the SSR
+      # module graph with nothing there calling it, and three drift-guard tests
+      # routed as pages, dragging 119 KB gzip of vitest with them. The guard
+      # script holds the threshold and the full reasoning; it runs here and on
+      # every PR (`ci.yml`), so a regression is caught on the merge gate rather
+      # than after it lands on main.
+      - name: Guard cire/invites SSR bundle size
+        run: ./scripts/guard-ssr-size.sh
+        working-directory: cire/invites
+
       # Two edits to the adapter's generated config, in one pass:
       #
       #  1. drop `legacy_env` — @astrojs/cloudflare still writes it, wrangler
@@ -488,6 +499,17 @@ jobs:
           # Google Maps Embed API key (public, referrer-restricted to *.cireweddings.com).
           # Present ⇒ real Embed iframe; absent ⇒ CSS-card fallback (key-optional).
           PUBLIC_GOOGLE_MAPS_EMBED_KEY: ${{ vars.PUBLIC_GOOGLE_MAPS_EMBED_KEY }}
+
+      # Tracker #287: this Worker's SSR bundle reached 470 KB gzip unnoticed,
+      # from two separate mistakes — the whole `motion` library in the SSR
+      # module graph with nothing there calling it, and three drift-guard tests
+      # routed as pages, dragging 119 KB gzip of vitest with them. The guard
+      # script holds the threshold and the full reasoning; it runs here and on
+      # every PR (`ci.yml`), so a regression is caught on the merge gate rather
+      # than after it lands on main.
+      - name: Guard cire/invites SSR bundle size
+        run: ./scripts/guard-ssr-size.sh
+        working-directory: cire/invites
 
       # `@astrojs/cloudflare` writes a top-level `"legacy_env": true` into the
       # generated `dist/server/wrangler.json`. Wrangler 4.111+ REMOVED support for
