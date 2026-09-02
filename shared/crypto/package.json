@@ -20,7 +20,7 @@
     "@shared/observability": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "effect": "^3.22.0",
-    "jose": "^6.2.4"
+    "jose": "^6.2.10"
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",

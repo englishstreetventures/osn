@@ -39,7 +39,7 @@
         "@cloudflare/workers-types": "^4.20260702.1",
         "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
-        "jose": "^6.2.4",
+        "jose": "^6.2.10",
         "miniflare": "^4.20260722.0",
         "wrangler": "^4.114.0",
       },
@@ -188,7 +188,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.20.12",
+      "version": "3.20.30",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.15",
@@ -205,7 +205,7 @@
         "drizzle-orm": "^0.45.2",
         "effect": "^3.22.0",
         "elysia": "^1.4.29",
-        "jose": "^6.2.4",
+        "jose": "^6.2.10",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20260702.1",
@@ -219,7 +219,7 @@
     },
     "osn/client": {
       "name": "@osn/client",
-      "version": "2.13.2",
+      "version": "2.13.6",
       "dependencies": {
         "effect": "^3.22.0",
       },
@@ -236,7 +236,7 @@
     },
     "osn/db": {
       "name": "@osn/db",
-      "version": "0.20.7",
+      "version": "0.20.11",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -255,7 +255,7 @@
     },
     "osn/landing": {
       "name": "@osn/landing",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.1",
         "@shared/legal": "workspace:*",
@@ -278,7 +278,7 @@
     },
     "osn/social": {
       "name": "@osn/social",
-      "version": "0.12.11",
+      "version": "0.12.20",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -304,7 +304,7 @@
     },
     "osn/ui": {
       "name": "@osn/ui",
-      "version": "1.8.4",
+      "version": "1.10.3",
       "dependencies": {
         "@kobalte/core": "^0.13.12",
         "@osn/client": "workspace:*",
@@ -329,7 +329,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.26.11",
+      "version": "0.26.24",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -346,7 +346,7 @@
         "drizzle-orm": "^0.45.2",
         "effect": "^3.22.0",
         "elysia": "^1.4.29",
-        "jose": "^6.2.4",
+        "jose": "^6.2.10",
       },
       "devDependencies": {
         "@cloudflare/workers-types": "^4.20260702.1",
@@ -360,7 +360,7 @@
     },
     "pulse/db": {
       "name": "@pulse/db",
-      "version": "0.19.2",
+      "version": "0.19.4",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -379,7 +379,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.6",
+      "version": "0.1.8",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.1",
         "@shared/legal": "workspace:*",
@@ -402,7 +402,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.22.17",
+      "version": "0.22.36",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -437,13 +437,13 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.10.7",
+      "version": "0.10.14",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
         "drizzle-orm": "^0.45.2",
         "effect": "^3.22.0",
-        "jose": "^6.2.4",
+        "jose": "^6.2.10",
       },
       "devDependencies": {
         "@effect/vitest": "^0.30.0",
@@ -453,7 +453,7 @@
     },
     "shared/db-utils": {
       "name": "@shared/db-utils",
-      "version": "0.6.2",
+      "version": "0.6.4",
       "dependencies": {
         "drizzle-orm": "^0.45.2",
         "effect": "^3.22.0",
@@ -466,7 +466,7 @@
     },
     "shared/dev-urls": {
       "name": "@shared/dev-urls",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "bin": {
         "dev-env": "./src/cli.ts",
       },
@@ -477,7 +477,7 @@
     },
     "shared/email": {
       "name": "@shared/email",
-      "version": "0.4.9",
+      "version": "0.4.10",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "^3.22.0",
@@ -490,7 +490,7 @@
     },
     "shared/feature-flags": {
       "name": "@shared/feature-flags",
-      "version": "0.2.8",
+      "version": "0.2.9",
       "dependencies": {
         "@growthbook/growthbook": "^1.6.5",
         "@shared/observability": "workspace:*",
@@ -510,7 +510,7 @@
     },
     "shared/observability": {
       "name": "@shared/observability",
-      "version": "0.13.5",
+      "version": "0.13.6",
       "dependencies": {
         "@effect/opentelemetry": "^0.64.0",
         "@effect/platform": "^0.97.0",
@@ -543,10 +543,10 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.4.7",
+      "version": "0.4.15",
       "dependencies": {
         "@shared/crypto": "workspace:*",
-        "jose": "^6.2.4",
+        "jose": "^6.2.10",
       },
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
@@ -567,7 +567,7 @@
     },
     "shared/redis": {
       "name": "@shared/redis",
-      "version": "0.4.3",
+      "version": "0.4.6",
       "dependencies": {
         "@upstash/redis": "^1.38.0",
         "effect": "^3.22.0",
@@ -581,7 +581,7 @@
     },
     "shared/rp-auth": {
       "name": "@shared/rp-auth",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -600,7 +600,7 @@
     },
     "shared/sortable": {
       "name": "@shared/sortable",
-      "version": "0.0.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -616,7 +616,7 @@
     },
     "shared/toast": {
       "name": "@shared/toast",
-      "version": "0.0.0",
+      "version": "0.1.1",
       "devDependencies": {
         "@shared/typescript-config": "workspace:*",
         "@solidjs/testing-library": "^0.8.10",
@@ -632,7 +632,7 @@
     },
     "shared/turnstile": {
       "name": "@shared/turnstile",
-      "version": "0.2.12",
+      "version": "0.2.13",
       "dependencies": {
         "@shared/observability": "workspace:*",
       },
@@ -647,7 +647,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.1.0",
+      "version": "0.1.7",
       "dependencies": {
         "@osn/ui": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
@@ -677,7 +677,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.8.22",
+      "version": "0.8.33",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -696,7 +696,7 @@
         "@effect/vitest": "^0.30.0",
         "@shared/dev-urls": "workspace:*",
         "@shared/typescript-config": "workspace:*",
-        "jose": "^6.2.4",
+        "jose": "^6.2.10",
         "miniflare": "^4.20260722.0",
         "vitest": "^4.1.10",
         "wrangler": "^4.114.0",
@@ -704,7 +704,7 @@
     },
     "zap/db": {
       "name": "@zap/db",
-      "version": "0.5.8",
+      "version": "0.5.12",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -725,6 +725,7 @@
   "overrides": {
     "@babel/core": "^7.29.7",
     "@opentelemetry/core": "^2.10.0",
+    "browserslist": "^4.28.8",
     "devalue": "^5.8.1",
     "esbuild": "^0.28.1",
     "fast-uri": "^3.1.5",
@@ -1709,7 +1710,7 @@
 
     "base64-js": ["base64-js@1.5.1", "", {}, "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA=="],
 
-    "baseline-browser-mapping": ["baseline-browser-mapping@2.10.15", "", { "bin": { "baseline-browser-mapping": "dist/cli.cjs" } }, "sha512-1nfKCq9wuAZFTkA2ey/3OXXx7GzFjLdkTiFVNwlJ9WqdI706CZRIhEqjuwanjMIja+84jDLa9rcyZDPDiVkASQ=="],
+    "baseline-browser-mapping": ["baseline-browser-mapping@2.11.20", "", { "bin": { "baseline-browser-mapping": "dist/cli.cjs" } }, "sha512-H0ulySigv6icDJ1F7SjtdCD6PrhTpdYCmP0CactWy1+ekh0AFd0o1Wn5T8b+hnTmdBx19u9yhL6wvCylXMY7zw=="],
 
     "better-path-resolve": ["better-path-resolve@1.0.0", "", { "dependencies": { "is-windows": "^1.0.0" } }, "sha512-pbnl5XzGBdrFU/wT4jqmJVPn2B6UHPBOhzMQkY/SPUPB6QtUXtmBHBIwCbXJol93mOpGMnQyP/+BB19q04xj7g=="],
 
@@ -1727,7 +1728,7 @@
 
     "braces": ["braces@3.0.3", "", { "dependencies": { "fill-range": "^7.1.1" } }, "sha512-yQbXgO/OSZVD2IsiLlro+7Hf6Q18EJrKSEsdoMzKePKXct3gvD8oLcOQdIzGupr5Fj+EDe8gO/lxc1BzfMpxvA=="],
 
-    "browserslist": ["browserslist@4.28.2", "", { "dependencies": { "baseline-browser-mapping": "^2.10.12", "caniuse-lite": "^1.0.30001782", "electron-to-chromium": "^1.5.328", "node-releases": "^2.0.36", "update-browserslist-db": "^1.2.3" }, "bin": { "browserslist": "cli.js" } }, "sha512-48xSriZYYg+8qXna9kwqjIVzuQxi+KYWp2+5nCYnYKPTr0LvD89Jqk2Or5ogxz0NUMfIjhh2lIUX/LyX9B4oIg=="],
+    "browserslist": ["browserslist@4.28.8", "", { "dependencies": { "baseline-browser-mapping": "^2.11.12", "caniuse-lite": "^1.0.30001809", "electron-to-chromium": "^1.5.402", "node-releases": "^2.0.53", "update-browserslist-db": "^1.3.0" }, "bin": { "browserslist": "cli.js" } }, "sha512-V2NpofLblG64mfOtSgDhOJESZEGogzDMBv/q+W6oc4LXWP/q75eOXoOaaOu1EOadB9U4Bwx/e0yzbvwKH8zalA=="],
 
     "buffer": ["buffer@5.7.1", "", { "dependencies": { "base64-js": "^1.3.1", "ieee754": "^1.1.13" } }, "sha512-EHcyIPBQ4BSGlvjB16k5KgAJ27CIsHY/2JBmCRReo48y9rQ3MaUzWX3KVlBa4U7MyX02HdVj0K7C3WaB3ju7FQ=="],
 
@@ -1737,7 +1738,7 @@
 
     "bun-types": ["bun-types@1.4.0", "", { "dependencies": { "@types/node": "*" } }, "sha512-iIKw23BspnQQYd3prITOBxeUsxBHnwzX6YJfGMuNOZzeNcMmVqzIIVGRm1l69ogaPQmb4wB6BN8mA5bE9YuC5Q=="],
 
-    "caniuse-lite": ["caniuse-lite@1.0.30001785", "", {}, "sha512-blhOL/WNR+Km1RI/LCVAvA73xplXA7ZbjzI4YkMK9pa6T/P3F2GxjNpEkyw5repTw9IvkyrjyHpwjnhZ5FOvYQ=="],
+    "caniuse-lite": ["caniuse-lite@1.0.30001810", "", {}, "sha512-TITQPUkaz+aVk5GL6NhOdwk1aEaNTSDPsGFWrTuhKGtjTF70jL/Oht2W4c6rXUe5fu7Ie19VIahAXHIIiWWNeg=="],
 
     "ccount": ["ccount@2.0.1", "", {}, "sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg=="],
 
@@ -1847,7 +1848,7 @@
 
     "effect": ["effect@3.22.0", "", { "dependencies": { "@standard-schema/spec": "^1.0.0", "fast-check": "^3.23.1" } }, "sha512-jhYFe0zTlIRqYFrKTS+6luhmS/Tm0f+JLo0K9KUxvtFab1SUGEszQi2ehOP6QzAZvy831lDmTwwzvVDZSPNz3g=="],
 
-    "electron-to-chromium": ["electron-to-chromium@1.5.331", "", {}, "sha512-IbxXrsTlD3hRodkLnbxAPP4OuJYdWCeM3IOdT+CpcMoIwIoDfCmRpEtSPfwBXxVkg9xmBeY7Lz2Eo2TDn/HC3Q=="],
+    "electron-to-chromium": ["electron-to-chromium@1.5.416", "", {}, "sha512-K6bvB2BjnNrugtIih6ewlbBI9DXa976jIdiIlRLHhBoEI9a4JaQjjHyF+A1IQI543aQYR4LnmOrT/K5fZj0aPA=="],
 
     "elysia": ["elysia@1.4.29", "", { "dependencies": { "cookie": "^1.1.1", "exact-mirror": "^0.2.7", "fast-decode-uri-component": "^1.0.1", "memoirist": "^0.4.0" }, "peerDependencies": { "@sinclair/typebox": ">= 0.34.0 < 1", "@types/bun": ">= 1.2.0", "file-type": ">= 20.0.0", "openapi-types": ">= 12.0.0", "typescript": ">= 5.0.0" }, "optionalPeers": ["@types/bun", "typescript"] }, "sha512-GwMRGGwSdjfPt+w3LA0fqTuYJtS8uVRJicvoar98/HrO5qdFKDc9CwjIb6Kja+v39lkY+58hr2JvdR9jQzlUuA=="],
 
@@ -2035,7 +2036,7 @@
 
     "jiti": ["jiti@2.7.0", "", { "bin": { "jiti": "lib/jiti-cli.mjs" } }, "sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ=="],
 
-    "jose": ["jose@6.2.4", "", {}, "sha512-N8acGzVsQy6M/fjFcxtysNc4Q379TcM5dM/qKkNtsHFji88yANnXTr7BLeP75iPnFwBfQzM/jg2BZ9+HZrHCZA=="],
+    "jose": ["jose@6.2.10", "", {}, "sha512-iiW7J9qRFlGxvCOIBDBDxFePQSn7ZMAnrYGhrrOo6siO/MIqwfyilLR27pkfDgUk+raLuzADS8A3S/KLBisc0g=="],
 
     "js-tokens": ["js-tokens@4.0.0", "", {}, "sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ=="],
 
@@ -2191,7 +2192,7 @@
 
     "node-mock-http": ["node-mock-http@1.0.4", "", {}, "sha512-8DY+kFsDkNXy1sJglUfuODx1/opAGJGyrTuFqEoN90oRc2Vk0ZbD4K2qmKXBBEhZQzdKHIVfEJpDU8Ak2NJEvQ=="],
 
-    "node-releases": ["node-releases@2.0.37", "", {}, "sha512-1h5gKZCF+pO/o3Iqt5Jp7wc9rH3eJJ0+nh/CIoiRwjRxde/hAHyLPXYN4V3CqKAbiZPSeJFSWHmJsbkicta0Eg=="],
+    "node-releases": ["node-releases@2.0.54", "", {}, "sha512-YHs7BmmcsdAI5Ozuf8JZo6PT0mv2GIWC9vMfvUC3dp65M8hn7Ux8CPL+2oBI7juNuj9d0ndhTcznq2ODBps9cQ=="],
 
     "normalize-path": ["normalize-path@3.0.0", "", {}, "sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA=="],
 
@@ -2527,7 +2528,7 @@
 
     "unstorage": ["unstorage@1.17.5", "", { "dependencies": { "anymatch": "^3.1.3", "chokidar": "^5.0.0", "destr": "^2.0.5", "h3": "^1.15.10", "lru-cache": "^11.2.7", "node-fetch-native": "^1.6.7", "ofetch": "^1.5.1", "ufo": "^1.6.3" }, "peerDependencies": { "@azure/app-configuration": "^1.8.0", "@azure/cosmos": "^4.2.0", "@azure/data-tables": "^13.3.0", "@azure/identity": "^4.6.0", "@azure/keyvault-secrets": "^4.9.0", "@azure/storage-blob": "^12.26.0", "@capacitor/preferences": "^6 || ^7 || ^8", "@deno/kv": ">=0.9.0", "@netlify/blobs": "^6.5.0 || ^7.0.0 || ^8.1.0 || ^9.0.0 || ^10.0.0", "@planetscale/database": "^1.19.0", "@upstash/redis": "^1.34.3", "@vercel/blob": ">=0.27.1", "@vercel/functions": "^2.2.12 || ^3.0.0", "@vercel/kv": "^1 || ^2 || ^3", "aws4fetch": "^1.0.20", "db0": ">=0.2.1", "idb-keyval": "^6.2.1", "ioredis": "^5.4.2", "uploadthing": "^7.4.4" }, "optionalPeers": ["@azure/app-configuration", "@azure/cosmos", "@azure/data-tables", "@azure/identity", "@azure/keyvault-secrets", "@azure/storage-blob", "@capacitor/preferences", "@deno/kv", "@netlify/blobs", "@planetscale/database", "@upstash/redis", "@vercel/blob", "@vercel/functions", "@vercel/kv", "aws4fetch", "db0", "idb-keyval", "ioredis", "uploadthing"] }, "sha512-0i3iqvRfx29hkNntHyQvJTpf5W9dQ9ZadSoRU8+xVlhVtT7jAX57fazYO9EHvcRCfBCyi5YRya7XCDOsbTgkPg=="],
 
-    "update-browserslist-db": ["update-browserslist-db@1.2.3", "", { "dependencies": { "escalade": "^3.2.0", "picocolors": "^1.1.1" }, "peerDependencies": { "browserslist": ">= 4.21.0" }, "bin": { "update-browserslist-db": "cli.js" } }, "sha512-Js0m9cx+qOgDxo0eMiFGEueWztz+d4+M3rGlmKPT+T4IS/jP4ylw3Nwpu6cpTTP8R1MAC1kF4VbdLt3ARf209w=="],
+    "update-browserslist-db": ["update-browserslist-db@1.3.2", "", { "dependencies": { "escalade": "^3.2.0", "picocolors": "^1.1.1" }, "peerDependencies": { "browserslist": ">= 4.21.0" }, "bin": { "update-browserslist-db": "cli.js" } }, "sha512-UQ+MSxlhRm1bzjhU+DcuXfjFO1FzNtqhK5+9Yvlp90ItDLk5vT932A0rFu619nf7RVS+Y/VeaUW1jaRDqZ8VJw=="],
 
     "util-deprecate": ["util-deprecate@1.0.2", "", {}, "sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw=="],
 
