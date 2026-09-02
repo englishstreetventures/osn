@@ -10,7 +10,7 @@
     "test": "bun test",
     "deploy": "wrangler deploy --env production",
     "types": "wrangler types",
-    "test:d1": "bun test src/db/d1-integration.test.ts",
+    "test:d1": "bun test tests/db/d1-integration.test.ts",
     "check": "tsc --noEmit"
   },
   "portless": {

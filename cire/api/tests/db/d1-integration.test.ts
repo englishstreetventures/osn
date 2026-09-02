@@ -1,0 +1,479 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+
+import {
+  events,
+  families,
+  guestEvents,
+  guests,
+  rsvps,
+  tasks,
+  weddings,
+  BOOTSTRAP_WEDDING_ID,
+} from "@cire/db";
+import { asc, eq } from "drizzle-orm";
+import { Effect } from "effect";
+import { Miniflare } from "miniflare";
+
+import { createD1Db, DbService } from "../../src/db/index";
+import type { Db } from "../../src/db/index";
+import { DDL } from "../../src/db/setup";
+import type { ImportPlan } from "../../src/schemas/import";
+import { claimService } from "../../src/services/claim";
+import { applyImport } from "../../src/services/import";
+import { rsvpService } from "../../src/services/rsvp";
+import { tasksService } from "../../src/services/tasks";
+
+// Integration tests against a REAL (workerd-backed) D1 database via Miniflare.
+// The rest of the suite runs on synchronous bun:sqlite; these exercise the
+// ASYNCHRONOUS D1 driver path that production actually uses — the `dbQuery`
+// bridge, awaited writes, and the `db.batch([...])` branch of `applyImport`
+// (which bun:sqlite cannot reach). This is the only coverage of that path.
+
+// Schema setup and FK-ordered truncation are inherently sequential here.
+/* eslint-disable no-await-in-loop */
+
+const PUBLIC_ID = "TESTFAM-AA01";
+const FAMILY_ID = "fam1";
+const EVENT_A = "evt_a";
+const EVENT_B = "evt_b";
+const GUEST_1 = "g1";
+const GUEST_2 = "g2";
+
+let mf: Miniflare;
+let db: Db;
+
+// Booting workerd (which backs Miniflare's D1) is a cold-start the first time a
+// CI runner touches it: spawning the runtime + opening the loopback socket can
+// take several seconds on a fresh, network-constrained GitHub Actions box. bun's
+// DEFAULT per-hook timeout is 5_000ms, so a slow boot makes the `beforeAll`
+// (or a `beforeEach` issuing the first real D1 round-trip) blow past it — bun
+// then fails the hook AND tears the suite down, at which point the still-pending
+// workerd D1 call lands on a now-disposed ("poisoned") stub and surfaces as
+// "Unhandled error between tests", failing the whole `bun test` run. Locally the
+// runtime is warm so the hooks finish in ~400ms and never trip the limit; this
+// is the CI-only flake.
+//
+// The same 5_000ms default applies per TEST, and the bodies here are not cheap:
+// every statement is a real round-trip over workerd's loopback socket, so a test
+// that seeds 51 events one at a time takes ~6-9s on a CI box against ~0.4s
+// locally. That is the same flake wearing a different hat, and it tears the
+// suite down the same way — the run that prompted this saw the 51-pair test time
+// out at 5_000ms and the next test fail 16ms later on the poisoned stub. So the
+// budget covers hooks and tests alike: nothing Miniflare-backed races the
+// default.
+const MF_TIMEOUT_MS = 30_000;
+
+const run = <A, E>(eff: Effect.Effect<A, E, DbService>): Promise<A> =>
+  Effect.runPromise(eff.pipe(Effect.provideService(DbService, db)));
+
+async function seed(): Promise<void> {
+  const now = new Date();
+  await db.insert(weddings).values({
+    id: BOOTSTRAP_WEDDING_ID,
+    slug: "w",
+    displayName: "W",
+    ownerOsnProfileId: "usr_test",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(events).values([
+    {
+      id: EVENT_A,
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      slug: "ceremony",
+      name: "Ceremony",
+      description: "",
+      startAt: "",
+      endAt: "",
+      timezone: "",
+      sortOrder: 0,
+    },
+    {
+      id: EVENT_B,
+      weddingId: BOOTSTRAP_WEDDING_ID,
+      slug: "reception",
+      name: "Reception",
+      description: "",
+      startAt: "",
+      endAt: "",
+      timezone: "",
+      sortOrder: 1,
+    },
+  ]);
+  await db.insert(families).values({
+    id: FAMILY_ID,
+    weddingId: BOOTSTRAP_WEDDING_ID,
+    publicId: PUBLIC_ID,
+    familyName: "Test",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(guests).values([
+    {
+      id: GUEST_1,
+      familyId: FAMILY_ID,
+      firstName: "Alice",
+      lastName: "Test",
+      sortOrder: 0,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: GUEST_2,
+      familyId: FAMILY_ID,
+      firstName: "Bob",
+      lastName: "Test",
+      sortOrder: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+  await db.insert(guestEvents).values([
+    { guestId: GUEST_1, eventId: EVENT_A },
+    { guestId: GUEST_1, eventId: EVENT_B },
+    { guestId: GUEST_2, eventId: EVENT_A },
+  ]);
+}
+
+beforeAll(async () => {
+  mf = new Miniflare({
+    modules: true,
+    script: "export default { fetch() { return new Response('ok'); } };",
+    d1Databases: { DB: ":memory:" },
+  });
+  const d1 = (await mf.getD1Database("DB")) as unknown as D1Database;
+  // Apply the schema statement-by-statement — D1's `exec` splits on newlines,
+  // which breaks multi-line CREATE TABLEs, so prepare/run each full statement.
+  for (const stmt of DDL.split(";")
+    .map((s) => s.trim())
+    .filter(Boolean)) {
+    await d1.prepare(stmt).run();
+  }
+  db = createD1Db(d1);
+}, MF_TIMEOUT_MS);
+
+afterAll(async () => {
+  // `dispose()` poisons every D1 stub this instance handed out — only call it
+  // once the suite is fully done so no in-flight query can resolve against a
+  // dead stub. (All hooks/tests above `await` their D1 ops, so nothing is
+  // pending here; this stays defensive in case that ever changes.)
+  await mf?.dispose();
+}, MF_TIMEOUT_MS);
+
+beforeEach(async () => {
+  // FK-safe truncate, then reseed — keeps each test isolated on the shared D1.
+  for (const table of [rsvps, guestEvents, guests, families, events, tasks, weddings]) {
+    await db.delete(table);
+  }
+  await seed();
+}, MF_TIMEOUT_MS);
+
+describe("cire/api over real D1 (Miniflare)", () => {
+  it(
+    "claim.lookup resolves a seeded family across async D1 reads",
+    async () => {
+      const res = await run(claimService.lookup(PUBLIC_ID));
+      expect(res.familyId).toBe(FAMILY_ID);
+      expect(res.publicId).toBe(PUBLIC_ID);
+      expect(res.members).toHaveLength(2);
+      expect(res.events.map((e) => e.name).toSorted()).toEqual(["Ceremony", "Reception"]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "claim.lookup fails for an unknown code",
+    async () => {
+      await expect(run(claimService.lookup("NOPE-0000"))).rejects.toThrow();
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "submitRsvp upserts over async D1 (insert then in-place update)",
+    async () => {
+      await run(
+        rsvpService.submitRsvp({
+          guestId: GUEST_1,
+          eventId: EVENT_A,
+          status: "attending",
+          dietary: "none",
+          dietaryConsent: false,
+        }),
+      );
+      let rows = await run(rsvpService.getRsvpsForFamily(FAMILY_ID));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ guestId: GUEST_1, eventId: EVENT_A, status: "attending" });
+
+      // Same (guest, event) conflict target → updates the row in place, no dup.
+      await run(
+        rsvpService.submitRsvp({
+          guestId: GUEST_1,
+          eventId: EVENT_A,
+          status: "declined",
+          dietary: "veg",
+          dietaryConsent: false,
+        }),
+      );
+      rows = await run(rsvpService.getRsvpsForFamily(FAMILY_ID));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ status: "declined", dietary: "veg" });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "applyImport commits a write set via the D1 batch path",
+    async () => {
+      const newEventId = "evt_new";
+      const newFamilyId = "fam_new";
+      const newGuestId = "g_new";
+      const plan: ImportPlan = {
+        eventCreates: [
+          {
+            id: newEventId,
+            event: {
+              name: "Mehndi",
+              startAt: "2026-11-22T10:00",
+              endAt: "2026-11-22T14:00",
+              timezone: "Australia/Sydney",
+              location: "Hall",
+              address: null,
+              dressCodeDescription: null,
+              dressCodePalette: [],
+              pinterestUrl: null,
+              mapsUrl: null,
+              sortOrder: 2,
+            },
+          },
+        ],
+        eventUpdates: [],
+        eventRemoves: [],
+        familyCreates: [{ id: newFamilyId, publicId: "NEWFAM-BB02", familyName: "New" }],
+        familyUpdates: [],
+        familyRemoves: [],
+        guestCreates: [
+          {
+            id: newGuestId,
+            familyId: newFamilyId,
+            firstName: "Carol",
+            lastName: "New",
+            nickname: null,
+            sortOrder: 0,
+          },
+        ],
+        guestUpdates: [],
+        guestRemoves: [],
+        eventLinkCreates: [{ guestId: newGuestId, eventId: newEventId }],
+        eventLinkRemoves: [],
+        warnings: [],
+      };
+
+      const summary = await run(applyImport("imp_test", plan, BOOTSTRAP_WEDDING_ID));
+      expect(summary).toMatchObject({ eventsCreated: 1, familiesCreated: 1, guestsCreated: 1 });
+
+      expect(await db.select().from(events).where(eq(events.id, newEventId))).toHaveLength(1);
+      expect(await db.select().from(families).where(eq(families.id, newFamilyId))).toHaveLength(1);
+      expect(
+        await db.select().from(guestEvents).where(eq(guestEvents.guestId, newGuestId)),
+      ).toHaveLength(1);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "applyImport batch is atomic — a mid-batch constraint violation persists nothing",
+    async () => {
+      // Two family creates share a publicId; the second trips the UNIQUE index.
+      // On D1 the whole batch is one transaction, so NEITHER row may survive.
+      const plan: ImportPlan = {
+        eventCreates: [],
+        eventUpdates: [],
+        eventRemoves: [],
+        familyCreates: [
+          { id: "fam_x", publicId: "DUP-CODE", familyName: "X" },
+          { id: "fam_y", publicId: "DUP-CODE", familyName: "Y" },
+        ],
+        familyUpdates: [],
+        familyRemoves: [],
+        guestCreates: [],
+        guestUpdates: [],
+        guestRemoves: [],
+        eventLinkCreates: [],
+        eventLinkRemoves: [],
+        warnings: [],
+      };
+
+      await expect(run(applyImport("imp_dup", plan, BOOTSTRAP_WEDDING_ID))).rejects.toThrow();
+      expect(await db.select().from(families).where(eq(families.id, "fam_x"))).toHaveLength(0);
+      expect(await db.select().from(families).where(eq(families.id, "fam_y"))).toHaveLength(0);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "submitRsvps commits a 51-pair batch over D1's per-batch ceiling (P-W2)",
+    async () => {
+      // MAX_STATEMENTS_PER_BATCH is 50; a 51-statement submit must be chunked by
+      // commitGroupedBatches rather than sent as one over-ceiling db.batch() call
+      // (which D1 rejects outright). bun:sqlite cannot exercise this: commitBatch
+      // feature-detects `.batch()` and falls back to a sequential loop there, so
+      // only the real (Miniflare-backed) D1 driver proves the fix.
+      const eventIds = Array.from({ length: 51 }, (_, i) => `evt_bulk_${i}`);
+      // One insert per event, not a single 51-row bulk insert — the bulk form
+      // trips D1's own bound-parameter ceiling on a single statement, a
+      // different limit than the per-batch statement ceiling this test targets.
+      for (const [i, id] of eventIds.entries()) {
+        await db.insert(events).values({
+          id,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: `bulk-${i}`,
+          name: `Bulk ${i}`,
+          description: "",
+          startAt: "",
+          endAt: "",
+          timezone: "",
+          sortOrder: 10 + i,
+        });
+      }
+
+      const inputs = eventIds.map((eventId) => ({
+        guestId: GUEST_1,
+        eventId,
+        status: "attending" as const,
+        dietary: "",
+        dietaryConsent: false,
+      }));
+
+      await run(rsvpService.submitRsvps(inputs));
+
+      const rows = await db.select().from(rsvps).where(eq(rsvps.guestId, GUEST_1));
+      expect(rows).toHaveLength(51);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "submitRsvpsAndList folds the read-back into the write batch over D1 (P-W1)",
+    async () => {
+      // Real db.batch() is the only environment that can fail the way the fix
+      // targets — bun:sqlite's fallback just awaits each statement in order and
+      // would pass even if the tail read the wrong rows or ran before the writes.
+      const rows = await run(
+        rsvpService.submitRsvpsAndList(
+          [
+            {
+              guestId: GUEST_1,
+              eventId: EVENT_A,
+              status: "attending",
+              dietary: "",
+              dietaryConsent: false,
+            },
+            {
+              guestId: GUEST_2,
+              eventId: EVENT_A,
+              status: "declined",
+              dietary: "",
+              dietaryConsent: false,
+            },
+          ],
+          FAMILY_ID,
+        ),
+      );
+
+      expect(rows).toHaveLength(2);
+      expect(rows.find((r) => r.guestId === GUEST_1)).toMatchObject({
+        guestId: GUEST_1,
+        eventId: EVENT_A,
+        status: "attending",
+      });
+      expect(rows.find((r) => r.guestId === GUEST_2)).toMatchObject({
+        guestId: GUEST_2,
+        eventId: EVENT_A,
+        status: "declined",
+      });
+
+      // Persisted, not just echoed back.
+      const persisted = await db.select().from(rsvps).where(eq(rsvps.guestId, GUEST_1));
+      expect(persisted).toHaveLength(1);
+      expect(persisted[0]).toMatchObject({ status: "attending" });
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "submitRsvpsAndList sends the tail as its own trailing batch at the chunk ceiling",
+    async () => {
+      // MAX_STATEMENTS_PER_BATCH is 50. 50 upsert statements exactly fill the
+      // first chunk, so commitGroupedBatchesReturning must flush it and send the
+      // tail read as its own trailing batch rather than folding it in — proving
+      // the ceiling path (not just the common under-ceiling path above) still
+      // returns the full row set.
+      const eventIds = Array.from({ length: 50 }, (_, i) => `evt_ceiling_${i}`);
+      for (const [i, id] of eventIds.entries()) {
+        await db.insert(events).values({
+          id,
+          weddingId: BOOTSTRAP_WEDDING_ID,
+          slug: `ceiling-${i}`,
+          name: `Ceiling ${i}`,
+          description: "",
+          startAt: "",
+          endAt: "",
+          timezone: "",
+          sortOrder: 20 + i,
+        });
+      }
+
+      const inputs = eventIds.map((eventId) => ({
+        guestId: GUEST_1,
+        eventId,
+        status: "attending" as const,
+        dietary: "",
+        dietaryConsent: false,
+      }));
+
+      const rows = await run(rsvpService.submitRsvpsAndList(inputs, FAMILY_ID));
+
+      expect(rows).toHaveLength(50);
+      expect(new Set(rows.map((r) => r.eventId))).toEqual(new Set(eventIds));
+
+      const persisted = await db.select().from(rsvps).where(eq(rsvps.guestId, GUEST_1));
+      expect(persisted).toHaveLength(50);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "tasks.reorder commits its per-row updates over the D1 batch path",
+    async () => {
+      // Regression guard: reorder used to run through db.transaction(), which the
+      // D1 driver implements as literal BEGIN/COMMIT (rejected by D1) with
+      // fire-and-forget .run() calls that the async driver never awaited. It now
+      // goes through commitBatch — this is the only D1 coverage of a reorder.
+      const created: string[] = [];
+      for (const title of ["first", "second", "third"]) {
+        const dto = await run(
+          tasksService.create({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            title,
+            timeframeBucket: "12m",
+            notes: null,
+            dueAt: null,
+          }),
+        );
+        created.push(dto.id);
+      }
+
+      const reversed = created.toReversed();
+      await run(tasksService.reorder(BOOTSTRAP_WEDDING_ID, "12m", reversed));
+
+      const rows = await db
+        .select({ id: tasks.id })
+        .from(tasks)
+        .where(eq(tasks.weddingId, BOOTSTRAP_WEDDING_ID))
+        .orderBy(asc(tasks.sortOrder));
+      expect(rows.map((r) => r.id)).toEqual(reversed);
+    },
+    MF_TIMEOUT_MS,
+  );
+});

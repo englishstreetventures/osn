@@ -3,7 +3,7 @@
 // hand-mirroring):
 //   - cire/api/src/db/setup.ts#seedDb reads it for the in-memory test seed.
 //   - cire/db/seed/generate.ts derives seed/dev-seed.sql from it (the local-D1
-//     seed); cire/db/seed/seed.test.ts fails CI if the committed SQL drifts.
+//     seed); cire/db/tests/seed/seed.test.ts fails CI if the committed SQL drifts.
 // Keep the VALUES byte-identical to what the SQL emits — existing tests assert
 // against these exact ids/fields.
 

@@ -5,7 +5,7 @@ related:
   - "[[cire-auth]]"
   - "[[cire-budget]]"
   - "[[cire-checklist-tasks]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-01
 ---
 # Vendors — directory, CRM, and email-verification claim
 
@@ -198,7 +198,7 @@ in **`cire/vendor/DESIGN.md`**, which is deliberately a delta document: the
 system itself lives in `cire/host/DESIGN.md`.
 
 The ramps are **copied, not imported** (a cross-package CSS import would make
-Tailwind scan the other package's source). `cire/vendor/src/styles/tokens.test.ts`
+Tailwind scan the other package's source). `cire/vendor/tests/styles/tokens.test.ts`
 reads both stylesheets and fails on any drift between them, on top of asserting
 the contrast contract.
 

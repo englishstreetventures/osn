@@ -19,7 +19,7 @@ export { DEV_OWNER_PROFILE_ID };
 // @cire/db's schema.ts + the latest migration in cire/db/migrations/.
 // Tests run against THIS string, not the migration files — any schema
 // change must update all three together or tests will pass on a shape
-// production rejects. Enforced mechanically by src/db/ddl-lockstep.test.ts
+// production rejects. Enforced mechanically by tests/db/ddl-lockstep.test.ts
 // (T-S1), which diffs this DDL and the Drizzle schema against the full
 // migration chain.
 //

@@ -178,6 +178,12 @@ jobs:
       # merge gate. The deploy workflow runs the same script, but only after a
       # merge to main — which is one merge too late to stop the regression.
       #
+      # The three tests that were routed have since moved to `tests/pages/`,
+      # out of `src/pages` entirely, so Astro cannot route them at all — but
+      # the guard stays: it is what catches the NEXT library that wanders into
+      # the server graph, which is the half of #287 a file move does nothing
+      # about.
+      #
       # It reads the `dist/server` the Build step already made and takes
       # ~0.15s, so it sits after Test deliberately: a size trip fails the
       # job either way, and running it last means the author still gets the
@@ -186,11 +192,15 @@ jobs:
         run: ./scripts/guard-ssr-size.sh
         working-directory: cire/invites
 
-      # The four d1-integration.test.ts files live outside the vitest `include`
-      # glob (`tests/**/*.test.ts`), so `bun run test` never reaches them. They
-      # are the only coverage of the ASYNCHRONOUS D1 driver that dev/staging/prod
-      # actually run on, and going unrun let zap's rot into a stale fixture that
-      # had been failing silently. Serial by necessity — concurrent Miniflare
+      # The four d1-integration.test.ts files live under `tests/d1/` (cire's
+      # under `tests/db/`). The three vitest packages EXCLUDE that path, so the
+      # step above never reaches them — they import `bun:test` and boot a real
+      # workerd, neither of which vitest can load. cire/api runs a bare
+      # `bun test`, which takes no exclude and discovers recursively, so its
+      # copy runs in both steps; that is pre-existing and harmless. They are
+      # the only coverage of the ASYNCHRONOUS D1 driver that dev/staging/prod
+      # actually run on, and going unrun let zap's rot into a stale fixture
+      # that had been failing silently. Serial by necessity — concurrent Miniflare
       # workerd instances contend and fail spuriously (the root script pins
       # --concurrency=1).
       - name: D1 integration tests
@@ -289,7 +299,7 @@ jobs:
       # every local commit; others build a base and a head commit to drive the
       # pin half. They run on every event, unlike the pin half itself.
       - name: Test the vendored anti-slop guard
-        run: bash scripts/verify-vendored-anti-slop.test.sh
+        run: bash scripts/tests/verify-vendored-anti-slop.test.sh
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -313,7 +323,7 @@ jobs:
       #
       # The `./` in `bun test ./scripts/` is load-bearing. A bare `scripts/` is
       # a SUBSTRING filter on the test path, not a directory, so it also picks
-      # up `cire/api/src/scripts/remint-family-codes.test.ts` — which imports
+      # up `cire/api/tests/scripts/remint-family-codes.test.ts` — which imports
       # drizzle and effect and therefore needs an install this job does not do.
       # `./scripts/` anchors to the directory.
       #

@@ -5,7 +5,7 @@
 //     `id` fields below are NOT used there — they exist only so the local-D1
 //     seed can pin stable UUIDs (dev claim links don't drift between seeds).
 //   - cire/db/seed/generate.ts derives seed/dev-seed.sql from it, emitting the
-//     stable `id`s below; cire/db/seed/seed.test.ts fails CI if the committed
+//     stable `id`s below; cire/db/tests/seed/seed.test.ts fails CI if the committed
 //     SQL drifts. Keep the VALUES byte-identical — existing tests assert them.
 
 export type SeedGuest = {

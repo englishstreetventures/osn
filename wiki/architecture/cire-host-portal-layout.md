@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-01
 ---
 # Host Portal Layout System
 
@@ -101,7 +101,7 @@ Three constraints:
   also asserted in `styles/layout-utilities.test.ts`.
 
 Both utility names, and every `--page-max` / `--auto-grid-*` override, are
-guarded by `cire/host/src/styles/layout-utilities.test.ts`. Tailwind ignores
+guarded by `cire/host/tests/styles/layout-utilities.test.ts`. Tailwind ignores
 a class it doesn't recognise and CSS ignores a custom property nobody reads, so a
 rename or a typo (`[--autogrid-min:20rem]`) produces no build error, no lint
 error and no component-test failure — just every grid collapsing to one column.

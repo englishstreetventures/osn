@@ -24,7 +24,7 @@ import { createSchemaSql } from "../src/testing";
 // constraints — accounts.email, accounts.passkey_user_id, users.handle,
 // passkeys.credential_id, recovery_codes.code_hash, organisations.handle and
 // oauth_clients.client_id — were absent from every database the emitter built,
-// most consequentially the Miniflare D1 in osn/api/src/d1-integration.test.ts:
+// most consequentially the Miniflare D1 in osn/api/tests/d1/d1-integration.test.ts:
 // the one test proving OSN core runs on real D1 accepted duplicates that
 // production rejects. It also dropped partial-index WHERE clauses and FK
 // referential actions. Each of those is now compared below.

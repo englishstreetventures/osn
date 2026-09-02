@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[monorepo-structure]]"
   - "[[cire-invite-designs]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-01
 ---
 # Invite Builder
 
@@ -497,7 +497,7 @@ makes a non-empty warning worth reading. It warns rather than blocks: the fix
 cannot make for the organiser.
 
 Two failures worth remembering, both caught only by screenshotting a light
-scheme (regression-tested in `cire/theme/src/palette.test.ts`):
+scheme (regression-tested in `cire/theme/tests/palette.test.ts`):
 
 - a near-white card on a cream page **clipped** at white, so the `raised` tone
   rendered identically to `card`; the step now reverses when it would clip.
@@ -1143,7 +1143,7 @@ The guest packs CANNOT: their declarations are Tailwind arbitrary-property
 classes, and Tailwind generates CSS by scanning source **text** — an
 interpolated class name produces no rule at all. The same applies to the
 previews' class-based body pair. Those references stay literal by necessity and
-are held to the canonical values by `cire/theme/src/typography-fallbacks.test.ts`,
+are held to the canonical values by `cire/theme/tests/typography-fallbacks.test.ts`,
 which scans both packages and fails on a fallback that disagrees, a reference
 that omits its fallback (a bare `var()` renders at the CSS initial weight, not
 the pack's 300), or a variable no consumer references any more.
@@ -1152,7 +1152,7 @@ the pack's 300), or a variable no consumer references any more.
 > style object as computed, and it then applies those declarations via
 > `setProperty` — where happy-dom discards a `var()` value for `font-weight`,
 > `font-style` and `font-size`. Assertions therefore go through
-> `src/test-support/declared-style.ts`, which merges what Solid compiled into
+> `tests/test-support/declared-style.ts`, which merges what Solid compiled into
 > the template attribute with what it set at runtime. It is a test-environment
 > limitation, not a browser one; do not reshape a component to work around it.
 

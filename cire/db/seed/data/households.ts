@@ -15,7 +15,7 @@
 // module is imported ONLY by cire/db/seed/generate.ts, so the API test fixture
 // stays six guests and stays fast.
 //
-// WHY IT IS DETERMINISTIC. seed/seed.test.ts re-runs the generator and compares
+// WHY IT IS DETERMINISTIC. tests/seed/seed.test.ts re-runs the generator and compares
 // the output byte-for-byte against the committed SQL, so anything random makes
 // CI fail on every unrelated run. Every value below comes from a fixed-seed
 // mulberry32 PRNG drawn in a fixed order: same input, same 200 KB of SQL,

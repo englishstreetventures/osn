@@ -1,0 +1,70 @@
+// @vitest-environment happy-dom
+import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
+import "@testing-library/jest-dom/vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Mutable session value so each test can control what useAuth() returns.
+// Reset in afterEach so tests are isolated.
+let mockSession: () => { profile: { id: string } } | null | undefined = () => ({
+  profile: { id: "p1" },
+});
+
+// Mock @shared/rp-auth/solid so we control the session/authFetch without a real
+// OSN backend — mirror the organiser app's VendorApp/OrganiserApp test harness.
+vi.mock("@shared/rp-auth/solid", () => {
+  return {
+    AuthProvider: (props: any) => props.children,
+    useAuth: () => ({
+      session: () => mockSession(),
+      activeProfileId: () => "p-vendor",
+      authFetch: vi.fn(),
+      logout: vi.fn(),
+    }),
+  };
+});
+vi.mock("../../src/lib/vendor-store", () => ({
+  listMyOrgs: vi.fn().mockResolvedValue([
+    {
+      id: "o1",
+      handle: "acme",
+      name: "Acme",
+      description: null,
+      avatarUrl: null,
+      ownerId: "p1",
+      createdAt: "",
+      updatedAt: "",
+    },
+  ]),
+  fetchListing: vi.fn().mockResolvedValue(null),
+}));
+vi.mock("../../src/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/lib/api")>();
+  return {
+    ...actual,
+    redirectToLogin: vi.fn(),
+  };
+});
+
+import VendorApp from "../../src/components/VendorApp";
+import { redirectToLogin } from "../../src/lib/api";
+
+afterEach(() => {
+  cleanup();
+  // Restore to signed-in state so tests start clean
+  mockSession = () => ({ profile: { id: "p1" } });
+  vi.clearAllMocks();
+});
+
+describe("VendorApp", () => {
+  it("shows the org picker when signed in and no org is selected", async () => {
+    render(() => <VendorApp />);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+  });
+
+  it("redirects to login and does not render the org picker when unauthenticated", async () => {
+    mockSession = () => null;
+    render(() => <VendorApp />);
+    await waitFor(() => expect(redirectToLogin).toHaveBeenCalled());
+    expect(screen.queryByText("Acme")).not.toBeInTheDocument();
+  });
+});

@@ -11,7 +11,7 @@ related:
   - "[[arc-tokens]]"
   - "[[oidc-provider]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-08-24
+last-reviewed: 2026-09-01
 ---
 
 # Cire auth model
@@ -227,7 +227,7 @@ The same rule is why `GET /api/auth/session` answers **200 `{signedIn: false}`**
 
 **Corrected 2026-07-30.** This paragraph used to claim nothing string-matches `"AuthExpiredError"` any more, and that the `@osn/client` debt was closed. Neither was true. `cire/host/src/lib/api.ts` keeps its own `isAuthExpired` with a printout-matching third arm on top of the `_tag` check, and `@osn/client` had no predicate at all until one shipped on 2026-07-30 (`isAuthExpiredError`, next to the error class). The two are **not** interchangeable and the organiser was deliberately left on its own: since the OIDC swap its errors come from `@shared/rp-auth`'s `AuthExpiredError`, a plain `Error` subclass, not `@osn/client`'s `Data.TaggedError` — same name, different class.
 
-Both predicates guard the `String(err)` call. It throws on a null-prototype object, and they run inside `catch` blocks, so an unguarded throw there swaps a recoverable expiry for an unhandled rejection. Pinned by `cire/host/src/lib/api.test.ts` and `osn/client/tests/errors.test.ts`; the latter builds a **real** FiberFailure rather than a hand-written string, so an Effect upgrade that changes the printout fails a test instead of a redirect.
+Both predicates guard the `String(err)` call. It throws on a null-prototype object, and they run inside `catch` blocks, so an unguarded throw there swaps a recoverable expiry for an unhandled rejection. Pinned by `cire/host/tests/lib/api.test.ts` and `osn/client/tests/errors.test.ts`; the latter builds a **real** FiberFailure rather than a hand-written string, so an Effect upgrade that changes the printout fails a test instead of a redirect.
 
 ## No overlap
 

@@ -6,14 +6,17 @@ related:
   - "[[backend-patterns]]"
   - "[[schema-layers]]"
   - "[[commands]]"
-last-reviewed: 2026-08-30
+last-reviewed: 2026-09-01
 ---
 
 # Testing Patterns
 
 ## Directory Layout
 
-Test files live in `tests/` at the package root and mirror the `src/` structure:
+Test files live in `tests/` at the package root and mirror the `src/` structure. **Every**
+package, without exception — `cire/*`, the three landing sites and `scripts/` all kept their
+tests beside the source until 2026-09-01, and no longer do. Test-only support code (mocks,
+fixtures, request harnesses) lives under `tests/` too, never in `src/`:
 
 ```
 pulse/api/
@@ -29,6 +32,21 @@ osn/api/
 pulse/db/
   tests/
     schema.test.ts                 # Schema smoke tests
+cire/api/
+  tests/
+    test-helpers.ts                # appRequest() -- Elysia request harness
+    test-helpers/osn-token.ts      # makeOsnTestAuth()
+    routes/rsvp.test.ts            # HTTP integration tests
+    db/d1-integration.test.ts      # Miniflare tier -- see The D1 integration lane
+cire/host/
+  tests/
+    test-support/mocks.ts          # shared Solid mocks for the organiser portal
+    components/Overview.test.tsx   # unit tier (happy-dom)
+    components/ImportPanel.browser.test.tsx  # browser tier (real Chromium)
+scripts/
+  tests/
+    check-astro-fonts.test.ts      # scripts/ is not a workspace; `bun test ./scripts/`
+    changeset-required.test.sh     # shell tests too
 osn/ui/
   tests/
     auth/Register.test.tsx          # Shared Register component (Solid + happy-dom)
@@ -126,7 +144,7 @@ applySchema(sqlite);
 
 Adding a column is then a one-file change in `src/schema/`. The emitter carries column-level `.unique()` (via `col.isUnique`), partial-index `WHERE` clauses, and foreign-key `ON DELETE`/`ON UPDATE` actions — all three were silently dropped before 2026-08, so tests ran on a shape production D1 rejects. The emitted array is memoised and frozen: the schema is a static module import, so reflecting it per test database was pure recomputation.
 
-`osn/db/tests/ddl-lockstep.test.ts` diffs a normalised structural snapshot of the emitted schema against the full `osn/db/drizzle/*.sql` migration chain. It compares columns, types, defaults, nullability, indexes (**including column order within an index** — SQLite serves only a leading prefix), partial predicates, foreign keys and their referential actions, and pins CHECK/trigger/view sets as empty. It fails when a migration lands without a schema change, when a schema change lands without a migration, or when the emitter loses a constraint. `zap/db` has the same test; `cire/api/src/db/ddl-lockstep.test.ts` covers cire's three-way mirror.
+`osn/db/tests/ddl-lockstep.test.ts` diffs a normalised structural snapshot of the emitted schema against the full `osn/db/drizzle/*.sql` migration chain. It compares columns, types, defaults, nullability, indexes (**including column order within an index** — SQLite serves only a leading prefix), partial predicates, foreign keys and their referential actions, and pins CHECK/trigger/view sets as empty. It fails when a migration lands without a schema change, when a schema change lands without a migration, or when the emitter loses a constraint. `zap/db` has the same test; `cire/api/tests/db/ddl-lockstep.test.ts` covers cire's three-way mirror.
 
 **If you extend one emitter, extend all three** — they are copies, and all three (`osn/db`, `pulse/db`, `zap/db`) now carry the lockstep test.
 
@@ -141,9 +159,9 @@ Reach for these before hand-rolling setup:
 | Harness | Use for |
 |---|---|
 | `@shared/crypto/testing` → `makeAccessTokenSigner()` | ES256 OSN access tokens (`aud: "osn-access"`, 5-minute `exp` matching production). Returns `{ privateKey, publicKey, sign(profileId, claims?) }`; `claims` covers `email`, `audience`, `expiresIn`, `issuer`, `kid` for negative tests. Used by the pulse, zap and cire route suites. |
-| `cire/api/src/test-helpers/osn-token.ts` → `makeOsnTestAuth()` | The cire-shaped `{ key, sign }` adapter over the above. |
-| `cire/api/src/test-helpers.ts` → `appRequest()` | Elysia requests with `cf-connecting-ip` + `Origin` pre-injected. |
-| `cire/host/src/test-support/mocks.ts` | The `@shared/rp-auth/solid` + `@shared/toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`. |
+| `cire/api/tests/test-helpers/osn-token.ts` → `makeOsnTestAuth()` | The cire-shaped `{ key, sign }` adapter over the above. |
+| `cire/api/tests/test-helpers.ts` → `appRequest()` | Elysia requests with `cf-connecting-ip` + `Origin` pre-injected. |
+| `cire/host/tests/test-support/mocks.ts` | The `@shared/rp-auth/solid` + `@shared/toast` + `lib/api` mock trio, their spies, and `resetOrganiserMocks()`. |
 | `pulse/web/tests/helpers/toast.ts` → `toastMock()` | Same idea for the Pulse app. |
 
 Call `makeAccessTokenSigner()` once per suite in `beforeAll` — there is no reason to re-key per test.
@@ -169,7 +187,14 @@ A suite that genuinely needs a different shape (an extra `useAuth` field, an `im
 
 ## The D1 integration lane
 
-Each API package has a `src/d1-integration.test.ts` that runs against a real workerd-backed D1 via Miniflare. These files sit **outside** the vitest `include` glob (`tests/**/*.test.ts`), so `bun run test` never reaches them — they are the only coverage of the **asynchronous** D1 driver that dev/staging/prod actually use, as opposed to the synchronous `bun:sqlite` every other suite runs on.
+Each API package has a `tests/d1/d1-integration.test.ts` (cire's is `tests/db/d1-integration.test.ts`) that runs against a real workerd-backed D1 via Miniflare. They are the only coverage of the **asynchronous** D1 driver that dev/staging/prod actually use, as opposed to the synchronous `bun:sqlite` every other suite runs on.
+
+How the fast tier avoids them differs by runner, and the difference is worth knowing before you read a CI log:
+
+| Package | Fast-tier runner | Does `bun run test` load the D1 file? |
+|---|---|---|
+| `osn/api`, `pulse/api`, `zap/api` | vitest | **No** — the configs `exclude: ["tests/d1/**"]`. Vitest cannot load these files at all: they import `bun:test`. |
+| `cire/api` | bare `bun test` | **Yes.** `bun test` discovers recursively and takes no exclude, so the Miniflare suite runs twice per CI run — once inside `@cire/api#test`, once under `test:d1`. Pre-existing and harmless, but it means a workerd failure reddens cire's fast tier too. |
 
 ```bash
 bun run test:d1            # all four packages, serially

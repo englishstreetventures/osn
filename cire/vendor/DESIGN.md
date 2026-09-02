@@ -21,7 +21,7 @@ import would make Tailwind scan the other package's source for classes, which
 costs a build and couples the two scanners.
 
 Copies drift, so the copy is asserted:
-`src/styles/tokens.test.ts` reads *both* stylesheets and fails if any token in
+`tests/styles/tokens.test.ts` reads *both* stylesheets and fails if any token in
 either ramp differs. A deliberate divergence goes there as an exception with a
 reason, not as a silently different green.
 
@@ -66,7 +66,7 @@ no call site is a name the next person will find a use for.
 Not `cire.host.*`. `localStorage` is partitioned by origin and the two portals
 are two hosts, so they could not share a value even if the names matched — a
 shared name would only promise a continuity it cannot deliver.
-`src/lib/theme.test.ts` pins this, because the obvious way to add a preference
+`tests/lib/theme.test.ts` pins this, because the obvious way to add a preference
 here is to paste one from the host portal.
 
 ### Navigation: a two-tab strip, no command palette

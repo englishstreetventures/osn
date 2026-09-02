@@ -8,7 +8,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[browser-tests]]"
   - "[[component-lab]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-01
 ---
 # Toasts — `@shared/toast` and the `--toast-*` contract
 
@@ -192,11 +192,11 @@ Current mounts:
 ## Testing
 
 Unit: mock `@shared/toast`. Two shared factories exist —
-`cire/host/src/test-support/mocks.ts` (`toastMock()`) and
+`cire/host/tests/test-support/mocks.ts` (`toastMock()`) and
 `pulse/web/tests/helpers/toast.ts` — see `[[testing-patterns]]`.
 
 **The DOM contract, which is easy to break.**
-`cire/invites/src/designs/InvitePage.browser.test.tsx` finds a toast with
+`cire/invites/tests/designs/InvitePage.browser.test.tsx` finds a toast with
 `[...document.querySelectorAll("div")].find(d => d.textContent === message)` and
 then walks parents until `position: fixed`. So the message must live in an
 element whose `textContent` is **exactly** the message — the tone glyph and its

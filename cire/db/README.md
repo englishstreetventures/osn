@@ -119,7 +119,7 @@ Use `TESTFOR-JOY-DD44` as the dev claim code (Eli is invited to every event).
 
 - Every schema change touches **three surfaces together**: the migration SQL,
   `src/schema.ts`, and the `DDL` string in `cire/api/src/db/setup.ts` —
-  `cire/api/src/db/ddl-lockstep.test.ts` diffs all three and fails on drift.
+  `cire/api/tests/db/ddl-lockstep.test.ts` diffs all three and fails on drift.
 - D1 migrations are **forward-only**. No `DOWN` blocks. To retire a column, copy data into a new table and add a `DROP TABLE` / `ALTER` migration that performs the swap.
 - After editing `schema.ts` AND any wrangler binding, regenerate types: `bunx wrangler --config cire/api/wrangler.toml types`.
 - The dev seed is **not** applied to remote D1. Production data flows in via the organiser spreadsheet import (`/api/organiser/import/{preview,apply}`).

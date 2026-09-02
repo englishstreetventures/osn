@@ -3,7 +3,7 @@ import { playwright } from "@vitest/browser-playwright";
 import solid from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
-import { emulateMedia } from "./src/test-support/browser-commands.ts";
+import { emulateMedia } from "./tests/test-support/browser-commands.ts";
 
 /**
  * Two test projects, deliberately separated — the same split `@cire/invites` runs,
@@ -44,7 +44,7 @@ export default defineConfig({
         test: {
           name: "unit",
           environment: "node",
-          include: ["src/**/*.test.{ts,tsx}"],
+          include: ["tests/**/*.test.{ts,tsx}"],
           exclude: ["**/node_modules/**", "**/dist/**", "**/*.browser.test.{ts,tsx}"],
           // A NON-UTC runner zone, deliberately. Several tests assert that a new
           // event is seeded with "the organiser's own zone" by comparing against
@@ -63,7 +63,7 @@ export default defineConfig({
         plugins: plugins(),
         test: {
           name: "browser",
-          include: ["src/**/*.browser.test.{ts,tsx}"],
+          include: ["tests/**/*.browser.test.{ts,tsx}"],
           passWithNoTests: true,
           browser: {
             enabled: true,

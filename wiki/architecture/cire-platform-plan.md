@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[cire-guest-event-editor]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-01
 ---
 # Platform Plan — from digital invite to wedding management platform
 
@@ -256,10 +256,10 @@ the phase's epic in GitHub Issues + the phase's section above; skim the rest.
 | Services | `cire/api/src/services/` | Return `Effect.Effect<A, E>` with `Data.TaggedError` errors; routes unwrap via `runCire`. No logic in handlers; Drizzle only, no raw SQL. |
 | Validation | `cire/api/src/schemas/` | Effect Schema per domain. |
 | Metrics | `cire/api/src/metrics.ts` | Typed `cire.*` counters/histograms; bounded attribute cardinality only (closed enums). |
-| DB schema | `cire/db/src/schema.ts` | **Three-way DDL mirror**: schema.ts + `cire/db/migrations/*.sql` + the test DDL in `cire/api/src/db/setup.ts` — mechanically enforced by `cire/api/src/db/ddl-lockstep.test.ts` (T-S1): it replays the migration chain and diffs a normalised snapshot against both mirrors, so a change to any surface fails until all three agree. Parent-table rebuilds need the `__keep_*` snapshot/restore idiom (`0006_multi_tenant.sql`) — D1 enforces FKs and DROP TABLE cascades. |
+| DB schema | `cire/db/src/schema.ts` | **Three-way DDL mirror**: schema.ts + `cire/db/migrations/*.sql` + the test DDL in `cire/api/src/db/setup.ts` — mechanically enforced by `cire/api/tests/db/ddl-lockstep.test.ts` (T-S1): it replays the migration chain and diffs a normalised snapshot against both mirrors, so a change to any surface fails until all three agree. Parent-table rebuilds need the `__keep_*` snapshot/restore idiom (`0006_multi_tenant.sql`) — D1 enforces FKs and DROP TABLE cascades. |
 | Organiser portal | `cire/host/src/` | SolidJS islands in an Astro static shell; single root island `components/OrganiserApp.tsx`; hash routing in `lib/dashboard-route.ts`; per-wedding module tabs in `components/DashboardTabs.tsx` (Phase 0 replaces with sidebar); API calls via `authFetch` + `lib/api.ts`. |
 | Guest site | `cire/invites/src/` | Only touched when a module changes what guests see (RSVP, invite render). |
-| Tests | co-located `*.test.ts` | `bun:test` (api) / vitest (organiser, web). Route tests build `createApp(createDb(":memory:"))`; osnAuth accepts an injected `osnTestKey`. |
+| Tests | `<pkg>/tests/`, mirroring `src/` | `bun:test` (api) / vitest (organiser, web). Test-only support code lives there too — `cire/api/tests/test-helpers/`, `cire/host/tests/test-support/` — never in `src/`. Route tests build `createApp(createDb(":memory:"))`; osnAuth accepts an injected `osnTestKey`. See [[testing-patterns]]. |
 
 ### Invariants (do not break)
 
@@ -272,7 +272,7 @@ the phase's epic in GitHub Issues + the phase's section above; skim the rest.
 
 ### Definition of done (every platform PR)
 
-1. Code + co-located tests (route authz cases included: 401 unauth / 403 wrong-wedding / 404 unknown).
+1. Code, plus tests under the package's `tests/` tree (route authz cases included: 401 unauth / 403 wrong-wedding / 404 unknown).
 2. Migration mirrored in all three DDL surfaces (if schema changed).
 3. Close the issue, update this page if the design changed, bump `last-reviewed`, note new decisions in [[deferred-decisions]].
 4. Changeset (`bun run changeset`) — `@cire/*` exact workspace names, never mixed with versioned packages.

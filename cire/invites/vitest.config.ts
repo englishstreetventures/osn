@@ -3,7 +3,7 @@ import { playwright } from "@vitest/browser-playwright";
 import solidPlugin from "vite-plugin-solid";
 import { defineConfig } from "vitest/config";
 
-import { emulateMedia } from "./src/test-support/browser-commands.ts";
+import { emulateMedia } from "./tests/test-support/browser-commands.ts";
 
 /**
  * Two test projects, deliberately separated.
@@ -81,7 +81,7 @@ export default defineConfig({
         plugins: plugins(),
         test: {
           name: "browser",
-          include: ["src/**/*.browser.test.{ts,tsx}"],
+          include: ["tests/**/*.browser.test.{ts,tsx}"],
           passWithNoTests: true,
           browser: {
             enabled: true,

@@ -17,7 +17,7 @@ related:
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-08-31
+last-reviewed: 2026-09-01
 ---
 
 # Social Graph
@@ -163,7 +163,7 @@ D1 caps a query at **100 bound parameters** (developers.cloudflare.com/d1/platfo
 
 The fix: bind `profileId`, not the list. The FOF query now reads the caller's own accepted edges through a correlated `IN (<subquery>)` — the subquery re-reads them inside the database, so the outer query's bind count is fixed regardless of how many connections the caller has. A correlated `EXISTS` (the more obvious rewrite) was measured and rejected: on real (Miniflare/workerd) D1, `EXPLAIN QUERY PLAN` showed it planning as `SCAN c` with a `CORRELATED SCALAR SUBQUERY` evaluated once per row of the *whole* `connections` table — cost that scales with the size of the table, not with the caller's own graph. The `IN (<subquery>)` shape gets flattened by SQLite into a `LIST SUBQUERY` — one indexed pass to build a Bloom filter, then the same `MULTI-INDEX OR` seek over `connections_requester_idx` / `connections_addressee_idx` the original query got. Measured on a caller with 40 accepted connections: 484 rows read against the two-`inArray` shape's 400, for an identical result set — the cost of materialising the seed set once rather than pasting it in as literals.
 
-Any query in this file — or elsewhere in `@osn/api` — that binds a list whose length comes from user data must either keep that list under 100 items by construction (an HTTP-boundary bound, like `safeLimit`), or avoid binding it at all (a subquery, as above, or genuine batched round-trips under the cap each). The chunk-and-`UNION ALL`-in-one-statement version does **not** work: a `UNION ALL` of several `inArray` arms is still one statement, so D1's cap applies to the combined total, not per arm. Only real, separate round trips (or a subquery that runs inside the database) get around it. New D1-backed coverage of a fix like this belongs in `osn/api/src/d1-integration.test.ts` — it is the only test file in this repo that runs against a real (Miniflare/workerd) D1 rather than `bun:sqlite`, so it is the only place either failure mode (the bind cap, or `rows_read`) is visible at all.
+Any query in this file — or elsewhere in `@osn/api` — that binds a list whose length comes from user data must either keep that list under 100 items by construction (an HTTP-boundary bound, like `safeLimit`), or avoid binding it at all (a subquery, as above, or genuine batched round-trips under the cap each). The chunk-and-`UNION ALL`-in-one-statement version does **not** work: a `UNION ALL` of several `inArray` arms is still one statement, so D1's cap applies to the combined total, not per arm. Only real, separate round trips (or a subquery that runs inside the database) get around it. New D1-backed coverage of a fix like this belongs in `osn/api/tests/d1/d1-integration.test.ts` — it is the only test file in this repo that runs against a real (Miniflare/workerd) D1 rather than `bun:sqlite`, so it is the only place either failure mode (the bind cap, or `rows_read`) is visible at all.
 
 ## Search (autocomplete)
 

@@ -112,7 +112,7 @@ brand green in light.
 
 ### The contrast contract
 
-`src/styles/tokens.test.ts` parses the stylesheet — not a duplicated table — and
+`tests/styles/tokens.test.ts` parses the stylesheet — not a duplicated table — and
 asserts every pair. It does two things a naive check does not:
 
 - **Composites alpha.** Half the ink tokens are translucent, and `contrastOklch`
@@ -248,7 +248,7 @@ given, so a 600px-wide panel behaves like a phone even on a 2560px monitor.
   the utility: **no `col-span-*` on a child**, and **the track minimum must stay a
   fixed length**.
 
-`src/styles/layout-utilities.test.ts` guards both utility names and every custom
+`tests/styles/layout-utilities.test.ts` guards both utility names and every custom
 property they read. Tailwind ignores an unknown class and CSS ignores a custom
 property nobody reads, so the failure mode is 17 grids quietly collapsing to one
 column with the suite green.

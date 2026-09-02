@@ -23,7 +23,7 @@ jobs:
       # Self-test the allowlist before trusting it, so a parser regression fails
       # here rather than silently waving PRs through with no changelog.
       - name: Test changeset-required allowlist
-        run: bash scripts/changeset-required.test.sh
+        run: bash scripts/tests/changeset-required.test.sh
 
       - name: Check for changeset
         env:
@@ -62,7 +62,7 @@ jobs:
       # it on the real tree, so a regression in the parser fails loudly here
       # rather than silently letting a bad package name through.
       - name: Test changeset validator
-        run: bash scripts/validate-changesets.test.sh
+        run: bash scripts/tests/validate-changesets.test.sh
 
       - name: Validate changeset package names
         run: bash scripts/validate-changesets.sh

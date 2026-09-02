@@ -1,0 +1,85 @@
+import { AuthProvider } from "@shared/rp-auth/solid";
+import { cleanup, fireEvent, render, screen, waitFor } from "@solidjs/testing-library";
+import "@testing-library/jest-dom/vitest";
+// @vitest-environment happy-dom
+import { type JSX } from "solid-js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import OrgPicker from "../../src/components/OrgPicker";
+import * as store from "../../src/lib/vendor-store";
+
+const authFetch = vi.fn();
+
+vi.mock("@shared/rp-auth/solid", () => ({
+  AuthProvider: (props: { children: JSX.Element }) => props.children,
+  useAuth: () => ({ authFetch }),
+}));
+
+const org = (id: string, name: string) => ({
+  id,
+  handle: name.toLowerCase(),
+  name,
+  description: null,
+  avatarUrl: null,
+  ownerId: "p",
+  createdAt: "",
+  updatedAt: "",
+});
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
+
+const renderPicker = (onPick = vi.fn()) =>
+  render(() => (
+    <AuthProvider config={{ apiBase: "http://localhost:8787" }}>
+      <OrgPicker onPick={onPick} />
+    </AuthProvider>
+  ));
+
+describe("OrgPicker", () => {
+  it("lists the caller's organisations and picks one on click", async () => {
+    vi.spyOn(store, "listMyOrgs").mockResolvedValue([org("o1", "Acme"), org("o2", "Bloom")]);
+    const onPick = vi.fn();
+    renderPicker(onPick);
+    await waitFor(() => expect(screen.getByText("Acme")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Bloom"));
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: "o2" }));
+  });
+
+  it("shows a friendly error message when listMyOrgs rejects", async () => {
+    vi.spyOn(store, "listMyOrgs").mockRejectedValue(new Error("Network error"));
+    renderPicker();
+    // Raw server/network errors are mapped to a generic friendly message.
+    await waitFor(() =>
+      expect(screen.getByText("Something went wrong. Please try again.")).toBeInTheDocument(),
+    );
+  });
+
+  it("shows a specific friendly message for known error codes", async () => {
+    vi.spyOn(store, "listMyOrgs").mockRejectedValue(new Error("not_org_member"));
+    renderPicker();
+    await waitFor(() =>
+      expect(screen.getByText("You don't have access to that organisation.")).toBeInTheDocument(),
+    );
+  });
+
+  it("shows the OSN empty-state (no create form) when the caller has no organisations", async () => {
+    vi.spyOn(store, "listMyOrgs").mockResolvedValue([]);
+    renderPicker();
+    await waitFor(() => expect(screen.getByText(/no organisations yet/i)).toBeInTheDocument());
+    expect(screen.getByText(/vendors publish through an OSN organisation/i)).toBeInTheDocument();
+
+    // The empty state names its own exit AND opens it. It used to say "create
+    // one in your OSN account, then return here" with nothing to click.
+    const out = screen.getByRole("link", { name: /create one in musubi/i });
+    expect(out).toHaveAttribute("href", expect.stringContaining("/settings/organisations"));
+    // A new tab reached from our origin must not be handed `window.opener`.
+    expect(out).toHaveAttribute("rel", expect.stringContaining("noopener"));
+
+    // The portal must NOT offer org creation itself — that lives in OSN.
+    expect(screen.queryByLabelText(/handle/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create organisation/i })).not.toBeInTheDocument();
+  });
+});

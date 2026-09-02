@@ -20,7 +20,7 @@
     "openapi:generate": "bun run scripts/generate-openapi.ts",
     "test": "bunx --bun vitest",
     "test:run": "bunx --bun vitest run",
-    "test:d1": "bun test src/d1-integration.test.ts"
+    "test:d1": "bun test tests/d1/d1-integration.test.ts"
   },
   "portless": {
     "name": "api.pulse",

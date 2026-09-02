@@ -5,7 +5,7 @@ export default defineConfig({
   plugins: [solid()],
   test: {
     environment: "node",
-    include: ["src/**/*.test.{ts,tsx}"],
+    include: ["tests/**/*.test.{ts,tsx}"],
     setupFiles: ["../../shared/test-config/no-jest-dom.ts"],
   },
 });

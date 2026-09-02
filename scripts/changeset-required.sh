@@ -14,7 +14,7 @@
 # directory, so a denylist waves a `bun update` through with no changelog.
 #
 # Invoked by .github/workflows/changeset-check.yml. Tests in
-# scripts/changeset-required.test.sh.
+# scripts/tests/changeset-required.test.sh.
 set -euo pipefail
 
 # True when this one path ships inside no versioned package.
