@@ -44,3 +44,13 @@ wrangler.jsonc       @chav-aniket
 # but it can't say whether the new code is upstream's. That is what a human
 # owner is for.
 /tools/oxlint/**     @chav-aniket
+
+# Third-party agent skills, installed by `npx skills add` and reviewed once on
+# the way in — `skills-lock.json` names the source repo and content-hashes each
+# SKILL.md, so an edit to either the tree or the lock changes what an agent is
+# told to do in this repo. `.claude/skills/<name>` is a symlink into
+# `.agents/skills/`, so both paths are owned. Our own skills under
+# `.claude/skills/` are covered by the same pattern.
+/.agents/**          @chav-aniket
+/.claude/**          @chav-aniket
+/skills-lock.json    @chav-aniket

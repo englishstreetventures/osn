@@ -62,6 +62,18 @@ run_case "agent instructions plus one source file" required \
   '.claude/commands/prep-pr.md
 cire/api/src/index.ts'
 
+# Third-party skills installed by `npx skills add`: the real tree lives in
+# `.agents/skills/`, `.claude/skills/<name>` is a symlink to it, and
+# `skills-lock.json` pins both. All three are agent instructions.
+run_case "installed third-party skills only" skip \
+  '.agents/skills/effect-v3-to-v4/SKILL.md
+.claude/skills/effect-v3-to-v4
+skills-lock.json'
+
+run_case "installed third-party skills plus one source file" required \
+  '.agents/skills/effect-ts/SKILL.md
+osn/api/src/index.ts'
+
 run_case "source file in a versioned package" required \
   'osn/api/src/routes/graph.ts'
 

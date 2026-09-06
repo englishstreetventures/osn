@@ -239,3 +239,7 @@ DerivedData/
 .migration/manifest.json
 # Shards handed to the disclosure audit, regenerated from the manifest.
 .migration/audit/
+
+# Cloned by the effect-v3-to-v4 skill: shallow checkouts of the Effect repo
+# used as the migration reference. Reference material, never our source.
+.repos/
