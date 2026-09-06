@@ -165,12 +165,17 @@ describe("ensureHouseholdsLoaded", () => {
 
   // households-store has no setCachedHouseholds/peekCachedHouseholds bypass —
   // ensureHouseholdsLoaded is the only way to write its cache, so this can't
-  // use the same bypass-write proof the other stores use. It instead shows
-  // the same fact indirectly: if reset left `stale` set for wed_1, this fresh
-  // load's success would have nothing to clear and no later assertion could
-  // tell the difference — so we pin the weaker but still real property that a
-  // reset wedding behaves as never-loaded at all.
-  it("__resetHouseholdsCache clears cached rows so a later ensure treats the wedding as unseen", async () => {
+  // use the same bypass-write proof the other stores use (seed, reset,
+  // setCachedXxx, assert hasCachedXxx is true). That proof needs a write that
+  // does NOT itself clear the stale mark, and every write this store exposes
+  // is ensureHouseholdsLoaded's own success path, which always clears it —
+  // so no assertion built from this API can tell a reset that cleared `stale`
+  // apart from one that didn't: hasCachedHouseholds is false either way right
+  // after `cache.clear()` (the entry itself is gone), and the very next
+  // successful load self-heals a surviving stale mark before anything reads
+  // it. What IS real and checkable is the weaker property below: a reset
+  // wedding behaves as never-loaded at all, not merely as due for a refetch.
+  it("__resetHouseholdsCache clears the cache so a previously-invalidated wedding behaves as never-loaded", async () => {
     await ensureHouseholdsLoaded("wed_1", async () => [ROW]);
     invalidateHouseholds("wed_1"); // marks wed_1 stale
     __resetHouseholdsCache();

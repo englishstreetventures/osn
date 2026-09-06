@@ -5,7 +5,7 @@ related:
   - "[[index]]"
   - "[[cire-invite-builder]]"
   - "[[cire-organiser]]"
-last-reviewed: 2026-09-01
+last-reviewed: 2026-09-06
 ---
 # Host Portal Layout System
 
@@ -213,13 +213,86 @@ component was previously reading a container it did not live in.
      messages that aren't the named enquiry's — otherwise A's correspondence
      renders under B's name for a round-trip. Re-fetching the *same* enquiry
      (after sending) still matches, so the thread doesn't blank.
-  4. `handleSend` refreshes the list with `setCachedEnquiries`, **not**
-     `invalidateEnquiries` + `ensureEnquiriesLoaded`. Invalidation is
-     `cache.delete(...)`, which mints a new signal; the always-mounted inbox
-     keeps reading the orphan, so the round-trip is paid and nothing updates.
-     The store-level fix for all four caches is **P-W2**, filed in `xchromo/osn-tracker`.
+  4. `handleSend` still refreshes the list with `setCachedEnquiries` — it
+     already holds the new row, so writing it straight in skips a pointless
+     round trip, and that part hasn't changed. What *has* changed is
+     `invalidateEnquiries` itself: it no longer does `cache.delete(...)` (the
+     historical bug this note used to warn about, which minted a new signal
+     the always-mounted inbox never saw). It now marks the wedding `stale`,
+     bumps the generation, and drops the inflight slot instead — see
+     "Organiser client caches: stale-while-revalidate" below. The rule for
+     the *other* kind of reload — recovering after a failed write, rather
+     than folding in a response you already have — is the mirror image of
+     `handleSend`'s: go through `invalidateXxx` + `ensureXxxLoaded`, never a
+     bare `setCachedXxx`, because only `ensureXxxLoaded` carries the
+     generation guard and the failure branch that blanks the rows on a
+     refused refetch. That is exactly what `BudgetView`, `ChecklistView`,
+     `RegistryView` and `VendorsView`'s `reload()` do. The store-level fix,
+     **P-W2**, is shipped — PR #860 (write through the signal instead of
+     deleting the entry) and PR #864 (stale-while-revalidate); tracked in
+     `xchromo/osn-tracker`.
 - **Event cards** (`EventTable`) — cards flow in an `auto-grid`; each card is its
   own `@container/card` and its details grid switches at `@md/card`.
+
+## Organiser client caches: stale-while-revalidate
+
+Eight `weddingId`-keyed SolidJS signal caches share this contract:
+`budget-store.ts`, `enquiries-store.ts`, `events-store.ts`, `guests-store.ts`,
+`households-store.ts`, `registry-store.ts`, `tasks-store.ts`,
+`vendors-store.ts` (all `cire/host/src/lib/`). One page for the mechanism
+they all share, rather than eight copies that drift — a module's own page
+(e.g. [[cire-checklist-tasks]]) documents only what is genuinely that
+module's.
+
+A cached wedding is in one of four states:
+
+1. **Fresh** — loaded, not since invalidated. `hasCachedXxx` is `true`.
+2. **Stale but shown** — `invalidateXxx` has run since the last load. The
+   signal keeps its last-known rows, so a mounted view keeps rendering them —
+   removing that flash on every organiser edit is the entire point of this
+   design — but `hasCachedXxx` reports a stale id as a miss, which is what
+   makes the next `ensureXxxLoaded` actually issue a fetch instead of
+   short-circuiting on the still-present value.
+3. **Refetching** — `ensureXxxLoaded` is in flight. Concurrent callers dedupe
+   onto the one promise.
+4. **Refused and blanked** — the refetch rejects. This is an authorisation
+   control, not error handling: the refetch a stale wedding triggers is also
+   the re-authorization check, so a refused or failed response blanks the
+   signal to `null` and rethrows, rather than leaving a demoted organiser
+   reading the last-known rows behind an error banner. Dropping this branch
+   — say, by collapsing the two-argument `.then(onOk, onErr)` back into a
+   single `.then` with a trailing `.catch` — would keep serving that
+   organiser's stale, now-unauthorised data.
+
+Both the success and the failure branch are **generation-guarded**:
+`invalidateXxx` bumps a per-wedding counter, and a load that settles —
+success or failure — after a newer invalidate has landed touches nothing,
+because a newer load already owns the entry. Without the guard on the
+failure branch specifically, an abandoned load's late rejection would blank
+rows a newer, still-in-flight load (or a newer success) has already claimed.
+
+Shared export surface, and what each does under a stale mark:
+
+| Export | Under a stale mark |
+|---|---|
+| `hasCachedXxx(id)` | `false` — the refetch trigger, not a render gate |
+| `xxxAccessor(id)` | Unchanged: the same signal, still holding the last-known rows |
+| `peekCachedXxx(id)` | Also still returns the last-known rows — deliberately does **not** consult the stale mark (see the gap below) |
+| `setCachedXxx(id, rows)` | Writes the signal. Does **not** clear the stale mark |
+| `invalidateXxx(id)` | Marks stale, bumps the generation, drops any inflight slot. Does **not** touch the signal |
+| `ensureXxxLoaded(id, fetcher)` | No-op if already fresh; otherwise dedupes and fetches. Success writes the rows and clears the stale mark; failure blanks the signal and rethrows. Both branches generation-guarded |
+
+**Known gap, tracked in #620:** `peekCachedXxx` and the readers built
+directly on it — `spentSoFar`/`upcomingPayments` (`budget-store.ts`) and
+`vendorCount` (`vendors-store.ts`) — don't consult the stale mark, so they
+keep returning pre-invalidate figures for the length of the refetch. A
+deliberate trade for now, and not yet even inconsistency-checked across the
+other six stores' own derived readers.
+
+Shipped across all eight caches by PR #860 (write through the signal instead
+of deleting the cache entry on invalidate) and PR #864 (this
+stale-while-revalidate contract, plus the failure-branch re-authorization
+check).
 
 ## Testing
 

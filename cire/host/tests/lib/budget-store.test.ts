@@ -296,4 +296,35 @@ describe("budget-store", () => {
     expect(budgetAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["seed"]);
     expect(hasCachedBudget("wed_1")).toBe(false);
   });
+
+  /**
+   * Mirror of the generation-stale success test above, but for the failure
+   * branch's own generation guard: a load abandoned by a newer invalidate
+   * must not blank the entry on rejection either, because a newer load now
+   * owns it. Without `if (generationOf(weddingId) === startedAt)` in the
+   * `onErr` handler, this abandoned load's refusal would null out rows a
+   * newer in-generation load (or a mounted view) still has a claim to — the
+   * rejection must still propagate to the caller, but it must not touch the
+   * signal.
+   */
+  it("a generation-stale rejection still propagates but does not blank an entry a newer load owns", async () => {
+    await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "seed" })] }));
+    invalidateBudget("wed_1");
+
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const refusal = new Error("403");
+    const pending = ensureBudgetLoaded("wed_1", async () => {
+      await gate;
+      throw refusal;
+    });
+
+    invalidateBudget("wed_1"); // a second invalidate, while that load is still in flight
+    release();
+
+    await expect(pending).rejects.toBe(refusal);
+    expect(budgetAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["seed"]);
+  });
 });

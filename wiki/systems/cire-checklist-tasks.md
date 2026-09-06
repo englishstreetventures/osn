@@ -4,7 +4,8 @@ tags: [systems, platform, phase1, tasks, cire]
 related:
   - "[[index]]"
   - "[[cire-platform-plan]]"
-last-reviewed: 2026-08-21
+  - "[[cire-host-portal-layout]]"
+last-reviewed: 2026-09-06
 ---
 # Checklist / Tasks
 
@@ -100,11 +101,13 @@ Public API:
 | Export | Purpose |
 |---|---|
 | `tasksAccessor(weddingId)` | Reactive `Accessor<TaskRow[] \| null>` |
-| `hasCachedTasks(weddingId)` | Boolean: first load done? |
-| `setCachedTasks(weddingId, tasks)` | Populate/replace cache from a fetch |
+| `hasCachedTasks(weddingId)` | Boolean: are the cached tasks fresh? `false` both before the first load and while the wedding is marked stale (see [[cire-host-portal-layout#Organiser client caches: stale-while-revalidate]]) — it is the refetch trigger, not a render gate |
+| `setCachedTasks(weddingId, tasks)` | Populate/replace cache from a fetch. Does not clear the stale mark |
 | `peekCachedTasks(weddingId)` | Non-reactive snapshot |
-| `invalidateTasks(weddingId)` | Evict after a write |
+| `invalidateTasks(weddingId)` | Mark stale after a write. The rows stay on screen and the signal is untouched — the next `ensureTasksLoaded` is what refetches |
+| `ensureTasksLoaded(weddingId, fetcher)` | Fetch if not fresh; dedupes concurrent callers. On success, writes the rows and clears the stale mark; on a refused/failed refetch, blanks the signal and rethrows |
 | `openTaskCount(weddingId)` | `number \| null` — open-task count for the Overview widget |
+| `taskCounts(weddingId)` | `{ open, done, total } \| null` — reactive counts for the Overview completion bar |
 
 `TaskRow` mirrors `TaskDto` from the API (ms-epoch numbers for `createdAt` /
 `completedAt`; `timeframeBucket` string key; `status: "open" | "done"`).
