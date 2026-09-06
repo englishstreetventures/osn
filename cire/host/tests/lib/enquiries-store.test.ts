@@ -61,6 +61,42 @@ describe("enquiries-store", () => {
     expect(rows.map((r) => r.id)).toContain("enq_2");
   });
 
+  /**
+   * #606: `null` means "not loaded", not "no rows". The simplest reachable
+   * path has nothing to do with invalidation — `EnquireDialog` calls
+   * `upsertCachedEnquiry` from `DirectoryBrowseView`/`VendorsView`, neither of
+   * which ever loads the enquiries cache, so this hits a stone-cold cache. A
+   * `peek ?? []` here used to collapse the (unfetched) inbox to a single row
+   * and flip `hasCachedEnquiries` to true, permanently suppressing the
+   * refetch that would have restored the rest.
+   */
+  it("upsertCachedEnquiry is a no-op against a cold cache (the EnquireDialog path)", () => {
+    upsertCachedEnquiry("wed_1", item({ id: "enq_1" }));
+    expect(hasCachedEnquiries("wed_1")).toBe(false);
+    expect(enquiriesAccessor("wed_1")()).toBeNull();
+  });
+
+  /**
+   * The second reachable path, introduced by PR #864: invalidate no longer
+   * nulls the signal, but the FAILURE branch of `ensureEnquiriesLoaded` still
+   * does — so a refused refetch followed by an upsert reaches the same
+   * "null cache" state as the cold-start path above.
+   */
+  it("upsertCachedEnquiry is a no-op after a refused refetch has nulled the signal", async () => {
+    setCachedEnquiries("wed_1", [item({ id: "enq_1" })]);
+    invalidateEnquiries("wed_1");
+    await expect(
+      ensureEnquiriesLoaded("wed_1", async () => {
+        throw new Error("403");
+      }),
+    ).rejects.toThrow("403");
+    expect(enquiriesAccessor("wed_1")()).toBeNull();
+
+    upsertCachedEnquiry("wed_1", item({ id: "enq_2" }));
+    expect(hasCachedEnquiries("wed_1")).toBe(false);
+    expect(enquiriesAccessor("wed_1")()).toBeNull();
+  });
+
   it("invalidateEnquiries clears the cache so a reload refetches", async () => {
     setCachedEnquiries("wed_1", [item()]);
     invalidateEnquiries("wed_1");
@@ -75,7 +111,9 @@ describe("enquiries-store", () => {
   it("ensureEnquiriesLoaded refetches after invalidate and replaces the stale rows on success", async () => {
     setCachedEnquiries("wed_1", [item({ id: "enq_a" })]);
     invalidateEnquiries("wed_1");
-    await ensureEnquiriesLoaded("wed_1", async () => [item({ id: "enq_b" })]);
+    await expect(ensureEnquiriesLoaded("wed_1", async () => [item({ id: "enq_b" })])).resolves.toBe(
+      true,
+    );
     expect(enquiriesAccessor("wed_1")()?.map((e) => e.id)).toEqual(["enq_b"]);
     expect(hasCachedEnquiries("wed_1")).toBe(true);
   });
@@ -101,6 +139,17 @@ describe("enquiries-store", () => {
     invalidateEnquiries("wed_1");
     expect(mounted()).toHaveLength(1);
     expect(hasCachedEnquiries("wed_1")).toBe(false);
+  });
+
+  it("ensureEnquiriesLoaded resolves true after a normal load, and true again on a cache hit without refetching", async () => {
+    let calls = 0;
+    const fetcher = async () => {
+      calls++;
+      return [item()];
+    };
+    await expect(ensureEnquiriesLoaded("wed_1", fetcher)).resolves.toBe(true);
+    await expect(ensureEnquiriesLoaded("wed_1", fetcher)).resolves.toBe(true);
+    expect(calls).toBe(1);
   });
 
   it("hasCachedEnquiries is false after invalidate", () => {
@@ -224,7 +273,7 @@ describe("enquiries-store", () => {
 
     invalidateEnquiries("wed_1"); // a second invalidate, while that load is still in flight
     release();
-    await pending;
+    await expect(pending).resolves.toBe(false);
 
     expect(enquiriesAccessor("wed_1")()?.map((r) => r.id)).toEqual(["seed"]);
     expect(hasCachedEnquiries("wed_1")).toBe(false);

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-import { render, screen } from "@solidjs/testing-library";
+import { cleanup, render, screen, waitFor } from "@solidjs/testing-library";
 import "@testing-library/jest-dom/vitest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import Overview from "../../src/components/Overview";
 import { __resetBudgetCache } from "../../src/lib/budget-store";
@@ -62,6 +62,10 @@ beforeEach(() => {
   setCachedGuests("wed_1", [{ familyId: "fam_a", firstName: "Al" } as never]);
 });
 
+afterEach(() => {
+  cleanup();
+});
+
 describe("Overview checklist widget", () => {
   it("shows the N-of-M completion line", async () => {
     setCachedTasks("wed_1", [row({ id: "a", status: "open" }), row({ id: "b", status: "done" })]);
@@ -79,5 +83,39 @@ describe("Overview checklist widget", () => {
     // The containing <p> text should read "1 open task".
     const p = countSpan.closest("p");
     expect(p?.textContent?.replace(/\s+/g, " ").trim()).toMatch(/1 open task/i);
+  });
+
+  /**
+   * Regression test for #620, the twin of the two cases above. Both of those
+   * call `setCachedTasks` BEFORE `render`, which mints the wedding's cache
+   * entry ahead of time — the one state the pre-branch
+   * `cache.get(id)?.tasks() ?? null` reader handled correctly. Starting cold
+   * here (no seed) is what makes this case fail against the old reader:
+   * `taskCounts` was read for the first time while the cache was still
+   * empty, registered no dependency, and the Checklist card stayed on
+   * "Loading your tasks…" forever even after the fetch resolved.
+   */
+  it("cold: resolves off 'Loading your tasks…' once the tasks fetch completes", async () => {
+    authFetch.mockImplementation(async (url: string) => {
+      if (url.endsWith("/settings"))
+        return json({ wedding: { weddingDate: null, currency: "AUD", budgetTotalMinor: null } });
+      if (url.endsWith("/rsvps")) return json({ events: [] });
+      if (url.endsWith("/tasks"))
+        return json({
+          tasks: [row({ id: "a", status: "open" }), row({ id: "b", status: "done" })],
+        });
+      if (url.endsWith("/events")) return json([]);
+      if (url.endsWith("/guests")) return json([]);
+      if (url.endsWith("/budget"))
+        return json({ items: [], payments: [], budgetTotalMinor: null, currency: "AUD" });
+      return json({}, 404);
+    });
+    render(() => <Overview weddingId="wed_1" onNavigate={() => {}} />);
+
+    const checklistCard = (await screen.findByText("Checklist")).closest("button")!;
+    await waitFor(() =>
+      expect(checklistCard.textContent!.replace(/\s+/g, " ").trim()).toMatch(/1 of 2 done/i),
+    );
+    expect(checklistCard.textContent).not.toMatch(/Loading your tasks…/i);
   });
 });

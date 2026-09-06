@@ -113,6 +113,17 @@ describe("budget-store", () => {
     expect(hasCachedBudget("wed_1")).toBe(false);
   });
 
+  it("ensureBudgetLoaded resolves true after a normal load, and true again on a cache hit without refetching", async () => {
+    let calls = 0;
+    const fetcher = async () => {
+      calls += 1;
+      return snap({ items: [item({})] });
+    };
+    await expect(ensureBudgetLoaded("wed_1", fetcher)).resolves.toBe(true);
+    await expect(ensureBudgetLoaded("wed_1", fetcher)).resolves.toBe(true);
+    expect(calls).toBe(1);
+  });
+
   it("hasCachedBudget is false after invalidate, so the next load refetches", async () => {
     await ensureBudgetLoaded("wed_1", async () => snap({}));
     expect(hasCachedBudget("wed_1")).toBe(true);
@@ -193,7 +204,9 @@ describe("budget-store", () => {
   it("ensureBudgetLoaded refetches after invalidate and replaces the stale snapshot on success", async () => {
     await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "a" })] }));
     invalidateBudget("wed_1");
-    await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "b" })] }));
+    await expect(
+      ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "b" })] })),
+    ).resolves.toBe(true);
     expect(budgetAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["b"]);
     expect(hasCachedBudget("wed_1")).toBe(true);
   });
@@ -291,7 +304,7 @@ describe("budget-store", () => {
 
     invalidateBudget("wed_1"); // a second invalidate, while that load is still in flight
     release();
-    await pending;
+    await expect(pending).resolves.toBe(false);
 
     expect(budgetAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["seed"]);
     expect(hasCachedBudget("wed_1")).toBe(false);

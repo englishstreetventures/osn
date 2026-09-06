@@ -1,3 +1,4 @@
+import { createEffect, createRoot } from "solid-js";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -55,6 +56,37 @@ describe("vendors-store", () => {
     expect(vendorCount("wed_1")).toBe(3);
   });
 
+  /**
+   * The regression test for the actual bug (#620): `vendorCount` used to read
+   * `cache.get(weddingId)?.vendors()`, so from a COLD cache the optional
+   * chain short-circuited before the accessor was ever called — a tracking
+   * computation that only reads `vendorCount` registered zero dependencies
+   * and never re-ran once the load resolved. `expect(vendorCount(...)).toBe(3)`
+   * after an await (the test above) can't see that: it re-reads the map
+   * directly on every call, so it passes against the broken code too. Only a
+   * live tracking computation, asserted on the values it actually observed,
+   * proves the subscription fired.
+   */
+  it("a tracking computation reading only vendorCount re-runs once the cold load resolves", async () => {
+    const seen: (number | null)[] = [];
+    const dispose = createRoot((d) => {
+      createEffect(() => {
+        seen.push(vendorCount("wed_1"));
+      });
+      return d;
+    });
+    await ensureVendorsLoaded("wed_1", async () => [
+      vendor({ id: "a" }),
+      vendor({ id: "b" }),
+      vendor({ id: "c" }),
+    ]);
+    // Let any effect queued by the cache write flush before asserting.
+    await Promise.resolve();
+    await Promise.resolve();
+    dispose();
+    expect(seen).toEqual([null, 3]);
+  });
+
   it("invalidateVendors marks the cache stale without nulling the raw signal", async () => {
     await ensureVendorsLoaded("wed_1", async () => [vendor({})]);
     expect(peekCachedVendors("wed_1")).not.toBeNull();
@@ -69,6 +101,17 @@ describe("vendors-store", () => {
     // only promises it for the mounted-accessor / ensureVendorsLoaded path.
     expect(peekCachedVendors("wed_1")).not.toBeNull();
     expect(vendorCount("wed_1")).toBe(1);
+  });
+
+  it("ensureVendorsLoaded resolves true after a normal load, and true again on a cache hit without refetching", async () => {
+    let calls = 0;
+    const fetcher = async () => {
+      calls += 1;
+      return [vendor({})];
+    };
+    await expect(ensureVendorsLoaded("wed_1", fetcher)).resolves.toBe(true);
+    await expect(ensureVendorsLoaded("wed_1", fetcher)).resolves.toBe(true);
+    expect(calls).toBe(1);
   });
 
   it("inflight deduplication: two concurrent calls fire fetcher once", async () => {
@@ -164,7 +207,9 @@ describe("vendors-store", () => {
   it("ensureVendorsLoaded refetches after invalidate and replaces the stale rows on success", async () => {
     await ensureVendorsLoaded("wed_1", async () => [vendor({ id: "a" })]);
     invalidateVendors("wed_1");
-    await ensureVendorsLoaded("wed_1", async () => [vendor({ id: "b" })]);
+    await expect(ensureVendorsLoaded("wed_1", async () => [vendor({ id: "b" })])).resolves.toBe(
+      true,
+    );
     expect(vendorsAccessor("wed_1")()?.map((v) => v.id)).toEqual(["b"]);
     expect(hasCachedVendors("wed_1")).toBe(true);
   });
@@ -221,7 +266,7 @@ describe("vendors-store", () => {
 
     invalidateVendors("wed_1"); // a second invalidate, while that load is still in flight
     release();
-    await pending;
+    await expect(pending).resolves.toBe(false);
 
     expect(vendorsAccessor("wed_1")()?.map((v) => v.id)).toEqual(["seed"]);
     expect(hasCachedVendors("wed_1")).toBe(false);

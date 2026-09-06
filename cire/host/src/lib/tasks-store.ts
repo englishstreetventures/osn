@@ -39,6 +39,9 @@ export function tasksAccessor(weddingId: string): Accessor<TaskRow[] | null> {
   return entryFor(weddingId).tasks;
 }
 
+/** Subscribes only when the entry already exists — a read from a cold cache
+ *  registers no dependency. Never use it for a value a view must track; use
+ *  the accessor for that. */
 export function hasCachedTasks(weddingId: string): boolean {
   return !stale.has(weddingId) && cache.get(weddingId)?.tasks() != null;
 }
@@ -47,6 +50,9 @@ export function setCachedTasks(weddingId: string, tasks: TaskRow[]): void {
   entryFor(weddingId).setTasks(tasks);
 }
 
+/** Subscribes only when the entry already exists — a read from a cold cache
+ *  registers no dependency. Never use it for a value a view must track; use
+ *  the accessor for that. */
 export function peekCachedTasks(weddingId: string): TaskRow[] | null {
   return cache.get(weddingId)?.tasks() ?? null;
 }
@@ -62,7 +68,13 @@ export function invalidateTasks(weddingId: string): void {
   // A load already in flight was issued against PRE-mutation state, so its
   // rows describe state that has since been mutated: the wedding's
   // GENERATION is bumped too, and a resolving fetch from an older generation
-  // discards its result instead of caching it.
+  // discards its result instead of caching it. Dropping the in-flight slot
+  // here (not just bumping the generation) means the next
+  // `ensureTasksLoaded` does not join that doomed fetch — it starts a new
+  // one, at the cost of one extra request. That is the right trade: joining
+  // would await a promise whose result the generation guard is about to
+  // discard, leaving the caller with `false` and the view unrefreshed until
+  // whatever call comes next.
   inflight.delete(weddingId);
   generation.set(weddingId, generationOf(weddingId) + 1);
 }
@@ -76,20 +88,24 @@ const generationOf = (weddingId: string) => generation.get(weddingId) ?? 0;
 const stale = new Set<string>();
 
 /** Reactive open-task count for the Overview widget: `null` until first load.
- *  Reads without allocating a dangling signal for a never-loaded weddingId. */
+ *  Mints the wedding's cache entry so the read subscribes even from a cold
+ *  cache — the entry is per-wedding and bounded by the same key space
+ *  `cache`, `generation` and `stale` already occupy. */
 export function openTaskCount(weddingId: string): number | null {
-  const rows = cache.get(weddingId)?.tasks() ?? null;
+  const rows = entryFor(weddingId).tasks();
   if (rows == null) return null;
   return rows.filter((t) => t.status === "open").length;
 }
 
-/** Reactive open/done/total counts for the Overview completion bar: `null` until
- *  first load. Reads without allocating a dangling signal for a never-loaded
- *  weddingId (mirrors {@link openTaskCount}). */
+/** Reactive open/done/total counts for the Overview completion bar: `null`
+ *  until first load. Mints the wedding's cache entry so the read subscribes
+ *  even from a cold cache (mirrors {@link openTaskCount}) — the entry is
+ *  per-wedding and bounded by the same key space `cache`, `generation` and
+ *  `stale` already occupy. */
 export function taskCounts(
   weddingId: string,
 ): { open: number; done: number; total: number } | null {
-  const rows = cache.get(weddingId)?.tasks() ?? null;
+  const rows = entryFor(weddingId).tasks();
   if (rows == null) return null;
   let open = 0;
   let done = 0;
@@ -100,13 +116,13 @@ export function taskCounts(
   return { open, done, total: rows.length };
 }
 
-const inflight = new Map<string, Promise<void>>();
+const inflight = new Map<string, Promise<boolean>>();
 
 export function ensureTasksLoaded(
   weddingId: string,
   fetcher: () => Promise<TaskRow[]>,
-): Promise<void> {
-  if (hasCachedTasks(weddingId)) return Promise.resolve();
+): Promise<boolean> {
+  if (hasCachedTasks(weddingId)) return Promise.resolve(true);
   let pending = inflight.get(weddingId);
   if (!pending) {
     const startedAt = generationOf(weddingId);
@@ -116,9 +132,10 @@ export function ensureTasksLoaded(
           // A newer invalidation landed while this was in flight — its rows
           // describe state that has since been mutated, so drop them rather than
           // cache them.
-          if (generationOf(weddingId) !== startedAt) return;
+          if (generationOf(weddingId) !== startedAt) return false;
           setCachedTasks(weddingId, rows);
           stale.delete(weddingId);
+          return true;
         },
         (err: unknown) => {
           // The refetch was refused or failed. The rows still on screen were

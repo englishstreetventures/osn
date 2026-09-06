@@ -39,6 +39,13 @@ describe("ensureGuestsLoaded", () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
+  it("resolves true after a normal load, and true again on a cache hit without refetching", async () => {
+    const fetcher = vi.fn(async () => [ROW]);
+    await expect(ensureGuestsLoaded("wed_1", fetcher)).resolves.toBe(true);
+    await expect(ensureGuestsLoaded("wed_1", fetcher)).resolves.toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects every waiter on failure, caches nothing, and retries next call", async () => {
     const failing = vi.fn(async () => {
       throw new Error("network down");
@@ -127,7 +134,9 @@ describe("ensureGuestsLoaded", () => {
   it("ensureGuestsLoaded refetches after invalidate and replaces the stale rows on success", async () => {
     await ensureGuestsLoaded("wed_1", async () => [{ ...ROW, familyId: "a" }]);
     invalidateGuests("wed_1");
-    await ensureGuestsLoaded("wed_1", async () => [{ ...ROW, familyId: "b" }]);
+    await expect(
+      ensureGuestsLoaded("wed_1", async () => [{ ...ROW, familyId: "b" }]),
+    ).resolves.toBe(true);
     expect(guestsAccessor("wed_1")()?.map((r) => r.familyId)).toEqual(["b"]);
     expect(hasCachedGuests("wed_1")).toBe(true);
   });
@@ -184,7 +193,7 @@ describe("ensureGuestsLoaded", () => {
 
     invalidateGuests("wed_1"); // a second invalidate, while that load is still in flight
     release();
-    await pending;
+    await expect(pending).resolves.toBe(false);
 
     expect(guestsAccessor("wed_1")()?.map((r) => r.familyId)).toEqual(["seed"]);
     expect(hasCachedGuests("wed_1")).toBe(false);

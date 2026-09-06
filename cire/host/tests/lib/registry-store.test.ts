@@ -159,6 +159,17 @@ describe("registry-store", () => {
     expect(hasCachedRegistry("wed_1")).toBe(false);
   });
 
+  it("ensureRegistryLoaded resolves true after a normal load, and true again on a cache hit without refetching", async () => {
+    let calls = 0;
+    const fetcher = async () => {
+      calls += 1;
+      return snapshot();
+    };
+    await expect(ensureRegistryLoaded("wed_1", fetcher)).resolves.toBe(true);
+    await expect(ensureRegistryLoaded("wed_1", fetcher)).resolves.toBe(true);
+    expect(calls).toBe(1);
+  });
+
   it("hasCachedRegistry is false after invalidate, so the next load refetches", async () => {
     await ensureRegistryLoaded("wed_1", async () => snapshot());
     expect(hasCachedRegistry("wed_1")).toBe(true);
@@ -236,7 +247,9 @@ describe("registry-store", () => {
   it("ensureRegistryLoaded refetches after invalidate and replaces the stale snapshot on success", async () => {
     await ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "a" })] }));
     invalidateRegistry("wed_1");
-    await ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "b" })] }));
+    await expect(
+      ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "b" })] })),
+    ).resolves.toBe(true);
     expect(registryAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["b"]);
     expect(hasCachedRegistry("wed_1")).toBe(true);
   });
@@ -293,7 +306,7 @@ describe("registry-store", () => {
 
     invalidateRegistry("wed_1"); // a second invalidate, while that load is still in flight
     release();
-    await pending;
+    await expect(pending).resolves.toBe(false);
 
     expect(registryAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["seed"]);
     expect(hasCachedRegistry("wed_1")).toBe(false);

@@ -75,7 +75,10 @@ export function eventsAccessor(weddingId: string): Accessor<EventRow[] | null> {
 }
 
 /** Has this wedding's events already been fetched in this session? When true a
- *  remounting `EventTable` can skip the network round-trip entirely. */
+ *  remounting `EventTable` can skip the network round-trip entirely.
+ *  Subscribes only when the entry already exists — a read from a cold cache
+ *  registers no dependency. Never use it for a value a view must track; use
+ *  the accessor for that. */
 export function hasCachedEvents(weddingId: string): boolean {
   return !stale.has(weddingId) && cache.get(weddingId)?.events() != null;
 }
@@ -114,7 +117,12 @@ export function invalidateEvents(weddingId: string): void {
   // bumped too, and a resolving fetch from an older generation discards its
   // result instead of caching it. Without this, the editor's invalidate-then-
   // reload after a successful save can re-cache exactly the rows the organiser
-  // just deleted.
+  // just deleted. Dropping the in-flight slot here (not just bumping the
+  // generation) means the next `ensureEventsLoaded` does not join that doomed
+  // fetch — it starts a new one, at the cost of one extra request. That is
+  // the right trade: joining would await a promise whose result the
+  // generation guard is about to discard, leaving the caller with `false`
+  // and the view unrefreshed until whatever call comes next.
   inflight.delete(weddingId);
   generation.set(weddingId, generationOf(weddingId) + 1);
 }
@@ -130,7 +138,7 @@ const stale = new Set<string>();
 /** In-flight loads, keyed by weddingId, so panels mounting in the same tick
  *  share ONE fetch instead of racing two identical requests at the empty
  *  cache. */
-const inflight = new Map<string, Promise<void>>();
+const inflight = new Map<string, Promise<boolean>>();
 
 /**
  * Load a wedding's events into the cache exactly once. A cache hit returns
@@ -142,8 +150,8 @@ const inflight = new Map<string, Promise<void>>();
 export function ensureEventsLoaded(
   weddingId: string,
   fetcher: () => Promise<EventRow[]>,
-): Promise<void> {
-  if (hasCachedEvents(weddingId)) return Promise.resolve();
+): Promise<boolean> {
+  if (hasCachedEvents(weddingId)) return Promise.resolve(true);
   let pending = inflight.get(weddingId);
   if (!pending) {
     const startedAt = generationOf(weddingId);
@@ -152,9 +160,10 @@ export function ensureEventsLoaded(
         (rows) => {
           // A newer invalidation landed while this was in flight — its rows describe
           // state that has since been mutated, so drop them rather than cache them.
-          if (generationOf(weddingId) !== startedAt) return;
+          if (generationOf(weddingId) !== startedAt) return false;
           setCachedEvents(weddingId, rows);
           stale.delete(weddingId);
+          return true;
         },
         (err: unknown) => {
           // The refetch was refused or failed. The rows still on screen were

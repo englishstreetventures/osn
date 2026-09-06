@@ -283,11 +283,21 @@ Shared export surface, and what each does under a stale mark:
 | `ensureXxxLoaded(id, fetcher)` | No-op if already fresh; otherwise dedupes and fetches. Success writes the rows and clears the stale mark; failure blanks the signal and rethrows. Both branches generation-guarded |
 
 **Known gap, tracked in #620:** `peekCachedXxx` and the readers built
-directly on it — `spentSoFar`/`upcomingPayments` (`budget-store.ts`) and
-`vendorCount` (`vendors-store.ts`) — don't consult the stale mark, so they
-keep returning pre-invalidate figures for the length of the refetch. A
-deliberate trade for now, and not yet even inconsistency-checked across the
-other six stores' own derived readers.
+directly on it — `spentSoFar`/`upcomingPayments` (`budget-store.ts`) — don't
+consult the stale mark, so they keep returning pre-invalidate figures for the
+length of the refetch. A deliberate trade for now, and not yet even
+inconsistency-checked across the other six stores' own derived readers.
+`vendorCount` (`vendors-store.ts`), `openTaskCount` and `taskCounts`
+(`tasks-store.ts`) no longer belong in that first group: they used to read
+`cache.get(id)?.xxx()`, so from a cold cache the optional chain short-circuited
+before the accessor ever ran and a tracking computation reading them
+registered no dependency at all — not a stale-mark gap but a missing
+subscription. They now mint the wedding's cache entry and subscribe, the
+same as `spentSoFar`/`upcomingPayments` already did, so they re-render once a
+load resolves. They still don't consult the stale mark, so the same
+pre-invalidate-figures trade this section describes applies to them too —
+what changed is that they update at all, not that they update the moment a
+refetch starts.
 
 Shipped across all eight caches by PR #860 (write through the signal instead
 of deleting the cache entry on invalidate) and PR #864 (this
