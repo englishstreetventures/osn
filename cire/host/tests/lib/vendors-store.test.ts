@@ -117,4 +117,36 @@ describe("vendors-store", () => {
     await ensureVendorsLoaded("wed_1", async () => [vendor({ id: "b" })]);
     expect(peekCachedVendors("wed_1")?.map((v) => v.id)).toEqual(["b"]);
   });
+
+  /**
+   * The `.finally` that clears the in-flight slot is reached on a rejection
+   * too — a rejected fetcher never runs the `.then`, so this is the only path
+   * that exercises the guarded clear on a failed load. If the slot were left
+   * populated, every later `ensureVendorsLoaded` would await a dead promise
+   * forever instead of refetching.
+   */
+  it("rejects every waiter on failure, caches nothing, and retries next call", async () => {
+    let calls = 0;
+    const failing = async () => {
+      calls += 1;
+      throw new Error("network down");
+    };
+    const [a, b] = await Promise.allSettled([
+      ensureVendorsLoaded("wed_1", failing),
+      ensureVendorsLoaded("wed_1", failing),
+    ]);
+    expect(a.status).toBe("rejected");
+    expect(b.status).toBe("rejected");
+    expect(calls).toBe(1); // deduped even in failure
+    expect(peekCachedVendors("wed_1")).toBeNull(); // nothing poisoned the cache
+
+    // The in-flight slot was cleared — a later call re-invokes the fetcher.
+    let recoveringCalls = 0;
+    await ensureVendorsLoaded("wed_1", async () => {
+      recoveringCalls += 1;
+      return [vendor({})];
+    });
+    expect(recoveringCalls).toBe(1);
+    expect(peekCachedVendors("wed_1")).not.toBeNull();
+  });
 });
