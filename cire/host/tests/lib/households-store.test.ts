@@ -109,4 +109,21 @@ describe("ensureHouseholdsLoaded", () => {
     expect(fresh).toHaveBeenCalledTimes(1);
     expect(householdsAccessor("wed_1")()?.map((h) => h.familyId)).toEqual(["fam_fresh"]);
   });
+
+  /**
+   * The regression test for the actual bug: `entryFor` mints the signal once
+   * and a mounted editor captures that accessor at mount. Deleting the map
+   * entry on invalidate would leave that accessor pointed at a signal nothing
+   * writes to again — a dead view showing stale rows forever. The fix writes
+   * THROUGH the signal, so an accessor captured before invalidate still
+   * observes the transition.
+   */
+  it("a mounted consumer's captured accessor observes null after invalidate", async () => {
+    const fetcher = vi.fn(async () => [ROW]);
+    await ensureHouseholdsLoaded("wed_1", fetcher);
+    const mounted = householdsAccessor("wed_1"); // captured once, as a real mount would
+    expect(mounted()).toEqual([ROW]);
+    invalidateHouseholds("wed_1");
+    expect(mounted()).toBeNull();
+  });
 });

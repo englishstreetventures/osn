@@ -4,6 +4,7 @@ import {
   __resetRegistryCache,
   ensureRegistryLoaded,
   type GiftLogEntry,
+  hasCachedRegistry,
   invalidateRegistry,
   peekCachedRegistry,
   registryAccessor,
@@ -132,5 +133,95 @@ describe("registry-store", () => {
     // Claims race against each other, so one can land past the wanted count. A
     // negative "still wanted" would read as a fault.
     expect(stillWanted(item({ quantityWanted: 1, quantityClaimed: 2 }))).toBe(0);
+  });
+
+  /**
+   * The regression test for the actual bug: `entryFor` mints the signal once
+   * and a mounted Registry view captures that accessor at mount. Deleting
+   * the map entry on invalidate would leave that accessor pointed at a
+   * signal nothing writes to again — a dead view showing a stale snapshot
+   * forever. The fix writes THROUGH the signal, so an accessor captured
+   * before invalidate still observes the transition.
+   */
+  it("a mounted consumer's captured accessor observes null after invalidate", async () => {
+    await ensureRegistryLoaded("wed_1", async () => snapshot());
+    const mounted = registryAccessor("wed_1"); // captured once, as a real mount would
+    expect(mounted()).not.toBeNull();
+    invalidateRegistry("wed_1");
+    expect(mounted()).toBeNull();
+  });
+
+  it("hasCachedRegistry is false after invalidate, so the next load refetches", async () => {
+    await ensureRegistryLoaded("wed_1", async () => snapshot());
+    expect(hasCachedRegistry("wed_1")).toBe(true);
+    invalidateRegistry("wed_1");
+    expect(hasCachedRegistry("wed_1")).toBe(false);
+    let calls = 0;
+    await ensureRegistryLoaded("wed_1", async () => {
+      calls += 1;
+      return snapshot();
+    });
+    expect(calls).toBe(1);
+  });
+
+  /**
+   * A fetch already in flight when the invalidate runs was issued against
+   * PRE-mutation state. Clearing the signal alone would not stop its `.then`
+   * writing that stale snapshot in afterwards — the generation bump does.
+   */
+  it("does not adopt a fetch that was in flight when the cache was invalidated", async () => {
+    let resolveStale!: (s: RegistrySnapshot) => void;
+    const stale = new Promise<RegistrySnapshot>((r) => {
+      resolveStale = r;
+    });
+    const pending = ensureRegistryLoaded("wed_1", () => stale);
+
+    invalidateRegistry("wed_1");
+    resolveStale(snapshot({ items: [item({ id: "stale" })] }));
+    await pending;
+
+    const fresh = async () => snapshot({ items: [item({ id: "fresh" })] });
+    await ensureRegistryLoaded("wed_1", fresh);
+
+    expect(registryAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["fresh"]);
+  });
+
+  it("peekCachedRegistry reflects fresh data after an invalidate/reload cycle", async () => {
+    await ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "a" })] }));
+    invalidateRegistry("wed_1");
+    await ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "b" })] }));
+    expect(peekCachedRegistry("wed_1")?.items.map((i) => i.id)).toEqual(["b"]);
+  });
+
+  /**
+   * The `.finally` that clears the in-flight slot is reached on a rejection
+   * too — a rejected fetcher never runs the `.then`, so this is the only path
+   * that exercises the guarded clear on a failed load. If the slot were left
+   * populated, every later `ensureRegistryLoaded` would await a dead promise
+   * forever instead of refetching.
+   */
+  it("rejects every waiter on failure, caches nothing, and retries next call", async () => {
+    let calls = 0;
+    const failing = async () => {
+      calls += 1;
+      throw new Error("network down");
+    };
+    const [a, b] = await Promise.allSettled([
+      ensureRegistryLoaded("wed_1", failing),
+      ensureRegistryLoaded("wed_1", failing),
+    ]);
+    expect(a.status).toBe("rejected");
+    expect(b.status).toBe("rejected");
+    expect(calls).toBe(1); // deduped even in failure
+    expect(hasCachedRegistry("wed_1")).toBe(false); // nothing poisoned the cache
+
+    // The in-flight slot was cleared — a later call re-invokes the fetcher.
+    let recoveringCalls = 0;
+    await ensureRegistryLoaded("wed_1", async () => {
+      recoveringCalls += 1;
+      return snapshot();
+    });
+    expect(recoveringCalls).toBe(1);
+    expect(hasCachedRegistry("wed_1")).toBe(true);
   });
 });

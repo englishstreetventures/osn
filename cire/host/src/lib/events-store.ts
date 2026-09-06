@@ -102,7 +102,7 @@ export function patchCachedEvent(
 /** Drop a wedding's cached events so the next read refetches. Call after a
  *  mutation that can change the event list — e.g. an import apply. */
 export function invalidateEvents(weddingId: string): void {
-  cache.delete(weddingId);
+  entryFor(weddingId).setEvents(null);
   // A load already in flight was issued against PRE-mutation state, so its rows
   // are stale the moment this runs. Dropping the entry alone is not enough — the
   // fetch's own `.then` would still write them into a fresh cache entry — so the

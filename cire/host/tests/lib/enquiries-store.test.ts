@@ -4,6 +4,7 @@ import {
   __resetEnquiriesCache,
   enquiriesAccessor,
   ensureEnquiriesLoaded,
+  hasCachedEnquiries,
   peekCachedEnquiries,
   setCachedEnquiries,
   invalidateEnquiries,
@@ -69,5 +70,90 @@ describe("enquiries-store", () => {
       return [];
     });
     expect(calls).toBe(1);
+  });
+
+  /**
+   * The regression test for the actual bug: `entryFor` mints the signal once
+   * and a mounted inbox captures that accessor at mount. Deleting the map
+   * entry on invalidate would leave that accessor pointed at a signal nothing
+   * writes to again — a dead view showing stale rows forever. The fix writes
+   * THROUGH the signal, so an accessor captured before invalidate still
+   * observes the transition.
+   */
+  it("a mounted consumer's captured accessor observes null after invalidate", () => {
+    setCachedEnquiries("wed_1", [item()]);
+    const mounted = enquiriesAccessor("wed_1"); // captured once, as a real mount would
+    expect(mounted()).toHaveLength(1);
+    invalidateEnquiries("wed_1");
+    expect(mounted()).toBeNull();
+  });
+
+  it("hasCachedEnquiries is false after invalidate", () => {
+    setCachedEnquiries("wed_1", [item()]);
+    expect(hasCachedEnquiries("wed_1")).toBe(true);
+    invalidateEnquiries("wed_1");
+    expect(hasCachedEnquiries("wed_1")).toBe(false);
+  });
+
+  /**
+   * A fetch already in flight when the invalidate runs was issued against
+   * PRE-mutation state. Clearing the signal alone would not stop its `.then`
+   * writing those stale rows in afterwards — the generation bump does.
+   */
+  it("does not adopt a fetch that was in flight when the cache was invalidated", async () => {
+    let resolveStale!: (items: EnquiryListItem[]) => void;
+    const stale = new Promise<EnquiryListItem[]>((r) => {
+      resolveStale = r;
+    });
+    const pending = ensureEnquiriesLoaded("wed_1", () => stale);
+
+    invalidateEnquiries("wed_1");
+    resolveStale([item({ id: "stale" })]);
+    await pending;
+
+    const fresh = async () => [item({ id: "fresh" })];
+    await ensureEnquiriesLoaded("wed_1", fresh);
+
+    expect(peekCachedEnquiries("wed_1")?.map((r) => r.id)).toEqual(["fresh"]);
+  });
+
+  it("upsertCachedEnquiry and peekCachedEnquiries still work after an invalidate/reload cycle", async () => {
+    setCachedEnquiries("wed_1", [item({ id: "enq_1" })]);
+    invalidateEnquiries("wed_1");
+    await ensureEnquiriesLoaded("wed_1", async () => [item({ id: "enq_1" })]);
+    upsertCachedEnquiry("wed_1", item({ id: "enq_2" }));
+    expect(peekCachedEnquiries("wed_1")?.map((r) => r.id)).toContain("enq_2");
+  });
+
+  /**
+   * The `.finally` that clears the in-flight slot is reached on a rejection
+   * too — a rejected fetcher never runs the `.then`, so this is the only path
+   * that exercises the guarded clear on a failed load. If the slot were left
+   * populated, every later `ensureEnquiriesLoaded` would await a dead promise
+   * forever instead of refetching.
+   */
+  it("rejects every waiter on failure, caches nothing, and retries next call", async () => {
+    let calls = 0;
+    const failing = async () => {
+      calls++;
+      throw new Error("network down");
+    };
+    const [a, b] = await Promise.allSettled([
+      ensureEnquiriesLoaded("wed_1", failing),
+      ensureEnquiriesLoaded("wed_1", failing),
+    ]);
+    expect(a.status).toBe("rejected");
+    expect(b.status).toBe("rejected");
+    expect(calls).toBe(1); // deduped even in failure
+    expect(hasCachedEnquiries("wed_1")).toBe(false); // nothing poisoned the cache
+
+    // The in-flight slot was cleared — a later call re-invokes the fetcher.
+    let recoveringCalls = 0;
+    await ensureEnquiriesLoaded("wed_1", async () => {
+      recoveringCalls++;
+      return [item()];
+    });
+    expect(recoveringCalls).toBe(1);
+    expect(hasCachedEnquiries("wed_1")).toBe(true);
   });
 });

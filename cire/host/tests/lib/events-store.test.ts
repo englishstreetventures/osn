@@ -87,4 +87,20 @@ describe("ensureEventsLoaded", () => {
     expect(fresh).toHaveBeenCalledTimes(1);
     expect(eventsAccessor("wed_1")()?.map((r) => r.id)).toEqual(["fresh"]);
   });
+
+  /**
+   * The regression test for the actual bug: `entryFor` mints the signal once
+   * and a mounted `EventTable` captures that accessor at mount. Deleting the
+   * map entry on invalidate would leave that accessor pointed at a signal
+   * nothing writes to again — a dead view showing stale rows forever. The fix
+   * writes THROUGH the signal, so an accessor captured before invalidate
+   * still observes the transition.
+   */
+  it("a mounted consumer's captured accessor observes null after invalidate", async () => {
+    await ensureEventsLoaded("wed_1", async () => [ROW]);
+    const mounted = eventsAccessor("wed_1"); // captured once, as a real mount would
+    expect(mounted()).toEqual([ROW]);
+    invalidateEvents("wed_1");
+    expect(mounted()).toBeNull();
+  });
 });

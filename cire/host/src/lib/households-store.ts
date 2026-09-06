@@ -56,7 +56,7 @@ export function hasCachedHouseholds(weddingId: string): boolean {
 /** Drop a wedding's cached households so the next read refetches. Call after a
  *  mutation that can change the roster — e.g. a change apply. */
 export function invalidateHouseholds(weddingId: string): void {
-  cache.delete(weddingId);
+  entryFor(weddingId).setHouseholds(null);
   // A load already in flight was issued against PRE-mutation state, so its rows
   // are stale the moment this runs. Dropping the entry alone is not enough — the
   // fetch's own `.then` would still write them into a fresh cache entry — so the

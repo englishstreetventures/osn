@@ -79,7 +79,7 @@ export function peekCachedGuests(weddingId: string): OrganiserGuestRow[] | null 
 /** Drop a wedding's cached guest list so the next read refetches. Call after a
  *  mutation that can change the roster — e.g. an import apply. */
 export function invalidateGuests(weddingId: string): void {
-  cache.delete(weddingId);
+  entryFor(weddingId).setGuests(null);
   // A load already in flight was issued against PRE-mutation state, so its rows
   // are stale the moment this runs. Dropping the entry alone is not enough — the
   // fetch's own `.then` would still write them into a fresh cache entry — so the

@@ -135,15 +135,27 @@ export function peekCachedRegistry(weddingId: string): RegistrySnapshot | null {
  *
  * Deleting the map entry would mint a fresh signal on the next `entryFor`, and
  * every view that captured the old accessor at mount would then read a signal
- * nothing writes to again — a dead view with stale content. The sibling stores
- * (`vendors-store`, `budget-store`, `events-store`, `enquiries-store`) still
- * delete; this is the repo-wide `P-W2` in `[[cire/wiki/todo/perf]]`, fixed here
- * because `RegistryView` is the first consumer to invalidate on several write
- * paths rather than only on unmount.
+ * nothing writes to again — a dead view with stale content. This was the
+ * repo-wide `P-W2` in `[[cire/wiki/todo/perf]]`; every sibling cache
+ * (`vendors-store`, `budget-store`, `tasks-store`, `enquiries-store`,
+ * `events-store`, `guests-store`, `households-store`) now notifies the same
+ * way.
+ *
+ * A load already in flight was issued against PRE-invalidation state, so its
+ * snapshot is stale the moment this runs. Clearing the signal alone is not
+ * enough — the fetch's own `.then` would still write it in AFTER this call —
+ * so the wedding's GENERATION is bumped too, and a resolving fetch from an
+ * older generation discards its result instead of caching it.
  */
 export function invalidateRegistry(weddingId: string): void {
   entryFor(weddingId).setSnapshot(null);
+  inflight.delete(weddingId);
+  generation.set(weddingId, generationOf(weddingId) + 1);
 }
+
+/** Monotonic per-wedding load generation, bumped by every invalidation. */
+const generation = new Map<string, number>();
+const generationOf = (weddingId: string) => generation.get(weddingId) ?? 0;
 
 /** How many of an item's wanted quantity are still unspoken for. Never negative
  *  — a race can land one claim past the wanted count, and a negative "still
@@ -161,12 +173,21 @@ export function ensureRegistryLoaded(
   if (hasCachedRegistry(weddingId)) return Promise.resolve();
   let pending = inflight.get(weddingId);
   if (!pending) {
-    pending = fetcher()
+    const startedAt = generationOf(weddingId);
+    const load = fetcher()
       .then((snap) => {
+        // A newer invalidation landed while this was in flight — its snapshot
+        // describes state that has since been mutated, so drop it rather than
+        // cache it.
+        if (generationOf(weddingId) !== startedAt) return;
         setCachedRegistry(weddingId, snap);
-        return undefined;
       })
-      .finally(() => inflight.delete(weddingId));
+      .finally(() => {
+        // Only clear the slot if it is still OURS: an invalidation may already
+        // have replaced it with a newer load.
+        if (inflight.get(weddingId) === load) inflight.delete(weddingId);
+      });
+    pending = load;
     inflight.set(weddingId, pending);
   }
   return pending;
@@ -176,4 +197,5 @@ export function ensureRegistryLoaded(
 export function __resetRegistryCache(): void {
   cache.clear();
   inflight.clear();
+  generation.clear();
 }

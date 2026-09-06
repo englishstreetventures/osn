@@ -6,7 +6,10 @@ import {
   type BudgetSnapshot,
   budgetAccessor,
   ensureBudgetLoaded,
+  hasCachedBudget,
+  invalidateBudget,
   type PaymentRow,
+  peekCachedBudget,
   spentSoFar,
   upcomingPayments,
 } from "../../src/lib/budget-store";
@@ -84,5 +87,136 @@ describe("budget-store", () => {
       }),
     );
     expect(upcomingPayments("wed_1").map((p) => p.id)).toEqual(["p2", "p1"]);
+  });
+
+  /**
+   * The regression test for the actual bug: `entryFor` mints the signal once
+   * and a mounted Budget view captures that accessor at mount. Deleting the
+   * map entry on invalidate would leave that accessor pointed at a signal
+   * nothing writes to again — a dead view showing stale figures forever. The
+   * fix writes THROUGH the signal, so an accessor captured before invalidate
+   * still observes the transition.
+   */
+  it("a mounted consumer's captured accessor observes null after invalidate", async () => {
+    await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({})] }));
+    const mounted = budgetAccessor("wed_1"); // captured once, as a real mount would
+    expect(mounted()).not.toBeNull();
+    invalidateBudget("wed_1");
+    expect(mounted()).toBeNull();
+  });
+
+  it("hasCachedBudget is false after invalidate, so the next load refetches", async () => {
+    await ensureBudgetLoaded("wed_1", async () => snap({}));
+    expect(hasCachedBudget("wed_1")).toBe(true);
+    invalidateBudget("wed_1");
+    expect(hasCachedBudget("wed_1")).toBe(false);
+    let calls = 0;
+    await ensureBudgetLoaded("wed_1", async () => {
+      calls += 1;
+      return snap({});
+    });
+    expect(calls).toBe(1);
+  });
+
+  /**
+   * A fetch already in flight when the invalidate runs was issued against
+   * PRE-mutation state. Clearing the signal alone would not stop its `.then`
+   * writing that stale snapshot in afterwards — the generation bump does.
+   */
+  it("does not adopt a fetch that was in flight when the cache was invalidated", async () => {
+    let resolveStale!: (s: BudgetSnapshot) => void;
+    const stale = new Promise<BudgetSnapshot>((r) => {
+      resolveStale = r;
+    });
+    const pending = ensureBudgetLoaded("wed_1", () => stale);
+
+    invalidateBudget("wed_1");
+    resolveStale(snap({ items: [item({ id: "stale" })] }));
+    await pending;
+
+    const fresh = async () => snap({ items: [item({ id: "fresh" })] });
+    await ensureBudgetLoaded("wed_1", fresh);
+
+    expect(budgetAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["fresh"]);
+  });
+
+  it("peekCachedBudget reflects fresh data after an invalidate/reload cycle", async () => {
+    await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "a" })] }));
+    invalidateBudget("wed_1");
+    await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "b" })] }));
+    expect(peekCachedBudget("wed_1")?.items.map((i) => i.id)).toEqual(["b"]);
+  });
+
+  /**
+   * The `.finally` that clears the in-flight slot is reached on a rejection
+   * too — a rejected fetcher never runs the `.then`, so this is the only path
+   * that exercises the guarded clear on a failed load. If the slot were left
+   * populated, every later `ensureBudgetLoaded` would await a dead promise
+   * forever instead of refetching.
+   */
+  it("rejects every waiter on failure, caches nothing, and retries next call", async () => {
+    let calls = 0;
+    const failing = async () => {
+      calls += 1;
+      throw new Error("network down");
+    };
+    const [a, b] = await Promise.allSettled([
+      ensureBudgetLoaded("wed_1", failing),
+      ensureBudgetLoaded("wed_1", failing),
+    ]);
+    expect(a.status).toBe("rejected");
+    expect(b.status).toBe("rejected");
+    expect(calls).toBe(1); // deduped even in failure
+    expect(hasCachedBudget("wed_1")).toBe(false); // nothing poisoned the cache
+
+    // The in-flight slot was cleared — a later call re-invokes the fetcher.
+    let recoveringCalls = 0;
+    await ensureBudgetLoaded("wed_1", async () => {
+      recoveringCalls += 1;
+      return snap({ items: [item({})] });
+    });
+    expect(recoveringCalls).toBe(1);
+    expect(hasCachedBudget("wed_1")).toBe(true);
+  });
+
+  /**
+   * The ownership guard in `.finally` (`inflight.get(weddingId) === load`)
+   * only matters when a second load has already taken the slot by the time
+   * the first one settles: load A in flight, an invalidate, then load B takes
+   * the slot before A resolves. Unguarded, A's `.finally` would delete B's
+   * slot out from under it, and a caller arriving during B's flight would
+   * fire a redundant third fetch instead of joining B.
+   */
+  it("a settling stale load does not clear a newer load's in-flight slot", async () => {
+    let resolveA!: (s: BudgetSnapshot) => void;
+    const aPromise = new Promise<BudgetSnapshot>((r) => {
+      resolveA = r;
+    });
+    const loadA = ensureBudgetLoaded("wed_1", () => aPromise);
+
+    invalidateBudget("wed_1");
+
+    let resolveB!: (s: BudgetSnapshot) => void;
+    const bPromise = new Promise<BudgetSnapshot>((r) => {
+      resolveB = r;
+    });
+    const loadB = ensureBudgetLoaded("wed_1", () => bPromise);
+
+    resolveA(snap({ items: [item({ id: "stale" })] }));
+    await loadA;
+
+    // B is still in flight. If A's `.finally` deleted B's slot, this third
+    // caller would find no in-flight promise and fire its own fetch.
+    let thirdCalls = 0;
+    const thirdCaller = ensureBudgetLoaded("wed_1", async () => {
+      thirdCalls += 1;
+      return snap({ items: [item({ id: "third" })] });
+    });
+    expect(thirdCalls).toBe(0);
+
+    resolveB(snap({ items: [item({ id: "fresh-b" })] }));
+    await Promise.all([loadB, thirdCaller]);
+
+    expect(budgetAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["fresh-b"]);
   });
 });
