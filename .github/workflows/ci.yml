@@ -252,12 +252,35 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-playwright-
 
+      # Both installs run from `cire/host`, and the working directory is the
+      # whole point. `playwright` is a devDependency of `cire/host` and
+      # `cire/invites`, not of the root, so `bunx playwright` at the repo root
+      # finds nothing local and fetches the latest release from npm — which
+      # then installs the browser revision *that* version wants, not ours.
+      #
+      # That was harmless right up until it wasn't. The workspace pins
+      # playwright 1.62.1, and 1.62.1 was npm's latest from 2026-07-30 until
+      # 1.63.0 shipped on 2026-09-04 — so for five weeks the wrong lookup
+      # returned the right answer. From 1.63.0 on it installs chromium 1243
+      # while the tests look for chromium_headless_shell 1234, and
+      # `test:browser` fails with "Executable doesn't exist" on a run whose
+      # install step just reported success and downloaded 186.8 MiB.
+      #
+      # Existing branches did not fail, which is the misleading part: GitHub
+      # Actions scopes a cache to the branch that wrote it plus the default
+      # branch, so every branch with a Chromium cache from before 2026-09-04
+      # still restores revision 1234 and passes. Only a branch with no cache
+      # of its own falls through to a fresh install and sees this. Those
+      # caches expire, so without this fix the failure arrives on every
+      # branch in turn, main included.
       - name: Install Chromium's system libraries
         timeout-minutes: 10
+        working-directory: cire/host
         run: bunx playwright install-deps chromium
 
       - name: Install Chromium for browser tests
         timeout-minutes: 10
+        working-directory: cire/host
         run: bunx playwright install chromium
 
       - name: Browser tests
