@@ -88,7 +88,14 @@ multi-wedding; it went when organisers could own several.)
 Platform conventions are in [[testing-patterns]]; the real-Chromium tier is in
 [[browser-tests]]. Cire specifics:
 
-- Test files sit beside their source as `*.test.ts`.
+- Test files live in `tests/` at the package root, mirroring `src/` — never
+  beside their source. `cire/api/src/services/import.ts` pairs with
+  `cire/api/tests/services/import.test.ts`, and test-only support code sits
+  there too (`cire/api/tests/test-helpers/`, `cire/host/tests/test-support/`).
+  The Miniflare-backed D1 tier is cire's alone: `cire/api/tests/db/`, run on its
+  own with `bun run --cwd cire/api test:d1`. Unlike the vitest packages, which
+  exclude that tier by path, `@cire/api` runs on `bun test` and so picks it up in
+  the package's ordinary `test` script as well — expect workerd to boot there.
 - **Integration tests run against a local D1 via `wrangler dev` — do not mock the
   database.**
 - **`*.browser.test.tsx` runs in real Chromium**, not jsdom, for anything needing
