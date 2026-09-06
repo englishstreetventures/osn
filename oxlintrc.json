@@ -149,8 +149,39 @@
     // `toString` and `__proto__` satisfy the guard and the predicate then
     // claims an inherited Object.prototype member is a real entry.
     "house/no-in-operator-key-guard": "error"
+
+    // house/no-non-subscribing-store-read is scoped to cire/**/*-store.ts in
+    // the "overrides" block below, not turned on here — the pattern it flags
+    // (`cache.get(id)?.accessor()`) is a cire-specific organiser-cache
+    // convention, not a general one, so the rule stays confined to that tree
+    // rather than matching a bare `cache` identifier anywhere in the repo.
   },
   "overrides": [
+    {
+      // The `weddingId`-keyed organiser caches under cire/ — the eight in
+      // cire/host/src/lib plus enquiries-store.ts and vendor-store.ts in
+      // cire/vendor/src/lib. Each exposes a subscribing read
+      // (`entryFor(id).accessor()`, which mints the cache entry) and a
+      // deliberately non-subscribing one confined to its
+      // `peekCachedXxx`/`hasCachedXxx` functions (`cache.get(id)?.accessor()`,
+      // which does not). Outside those two shapes the non-minting form is a
+      // reactivity bug: see tools/oxlint/house/rules/no-non-subscribing-store-read.ts.
+      //
+      // Scoped to cire/ rather than left unscoped: the review that widened
+      // this glob from the too-narrow `cire/host/src/lib/*-store.ts` (which
+      // missed nested paths, and never matched at all when oxlint was handed
+      // an absolute path) measured the rule enabled repo-wide across all
+      // 1529 files and got zero diagnostics — the false-positive fear behind
+      // the original narrow scope didn't hold up. `cire/**/*-store.ts` is
+      // chosen over a fully unscoped `**/*-store.ts` anyway, to hold the
+      // blast radius to the one product whose organiser-cache convention
+      // this rule actually encodes; a `*-store.ts` in another product is
+      // free to mean something else entirely.
+      "files": ["cire/**/*-store.ts"],
+      "rules": {
+        "house/no-non-subscribing-store-read": "error"
+      }
+    },
     {
       // Tests: sequential awaits in loops are usually the point
       // (rate-limit windows, ordered seeding).
