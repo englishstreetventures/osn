@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "portless",
     "dev:app": "dev-env astro dev",
-    "build": "astro build",
+    "build": "astro build && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview --port 4325",
     "check": "bunx --bun astro check",
     "test": "vitest run",

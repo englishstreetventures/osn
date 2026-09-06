@@ -81,6 +81,7 @@ One label is orthogonal to all of that: **`needs:decision`**, on both repos. It 
 | Write or review tests | `[[wiki/conventions/testing-patterns]]` |
 | Run the devloop (named HTTPS hosts per app, a stack per worktree, adding an app to it) | `[[wiki/conventions/devloop-urls]]` |
 | Split one goal across several PRs (stacked PRs — setting the base with the gh CLI, merge order, rebasing a stack) | `[[wiki/conventions/stacked-prs]]` |
+| Add or re-baseline an Astro app's bundle-size guard, or check the src/pages test-route check | `[[wiki/conventions/bundle-size-guards]]` |
 | Add or use UI component (Button, Card, Dialog…) | `[[wiki/architecture/component-library]]` |
 | Raise a toast, theme one for an app, or debug a toast's stacking/contrast | `[[wiki/systems/toast]]` |
 | Add drag-to-reorder to a list (and get the keyboard + screen-reader path for free) | `[[wiki/architecture/drag-and-drop]]` |

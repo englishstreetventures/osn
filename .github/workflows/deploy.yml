@@ -401,12 +401,12 @@ jobs:
       # from two separate mistakes — the whole `motion` library in the SSR
       # module graph with nothing there calling it, and three drift-guard tests
       # routed as pages, dragging 119 KB gzip of vitest with them. The guard
-      # script holds the threshold and the full reasoning; it runs here and on
+      # script holds the threshold and the full reasoning (tracker #619
+      # generalised it to scripts/guard-bundle-size.sh); it runs here and on
       # every PR (`ci.yml`), so a regression is caught on the merge gate rather
       # than after it lands on main.
       - name: Guard cire/invites SSR bundle size
-        run: ./scripts/guard-ssr-size.sh
-        working-directory: cire/invites
+        run: ./scripts/guard-bundle-size.sh cire/invites
 
       # Two edits to the adapter's generated config, in one pass:
       #
@@ -504,12 +504,12 @@ jobs:
       # from two separate mistakes — the whole `motion` library in the SSR
       # module graph with nothing there calling it, and three drift-guard tests
       # routed as pages, dragging 119 KB gzip of vitest with them. The guard
-      # script holds the threshold and the full reasoning; it runs here and on
+      # script holds the threshold and the full reasoning (tracker #619
+      # generalised it to scripts/guard-bundle-size.sh); it runs here and on
       # every PR (`ci.yml`), so a regression is caught on the merge gate rather
       # than after it lands on main.
       - name: Guard cire/invites SSR bundle size
-        run: ./scripts/guard-ssr-size.sh
-        working-directory: cire/invites
+        run: ./scripts/guard-bundle-size.sh cire/invites
 
       # `@astrojs/cloudflare` writes a top-level `"legacy_env": true` into the
       # generated `dist/server/wrangler.json`. Wrangler 4.111+ REMOVED support for
@@ -606,6 +606,14 @@ jobs:
           PUBLIC_OSN_ACCOUNT_URL: https://dev.musubi.social
           PUBLIC_CIRE_WEB_URL: https://invite.dev.cireweddings.com
 
+      # Tracker #619 (see scripts/guard-bundle-size.sh's own comment and
+      # wiki/conventions/bundle-size-guards.md). Chained onto the `build`
+      # script too, but this step is what still checks the artifact when
+      # Turborepo replays a cached `build` and the chained invocation never
+      # runs.
+      - name: Guard cire/host bundle size
+        run: ./scripts/guard-bundle-size.sh cire/host
+
       # Idempotent: creates the project on first run, no-ops after. The custom
       # domain (host.dev.cireweddings.com) is a dashboard step — wrangler cannot
       # attach one.
@@ -685,6 +693,10 @@ jobs:
           # "preview / view live invite" link) now lives on `invite.`.
           PUBLIC_CIRE_WEB_URL: https://invite.cireweddings.com
 
+      # See the dev job above for why this runs even though `build` chains it.
+      - name: Guard cire/host bundle size
+        run: ./scripts/guard-bundle-size.sh cire/host
+
       - name: Deploy cire/host to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire-host
         working-directory: cire/host
@@ -748,6 +760,14 @@ jobs:
         env:
           PUBLIC_CIRE_API_URL: https://api.dev.cireweddings.com
           PUBLIC_OSN_ACCOUNT_URL: https://dev.musubi.social
+
+      # Tracker #619 (see scripts/guard-bundle-size.sh's own comment and
+      # wiki/conventions/bundle-size-guards.md). Chained onto the `build`
+      # script too, but this step is what still checks the artifact when
+      # Turborepo replays a cached `build` and the chained invocation never
+      # runs.
+      - name: Guard cire/vendor bundle size
+        run: ./scripts/guard-bundle-size.sh cire/vendor
 
       - name: Ensure the cire-vendor-dev Pages project exists
         run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" cire-vendor-dev main
@@ -818,6 +838,10 @@ jobs:
           # Account management deep link (see the organiser build above).
           PUBLIC_OSN_ACCOUNT_URL: https://musubi.social
 
+      # See the dev job above for why this runs even though `build` chains it.
+      - name: Guard cire/vendor bundle size
+        run: ./scripts/guard-bundle-size.sh cire/vendor
+
       - name: Deploy cire/vendor to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire-vendor
         working-directory: cire/vendor
@@ -883,6 +907,14 @@ jobs:
         env:
           PUBLIC_ORGANISER_URL: https://host.dev.cireweddings.com
           SITE: https://dev.cireweddings.com
+
+      # Tracker #619 (see scripts/guard-bundle-size.sh's own comment and
+      # wiki/conventions/bundle-size-guards.md). Chained onto the `build`
+      # script too, but this step is what still checks the artifact when
+      # Turborepo replays a cached `build` and the chained invocation never
+      # runs.
+      - name: Guard cire/landing bundle size
+        run: ./scripts/guard-bundle-size.sh cire/landing
 
       - name: Ensure the cire-landing-dev Pages project exists
         run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" cire-landing-dev main
@@ -958,6 +990,10 @@ jobs:
         env:
           PUBLIC_ORGANISER_URL: https://host.cireweddings.com
           SITE: https://cireweddings.com
+
+      # See the dev job above for why this runs even though `build` chains it.
+      - name: Guard cire/landing bundle size
+        run: ./scripts/guard-bundle-size.sh cire/landing
 
       - name: Deploy cire/landing to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name cire-landing

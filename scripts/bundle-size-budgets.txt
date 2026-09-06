@@ -1,0 +1,33 @@
+# Bundle-size budgets for scripts/guard-bundle-size.sh.
+#
+# This file is the single source of truth for every Astro app's threshold.
+# Nothing else may hardcode one — not a package.json build script, not a
+# workflow step, not the wiki. scripts/guard-bundle-size.sh <package-dir> looks
+# its record up here; scripts/guard-bundle-size.sh --all walks every record.
+#
+# One record per line: <package-dir> <worker|static> <threshold>
+#   <package-dir> is the repo-relative path used everywhere else this app is
+#     named (e.g. "cire/host") — also what a caller running from inside the
+#     package (build scripts pass ".") gets resolved to before the lookup.
+#   <worker|static> — see guard-bundle-size.sh's own comment for what each
+#     mode measures and why they differ.
+#   <threshold> — gzip byte ceiling. Comment after the line's own trailing
+#     `#` records the measured reading it was set from, so the headroom
+#     arithmetic stays checkable without a rebuild.
+#
+# Re-baselining after an intentional bundle change: build (clean, alone),
+# read the printed total, and edit ONLY this line — package.json, ci.yml and
+# deploy.yml all read through this file, so there is nowhere else to update.
+# Set the new threshold to the new measured total plus headroom smaller than
+# a motion-class dependency (~21.3 KB gzip minified — see
+# guard-bundle-size.sh's comment for the full reasoning); ~11.7 KB is the
+# figure every row below uses and is a reasonable default to keep using.
+#
+# Blank lines and lines starting with # are ignored.
+
+cire/invites   worker  175000   # measured 163332
+cire/host      static  224515   # measured 212832
+cire/vendor    static  81644    # measured 69961
+cire/landing   static  189324   # measured 177641
+osn/landing    static  26865    # measured 15182
+pulse/landing  static  28366    # measured 16683

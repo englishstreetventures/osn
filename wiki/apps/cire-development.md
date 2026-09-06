@@ -18,6 +18,7 @@ related:
   - "[[browser-tests]]"
   - "[[d1-read-replication]]"
   - "[[commands]]"
+  - "[[bundle-size-guards]]"
 last-reviewed: 2026-09-06
 ---
 
@@ -153,21 +154,29 @@ cd cire/invites && bunx wrangler deploy --config dist/server/wrangler.json
 
 ## Guest-site SSR bundle size
 
-`cire/invites/scripts/guard-ssr-size.sh` measures the gzip size of every
-deployable file under `cire/invites/dist/server` (excluding the adapter's
-generated `wrangler.json` and, since tracker #616's source-map follow-up,
-`.map` files — `no_bundle: true` ships each chunk as its own module, so the
-sum of each file's own gzip size is what actually crosses the wire). It also
-fails if any `.map` file turns up under `dist/client`, which is served publicly
-as Static Assets — see the source-map warning below.
+Tracker #619 generalised this guard out of cire/invites: it is now
+`scripts/guard-bundle-size.sh` (repo root, `worker` mode for this app), shared
+with a `static`-mode measurement for the five non-SSR Astro apps. The
+cross-app mechanism — where it runs, why it runs twice, every app's current
+threshold — lives in [[bundle-size-guards]]. What stays here is what is
+genuinely cire/invites-only: WHY its bundle is shaped the way it is.
 
-It runs from the package's own `build` script, so it fires wherever the build
+In `worker` mode the script measures the gzip size of every deployable file
+under `cire/invites/dist/server` (excluding the adapter's generated
+`wrangler.json` and, since tracker #616's source-map follow-up, `.map` files —
+`no_bundle: true` ships each chunk as its own module, so the sum of each
+file's own gzip size is what actually crosses the wire). It also fails if any
+`.map` file turns up under `dist/client`, which is served publicly as Static
+Assets — see the source-map warning below.
+
+`cire/invites/package.json`'s `build` script chains it on
+(`… && ../../scripts/guard-bundle-size.sh .`), so it fires wherever the build
 actually executes: the by-hand deploy above, and any local build. `ci.yml` and
-both `deploy.yml` jobs also invoke it as their own step, which is what covers the
-case where Turborepo replays a cached `build` and the script never runs. To
-re-baseline after an intentional bundle change, build, read the printed total,
-and set `threshold` to that total plus **about 11.7 KB** of ordinary-growth
-headroom.
+both `deploy.yml` jobs also invoke it as their own step ([[bundle-size-guards]]
+has the reason — a Turborepo cache replay of `build` never runs the chained
+script). The mode and threshold are no longer arguments anywhere — every
+caller looks its app up by name in `scripts/bundle-size-budgets.txt`, the one
+place a re-baseline touches. See that file's own comment for the exact steps.
 
 The headroom is deliberately smaller than the mistake the guard exists to
 catch, and that is the part worth getting right. `motion` costs **21261 bytes
@@ -224,7 +233,7 @@ Three tracker follow-ups (#618, #616, #617) to the original size audit
   > config) and Cloudflare serves everything in it verbatim, so those maps
   > publish the guest site's unminified source at `/_astro/<chunk>.js.map` to
   > anyone who asks. The plain form was written that way first and caught in
-  > review; `guard-ssr-size.sh` now fails the build if any `.map` file appears
+  > review; `guard-bundle-size.sh` now fails the build if any `.map` file appears
   > under `dist/client`.
 - **`zod` stays (#617).** Traced to Astro's own actions request handler
   (`actions/handler.js` → `actions/runtime/server.js`, top-level

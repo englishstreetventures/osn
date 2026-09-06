@@ -7,7 +7,7 @@ related:
   - "[[deferred-decisions]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-08-31
+last-reviewed: 2026-09-06
 ---
 
 # OSN Wiki
@@ -102,6 +102,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[contributing]] — PR workflow, changesets, branching
 - [[stacked-prs]] — basing one PR on another with the gh CLI, and merging the stack
 - [[component-lab]] — the in-repo Storybook replacement: prototyping components, three.js and canvas
+- [[bundle-size-guards]] — per-app Astro bundle-size guard + the src/pages test-route check, across all six apps
 
 ## Compliance
 
