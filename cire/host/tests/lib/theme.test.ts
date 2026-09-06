@@ -262,6 +262,7 @@ describe("THEME_BOOT_SCRIPT", () => {
 
   it("falls through to the media query when nothing is stored", () => {
     stubMatchMedia(true);
+    // eslint-disable-next-line no-eval
     (0, eval)(THEME_BOOT_SCRIPT);
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
   });
@@ -272,6 +273,7 @@ describe("THEME_BOOT_SCRIPT", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("SecurityError");
     });
+    // eslint-disable-next-line no-eval
     (0, eval)(THEME_BOOT_SCRIPT);
     expect(document.documentElement.getAttribute("data-theme")).toBe(DEFAULT_THEME);
   });

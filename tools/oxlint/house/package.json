@@ -8,9 +8,9 @@
     "test": "bun test"
   },
   "devDependencies": {
-    "@oxlint/plugins": "1.78.0",
+    "@oxlint/plugins": "1.80.0",
     "@shared/typescript-config": "workspace:*",
-    "oxlint": "1.78.0",
+    "oxlint": "1.80.0",
     "typescript": "^6.0.3"
   }
 }

@@ -160,7 +160,7 @@ const MAX_CELL_LENGTH = 10_000;
  * Strip a leading UTF-8 byte-order mark.
  *
  * Excel, Numbers and Google Sheets all write CSVs with a `U+FEFF` BOM. Left in,
- * it becomes part of the FIRST header cell — `"﻿Event Name"` — which then
+ * it becomes part of the FIRST header cell — `"\uFEFFEvent Name"` — which then
  * matches nothing, and the organiser gets "Missing required column: Event Name"
  * while staring at a sheet whose first column is plainly headed `Event Name`.
  * The character is invisible in every editor they'd check with, so the error is
