@@ -1,5 +1,15 @@
 # @zap/api
 
+## 0.8.36
+
+### Patch Changes
+
+- Updated dependencies [613c916]
+  - @shared/db-utils@0.6.6
+  - @zap/db@0.5.14
+  - @shared/crypto@0.10.17
+  - @shared/osn-auth-client@0.4.18
+
 ## 0.8.35
 
 ### Patch Changes
