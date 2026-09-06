@@ -63,6 +63,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[event-access]] — loadVisibleEvent, public/private visibility gate
 - [[venues]] — org-scoped venues, event lineups, venue detail page + Explore map layer
 - [[d1-limits]] — D1's 100 bound parameters and 5 compound-select terms, and why `bun:sqlite` never sees either
+- [[d1-read-replication]] — the Sessions API, why every request opens one `first-primary` session, and how to turn replicas on
 - [[platform-limits]] — MAX_EVENT_GUESTS and other caps
 - [[redis]] — Redis-backed rate limiters + cluster-safe auth state stores
 - [[toast]] — `@shared/toast`, the `--toast-*` theming contract, and contrast on the surface a toast actually sits on

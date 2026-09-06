@@ -14,6 +14,7 @@ import { asc, eq } from "drizzle-orm";
 import { Effect } from "effect";
 import { Miniflare } from "miniflare";
 
+import { createSessionRoutedClient, runInD1Session } from "../../src/db/d1-session";
 import { createD1Db, DbService } from "../../src/db/index";
 import type { Db } from "../../src/db/index";
 import { DDL } from "../../src/db/setup";
@@ -40,6 +41,7 @@ const GUEST_1 = "g1";
 const GUEST_2 = "g2";
 
 let mf: Miniflare;
+let d1: D1Database;
 let db: Db;
 
 // Booting workerd (which backs Miniflare's D1) is a cold-start the first time a
@@ -141,7 +143,7 @@ beforeAll(async () => {
     script: "export default { fetch() { return new Response('ok'); } };",
     d1Databases: { DB: ":memory:" },
   });
-  const d1 = (await mf.getD1Database("DB")) as unknown as D1Database;
+  d1 = (await mf.getD1Database("DB")) as unknown as D1Database;
   // Apply the schema statement-by-statement — D1's `exec` splits on newlines,
   // which breaks multi-line CREATE TABLEs, so prepare/run each full statement.
   for (const stmt of DDL.split(";")
@@ -149,7 +151,12 @@ beforeAll(async () => {
     .filter(Boolean)) {
     await d1.prepare(stmt).run();
   }
-  db = createD1Db(d1);
+  // Over the session-routing shim, exactly as `index.ts` builds it, so every
+  // service test in this file exercises the production client path rather than
+  // a raw binding the deployed Worker never uses. With no session in scope the
+  // shim delegates straight to `d1`, which is the point: the shim has to be
+  // transparent to all of this.
+  db = createD1Db(createSessionRoutedClient(d1));
 }, MF_TIMEOUT_MS);
 
 afterAll(async () => {
@@ -175,6 +182,20 @@ describe("cire/api over real D1 (Miniflare)", () => {
       const res = await run(claimService.lookup(PUBLIC_ID));
       expect(res.familyId).toBe(FAMILY_ID);
       expect(res.publicId).toBe(PUBLIC_ID);
+      expect(res.members).toHaveLength(2);
+      expect(res.events.map((e) => e.name).toSorted()).toEqual(["Ceremony", "Reception"]);
+    },
+    MF_TIMEOUT_MS,
+  );
+
+  it(
+    "claim.lookup gives the same answer inside a D1 session",
+    async () => {
+      // The deployed shape: the whole dispatch runs inside one session, so a
+      // multi-read service call has its reads routed to the session rather than
+      // the binding. Nothing about the result may change.
+      const res = await runInD1Session(d1, () => run(claimService.lookup(PUBLIC_ID)));
+      expect(res.familyId).toBe(FAMILY_ID);
       expect(res.members).toHaveLength(2);
       expect(res.events.map((e) => e.name).toSorted()).toEqual(["Ceremony", "Reception"]);
     },

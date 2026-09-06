@@ -4,6 +4,8 @@ import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 import { Context, Effect } from "effect";
 
+import type { D1QueryClient } from "./d1-session";
+
 /**
  * The Drizzle handle threaded through every service.
  *
@@ -22,12 +24,19 @@ export type Db = BaseSQLiteDatabase<"sync" | "async", unknown, typeof schema>;
 export class DbService extends Context.Tag("DbService")<DbService, Db>() {}
 
 /**
- * Construct a Drizzle client over a Cloudflare D1 binding. Called per request in
- * the Workers entry point (`index.ts`) — Workers have no long-lived process, so
- * the binding only exists on `env` inside `fetch`.
+ * Construct a Drizzle client over a Cloudflare D1 binding, or over anything that
+ * answers the two methods the D1 driver calls (see {@link D1QueryClient}) — in
+ * production that is the session-routing shim from `db/d1-session.ts`, so every
+ * query a request makes rides one D1 session and read replicas can serve it.
+ *
+ * Built once per isolate in the Workers entry point (`index.ts`), because the
+ * whole Elysia app graph is built with this handle baked in.
  */
-export function createD1Db(d1: D1Database): Db {
-  return drizzleD1(d1, { schema });
+export function createD1Db(client: D1QueryClient): Db {
+  // The driver only ever reaches for `prepare` and `batch`, which is exactly
+  // what `D1QueryClient` guarantees; the cast just satisfies the wider binding
+  // type Drizzle's signature asks for, and is confined to this one call.
+  return drizzleD1(client as D1Database, { schema });
 }
 
 /**

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
 import { Miniflare } from "miniflare";
 
+import { D1_SESSION_CONSTRAINT } from "../src/db/d1-session";
 import { DDL } from "../src/db/setup";
 import handler from "../src/index";
 import { jsonBody } from "./test-helpers";
@@ -223,5 +224,174 @@ describe("CLAIM_RATE_LIMITER fail-closed guard", () => {
     // Binding present ⇒ no guard 503; app boots and the route answers 401.
     expect(res.status).not.toBe(503);
     expect(res.status).toBe(401);
+  });
+});
+
+// D1 Sessions API wiring, asserted at the edge rather than in isolation. The
+// unit tests in `db/d1-session.test.ts` prove the shim routes to whatever
+// session is on the async context; these prove the Worker actually PUTS one
+// there, on both entry points, and that no query escapes to the raw binding.
+// That is the failure that would be invisible otherwise: everything keeps
+// working, replication is simply never used.
+describe("D1 session routing at the entry points", () => {
+  /**
+   * A D1 binding that records what it was asked for, delegating to the real
+   * Miniflare database so the request under test still gets real answers.
+   * Every probe is a fresh object, which also forces `index.ts` to rebuild its
+   * isolate-cached app (the cache is keyed on binding identity).
+   */
+  function probeD1() {
+    const constraints: string[] = [];
+    const sessionQueries: string[][] = [];
+    const bindingQueries: string[] = [];
+
+    const binding = {
+      // Reaching these two means a query bypassed the session entirely.
+      prepare: (query: string) => {
+        bindingQueries.push(query);
+        return DB.prepare(query);
+      },
+      batch: (statements: D1PreparedStatement[]) => {
+        bindingQueries.push(`batch:${statements.length}`);
+        return DB.batch(statements);
+      },
+      withSession: (constraint: string) => {
+        constraints.push(constraint);
+        const queries: string[] = [];
+        sessionQueries.push(queries);
+        const session = DB.withSession(constraint);
+        return {
+          prepare: (query: string) => {
+            queries.push(query);
+            // Drizzle parameterises every value, so the SQL text alone cannot
+            // say WHICH request a query belonged to. Record the bound
+            // parameters too — that is what the concurrency test reads.
+            const statement = session.prepare(query);
+            return new Proxy(statement as object, {
+              get(target, prop, receiver) {
+                if (prop === "bind") {
+                  return (...args: unknown[]) => {
+                    queries.push(`bind:${args.join(",")}`);
+                    return (target as D1PreparedStatement).bind(...args);
+                  };
+                }
+                const value = Reflect.get(target, prop, receiver) as unknown;
+                return typeof value === "function" ? value.bind(target) : value;
+              },
+            }) as D1PreparedStatement;
+          },
+          batch: (statements: D1PreparedStatement[]) => {
+            queries.push(`batch:${statements.length}`);
+            return session.batch(statements);
+          },
+          getBookmark: () => session.getBookmark(),
+        };
+      },
+    } as unknown as D1Database;
+
+    return { binding, constraints, sessionQueries, bindingQueries };
+  }
+
+  // Unauthenticated, and it reads D1 — an unknown slug still costs the lookup
+  // that answers 404, which is all this needs. The organiser routes the rest of
+  // this file uses would 401 before touching the database.
+  const inviteRequest = (slug = "no-such-slug"): Parameters<NonNullable<typeof handler.fetch>>[0] =>
+    new Request(`https://api.example.com/api/invite/${slug}`) as unknown as Parameters<
+      NonNullable<typeof handler.fetch>
+    >[0];
+
+  it("opens one first-primary session per request and routes every query to it", async () => {
+    const probe = probeD1();
+    const env = { ...BASE_ENV, DB: probe.binding } as unknown as Parameters<
+      NonNullable<typeof handler.fetch>
+    >[1];
+
+    const res = await handler.fetch!(inviteRequest(), env, ctx);
+
+    expect(res.status).toBe(404);
+    expect(probe.constraints).toEqual([D1_SESSION_CONSTRAINT]);
+    expect(probe.sessionQueries[0]?.length ?? 0).toBeGreaterThan(0);
+    // The one that matters: a Drizzle handle built over the raw binding would
+    // opt every query out of replication with nothing to notice.
+    expect(probe.bindingQueries).toEqual([]);
+  });
+
+  it("gives each request its own session", async () => {
+    // Two requests through the SAME isolate-cached app — the app graph and its
+    // Drizzle handle are shared, so the session is the only per-request thing.
+    const probe = probeD1();
+    const env = { ...BASE_ENV, DB: probe.binding } as unknown as Parameters<
+      NonNullable<typeof handler.fetch>
+    >[1];
+
+    await handler.fetch!(inviteRequest(), env, ctx);
+    await handler.fetch!(inviteRequest(), env, ctx);
+
+    expect(probe.constraints).toEqual([D1_SESSION_CONSTRAINT, D1_SESSION_CONSTRAINT]);
+    expect(probe.sessionQueries).toHaveLength(2);
+    expect(probe.sessionQueries[0]?.length ?? 0).toBeGreaterThan(0);
+    expect(probe.sessionQueries[1]?.length ?? 0).toBeGreaterThan(0);
+    expect(probe.bindingQueries).toEqual([]);
+  });
+
+  it("keeps two concurrent requests on their own sessions", async () => {
+    // The hazard the whole design turns on, asserted against the real thing:
+    // the shared `ManagedRuntime` behind `runCire`, the shared app graph, the
+    // shared Drizzle handle, two requests in flight at once. If the async
+    // context could cross, one request's read could be served by a replica
+    // pinned to the other's older bookmark — a stale answer, with nothing
+    // failing. Each session must see its own slug and only its own.
+    const probe = probeD1();
+    const env = { ...BASE_ENV, DB: probe.binding } as unknown as Parameters<
+      NonNullable<typeof handler.fetch>
+    >[1];
+
+    await Promise.all([
+      handler.fetch!(inviteRequest("slug-alpha"), env, ctx),
+      handler.fetch!(inviteRequest("slug-beta"), env, ctx),
+    ]);
+
+    expect(probe.constraints).toHaveLength(2);
+    const bound = probe.sessionQueries.map((queries) =>
+      queries.filter((entry) => entry.startsWith("bind:")).join("|"),
+    );
+    expect(bound.filter((entry) => entry.includes("slug-alpha"))).toHaveLength(1);
+    expect(bound.filter((entry) => entry.includes("slug-beta"))).toHaveLength(1);
+    expect(bound.some((entry) => entry.includes("slug-alpha") && entry.includes("slug-beta"))).toBe(
+      false,
+    );
+    expect(probe.bindingQueries).toEqual([]);
+  });
+
+  it("gives each scheduled sweep its own session", async () => {
+    // Six sweeps, six sessions — deliberately NOT one shared by all of them.
+    // Sharing would couple six unrelated delete-heavy sweeps to a single
+    // bookmark each of them keeps advancing, so every read would be forwarded
+    // to the primary regardless.
+    const probe = probeD1();
+    const env = { ...BASE_ENV, DB: probe.binding } as unknown as Parameters<
+      NonNullable<typeof handler.scheduled>
+    >[1];
+
+    const pending: Promise<unknown>[] = [];
+    const cronCtx = {
+      ...ctx,
+      waitUntil: (promise: Promise<unknown>) => {
+        pending.push(promise);
+      },
+    } as unknown as ExecutionContext;
+
+    await handler.scheduled!(
+      { cron: "0 4 * * *", scheduledTime: Date.now(), noRetry: () => {} } as ScheduledController,
+      env,
+      cronCtx,
+    );
+    // `allSettled`: a sweep failing on this bare schema is not what is under
+    // test — that its queries rode a session of its own is.
+    await Promise.allSettled(pending);
+
+    expect(pending).toHaveLength(6);
+    expect(probe.constraints).toEqual(Array.from({ length: 6 }, () => D1_SESSION_CONSTRAINT));
+    expect(probe.bindingQueries).toEqual([]);
   });
 });

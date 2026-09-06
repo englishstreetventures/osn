@@ -16,8 +16,9 @@ related:
   - "[[frontend-patterns]]"
   - "[[testing-patterns]]"
   - "[[browser-tests]]"
+  - "[[d1-read-replication]]"
   - "[[commands]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-01
 ---
 
 # Cire development guide
@@ -56,6 +57,9 @@ The platform shape is in [[backend-patterns]]. Cire's departures:
 - **Errors are tagged classes** extending `Data.TaggedError`. Nothing in the
   service layer throws.
 - **D1 access is Drizzle only** — no raw SQL string construction.
+- **The Drizzle handle is built over the session-routing shim**, never over
+  `env.DB` directly, and each Worker invocation opens exactly one D1 session at
+  the entry point — see [[d1-read-replication]].
 - **Effect is backend and DB only.** Never import it in `cire/invites`,
   `cire/host` or `cire/vendor`.
 - **Cloudflare bindings are typed from `wrangler types`** output

@@ -15,13 +15,14 @@ related:
   - "[[schema-layers]]"
   - "[[backend-patterns]]"
   - "[[social-graph]]"
+  - "[[d1-read-replication]]"
 packages:
   - "@shared/db-utils"
   - "@osn/api"
   - "@pulse/api"
   - "@cire/api"
   - "@zap/api"
-last-reviewed: 2026-08-31
+last-reviewed: 2026-09-01
 ---
 
 # D1 Limits
@@ -112,6 +113,12 @@ index seek into `SCAN c` and read twice the rows for an identical result.
    expected figure **derived** from the column list rather than written by hand.
 4. **`EXPLAIN QUERY PLAN` works on D1**, but the authorizer blocks some
    builtins: `SELECT sqlite_version()` throws `not authorized to use function`.
+
+## Not a limit, but the same "D1 is not SQLite" trap
+
+Every query also pays the round trip to the single primary in Oceania — 35.7 ms
+measured from Sydney, more from anywhere else — which `bun:sqlite` likewise never
+shows you. Cutting the count is one half; [[d1-read-replication]] is the other.
 
 ## History
 
