@@ -2,10 +2,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 
 import type { D1Database as DrizzleD1 } from "@cloudflare/workers-types";
 import * as schema from "@pulse/db/schema";
-import { pulseAccountPurges, pulseDeletionJobs } from "@pulse/db/schema";
+import { events, pulseAccountPurges, pulseDeletionJobs } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
 import { createSchemaSql } from "@pulse/db/testing";
-import { createD1Db } from "@shared/db-utils";
+import { createD1Db, insertManyViaJsonEach } from "@shared/db-utils";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
@@ -71,6 +71,50 @@ describe("pulse/api account erasure over real D1 (Miniflare)", () => {
 
     const status = await run(getDeletionStatus("usr_p2"));
     expect(status.scheduled).toBe(false);
+  });
+
+  // osn-tracker#595. `hostedEventIds` is read unbounded and was then bound into
+  // four DELETEs inside one atomic commitBatch, so an account that had hosted
+  // more than ~100 events put the batch over D1's 100-bound-parameter cap.
+  // Because the deletes are deliberately one batch, the failure rolled every
+  // statement back — the purge did not partially complete, it could never
+  // complete at all, for exactly the accounts with the most data to erase.
+  //
+  // This has to run against real D1: bun:sqlite enforces no bind cap, so the
+  // unit tier passes against the bug.
+  it("purges an account that hosted more than 100 events (osn-tracker#595)", async () => {
+    const now = new Date();
+    const hosted = Array.from({ length: 150 }, (_, i) => ({
+      id: `evt_bulk_${i}`,
+      title: `Event ${i}`,
+      startTime: now,
+      status: "upcoming" as const,
+      visibility: "public" as const,
+      guestListVisibility: "public" as const,
+      joinPolicy: "open" as const,
+      allowInterested: true,
+      commsChannels: '["email"]',
+      instanceOverride: false,
+      createdByProfileId: "usr_bulk",
+      createdByName: "Bulk Host",
+      createdAt: now,
+      updatedAt: now,
+    }));
+    // Seeded through the helper this batch introduces, not `.values(rows)`.
+    // A 150-row `.values()` insert is itself over D1's bind cap — the first
+    // draft of this test hit `too many SQL variables` while setting up the
+    // fixture for a bug about `too many SQL variables`. That the seeding works
+    // at all is a second, incidental proof the helper does what it claims on
+    // real D1.
+    await rawDb.run(insertManyViaJsonEach(events, hosted));
+
+    const out = await run(purgeAccount("acc_bulk", ["usr_bulk"]));
+    expect(out).toMatchObject({ purged: 1, alreadyProcessed: false });
+
+    // The whole point: the events are gone, which means the batch committed
+    // rather than rolling back on a bind-cap error.
+    const left = await rawDb.select({ id: events.id }).from(events).all();
+    expect(left.filter((e) => e.id.startsWith("evt_bulk_"))).toHaveLength(0);
   });
 
   it("purgeAccount is idempotent via the replay ledger (batch insert on D1)", async () => {

@@ -1,5 +1,6 @@
 import { events, eventRsvps, type Event, type EventRsvp } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { insertManyViaJsonEach, jsonEachIn } from "@shared/db-utils";
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
@@ -435,6 +436,11 @@ export const inviteGuests = (
     const { db } = yield* Db;
 
     // Find which users already have a row for this event (any status).
+    //
+    // osn-tracker#590: `profileIds` is schema-capped at MAX_EVENT_GUESTS
+    // (1000, see `InviteGuestsSchema` above), so a full-size invite batch
+    // bound 1000+ parameters here — well past D1's 100-parameter cap.
+    // `jsonEachIn` binds the list as one JSON parameter regardless of size.
     const existing = yield* Effect.tryPromise({
       try: () =>
         db
@@ -443,7 +449,7 @@ export const inviteGuests = (
           .where(
             and(
               eq(eventRsvps.eventId, eventId),
-              inArray(eventRsvps.profileId, [...validated.profileIds]),
+              inArray(eventRsvps.profileId, jsonEachIn(validated.profileIds)),
             ),
           ),
       catch: (cause) => new DatabaseError({ cause }),
@@ -464,8 +470,16 @@ export const inviteGuests = (
       invitedByProfileId: organiserId,
       createdAt: now,
     }));
+    // osn-tracker#590: each row binds 6 parameters (its 6 keys), so a plain
+    // multi-row `.values(rows)` insert broke past ~16 invitees — an order
+    // of magnitude below the 1000-guest schema cap this route advertises.
+    // `insertManyViaJsonEach` binds the whole row set as one JSON parameter.
     yield* Effect.tryPromise({
-      try: () => db.insert(eventRsvps).values(rows),
+      // `.run()`'s return type is `T | Promise<T>` (sync bun:sqlite / async
+      // D1) — `Promise.resolve` normalises it to a real thenable the same
+      // way `@shared/db-utils`'s own `dbQuery` does, so `Effect.tryPromise`
+      // can type it.
+      try: () => Promise.resolve(db.run(insertManyViaJsonEach(eventRsvps, rows))),
       catch: (cause) => new DatabaseError({ cause }),
     });
     metricRsvpInviteBatch(rows.length, "ok");

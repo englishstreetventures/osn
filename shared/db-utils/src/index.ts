@@ -225,3 +225,11 @@ export {
   tokeniseQuery,
   tokensPrefixName,
 } from "./search";
+
+/**
+ * `json_each`-backed helpers that keep a variable-length `IN (...)` list or
+ * a multi-row `INSERT` under D1's 100-bound-parameter cap by binding the
+ * whole array as one JSON parameter instead of one parameter per element —
+ * see `jsonEach.ts` for the full rationale and the real-D1 measurements.
+ */
+export { insertManyViaJsonEach, jsonEachIn } from "./jsonEach";

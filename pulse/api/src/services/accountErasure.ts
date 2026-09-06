@@ -12,7 +12,7 @@ import {
 } from "@pulse/db/schema";
 import type { PulseDeletionJob } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
-import { commitBatch } from "@shared/db-utils";
+import { commitBatch, jsonEachIn } from "@shared/db-utils";
 import type {
   DeletionCompletedResult,
   DeletionCompletedSource,
@@ -483,12 +483,29 @@ export const purgeAccount = (
             .where(inArray(pulseProfileAccounts.profileId, profileIds)),
 
           // Drop hosted events + their cascading rows for the deleted profiles.
+          //
+          // osn-tracker#595 (GDPR): `hostedEventIds` is unbounded — a host
+          // with 101+ hosted events bound one parameter per id here, past
+          // D1's 100-parameter cap, which failed every statement in this
+          // batch (D1 batches are atomic: one failing statement rolls back
+          // the lot) and made an Art. 17 purge unable to ever complete for
+          // exactly the accounts with the most data. `jsonEachIn` binds the
+          // whole id list as one JSON parameter per statement instead. The
+          // batch stays one atomic commit per the note above this block —
+          // splitting it would reopen the exact half-purged-account risk
+          // the single-batch design exists to close.
           ...(hostedEventIds.length > 0
             ? [
-                db.delete(eventRsvps).where(inArray(eventRsvps.eventId, hostedEventIds)),
-                db.delete(eventComms).where(inArray(eventComms.eventId, hostedEventIds)),
-                db.delete(eventLineup).where(inArray(eventLineup.eventId, hostedEventIds)),
-                db.delete(events).where(inArray(events.id, hostedEventIds)),
+                db
+                  .delete(eventRsvps)
+                  .where(inArray(eventRsvps.eventId, jsonEachIn(hostedEventIds))),
+                db
+                  .delete(eventComms)
+                  .where(inArray(eventComms.eventId, jsonEachIn(hostedEventIds))),
+                db
+                  .delete(eventLineup)
+                  .where(inArray(eventLineup.eventId, jsonEachIn(hostedEventIds))),
+                db.delete(events).where(inArray(events.id, jsonEachIn(hostedEventIds))),
               ]
             : []),
 

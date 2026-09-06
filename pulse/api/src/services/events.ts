@@ -1,6 +1,7 @@
 import { events, eventRsvps } from "@pulse/db/schema";
 import type { Event } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { jsonEachIn } from "@shared/db-utils";
 import { and, asc, eq, gte, inArray, lte, ne, type SQL } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
@@ -292,8 +293,19 @@ export const applyTransitions = (
       [...groups.values()],
       ({ from, to, ids }) =>
         Effect.tryPromise({
+          // ids.length + 2 (status, updatedAt) bound params on a plain
+          // `inArray` — the cliff is 99 events sharing one (from → to)
+          // transition in a single page. `listTodayEvents` reads up to
+          // TODAY_EVENTS_LIMIT (200, defined further down this file) and
+          // `listEvents` up to 100, so a mass midnight rollover (every
+          // "upcoming" row crossing into "ongoing" at once) can reach it.
+          // `jsonEachIn` drops the id list to one bound parameter, so the
+          // group size no longer matters.
           try: () =>
-            db.update(events).set({ status: to, updatedAt: now }).where(inArray(events.id, ids)),
+            db
+              .update(events)
+              .set({ status: to, updatedAt: now })
+              .where(inArray(events.id, jsonEachIn(ids))),
           catch: (cause) => new DatabaseError({ cause }),
         }).pipe(
           Effect.tap(() =>

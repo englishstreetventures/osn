@@ -1,6 +1,7 @@
 import { events, eventSeries } from "@pulse/db/schema";
 import type { Event, EventSeries, NewEvent, NewEventSeries } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { insertManyViaJsonEach } from "@shared/db-utils";
 import { and, eq, gt, gte, lt, or } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
@@ -429,8 +430,20 @@ export const materializeInstances = (
       updatedAt: now,
     }));
 
+    // osn-tracker#594: `rows` is a full `NewEvent` per instance — 31 columns,
+    // every one of them explicit (nulls included, since expandRRule/the
+    // series template never leaves a column to its schema default). Drizzle
+    // binds one parameter per column per row on a multi-row `.values(...)`
+    // insert, so 31 × row-count crosses D1's 100-bound-parameter cap at the
+    // 4th row — every weekly series (52 rows) failed at creation. One bound
+    // JSON parameter via `insertManyViaJsonEach` replaces the per-cell binds
+    // regardless of `MAX_SERIES_INSTANCES` (260).
     yield* Effect.tryPromise({
-      try: () => db.insert(events).values(rows),
+      // `.run()`'s return type is `T | Promise<T>` (sync bun:sqlite / async
+      // D1) — `Promise.resolve` normalises it to a real thenable the same
+      // way `@shared/db-utils`'s own `dbQuery` does, so `Effect.tryPromise`
+      // can type it.
+      try: () => Promise.resolve(db.run(insertManyViaJsonEach(events, rows))),
       catch: (cause) => {
         metricSeriesInstancesMaterialized(rows.length, trigger, "error");
         return new DatabaseError({ cause });

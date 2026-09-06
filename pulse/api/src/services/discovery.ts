@@ -1,5 +1,6 @@
 import { eventRsvps, eventSeries, events, pulseUsers, type Event } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { jsonEachIn } from "@shared/db-utils";
 import { and, asc, eq, gt, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import { Data, Effect, Schema } from "effect";
 
@@ -265,18 +266,26 @@ export const discoverEvents = (
       //   - The viewer's own RSVP is excluded — it's not a *friend*
       //     signal.
       //   - Connection set is bounded by MAX_EVENT_GUESTS upstream in
-      //     `getConnectionIds`, capping the IN list size for the SQLite
-      //     prepared-statement cache.
+      //     `getConnectionIds`.
+      //
+      // osn-tracker#592: `connectionIds` binds twice in this one predicate —
+      // once via `inArray`, once via the `sql.join` list inside the EXISTS.
+      // Each occurrence bound one parameter per id, so the pair broke D1's
+      // 100-parameter cap at ~50 connections even though `MAX_EVENT_GUESTS`
+      // (1000) suggested far more headroom. There's no connections table on
+      // the Pulse side to fall back to an `IN (<subquery>)` against — the
+      // set only exists as this JS array from `getConnectionIds` — so
+      // `json_each` is the fix, not a subquery. One `jsonEachIn` call
+      // spliced into both spots binds the same list as one JSON parameter
+      // each time it's referenced (2 total for the pair, not 2×N).
+      const connectionIdsJson = jsonEachIn(connectionIds);
       const friendsPredicate = or(
-        inArray(events.createdByProfileId, connectionIds),
+        inArray(events.createdByProfileId, connectionIdsJson),
         sql`EXISTS (
           SELECT 1 FROM ${eventRsvps}
           LEFT JOIN ${pulseUsers} ON ${eventRsvps.profileId} = ${pulseUsers.profileId}
           WHERE ${eventRsvps.eventId} = ${events.id}
-            AND ${eventRsvps.profileId} IN (${sql.join(
-              connectionIds.map((id) => sql`${id}`),
-              sql`, `,
-            )})
+            AND ${eventRsvps.profileId} IN ${connectionIdsJson}
             AND ${eventRsvps.profileId} != ${viewerId}
             AND ${eventRsvps.status} IN ('going', 'maybe')
             AND COALESCE(${pulseUsers.attendanceVisibility}, 'connections') != 'no_one'

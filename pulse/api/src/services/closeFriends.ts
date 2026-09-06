@@ -1,9 +1,9 @@
 import { pulseCloseFriends } from "@pulse/db/schema";
 import { Db } from "@pulse/db/service";
+import { jsonEachIn } from "@shared/db-utils";
 import { and, eq, inArray } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
-import { MAX_EVENT_GUESTS } from "../lib/limits";
 import {
   metricCloseFriendAdded,
   metricCloseFriendRemoved,
@@ -28,18 +28,6 @@ export class NotEligibleForCloseFriend extends Data.TaggedError("NotEligibleForC
 export class DatabaseError extends Data.TaggedError("CloseFriendDatabaseError")<{
   readonly cause: unknown;
 }> {}
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/**
- * Hard cap on `IN (...)` parameter counts. Tied to `MAX_EVENT_GUESTS` because
- * the only batch caller is the RSVP flow, which already caps attendance at
- * that limit (P-I1). If the platform attendance ceiling rises, the batch
- * clamp moves with it instead of silently dropping rows.
- */
-const MAX_BATCH_SIZE = MAX_EVENT_GUESTS;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -181,8 +169,15 @@ export const isCloseFriendOf = (
  * friend. Used by the RSVP service to stamp the `isCloseFriend` display
  * flag without N round-trips.
  *
- * Always clamped to `MAX_BATCH_SIZE` to stay within SQLite's variable
- * limit and prevent a malicious caller from blowing up the query.
+ * osn-tracker#591: this used to clamp `profileIds` to `MAX_BATCH_SIZE`
+ * (=`MAX_EVENT_GUESTS`, 1000) "to stay within SQLite's variable limit" —
+ * SQLite's cap, not D1's. D1 caps a query at 100 bound parameters, so the
+ * clamp didn't even help: a caller with 101+ ids still threw
+ * `D1_ERROR: too many SQL variables`, and below that threshold the
+ * truncation just silently dropped close-friend flags for the ids past the
+ * cut rather than erroring. `jsonEachIn` binds the whole id list as one
+ * JSON parameter, so there's nothing left to clamp — no truncation, no
+ * per-element bind, no cap to justify against the wrong engine.
  */
 export const getCloseFriendsOfBatch = (
   viewerId: string,
@@ -191,8 +186,6 @@ export const getCloseFriendsOfBatch = (
   Effect.gen(function* () {
     metricCloseFriendsBatchSize(profileIds.length);
     if (profileIds.length === 0) return new Set<string>();
-    const clamped =
-      profileIds.length > MAX_BATCH_SIZE ? profileIds.slice(0, MAX_BATCH_SIZE) : profileIds;
     const { db } = yield* Db;
     const rows = yield* Effect.tryPromise({
       try: () =>
@@ -202,7 +195,7 @@ export const getCloseFriendsOfBatch = (
           .where(
             and(
               eq(pulseCloseFriends.friendId, viewerId),
-              inArray(pulseCloseFriends.profileId, [...clamped]),
+              inArray(pulseCloseFriends.profileId, jsonEachIn(profileIds)),
             ),
           ),
       catch: (cause) => new DatabaseError({ cause }),
