@@ -666,6 +666,140 @@ describe("POST /changes/preview + /apply — editor (DesiredState JSON) front do
     expect(db.select().from(guests).all()[0]!.id).toBe(guestBefore.id);
   });
 
+  it("409s an editor row whose stored scope is missing, rather than widening it to 'both'", async () => {
+    const { app, db } = buildApp();
+
+    // Seed a household through the editor, so there is something a widened
+    // scope could destroy.
+    const seed = await ownerPost(app, `${CHANGES_BASE}/preview`, { desiredState });
+    const seedId = ((await seed.json()) as { changeId: string }).changeId;
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: seedId })).status).toBe(200);
+    expect(db.select().from(families).all()).toHaveLength(1);
+
+    // An events-only save: the events editor carries no households at all.
+    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      desiredState: { events: desiredState.events, families: [] },
+      scope: "events",
+    });
+    expect(previewRes.status).toBe(200);
+    const { changeId } = (await previewRes.json()) as { changeId: string };
+
+    // Reproduce a row previewed before this feature shipped. For a SHEET the
+    // `"both"` fallback is harmless, but an editor row pairs an empty family
+    // list with `removeManual: true` and `matchByName: false`, so managing the
+    // guest half would remove every household and cascade its guests, RSVPs and
+    // claim codes. There is no safe value to guess, so the apply is refused.
+    const [row] = db.select().from(imports).where(eq(imports.id, changeId)).all();
+    const summary = JSON.parse(row!.summary) as Record<string, unknown>;
+    delete summary.scope;
+    db.update(imports)
+      .set({ summary: JSON.stringify(summary) })
+      .where(eq(imports.id, changeId))
+      .run();
+
+    const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(applyRes.status).toBe(409);
+    // Pin the message, not just the code: this route's other 409 says the state
+    // changed under the organiser, and that one is fixed by reloading. This one
+    // is only fixed by previewing again, and the editor shows the text verbatim.
+    expect((await applyRes.json()) as { error: string }).toEqual({
+      error: "Change is missing its scope — re-preview",
+    });
+    // The household is still there, with its claim code intact.
+    expect(db.select().from(families).all()).toHaveLength(1);
+    expect(db.select().from(guests).all()).toHaveLength(1);
+  });
+
+  it("409s an editor row whose stored scope is present but undecodable, same as a missing one", async () => {
+    const { app, db } = buildApp();
+
+    // Seed a household through the editor, so there is something a widened
+    // scope could destroy.
+    const seed = await ownerPost(app, `${CHANGES_BASE}/preview`, { desiredState });
+    const seedId = ((await seed.json()) as { changeId: string }).changeId;
+    expect((await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId: seedId })).status).toBe(200);
+    expect(db.select().from(families).all()).toHaveLength(1);
+
+    // An events-only save: the events editor carries no households at all.
+    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      desiredState: { events: desiredState.events, families: [] },
+      scope: "events",
+    });
+    expect(previewRes.status).toBe(200);
+    const { changeId } = (await previewRes.json()) as { changeId: string };
+
+    // Unlike the test above, `scope` is not ABSENT here — it is PRESENT and
+    // corrupt (a truncated write, a botched migration, a hand-edited summary).
+    // `Schema.decodeUnknownOption(ChangeScope)` rejects it the same way it
+    // rejects a missing key, and the guard has to treat both as "undecodable":
+    // a check for `stored.scope === undefined` would let this value fall
+    // through to the `"both"` default and remove every household.
+    const [row] = db.select().from(imports).where(eq(imports.id, changeId)).all();
+    const summary = JSON.parse(row!.summary) as Record<string, unknown>;
+    summary.scope = "everything";
+    db.update(imports)
+      .set({ summary: JSON.stringify(summary) })
+      .where(eq(imports.id, changeId))
+      .run();
+
+    const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(applyRes.status).toBe(409);
+    expect((await applyRes.json()) as { error: string }).toEqual({
+      error: "Change is missing its scope — re-preview",
+    });
+    // The household and its guest survive, same as the missing-scope case.
+    expect(db.select().from(families).all()).toHaveLength(1);
+    expect(db.select().from(guests).all()).toHaveLength(1);
+  });
+
+  it("keeps the 'both' fallback for a SHEET row whose stored scope is missing", async () => {
+    const { app, db } = buildApp();
+
+    // The refusal above is deliberately narrow: only an editor row is unsafe to
+    // guess at, because only an editor row pairs an empty half with the
+    // authority to delete it. A spreadsheet upload states each sheet it manages
+    // by uploading it, so `"both"` costs it nothing — and rows previewed before
+    // this feature shipped must still apply rather than dead-ending at a 409.
+    const previewRes = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    expect(previewRes.status).toBe(200);
+    const { changeId } = (await previewRes.json()) as { changeId: string };
+
+    const [row] = db.select().from(imports).where(eq(imports.id, changeId)).all();
+    const summary = JSON.parse(row!.summary) as Record<string, unknown>;
+    delete summary.scope;
+    db.update(imports)
+      .set({ summary: JSON.stringify(summary) })
+      .where(eq(imports.id, changeId))
+      .run();
+
+    const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(applyRes.status).toBe(200);
+    // Both sheets reconciled, which is what `"both"` means.
+    expect(db.select().from(events).all()).toHaveLength(2);
+    expect(db.select().from(families).all()).toHaveLength(2);
+  });
+
+  it("400s a body carrying BOTH front doors' fields", async () => {
+    const { app } = buildApp();
+
+    // A union member that fails falls through to the next, and the two doors
+    // apply opposite diff options (`removeManual`/`matchByName`). So a body
+    // holding both would be decided by whether its `desiredState` happened to
+    // parse — a draft with one bad field silently becoming a spreadsheet import
+    // of whatever CSV rode along. Neither reading is more likely right.
+    const res = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      desiredState,
+      eventsCsv: EVENTS_CSV,
+    });
+    expect(res.status).toBe(400);
+    // The decode refused it. A 400 carrying anything else would mean some other
+    // guard tripped first and the union fallthrough is still open behind it.
+    expect((await res.json()) as { error: string }).toEqual({ error: "Missing or invalid fields" });
+  });
+
   /**
    * The editor expresses a deletion by ABSENCE — it posts the whole draft and
    * the dropped row simply isn't in it. These walk the two shapes that used to
@@ -1087,6 +1221,80 @@ describe("POST /changes/preview — provenance default + removeManual toggle", (
       (await preview.json()) as { plan: { familyRemoves: Array<{ familyName: string }> } }
     ).plan;
     expect(plan.familyRemoves.map((f) => f.familyName)).toContain("Handadded");
+  });
+
+  /**
+   * Apply re-reads `removeManual` off the persisted summary, the same way it
+   * re-reads `scope` and `matchByName` above. `??` only guards null/undefined,
+   * so a stored value that is present but not a real boolean — a truncated
+   * write, a hand-edited row — used to sail through unchanged and reach
+   * `diffAgainstDb`'s removal loop as a truthy non-boolean, widening the diff
+   * exactly as `removeManual: true` would. The decode-and-fall-back-to-false
+   * this branch adds only differs from the old `?? false` on this one input,
+   * so it needs its own case: neither existing test above writes anything but
+   * a real boolean onto the row.
+   */
+  it("apply treats a corrupt stored removeManual as false, not as truthy", async () => {
+    const { app, db } = buildApp();
+    await seedManual(app, db);
+
+    // Preview WITHOUT the toggle — same request as the "default" case above,
+    // so the plan does not manage the manually-added household.
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const { changeId } = (await preview.json()) as { changeId: string };
+
+    // Corrupt the stored summary: `removeManual` present, but a string, not a
+    // boolean. A naive `stored.removeManual ?? false` would pass "false"
+    // through as-is, and a non-empty string is truthy.
+    const row = db.select().from(imports).where(eq(imports.id, changeId)).all()[0]!;
+    const summary = JSON.parse(row.summary) as Record<string, unknown>;
+    summary.removeManual = "false";
+    db.update(imports)
+      .set({ summary: JSON.stringify(summary) })
+      .where(eq(imports.id, changeId))
+      .run();
+
+    const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(applyRes.status).toBe(200);
+    expect(
+      db
+        .select()
+        .from(families)
+        .all()
+        .map((f) => f.familyName),
+    ).toContain("Handadded");
+  });
+
+  it("apply treats a stored removeManual of 1 the same way", async () => {
+    const { app, db } = buildApp();
+    await seedManual(app, db);
+
+    const preview = await ownerPost(app, `${CHANGES_BASE}/preview`, {
+      eventsCsv: EVENTS_CSV,
+      guestsCsv: GUESTS_CSV,
+    });
+    const { changeId } = (await preview.json()) as { changeId: string };
+
+    const row = db.select().from(imports).where(eq(imports.id, changeId)).all()[0]!;
+    const summary = JSON.parse(row.summary) as Record<string, unknown>;
+    summary.removeManual = 1;
+    db.update(imports)
+      .set({ summary: JSON.stringify(summary) })
+      .where(eq(imports.id, changeId))
+      .run();
+
+    const applyRes = await ownerPost(app, `${CHANGES_BASE}/apply`, { changeId });
+    expect(applyRes.status).toBe(200);
+    expect(
+      db
+        .select()
+        .from(families)
+        .all()
+        .map((f) => f.familyName),
+    ).toContain("Handadded");
   });
 });
 

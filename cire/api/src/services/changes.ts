@@ -3,8 +3,8 @@ import { and, asc, eq, or } from "drizzle-orm";
 import { Effect, ParseResult, Schema } from "effect";
 
 import { DbService, dbQuery } from "../db";
-import { DesiredState } from "../schemas/import";
-import type { ChangeScope, ParsedEvent, ParsedFamily } from "../schemas/import";
+import { ChangeScope, DesiredState } from "../schemas/import";
+import type { ParsedEvent, ParsedFamily } from "../schemas/import";
 import { decodePalette, safeHttpUrl } from "./claim";
 import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
 import type { SpreadsheetParseError } from "./spreadsheet";
@@ -42,13 +42,25 @@ import type { SpreadsheetParseError } from "./spreadsheet";
  * refinement below (and, being the last union member, surfaces as the shared
  * 400 rather than a confusing empty-sheet parse error).
  */
+/**
+ * The sheet slots a spreadsheet upload can carry.
+ *
+ * Named once because three separate places have to agree on the list: the
+ * struct's own fields, the "at least one sheet" refinement, and the
+ * {@link ExclusiveFrontDoor} pre-pass that refuses a body carrying both front
+ * doors. The struct still has to spell each field out — Effect Schema needs
+ * literal keys — but the two checks derive from this, so adding a third slot
+ * cannot leave a door quietly unguarded.
+ */
+const CSV_SLOTS = ["eventsCsv", "guestsCsv"] as const;
+
 export const CsvChangeBody = Schema.Struct({
   eventsCsv: Schema.optional(Schema.String),
   guestsCsv: Schema.optional(Schema.String),
   /** Provenance toggle (§6): widen the diff to also remove manually-added rows. */
   removeManual: Schema.optional(Schema.Boolean),
 }).pipe(
-  Schema.filter((body) => body.eventsCsv !== undefined || body.guestsCsv !== undefined, {
+  Schema.filter((body) => CSV_SLOTS.some((slot) => body[slot] !== undefined), {
     message: () => "at least one of eventsCsv / guestsCsv is required",
   }),
 );
@@ -62,6 +74,11 @@ export type CsvChangeBody = Schema.Schema.Type<typeof CsvChangeBody>;
  */
 export const DesiredStateChangeBody = Schema.Struct({
   desiredState: DesiredState,
+  // Which half of the wedding this save is authoritative over. Omitted by
+  // callers that still send the whole draft (e.g. GuestsEditor), which keeps
+  // the old "both" default; the events editor sends "events" explicitly since
+  // it no longer loads guests/households to populate the draft.
+  scope: Schema.optional(ChangeScope),
 });
 export type DesiredStateChangeBody = Schema.Schema.Type<typeof DesiredStateChangeBody>;
 
@@ -72,6 +89,38 @@ export type DesiredStateChangeBody = Schema.Schema.Type<typeof DesiredStateChang
  */
 export const ChangeBody = Schema.Union(DesiredStateChangeBody, CsvChangeBody);
 export type ChangeBody = Schema.Schema.Type<typeof ChangeBody>;
+
+/**
+ * Rejects a body that carries BOTH front doors' fields, before the union above
+ * gets to choose between them.
+ *
+ * A union member that fails falls through to the next one, and the two members
+ * differ in far more than shape: the editor door applies `removeManual: true`
+ * and `matchByName: false`, the spreadsheet door the opposite pair. So a body
+ * holding a `desiredState` AND a CSV slot is decided by whether its
+ * `desiredState` happens to parse — a draft with one bad field silently becomes
+ * a spreadsheet import of whatever CSV rode along, under diff options the
+ * caller never asked for. There is no reading of such a body that is more
+ * likely right than the other, so it is refused rather than guessed at.
+ *
+ * A separate pre-pass rather than a `Schema.filter` on either member, because a
+ * `Schema.Struct` strips the other door's keys before a filter can see them.
+ */
+const ExclusiveFrontDoor = Schema.Unknown.pipe(
+  Schema.filter(
+    (raw) =>
+      !(
+        typeof raw === "object" &&
+        raw !== null &&
+        "desiredState" in raw &&
+        CSV_SLOTS.some((slot) => slot in raw)
+      ),
+    {
+      message: () =>
+        "a change is either an editor draft (desiredState) or a spreadsheet upload (eventsCsv/guestsCsv), never both",
+    },
+  ),
+);
 
 // ── Normalised decode ───────────────────────────────────────────────────────
 
@@ -108,11 +157,12 @@ export interface DecodedChange {
   /** `'import'` (spreadsheet) or `'editor'` (draft-save) — the change kind (E3). */
   readonly kind: "import" | "editor";
   /**
-   * Which halves of the wedding this change is authoritative over. `"both"` for
-   * every editor save and for a two-sheet upload; `"events"` / `"guests"` for a
-   * single-sheet upload. Persisted on the change row's summary so apply (which
-   * re-diffs against live state) and revert honour the same scope the preview
-   * was computed under.
+   * Which halves of the wedding this change is authoritative over. Defaults to
+   * `"both"` for an editor save that doesn't send its own scope, and for a
+   * two-sheet upload; a single-sheet upload is `"events"` / `"guests"`, and the
+   * events editor sends `"events"` explicitly. Persisted on the change row's
+   * summary so apply (which re-diffs against live state) and revert honour the
+   * same scope the preview was computed under.
    */
   readonly scope: ChangeScope;
 }
@@ -202,7 +252,9 @@ export function decodeChangeBody(
   weddingId: string,
 ): Effect.Effect<DecodedChange, SpreadsheetParseError | ParseResult.ParseError, DbService> {
   return Effect.gen(function* () {
-    const body = yield* Schema.decodeUnknown(ChangeBody)(raw);
+    const body = yield* Schema.decodeUnknown(ChangeBody)(
+      yield* Schema.decodeUnknown(ExclusiveFrontDoor)(raw),
+    );
 
     if ("desiredState" in body) {
       // Editor front door: the draft is the whole truth (manage all shown rows).
@@ -214,7 +266,10 @@ export function decodeChangeBody(
         matchByName: false,
         uploadedCsv: null,
         kind: "editor",
-        scope: "both",
+        // A caller whose draft covers everything shown (GuestsEditor) sends no
+        // scope and keeps the "both" default; the events editor sends "events"
+        // explicitly since its draft only ever covers the schedule.
+        scope: body.scope ?? "both",
       } satisfies DecodedChange;
     }
 

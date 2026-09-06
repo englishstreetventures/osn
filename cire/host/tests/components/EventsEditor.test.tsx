@@ -5,9 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 /**
  * EventsEditor is the interactive events editor (E6): a re-orderable event list
  * on the shared draft store, an add/edit drawer, delete-with-impact-confirm, and
- * a Save flow that posts the whole draft (events + guests) as DesiredState to
- * changes/preview, renders the shared preview, then applies. Auth/api/toast are
- * stubbed; the shared caches are reset per test.
+ * a Save flow that posts the events half of the draft as a `scope: "events"`
+ * DesiredState to changes/preview, renders the shared preview, then applies.
+ * Auth/api/toast are stubbed; the shared caches are reset per test.
  */
 
 vi.mock("@shared/rp-auth/solid", async () => {
@@ -24,6 +24,28 @@ vi.mock("../../src/lib/api", async () => {
   const { organiserApiMock } = await import("../test-support/mocks");
   return organiserApiMock();
 });
+
+const invalidateEventsMock = vi.hoisted(() => vi.fn());
+const invalidateGuestsMock = vi.hoisted(() => vi.fn());
+const invalidateHouseholdsMock = vi.hoisted(() => vi.fn());
+
+// Spied, not stubbed wholesale — same pattern as ImportPanel.test.tsx — so a
+// successful apply can be checked against BOTH halves of a deliberate split:
+// events + guests are invalidated (the source comment: an events-scope save
+// can remove an event, cascading that event's guest_events rows), households
+// is not (no path through this editor can touch one).
+vi.mock("../../src/lib/events-store", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  invalidateEvents: invalidateEventsMock,
+}));
+vi.mock("../../src/lib/guests-store", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  invalidateGuests: invalidateGuestsMock,
+}));
+vi.mock("../../src/lib/households-store", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  invalidateHouseholds: invalidateHouseholdsMock,
+}));
 
 import EventsEditor from "../../src/components/EventsEditor";
 import { __resetEventsCache } from "../../src/lib/events-store";
@@ -131,6 +153,9 @@ describe("EventsEditor", () => {
     __resetGuestsCache();
     __resetHouseholdsCache();
     __resetEventsCache();
+    invalidateEventsMock.mockReset();
+    invalidateGuestsMock.mockReset();
+    invalidateHouseholdsMock.mockReset();
   });
 
   it("renders the events in schedule order", async () => {
@@ -138,6 +163,41 @@ describe("EventsEditor", () => {
     render(() => <EventsEditor weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
     expect(screen.getByText("Reception")).toBeTruthy();
+  });
+
+  it("mounting fetches only /events, not /guests or /households", async () => {
+    primeLoad();
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    const urls = authFetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.endsWith("/events"))).toBe(true);
+    expect(urls.some((u) => u.endsWith("/guests"))).toBe(false);
+    expect(urls.some((u) => u.endsWith("/households"))).toBe(false);
+  });
+
+  it("saving posts scope: 'events' to changes/preview", async () => {
+    primeLoad();
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+    await waitFor(() => expect(screen.getByRole("dialog", { name: /Edit event/i })).toBeTruthy());
+    fireEvent.input(screen.getByLabelText("Event name"), { target: { value: "Wedding Ceremony" } });
+
+    const save = await waitFor(
+      () => screen.getByRole("button", { name: /Save changes/i }) as HTMLButtonElement,
+    );
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/changes/preview"))).toBe(
+        true,
+      ),
+    );
+    const body = JSON.parse(
+      authFetchMock.mock.calls.find((c) => String(c[0]).endsWith("/changes/preview"))![1].body,
+    );
+    expect(body.scope).toBe("events");
   });
 
   it("opens the drawer and edits an event name", async () => {
@@ -590,7 +650,72 @@ describe("EventsEditor", () => {
     expect(JSON.parse(String((applyCall[1] as RequestInit).body)).changeId).toBe("chg_1");
   });
 
-  it("surfaces a 409 apply as a re-preview prompt", async () => {
+  it("apply invalidates events and guests, but NOT households (T-S2)", async () => {
+    primeLoad();
+    render(() => <EventsEditor weddingId="wed_a" />);
+    await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit$/i })[0]!);
+    await waitFor(() => expect(screen.getByLabelText("Event name")).toBeTruthy());
+    fireEvent.input(screen.getByLabelText("Event name"), { target: { value: "Wedding Ceremony" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: /Save changes/i })).toBeTruthy());
+
+    authFetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith("/changes/preview")) {
+        return Promise.resolve(
+          json({
+            changeId: "chg_1",
+            baseRevision: "genesis",
+            warnings: ["1 event will be updated."],
+            plan: {
+              eventCreates: [],
+              eventUpdates: [{}],
+              eventRemoves: [],
+              familyCreates: [],
+              familyRemoves: [],
+              guestCreates: [],
+              guestUpdates: [],
+              guestRemoves: [],
+              eventLinkCreates: [],
+              eventLinkRemoves: [],
+              warnings: ["1 event will be updated."],
+            },
+          }),
+        );
+      }
+      if (u.endsWith("/changes/apply"))
+        return Promise.resolve(json({ summary: { importId: "chg_1" } }));
+      if (u.endsWith("/events"))
+        return Promise.resolve(json([{ ...EVENTS[0], name: "Wedding Ceremony" }, EVENTS[1]]));
+      if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
+      if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+      return Promise.resolve(json({}));
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Save changes/i }));
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: /Review changes before applying/i })).toBeTruthy(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+
+    // The source comment on the apply handler names exactly this split: an
+    // events-scope save can remove an event, which cascades that event's
+    // per-guest attendance rows (invalidate guests too), but no path through
+    // this editor can touch a household (invalidate households NOT once).
+    expect(invalidateEventsMock).toHaveBeenCalledWith("wed_a");
+    expect(invalidateGuestsMock).toHaveBeenCalledWith("wed_a");
+    expect(invalidateHouseholdsMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Drive a rename through preview to a 409 on apply, with `applyBody` as the
+   * response the server sends back. Three tests need the same eight steps and
+   * only differ in that body, which is the thing under test.
+   */
+  async function applyRenameAgainst409(applyBody: unknown) {
     primeLoad();
     render(() => <EventsEditor weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
@@ -624,8 +749,7 @@ describe("EventsEditor", () => {
           }),
         );
       }
-      if (u.endsWith("/changes/apply"))
-        return Promise.resolve(json({ error: "State changed — re-preview" }, 409));
+      if (u.endsWith("/changes/apply")) return Promise.resolve(json(applyBody, 409));
       return Promise.resolve(json({}));
     });
 
@@ -634,7 +758,26 @@ describe("EventsEditor", () => {
       expect(screen.getByRole("dialog", { name: /Review changes before applying/i })).toBeTruthy(),
     );
     fireEvent.click(screen.getByRole("button", { name: /Confirm & save/i }));
+  }
 
+  it("surfaces a 409 apply as a re-preview prompt", async () => {
+    await applyRenameAgainst409({ error: "State changed — re-preview" });
+    await waitFor(() => expect(screen.getByText("State changed — re-preview")).toBeTruthy());
+  });
+
+  it("shows the missing-scope 409 verbatim, not the co-host wording", async () => {
+    // A change the server cannot read a scope from is not a concurrency conflict.
+    // Saying the schedule changed elsewhere would send the organiser hunting for
+    // an edit nobody made, so the server's own sentence has to reach the screen.
+    await applyRenameAgainst409({ error: "Change is missing its scope — re-preview" });
+    await waitFor(() =>
+      expect(screen.getByText("Change is missing its scope — re-preview")).toBeTruthy(),
+    );
+    expect(screen.queryByText(/changed elsewhere/i)).toBeNull();
+  });
+
+  it("falls back to the co-host wording when a 409 carries no message", async () => {
+    await applyRenameAgainst409({});
     await waitFor(() => expect(screen.getByText(/changed elsewhere/i)).toBeTruthy());
   });
 

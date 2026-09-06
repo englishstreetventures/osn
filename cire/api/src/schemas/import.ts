@@ -99,7 +99,7 @@ export type DesiredState = Schema.Schema.Type<typeof DesiredState>;
  * is untouched, NOT read as "everything is absent, remove it all".
  *
  *  - `"both"` — events + guests reconcile (the historical two-sheet import, and
- *    every editor DesiredState save, where the draft covers everything shown).
+ *    GuestsEditor's draft-save, which still covers everything shown).
  *  - `"events"` — only the schedule reconciles; households, guests and their
  *    attendance links are left exactly as they are.
  *  - `"guests"` — only households/guests/attendance reconcile; the schedule is

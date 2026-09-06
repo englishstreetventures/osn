@@ -2,16 +2,20 @@
 //
 // Loads the wedding's current server state into a mutable, id-stable SolidJS
 // store, tracks dirtiness against the loaded baseline, and (on Save) serialises
-// the whole draft into a DesiredState JSON the `changes/preview` front door
-// consumes. The draft is the WHOLE TRUTH — the editor front door diffs with
-// `removeManual` implicit-true — so the DesiredState carries EVERY event and
-// household, not just the mutated ones (an omitted row would read as a delete).
+// the draft into a DesiredState JSON the `changes/preview` front door consumes.
+// The editor front door diffs with `removeManual` implicit-true, so an omitted
+// row reads as a delete for whichever half the save's `scope` covers —
+// GuestsEditor sends NO scope, which the front door reads as the `"both"`
+// default, and it loads every event/household to keep the draft the whole
+// truth; EventsEditor saves `scope: "events"` and only carries events, so
+// leaving guests/households empty is safe (the scope tells the diff to leave
+// that half alone regardless of what's in the DesiredState).
 //
 // E5 wires up GUESTS only (households, guests, per-guest attendance). Events are
 // loaded and carried through UNCHANGED so a guests-only save preserves the
-// schedule (id-matched ⇒ update with identical values ⇒ no data loss). E6 will
-// add event editing on top of the same store — the shape is designed for that:
-// `events` is a first-class editable slice, it's just not mutated here yet.
+// schedule (id-matched ⇒ update with identical values ⇒ no data loss). E6 added
+// event editing on top of the same store — `events` is a first-class editable
+// slice there, driven by its own `scope: "events"` save.
 //
 // In-session UNDO + "discard draft" are pure client state: every mutation pushes
 // the prior snapshot onto an undo stack, so undo/discard are local — no server

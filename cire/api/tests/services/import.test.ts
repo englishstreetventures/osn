@@ -17,6 +17,7 @@ import { DbService } from "../../src/db";
 import type { Db } from "../../src/db";
 import { createDb, seedBootstrapWedding, seedDb } from "../../src/db/setup";
 import type { ImportPlan, ParsedEvent, ParsedFamily } from "../../src/schemas/import";
+import { currentEventsAsParsed } from "../../src/services/changes";
 import { claimService } from "../../src/services/claim";
 import { entitlementService } from "../../src/services/entitlements";
 import { hostCodeService } from "../../src/services/host-code";
@@ -413,9 +414,102 @@ describe("diff: scope — single-sheet (partial) changes", () => {
     // Pass an EMPTY event list under scope='guests'. Under the default scope
     // this would remove every event; scoped, the schedule is not in play at all.
     const plan = await Effect.runPromise(
-      diffAgainstDb([], [], BOOTSTRAP_WEDDING_ID, { scope: "guests" }).pipe(Effect.provide(layer)),
+      diffAgainstDb([], [], BOOTSTRAP_WEDDING_ID, { scope: "guests", removeManual: true }).pipe(
+        Effect.provide(layer),
+      ),
     );
     expect(plan.eventRemoves).toHaveLength(0);
+  });
+
+  it("scope='events': a guest-less household absent from the desired state is NOT removed", async () => {
+    const { db, layer } = seededLayer();
+    const now = new Date();
+    const emptyFamilyId = crypto.randomUUID();
+    // A household with zero guests — the case the /guests read alone would
+    // never surface, which is exactly why the old code also had to load
+    // /households before it was safe to diff a partial draft.
+    db.insert(families)
+      .values({
+        id: emptyFamilyId,
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: `PUB-${emptyFamilyId.slice(0, 8)}`,
+        familyName: "Emptyhold",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+
+    const ev = await Effect.runPromise(parseEventsCsv(FOUR_EVENTS_CSV));
+    // With the provenance toggle the events editor actually ships: it saves
+    // `removeManual: true`, which lifts the source filter entirely. The fixture
+    // above sets no `source`, so it takes the column default `'import'`
+    // (`cire/db/src/schema.ts`) — removable either way. Nothing but the scope
+    // stands between this household and a cascade.
+    const plan = await Effect.runPromise(
+      diffAgainstDb(ev, [], BOOTSTRAP_WEDDING_ID, {
+        scope: "events",
+        removeManual: true,
+        matchByName: false,
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(plan.familyRemoves).toHaveLength(0);
+    expect(db.select().from(families).where(eq(families.id, emptyFamilyId)).all()).toHaveLength(1);
+  });
+
+  it("scope='events': removing an event still deletes its guest_events and rsvps rows on apply", async () => {
+    const CATHOLIC_ID = "9f7a2c14-1b3d-4e5f-8a01-000000000001";
+    const { db, layer } = seededLayer();
+
+    // Ada already has a seeded guest_events link to the catholic ceremony; give
+    // her an RSVP for it too, so both child tables have a real row to lose.
+    const [ada] = db.select().from(guests).where(eq(guests.firstName, "Ada")).all();
+    db.insert(rsvps)
+      .values({
+        id: crypto.randomUUID(),
+        guestId: ada!.id,
+        eventId: CATHOLIC_ID,
+        status: "attending",
+        createdAt: new Date(),
+      })
+      .run();
+    expect(
+      db.select().from(guestEvents).where(eq(guestEvents.eventId, CATHOLIC_ID)).all(),
+    ).not.toHaveLength(0);
+    expect(db.select().from(rsvps).where(eq(rsvps.eventId, CATHOLIC_ID)).all()).toHaveLength(1);
+
+    // Desired schedule = every current event except the catholic ceremony.
+    const currentEvents = await Effect.runPromise(
+      currentEventsAsParsed(BOOTSTRAP_WEDDING_ID).pipe(Effect.provide(layer)),
+    );
+    const desiredEvents = currentEvents.filter((e) => e.id !== CATHOLIC_ID);
+
+    const plan = await Effect.runPromise(
+      diffAgainstDb(desiredEvents, [], BOOTSTRAP_WEDDING_ID, { scope: "events" }).pipe(
+        Effect.provide(layer),
+      ),
+    );
+    expect(plan.eventRemoves.map((e) => e.id)).toContain(CATHOLIC_ID);
+    // The safety property scope="events" exists for: no household is removed
+    // just because the guest half of the draft was never loaded.
+    expect(plan.familyRemoves).toHaveLength(0);
+
+    await Effect.runPromise(
+      applyImport("imp-events-scope-cascade", plan, BOOTSTRAP_WEDDING_ID).pipe(
+        Effect.provide(layer),
+      ),
+    );
+
+    expect(db.select().from(events).where(eq(events.id, CATHOLIC_ID)).all()).toHaveLength(0);
+    expect(
+      db.select().from(guestEvents).where(eq(guestEvents.eventId, CATHOLIC_ID)).all(),
+    ).toHaveLength(0);
+    expect(db.select().from(rsvps).where(eq(rsvps.eventId, CATHOLIC_ID)).all()).toHaveLength(0);
+    // And the household that was never in the (guest-less) desired state is
+    // still there — the data-loss case scope="events" prevents.
+    expect(
+      db.select().from(families).where(eq(families.familyName, "Testfamily")).all(),
+    ).toHaveLength(1);
   });
 });
 
