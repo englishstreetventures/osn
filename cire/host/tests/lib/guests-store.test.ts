@@ -7,6 +7,7 @@ import {
   hasCachedGuests,
   invalidateGuests,
   type OrganiserGuestRow,
+  setCachedGuests,
 } from "../../src/lib/guests-store";
 
 /**
@@ -64,7 +65,7 @@ describe("ensureGuestsLoaded", () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
-  it("refetches after invalidation (e.g. an import apply)", async () => {
+  it("hasCachedGuests is false after invalidate, so the next load refetches", async () => {
     const fetcher = vi.fn(async () => [ROW]);
     await ensureGuestsLoaded("wed_1", fetcher);
     expect(hasCachedGuests("wed_1")).toBe(true);
@@ -77,7 +78,8 @@ describe("ensureGuestsLoaded", () => {
   /**
    * The invalidate-then-reload path a change apply runs. Dropping the cache entry
    * alone leaves the in-flight fetch's own `.then` free to write PRE-mutation rows
-   * into a fresh entry — i.e. the row the organiser just deleted comes back.
+   * into a fresh entry — i.e. the row the organiser just deleted comes back. The
+   * generation bump discards that abandoned load's result outright.
    */
   it("does not adopt a fetch that was in flight when the cache was invalidated", async () => {
     let resolveStale!: (rows: OrganiserGuestRow[]) => void;
@@ -95,6 +97,7 @@ describe("ensureGuestsLoaded", () => {
 
     expect(fresh).toHaveBeenCalledTimes(1);
     expect(guestsAccessor("wed_1")()?.map((r) => r.familyId)).toEqual(["fresh"]);
+    expect(hasCachedGuests("wed_1")).toBe(true);
   });
 
   /**
@@ -103,14 +106,87 @@ describe("ensureGuestsLoaded", () => {
    * map entry on invalidate would leave that accessor pointed at a signal
    * nothing writes to again — a dead view showing stale rows forever. The fix
    * writes THROUGH the signal, so an accessor captured before invalidate
-   * still observes the transition.
+   * still observes it.
+   *
+   * What changed since: invalidate used to null that signal outright, which
+   * flashed the table empty on every organiser edit while the background
+   * refetch ran. It now leaves the rows in place and marks the wedding
+   * `stale` instead — a mounted table keeps rendering the last-known rows
+   * across the invalidate.
    */
-  it("a mounted consumer's captured accessor observes null after invalidate", async () => {
+  it("a mounted consumer's captured accessor keeps the previous rows after invalidate", async () => {
     const fetcher = vi.fn(async () => [ROW]);
     await ensureGuestsLoaded("wed_1", fetcher);
     const mounted = guestsAccessor("wed_1"); // captured once, as a real mount would
     expect(mounted()).toEqual([ROW]);
     invalidateGuests("wed_1");
-    expect(mounted()).toBeNull();
+    expect(mounted()).toEqual([ROW]);
+    expect(hasCachedGuests("wed_1")).toBe(false);
+  });
+
+  it("ensureGuestsLoaded refetches after invalidate and replaces the stale rows on success", async () => {
+    await ensureGuestsLoaded("wed_1", async () => [{ ...ROW, familyId: "a" }]);
+    invalidateGuests("wed_1");
+    await ensureGuestsLoaded("wed_1", async () => [{ ...ROW, familyId: "b" }]);
+    expect(guestsAccessor("wed_1")()?.map((r) => r.familyId)).toEqual(["b"]);
+    expect(hasCachedGuests("wed_1")).toBe(true);
+  });
+
+  /**
+   * Security property, not an optimisation: the refetch after invalidate is
+   * also the re-authorization check. A demoted organiser must not keep
+   * reading the last-known guest list behind an error banner just because
+   * the stale-while-revalidate contract kept the old rows on screen — a
+   * refused/failed refetch has to blank the signal and rethrow so the caller
+   * sees the failure too.
+   */
+  it("ensureGuestsLoaded blanks the signal and rethrows when the refetch is refused", async () => {
+    await ensureGuestsLoaded("wed_1", async () => [ROW]);
+    invalidateGuests("wed_1");
+    const refusal = new Error("403");
+    await expect(
+      ensureGuestsLoaded("wed_1", async () => {
+        throw refusal;
+      }),
+    ).rejects.toBe(refusal);
+    expect(guestsAccessor("wed_1")()).toBeNull();
+  });
+
+  it("__resetGuestsCache clears the stale flag along with the cache", async () => {
+    await ensureGuestsLoaded("wed_1", async () => [ROW]);
+    invalidateGuests("wed_1"); // marks wed_1 stale
+    __resetGuestsCache();
+    // A stale flag surviving the reset would make every future write via
+    // `setCachedGuests` (not `ensureGuestsLoaded`) look like a stale hit
+    // forever, since only `ensureGuestsLoaded`'s success path clears it.
+    setCachedGuests("wed_1", [{ ...ROW, familyId: "b" }]);
+    expect(hasCachedGuests("wed_1")).toBe(true);
+  });
+  /**
+   * A load that resolves after a NEWER invalidate has landed must do nothing at
+   * all: it neither writes its guest rows nor clears the stale mark. Both halves
+   * matter — writing would restore state the organiser has already mutated
+   * past, and clearing would let the next `ensureGuestsLoaded` short-circuit on
+   * rows no in-generation load ever confirmed.
+   */
+  it("a generation-stale success writes no rows and leaves the wedding stale", async () => {
+    await ensureGuestsLoaded("wed_1", async () => [{ ...ROW, familyId: "seed" }]);
+    invalidateGuests("wed_1");
+
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const pending = ensureGuestsLoaded("wed_1", async () => {
+      await gate;
+      return [{ ...ROW, familyId: "abandoned" }];
+    });
+
+    invalidateGuests("wed_1"); // a second invalidate, while that load is still in flight
+    release();
+    await pending;
+
+    expect(guestsAccessor("wed_1")()?.map((r) => r.familyId)).toEqual(["seed"]);
+    expect(hasCachedGuests("wed_1")).toBe(false);
   });
 });

@@ -53,7 +53,7 @@ export default function ChecklistView(props: ChecklistViewProps) {
   const reload = async () => {
     invalidateTasks(props.weddingId);
     try {
-      setCachedTasks(props.weddingId, await load());
+      await ensureTasksLoaded(props.weddingId, load);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Couldn't refresh your checklist.");

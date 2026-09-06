@@ -173,4 +173,51 @@ describe("BudgetView", () => {
     expect(init.method).toBe("POST");
     expect(await screen.findByText("Caterer")).toBeInTheDocument();
   });
+
+  /**
+   * `reload()` (BudgetView.tsx) now routes through `invalidateBudget` +
+   * `ensureBudgetLoaded` instead of a bare `setCachedBudget(id, await load())`.
+   * A store-level test proves the signal goes null when a refetch is refused;
+   * it does not prove the view stops rendering the rows it already captured.
+   * This drives that end to end: a failed mutation triggers `reload()`, whose
+   * own refetch is refused too, and the previously rendered row must
+   * disappear along with the refresh error appearing.
+   */
+  it("a refused reload after a failed mutation clears the rows and shows the refresh error", async () => {
+    setCachedBudget(
+      "wed_1",
+      snap({
+        items: [
+          {
+            id: "a",
+            weddingId: "wed_1",
+            category: "venue",
+            name: "Reception venue",
+            estimateMinor: null,
+            quotedMinor: null,
+            actualMinor: null,
+            notes: null,
+            sortOrder: 0,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        ],
+      }),
+    );
+    authFetch
+      .mockResolvedValueOnce(new Response("fail", { status: 500 })) // the add-item POST fails
+      .mockResolvedValueOnce(new Response("fail", { status: 500 })); // reload()'s own GET is refused too
+    render(() => <BudgetView weddingId="wed_1" canEdit={true} canManage={true} />);
+    await screen.findByText("Reception venue");
+
+    const nameInput = screen.getByPlaceholderText(/caterer, venue/i);
+    fireEvent.input(nameInput, { target: { value: "Cake" } });
+    fireEvent.click(screen.getByRole("button", { name: /add item/i }));
+
+    await waitFor(() => expect(authFetch).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByRole("alert")).toHaveTextContent("Couldn't refresh your budget."),
+    );
+    expect(screen.queryByText("Reception venue")).not.toBeInTheDocument();
+  });
 });

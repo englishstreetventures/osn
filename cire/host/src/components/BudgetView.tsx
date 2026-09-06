@@ -67,7 +67,7 @@ export default function BudgetView(props: BudgetViewProps) {
   const reload = async () => {
     invalidateBudget(props.weddingId);
     try {
-      setCachedBudget(props.weddingId, await load());
+      await ensureBudgetLoaded(props.weddingId, load);
     } catch (err) {
       if (isAuthExpired(err)) return redirectToLogin();
       setError("Couldn't refresh your budget.");
