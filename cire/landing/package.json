@@ -31,7 +31,7 @@
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
     "@types/three": "^0.185.4",
-    "jsdom": "^29.1.1",
+    "jsdom": "^30.0.1",
     "typescript": "^6.0.3",
     "vite-plugin-solid": "^2.11.14",
     "vitest": "^4.1.11"
