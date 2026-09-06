@@ -46,9 +46,20 @@ export function toastMock() {
   };
 }
 
-/** Factory for `vi.mock("../../src/lib/api", ...)`. */
-export function organiserApiMock() {
+/**
+ * Factory for `vi.mock("../../src/lib/api", ...)`.
+ *
+ * Spreads the real module and overrides only the three exports a component
+ * test has to control — the URL builder, the auth-expiry predicate, and the
+ * redirect. Listing exports instead would make every future addition to
+ * `lib/api` silently `undefined` in fifteen test files, which is not a failure
+ * that reads as a missing mock: the component calls it, throws a TypeError
+ * inside its own `try`, and renders a load error as though the API were down.
+ */
+export async function organiserApiMock() {
+  const actual = await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api");
   return {
+    ...actual,
     apiUrl: (path: string) => `https://api.test${path}`,
     isAuthExpired: (err: unknown) => String(err).includes("AuthExpiredError"),
     redirectToLogin: () => redirectSpy(),

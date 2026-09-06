@@ -123,7 +123,14 @@ export default function EventsEditor(props: { weddingId: string }) {
   /** Load events through the shared cache, then seed the draft. Guests and
    *  households are NOT loaded here: the save posts `scope: "events"`, so the
    *  server-side diff leaves households/guests/attendance alone regardless of
-   *  what the draft carries for them — passing empty arrays is safe. */
+   *  what the draft carries for them — passing empty arrays is safe.
+   *
+   *  The EVENTS slice is a different matter, because `scope: "events"` is
+   *  exactly what makes the server act on it. A load that resolves without
+   *  filling the cache — a generation-discarded one, e.g. an invalidate landing
+   *  mid-fetch — would fall through `?? []` and seed a draft saying the wedding
+   *  has no events, which reads as "delete every event". `ensureEventsLoaded`
+   *  resolving `false` is what the check below refuses. */
   async function loadInto() {
     const events = await ensureEventsLoaded(props.weddingId, async () => {
       const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
@@ -133,7 +140,11 @@ export default function EventsEditor(props: { weddingId: string }) {
       }
       if (!res.ok) throw new Error("Failed to load events");
       return (await res.json()) as EventRow[];
-    }).then(() => eventsAccessor(props.weddingId)() ?? []);
+    }).then((fresh) => {
+      const rows = eventsAccessor(props.weddingId)();
+      if (!fresh || rows == null) throw new Error("event slice unavailable");
+      return rows;
+    });
     store.load(events, [], []);
   }
 
