@@ -18,7 +18,7 @@ related:
   - "[[browser-tests]]"
   - "[[d1-read-replication]]"
   - "[[commands]]"
-last-reviewed: 2026-09-01
+last-reviewed: 2026-09-06
 ---
 
 # Cire development guide
@@ -87,7 +87,12 @@ multi-wedding; it went when organisers could own several.)
 Platform conventions are in [[testing-patterns]]; the real-Chromium tier is in
 [[browser-tests]]. Cire specifics:
 
-- Test files sit beside their source as `*.test.ts`.
+- Test files live in `tests/` at the package root, mirroring `src/` — never
+  beside their source. `cire/api/src/services/import.ts` pairs with
+  `cire/api/tests/services/import.test.ts`, and test-only support code sits
+  there too (`cire/api/tests/test-helpers/`, `cire/host/tests/test-support/`).
+  The one carve-out is the Miniflare-backed D1 tier at `cire/*/tests/db/`, which
+  only `bun run test:d1` runs.
 - **Integration tests run against a local D1 via `wrangler dev` — do not mock the
   database.**
 - **`*.browser.test.tsx` runs in real Chromium**, not jsdom, for anything needing

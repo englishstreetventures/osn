@@ -12,7 +12,7 @@ related:
   - "[[cire-vendors]]"
   - "[[musubi-identity-migration]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-08-30
+last-reviewed: 2026-09-06
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -1006,7 +1006,7 @@ Run these in order. Each one maps to a startup requirement listed above.
 | Drop orphaned demo wedding (`wed_bootstrap`) | `cire/db/migrations/0015_drop_bootstrap_wedding.sql` |
 | Organiser open access (any OSN user; no boot gate) | list/create `cire/api/src/routes/organiser-weddings.ts`; per-wedding authz `cire/api/src/middleware/wedding-owner.ts`, `wedding-member.ts` |
 | cire migrate scripts | `cire/db/package.json` (`db:migrate:local|dev|prod`) |
-| cire dev seed / reset + their guard | `cire/db/seed/dev-seed.sql`, `dev-reset.sql`; `scripts/cire-db-seed.sh`, `cire-db-reset.sh`, `cire-dev-db-guard.sh` |
+| cire dev seed / reset + their guard | `cire/db/seed/dev-seed.sql`, `dev-reset.sql`; `scripts/cire-db-seed.sh`, `cire-db-reset.sh`, `cire-dev-db-guard.ts` |
 | Two-tier deploy pipeline (dev auto, prod gated) | `.github/workflows/deploy.yml` (`changes` → `deploy-<surface>-dev` → `deploy-<surface>`) |
 
 ## Related

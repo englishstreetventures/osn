@@ -49,7 +49,7 @@ Every remote script names its target database explicitly **and** passes `--env`.
 Neither is optional: without `--env`, wrangler resolves the name against the
 top-level config, so a script meant for dev silently hits production. The two
 destructive dev scripts also re-check `cire/api/wrangler.toml` at run time
-(`scripts/cire-dev-db-guard.sh`) and abort unless `[env.dev]` really is
+(`scripts/cire-dev-db-guard.ts`) and abort unless `[env.dev]` really is
 `cire-db-dev` with an id no other environment shares.
 
 Production is never reset and never seeded — no script here can do either.

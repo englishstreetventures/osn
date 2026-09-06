@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-08-20
+last-reviewed: 2026-09-06
 ---
 
 # Dev environment (cire + OSN identity)
@@ -199,7 +199,7 @@ Two things fall out of that order. Dev data never drifts from the seed, and
 as an increment from the current prod shape fails here, on a disposable database,
 instead of in production months later.
 
-Both destructive steps route through `scripts/cire-dev-db-guard.sh`, which
+Both destructive steps route through `scripts/cire-dev-db-guard.ts`, which
 re-derives the target from `cire/api/wrangler.toml` at run time and aborts unless
 `[env.dev]` really is `cire-db-dev` with an id no other environment shares. There
 is no flag anywhere in `cire/db` that can reset or seed production.
