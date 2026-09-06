@@ -3,7 +3,7 @@ import { toast } from "@shared/toast";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import {
   ensureEventsLoaded,
   type EventRow,
@@ -67,9 +67,14 @@ export default function GuestsEditor(props: { weddingId: string }) {
 
   /** Load events + guests + households through the shared caches, then seed the
    *  draft. Households are read separately because the guest rows only describe
-   *  households that HOLD a guest — see `buildDraft`. */
+   *  households that HOLD a guest — see `buildDraft`. The draft-save posts the
+   *  WHOLE DesiredState, so a slice that resolves without filling the cache (a
+   *  generation-discarded load, e.g. an invalidate landing mid-fetch) must not
+   *  fall back to `?? []` — that reads as "delete everything in this slice".
+   *  The `!fresh` checks below throw instead, so the load error is surfaced
+   *  rather than seeding an empty draft. */
   async function loadInto() {
-    const [events, guests, households] = await Promise.all([
+    const [events, guests, households] = await allAuthFirst([
       ensureEventsLoaded(props.weddingId, async () => {
         const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
         if (res.status === 401) {
@@ -78,7 +83,11 @@ export default function GuestsEditor(props: { weddingId: string }) {
         }
         if (!res.ok) throw new Error("Failed to load events");
         return (await res.json()) as EventRow[];
-      }).then(() => eventsAccessor(props.weddingId)() ?? []),
+      }).then((fresh) => {
+        const rows = eventsAccessor(props.weddingId)();
+        if (!fresh || rows == null) throw new Error("event slice unavailable");
+        return rows;
+      }),
       ensureGuestsLoaded(props.weddingId, async () => {
         const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/guests`));
         if (res.status === 401) {
@@ -87,7 +96,11 @@ export default function GuestsEditor(props: { weddingId: string }) {
         }
         if (!res.ok) throw new Error("Failed to load guests");
         return (await res.json()) as OrganiserGuestRow[];
-      }).then(() => guestsAccessor(props.weddingId)() ?? []),
+      }).then((fresh) => {
+        const rows = guestsAccessor(props.weddingId)();
+        if (!fresh || rows == null) throw new Error("guest slice unavailable");
+        return rows;
+      }),
       ensureHouseholdsLoaded(props.weddingId, async () => {
         const res = await authFetch(
           apiUrl(`/api/organiser/weddings/${props.weddingId}/households`),
@@ -98,7 +111,11 @@ export default function GuestsEditor(props: { weddingId: string }) {
         }
         if (!res.ok) throw new Error("Failed to load households");
         return (await res.json()) as OrganiserHouseholdRow[];
-      }).then(() => householdsAccessor(props.weddingId)() ?? []),
+      }).then((fresh) => {
+        const rows = householdsAccessor(props.weddingId)();
+        if (!fresh || rows == null) throw new Error("household slice unavailable");
+        return rows;
+      }),
     ]);
     store.load(events, guests, households);
   }

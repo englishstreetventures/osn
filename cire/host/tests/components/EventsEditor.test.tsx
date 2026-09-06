@@ -27,7 +27,7 @@ vi.mock("../../src/lib/api", async () => {
 
 import EventsEditor from "../../src/components/EventsEditor";
 import { __resetEventsCache } from "../../src/lib/events-store";
-import { __resetGuestsCache } from "../../src/lib/guests-store";
+import { __resetGuestsCache, invalidateGuests } from "../../src/lib/guests-store";
 import { __resetHouseholdsCache } from "../../src/lib/households-store";
 import { confirmNavigation } from "../../src/lib/unsaved-guard";
 import { authFetchMock, resetOrganiserMocks, toastSuccess } from "../test-support/mocks";
@@ -138,6 +138,51 @@ describe("EventsEditor", () => {
     render(() => <EventsEditor weddingId="wed_a" />);
     await waitFor(() => expect(screen.getByText("Ceremony")).toBeTruthy());
     expect(screen.getByText("Reception")).toBeTruthy();
+  });
+
+  // S-L (xchromo/osn-tracker#622): the draft-save posts the WHOLE DesiredState,
+  // so a guest slice that resolves without filling the cache must not fall back
+  // to `?? []` — that reads as "delete every household". A generation-discarded
+  // load (an invalidate landing while `ensureGuestsLoaded`'s fetch is still in
+  // flight — the exact sequence a real save-then-refetch produces) resolves
+  // `false` rather than throwing, so this is reachable without a rejected fetch.
+  it("shows a load error instead of seeding an empty draft when a guest load resolves stale", async () => {
+    let resolveGuestsFetch!: (res: Response) => void;
+    const guestsFetch = new Promise<Response>((resolve) => {
+      resolveGuestsFetch = resolve;
+    });
+    authFetchMock.mockImplementation((url: string) => {
+      const u = String(url);
+      if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
+      if (u.endsWith("/guests")) return guestsFetch;
+      if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));
+      return Promise.resolve(json({}));
+    });
+
+    render(() => <EventsEditor weddingId="wed_a" />);
+
+    // Wait for the guests fetch to actually be issued before invalidating —
+    // otherwise the invalidate could land before `ensureGuestsLoaded` even
+    // reads the starting generation, which isn't the race this test targets.
+    await waitFor(() =>
+      expect(authFetchMock.mock.calls.some((c) => String(c[0]).endsWith("/guests"))).toBe(true),
+    );
+
+    // A mutation elsewhere invalidates guests for this wedding WHILE the fetch
+    // above is still in flight — this is what a save-then-refetch does for
+    // real. It bumps the generation the in-flight load started under.
+    invalidateGuests("wed_a");
+
+    // The in-flight fetch now resolves — but against a generation that has
+    // since moved on, so `ensureGuestsLoaded` discards the rows instead of
+    // caching them and resolves `false`.
+    resolveGuestsFetch(json(GUESTS));
+
+    // The load must surface as an error, not seed the draft from an empty
+    // guest slice: the schedule never renders, and neither does a blank state
+    // that would let Save reach the wire with guests wiped out.
+    await waitFor(() => expect(screen.getByText(/Could not load the schedule/i)).toBeTruthy());
+    expect(screen.queryByText("Ceremony")).toBeNull();
   });
 
   it("opens the drawer and edits an event name", async () => {

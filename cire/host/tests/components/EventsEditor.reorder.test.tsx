@@ -24,11 +24,19 @@ vi.mock("@shared/toast", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock("../../src/lib/api", () => ({
-  apiUrl: (path: string) => `https://api.test${path}`,
-  isAuthExpired: () => false,
-  redirectToLogin: () => {},
-}));
+// Spread the real module rather than listing exports: a partial mock makes
+// every later addition to `lib/api` `undefined` here, and the component then
+// throws inside its own try and renders a load error as though the API were
+// down — a failure that does not read as a missing mock.
+vi.mock("../../src/lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../../src/lib/api")>("../../src/lib/api");
+  return {
+    ...actual,
+    apiUrl: (path: string) => `https://api.test${path}`,
+    isAuthExpired: () => false,
+    redirectToLogin: () => {},
+  };
+});
 
 import EventsEditor from "../../src/components/EventsEditor";
 import { __resetEventsCache } from "../../src/lib/events-store";

@@ -2,7 +2,7 @@
 import { AuthExpiredError } from "@shared/rp-auth";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../../src/lib/api";
+import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin } from "../../src/lib/api";
 
 /**
  * `isAuthExpired` decides between "bounce the organiser to sign-in" and "show
@@ -95,5 +95,56 @@ describe("redirectToLogin", () => {
 describe("apiUrl", () => {
   it("prefixes the configured cire API origin", () => {
     expect(apiUrl("/api/organiser/weddings")).toMatch(/\/api\/organiser\/weddings$/);
+  });
+});
+
+/**
+ * `Promise.all` adopts whichever rejection settles FIRST, and the editors load
+ * three slices at once where exactly one failure is special: an expired session
+ * has to reach `redirectToLogin()` rather than a banner the organiser can do
+ * nothing about. Once a slice could reject for an ordinary reason too, timing
+ * decided which reason the catch saw, and losing that race lost the redirect.
+ */
+describe("allAuthFirst", () => {
+  it("resolves the values in order, like Promise.all", async () => {
+    const [a, b, c] = await allAuthFirst([
+      Promise.resolve(1),
+      Promise.resolve("two"),
+      Promise.resolve([3]),
+    ]);
+    expect(a).toBe(1);
+    expect(b).toBe("two");
+    expect(c).toEqual([3]);
+  });
+
+  it("prefers an expired session over a rejection that settled earlier", async () => {
+    const slice = new Error("guest slice unavailable");
+    const expired = new AuthExpiredError();
+    await expect(
+      allAuthFirst([
+        Promise.reject(slice),
+        new Promise((_, reject) => setTimeout(() => reject(expired), 5)),
+      ]),
+    ).rejects.toBe(expired);
+  });
+
+  it("throws the first rejection when none of them is an expired session", async () => {
+    const first = new Error("first");
+    await expect(
+      allAuthFirst([Promise.reject(first), Promise.reject(new Error("second"))]),
+    ).rejects.toBe(first);
+  });
+
+  it("waits for every promise before choosing, so a later auth failure still wins", async () => {
+    const expired = new AuthExpiredError();
+    let settled = false;
+    const slow = new Promise((_, reject) =>
+      setTimeout(() => {
+        settled = true;
+        reject(expired);
+      }, 10),
+    );
+    await expect(allAuthFirst([Promise.reject(new Error("fast")), slow])).rejects.toBe(expired);
+    expect(settled).toBe(true);
   });
 });

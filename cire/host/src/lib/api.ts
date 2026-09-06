@@ -51,3 +51,43 @@ export function redirectToLogin(): void {
       : `/login?returnTo=${encodeURIComponent(here)}`;
   window.location.href = target;
 }
+
+/**
+ * `Promise.all` for calls whose rejections are not equally important.
+ *
+ * `Promise.all` adopts whichever rejection settles FIRST, and that is decided
+ * by timing rather than by what the caller needs to hear about. Every caller
+ * here loads several slices at once and handles exactly one failure specially:
+ * an expired session, which must reach `redirectToLogin()` rather than a
+ * "couldn't load" banner the organiser can do nothing about. If any other
+ * slice rejects a tick earlier — because a generation-discarded load left it
+ * unusable, say — `Promise.all` hands that reason to the catch, `isAuthExpired`
+ * returns false, and the redirect is silently lost.
+ *
+ * This settles all of them and rethrows an expired session in preference to
+ * anything else, so the reason is chosen by severity. With no auth failure
+ * among them it behaves exactly as `Promise.all` does: the first rejection,
+ * or the resolved values in order.
+ */
+export async function allAuthFirst<T extends readonly Promise<unknown>[]>(
+  promises: readonly [...T],
+): Promise<{ -readonly [K in keyof T]: Awaited<T[K]> }> {
+  const results = await Promise.allSettled(promises);
+  // An expired session wins over any other reason; failing that, the first
+  // rejection, which is what `Promise.all` would have thrown anyway.
+  let chosen: { readonly reason: unknown } | undefined;
+  for (const result of results) {
+    if (result.status !== "rejected") continue;
+    if (isAuthExpired(result.reason)) {
+      chosen = result;
+      break;
+    }
+    chosen ??= result;
+  }
+  if (chosen) throw chosen.reason;
+  // Nothing rejected, so every promise is already settled and this resolves on
+  // the next tick with the values in order. Deferring to `Promise.all` here
+  // rather than collecting them by hand is what lets the return type be its
+  // type: no assertion, and no chance of the two drifting apart.
+  return Promise.all(promises);
+}

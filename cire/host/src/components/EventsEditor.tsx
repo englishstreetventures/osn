@@ -15,7 +15,7 @@ import { toast } from "@shared/toast";
 import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
-import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { allAuthFirst, apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
 import { type DateTimeParts, joinIso, splitIso } from "../lib/event-datetime";
 import { formatEventWhen } from "../lib/event-display";
 import {
@@ -131,9 +131,14 @@ export default function EventsEditor(props: { weddingId: string }) {
   /** Load events + guests through the shared caches, then seed the draft. Guests
    *  are loaded even though this tab only edits events: the draft-save posts the
    *  WHOLE DesiredState, so an unloaded guest slice would read as "delete every
-   *  household". */
+   *  household". That comment covers not CALLING the loader; it does not cover
+   *  the loader resolving without filling the cache (a generation-discarded
+   *  load, e.g. an invalidate landing mid-fetch) — `ensureXxxLoaded` resolving
+   *  `false` for that case is what the `!fresh` checks below guard against,
+   *  rather than falling back to `?? []` and seeding the same empty-slice
+   *  deletion from the other direction. */
   async function loadInto() {
-    const [events, guests, households] = await Promise.all([
+    const [events, guests, households] = await allAuthFirst([
       ensureEventsLoaded(props.weddingId, async () => {
         const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/events`));
         if (res.status === 401) {
@@ -142,7 +147,11 @@ export default function EventsEditor(props: { weddingId: string }) {
         }
         if (!res.ok) throw new Error("Failed to load events");
         return (await res.json()) as EventRow[];
-      }).then(() => eventsAccessor(props.weddingId)() ?? []),
+      }).then((fresh) => {
+        const rows = eventsAccessor(props.weddingId)();
+        if (!fresh || rows == null) throw new Error("event slice unavailable");
+        return rows;
+      }),
       ensureGuestsLoaded(props.weddingId, async () => {
         const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/guests`));
         if (res.status === 401) {
@@ -151,7 +160,11 @@ export default function EventsEditor(props: { weddingId: string }) {
         }
         if (!res.ok) throw new Error("Failed to load guests");
         return (await res.json()) as OrganiserGuestRow[];
-      }).then(() => guestsAccessor(props.weddingId)() ?? []),
+      }).then((fresh) => {
+        const rows = guestsAccessor(props.weddingId)();
+        if (!fresh || rows == null) throw new Error("guest slice unavailable");
+        return rows;
+      }),
       // Households ride along for the same reason the guests do, one level down:
       // the guest rows can't describe a household that holds no guests, so
       // without this read a guest-less household is absent from the DesiredState
@@ -166,7 +179,11 @@ export default function EventsEditor(props: { weddingId: string }) {
         }
         if (!res.ok) throw new Error("Failed to load households");
         return (await res.json()) as OrganiserHouseholdRow[];
-      }).then(() => householdsAccessor(props.weddingId)() ?? []),
+      }).then((fresh) => {
+        const rows = householdsAccessor(props.weddingId)();
+        if (!fresh || rows == null) throw new Error("household slice unavailable");
+        return rows;
+      }),
     ]);
     store.load(events, guests, households);
   }
