@@ -223,7 +223,7 @@ describe("tasks-store", () => {
   it("ensureTasksLoaded refetches after invalidate and replaces the stale rows on success", async () => {
     await ensureTasksLoaded("wed_1", async () => [row({ id: "a" })]);
     invalidateTasks("wed_1");
-    await ensureTasksLoaded("wed_1", async () => [row({ id: "b" })]);
+    await expect(ensureTasksLoaded("wed_1", async () => [row({ id: "b" })])).resolves.toBe(true);
     expect(tasksAccessor("wed_1")()?.map((t) => t.id)).toEqual(["b"]);
     expect(hasCachedTasks("wed_1")).toBe(true);
   });

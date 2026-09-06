@@ -33,6 +33,7 @@ import { __resetBudgetCache } from "../../src/lib/budget-store";
 import { __resetEventsCache } from "../../src/lib/events-store";
 import { __resetGuestsCache, setCachedGuests } from "../../src/lib/guests-store";
 import { __resetTasksCache } from "../../src/lib/tasks-store";
+import { __resetVendorsCache } from "../../src/lib/vendors-store";
 import { authFetchMock, resetOrganiserMocks } from "../test-support/mocks";
 
 function json(body: unknown, status = 200) {
@@ -42,14 +43,15 @@ function json(body: unknown, status = 200) {
   });
 }
 
-/** Route the five Overview fetches (settings, rsvps, events, guests, tasks) by URL so
- *  the order the component fires them in doesn't matter. */
+/** Route the six Overview fetches (settings, rsvps, events, guests, tasks, vendors) by
+ *  URL so the order the component fires them in doesn't matter. */
 function routeFetch(opts: {
   settings?: unknown;
   rsvps?: unknown;
   events?: unknown;
   guests?: unknown;
   tasks?: unknown;
+  vendors?: unknown;
 }) {
   authFetchMock.mockImplementation((url: string) => {
     if (url.endsWith("/settings")) return Promise.resolve(json({ wedding: opts.settings ?? {} }));
@@ -57,6 +59,7 @@ function routeFetch(opts: {
     if (url.endsWith("/events")) return Promise.resolve(json(opts.events ?? []));
     if (url.endsWith("/guests")) return Promise.resolve(json(opts.guests ?? []));
     if (url.endsWith("/tasks")) return Promise.resolve(json({ tasks: opts.tasks ?? [] }));
+    if (url.endsWith("/vendors")) return Promise.resolve(json({ vendors: opts.vendors ?? [] }));
     return Promise.resolve(json({}, 404));
   });
 }
@@ -128,6 +131,7 @@ describe("Overview", () => {
     __resetEventsCache();
     __resetGuestsCache();
     __resetTasksCache();
+    __resetVendorsCache();
   });
 
   it("shows the getting-started empty-state for a brand-new wedding", async () => {
@@ -211,6 +215,44 @@ describe("Overview", () => {
     expect(screen.queryByText(/Coming soon/i)).toBeNull();
     // Checklist shows the live empty state (tasks loaded, none open).
     await waitFor(() => expect(screen.getByText(/No tasks yet/i)).toBeTruthy());
+  });
+
+  /**
+   * Regression test for #620: `vendorCount` used to read
+   * `cache.get(weddingId)?.vendors() ?? null`, so from a COLD cache the
+   * optional chain short-circuited before the accessor ran, `vendorCountValue`
+   * registered zero dependencies, and the Vendors card never left "Loading
+   * your vendors…" even once the fetch resolved. This starts the cache cold
+   * (no `setCachedVendors` before render, unlike the pre-seeded tests
+   * elsewhere in this file) so the widget can only pass if the memo actually
+   * subscribes to the load.
+   */
+  it("shows the live vendor count once the cold vendors cache resolves", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+      tasks: [],
+      vendors: [
+        { id: "v1", weddingId: "wed_1", name: "Florist", category: "florals", status: "booked" },
+        { id: "v2", weddingId: "wed_1", name: "Caterer", category: "catering", status: "quoted" },
+        { id: "v3", weddingId: "wed_1", name: "DJ", category: "music", status: "researching" },
+      ],
+    });
+    render(() => <Overview weddingId="wed_1" onNavigate={vi.fn()} />);
+    // The vendors cache starts cold (nothing seeded before render), so this
+    // can only pass if `vendorCountValue` actually subscribes to the load —
+    // the #620 bug left it permanently stuck on the "Loading your vendors…"
+    // fallback because the memo captured its (dependency-free) `null` value
+    // before the fetch ever resolved. The count ("3") sits in its own <span>
+    // inside the card's <p>, so match on the card's normalised text instead
+    // of a single text node.
+    const vendorsCard = (await screen.findByText("Vendors")).closest("button")!;
+    await waitFor(() =>
+      expect(vendorsCard.textContent!.replace(/\s+/g, " ").trim()).toMatch(/3 vendors tracked/i),
+    );
+    expect(vendorsCard.textContent).not.toMatch(/Loading your vendors…/i);
   });
 
   it("renders the RSVP progress bar and per-event attending breakdown", async () => {

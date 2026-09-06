@@ -124,7 +124,9 @@ describe("ensureEventsLoaded", () => {
   it("ensureEventsLoaded refetches after invalidate and replaces the stale rows on success", async () => {
     await ensureEventsLoaded("wed_1", async () => [{ ...ROW, id: "a" }]);
     invalidateEvents("wed_1");
-    await ensureEventsLoaded("wed_1", async () => [{ ...ROW, id: "b" }]);
+    await expect(ensureEventsLoaded("wed_1", async () => [{ ...ROW, id: "b" }])).resolves.toBe(
+      true,
+    );
     expect(eventsAccessor("wed_1")()?.map((r) => r.id)).toEqual(["b"]);
     expect(hasCachedEvents("wed_1")).toBe(true);
   });

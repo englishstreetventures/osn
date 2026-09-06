@@ -145,7 +145,9 @@ describe("ensureHouseholdsLoaded", () => {
   it("ensureHouseholdsLoaded refetches after invalidate and replaces the stale rows on success", async () => {
     await ensureHouseholdsLoaded("wed_1", async () => [{ ...ROW, familyId: "a" }]);
     invalidateHouseholds("wed_1");
-    await ensureHouseholdsLoaded("wed_1", async () => [{ ...ROW, familyId: "b" }]);
+    await expect(
+      ensureHouseholdsLoaded("wed_1", async () => [{ ...ROW, familyId: "b" }]),
+    ).resolves.toBe(true);
     expect(householdsAccessor("wed_1")()?.map((h) => h.familyId)).toEqual(["b"]);
     expect(hasCachedHouseholds("wed_1")).toBe(true);
   });

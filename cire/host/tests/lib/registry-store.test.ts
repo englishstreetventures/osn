@@ -247,7 +247,9 @@ describe("registry-store", () => {
   it("ensureRegistryLoaded refetches after invalidate and replaces the stale snapshot on success", async () => {
     await ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "a" })] }));
     invalidateRegistry("wed_1");
-    await ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "b" })] }));
+    await expect(
+      ensureRegistryLoaded("wed_1", async () => snapshot({ items: [item({ id: "b" })] })),
+    ).resolves.toBe(true);
     expect(registryAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["b"]);
     expect(hasCachedRegistry("wed_1")).toBe(true);
   });

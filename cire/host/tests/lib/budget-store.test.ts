@@ -204,7 +204,9 @@ describe("budget-store", () => {
   it("ensureBudgetLoaded refetches after invalidate and replaces the stale snapshot on success", async () => {
     await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "a" })] }));
     invalidateBudget("wed_1");
-    await ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "b" })] }));
+    await expect(
+      ensureBudgetLoaded("wed_1", async () => snap({ items: [item({ id: "b" })] })),
+    ).resolves.toBe(true);
     expect(budgetAccessor("wed_1")()?.items.map((i) => i.id)).toEqual(["b"]);
     expect(hasCachedBudget("wed_1")).toBe(true);
   });

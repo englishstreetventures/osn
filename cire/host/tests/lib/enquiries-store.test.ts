@@ -111,7 +111,9 @@ describe("enquiries-store", () => {
   it("ensureEnquiriesLoaded refetches after invalidate and replaces the stale rows on success", async () => {
     setCachedEnquiries("wed_1", [item({ id: "enq_a" })]);
     invalidateEnquiries("wed_1");
-    await ensureEnquiriesLoaded("wed_1", async () => [item({ id: "enq_b" })]);
+    await expect(ensureEnquiriesLoaded("wed_1", async () => [item({ id: "enq_b" })])).resolves.toBe(
+      true,
+    );
     expect(enquiriesAccessor("wed_1")()?.map((e) => e.id)).toEqual(["enq_b"]);
     expect(hasCachedEnquiries("wed_1")).toBe(true);
   });

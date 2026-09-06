@@ -207,7 +207,9 @@ describe("vendors-store", () => {
   it("ensureVendorsLoaded refetches after invalidate and replaces the stale rows on success", async () => {
     await ensureVendorsLoaded("wed_1", async () => [vendor({ id: "a" })]);
     invalidateVendors("wed_1");
-    await ensureVendorsLoaded("wed_1", async () => [vendor({ id: "b" })]);
+    await expect(ensureVendorsLoaded("wed_1", async () => [vendor({ id: "b" })])).resolves.toBe(
+      true,
+    );
     expect(vendorsAccessor("wed_1")()?.map((v) => v.id)).toEqual(["b"]);
     expect(hasCachedVendors("wed_1")).toBe(true);
   });
