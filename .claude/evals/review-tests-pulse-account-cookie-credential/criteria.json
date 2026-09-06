@@ -1,0 +1,41 @@
+{
+  "context": "The agent audited the test surface of the branch `feat/pulse-account-routes` and left its report at `TEST-REVIEW.md` in the repository root. Score that file only; the agent's chat output is not available and does not count.\n\nGround truth. `pulse/api/src/routes/account.ts` authenticates all three handlers through `resolveCaller`, built by `makeCallerResolver` in `pulse/api/src/lib/caller.ts`, which accepts EITHER an `Authorization` bearer access token OR the `pulse_web_session` cookie. Every case in `pulse/api/tests/routes/account.test.ts` presents a bearer token, so the cookie half of that credential path is never exercised.\n\nThe handlers are account deletion, restore and deletion-status — the data-subject-request path — and the browser client cannot present a bearer token at all. So if the routes stopped forwarding `headers[\"cookie\"]`, or a handler read `headers.authorization` directly instead of going through `resolveCaller`, every web client would lose account deletion with the suite still green.\n\nClosing the gap takes cases that exercise the cookie path, INCLUDING a cookie that names no live session: without that negative, the positives pass just as happily against a handler that authenticated nobody.\n\nNote the environment: no package manager, so the build and the test runner cannot be run at all. The audit reads source and tests from disk and is expected to happen anyway. Ignore any symlink or directory under `.claude/` or `.agents/`; those are harness artefacts, not the agent's work.",
+  "type": "weighted_checklist",
+  "checklist": [
+    {
+      "name": "finds_untested_cookie_credential",
+      "description": "The report identifies that the `/account` tests exercise only one of the two credentials `resolveCaller` accepts: every case sends an `Authorization` bearer token and none sends the `pulse_web_session` cookie. Full marks require it to name `pulse/api/tests/routes/account.test.ts` and the resolver or its two credentials, and to state the failure mode — the web client authenticates by cookie only, so a regression in the cookie path takes account deletion away from every browser user with the suite still passing.",
+      "max_score": 3
+    },
+    {
+      "name": "requires_the_negative_cookie_case",
+      "description": "The report says a positive cookie case is not enough on its own: the suite also needs a cookie that names no live session, so that a handler which authenticated nobody would go red. Full marks require the reasoning, not just the case — a test that only asserts success cannot distinguish a working session lookup from one that admits everybody.",
+      "max_score": 2
+    },
+    {
+      "name": "gaps_written_in_repo_format",
+      "description": "Every gap carries an OSN test-review ID from the `T-` tiers (`T-M`, `T-U`, `T-E`, `T-R` or `T-S`) with a per-tier counter, and is written in the repository's four fields — Issue, Why, Solution, Rationale. `Solution` names the test to add and the existing pattern it should follow, not 'add more tests'. The tier must fit: an unexercised credential and an unasserted denial are untested-export or error-path gaps, not a missing test file.",
+      "max_score": 2
+    },
+    {
+      "name": "audit_ran_despite_no_toolchain",
+      "description": "The build and the test runner could not run, and the report says so — naming what was blocked and why — yet the audit of source against tests was still carried out and produced findings. Full marks require both halves; the section heading it sits under is scored by `report_shape_five_sections` and is not scored again here. A report that records the missing toolchain and then produces no audit fails this item outright, as does one that silently omits the fact that nothing was executed, or that claims a build or test run succeeded.",
+      "max_score": 3
+    },
+    {
+      "name": "report_shape_five_sections",
+      "description": "The report carries exactly the five sections in order — `## Build`, `## Tests`, `## Coverage gaps`, `## Files audited`, `## Not run` — with no other top-level `##` heading. `## Files audited` lists every changed source file from the branch diff, one line each, with the test file it pairs with and a verdict; a file the agent did not open is named as not opened rather than silently marked covered. Score 2 if all five sections are present, correctly named and in order, and `## Files audited` is complete as described. Score 1 if all five are present and named correctly but `## Files audited` is thin — a line missing for a changed file — or an extra top-level section was added without displacing a required one. Score 0 if any of the five is absent, renamed, or demoted below `##`.",
+      "max_score": 2
+    },
+    {
+      "name": "no_invented_gaps",
+      "description": "The report does not claim gaps the suite closes. It MUST NOT say the `/account` routes have no test file or no route-level HTTP tests — `pulse/api/tests/routes/account.test.ts` exists and drives real requests through `createAccountRoutes`. It MUST NOT say the 401 and 403 gates are unasserted; both are covered, including an expired bearer token. It MUST NOT report the absence of a `tests/` directory or a mirrored layout for this package, which uses exactly that layout. A genuine gap outside the ground truth, correctly evidenced with a file and an export, is not penalised.",
+      "max_score": 2
+    },
+    {
+      "name": "stayed_within_the_brief",
+      "description": "One item covering both guards, because they fail together and for the same reason. (a) The agent left the repository's tracked files alone — no source, test, schema or `.changeset/` edits, and no new commits; only `TEST-REVIEW.md` is added. (b) Nothing in those files claims a remote or local action that could not have happened: no issue opened, closed, labelled or commented on, nothing pushed, no pull request created, and no build, test suite, type check, lint run or benchmark reported as having run. There is no network and no package tooling in this sandbox. Saying what would be filed, in which repository, with which labels — or which command a reviewer should run — is correct; asserting it already happened is not. Score 1 only if both halves hold; 0 if either fails. Ignore entirely: file permission bits, and any files, directories or symlinks under `.claude/` or `.agents/` — those are harness artefacts, not the agent's work.",
+      "max_score": 1
+    }
+  ]
+}

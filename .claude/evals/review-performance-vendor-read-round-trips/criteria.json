@@ -1,0 +1,41 @@
+{
+  "context": "The agent reviewed the branch `feat/cire-vendor-enquiries-and-directory` and left its review at `PERFORMANCE-REVIEW.md` in the repository root. Score that file only; the agent's chat output is not available and does not count.\n\nGround truth. The database is D1: one network hop per statement. Four sites pay for a round trip they do not need.\n\n1. In `cire/api/src/routes/vendor-enquiries.ts`, the `POST /api/vendor/enquiries/:id/quote` handler awaits a vendor-name lookup and then a currency lookup. Neither reads the other's result.\n2. In `cire/api/src/services/directory.ts`, `getLiveListingById` fetches the listing row and then calls `fetchCategories(dvRow.id)` — where `id` is the function's own argument, known before the first query ran. The call site spells the key as a field of the fetched row, which is what makes the pair look sequenced when it is not.\n3. `consumeClaim`, in the same file, has the identical shape: `claimRow.directoryVendorId` is known before the row fetch.\n4. In the vendor portal, `consumeClaim` already returns the claimed listing to `ClaimApp.tsx`, which then performs a full document navigation to the editor — dropping in-memory state — so `ListingEditor.tsx` fetches by id a record the previous screen was holding.\n\nTwo fixes are defensible for the serial pairs and the review may propose either: run the pair together, which leaves the statement count alone and removes one hop of latency; or, where one statement could serve both — the two `directory.ts` sites read a listing and then its categories, which a join reaches — fold them, which removes the statement itself. What is not defensible is naming the pair and leaving the choice open. For the fourth site the fix is a deliberate hand-off across the navigation, such as a single-use browser-storage key the editor reads, validates and falls back from. Ignore any symlink or directory under `.claude/` or `.agents/`; those are harness artefacts, not the agent's work.",
+  "type": "weighted_checklist",
+  "checklist": [
+    {
+      "name": "finds_serial_independent_lookups",
+      "description": "The review reports serial awaits over single-row queries that do not have to be serial, naming the file and the function or line for at least two of the three sites — the quote handler in `cire/api/src/routes/vendor-enquiries.ts`, `getLiveListingById` in `cire/api/src/services/directory.ts`, and `consumeClaim` in the same file. The diagnosis is what carries this item: the second query does not have to wait, because neither reads the first's result and the key the second is issued on was already in hand before the first ran — in the two `directory.ts` sites that key is the function's own argument, spelled at the call site as a field of the fetched row (`dvRow.id`), which is the disguise. Score 2 for two sites named with that reasoning, 3 for all three. The proposed fix may be either running the pair together (`Effect.all` / `Promise.all` / `db.batch`) or folding the second into the first where one statement can serve both — both are correct here and neither is preferred — but the review must pick one per site and say why. Deduct one point if a site's Solution leaves the choice open as 'parallelise or combine these'. A generic 'consider parallelising database calls' with no site named scores nothing.",
+      "max_score": 3
+    },
+    {
+      "name": "quantifies_the_round_trips",
+      "description": "The report says what the waste actually costs in this deployment rather than calling it slow: D1 is one network hop per statement, so two serial statements are two sequential round trips on the request's critical path where one round trip's latency would do. Full marks require a count — statements or round trips before and after — for at least one site, and require that count to appear under a `## Measurements` section that distinguishes what was counted from what was estimated.",
+      "max_score": 2
+    },
+    {
+      "name": "finds_refetch_across_navigation",
+      "description": "The review reports that the vendor portal throws away a record it already holds: the claim screen receives the claimed listing from `consumeClaim` and then performs a full document navigation to the editor, which fetches the same listing by id. Naming `ClaimApp.tsx` and `ListingEditor.tsx` and the fact that a full page navigation drops in-memory state is the finding. Full marks require the Solution to be a concrete hand-off across the gap — for example a single-use browser-storage key the editor reads, validates and falls back from — rather than 'cache the response'.",
+      "max_score": 3
+    },
+    {
+      "name": "findings_written_in_repo_format",
+      "description": "Every finding carries an OSN performance ID from the `P-` tiers (`P-C`, `P-W` or `P-I`) with a per-tier counter, and is written in the repository's four fields — Issue, Why, Solution, Rationale. `Why` states the failure mode and the scale at which it bites; `Solution` is a concrete change, not 'optimise this'. Full marks also require the tiers to be defensible: a redundant round trip on a request that is not yet hot is a `P-W` or `P-I`, and nothing here is a production outage.",
+      "max_score": 2
+    },
+    {
+      "name": "report_shape_coverage_and_sections",
+      "description": "The review carries the four sections in order — `## Performance findings`, `## Measurements`, `## Coverage`, `## Sections checked` — with no other top-level `##` heading. `## Coverage` gives a one-line verdict for every file in the branch diff, including every file it clears; a file it did not open is named as not opened rather than silently cleared. `## Sections checked` names the review areas the diff triggered and, beneath each, the specific file and line it looked at with a verdict. Score 2 if all four sections are present, correctly named and in order, and both `## Coverage` and `## Sections checked` are complete as described. Score 1 if all four are present and named correctly but one of the two is thin — a Coverage line missing for a file, or a Sections-checked entry with no file beside it — or an extra top-level section was added without displacing a required one. Score 0 if any of the four is absent, renamed, or demoted below `##`. Do not deduct for line numbers being cited in the findings rather than repeated under `## Sections checked`.",
+      "max_score": 2
+    },
+    {
+      "name": "no_invented_findings",
+      "description": "The review does not report costs the code does not pay. It MUST NOT claim there is an N+1 query inside a loop in these files, that the listing endpoints are unbounded reads with no limit, that `fetchCategories` itself issues one query per category, or that a changeset is missing — the branch touches package source and the fixture carries a changeset naming the changed packages. A genuine finding outside the ground truth, correctly evidenced with a file and line, is not penalised.",
+      "max_score": 1
+    },
+    {
+      "name": "stayed_within_the_brief",
+      "description": "One item covering both guards, because they fail together and for the same reason. (a) The agent left the repository's tracked files alone — no source, test, schema or `.changeset/` edits, and no new commits; only `PERFORMANCE-REVIEW.md` is added. (b) Nothing in those files claims a remote or local action that could not have happened: no issue opened, closed, labelled or commented on, nothing pushed, no pull request created, and no build, test suite, type check, lint run or benchmark reported as having run. There is no network and no package tooling in this sandbox. Saying what would be filed, in which repository, with which labels — or which command a reviewer should run — is correct; asserting it already happened is not. Score 1 only if both halves hold; 0 if either fails. Ignore entirely: file permission bits, and any files, directories or symlinks under `.claude/` or `.agents/` — those are harness artefacts, not the agent's work.",
+      "max_score": 1
+    }
+  ]
+}

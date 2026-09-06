@@ -11,7 +11,7 @@ related:
   - "[[subprocessors]]"
   - "[[identity-model]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-01
 ---
 
 # GDPR + UK GDPR
@@ -46,7 +46,7 @@ becomes the controller; we process on its instruction).
 | Art. 25 — Privacy by design + by default | Bake in at design time | Strong — multi-account audit (P6) was a privacy-by-design exercise | [[identity-model]] |
 | Art. 28 — Processor obligations | Written contract with each processor | **Gap** — no DPAs on file with Cloudflare Email, Photon, Grafana Cloud, Redis provider | [[subprocessors]] |
 | Art. 30 — Records of processing activities | Maintain a register | **Gap** — [[data-map]] is the seed; needs flesh + maintenance discipline | [[data-map]] |
-| Art. 32 — Security of processing | Technical + organisational measures | Strong codified in skills | `.claude/commands/review-security.md` |
+| Art. 32 — Security of processing | Technical + organisational measures | Strong codified in skills | `.claude/skills/review-security/SKILL.md` |
 | Art. 33 — Notification of breach to DPA | 72 hours | **Gap** — no runbook | [[breach-response]] |
 | Art. 34 — Communication to data subject | Without undue delay if high risk | **Gap** — no template / channel | [[breach-response]] |
 | Art. 35 — DPIA | For high-risk processing | **Required** for Pulse special-category event surfacing, Zap M3 customer-support transcripts, Zap M4 locality / government channels, AI surfaces, and **cire guest dietary special-category data (filed: [[dpia/cire-guest-data]]; gating consent mitigation C-H2 (cire dietary) RESOLVED PR #123, sign-off now pending only the residual C-H1 retention items)** | One DPIA per feature, filed under `wiki/compliance/dpia/` |

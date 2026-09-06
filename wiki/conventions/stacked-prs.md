@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[review-findings]]"
   - "[[commands]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-01
 ---
 
 # Stacked PRs
@@ -151,4 +151,4 @@ Keep a stack short. Three deep is manageable; five means the bottom PR sat unrev
 ## Related
 
 - [[contributing]] — branch strategy, changesets, the rest of the PR workflow
-- `.claude/commands/prep-pr.md` — the command that opens these PRs
+- `.claude/skills/prep-pr/SKILL.md` — the skill that opens these PRs

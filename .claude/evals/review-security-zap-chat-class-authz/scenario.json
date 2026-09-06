@@ -1,0 +1,11 @@
+{
+  "description": "The consumer chat service. Two operations, `sendMessage` and `listMessages`, check membership but never the chat's `class` column, while their server-visible counterparts in the same file do — so a member of a server-visible chat can write ciphertext into it and read its plaintext bodies around the internal reader. Tests whether a review catches an authorisation predicate enforced on one verb and not on its sibling.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "5231a25b4dff673f60da459959070fad7478e50a",
+      "installPath": "."
+    }
+  }
+}

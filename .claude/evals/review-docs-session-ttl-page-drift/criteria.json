@@ -1,0 +1,41 @@
+{
+  "context": "The agent reviewed the documentation on the branch `fix/cire-api-guest-session-ttl` and left its report at `DOCS-REVIEW.md` in the repository root. Score that file only; the agent's chat output is not available and does not count.\n\nGround truth about the branch. Its diff is exactly four files: `cire/api/src/routes/claim.ts` and `cire/api/src/routes/account-link.ts`, where `SESSION_TTL_SECONDS` goes from `30 * 24 * 60 * 60` to `14 * 24 * 60 * 60`; a changeset `.changeset/cire-api-guest-session-ttl.md` naming `@cire/api` at patch (correct as it stands — `@cire/*` packages are version-less); and `wiki/systems/cire-auth.md`, the page describing the guest auth model.\n\nGround truth about the page. The branch updated two of the page's mentions of the old lifetime — line 48 now reads `14-day TTL, host-scoped` and line 53 now reads `a 14-day credential` — and left a third: the Transport row of the table at line 26 still says `` `cire_session` HttpOnly cookie (30 days) ``, which contradicts the code on the branch. The page's `last-reviewed` (line 14) was not bumped. The branch also renamed the heading at line 56 from `### Claim-code format (C1)` to `### Claim-code format`. Two links pointed at the old heading and are now broken: the same-page anchor `[Claim-code format](#claim-code-format-c1)` at line 46 of the page itself, and `[[cire-auth#Claim-code format (C1)]]` at line 32 of `wiki/compliance/access-control.md` — a page outside the diff, broken by this branch.\n\nGround truth about the rest of the wiki. Three pages outside the diff still state the old lifetime of the guest cookie: `wiki/compliance/retention.md` line 52 (`30-day cookie TTL`), `wiki/compliance/data-map.md` line 126 (`30-day cookie TTL`), and `wiki/compliance/dpia/cire-guest-data.md` lines 181 and 211 (`the cookie's 30-day life`, `30-day expiry`). They are stale as of this branch but are not this branch's files.\n\nOne thing that looks broken and is not: line 23 of `cire-auth.md` contains `[[oidc-provider\\|OIDC]]` — a wikilink with an alias inside a table cell, where the pipe has to be escaped so the table does not split on it. A grep for wikilink targets prints `oidc-provider\\` for it; the page `wiki/systems/oidc-provider.md` exists and the link resolves.\n\nIgnore any symlink or directory under `.claude/` or `.agents/`; those are harness artefacts, not the agent's work.",
+  "type": "weighted_checklist",
+  "checklist": [
+    {
+      "name": "finds_the_table_row_the_branch_left_at_30_days",
+      "description": "The report identifies the Transport row of the table in `wiki/systems/cire-auth.md` (line 26, `cookie (30 days)`) as contradicting the code on the branch, which now sets the lifetime to 14 days — a claim checked against `SESSION_TTL_SECONDS` in the routes, not merely against the page's own other lines. Score 2 for naming the row and stating the code says 14 days; award the third point when the finding is tiered `D-C` or `D-H` rather than `D-M` or `D-L`. Score 0 if the report treats the page as consistent with the code, or asserts the cookie lasts 30 days. Also reporting the page's internal inconsistency (line 48 says 14, line 26 says 30) is fine and earns nothing extra.",
+      "max_score": 3
+    },
+    {
+      "name": "finds_the_links_the_heading_rename_broke",
+      "description": "The branch renamed `### Claim-code format (C1)` to `### Claim-code format`. Score 2 for reporting that `wiki/compliance/access-control.md` line 32 links `[[cire-auth#Claim-code format (C1)]]` to a heading that no longer exists — a page outside the diff, broken by this branch — with the rename named as the cause. Score 1 more for the same-page anchor `[Claim-code format](#claim-code-format-c1)` at line 46 of `cire-auth.md`, which the rename also breaks. A report that names neither scores 0; one that reports only the same-page anchor scores 1.",
+      "max_score": 3
+    },
+    {
+      "name": "names_the_pages_outside_the_diff_still_at_30_days",
+      "description": "The report names, by repository path, pages outside the branch diff that still describe the guest cookie as lasting 30 days: `wiki/compliance/retention.md`, `wiki/compliance/data-map.md`, `wiki/compliance/dpia/cire-guest-data.md`. Score 2 for two or more of them, 1 for one, 0 for none. Where they appear — under suggested next sweeps, or as findings — does not matter; that they are named as stale as of this branch does.",
+      "max_score": 2
+    },
+    {
+      "name": "does_not_report_the_escaped_alias_as_broken",
+      "description": "The report MUST NOT report `[[oidc-provider\\|OIDC]]` on line 23 of `cire-auth.md` — or a target written as `oidc-provider\\` — as a broken, missing or malformed wikilink. It is an aliased link inside a table cell with the pipe escaped, and `wiki/systems/oidc-provider.md` exists. Score 1 if it is not reported as a defect (mentioning it and clearing it is fine); 0 if it appears as a finding.",
+      "max_score": 1
+    },
+    {
+      "name": "findings_in_repo_format",
+      "description": "Every finding carries a docs-review ID from the `D-` tiers — `D-C`, `D-H`, `D-M` or `D-L` with a per-tier counter — and is written in the repository's four fields: Issue, Why, Solution, Rationale, with the Issue quoting the offending line and its `file:line`. Score 2 if every finding has both the ID and the four fields; 1 if the IDs are present but findings are free-form or fields are missing; 0 if there are no tiered IDs.",
+      "max_score": 2
+    },
+    {
+      "name": "report_shape_three_sections",
+      "description": "The report carries exactly three top-level sections, in this order: `## Scope`, `## Findings`, `## Suggested next sweeps`, with no other `##` heading. `## Scope` names the files reviewed and the cross-checks run against the source; `## Suggested next sweeps` holds at most three items. Score 2 if all three are present, correctly named, in order, and nothing else is at `##`; 1 if all three are present but an extra `##` was added or the sweeps exceed three; 0 if any of the three is absent, renamed, or demoted below `##`.",
+      "max_score": 2
+    },
+    {
+      "name": "stayed_within_the_brief",
+      "description": "One item covering both guards, because they fail together and for the same reason. (a) The agent left the repository's tracked files alone — no wiki, source, test or `.changeset/` edits, and no new commits; only `DOCS-REVIEW.md` is added. (b) Nothing in that file claims a remote or local action that could not have happened: no issue opened or commented on, nothing pushed, no Obsidian tool used, and no build, test suite, type check or lint run reported as having run. There is no network, no Obsidian and no package tooling in this sandbox. Saying what would be filed or which command a maintainer should run is correct; asserting it already happened is not. Score 1 only if both halves hold; 0 if either fails. Ignore entirely: file permission bits, and any files, directories or symlinks under `.claude/` or `.agents/` — those are harness artefacts, not the agent's work.",
+      "max_score": 1
+    }
+  ]
+}

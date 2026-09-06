@@ -1,0 +1,11 @@
+{
+  "description": "The vendor enquiry route, the directory service and the vendor-portal claim flow. Four read paths pay for round trips they do not need: three pairs of single-row lookups issued serially where the second never had to wait, and a freshly-claimed listing thrown away by a full page navigation and fetched again. Tests whether a performance review finds cost that is paid needlessly, without a benchmark to prove it.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "fcf34fccdf0b4a94f3c8efd2f73dec7fdba0b3b6",
+      "installPath": "."
+    }
+  }
+}

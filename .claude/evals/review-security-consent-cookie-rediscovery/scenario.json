@@ -1,0 +1,11 @@
+{
+  "description": "The guest site's cookie and third-party consent framework, carrying two defects: a consent cookie written under a bare name with no `__Host-` prefix, and a revocation that stops further loading without tearing down what an earlier grant already mounted. Tests whether a security review finds both, and whether its compliance section checks the subprocessor register rather than assuming what is in it.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "4a31cbca633d96305616439a06e038bd3c48032f",
+      "installPath": "."
+    }
+  }
+}

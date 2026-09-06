@@ -1,0 +1,282 @@
+name: Skill Eval
+
+# The inner loop for `.claude/skills/`. Two gates, and they are different kinds
+# of thing.
+#
+# `quality` is deterministic and cheap: Tessl reviews the SKILL.md files the
+# diff touched and scores their structure. It fails the check.
+#
+# `eval` is neither. It runs the changed skills' scenarios through a real agent
+# and scores what the agent leaves on disk, which costs credits and swings
+# between identical runs — at `-n 1` a scenario's score moves further on noise
+# than most real regressions do. So it never fails the check. It posts a table
+# against the committed scoreboard and leaves the judgement to a person.
+on:
+  pull_request:
+    paths:
+      - ".claude/skills/**"
+      - ".claude/evals/**"
+      # The scoreboard is written BY this workflow. Watching it would make
+      # every run trigger the next one.
+      - "!.claude/evals/scores.json"
+      # The quality board is written BY this workflow, same as the scoreboard.
+      - "!.claude/evals/quality.json"
+      - ".github/workflows/skill-eval.yml"
+
+# A force-push mid-run otherwise leaves the first run going and starts a
+# second, and both are billed.
+concurrency:
+  group: skill-eval-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Skill quality review
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      has_token: ${{ steps.token.outputs.present }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Every step below needs a Tessl account. Without the secret the whole
+      # workflow is inert rather than failing: it reviews nobody's skills, and
+      # a red check that only means "a secret is missing" trains people to
+      # ignore the check. The notice says what to do about it.
+      - name: Is there a Tessl token
+        id: token
+        env:
+          TESSL_TOKEN: ${{ secrets.TESSL_TOKEN }}
+        run: |
+          if [ -n "$TESSL_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::TESSL_TOKEN is not set, so the skill quality gate did not run. Add it under Settings → Secrets → Actions to turn this on."
+          fi
+
+      # Third-party, so both tesslio actions here are pinned to a commit rather
+      # than a moving tag, unlike the well-known actions this repository takes
+      # on a version tag. `setup-tessl` matters most of the two: it is handed
+      # `secrets.TESSL_TOKEN`, and a moving tag means whoever can move it can
+      # read that secret.
+      - name: Review changed SKILL.md files
+        if: steps.token.outputs.present == 'true'
+        uses: tesslio/skill-review@7e7ea574722a6d72752aa5a316bcc813d06b7cd2
+        with:
+          # Repo root, not `.claude/skills`: the action joins this with a path
+          # that is already repository-relative, and the narrower value made it
+          # look for `.claude/skills/.claude/skills/<name>/SKILL.md`.
+          path: .
+          comment: "true"
+          fail-threshold: "70"
+          workspace: musubi
+          tessl-token: ${{ secrets.TESSL_TOKEN }}
+
+      # The action above gates the merge; this step watches the trend. A skill
+      # can stay above 70 and still be getting worse, and because this score is
+      # deterministic — the same SKILL.md scores the same twice — a fall in it
+      # is real. That is what makes it the one signal here worth filing against
+      # automatically. An eval delta is not: at `-n 1` a scenario moves further
+      # on noise than most regressions do, so that path labels instead.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - uses: tesslio/setup-tessl@25ec223fc0da33b41b8044ff5ab2b85235f4f91e # v2
+        if: steps.token.outputs.present == 'true'
+        with:
+          token: ${{ secrets.TESSL_TOKEN }}
+
+      - name: Score every skill
+        id: quality
+        if: steps.token.outputs.present == 'true'
+        env:
+          TESSL_TOKEN: ${{ secrets.TESSL_TOKEN }}
+          PAIRS: ${{ runner.temp }}/pairs.txt
+          OUT: ${{ runner.temp }}/scores.json
+        run: |
+          : > "$RUNNER_TEMP/pairs.txt"
+          for dir in .claude/skills/*/; do
+            name=$(basename "$dir")
+            out=$(tessl review run quality "$dir" --workspace musubi 2>&1 || true)
+            score=$(printf '%s' "$out" | sed $'s/\033\[[0-9;]*m//g' | sed -n 's/^Review Score: \([0-9][0-9]*\)%.*/\1/p' | tail -1)
+            if [ -z "$score" ]; then
+              echo "::warning::no score parsed for $name; leaving it out of the comparison"
+              continue
+            fi
+            printf '%s %s\n' "$name" "$score" >> "$RUNNER_TEMP/pairs.txt"
+          done
+          cat "$RUNNER_TEMP/pairs.txt"
+          bun -e '
+            const text = await Bun.file(process.env.PAIRS).text();
+            const out = {};
+            for (const line of text.split("\n")) {
+              const [name, score] = line.trim().split(/\s+/);
+              if (name && score) out[name] = Number(score);
+            }
+            await Bun.write(process.env.OUT, JSON.stringify(out));
+          '
+
+      # Non-zero means a skill fell five points or more, or is under the
+      # threshold. `continue-on-error` so the trend never becomes a second gate
+      # — the action above already decides whether this check passes.
+      - name: Compare against the quality board
+        id: trend
+        if: steps.token.outputs.present == 'true'
+        continue-on-error: true
+        run: |
+          SCORES=$(cat "$RUNNER_TEMP/scores.json")
+          bun run scripts/skill-evals.ts quality-check --scores "$SCORES" | tee "$RUNNER_TEMP/quality.md"
+
+      # One open issue, reused. A second push that does not fix it appends a
+      # comment rather than filing again, so the tracker gets one thread per
+      # regression and not one per commit.
+      - name: File the regression
+        if: steps.trend.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.OSN_TRACKER_TOKEN || github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          TITLE: "Skill quality regression"
+        run: |
+          BODY=$(printf 'The deterministic quality gate fell on pull request #%s.\n\n%s\n\nThis score is reproducible — the same `SKILL.md` scores the same twice — so unlike an eval delta it can be acted on without a second run. Reproduce with:\n\n```bash\ntessl review run quality .claude/skills/<name> --workspace musubi\n```\n' "$PR_NUMBER" "$(cat "$RUNNER_TEMP/quality.md")")
+          EXISTING=$(gh issue list --repo xchromo/osn-tracker --state open --search "$TITLE in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo xchromo/osn-tracker --body "$BODY"
+            echo "commented on osn-tracker#$EXISTING"
+          else
+            gh issue create --repo xchromo/osn-tracker \
+              --title "$TITLE" \
+              --label severity:medium,product:shared \
+              --body "$BODY"
+          fi
+
+      # Only once the comparison has been made, so a regression is reported
+      # against the score it regressed from rather than against itself.
+      - name: Record the scores
+        if: steps.token.outputs.present == 'true' && github.event_name == 'pull_request'
+        run: bun run scripts/skill-evals.ts quality-record --scores "$(cat "$RUNNER_TEMP/scores.json")"
+
+  eval:
+    name: Scenario eval
+    needs: quality
+    runs-on: ubuntu-latest
+    # Submit and leave. Nothing here waits on the run.
+    timeout-minutes: 15
+    # A fork's pull request gets no secrets, so the run cannot authenticate.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository
+      && needs.quality.outputs.has_token == 'true'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `changed` diffs against the base, so the base commit has to be here.
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Which skills did this branch touch
+        id: skills
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          SKILLS=$(bun run scripts/skill-evals.ts changed --base "$BASE_SHA" | paste -sd, -)
+          echo "Changed skills: ${SKILLS:-<none>}"
+          # A skill is a directory under `.claude/skills/`, so its name comes
+          # from the branch. `key=value` output syntax is line-oriented: a name
+          # carrying a newline would write every following line as another
+          # output of this step. Refuse anything that is not a comma-separated
+          # list of the names a directory may actually have.
+          case "$SKILLS" in
+            "" | *[!A-Za-z0-9,_-]* )
+              if [ -n "$SKILLS" ]; then
+                echo "::error::refusing an unexpected skill list: $SKILLS"
+                exit 1
+              fi
+              ;;
+          esac
+          echo "list=$SKILLS" >> "$GITHUB_OUTPUT"
+
+      - name: Every scenario names a real skill
+        if: steps.skills.outputs.list != ''
+        run: bun run scripts/skill-evals.ts check-names
+
+      - uses: tesslio/setup-tessl@25ec223fc0da33b41b8044ff5ab2b85235f4f91e # v2
+        if: steps.skills.outputs.list != ''
+        with:
+          token: ${{ secrets.TESSL_TOKEN }}
+
+      - name: Narrow the run to those skills' scenarios
+        if: steps.skills.outputs.list != ''
+        env:
+          SKILLS: ${{ steps.skills.outputs.list }}
+        run: bun run scripts/skill-evals.ts subset --skills "$SKILLS" --out "$RUNNER_TEMP/scenarios"
+
+      # `--skip-baseline` because the baseline cannot move when only a skill
+      # changed, and it is half the solves. `-n 1` because this is the inner
+      # loop; a number worth quoting comes from a deliberate `-n 3` run.
+      #
+      # The model is NOT pinned here. `--model` needs a paid plan, and the
+      # scoreboard records whichever model the run reports — `compare` then
+      # refuses to show a delta across a model change rather than reading one
+      # as a regression.
+      # This job's contract, stated at the top of the file, is that it never
+      # fails the check: the result is advisory and swings between identical
+      # runs. Submission failing is the same kind of thing — a Tessl-side
+      # problem is not a reason to redden a pull request that has passed every
+      # gate that means something. It warns, and the collector finds nothing to
+      # collect.
+      - name: Start the eval run
+        id: run
+        continue-on-error: true
+        if: steps.skills.outputs.list != ''
+        env:
+          TESSL_TOKEN: ${{ secrets.TESSL_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          SKILLS: ${{ steps.skills.outputs.list }}
+        working-directory: .claude
+        run: |
+          OUT=$(tessl eval run "$RUNNER_TEMP/scenarios" \
+            --context . \
+            --skip-baseline \
+            -n 1 \
+            --yes \
+            --label "PR #${PR_NUMBER} — ${SKILLS}" \
+            --json)
+          echo "$OUT"
+          ID=$(echo "$OUT" | bun -e 'const d=JSON.parse(await Bun.stdin.text()); console.log(d.data?.id ?? d.id ?? "")')
+          if [ -z "$ID" ]; then echo "::warning::could not read a run id; no eval was submitted"; exit 1; fi
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      # This job stops here. Waiting for the run would hold a runner for the
+      # best part of an hour — run 7 took 290 minutes wall clock — and the
+      # result is not a gate, so there is nothing to hold CI for. The run id
+      # goes into a sticky comment, and `skill-eval-collect.yml` picks it up on
+      # its next sweep and edits the table in.
+      - name: Leave the run id for the collector
+        if: steps.skills.outputs.list != '' && steps.run.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ steps.run.outputs.id }}
+          SKILLS: ${{ steps.skills.outputs.list }}
+          MARKER: "<!-- tessl-eval-run -->"
+        run: |
+          {
+            printf '%s\n\n' "$MARKER"
+            printf 'Eval submitted for **%s** — [run %s](https://tessl.io/workspaces/musubi/eval-runs/%s).\n\n' "$SKILLS" "$RUN_ID" "$RUN_ID"
+            printf 'A run takes an hour or more. The collector sweeps every 30 minutes and will edit the table in here when it has scored. Nothing is gated on it.\n'
+          } > "$RUNNER_TEMP/comment.md"
+          gh pr comment "$PR_NUMBER" --body-file "$RUNNER_TEMP/comment.md"

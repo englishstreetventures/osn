@@ -1,0 +1,11 @@
+{
+  "description": "A branch that fixes one already-filed tracker finding while a review left three more behind — two against this branch, one against a package the branch never touches. Tests whether prep-pr closes the fixed finding instead of re-filing it, keeps the Opened table to issues raised against this branch, and writes a public PR body that names tracker issues by number and finding ID only.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "8b55084abdc82867cb1aeaacb4102ecb1213b146",
+      "installPath": "."
+    }
+  }
+}

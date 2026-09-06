@@ -1,0 +1,6 @@
+{
+  "name": "musubi/osn-agent-skills",
+  "version": "0.1.0",
+  "description": "This repository's own agent review skills: pull-request preparation, and the security, performance and test reviews that gate it.",
+  "workspace": "musubi"
+}

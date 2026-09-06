@@ -1,0 +1,11 @@
+{
+  "description": "Starting work on a performance finding that already has an issue in the private tracker, in an environment with no network and no bare repo. The finding's title and mechanism are handed over in the task, which is exactly the material that must not reach a public branch name. Tests whether the start-of-work procedure takes the tracker issue by number instead of opening a public duplicate, names the branch without describing the defect, cuts it in place from origin/main rather than reaching for a worktree, and plans the work down to the wiki pages it will make stale, the changeset and the observability decision.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "6168009cb3c91fa77abec7e7fe9925a6d0e46800",
+      "installPath": "."
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "description": "The consent framework as a branch, in a checkout with no single test layout: some packages keep tests in a `tests/` tree, and the package under review has no `tests/` directory at all, its tests sitting beside their source. Six of the changed modules have a test file next to them and two do not. Tests whether a test review resolves where a package's tests actually are from what is on disk before judging any file missing — applying a convention without looking turns six covered modules into false missing-test findings and buries the real gaps.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "6168009cb3c91fa77abec7e7fe9925a6d0e46800",
+      "installPath": "."
+    }
+  }
+}

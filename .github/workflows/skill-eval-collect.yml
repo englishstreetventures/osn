@@ -1,0 +1,164 @@
+name: Skill Eval Collect
+
+# The other half of `skill-eval.yml`. That workflow submits a run and leaves;
+# this one picks the result up later.
+#
+# The split exists because a run takes an hour or more — run 7 took 290 minutes
+# of wall clock — and the result is not a gate. Holding a runner for that long
+# to produce a table nobody is blocked on is the wrong trade, and a job that
+# long is also the one most likely to be cancelled by a force-push and billed
+# twice.
+#
+# State lives in the pull request comment the submitting job leaves, keyed by an
+# HTML marker. That is a deliberate choice over an artifact or a branch file:
+# the comment is the deliverable anyway, it survives a force-push, and it is
+# visible to a human wondering where their eval went.
+on:
+  schedule:
+    # Every 30 minutes. A run that finishes just after a sweep waits for the
+    # next one, which is fine — nothing is waiting on it.
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Collect one pull request only (number)"
+        required: false
+
+concurrency:
+  group: skill-eval-collect
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    name: Collect finished eval runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # Same guard as the submitting workflow: with no token there is nothing to
+      # collect, and a scheduled job going red every 30 minutes because a secret
+      # is missing is noise nobody will keep reading.
+      - name: Is there a Tessl token
+        id: token
+        env:
+          TESSL_TOKEN: ${{ secrets.TESSL_TOKEN }}
+        run: |
+          if [ -n "$TESSL_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::TESSL_TOKEN is not set; nothing to collect."
+          fi
+
+      - uses: tesslio/setup-tessl@25ec223fc0da33b41b8044ff5ab2b85235f4f91e # v2
+        if: steps.token.outputs.present == 'true'
+        with:
+          token: ${{ secrets.TESSL_TOKEN }}
+
+      # One pull request at a time, in a loop, so a single stuck run cannot stop
+      # the others being collected.
+      - name: Sweep open pull requests for submitted runs
+        if: steps.token.outputs.present == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESSL_TOKEN: ${{ secrets.TESSL_TOKEN }}
+          ONLY_PR: ${{ inputs.pr }}
+          MARKER: "<!-- tessl-eval-run -->"
+        run: |
+          set -euo pipefail
+
+          if [ -n "$ONLY_PR" ]; then
+            PRS="$ONLY_PR"
+          else
+            PRS=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --json number --jq '.[].number')
+          fi
+          if [ -z "$PRS" ]; then echo "No open pull requests."; exit 0; fi
+
+          for PR in $PRS; do
+            # REST rather than `gh pr view --json comments`, because that
+            # returns the GraphQL node id (`IC_kwD…`) and editing a comment
+            # needs the numeric one. The most recent marker comment wins: a
+            # re-push submits a new run and leaves a newer comment, and the
+            # older run is of code that is no longer on the branch.
+            COMMENT=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+              --jq "[.[] | select(.body | contains(\"$MARKER\"))] | last // empty")
+            [ -n "$COMMENT" ] || continue
+
+            BODY=$(printf '%s' "$COMMENT" | bun -e 'const c=JSON.parse(await Bun.stdin.text()); console.log(c.body ?? "")')
+            # Already collected: the table replaces the "submitted" line.
+            case "$BODY" in *"### Skill eval"*) echo "PR #$PR already collected."; continue;; esac
+
+            RUN_ID=$(printf '%s' "$BODY" | sed -n 's/.*eval-runs\/\([0-9a-f-]*\).*/\1/p' | head -1)
+            if [ -z "$RUN_ID" ]; then
+              echo "::warning::PR #$PR has a marker comment with no run id"
+              continue
+            fi
+
+            echo "PR #$PR: checking run $RUN_ID"
+            (cd .claude && tessl eval view "$RUN_ID" --json) > "$RUNNER_TEMP/run.json" 2>/dev/null || true
+            if ! bun run scripts/skill-evals.ts ready --run "$RUNNER_TEMP/run.json"; then
+              echo "PR #$PR: not scored yet."
+              continue
+            fi
+
+            # The branch the run was submitted from, so the scoreboard lands
+            # with the change that produced it.
+            HEAD_REF=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json headRefName --jq .headRefName)
+            git fetch --no-tags origin "$HEAD_REF"
+            git checkout -q -B "collect-$PR" "origin/$HEAD_REF"
+
+            # `compare` prints the table on stdout and, on stderr, one
+            # NEEDS-DECISION line per scenario that fell past the threshold.
+            {
+              printf '%s\n\n' "$MARKER"
+              bun run scripts/skill-evals.ts compare --run "$RUNNER_TEMP/run.json" 2> "$RUNNER_TEMP/drops.txt"
+            } > "$RUNNER_TEMP/comment.md"
+            cat "$RUNNER_TEMP/drops.txt" || true
+
+            COMMENT_ID=$(printf '%s' "$COMMENT" | bun -e 'const c=JSON.parse(await Bun.stdin.text()); console.log(c.id ?? "")')
+            if [ -n "$COMMENT_ID" ] && gh api -X PATCH \
+                 "repos/$GITHUB_REPOSITORY/issues/comments/$COMMENT_ID" \
+                 -F "body=@$RUNNER_TEMP/comment.md" >/dev/null; then
+              echo "PR #$PR: table edited into comment $COMMENT_ID"
+            else
+              # Editing failed — the comment was deleted, or the token cannot
+              # touch it. A new comment still delivers the result.
+              gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+            fi
+
+            # A large fall labels the pull request and files nothing. At `-n 1`
+            # there is no threshold that means "significant" — the same skill
+            # text has scored 3/3 and 0/3 on two scenarios of one run — so this
+            # asks a person to look, which is exactly what `needs:decision` is
+            # for in this repository.
+            if [ -s "$RUNNER_TEMP/drops.txt" ]; then
+              gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label needs:decision || true
+              echo "PR #$PR labelled needs:decision"
+            fi
+
+            bun run scripts/skill-evals.ts record --run "$RUNNER_TEMP/run.json"
+            if git diff --quiet -- .claude/evals/scores.json; then
+              echo "PR #$PR: scoreboard unchanged."
+            else
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git add .claude/evals/scores.json
+              git commit -qm "chore(evals): record scores for run ${RUN_ID}"
+              git push origin "HEAD:refs/heads/${HEAD_REF}"
+            fi
+            git checkout -q -
+          done

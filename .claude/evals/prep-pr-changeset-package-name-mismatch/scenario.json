@@ -1,0 +1,11 @@
+{
+  "description": "A branch whose changeset names a package that does not exist in the workspace. Tests whether prep-pr validates changeset package names against each package.json before a PR is opened, rather than trusting the frontmatter.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "8b55084abdc82867cb1aeaacb4102ecb1213b146",
+      "installPath": "."
+    }
+  }
+}

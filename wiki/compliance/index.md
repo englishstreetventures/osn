@@ -13,7 +13,7 @@ related:
   - "[[data-map]]"
   - "[[subprocessors]]"
   - "[[cire]]"
-last-reviewed: 2026-08-19
+last-reviewed: 2026-09-01
 ---
 
 # Compliance
@@ -84,8 +84,8 @@ compliance" surface looks like.
   obligations attach at the level of "we collect this field for this purpose".
 - **Adding a new third-party service?** Add a row to `[[subprocessors]]` and
   flag it on the PR. Vendor diligence + DPA must be on file before we ship.
-- **Reviewing security?** The `/review-security` slash command (see
-  `.claude/commands/review-security.md`) includes a compliance checklist
+- **Reviewing security?** The `/review-security` skill (see
+  `.claude/skills/review-security/SKILL.md`) includes a compliance checklist
   — DSAR coverage, retention windows, log redaction of PII, lawful basis
   for new collection, etc.
 - **Triaging a finding?** Compliance findings use the `C-` prefix (see

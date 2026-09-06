@@ -99,6 +99,19 @@ jobs:
       - name: Type check
         run: bun run check
 
+      # `scripts/` is in no workspace, so `turbo check` never reaches it and a
+      # type error there ships. One did: `skill-evals.ts` read an optional
+      # `scenario.path` unguarded, which crashed `ready`, `compare` and `record`
+      # on a payload the API really returns, and inside the eval poll that reads
+      # as "the run was never scored" for a run that was.
+      #
+      # It lives here rather than in `script-tests` because that job does no
+      # `bun install` on purpose, and `scripts/tsconfig.json` inherits
+      # `types: ["bun-types"]` from the root — without the install, `tsc` fails
+      # on the type package rather than on the code.
+      - name: Type check the scripts
+        run: bunx --bun tsc -p scripts/tsconfig.json
+
   build-test:
     name: Build & Test
     runs-on: ubuntu-latest

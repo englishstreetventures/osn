@@ -1,0 +1,11 @@
+{
+  "description": "The organiser role gates and the entitlement gate that mounts behind them. The entitlement gate issues its own single-row lookup on a wedding the role gate in front of it has already queried, so a gated route pays three selects where two would do. Tests whether a performance review finds a point lookup behind a query that already reached the row — and whether it proposes a fix that does not tax the many routes mounting the role gate alone.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "6168009cb3c91fa77abec7e7fe9925a6d0e46800",
+      "installPath": "."
+    }
+  }
+}

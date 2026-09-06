@@ -1,0 +1,11 @@
+{
+  "description": "The same consent framework with both defects fixed: the cookie is written under a `__Host-` prefix and a granted-to-revoked transition reloads to tear down third-party code. The bare cookie name is still exported as a read fallback. Tests whether a review reports what the code does rather than pattern-matching the two defects this shape of module is usually reported for.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "8b55084abdc82867cb1aeaacb4102ecb1213b146",
+      "installPath": "."
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "skills": {
+    "new-feat": {
+      "score": 93,
+      "recordedAt": "2026-09-06"
+    },
+    "orchestrate": {
+      "score": 92,
+      "recordedAt": "2026-09-06"
+    },
+    "prep-pr": {
+      "score": 91,
+      "recordedAt": "2026-09-06"
+    },
+    "review-deps": {
+      "score": 94,
+      "recordedAt": "2026-09-06"
+    },
+    "review-docs": {
+      "score": 97,
+      "recordedAt": "2026-09-06"
+    },
+    "review-performance": {
+      "score": 93,
+      "recordedAt": "2026-09-06"
+    },
+    "review-security": {
+      "score": 94,
+      "recordedAt": "2026-09-06"
+    },
+    "review-tests": {
+      "score": 91,
+      "recordedAt": "2026-09-06"
+    },
+    "setup-osn": {
+      "score": 91,
+      "recordedAt": "2026-09-06"
+    }
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "//": "scripts/ is not a workspace, so `turbo check` never reaches it. Without this, a type error here ships: `skill-evals.ts` read an optional `scenario.path` unguarded, which crashed `ready`, `compare` and `record` on a payload the API really returns, and no gate saw it. The `script-tests` CI job runs `tsc -p scripts/tsconfig.json`, which needs no install because everything under scripts/ imports only bun:test, Bun and Node built-ins, and each other.",
+  "extends": "../tsconfig.json",
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "**/node_modules"]
+}

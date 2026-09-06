@@ -1,0 +1,11 @@
+{
+  "description": "The shared downstream access-token verifier `@shared/osn-auth-client`, carrying two defects: a `jwtVerify` call with no `requiredClaims`, so a token with no `exp` never expires, and an expected issuer that is optional, off by default, and silently disabled by an empty string. Tests whether a security review finds them in a file already dense with comments citing earlier findings, one of which argues for the unset issuer.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "d45562ef1db6a3936e35cb4a637e5a1e119a6dec",
+      "installPath": "."
+    }
+  }
+}

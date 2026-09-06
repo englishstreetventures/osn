@@ -1,0 +1,11 @@
+{
+  "description": "A branch that shortens the guest session cookie's lifetime in the two routes that mint it and edits the wiki page describing the guest auth model alongside — but only some of the page's mentions of the old value, and it renames a heading that two links point at. Tests whether a docs review cross-checks the page's claims against the code on the branch rather than reading the page for internal tidiness, follows a heading rename to the links that break on it, names the pages outside the diff that now carry a stale value, and leaves alone the one link shape that looks broken and is not.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "981ea5441a08a78d4d8b9d8daf52840b2b272b51",
+      "installPath": "."
+    }
+  }
+}

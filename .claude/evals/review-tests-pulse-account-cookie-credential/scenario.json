@@ -1,0 +1,11 @@
+{
+  "description": "The `/account` routes. Every handler authenticates through a resolver that accepts two credentials — a bearer access token and a session cookie — and every test presents the bearer. These are the data-subject-request handlers and the browser client cannot present a bearer at all. Tests whether a test review audits the credentials a route accepts rather than the handlers it exposes.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "a381059a5908272c3c5b024743bccc1fc7fba168",
+      "installPath": "."
+    }
+  }
+}
