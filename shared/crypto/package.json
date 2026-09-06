@@ -19,12 +19,12 @@
     "@osn/db": "workspace:*",
     "@shared/observability": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "effect": "^3.22.0",
+    "effect": "^3.22.1",
     "jose": "^6.2.10"
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",
     "@shared/typescript-config": "workspace:*",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }

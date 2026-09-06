@@ -40,8 +40,8 @@
     "@shared/redis": "workspace:*",
     "@zap/db": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "effect": "^3.22.0",
-    "elysia": "^1.4.29",
+    "effect": "^3.22.1",
+    "elysia": "^1.4.30",
     "jose": "^6.2.10"
   },
   "devDependencies": {
@@ -49,8 +49,8 @@
     "@effect/vitest": "^0.30.0",
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
-    "miniflare": "^4.20260722.0",
-    "vitest": "^4.1.10",
-    "wrangler": "^4.114.0"
+    "miniflare": "^4.20260730.0",
+    "vitest": "^4.1.11",
+    "wrangler": "^4.127.1"
   }
 }

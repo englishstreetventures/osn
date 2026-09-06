@@ -17,13 +17,13 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "@upstash/redis": "^1.38.0",
-    "effect": "^3.22.0",
+    "@upstash/redis": "^1.38.3",
+    "effect": "^3.22.1",
     "ioredis": "^5.11.1"
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",
     "@shared/typescript-config": "workspace:*",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }

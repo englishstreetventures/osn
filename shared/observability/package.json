@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@effect/opentelemetry": "^0.64.0",
-    "@effect/platform": "^0.97.0",
+    "@effect/platform": "^0.97.1",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-logs-otlp-http": "^0.221.0",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.221.0",
@@ -30,12 +30,12 @@
     "@opentelemetry/sdk-trace-base": "^2.10.0",
     "@opentelemetry/sdk-trace-node": "^2.10.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
-    "effect": "^3.22.0",
-    "elysia": "^1.4.29"
+    "effect": "^3.22.1",
+    "elysia": "^1.4.30"
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",
     "@shared/typescript-config": "workspace:*",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
