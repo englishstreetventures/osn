@@ -29,8 +29,14 @@ minimumReleaseAge = 259200
 #
 # fast-uri was removed 2026-08-21. It was added for fast-uri 3.1.4, which
 # patched GHSA-v2hh-gcrm-f6hx (high) inside the window. That reason expired:
-# the `fast-uri` override in package.json pins ^3.1.5, and 3.1.5 shipped
-# 2026-07-31 — well past the gate on its own. The entry was buying nothing and
-# exempting every future 3.x publish of a package that parses URIs on the
-# request path via ajv.
+# the `fast-uri` override in package.json pins a fixed release, and each has
+# shipped well past the gate on its own. The entry was buying nothing and
+# exempting every future 3.x publish. That note used to say fast-uri "parses
+# URIs on the request path via ajv" — it does not, and did not: `ajv` appears
+# once in the lockfile, reached only from `yaml-language-server` under
+# `@astrojs/check`, so the whole path is the Astro language server and no
+# deployed Worker or shipped bundle contains it. The exclude still had to go,
+# but a wrong reachability claim in the file that governs the soak policy would
+# misprice the next fast-uri decision, and there has already been one: six more
+# high advisories landed across 3.1.6 and 3.1.7.
 minimumReleaseAgeExcludes = []

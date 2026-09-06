@@ -34,7 +34,7 @@
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
     "@vitest/coverage-istanbul": "^4.1.11",
-    "happy-dom": "^20.12.0",
+    "happy-dom": "^20.12.2",
     "typescript": "^6.0.3",
     "vite": "^8.2.2",
     "vite-plugin-solid": "^2.11.14",

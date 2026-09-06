@@ -23,7 +23,7 @@
   "devDependencies": {
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
-    "happy-dom": "^20.12.0",
+    "happy-dom": "^20.12.2",
     "solid-js": "^1.9.15",
     "vite": "^8.2.2",
     "vite-plugin-solid": "^2.11.14",

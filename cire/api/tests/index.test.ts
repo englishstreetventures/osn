@@ -60,6 +60,12 @@ class StubSpan {
   setAttributes(_attributes: Record<string, boolean | number | string | undefined>): this {
     return this;
   }
+  // `recordException` became a required member of `Span` in
+  // @cloudflare/workers-types 5.20260903.1. Typed off the interface rather
+  // than restated, so the next daily types release cannot silently drift the
+  // stub away from the real signature. Nothing in the boot path records an
+  // exception, so it does nothing.
+  recordException(_exception: Parameters<Span["recordException"]>[0]): void {}
   end(): void {}
 }
 

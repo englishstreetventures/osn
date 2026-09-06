@@ -22,7 +22,7 @@
     "@shared/rp-auth": "workspace:*",
     "@shared/toast": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",
-    "astro": "^7.2.9",
+    "astro": "^7.2.10",
     "solid-js": "^1.9.15",
     "tailwindcss": "^4.3.3",
     "web-haptics": "0.0.6"
@@ -33,7 +33,7 @@
     "@shared/typescript-config": "workspace:*",
     "@solidjs/testing-library": "^0.8.10",
     "@testing-library/jest-dom": "^7.0.1",
-    "happy-dom": "^20.12.0",
+    "happy-dom": "^20.12.2",
     "typescript": "^6.0.3",
     "vite": "^8.2.2",
     "vite-plugin-solid": "^2.11.14",
