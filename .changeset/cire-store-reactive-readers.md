@@ -7,9 +7,18 @@ Fix the organiser stores' reactive readers so they actually are reactive.
 so from a cold cache the optional chain short-circuited before the signal's
 accessor was ever called, and a tracking computation built on any of them
 registered zero dependencies and never re-ran once the load resolved. The
-Overview's vendor-count widget and checklist card both stuck on their loading
-fallback for the life of the page whenever they raced ahead of the dashboard's
-own fetch. All three now mint the wedding's cache entry on read, exactly as
+Overview's vendor-count widget stuck on `Loading your vendors…` for the life of
+the page: `Overview.tsx` memoises `vendorCount` at setup, before any fetch has
+resolved, so the memo captured `null` with no dependencies and nothing could
+make it recompute. The other two carried the identical defect without being
+reachable — `taskCounts` is only read inside a `<Show>` nested under the
+dashboard's own `!data.loading` gate, and `ensureTasksLoaded` is awaited in the
+same `Promise.all` that gate waits on, so the entry always exists by the time
+that read first happens; `openTaskCount` has no caller at all. They are fixed
+because a non-subscribing reader is one call site away from being the vendors
+bug again, not because they are currently broken on screen.
+
+All three now mint the wedding's cache entry on read, exactly as
 `spentSoFar`/`upcomingPayments` already do, so they subscribe from a cold
 cache too. `peekCachedXxx` and `hasCachedXxx` are unchanged behaviourally, but
 now carry an accurate docblock instead of the false "non-reactive" or "without
