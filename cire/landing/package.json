@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "portless",
     "dev:app": "dev-env astro dev",
-    "build": "astro build && bun run ../../scripts/check-astro-fonts.ts dist",
+    "build": "astro build && bun run ../../scripts/check-astro-fonts.ts dist && ../../scripts/guard-bundle-size.sh .",
     "preview": "astro preview --port 4323",
     "check": "bunx --bun astro check",
     "test": "vitest run",

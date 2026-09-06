@@ -55,6 +55,15 @@ jobs:
       - name: Format check
         run: bun run fmt:check
 
+      # Tracker #619 — the general half of the tracker #287 finding. Astro
+      # routes every file under `src/pages`, so an un-prefixed `*.test.ts`
+      # there is built and deployed as a live route (which is exactly how
+      # cire/invites' Worker picked up 119 KB gzip of vitest). Needs no build
+      # and no per-app baseline, so it belongs in the fast job rather than
+      # `build-test`.
+      - name: Check for routable test files under src/pages
+        run: bun run scripts/check-astro-test-routes.ts
+
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest
@@ -186,7 +195,7 @@ jobs:
       # Tracker #287: the cire/invites SSR Worker bundle reached 470 KB gzip
       # unnoticed — a whole animation library in the server module graph with
       # nothing there calling it, and three drift-guard tests routed as pages.
-      # `bun run build` above already produced `cire/invites/dist/server`, so
+      # `bun run build` above already produced every app's `dist/`, so
       # measuring it here costs a few seconds and puts the budget check on the
       # merge gate. The deploy workflow runs the same script, but only after a
       # merge to main — which is one merge too late to stop the regression.
@@ -197,13 +206,23 @@ jobs:
       # the server graph, which is the half of #287 a file move does nothing
       # about.
       #
-      # It reads the `dist/server` the Build step already made and takes
-      # ~0.15s, so it sits after Test deliberately: a size trip fails the
-      # job either way, and running it last means the author still gets the
-      # test result in the same round trip.
-      - name: Guard cire/invites SSR bundle size
-        run: ./scripts/guard-ssr-size.sh
-        working-directory: cire/invites
+      # Tracker #619 generalised the script per-app: cire/invites is the only
+      # `output: "server"` app (a Worker, `dist/server`); the other five are
+      # `output: "static"` (Cloudflare Pages, `dist/_astro/*.js` +
+      # `dist/_astro/*.css` only — see scripts/guard-bundle-size.sh's own
+      # comment for why static measures an allowlist rather than a directory).
+      # Every app's mode and threshold is a row in
+      # scripts/bundle-size-budgets.txt, not an argument here — that file is
+      # the single source of truth, and `--all` walks every row in it. See
+      # that file's own comment for the re-baselining steps, and
+      # wiki/conventions/bundle-size-guards.md for every app's reading.
+      #
+      # This reads the `dist/` each build step already made and takes well
+      # under a second per app, so it sits after Test deliberately: a size
+      # trip fails the job either way, and running it last means the author
+      # still gets the test result in the same round trip.
+      - name: Guard Astro app bundle sizes
+        run: ./scripts/guard-bundle-size.sh --all
 
       # The four d1-integration.test.ts files live under `tests/d1/` (cire's
       # under `tests/db/`). The three vitest packages EXCLUDE that path, so the

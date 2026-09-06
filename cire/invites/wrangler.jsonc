@@ -13,6 +13,12 @@
   // 7-day Workers Logs retention, 100% sampling (low guest-site volume). Mirrors
   // cire-api's observability block.
   "observability": { "enabled": true },
+  // The SSR build is minified (astro.config.mjs); upload source maps so a
+  // production exception still symbolicates to a real source line. The
+  // adapter never sets this itself (grepped `@astrojs/cloudflare/dist` for
+  // `upload_source_maps`: no hits) — it must come from this file, which the
+  // adapter's generated `dist/server/wrangler.json` extends.
+  "upload_source_maps": true,
   // Custom-domain route: serves the guest site on `invite.cireweddings.com`.
   // (Domain reshuffle 2026-07-16: the apex `cireweddings.com` now serves the
   // marketing landing site; guest invites moved to the `invite.` subdomain,

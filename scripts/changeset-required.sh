@@ -34,6 +34,9 @@ is_allowed() {
   case "$f" in
     */*) ;; # has a directory component — checked below
     .gitignore) return 0 ;;
+    # The lockfile for `npx skills add`. Names and content-hashes the installed
+    # third-party skills; agent instructions, not something a package builds.
+    skills-lock.json) return 0 ;;
     *.md) return 0 ;; # top-level README.md, CLAUDE.md
     *) return 1 ;;    # any other root file (bun.lock, turbo.json, …)
   esac
@@ -44,7 +47,9 @@ is_allowed() {
     # Repo plumbing and prose: never bundled into a package's build output.
     # `.claude/` is agent instructions — slash-commands, skills, settings; it is
     # read by the coding agent, never by a build.
-    .github/* | .claude/* | scripts/* | wiki/* | docs/*) return 0 ;;
+    # `.agents/skills/` is where `npx skills add` installs third-party skills;
+    # `.claude/skills/<name>` is a symlink into it, so the two move together.
+    .github/* | .claude/* | .agents/* | scripts/* | wiki/* | docs/*) return 0 ;;
     # RETIRED PATHS — both were prose that shipped in no package, and both
     # were removed on 2026-08-21: `cire/wiki/` folded into `wiki/`, and
     # `cire/CLAUDE.md` became `wiki/apps/cire-development.md` when the repo
