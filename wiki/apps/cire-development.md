@@ -18,7 +18,7 @@ related:
   - "[[browser-tests]]"
   - "[[d1-read-replication]]"
   - "[[commands]]"
-last-reviewed: 2026-09-01
+last-reviewed: 2026-09-06
 ---
 
 # Cire development guide
@@ -150,6 +150,90 @@ The **guest site is a Worker, not Pages.** The adapter emits `dist/server` +
 bun run --cwd cire/invites build
 cd cire/invites && bunx wrangler deploy --config dist/server/wrangler.json
 ```
+
+## Guest-site SSR bundle size
+
+`cire/invites/scripts/guard-ssr-size.sh` measures the gzip size of every
+deployable file under `cire/invites/dist/server` (excluding the adapter's
+generated `wrangler.json` and, since tracker #616's source-map follow-up,
+`.map` files — `no_bundle: true` ships each chunk as its own module, so the
+sum of each file's own gzip size is what actually crosses the wire). It also
+fails if any `.map` file turns up under `dist/client`, which is served publicly
+as Static Assets — see the source-map warning below.
+
+It runs from the package's own `build` script, so it fires wherever the build
+actually executes: the by-hand deploy above, and any local build. `ci.yml` and
+both `deploy.yml` jobs also invoke it as their own step, which is what covers the
+case where Turborepo replays a cached `build` and the script never runs. To
+re-baseline after an intentional bundle change, build, read the printed total,
+and set `threshold` to that total plus **about 11.7 KB** of ordinary-growth
+headroom.
+
+The headroom is deliberately smaller than the mistake the guard exists to
+catch, and that is the part worth getting right. `motion` costs **21261 bytes
+gzip in the minified build** — the size of its own already-minified client
+vendor chunk, `dist/client/_astro/animate.*.js`, and the same figure you get by
+rebuilding with `stubMotionForSsr()` removed. A threshold set to "measured plus
+one motion" would put a fresh library of exactly that class *under* the line,
+which is how the first version of this number went wrong: it carried 47657
+bytes, motion's cost back when the build was unminified. The arithmetic is
+spelled out in the comment above `threshold=` so the next reader can check it
+without rebuilding.
+
+Three tracker follow-ups (#618, #616, #617) to the original size audit
+(#287) cut the bundle from 285 KB to 163 KB gzip:
+
+- **Sessions off (#618).** Astro's session config accepts `session: false`
+  (`astro/dist/core/session/config.js`), and `@astrojs/cloudflare`'s
+  KV-binding auto-provisioning is gated on that same literal
+  (`@astrojs/cloudflare/dist/index.js`, `if (session !== false && ...)`), so
+  turning sessions off entirely — rather than pinning the in-memory driver —
+  drops the session runtime and `unstorage` from `dist/server` with no KV
+  binding required. Safe here because the guest site never reads or writes
+  `Astro.session`.
+- **SSR minification (#616).** `vite: { build: { minify: true } }` in
+  `astro.config.mjs` does nothing for the server build: Astro's
+  `createViteBuildConfig` (`astro/dist/core/build/vite-build-config.js`)
+  spreads the user's `vite.build` and then hard-sets `minify: false`
+  afterward for build-performance reasons, and separately replaces the `ssr`
+  environment's whole `build` key, dropping any environment-scoped
+  `minify` too. The fix is a small inline Astro integration hooking
+  `astro:build:setup`, which Astro runs once (`target: "server"`) after that
+  config exists, and whose `updateConfig` merges on top of it — the `prerender`
+  and `ssr` environments inherit the resulting top-level `minify: true`; the
+  `client` environment doesn't, because its own `minify` is set independently,
+  so the client bundle is unaffected. The minifier under this Astro (Vite 8 /
+  rolldown-vite) is OXC — pass `minify: true`, not `"esbuild"`.
+- **Source maps, server-side only.** Minifying the server build means a
+  production Worker exception no longer names a real source line, so this ships
+  with `sourcemap: true` set **through the same `astro:build:setup` hook** as
+  `minify`, plus `upload_source_maps: true` in `cire/invites/wrangler.jsonc` —
+  the adapter never sets that key itself, so it has to come from the checked-in
+  config the generated `dist/server/wrangler.json` extends. Both CI rewrite
+  steps that touch that generated file (`deploy.yml`, dev and prod) only delete
+  `legacy_env` and set `name`/`routes`, so the key survives into the deployed
+  config untouched.
+
+  > [!warning] Never set `sourcemap` as a plain `vite.build` value here.
+  > Unlike `minify`, it is not overridden — it reaches the top level *and* the
+  > client environment reads it
+  > (`astro/dist/core/build/vite-build-config.js:135`), so the client build
+  > emits `dist/client/_astro/*.js.map` too. `dist/client` is this Worker's
+  > Static Assets directory (the adapter writes
+  > `"assets": { "directory": "../client" }` into the generated wrangler
+  > config) and Cloudflare serves everything in it verbatim, so those maps
+  > publish the guest site's unminified source at `/_astro/<chunk>.js.map` to
+  > anyone who asks. The plain form was written that way first and caught in
+  > review; `guard-ssr-size.sh` now fails the build if any `.map` file appears
+  > under `dist/client`.
+- **`zod` stays (#617).** Traced to Astro's own actions request handler
+  (`actions/handler.js` → `actions/runtime/server.js`, top-level
+  `import * as z from "zod/v4/core"`), which `core/routing/handler.js` calls
+  on every non-prerendered request whether or not the app defines any
+  actions (`src/actions` doesn't exist here). There's no app-level config to
+  skip that code path, so unlike `motion` (see the SSR-stub comment in
+  `astro.config.mjs`) this is not stubbed — it's a real, reachable Astro core
+  dependency, not dead weight from an unreachable path.
 
 ## Related
 
