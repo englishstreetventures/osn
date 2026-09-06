@@ -35,7 +35,7 @@
     "elysia": "^1.4.30"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260702.1",
+    "@cloudflare/workers-types": "^5.20260830.1",
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
     "jose": "^6.2.10",

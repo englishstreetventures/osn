@@ -54,7 +54,12 @@ class StubSpan {
   get isTraced(): boolean {
     return false;
   }
-  setAttribute(_key: string, _value?: boolean | number | string): void {}
+  setAttribute(_key: string, _value: boolean | number | string): this {
+    return this;
+  }
+  setAttributes(_attributes: Record<string, boolean | number | string | undefined>): this {
+    return this;
+  }
   end(): void {}
 }
 
@@ -62,11 +67,20 @@ const ctx: ExecutionContext = {
   waitUntil: () => {},
   passThroughOnException: () => {},
   props: undefined,
+  // `exports` and `abort` became required members of `ExecutionContext` in
+  // @cloudflare/workers-types 5. Neither is reachable from a boot test: the
+  // handler never looks up a sibling entrypoint, and nothing aborts the
+  // invocation.
+  exports: {},
+  abort: () => {},
   tracing: {
     enterSpan: () => {
       throw new Error("tracing not available in this test context");
     },
     startActiveSpan: () => {
+      throw new Error("tracing not available in this test context");
+    },
+    startSpan: () => {
       throw new Error("tracing not available in this test context");
     },
     Span: StubSpan,
