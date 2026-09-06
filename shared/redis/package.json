@@ -19,7 +19,7 @@
   "dependencies": {
     "@upstash/redis": "^1.38.3",
     "effect": "^3.22.1",
-    "ioredis": "^5.11.1"
+    "ioredis": "^6.0.0"
   },
   "devDependencies": {
     "@effect/vitest": "^0.30.0",
