@@ -160,6 +160,12 @@
     // unscoped over the whole tree, so "error" today would fail every PR.
     "house/no-tracker-ref-in-comment": "warn",
 
+    // Only the last doc block in front of a declaration is attached to it, so
+    // a stack means an editor shows the reader the wrong text and whatever the
+    // earlier block described has quietly lost its comment. 64 sites today,
+    // four of them in auth code, so this stays at "warn" until they are clear.
+    "house/no-stacked-doc-block": "warn",
+
     // jsdoc — a tag you write must carry content. Every rule here measured
     // zero hits across the tree when it was turned on, so each one only ever
     // fires on new drift.
@@ -168,15 +174,22 @@
     // add 1624 and 1934 warnings, every one asking for a restatement of a
     // signature TypeScript already carries.
     //
-    // The two "off" entries below are load-bearing. Listing the plugin turns
-    // on its whole rule set, and both of these sit in the correctness category
-    // this file sets to error, so leaving either at its default fails lint:
-    // require-yields wants a @yields tag on every generator, which here means
-    // every Effect.gen (22 errors); check-tag-names reads a scoped package
-    // name wrapped onto the start of a line inside prose as a tag (3 errors,
-    // all false).
+    // check-tag-names is what makes the closed tag set in
+    // wiki/conventions/code-comments.md a gate rather than a preference: it
+    // denies any tag it does not know, which covers every TSDoc-only spelling
+    // (@remarks, @defaultValue, @typeParam, @inheritDoc, @packageDocumentation,
+    // @alpha, @beta) and anything invented. `typed` additionally rejects tags
+    // that duplicate what TypeScript already states, and costs nothing here —
+    // measured, it adds no diagnostics beyond what the rule already reports.
+    // It does NOT reject the classic-JSDoc spellings (@example, @throws,
+    // @internal, @since, @public, @override); keeping those out is convention.
+    //
+    // require-yields stays off. Listing the plugin turns on its whole rule set
+    // and it sits in the correctness category this file treats as an error, so
+    // its default fails lint: it wants a @yields tag on every generator, which
+    // in this repo means every Effect.gen.
     "jsdoc/require-yields": "off",
-    "jsdoc/check-tag-names": "off",
+    "jsdoc/check-tag-names": ["error", { "typed": true }],
     "jsdoc/empty-tags": "warn",
     "jsdoc/require-param-description": "warn",
     "jsdoc/require-returns-description": "warn",
