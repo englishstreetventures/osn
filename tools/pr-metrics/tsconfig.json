@@ -9,5 +9,5 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": ["index.ts", "tests"]
+  "include": ["index.ts", "backfill.ts", "report.ts", "tests"]
 }

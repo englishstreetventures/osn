@@ -10,6 +10,7 @@ import {
   declaredFromLabels,
   emptyTokens,
   IDLE_CAP_SECONDS,
+  isFileWritingCommand,
   isHumanTurn,
   parseNumstat,
   readUsage,
@@ -316,8 +317,11 @@ test("aggregateInteraction stops counting exploration at the first edit", () => 
 
 // A second session re-reading the same files to find its feet is exactly the
 // waste this field exists to surface, so it is charged again rather than being
-// hidden behind the first session's answer.
-test("aggregateInteraction charges exploration once per session", () => {
+// hidden behind the first session's answer — but only once that session shows
+// an edit of its own. Session `b` below never edits anything, so its boundary
+// is unknown and its tokens are not banked. Counting them would assert that
+// every token it spent was exploration, which is a different claim entirely.
+test("aggregateInteraction banks a session's exploration only once it edits", () => {
   const interaction = aggregateInteraction([
     assistant({
       sessionId: "a",
@@ -339,7 +343,8 @@ test("aggregateInteraction charges exploration once per session", () => {
     }),
   ]);
 
-  expect(interaction.tokens_before_first_edit).toBe(80);
+  expect(interaction.tokens_before_first_edit).toBe(10);
+  expect(interaction.sessions_with_observed_edit).toBe(1);
 });
 
 test("aggregateInteraction records skills, subagents and edit churn", () => {
@@ -397,6 +402,7 @@ test("parseNumstat buckets lines and collects packages", () => {
   expect(diff.loc.generated).toEqual({ added: 800, deleted: 60 });
   expect(diff.files.source).toBe(2);
   expect(diff.packages).toEqual(["osn/api", "shared/crypto"]);
+  expect(parseNumstat("1\t0\ttools/pr-metrics/index.ts", 1).packages).toEqual(["tools/pr-metrics"]);
   expect(diff.commits).toBe(6);
 });
 
@@ -462,4 +468,78 @@ test("branchSlug flattens a branch into one filename", () => {
   expect(branchSlug("feat/pr-session-metrics")).toBe("feat-pr-session-metrics");
   expect(branchSlug("fix/osn-api/bot~traffic")).toBe("fix-osn-api-bot-traffic");
   expect(branchSlug("///")).toBe("unknown");
+});
+
+// --- edits made through the shell ------------------------------------------
+
+// This repository's own agent instructions tell agents to change files "with
+// sed, heredocs, or short scripts, rather than using the dedicated Edit tool".
+// Counting only Edit/Write meant 15 of the first 34 pull requests changed real
+// source with no observed edit at all, and each reported 100% exploration.
+test("isFileWritingCommand sees the shell forms that write files", () => {
+  expect(isFileWritingCommand("sed -i '' 's/a/b/' src/x.ts")).toBe(true);
+  expect(isFileWritingCommand("cat > src/x.ts <<'EOF'")).toBe(true);
+  expect(isFileWritingCommand("echo hi >> notes.md")).toBe(true);
+  expect(isFileWritingCommand("printf '%s' x | tee config.json")).toBe(true);
+  expect(isFileWritingCommand("mv old.ts new.ts")).toBe(true);
+});
+
+// A false positive moves the boundary too early and under-reports exploration,
+// which is the more misleading direction — so the read-only shapes that appear
+// in almost every command must not count.
+test("isFileWritingCommand ignores redirects that write nothing", () => {
+  expect(isFileWritingCommand("bun test 2>&1 | tail -5")).toBe(false);
+  expect(isFileWritingCommand("command -v gh >/dev/null")).toBe(false);
+  expect(isFileWritingCommand("ls -la")).toBe(false);
+  expect(isFileWritingCommand("grep -rn 'x' src/")).toBe(false);
+});
+
+test("aggregateInteraction treats a shell write as the first edit", () => {
+  const interaction = aggregateInteraction([
+    assistant({
+      timestamp: "…01",
+      message: {
+        model: "claude-opus-5",
+        content: [toolUse("Grep")],
+        usage: usage({ output_tokens: 100 }),
+      },
+    }),
+    assistant({
+      timestamp: "…02",
+      message: {
+        model: "claude-opus-5",
+        content: [toolUse("Bash", { command: "sed -i '' 's/a/b/' src/x.ts" })],
+        usage: usage({ output_tokens: 20 }),
+      },
+    }),
+    assistant({
+      timestamp: "…03",
+      message: {
+        model: "claude-opus-5",
+        content: [toolUse("Bash", { command: "bun test" })],
+        usage: usage({ output_tokens: 9000 }),
+      },
+    }),
+  ]);
+
+  expect(interaction.tokens_before_first_edit).toBe(120);
+});
+
+// "We never saw the boundary" and "every token was exploration" are different
+// claims. Reporting the second when only the first is true is what broke the
+// per-package ranking.
+test("aggregateInteraction reports null when no edit was ever observed", () => {
+  const interaction = aggregateInteraction([
+    assistant({
+      timestamp: "…01",
+      message: {
+        model: "claude-opus-5",
+        content: [toolUse("Read"), toolUse("Grep")],
+        usage: usage({ output_tokens: 5000 }),
+      },
+    }),
+  ]);
+
+  expect(interaction.tokens_before_first_edit).toBeNull();
+  expect(interaction.sessions_with_observed_edit).toBe(0);
 });

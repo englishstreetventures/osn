@@ -125,6 +125,7 @@ export interface ToolUseInput {
   skill?: string;
   subagent_type?: string;
   file_path?: string;
+  command?: string;
 }
 
 export interface ContentBlock {
@@ -228,6 +229,43 @@ export function costOf(tokens: TokenTotals, model: string): number {
 }
 
 const EDIT_TOOLS = new Set(["Edit", "Write", "NotebookEdit", "MultiEdit"]);
+
+/**
+ * A shell command that writes to a file in the working tree.
+ *
+ * Counting only `Edit` and `Write` was a real defect, not a gap: this
+ * repository's own agent instructions tell agents to make file changes "with
+ * sed, heredocs, or short scripts, rather than using the dedicated Read, Edit,
+ * or Write tools". In the first 34 cards, 15 pull requests changed real source
+ * with **zero** `Edit` calls — so the first-edit boundary never moved and every
+ * one of them reported that 100% of its tokens went on exploration. The
+ * per-package exploration ranking was then sorted by which branches happened to
+ * avoid the Edit tool, which is not a fact about anything.
+ *
+ * Deliberately conservative — a false positive here moves the boundary too
+ * early and under-reports exploration, which is the more misleading direction.
+ * `>` and `>>` must name a real path, so `2>&1` and `>/dev/null` do not count.
+ * A heredoc feeding an interpreter that writes files from inside the script
+ * (`python3 - <<'PY' … open(p,"w") … PY`) is still missed; there is no honest
+ * way to see that from the command line alone, and `null` handles it.
+ */
+export function isFileWritingCommand(command: string): boolean {
+  if (/\bsed\s+(-[a-zA-Z]*i|--in-place)\b/.test(command)) return true;
+  if (/\btee\s+(?!\/dev\/null)[^\s|;&]+/.test(command)) return true;
+  if (/\b(?:mv|cp|install)\s+[^\s|;&]+\s+[^\s|;&]+/.test(command)) return true;
+
+  // A redirect naming a path. `2>&1`, `>&2` and `/dev/null` are excluded, and
+  // the target must look like a filename rather than a descriptor.
+  return /(?<![0-9&])>>?\s*(?!\/dev\/null\b)(?!&)[\w./~$-]*[\w.-]/.test(command);
+}
+
+function isEditingUse(use: ToolUse): boolean {
+  if (EDIT_TOOLS.has(use.name)) return true;
+
+  return use.name === "Bash" && typeof use.input.command === "string"
+    ? isFileWritingCommand(use.input.command)
+    : false;
+}
 
 interface ToolUse {
   name: string;
@@ -432,7 +470,12 @@ export function aggregateWindow(records: SessionRecord[]): WindowSummary {
 export interface InteractionSummary {
   user_turns: number;
   corrective_turns: number;
-  tokens_before_first_edit: number;
+  /** `null` when no session showed an edit the collector could see — unknown,
+   *  never "all of it was exploration". */
+  tokens_before_first_edit: number | null;
+  /** How many sessions contributed to the figure above, so a partial reading
+   *  is visible as partial. */
+  sessions_with_observed_edit: number;
   tool_calls: Record<string, number>;
   edit_churn: { files_edited_3plus: number; max_edits_one_file: number };
   skills: Record<string, number>;
@@ -463,9 +506,17 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
   const sessionsWithWork = new Set<string>();
   const sessionsPastFirstEdit = new Set<string>();
 
+  // Accumulated per session, not globally, and only banked once that session
+  // actually shows an edit. A session that never edited anything the collector
+  // could see contributes nothing rather than contributing all of its tokens —
+  // "we did not observe the boundary" and "every token was exploration" are
+  // very different claims, and only one of them is true.
+  const pendingBySession = new Map<string, number>();
+  let tokensBeforeFirstEdit = 0;
+  let sessionsWithObservedEdit = 0;
+
   let userTurns = 0;
   let correctiveTurns = 0;
-  let tokensBeforeFirstEdit = 0;
 
   const ordered = [...records].sort((a, b) => (a.timestamp ?? "").localeCompare(b.timestamp ?? ""));
 
@@ -508,12 +559,14 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
 
     if (!record.isSidechain && !sessionsPastFirstEdit.has(session)) {
       const tokens = readUsage(record.message?.usage);
-      tokensBeforeFirstEdit +=
+      const spent =
         tokens.input +
         tokens.output +
         tokens.cache_write_5m +
         tokens.cache_write_1h +
         tokens.cache_read;
+
+      pendingBySession.set(session, (pendingBySession.get(session) ?? 0) + spent);
     }
 
     for (const use of uses) {
@@ -529,8 +582,13 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
         subagents[kind] = (subagents[kind] ?? 0) + 1;
       }
 
-      if (EDIT_TOOLS.has(use.name)) {
-        if (!record.isSidechain) sessionsPastFirstEdit.add(session);
+      if (isEditingUse(use)) {
+        if (!record.isSidechain && !sessionsPastFirstEdit.has(session)) {
+          sessionsPastFirstEdit.add(session);
+          sessionsWithObservedEdit += 1;
+          tokensBeforeFirstEdit += pendingBySession.get(session) ?? 0;
+        }
+
         const path = use.input.file_path;
         if (path) editsPerFile.set(path, (editsPerFile.get(path) ?? 0) + 1);
       }
@@ -542,7 +600,8 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
   return {
     user_turns: userTurns,
     corrective_turns: correctiveTurns,
-    tokens_before_first_edit: tokensBeforeFirstEdit,
+    tokens_before_first_edit: sessionsWithObservedEdit > 0 ? tokensBeforeFirstEdit : null,
+    sessions_with_observed_edit: sessionsWithObservedEdit,
     tool_calls: Object.fromEntries(Object.entries(tools).sort((a, b) => b[1] - a[1])),
     edit_churn: {
       files_edited_3plus: counts.filter((n) => n >= 3).length,
@@ -552,6 +611,8 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
     subagents,
   };
 }
+
+const WORKSPACE_ROOTS = ["osn", "pulse", "zap", "cire", "shared", "tools"];
 
 export type PathBucket = "generated" | "test" | "docs" | "config" | "source";
 
@@ -642,8 +703,12 @@ export function parseNumstat(numstat: string, commits: number): DiffSummary {
 
     if (path.includes("/drizzle/") || path.includes("/migrations/")) touchesMigration = true;
 
+    // The workspace globs are `<dir>/*` for the five product directories and
+    // for `tools`, so the first two segments name the package. `tools/oxlint`
+    // is the one place that resolves to a parent of the real workspace
+    // (`tools/oxlint/house`) — still the right grouping for a card.
     const parts = path.split("/");
-    if (parts.length >= 2 && ["osn", "pulse", "zap", "cire", "shared"].includes(parts[0])) {
+    if (parts.length >= 2 && WORKSPACE_ROOTS.includes(parts[0])) {
       packages.add(`${parts[0]}/${parts[1]}`);
     }
   }
@@ -754,6 +819,118 @@ export function buildCard(records: SessionRecord[], diff: DiffSummary, context: 
     diff,
     interaction: aggregateInteraction(records),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+/** 66_000_000 → "66.0M". Cards run to tens of millions of tokens and a raw
+ * digit string at that size is unreadable in a table. */
+export function compactTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
+
+  return String(value);
+}
+
+export function humanDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+
+  const hours = Math.floor(seconds / 3600);
+
+  return `${hours}h ${Math.round((seconds % 3600) / 60)}m`;
+}
+
+function share(part: number, whole: number): string {
+  return whole > 0 ? `${Math.round((part / whole) * 100)}%` : "0%";
+}
+
+/**
+ * The card as a collapsed block for a pull-request body.
+ *
+ * A `<details>` block rather than a section, and that is a constraint rather
+ * than a preference: `prep-pr` permits exactly five `##` headings and checks
+ * the count before it finishes, so a sixth would fail a body that is otherwise
+ * correct. `<details>` adds no heading.
+ *
+ * The summary line carries the four figures worth seeing without expanding.
+ * "API-equivalent" is spelled out every time because this work runs on a
+ * subscription and the number must never be read as a bill.
+ */
+export function renderDetails(card: Card): string {
+  const { spend, diff, interaction, window: session, complexity } = card;
+  const tokens = spend.tokens;
+  const total =
+    tokens.input +
+    tokens.output +
+    tokens.cache_write_5m +
+    tokens.cache_write_1h +
+    tokens.cache_read;
+
+  const declared =
+    complexity.declared === null
+      ? "unrated"
+      : `${complexity.declared}${complexity.method === "unconfirmed" ? " (unconfirmed)" : ""}`;
+
+  const source = `+${diff.loc.source.added}/-${diff.loc.source.deleted}`;
+  const models = Object.entries(spend.by_model)
+    .sort((a, b) => b[1].usd_equivalent - a[1].usd_equivalent)
+    .map(([model, bucket]) => `${model} (${share(bucket.usd_equivalent, spend.usd_equivalent)})`)
+    .join(", ");
+
+  const rows: [string, string][] = [
+    ["Cost (API-equivalent)", `$${spend.usd_equivalent.toFixed(2)}`],
+    [
+      "Tokens",
+      `${compactTokens(total)} — out ${compactTokens(tokens.output)} · cache-w ${compactTokens(
+        tokens.cache_write_5m + tokens.cache_write_1h,
+      )} · cache-r ${compactTokens(tokens.cache_read)} (${share(tokens.cache_read, total)})`,
+    ],
+    ["Models", models || "—"],
+    ["Active time", `${humanDuration(session.active_seconds)} over ${session.sessions} session(s)`],
+    ["Declared complexity", declared],
+    [
+      "Source diff",
+      `${source} across ${diff.files.source} file(s), ${diff.packages.length} package(s)`,
+    ],
+    ["Turns", `${interaction.user_turns} (${interaction.corrective_turns} corrective)`],
+    [
+      "Before first edit",
+      interaction.tokens_before_first_edit === null
+        ? "not observed (no edit seen in the transcript)"
+        : `${compactTokens(interaction.tokens_before_first_edit)} (${share(
+            interaction.tokens_before_first_edit,
+            total,
+          )})`,
+    ],
+    [
+      "Subagents",
+      Object.keys(interaction.subagents).length === 0
+        ? "none"
+        : `${Object.entries(interaction.subagents)
+            .map(([kind, n]) => `${n}× ${kind}`)
+            .join(
+              ", ",
+            )} (${share(spend.by_actor.subagent.usd_equivalent, spend.usd_equivalent)} of spend)`,
+    ],
+  ];
+
+  const summary =
+    `Session metrics — $${spend.usd_equivalent.toFixed(2)} · ${compactTokens(total)} tok · ` +
+    `complexity ${declared} · ${source} source`;
+
+  return [
+    `<details><summary>${summary}</summary>`,
+    "",
+    "| | |",
+    "|---|---|",
+    ...rows.map(([label, value]) => `| ${label} | ${value} |`),
+    "",
+    `<sub>Card: \`.claude/metrics/${branchSlug(card.pr.branch)}.json\` · phase \`${card.pr.phase}\` · [schema](../blob/main/wiki/observability/session-metrics.md)</sub>`,
+    "</details>",
+  ].join("\n");
 }
 
 /**
@@ -867,6 +1044,14 @@ if (import.meta.main) {
     generatedAt: new Date().toISOString(),
   });
 
+  // `--format markdown` prints the `<details>` block on stdout and writes
+  // nothing, so `prep-pr` can append it to a body without a temporary file and
+  // without the warnings below landing in the middle of the markdown.
+  if (flag("format") === "markdown") {
+    console.log(renderDetails(card));
+    process.exit(0);
+  }
+
   const outDir = flag("out-dir") ?? ".claude/metrics";
   const outPath = `${outDir}/${branchSlug(branch)}.json`;
   require("node:fs").mkdirSync(outDir, { recursive: true });
@@ -883,7 +1068,7 @@ if (import.meta.main) {
     console.warn(
       `⚠️  pr-metrics: no rate for ${card.spend.unpriced_models.join(", ")} — cost excludes it.`,
     );
-    console.warn("   Add it to MODEL_RATES in scripts/pr-metrics.ts.");
+    console.warn("   Add it to MODEL_RATES in tools/pr-metrics/index.ts.");
   }
 
   console.log(`✅ pr-metrics: wrote ${outPath}`);
