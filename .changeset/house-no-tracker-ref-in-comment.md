@@ -10,6 +10,8 @@ A bare `#123` is deliberately not matched: that is an ordinary public cross-refe
 
 The rule ships at `"warn"` rather than `"error"`. `bun run lint` runs oxlint unscoped over the whole tree with no `--deny-warnings`, and it reports 1600 references across 483 files today (1396 finding tags, 101 plan codes, 60 tracker issues, 43 narrations), so `"error"` would fail every pull request's lint job — including the one adding the rule. The cleanup that clears those files raises the severity as its last step.
 
+A citation to a standard that numbers its clauses — the Copenhagen Book, an RFC, NIST, OWASP, WCAG, ISO, FIPS — is exempt from the plan-code pattern. Those numbers look identical to an internal phase tag and are the opposite thing: a stable external reference, which is the kind of pointer the convention exists to encourage. A bare plan code on the same line still reports.
+
 A reference is reported once per occurrence rather than once per comment, so a line carrying two tags reports twice and a single pass over the warnings clears the file. The phase-code pattern refuses a match preceded by a hyphen, because a finding tag used as a label ends in a colon as well and would otherwise report a second time as a plan code that was never there.
 
 The convention was not written down anywhere before, so the rule and its documentation land together. `wiki/conventions/code-comments.md` is the new page — what earns a comment, the four references that rot, what to write instead in order of preference (a rename, then a `@see` to a wiki path or public issue, then an inline reason), and where the line sits on length. CLAUDE.md gets a one-line Conventions row pointing at it, and an entry in the wiki-navigation table.

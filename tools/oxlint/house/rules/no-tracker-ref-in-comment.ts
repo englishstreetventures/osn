@@ -2,6 +2,20 @@ import { defineRule } from "@oxlint/plugins";
 import type { ESTree } from "@oxlint/plugins";
 
 /**
+ * Standards that number their clauses the way an internal plan numbers its
+ * phases. A citation to one of these is a stable external reference and the
+ * kind of pointer this rule exists to encourage, so it is not a match.
+ */
+const normativeCitation = /\b(?:Copenhagen Book|RFC|NIST|OWASP|WCAG|ISO|FIPS|SP)\s*$/;
+
+type CommentPattern = {
+  readonly messageId: "trackerRef" | "findingId" | "phaseCode" | "narrativePhrase";
+  readonly regex: RegExp;
+  /** Given the comment's text and a match offset, whether to let the match pass. */
+  readonly skip?: (value: string, index: number) => boolean;
+};
+
+/**
  * The reference shapes that rot, each reported under its own message.
  *
  * `createOnce` builds the visitor once and reuses it for every file, so nothing
@@ -9,18 +23,22 @@ import type { ESTree } from "@oxlint/plugins";
  * advancing `lastIndex` on the shared object, which is what keeps these safe to
  * hoist to module scope.
  */
-const patterns = [
+const patterns: readonly CommentPattern[] = [
   { messageId: "trackerRef", regex: /osn-tracker#\d+/gi },
   { messageId: "findingId", regex: /\b[CDPST]-[A-Z]\d+\b/g },
   // The lookbehind rejects a hyphen as well as a word character. A finding tag
   // used as a label ends in a colon too, and without that its own tail would
   // report a second time as a plan code that was never there.
-  { messageId: "phaseCode", regex: /(?<![-\w])[A-Z]\d+:/g },
+  {
+    messageId: "phaseCode",
+    regex: /(?<![-\w])[A-Z]\d+:/g,
+    skip: (value, index) => normativeCitation.test(value.slice(0, index)),
+  },
   {
     messageId: "narrativePhrase",
     regex: /\bused to be\b|\bwas reported as\b|\bnot a fold target in this plan\b/gi,
   },
-] as const;
+];
 
 /** Where a match inside a comment's text sits in the file's own coordinates. */
 function locateMatch(comment: ESTree.Comment, index: number, length: number) {
@@ -56,8 +74,9 @@ export const noTrackerRefInCommentRule = defineRule({
     return {
       Program(node) {
         for (const comment of node.comments) {
-          for (const { messageId, regex } of patterns) {
+          for (const { messageId, regex, skip } of patterns) {
             for (const match of comment.value.matchAll(regex)) {
+              if (skip?.(comment.value, match.index) === true) continue;
               context.report({
                 messageId,
                 loc: locateMatch(comment, match.index, match[0].length),

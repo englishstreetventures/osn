@@ -51,6 +51,15 @@ export const seeded = true;
 // S-M2: restrict CORS to a known origin allowlist.
 export const origins = [];
 `,
+  // A standard that numbers its clauses the way a plan numbers its phases. The
+  // citation is stable and is the kind of pointer the convention encourages, so
+  // it must not report — while a real plan code in the same file still does.
+  "normative-citation.ts": `
+// Copenhagen Book M3: cap length at 255 to match the RFC 5321 mailbox limit.
+export const maxEmailLength = 255;
+// O3: enforced at the edge.
+export const enforced = true;
+`,
   "narrative.ts": `
 // This used to be a synchronous read.
 export const a = 1;
@@ -158,6 +167,7 @@ describe("house/no-tracker-ref-in-comment", () => {
       "finding-id.ts",
       "multiline-block.ts",
       "narrative.ts",
+      "normative-citation.ts",
       "phase-code.ts",
       "tracker-ref.ts",
     ]);
@@ -168,6 +178,12 @@ describe("house/no-tracker-ref-in-comment", () => {
     expect(forFixture(diagnostics, "phase-code.ts")).toHaveLength(2);
     expect(forFixture(diagnostics, "narrative.ts")).toHaveLength(2);
     expect(forFixture(diagnostics, "tracker-ref.ts")).toHaveLength(1);
+  });
+
+  it("leaves a normative standard citation alone but still reports a real plan code", () => {
+    const reported = forFixture(diagnostics, "normative-citation.ts");
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.message).toContain("O3:");
   });
 
   it("reads a finding tag used as a label as one reference, not a plan code as well", () => {
