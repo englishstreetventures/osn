@@ -10,7 +10,7 @@ related:
   - "[[social-graph]]"
   - "[[arc-tokens]]"
   - "[[monorepo-structure]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-09-07
 ---
 
 # Zap
@@ -97,7 +97,7 @@ This split is by design: c2b body content is server-visible, user-attributed dat
 
 ### CI pipeline
 
-A `deploy-zap-api` job exists in `.github/workflows/deploy.yml` but is **dormant**: it activates once the prod D1 `database_id` is filled in `zap/api/wrangler.toml` `[env.production]`. See the zap-api production bring-up runbook for the manual steps to activate it.
+`deploy-zap-api` in `.github/workflows/deploy.yml` is **live**. It was written to stay dormant until the production D1 existed, and that condition is met: `[[env.production.d1_databases]]` in `zap/api/wrangler.toml` carries a real `database_id`, so the job's `zapcheck` step sets `provisioned=true` and deploys instead of skipping. Only dev and staging still hold `placeholder-replace-after-d1-create`, which the check ignores on purpose. It runs on a merge to `main` that touches `zap/api`, and like every production job it waits on a human approving the `production` GitHub Environment — see [[production-deploy]].
 
 ## Authentication & authorization
 

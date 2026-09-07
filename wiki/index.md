@@ -103,6 +103,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[stacked-prs]] — basing one PR on another with the gh CLI, and merging the stack
 - [[component-lab]] — the in-repo Storybook replacement: prototyping components, three.js and canvas
 - [[bundle-size-guards]] — per-app Astro bundle-size guard + the src/pages test-route check, across all six apps
+- [[wiki-search]] — the three ways to search this vault, which exist where, and the guard that stops a branch reading stale
 
 ## Compliance
 

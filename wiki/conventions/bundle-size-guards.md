@@ -7,7 +7,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[testing-patterns]]"
   - "[[review-findings]]"
-last-reviewed: 2026-09-06
+last-reviewed: 2026-09-07
 ---
 
 # Astro bundle-size guards
@@ -20,6 +20,34 @@ fix cire/invites got: both mistakes can happen in any of the repo's six Astro
 apps, and both are now checked on every one of them.
 
 Two separate scripts, because the two mistakes are different shapes.
+
+## Two rules for any guard that gates on a number
+
+These are not about bundles. They apply to any guard with a threshold in it —
+a size budget, a query-count cap, a timing ceiling — and both were learned here
+by getting them wrong first.
+
+**The number lives in one committed file the guard reads.** Never as an
+argument at each call site. `scripts/bundle-size-budgets.txt` is the worked
+example, and what it replaced was the same threshold typed into six
+`package.json` build scripts, one `ci.yml` step and eight `deploy.yml` steps —
+fifteen copies, and a re-baseline that missed one left a guard enforcing a
+number nobody meant. One file also means the guard can refuse to run for a
+package with no row, rather than passing silently.
+
+**The headroom is smaller than the smallest mistake the guard exists to
+catch**, measured against the current build rather than carried over from an
+older one. A guard whose slack exceeds the mistake cannot fire, whatever it
+prints. This one nearly shipped: the invites threshold budgeted 47657 bytes of
+headroom, which was `motion`'s cost back when that build was *unminified*. In
+the minified build the same library costs 21261 bytes, so a fresh dependency of
+exactly the class the guard was written for would have landed under the line
+and deployed. The fix was to re-measure against the build as it is now and set
+the headroom to ~11.7 KB, roughly half the mistake.
+
+The corollary is a check, not a rule: **you have not verified a guard until you
+have seen it fail.** Break the input, watch the non-zero exit. A guard that
+only ever passes is indistinguishable from one that cannot fail.
 
 ## `scripts/guard-bundle-size.sh` — the size guard
 
@@ -34,7 +62,7 @@ for a human reading the wiki. If the two ever disagree, the `.txt` file is
 right and this page is stale; re-read it rather than trusting the table below.
 That split used to not exist: the threshold was a third command-line argument,
 copied by hand into six `package.json` build scripts, one `ci.yml` step and
-eight `deploy.yml` steps — eight-plus copies of the same number, silently
+eight `deploy.yml` steps — fifteen copies of the same number, silently
 divergeable by missing one on a re-baseline. There is now exactly one place to
 edit.
 

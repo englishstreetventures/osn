@@ -30,7 +30,7 @@
 # single source of truth. A threshold living in one place is the whole point:
 # it used to be a `<package-dir> <mode> <threshold>` argument, copied by hand
 # into six package.json build scripts, a ci.yml step and eight deploy.yml
-# steps — eight to fourteen copies of the same number, silently divergeable by
+# steps — fifteen copies of the same number, silently divergeable by
 # missing one on a re-baseline. There is deliberately no way to pass a
 # threshold on the command line any more.
 #

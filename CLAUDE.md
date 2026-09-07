@@ -6,7 +6,7 @@ AI coding assistant ref. Full spec in README.md. Work tracked in GitHub Issues �
 
 OSN: Modular social platform. Users own identity + social graph. Apps opt-in/out independently.
 
-**Deployed (2026-06-18):** the cire stack is **live on the `cireweddings.com` zone** (all Cloudflare Free tier). Domain reshuffle 2026-07-16: apex `cireweddings.com` = marketing landing, `invite.cireweddings.com` = guest site, `host.cireweddings.com` = organiser portal. **Identity moved to its own zone 2026-07-27:** `osn-api` is a deployed **Cloudflare Worker** on `id.musubi.social`, `@osn/social` (identity app + the OIDC consent screen) is on the apex `musubi.social`, and the WebAuthn RP ID is `musubi.social` — so the cireweddings.com origins can no longer run passkey ceremonies and sign in through the OIDC redirect flow instead (see `[[wiki/runbooks/musubi-identity-migration]]`). osn-api has Upstash prod secrets set; email is live over Resend from `hello@cireweddings.com` (the `OSN_EMAIL_OPTIONAL` degraded mode was dropped in #160). `cire-api` on `api.cireweddings.com`; guest + organiser sites on Pages with custom domains. **Two tiers since 2026-08-13:** a merge to `main` auto-deploys the isolated **dev** tier (`*.dev.cireweddings.com`, `id.dev`/`dev.musubi.social`), and the production jobs in the same run wait on a human approving the `production` GitHub Environment — no more unattended deploys to live weddings. Path filters mean only changed surfaces deploy. See `[[wiki/runbooks/dev-environment]]`. Architectural decision: **osn-api stays a single Worker** (split deferred). See `[[wiki/runbooks/production-deploy]]`, `[[wiki/runbooks/free-tier-limits]]`.
+**Deployed:** the cire stack is **live on the `cireweddings.com` zone** (all Cloudflare Free tier). Domain reshuffle 2026-07-16: apex `cireweddings.com` = marketing landing, `invite.cireweddings.com` = guest site, `host.cireweddings.com` = organiser portal; `vendor.cireweddings.com` joined them with the vendor portal (`cire/vendor`, its own Pages project and deploy job). **Identity moved to its own zone 2026-07-27:** `osn-api` is a deployed **Cloudflare Worker** on `id.musubi.social`, `@osn/social` (identity app + the OIDC consent screen) is on the apex `musubi.social`, and the WebAuthn RP ID is `musubi.social` — so the cireweddings.com origins can no longer run passkey ceremonies and sign in through the OIDC redirect flow instead (see `[[wiki/runbooks/musubi-identity-migration]]`). osn-api has Upstash prod secrets set; email is live over Resend from `hello@cireweddings.com` (`OSN_EMAIL_OPTIONAL` still exists as the degraded-boot opt-in — `selectEmailLayer` in `osn/api/src/lib/email-layer.ts` — and is unneeded once `RESEND_API_KEY` is set). `cire-api` on `api.cireweddings.com`; guest + organiser sites on Pages with custom domains. **Two tiers since 2026-08-13:** a merge to `main` auto-deploys the isolated **dev** tier (`*.dev.cireweddings.com`, `id.dev`/`dev.musubi.social`), and the production jobs in the same run wait on a human approving the `production` GitHub Environment — no more unattended deploys to live weddings. Path filters mean only changed surfaces deploy. See `[[wiki/runbooks/dev-environment]]`. Architectural decision: **osn-api stays a single Worker** (split deferred). See `[[wiki/runbooks/production-deploy]]`, `[[wiki/runbooks/free-tier-limits]]`.
 
 Phase 1 surfaces:
 
@@ -15,8 +15,9 @@ Phase 1 surfaces:
 | Identity / auth API | `@osn/api` (port 4000; prod Worker `id.musubi.social`) | Active — **deployed (Worker)** |
 | Identity & graph UI | `@osn/social` (port 1422; prod Pages `musubi.social`) | Active — **deployed (Pages)** |
 | Events | `@pulse/web` + `@pulse/api` (port 3001) + `@pulse/db` | Active |
-| Messaging | `@zap/api` (port 3002) + `@zap/db` | M0 scaffolded; M1 in flight; client app not started |
+| Messaging | `@zap/api` (port 3002) + `@zap/db` | Backend only — per-package milestone status is on `[[wiki/apps/zap]]` |
 | Wedding invites | @cire/api (:8787, prod `api.cireweddings.com`) + @cire/invites (:4321, prod `invite.cireweddings.com`) + @cire/host (:4322, prod `host.cireweddings.com`) + @cire/db + @cire/theme | Active — **deployed** (domain reshuffle 2026-07-16: guest→`invite.`, organiser→`host.`; package rename 2026-08-07: `@cire/web`→`@cire/invites`, `@cire/organiser`→`@cire/host`) |
+| Wedding vendor portal | `@cire/vendor` (:4326, prod `vendor.cireweddings.com`) | Active — **deployed (Pages)**. The vendor self-service portal: claim flow and directory listing. See `[[wiki/systems/cire-vendors]]` |
 | Wedding marketing site | `@cire/landing` (:4323) | Active — serves the **apex `cireweddings.com`** (reshuffle 2026-07-16). See `[[wiki/apps/cire-landing]]` |
 | OSN marketing site | `@osn/landing` (:4324) | Active — built (dark/dotted, connections-led). See `[[wiki/apps/osn-landing]]` |
 | Pulse marketing site | `@pulse/landing` (:4325) | Active — built (colourful + fun). See `[[wiki/apps/pulse-landing]]` |
@@ -82,7 +83,7 @@ One label is orthogonal to all of that: **`needs:decision`**, on both repos. It 
 | Write or review tests | `[[wiki/conventions/testing-patterns]]` |
 | Run the devloop (named HTTPS hosts per app, a stack per worktree, adding an app to it) | `[[wiki/conventions/devloop-urls]]` |
 | Split one goal across several PRs (stacked PRs — setting the base with the gh CLI, merge order, rebasing a stack) | `[[wiki/conventions/stacked-prs]]` |
-| Add or re-baseline an Astro app's bundle-size guard, or check the src/pages test-route check | `[[wiki/conventions/bundle-size-guards]]` |
+| Write, re-baseline or debug a guard that gates on a number (bundle budgets, and the two rules any such threshold obeys) | `[[wiki/conventions/bundle-size-guards]]` |
 | Add or use UI component (Button, Card, Dialog…) | `[[wiki/architecture/component-library]]` |
 | Raise a toast, theme one for an app, or debug a toast's stacking/contrast | `[[wiki/systems/toast]]` |
 | Add drag-to-reorder to a list (and get the keyboard + screen-reader path for free) | `[[wiki/architecture/drag-and-drop]]` |
@@ -107,77 +108,35 @@ One label is orthogonal to all of that: **`needs:decision`**, on both repos. It 
 
 ### Searching the wiki
 
-Three ways, in order. Try each; drop to the next when it isn't there.
+Three tiers. Try each, drop to the next when it isn't there:
 
-**1. Obsidian MCP (`mcp__obsidian-wiki__*`) — preferred, local sessions only.** The MCP Connector plugin (`mcp-tools-istefox`) serving the `wiki` vault. Reachable when the `mcp__obsidian-wiki__*` tools are listed and a call returns; an error ending `is Obsidian open with the vault loaded?` means it isn't — drop to step 2.
-
-Where it exists:
-
-| Where you're running | Obsidian MCP? |
-|---|---|
-| Claude Code on Aniket's Mac, Obsidian open with the `wiki` vault | Yes — registered at user scope |
-| Claude Code on that Mac, Obsidian shut | No — the server can't resolve a port |
-| Claude Desktop | Only if the `.mcpb` is installed there as well; the Claude Code registration doesn't carry over |
-| Remote or cloud session, cloud agent, CI, another machine | **Never.** It reaches a local Obsidian over `127.0.0.1`. Skip to step 3 — the `obsidian` CLI is local-only too. |
-
-Don't hunt for it, retry it, or ask for it to be started when the tools aren't listed. Absent means absent: go to grep.
-
-| To... | Call |
-|---|---|
-| Search by meaning, not wording | `search_vault_smart` (semantic index over the vault) |
-| Search for an exact string | `search_vault_simple` (substring + surrounding context) |
-| Read one page / up to 20 pages | `get_vault_file`, `get_vault_files` |
-| Read one heading, field, or the outline only | `get_vault_file_partial`, `get_note_outline` |
-| Follow the graph | `get_backlinks`, `get_outgoing_links` |
-| Find pages by tag | `get_files_by_tag`, `list_tags` |
-| Orient in an unfamiliar area | `get_vault_overview`, `list_vault_files` |
-
-Some tools start inactive — `tool_catalog` lists them, `activate_tools` promotes several in one call.
-
-**It always shows you `main`, not your branch.** The vault path is baked into the connector as the `main` worktree's `wiki/`. Obsidian stays open on that one vault; nobody re-points it per branch. Two consequences:
-
-- **Read only.** The write tools (`create_vault_file`, `patch_vault_file`, `search_and_replace`, …) would edit `main`'s working tree, not your branch. Retrieve over MCP; edit wiki pages in your own worktree with Edit/Write.
-- **Your branch's own wiki edits are invisible to it.** Before trusting a page the branch might have changed, run the guard — one command, not a re-read of the wiki:
-
-  ```bash
-  git diff --name-only origin/main...HEAD -- wiki/   # pages this branch changed
-  ```
-
-  Empty output (the usual case) → MCP results are authoritative, use them. Any page you need in that list → read the branch copy with Read; MCP has the pre-branch version.
-
-Keep the vault fresh, since a stale `main` worktree means stale answers. Obsidian re-indexes on file change, and a fast-forward of a clean worktree is safe:
-
-```bash
-git -C ~/.work/osn.git/main pull --ff-only
-```
-
-If it refuses, leave it alone — never force or reset another worktree. Grep your own `wiki/` instead.
-
-That's the whole protocol: freshen, one guard command, then lean on semantic search instead of grepping and reading whole pages.
-
-**2. Obsidian CLI** — same limits: local machine, app running. Invoke the **`obsidian:obsidian-cli` skill** for the command surface; it wraps `obsidian help`, which is authoritative and stays current. Quick reference:
-
-```bash
-which obsidian 2>/dev/null || echo "not installed"
-obsidian search vault=wiki query="arc tokens"          # full-text search
-obsidian search:context vault=wiki query="arc tokens"  # search with line context
-obsidian tag vault=wiki name=systems verbose           # list files tagged #systems
-obsidian read vault=wiki path=systems/arc-tokens.md    # read a page
-obsidian backlinks vault=wiki file=arc-tokens          # find pages linking to it
-obsidian files vault=wiki folder=systems               # list files in a folder
-```
-
-Two repo-specific rules the skill can't know:
-
-- **Paths are vault-root-relative, and the vault root is `wiki/`.** `path=systems/arc-tokens.md`, not `path=wiki/systems/...` — the latter errors with `File not found`. `file=` takes a wikilink target (`file=arc-tokens`) instead.
-- **Read only, same as the MCP and for the same reason.** The CLI acts on the vault, and the vault is `main`'s `wiki/`. `create`, `append`, and `property:set` would write to `main`'s working tree, not your branch. There are three vaults registered (`wiki`, `echo_chamber`, `vault_india_22`) — always pass `vault=wiki` rather than trusting the default.
-
-**3. grep** — works everywhere, including remote and CI. Reads your worktree's own `wiki/`:
+1. **Obsidian MCP** (`mcp__obsidian-wiki__*`) — semantic search, outlines,
+   backlinks. **Local machine with Obsidian open, and nowhere else.**
+2. **The `obsidian` CLI** — same limits: local machine, app running.
+3. **grep** — works everywhere, including remote and CI.
 
 ```bash
 grep -r "arc token" wiki/ --include="*.md" -l          # find matching pages
 grep -r "arc token" wiki/ --include="*.md" -n          # with line numbers
 ```
+
+Two rules that apply to the first two tiers and cost real time when missed.
+**Both are read-only**: they act on the `main` worktree's `wiki/`, so a write
+through either edits `main`'s working tree instead of your branch. And **both
+show you `main`, not your branch** — before trusting a page this branch might
+have changed, run the guard, not a re-read:
+
+```bash
+git diff --name-only origin/main...HEAD -- wiki/   # pages this branch changed
+```
+
+Empty output, the usual case, means the results are authoritative. Anything in
+that list, read with Read instead.
+
+The rest — which tool answers which kind of question, where each tier does and
+does not exist, vault-relative paths, keeping the vault fresh — is in
+`[[wiki/conventions/wiki-search]]`. Grep can read that page from any session,
+which is why the grep tier is written out here rather than only there.
 
 ### Writing to the wiki
 
@@ -224,7 +183,7 @@ Monorepo by domain. Five dirs, five prefixes — see `[[wiki/architecture/monore
 
 ## Tech (one-liner)
 
-Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, SQLite→Supabase, Eden+REST, WebSockets, Signal Protocol, SolidJS, Astro, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest
+Bun, TypeScript, Elysia, Effect.ts (trial), Drizzle, `bun:sqlite` locally → Cloudflare D1 deployed, Eden+REST, WebSockets, Signal Protocol, SolidJS, Astro, Turborepo, oxlint, oxfmt, Vitest + @effect/vitest (`@cire/api` runs on `bun test`)
 
 ## Key Patterns
 
@@ -242,7 +201,7 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | Recovery Codes | Copenhagen Book M2 — 10 × 64-bit single-use codes, hashed at rest. Generate/consume both in `security_events` and surfaced via in-app banner. | `[[wiki/systems/recovery-codes]]` |
 | Session Introspection | `GET/DELETE /sessions[/:id]`, `POST /sessions/revoke-all-other`. Coarse UA labels + HMAC-peppered IP hashes. | `[[wiki/systems/sessions]]` |
 | OIDC Provider | `@osn/api` is an OpenID Connect provider, so other apps recognise an OSN account without holding a passkey. Authorization code + PKCE (S256 only), pairwise `sub` per client sector, consent stored per (account, client). Invalid client / redirect URI **renders** an error, never redirects (open-redirect guard). Codes hashed, single use, 60s TTL. No refresh tokens, never an `osn-access` audience. Hardened 2026-07-24: real `auth_time` + `max_age`/`prompt=login` enforcement, per-request browser-binding cookie, reserved client-id deny-list + `typ: at+jwt`, `GET/DELETE /oidc/connections` (revoke kills in-flight codes). Hardened 2026-07-29: self-serve client sector = its own `client_id` (colluding clients can't share a sector); `auth_time` survives silent rotation via `sessions.authenticated_at`; consent-screen anti-impersonation (name confusable-skeleton block + verified-app/third-party-host signal); RFC 9207 `iss`; required browser-binding on every parked request; consent revocation is now a live Settings surface (`@osn/social` "Connected apps"). | `[[wiki/systems/oidc-provider]]` |
-| Cross-Device Login | QR-code mediated session transfer. Device B begins + polls; device A scans QR, approves. 256-bit secret, SHA-256 hashed at rest, one-time consumption, 5-min TTL. In-memory store (Redis Phase 4). | `[[wiki/systems/sessions]]` |
+| Cross-Device Login | QR-code mediated session transfer. Device B begins + polls; device A scans QR, approves. 256-bit secret, SHA-256 hashed at rest, one-time consumption, 5-min TTL. Stored in the shared ceremony-store bundle — Redis-backed where a client is configured (`osn/api/src/lib/redis-ceremony-stores.ts`), in-memory otherwise. | `[[wiki/systems/sessions]]` |
 | Email Change | Step-up gated; OTP to NEW address; atomically swaps email + revokes other sessions. Cap 2 changes / 7 days. | `[[wiki/systems/identity-model]]` |
 | Email Transport | Transactional-only (OTPs + security notices). `EmailService` Effect Tag in `@shared/email`; `ResendEmailLive` POSTs to Resend's HTTP API (`api.resend.com/emails`, bearer-authed) — **preferred live transport** (works on workerd); `CloudflareEmailLive` is a legacy fallback; `LogEmailLive` captures in-memory for dev + tests. Selection precedence Resend → Cloudflare → Log (local) → Noop (`OSN_EMAIL_OPTIONAL`) → throw. With `RESEND_API_KEY` set the opt-in is unneeded. | `[[wiki/systems/email]]` |
 | Origin Guard (M1) | Origin header validation on POST/PUT/PATCH/DELETE. ARC-protected internal routes exempt. | `osn/api/src/lib/origin-guard.ts` |
@@ -288,15 +247,32 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 ```bash
 # Development
 bun run dev              # Start all dev servers (turbo)
-bun run dev:pulse        # Pulse work: pulse API + app, osn core, zap API
-bun run dev:zap          # Zap work: zap API, osn core
-bun run dev:osn          # OSN work: osn core + app
-bun run dev:apis         # All backends only: osn core, pulse API, zap API
-bun run dev:cire         # Cire work: cire API + web + organiser, osn core
-bun run dev:landing      # Landing site only
+bun run dev:pulse        # @pulse/api + @pulse/web + @osn/api + @zap/api
+bun run dev:zap          # @zap/api + @osn/api
+bun run dev:osn          # @osn/api alone
+bun run dev:social       # @osn/social + @osn/api
+bun run dev:apis         # backends only: @osn/api + @pulse/api + @zap/api
+bun run dev:cire         # @cire/api + @cire/invites + @cire/host + @osn/api
+                         # (NOT @cire/vendor — run that one on its own)
+bun run dev:landing      # @osn/landing        (dev:cire-landing, dev:pulse-landing for the others)
+bun run dev:lab          # @tools/lab — component/three.js prototyping
 bun run build            # Build all packages (turbo)
 bun run check            # Type-check all packages (turbo)
 ```
+
+The shell is **fish** on the local machine and **bash** in Claude Code's remote
+environments, so a command that works in one can fail to parse in the other.
+Two that bite. An unquoted glob argument (`grep --include=*.ts`) is expanded by
+fish, which errors when nothing matches; quote it (`--include='*.ts'`). And a
+heredoc fails whenever its `<<` reaches fish's own tokenizer, which fish reads
+as a redirection: `fish: Expected a string, but found a redirection`. Quoting
+style is not what decides that — `bash -c 'cat <<EOF … EOF'` and
+`bash -c "cat <<EOF … EOF"` both run, because fish passes a quoted argument
+through as text and bash does the parsing. What breaks it is a `$(…)` command
+substitution, whose body fish parses itself: `bash -c "$(cat <<EOF … EOF)"`
+errors before bash is ever reached, with or without a quoted delimiter. That
+is the shape a long commit message reaches for, so write those to a file and
+pass the file (`git commit -F <file>`). All of it is fine under bash.
 
 ### Local URLs
 
@@ -333,7 +309,7 @@ The names mirror production hostnames, and the nesting is load-bearing: a WebAut
 
 Because those hostnames differ per worktree, no app can be told where its siblings live from a committed `.env`. Each `dev:app` runs through the `dev-env` launcher (`@shared/dev-urls`), which derives every sibling's origin from the app's own `PORTLESS_URL` and exports the same env vars the deployed tiers set (`OSN_ISSUER_URL`, `WEB_ORIGIN`, `PUBLIC_API_URL`, …). Those values win over `.env`. Adding an app means the `"portless"` key in its `package.json` and an entry in `DEV_APPS` (`shared/dev-urls/src/index.ts`), plus its env-var map in `src/app-env.ts`; a test asserts the first two agree.
 
-**What it costs.** A steady-state page load is 15–40 ms slower through the proxy — the TLS handshake and the hop. The *first* load after a cold start is the one to know about: about 3× slower on `@pulse/web` (~2.9 s vs ~0.87 s), because HTTP/2 drops the browser's per-origin connection cap and Vite's whole unbundled module graph arrives at a single-threaded dev server at once. Numbers and method are in `[[wiki/conventions/devloop-urls]]`.
+**What it costs.** Tens of milliseconds in the steady state, and a markedly slower *first* load after a cold start. Numbers, method and the reason are in `[[wiki/conventions/devloop-urls]]`.
 
 To run without the proxy, on the fixed ports the repo used before (`:4000` osn-api, `:8787` cire-api, `:1422` musubi, …):
 
@@ -348,14 +324,17 @@ One trap for agents: Astro 7 detects an agent environment and puts `astro dev` i
 
 # Testing
 bun run test                          # run all tests (turbo, skips packages without test script)
-bun run --cwd pulse/api test:run          # run Pulse events API tests once
-bun run --cwd osn/api test:run            # run OSN API (auth + graph) tests once
-bun run --cwd osn/client test:run         # run OSN client SDK tests once
-bun run --cwd osn/ui test:run             # run shared auth component tests once
-bun run --cwd pulse/db test:run           # run Pulse DB schema tests once
-bun run --cwd pulse/api test              # watch mode
-bun run --cwd zap/db test:run             # run Zap DB schema tests once
-bun run --cwd zap/api test:run            # run Zap API service tests once
+bun run test:d1                       # the Miniflare/workerd D1 tier (excluded from `test`)
+bun run test:browser                  # the real-Chromium tier
+bun run test:scripts                  # bun tests under scripts/ — TypeScript only. `bun test`
+                                      # never collects a *.test.sh, so the three shell tests
+                                      # get their own CI steps (changeset-check.yml, ci.yml);
+                                      # a new one needs a step or it runs nowhere
+bun run --cwd <pkg> test:run          # one package, once   (vitest packages)
+bun run --cwd <pkg> test              # one package, watch mode
+bun run --cwd cire/api test           # three packages run on `bun test` and have no test:run
+                                      # at all: @cire/api (which also picks up its own
+                                      # tests/db/ D1 tier), @cire/db, @tools/oxlint-house
 
 # Code quality
 bun run lint             # oxlint
@@ -384,6 +363,18 @@ bun run reset            # clean + reinstall
 bun add solid-js --cwd osn/landing
 bun add drizzle-orm --cwd pulse/db
 ```
+
+**Never a bare `bun install` here.** Resolving on one machine drops every
+entry for a platform it is not running on — on a Mac that is 46 entries,
+including all the non-darwin binaries CI needs — and the diff then reads as a
+dependency change nobody asked for. Use `bun install --frozen-lockfile` to
+install, and when a dependency genuinely changes, splice the `bun.lock` entry
+by hand and prove it with `bun install --frozen-lockfile`. A lockfile diff
+larger than the dependency you changed is the tell.
+
+`bun run reset` (`bun run clean && bun i`) is the one script that still chains
+a bare install, so check `git diff bun.lock` after running it and discard the
+pruning it does.
 
 ## Cloudflare Workers debugging
 
