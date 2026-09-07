@@ -162,8 +162,9 @@
 
     // Only the last doc block in front of a declaration is attached to it, so
     // a stack means an editor shows the reader the wrong text and whatever the
-    // earlier block described has quietly lost its comment. 64 sites today,
-    // four of them in auth code, so this stays at "warn" until they are clear.
+    // earlier block described has quietly lost its comment. At "warn" until the
+    // existing sites are fixed — issue #926 does that and raises this to
+    // "error".
     "house/no-stacked-doc-block": "warn",
 
     // jsdoc — a tag you write must carry content. Every rule here measured

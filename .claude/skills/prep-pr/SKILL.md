@@ -263,6 +263,23 @@ Labels, exactly one of each:
 - **`Bug`** for an `S-*` or `P-*` finding: something behaves wrongly and wants fixing
 - **`Task`** for a `C-*` compliance item, and for any finding filed at `severity:info` — it records an observation and asks for no fix
 
+### A deferral leaves an issue behind, not a paragraph
+
+Anything this branch decides **not** to do — a finding you are not fixing, a rule
+left at `warn`, a limitation you are accepting, a workaround standing in for the
+real fix — gets an issue, and the code carries the link and nothing more
+(`// Bounded until xchromo/osn#412 lands.`). A comment that explains the deferral
+instead has no owner and appears in no backlog, so it is found only by whoever
+next opens the file.
+
+A settled decision with a reason is different and stays inline with no issue —
+the test is whether the sentence implies future work. "For now", "until",
+"eventually", "ideally" are deferrals wearing an explanation. Full convention:
+`wiki/conventions/code-comments.md`.
+
+Never link a tracker finding from a file in the public repo; the link is the
+disclosure. State the constraint and leave the finding unnamed.
+
 ### The rest of Step 7
 
 Findings this branch **fixes** are closed by the merge, not by an issue you open
