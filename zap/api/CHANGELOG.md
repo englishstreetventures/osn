@@ -1,5 +1,14 @@
 # @zap/api
 
+## 0.8.37
+
+### Patch Changes
+
+- Updated dependencies [8fca0c0]
+  - @shared/observability@0.13.8
+  - @shared/crypto@0.10.18
+  - @shared/osn-auth-client@0.4.19
+
 ## 0.8.36
 
 ### Patch Changes

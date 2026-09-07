@@ -1,5 +1,15 @@
 # @osn/osn
 
+## 3.20.34
+
+### Patch Changes
+
+- Updated dependencies [8fca0c0]
+  - @shared/observability@0.13.8
+  - @shared/crypto@0.10.18
+  - @shared/email@0.4.12
+  - @shared/turnstile@0.2.15
+
 ## 3.20.33
 
 ### Patch Changes
