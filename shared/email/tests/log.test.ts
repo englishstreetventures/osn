@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 import { describe, it, expect } from "vitest";
 
 import { makeLogEmailLive } from "../src/log";
@@ -76,7 +76,11 @@ describe("LogEmailLive", () => {
       }).pipe(Effect.provide(layer)),
     );
     expect(exit._tag).toBe("Failure");
-    const error = (exit as { cause: { _tag: string; error: EmailError } }).cause.error;
+    // v4 flattened `Cause` into an array of reasons, so the old hand-rolled
+    // `{ cause: { error } }` cast no longer describes the shape. Narrow the
+    // Exit and read the failure through the public accessor instead of casting.
+    if (!Exit.isFailure(exit)) throw new Error("expected the send to fail");
+    const error = Option.getOrThrow(Cause.findErrorOption(exit.cause));
     expect(error).toBeInstanceOf(EmailError);
     expect(error.reason).toBe("render_failed");
   });

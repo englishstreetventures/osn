@@ -21,8 +21,8 @@ export async function resolveAccessTokenPrincipal(
 } | null> {
   if (!authHeader || !/^Bearer\s+/i.test(authHeader)) return null;
   const token = authHeader.replace(/^Bearer\s+/i, "");
-  const result = await Effect.runPromise(Effect.either(auth.verifyAccessToken(token)));
-  if (result._tag === "Right") return result.right;
+  const result = await Effect.runPromise(Effect.result(auth.verifyAccessToken(token)));
+  if (result._tag === "Success") return result.success;
   return null;
 }
 

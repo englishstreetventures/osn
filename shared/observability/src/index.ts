@@ -13,7 +13,13 @@ import { makeTracingLayer } from "./tracing/layer";
 export { loadConfig, type ObservabilityConfig, type ConfigOverrides } from "./config";
 
 // Logger
-export { makeLoggerLayer, redact, REDACT_KEYS, REDACTION_PLACEHOLDER } from "./logger";
+export {
+  makeLoggerLayer,
+  PrettyLoggerLive,
+  redact,
+  REDACT_KEYS,
+  REDACTION_PLACEHOLDER,
+} from "./logger";
 
 // Metrics — re-export the full public surface.
 export {
@@ -43,13 +49,22 @@ export {
 } from "./metrics";
 
 // Tracing
+//
+// `makeTracingLayer` comes straight from `./tracing/layer` rather than the
+// `./tracing` barrel: that barrel is the workerd-safe surface the two deployed
+// Workers import, so it deliberately does NOT reach the NodeSdk layer. This
+// root barrel is Bun-only (it already re-exports the Node OTel metric
+// exporters), so it is the right place to expose both.
+export { makeTracingLayer, otlpExporterUrl } from "./tracing/layer";
 export {
-  makeTracingLayer,
+  makeOtlpTracing,
   NoopTracingLive,
   injectTraceContext,
   extractTraceContext,
   currentTraceId,
   currentSpanId,
+  type OtlpTracing,
+  type OtlpTracingOptions,
 } from "./tracing";
 
 // Elysia plugin + health routes

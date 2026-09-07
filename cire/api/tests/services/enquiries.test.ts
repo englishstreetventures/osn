@@ -10,7 +10,7 @@ import {
 } from "@cire/db";
 import type { SendEmailInput } from "@shared/email";
 import { eq } from "drizzle-orm";
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -278,7 +278,9 @@ describe("enquiryService.open", () => {
     // no future onVendorClaimed flush), so the route surfaces 503 to retry.
     expect(Exit.isFailure(res)).toBe(true);
     if (Exit.isFailure(res)) {
-      expect(res.cause._tag === "Fail" && res.cause.error instanceof ZapUnavailable).toBe(true);
+      expect(
+        Option.getOrUndefined(Cause.findErrorOption(res.cause)) instanceof ZapUnavailable,
+      ).toBe(true);
     }
 
     // No orphaned rows: the failure happens BEFORE the enquiry INSERT, and no
@@ -344,9 +346,9 @@ describe("enquiryService.reply", () => {
     );
     expect(Exit.isFailure(res)).toBe(true);
     if (Exit.isFailure(res)) {
-      expect(res.cause._tag === "Fail" && res.cause.error instanceof EnquiryAwaitingVendor).toBe(
-        true,
-      );
+      expect(
+        Option.getOrUndefined(Cause.findErrorOption(res.cause)) instanceof EnquiryAwaitingVendor,
+      ).toBe(true);
     }
   });
 
@@ -509,9 +511,9 @@ describe("enquiryService.quote", () => {
     );
     expect(Exit.isFailure(res)).toBe(true);
     if (Exit.isFailure(res)) {
-      expect(res.cause._tag === "Fail" && res.cause.error instanceof EnquiryAwaitingVendor).toBe(
-        true,
-      );
+      expect(
+        Option.getOrUndefined(Cause.findErrorOption(res.cause)) instanceof EnquiryAwaitingVendor,
+      ).toBe(true);
     }
   });
 });

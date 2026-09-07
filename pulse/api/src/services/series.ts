@@ -283,44 +283,45 @@ export const expandRRule = (rule: ParsedRRule, dtstart: Date, maxThrough: Date):
 // Service input schemas
 // ---------------------------------------------------------------------------
 
-const VisibilityEnum = Schema.Literal("public", "private");
-const GuestListVisibilityEnum = Schema.Literal("public", "connections", "private");
-const JoinPolicyEnum = Schema.Literal("open", "guest_list");
-const CommsChannelSchema = Schema.Literal("sms", "email");
-const CommsChannelsSchema = Schema.Array(CommsChannelSchema).pipe(
-  Schema.minItems(1),
-  Schema.filter((channels) => new Set(channels).size === channels.length, {
-    message: () => "commsChannels must not contain duplicates",
-  }),
+const VisibilityEnum = Schema.Literals(["public", "private"]);
+const GuestListVisibilityEnum = Schema.Literals(["public", "connections", "private"]);
+const JoinPolicyEnum = Schema.Literals(["open", "guest_list"]);
+const CommsChannelSchema = Schema.Literals(["sms", "email"]);
+const CommsChannelsSchema = Schema.Array(CommsChannelSchema).check(
+  Schema.isMinLength(1),
+  Schema.makeFilter((channels) =>
+    new Set(channels).size === channels.length
+      ? undefined
+      : "commsChannels must not contain duplicates",
+  ),
 );
 
-const ValidDateString = Schema.String.pipe(Schema.filter((s) => !isNaN(new Date(s).getTime())));
-const DateFromISOString = Schema.transform(ValidDateString, Schema.DateFromSelf, {
-  strict: true,
-  decode: (s) => new Date(s),
-  encode: (d) => d.toISOString(),
-});
-const ValidUrl = Schema.String.pipe(Schema.filter((s) => URL.parse(s) !== null));
+// v4's DateFromString rejects a string that parses to an Invalid Date — the
+// exact gap the hand-rolled validate-then-transform above it used to close.
+const DateFromISOString = Schema.DateFromString;
+const ValidUrl = Schema.String.check(Schema.makeFilter((s) => URL.parse(s) !== null));
 
-const TitleString = Schema.NonEmptyString.pipe(Schema.maxLength(200));
-const DescriptionString = Schema.String.pipe(Schema.maxLength(5000));
-const LocationString = Schema.String.pipe(Schema.maxLength(500));
-const VenueString = Schema.String.pipe(Schema.maxLength(500));
-const CategoryString = Schema.String.pipe(Schema.maxLength(100));
-const RRuleString = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(500));
-const TimezoneString = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(100));
+const TitleString = Schema.NonEmptyString.check(Schema.isMaxLength(200));
+const DescriptionString = Schema.String.check(Schema.isMaxLength(5000));
+const LocationString = Schema.String.check(Schema.isMaxLength(500));
+const VenueString = Schema.String.check(Schema.isMaxLength(500));
+const CategoryString = Schema.String.check(Schema.isMaxLength(100));
+const RRuleString = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(500));
+const TimezoneString = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(100));
 
 const CreateSeriesSchema = Schema.Struct({
   title: TitleString,
   description: Schema.optional(DescriptionString),
   location: Schema.optional(LocationString),
   venue: Schema.optional(VenueString),
-  latitude: Schema.optional(Schema.Number.pipe(Schema.between(-90, 90))),
-  longitude: Schema.optional(Schema.Number.pipe(Schema.between(-180, 180))),
+  latitude: Schema.optional(Schema.Number.check(Schema.isBetween({ minimum: -90, maximum: 90 }))),
+  longitude: Schema.optional(
+    Schema.Number.check(Schema.isBetween({ minimum: -180, maximum: 180 })),
+  ),
   category: Schema.optional(CategoryString),
   imageUrl: Schema.optional(ValidUrl),
   durationMinutes: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.between(1, 60 * 24 * 14)),
+    Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 60 * 24 * 14 })),
   ),
   visibility: Schema.optional(VisibilityEnum),
   guestListVisibility: Schema.optional(GuestListVisibilityEnum),
@@ -332,19 +333,21 @@ const CreateSeriesSchema = Schema.Struct({
   timezone: Schema.optional(TimezoneString),
 });
 
-const UpdateSeriesScope = Schema.Literal("this_and_following", "all_future");
+const UpdateSeriesScope = Schema.Literals(["this_and_following", "all_future"]);
 
 const UpdateSeriesSchema = Schema.Struct({
   title: Schema.optional(TitleString),
   description: Schema.optional(DescriptionString),
   location: Schema.optional(LocationString),
   venue: Schema.optional(VenueString),
-  latitude: Schema.optional(Schema.Number.pipe(Schema.between(-90, 90))),
-  longitude: Schema.optional(Schema.Number.pipe(Schema.between(-180, 180))),
+  latitude: Schema.optional(Schema.Number.check(Schema.isBetween({ minimum: -90, maximum: 90 }))),
+  longitude: Schema.optional(
+    Schema.Number.check(Schema.isBetween({ minimum: -180, maximum: 180 })),
+  ),
   category: Schema.optional(CategoryString),
   imageUrl: Schema.optional(ValidUrl),
   durationMinutes: Schema.optional(
-    Schema.Number.pipe(Schema.int(), Schema.between(1, 60 * 24 * 14)),
+    Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 1, maximum: 60 * 24 * 14 })),
   ),
   visibility: Schema.optional(VisibilityEnum),
   guestListVisibility: Schema.optional(GuestListVisibilityEnum),
@@ -476,7 +479,7 @@ export const createSeries = (
   Effect.gen(function* () {
     const { db } = yield* Db;
 
-    const validated = yield* Schema.decodeUnknown(CreateSeriesSchema)(data).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(CreateSeriesSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 
@@ -608,7 +611,7 @@ export const updateSeries = (
       return yield* Effect.fail(new NotEventOwner({ id }));
     }
 
-    const validated = yield* Schema.decodeUnknown(UpdateSeriesSchema)(data).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(UpdateSeriesSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 

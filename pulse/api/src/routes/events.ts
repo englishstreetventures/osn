@@ -468,7 +468,7 @@ export const createEventsRoutes = (
           const limit = Number.isFinite(parsedLimit) ? Math.min(Math.max(1, parsedLimit), 100) : 50;
           const result = await runtime.runPromise(
             listMyCalendarEvents(claims.profileId, { limit }).pipe(
-              Effect.catchAll((cause) =>
+              Effect.catch((cause) =>
                 Effect.logError("pulse.calendar.list_failed", { cause }).pipe(Effect.as(null)),
               ),
             ),
@@ -814,7 +814,7 @@ export const createEventsRoutes = (
               event,
             }).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
-              Effect.catchAll(() =>
+              Effect.catch(() =>
                 Effect.sync(() => {
                   set.status = 500;
                   return { error: "Failed to list RSVPs" } as const;
@@ -916,7 +916,7 @@ export const createEventsRoutes = (
             // P-W1: thread the row `loadVisibleEvent` just fetched.
             latestRsvps(params.id, viewerId, limit, event).pipe(
               Effect.catchTag("EventNotFound", () => Effect.succeed(null)),
-              Effect.catchAll(() =>
+              Effect.catch(() =>
                 Effect.sync(() => {
                   set.status = 500;
                   return { error: "Failed to list RSVPs" } as const;

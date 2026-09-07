@@ -65,7 +65,7 @@ export function weddingEntitlement(db: Db, key: EntitlementKey) {
           : await runCire(
               entitlementService.has(weddingId, key).pipe(
                 Effect.provideService(DbService, db),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.logWarning("cire.entitlement.gate check failed — failing closed").pipe(
                     Effect.annotateLogs({ weddingId, entitlement: key }),
                     Effect.as(false),

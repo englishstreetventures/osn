@@ -6,7 +6,7 @@ import { chats as chatsTable, chatMembers } from "@zap/db/schema";
 import { Db } from "@zap/db/service";
 import { applySchema } from "@zap/db/testing";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect, beforeEach, afterEach } from "vitest";
 
 import { MAX_CHAT_MEMBERS } from "../../src/lib/limits";
@@ -93,10 +93,10 @@ describe("chats service", () => {
 
   it.effect("getChat fails with ChatNotFound for missing id", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.either(getChat("chat_nonexistent"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ChatNotFound");
+      const result = yield* Effect.result(getChat("chat_nonexistent"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ChatNotFound");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -141,10 +141,10 @@ describe("chats service", () => {
     Effect.gen(function* () {
       const chat = yield* seedChat({ type: "group", title: "Admin Only" });
       yield* seedMember(chat.id, "usr_bob");
-      const result = yield* Effect.either(updateChat(chat.id, { title: "Nope" }, "usr_bob"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("NotChatAdmin");
+      const result = yield* Effect.result(updateChat(chat.id, { title: "Nope" }, "usr_bob"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("NotChatAdmin");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -164,10 +164,10 @@ describe("chats service", () => {
       const chat = yield* seedChat({ type: "group" });
       yield* seedMember(chat.id, "usr_alice", "admin");
       yield* seedMember(chat.id, "usr_bob");
-      const result = yield* Effect.either(addMember(chat.id, "usr_bob", "usr_alice"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("AlreadyMember");
+      const result = yield* Effect.result(addMember(chat.id, "usr_bob", "usr_alice"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("AlreadyMember");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -199,10 +199,10 @@ describe("chats service", () => {
     Effect.gen(function* () {
       const chat = yield* seedChat({ type: "group" });
       yield* seedMember(chat.id, "usr_alice", "admin");
-      const result = yield* Effect.either(removeMember(chat.id, "usr_nobody", "usr_alice"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("NotChatMember");
+      const result = yield* Effect.result(removeMember(chat.id, "usr_nobody", "usr_alice"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("NotChatMember");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -211,12 +211,12 @@ describe("chats service", () => {
 
   it.effect("createChat fails with ValidationError for oversized title", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         createChat({ type: "group", title: "X".repeat(201) }, "usr_alice"),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ValidationError");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ValidationError");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -230,10 +230,10 @@ describe("chats service", () => {
       yield* seedMember(chat.id, "usr_bob");
       yield* seedMember(chat.id, "usr_charlie");
       // Bob (non-admin) tries to remove Charlie.
-      const result = yield* Effect.either(removeMember(chat.id, "usr_charlie", "usr_bob"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("NotChatAdmin");
+      const result = yield* Effect.result(removeMember(chat.id, "usr_charlie", "usr_bob"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("NotChatAdmin");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -268,10 +268,10 @@ describe("chats service", () => {
 
   it.effect("getChatMembers fails with ChatNotFound for missing chat", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.either(getChatMembers("chat_nonexistent"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ChatNotFound");
+      const result = yield* Effect.result(getChatMembers("chat_nonexistent"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ChatNotFound");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -293,12 +293,12 @@ describe("chats service", () => {
       setConsentGate(() => Promise.resolve(false));
       const chat = yield* seedChat({ type: "group" });
       yield* seedMember(chat.id, "usr_alice", "admin");
-      const result = yield* Effect.either(addMember(chat.id, "usr_bob", "usr_alice"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ConsentDenied");
-        if (result.left._tag === "ConsentDenied") {
-          expect(result.left.reason).toBe("not_connected");
+      const result = yield* Effect.result(addMember(chat.id, "usr_bob", "usr_alice"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ConsentDenied");
+        if (result.failure._tag === "ConsentDenied") {
+          expect(result.failure.reason).toBe("not_connected");
         }
       }
       // No member should have been inserted.
@@ -312,12 +312,12 @@ describe("chats service", () => {
       setConsentGate(() => Promise.reject(new Error("ECONNREFUSED")));
       const chat = yield* seedChat({ type: "group" });
       yield* seedMember(chat.id, "usr_alice", "admin");
-      const result = yield* Effect.either(addMember(chat.id, "usr_bob", "usr_alice"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ConsentDenied");
-        if (result.left._tag === "ConsentDenied") {
-          expect(result.left.reason).toBe("graph_unreachable");
+      const result = yield* Effect.result(addMember(chat.id, "usr_bob", "usr_alice"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ConsentDenied");
+        if (result.failure._tag === "ConsentDenied") {
+          expect(result.failure.reason).toBe("graph_unreachable");
         }
       }
       const { members } = yield* getChatMembers(chat.id);
@@ -330,12 +330,12 @@ describe("chats service", () => {
     () =>
       Effect.gen(function* () {
         setConsentGate(() => Promise.resolve(false));
-        const result = yield* Effect.either(
+        const result = yield* Effect.result(
           createChat({ type: "group", title: "Spam", memberProfileIds: ["usr_bob"] }, "usr_alice"),
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          expect(result.left._tag).toBe("ConsentDenied");
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure._tag).toBe("ConsentDenied");
         }
         // The chat must not have been created.
         const { chats: mine } = yield* listChats("usr_alice");
@@ -347,22 +347,22 @@ describe("chats service", () => {
 
   it.effect("createChat rejects a DM with no other member", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.either(createChat({ type: "dm" }, "usr_alice"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("InvalidDmMembership");
+      const result = yield* Effect.result(createChat({ type: "dm" }, "usr_alice"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("InvalidDmMembership");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect("createChat rejects a DM with more than two members", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         createChat({ type: "dm", memberProfileIds: ["usr_bob", "usr_charlie"] }, "usr_alice"),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("InvalidDmMembership");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("InvalidDmMembership");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -372,10 +372,10 @@ describe("chats service", () => {
       const chat = yield* seedChat({ type: "dm" });
       yield* seedMember(chat.id, "usr_alice", "admin");
       yield* seedMember(chat.id, "usr_bob");
-      const result = yield* Effect.either(addMember(chat.id, "usr_charlie", "usr_alice"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("InvalidDmMembership");
+      const result = yield* Effect.result(addMember(chat.id, "usr_charlie", "usr_alice"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("InvalidDmMembership");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -387,10 +387,10 @@ describe("chats service", () => {
       const chat = yield* seedChat({ type: "group" });
       yield* seedMember(chat.id, "usr_alice", "admin");
       yield* seedMember(chat.id, "usr_bob");
-      const result = yield* Effect.either(removeMember(chat.id, "usr_alice", "usr_alice"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("LastAdmin");
+      const result = yield* Effect.result(removeMember(chat.id, "usr_alice", "usr_alice"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("LastAdmin");
       }
       const { members } = yield* getChatMembers(chat.id);
       expect(members).toHaveLength(2);
@@ -513,12 +513,12 @@ describe("chats service", () => {
     Effect.gen(function* () {
       const chat = yield* seedChat({ type: "group" });
       yield* seedMember(chat.id, "usr_alice");
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         listChats("usr_alice", { cursor: "chat_does_not_exist" }),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ValidationError");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ValidationError");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -532,10 +532,10 @@ describe("chats service", () => {
 
       // A cursor minted from someone else's chat must not paginate (or probe)
       // the caller's list.
-      const result = yield* Effect.either(listChats("usr_alice", { cursor: foreign.id }));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ValidationError");
+      const result = yield* Effect.result(listChats("usr_alice", { cursor: foreign.id }));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ValidationError");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -550,10 +550,10 @@ describe("chats service", () => {
       for (let i = 0; i < 499; i++) {
         yield* seedMember(chat.id, `usr_filler_${i}`);
       }
-      const result = yield* Effect.either(addMember(chat.id, "usr_overflow", "usr_alice"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("MemberLimitReached");
+      const result = yield* Effect.result(addMember(chat.id, "usr_overflow", "usr_alice"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("MemberLimitReached");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -619,12 +619,12 @@ describe("chats service", () => {
 
   it.effect("provisionC2bChat rejects <2 members", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         provisionC2bChat({ memberProfileIds: ["usr_a"], createdByProfileId: "usr_a" }),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ValidationError");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ValidationError");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -683,9 +683,9 @@ describe("chats service", () => {
       });
       // A stranger attempting to remove themselves: no admin gate on the
       // self-removal path, so the membership lookup is what must stop them.
-      const result = yield* Effect.either(removeMember(chat.id, "usr_zed", "usr_zed"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) expect(result.left._tag).toBe("NotChatMember");
+      const result = yield* Effect.result(removeMember(chat.id, "usr_zed", "usr_zed"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) expect(result.failure._tag).toBe("NotChatMember");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -695,9 +695,9 @@ describe("chats service", () => {
         memberProfileIds: ["usr_a", "usr_b"],
         createdByProfileId: "usr_a",
       });
-      const result = yield* Effect.either(updateChat(chat.id, { title: "x" }, "usr_zed"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) expect(result.left._tag).toBe("NotChatAdmin");
+      const result = yield* Effect.result(updateChat(chat.id, { title: "x" }, "usr_zed"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) expect(result.failure._tag).toBe("NotChatAdmin");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -710,9 +710,9 @@ describe("chats service", () => {
         memberProfileIds: ["usr_a", "usr_b"],
         createdByProfileId: "usr_a",
       });
-      const result = yield* Effect.either(updateChat(chat.id, { title: "Nope" }, "usr_a"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) expect(result.left._tag).toBe("NotChatAdmin");
+      const result = yield* Effect.result(updateChat(chat.id, { title: "Nope" }, "usr_a"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) expect(result.failure._tag).toBe("NotChatAdmin");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -721,9 +721,9 @@ describe("chats service", () => {
       const chat = yield* seedC2bChat({ type: "group" });
       yield* seedMember(chat.id, "usr_a", "admin");
 
-      const result = yield* Effect.either(updateChat(chat.id, { title: "Nope" }, "usr_a"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) expect(result.left._tag).toBe("NotC2cChat");
+      const result = yield* Effect.result(updateChat(chat.id, { title: "Nope" }, "usr_a"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) expect(result.failure._tag).toBe("NotC2cChat");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -737,9 +737,9 @@ describe("chats service", () => {
         memberProfileIds: ["usr_a", "usr_b"],
         createdByProfileId: "usr_a",
       });
-      const result = yield* Effect.either(addMember(chat.id, "usr_c", "usr_a"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) expect(result.left._tag).toBe("NotChatAdmin");
+      const result = yield* Effect.result(addMember(chat.id, "usr_c", "usr_a"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) expect(result.failure._tag).toBe("NotChatAdmin");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -752,9 +752,9 @@ describe("chats service", () => {
       const chat = yield* seedC2bChat({ type: "group" });
       yield* seedMember(chat.id, "usr_a", "admin");
 
-      const result = yield* Effect.either(addMember(chat.id, "usr_c", "usr_a"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) expect(result.left._tag).toBe("NotC2cChat");
+      const result = yield* Effect.result(addMember(chat.id, "usr_c", "usr_a"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) expect(result.failure._tag).toBe("NotC2cChat");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -770,9 +770,9 @@ describe("chats service", () => {
         memberProfileIds: ["usr_a", "usr_b"],
         createdByProfileId: "usr_a",
       });
-      const selfLeave = yield* Effect.either(removeMember(chat.id, "usr_a", "usr_a"));
-      expect(Either.isLeft(selfLeave)).toBe(true);
-      if (Either.isLeft(selfLeave)) expect(selfLeave.left._tag).toBe("NotC2cChat");
+      const selfLeave = yield* Effect.result(removeMember(chat.id, "usr_a", "usr_a"));
+      expect(Result.isFailure(selfLeave)).toBe(true);
+      if (Result.isFailure(selfLeave)) expect(selfLeave.failure._tag).toBe("NotC2cChat");
 
       // And the membership row is still there.
       const { members } = yield* getChatMembers(chat.id);
@@ -862,12 +862,12 @@ describe("chats service", () => {
         return Promise.resolve(true);
       });
       const overCap = Array.from({ length: MAX_CHAT_MEMBERS + 1 }, (_, i) => `usr_overflow_${i}`);
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         createChat({ type: "group", memberProfileIds: overCap }, "usr_alice"),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ValidationError");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ValidationError");
       }
       // Schema.maxItems rejects at decode time — checkConsent must never run.
       expect(consentCalls).toBe(0);
@@ -879,12 +879,12 @@ describe("chats service", () => {
     () =>
       Effect.gen(function* () {
         const overCap = Array.from({ length: MAX_CHAT_MEMBERS + 1 }, (_, i) => `usr_overflow_${i}`);
-        const result = yield* Effect.either(
+        const result = yield* Effect.result(
           provisionC2bChat({ memberProfileIds: overCap, createdByProfileId: "usr_a" }),
         );
-        expect(Either.isLeft(result)).toBe(true);
-        if (Either.isLeft(result)) {
-          expect(result.left._tag).toBe("ValidationError");
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) {
+          expect(result.failure._tag).toBe("ValidationError");
         }
         // provisionC2bChat has no consent gate to count (cire-trusted path), so
         // the proof that nothing downstream ran is that no chat row exists.
@@ -942,17 +942,17 @@ describe("chats service", () => {
         // which fiber hits the catch.
         const [r1, r2] = yield* Effect.all(
           [
-            Effect.either(addMember(chat.id, "usr_racer", "usr_alice")),
-            Effect.either(addMember(chat.id, "usr_racer", "usr_alice")),
+            Effect.result(addMember(chat.id, "usr_racer", "usr_alice")),
+            Effect.result(addMember(chat.id, "usr_racer", "usr_alice")),
           ],
           { concurrency: "unbounded" },
         );
         const outcomes = [r1, r2];
-        const rights = outcomes.filter(Either.isRight);
-        const lefts = outcomes.filter(Either.isLeft);
+        const rights = outcomes.filter(Result.isSuccess);
+        const lefts = outcomes.filter(Result.isFailure);
         expect(rights).toHaveLength(1);
         expect(lefts).toHaveLength(1);
-        expect(lefts[0]!.left._tag).toBe("AlreadyMember");
+        expect(lefts[0]!.failure._tag).toBe("AlreadyMember");
 
         const { members } = yield* getChatMembers(chat.id);
         expect(members).toHaveLength(2);

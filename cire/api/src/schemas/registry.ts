@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema, SchemaTransformation } from "effect";
 
 import { REGISTRY_IMAGE_KEY } from "../services/invite-assets";
 
@@ -52,28 +52,33 @@ function parseHttpsUrl(value: string): URL | null {
  * column holds is what the parser saw — one normal form per link, and no gap
  * between the string that passed validation and the string that gets rendered.
  */
-export const HttpsUrl = Schema.String.pipe(
-  Schema.maxLength(MAX_URL_CHARS),
-  Schema.filter((value) => parseHttpsUrl(value) !== null, {
-    message: () => "must be an absolute https:// URL without embedded credentials",
-  }),
-  Schema.transform(Schema.String, {
-    strict: true,
-    // The filter above already rejected anything unparseable, so the fallback is
-    // unreachable — it exists only to keep this total.
-    decode: (value) => parseHttpsUrl(value)?.href ?? value,
-    encode: (value) => value,
-  }),
+export const HttpsUrl = Schema.String.check(
+  Schema.isMaxLength(MAX_URL_CHARS),
+  Schema.makeFilter((value) =>
+    parseHttpsUrl(value) !== null
+      ? undefined
+      : "must be an absolute https:// URL without embedded credentials",
+  ),
+).pipe(
+  Schema.decodeTo(
+    Schema.String,
+    SchemaTransformation.transform({
+      // The filter above already rejected anything unparseable, so the fallback is
+      // unreachable — it exists only to keep this total.
+      decode: (value) => parseHttpsUrl(value)?.href ?? value,
+      encode: (value) => value,
+    }),
+  ),
 );
 
-const Title = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(MAX_TITLE_CHARS));
-const Headline = Schema.String.pipe(Schema.maxLength(MAX_HEADLINE_CHARS));
-const Description = Schema.String.pipe(Schema.maxLength(MAX_DESCRIPTION_CHARS));
-const Message = Schema.String.pipe(Schema.maxLength(MAX_MESSAGE_CHARS));
-const Note = Schema.String.pipe(Schema.maxLength(MAX_NOTE_CHARS));
-const DisplayName = Schema.String.pipe(Schema.maxLength(MAX_DISPLAY_NAME_CHARS));
-const Category = Schema.String.pipe(Schema.maxLength(MAX_CATEGORY_CHARS));
-const ShippingAddress = Schema.String.pipe(Schema.maxLength(MAX_ADDRESS_CHARS));
+const Title = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(MAX_TITLE_CHARS));
+const Headline = Schema.String.check(Schema.isMaxLength(MAX_HEADLINE_CHARS));
+const Description = Schema.String.check(Schema.isMaxLength(MAX_DESCRIPTION_CHARS));
+const Message = Schema.String.check(Schema.isMaxLength(MAX_MESSAGE_CHARS));
+const Note = Schema.String.check(Schema.isMaxLength(MAX_NOTE_CHARS));
+const DisplayName = Schema.String.check(Schema.isMaxLength(MAX_DISPLAY_NAME_CHARS));
+const Category = Schema.String.check(Schema.isMaxLength(MAX_CATEGORY_CHARS));
+const ShippingAddress = Schema.String.check(Schema.isMaxLength(MAX_ADDRESS_CHARS));
 /**
  * A calendar date (`YYYY-MM-DD` from a date input), stored as text.
  *
@@ -84,15 +89,14 @@ const ShippingAddress = Schema.String.pipe(Schema.maxLength(MAX_ADDRESS_CHARS));
  * the pattern admits impossible days (2026-02-31), so the filter round-trips
  * through `Date` and requires the same calendar day back.
  */
-const IsoDate = Schema.String.pipe(
-  Schema.pattern(/^\d{4}-\d{2}-\d{2}$/),
-  Schema.filter(
-    (s) => {
-      const t = Date.parse(`${s}T00:00:00Z`);
-      return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === s;
-    },
-    { message: () => "not a real calendar date" },
-  ),
+const IsoDate = Schema.String.check(
+  Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/),
+  Schema.makeFilter((s) => {
+    const t = Date.parse(`${s}T00:00:00Z`);
+    return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === s
+      ? undefined
+      : "not a real calendar date";
+  }),
 );
 
 /**
@@ -114,14 +118,17 @@ const IsoDate = Schema.String.pipe(
  * the module that mints these keys, so the schema, the ownership check and the
  * serve route cannot drift apart.
  */
-const ImageKey = Schema.String.pipe(Schema.maxLength(512), Schema.pattern(REGISTRY_IMAGE_KEY));
+const ImageKey = Schema.String.check(Schema.isMaxLength(512), Schema.isPattern(REGISTRY_IMAGE_KEY));
 
-const Minor = Schema.Number.pipe(
-  Schema.int(),
-  Schema.greaterThanOrEqualTo(0),
-  Schema.lessThanOrEqualTo(MAX_MINOR),
+const Minor = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isGreaterThanOrEqualTo(0),
+  Schema.isLessThanOrEqualTo(MAX_MINOR),
 );
-const Quantity = Schema.Number.pipe(Schema.int(), Schema.between(1, MAX_QUANTITY));
+const Quantity = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isBetween({ minimum: 1, maximum: MAX_QUANTITY }),
+);
 
 /**
  * Settings patch. Every field optional; an absent field is unchanged.
@@ -150,12 +157,14 @@ export type UpdateRegistrySettingsBody = Schema.Schema.Type<typeof UpdateRegistr
  */
 export const CreateRegistryItemBody = Schema.Struct({
   title: Title,
-  description: Schema.optionalWith(Schema.NullOr(Description), { default: () => null }),
-  imageKey: Schema.optionalWith(Schema.NullOr(ImageKey), { default: () => null }),
-  externalUrl: Schema.optionalWith(Schema.NullOr(HttpsUrl), { default: () => null }),
-  priceMinor: Schema.optionalWith(Schema.NullOr(Minor), { default: () => null }),
-  quantityWanted: Schema.optionalWith(Quantity, { default: () => 1 }),
-  category: Schema.optionalWith(Schema.NullOr(Category), { default: () => null }),
+  description: Schema.NullOr(Description).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed(null)),
+  ),
+  imageKey: Schema.NullOr(ImageKey).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
+  externalUrl: Schema.NullOr(HttpsUrl).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
+  priceMinor: Schema.NullOr(Minor).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
+  quantityWanted: Quantity.pipe(Schema.withDecodingDefaultType(Effect.succeed(1))),
+  category: Schema.NullOr(Category).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
 });
 export type CreateRegistryItemBody = Schema.Schema.Type<typeof CreateRegistryItemBody>;
 
@@ -202,7 +211,7 @@ export type RegistrySaveImageFromUrlBody = Schema.Schema.Type<typeof RegistrySav
 
 /** Reorder: the new order of item ids across the whole wedding's list. */
 export const ReorderRegistryItemsBody = Schema.Struct({
-  orderedIds: Schema.Array(Schema.NonEmptyString).pipe(Schema.maxItems(500)),
+  orderedIds: Schema.Array(Schema.NonEmptyString).check(Schema.isMaxLength(500)),
 });
 export type ReorderRegistryItemsBody = Schema.Schema.Type<typeof ReorderRegistryItemsBody>;
 
@@ -212,17 +221,19 @@ export const SetThankedBody = Schema.Struct({
 });
 export type SetThankedBody = Schema.Schema.Type<typeof SetThankedBody>;
 
-export const GiftKindSchema = Schema.Literal("claim", "contribution");
+export const GiftKindSchema = Schema.Literals(["claim", "contribution"]);
 
 /** Guest claim — the honour-system "we've got this". */
 export const ClaimItemBody = Schema.Struct({
-  quantity: Schema.optionalWith(Quantity, { default: () => 1 }),
+  quantity: Quantity.pipe(Schema.withDecodingDefaultType(Effect.succeed(1))),
   // `purchased` is the "I already bought it elsewhere" path; `reserved` is the
   // intent to. Both hold quantity, so both count against `quantity_wanted`.
-  status: Schema.optionalWith(Schema.Literal("reserved", "purchased"), {
-    default: () => "reserved" as const,
-  }),
-  note: Schema.optionalWith(Schema.NullOr(Note), { default: () => null }),
-  displayName: Schema.optionalWith(Schema.NullOr(DisplayName), { default: () => null }),
+  status: Schema.Literals(["reserved", "purchased"]).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed("reserved" as const)),
+  ),
+  note: Schema.NullOr(Note).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
+  displayName: Schema.NullOr(DisplayName).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed(null)),
+  ),
 });
 export type ClaimItemBody = Schema.Schema.Type<typeof ClaimItemBody>;

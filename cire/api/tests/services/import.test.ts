@@ -32,7 +32,7 @@ import { parseEventsCsv, parseGuestsCsv } from "../../src/services/spreadsheet";
 
 /** Build a fresh in-memory DB layer for each test. */
 function freshDbLayer(seed: boolean) {
-  return Layer.scoped(
+  return Layer.effect(
     DbService,
     Effect.sync(() => {
       const db = createDb(":memory:");
@@ -170,7 +170,7 @@ describe("applyImport + re-diff (idempotent)", () => {
       }).pipe(Effect.provide(layer)),
     );
 
-    // Second run uses the SAME layer instance? Layer.scoped recreates per use.
+    // Second run uses the SAME layer instance? Layer.effect recreates per use.
     // Use a layer that returns the same db across two runs:
     const sharedDb = createDb(":memory:");
     seedBootstrapWedding(sharedDb);

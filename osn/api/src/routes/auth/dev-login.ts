@@ -184,7 +184,7 @@ export function createDevLoginRoutes(ctx: AuthRouteContext, config: DevLoginConf
         // gave a 400, which says the caller sent something wrong when the
         // truth is that the server could not provision.
         yield* provision.pipe(
-          Effect.catchAll((cause) => Effect.logError("dev-login: provisioning failed", { cause })),
+          Effect.catch((cause) => Effect.logError("dev-login: provisioning failed", { cause })),
         );
         profile = yield* auth.findProfileById(DEV_PRINCIPAL.profileId);
       }

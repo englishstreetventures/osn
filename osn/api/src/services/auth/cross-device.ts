@@ -220,10 +220,10 @@ export function createCrossDeviceModule(
       metricSecurityEventRecorded("cross_device_login");
 
       // Best-effort email notification (forked daemon, 10s timeout).
-      yield* Effect.forkDaemon(
+      yield* Effect.forkDetach(
         notifyCrossDeviceLoginByAccountId(accountId).pipe(
           Effect.timeout("10 seconds"),
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         ),
       );
     }).pipe(withCrossDeviceOp("approve"));

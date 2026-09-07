@@ -871,23 +871,23 @@ describe("publicKeyCache LRU eviction", () => {
     // A, C, D remain in cache; B was the LRU and is now gone from both cache and DB
     const [resA, resB, resC, resD] = await Promise.all([
       Effect.runPromise(
-        Effect.either(resolvePublicKey("key-a", "svc-a")).pipe(Effect.provide(layer)),
+        Effect.result(resolvePublicKey("key-a", "svc-a")).pipe(Effect.provide(layer)),
       ),
       Effect.runPromise(
-        Effect.either(resolvePublicKey("key-b", "svc-b")).pipe(Effect.provide(layer)),
+        Effect.result(resolvePublicKey("key-b", "svc-b")).pipe(Effect.provide(layer)),
       ),
       Effect.runPromise(
-        Effect.either(resolvePublicKey("key-c", "svc-c")).pipe(Effect.provide(layer)),
+        Effect.result(resolvePublicKey("key-c", "svc-c")).pipe(Effect.provide(layer)),
       ),
       Effect.runPromise(
-        Effect.either(resolvePublicKey("key-d", "svc-d")).pipe(Effect.provide(layer)),
+        Effect.result(resolvePublicKey("key-d", "svc-d")).pipe(Effect.provide(layer)),
       ),
     ]);
 
-    expect(resA._tag).toBe("Right"); // A survived (was touched → MRU)
-    expect(resB._tag).toBe("Left"); // B evicted (was LRU) and deleted from DB
-    expect(resC._tag).toBe("Right"); // C survived
-    expect(resD._tag).toBe("Right"); // D just inserted
+    expect(resA._tag).toBe("Success"); // A survived (was touched → MRU)
+    expect(resB._tag).toBe("Failure"); // B evicted (was LRU) and deleted from DB
+    expect(resC._tag).toBe("Success"); // C survived
+    expect(resD._tag).toBe("Success"); // D just inserted
   });
 
   // The eviction scan picks the entry with the lowest access rank, so two
@@ -972,13 +972,13 @@ describe("publicKeyCache LRU eviction", () => {
 
     // A evicted and not in DB → fails; B, C, D survive
     const resA = await Effect.runPromise(
-      Effect.either(resolvePublicKey("ts1-key-a", "ts1-svc-a")).pipe(Effect.provide(layer)),
+      Effect.result(resolvePublicKey("ts1-key-a", "ts1-svc-a")).pipe(Effect.provide(layer)),
     );
     const resB = await Effect.runPromise(
-      Effect.either(resolvePublicKey("ts1-key-b", "ts1-svc-b")).pipe(Effect.provide(layer)),
+      Effect.result(resolvePublicKey("ts1-key-b", "ts1-svc-b")).pipe(Effect.provide(layer)),
     );
-    expect(resA._tag).toBe("Left"); // A was evicted and deleted from DB
-    expect(resB._tag).toBe("Right"); // B survived — was not LRU
+    expect(resA._tag).toBe("Failure"); // A was evicted and deleted from DB
+    expect(resB._tag).toBe("Success"); // B survived — was not LRU
   });
 
   // T-S2: cap=1 boundary — only one entry fits at a time

@@ -40,8 +40,8 @@ export class ValidationError extends Data.TaggedError("ValidationError")<{
 // Effect schemas
 // ---------------------------------------------------------------------------
 
-const CiphertextString = Schema.String.pipe(Schema.maxLength(MAX_CIPHERTEXT_LENGTH));
-const NonceString = Schema.String.pipe(Schema.maxLength(MAX_NONCE_LENGTH));
+const CiphertextString = Schema.String.check(Schema.isMaxLength(MAX_CIPHERTEXT_LENGTH));
+const NonceString = Schema.String.check(Schema.isMaxLength(MAX_NONCE_LENGTH));
 
 const SendMessageSchema = Schema.Struct({
   ciphertext: CiphertextString,
@@ -49,7 +49,7 @@ const SendMessageSchema = Schema.Struct({
 });
 
 const SendC2bMessageSchema = Schema.Struct({
-  body: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(MAX_BODY_LENGTH)),
+  body: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(MAX_BODY_LENGTH)),
 });
 
 // ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ export const sendMessage = (
       return yield* Effect.fail(new NotC2cChat({ chatId }));
     }
 
-    const validated = yield* Schema.decodeUnknown(SendMessageSchema)(data).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(SendMessageSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 
@@ -279,7 +279,7 @@ export const sendC2bMessage = (
       return yield* Effect.fail(new NotChatMember({ chatId }));
     }
 
-    const validated = yield* Schema.decodeUnknown(SendC2bMessageSchema)(data).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(SendC2bMessageSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 

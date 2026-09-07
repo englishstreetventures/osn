@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest";
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { describe, expect } from "vitest";
 
 import { provisionC2bChat } from "../../src/services/chats";
@@ -35,24 +35,24 @@ describe("messages service", () => {
       const chat = yield* seedChat({ type: "group" });
       yield* seedMember(chat.id, "usr_alice", "admin");
 
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         sendMessage(chat.id, "usr_bob", { ciphertext: "dGVzdA==", nonce: "bm9uY2U=" }),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("NotChatMember");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("NotChatMember");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect("sendMessage fails for nonexistent chat", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         sendMessage("chat_nope", "usr_alice", { ciphertext: "dGVzdA==", nonce: "bm9uY2U=" }),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ChatNotFound");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ChatNotFound");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -102,10 +102,10 @@ describe("messages service", () => {
       const chat = yield* seedChat({ type: "group" });
       yield* seedMember(chat.id, "usr_alice", "admin");
 
-      const result = yield* Effect.either(listMessages(chat.id, "usr_bob"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("NotChatMember");
+      const result = yield* Effect.result(listMessages(chat.id, "usr_bob"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("NotChatMember");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -127,15 +127,15 @@ describe("messages service", () => {
       const chat = yield* seedChat({ type: "group" });
       yield* seedMember(chat.id, "usr_alice", "admin");
 
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         sendMessage(chat.id, "usr_alice", {
           ciphertext: "X".repeat(262_145), // exceeds MAX_CIPHERTEXT_LENGTH
           nonce: "bm9uY2U=",
         }),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ValidationError");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ValidationError");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -189,12 +189,12 @@ describe("messages service", () => {
       yield* seedMember(chat.id, "usr_alice", "admin");
       yield* seedMessage(chat.id, "usr_alice", "msg0", new Date("2030-01-01T00:00:00Z"));
 
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         listMessages(chat.id, "usr_alice", { cursor: "msg_does_not_exist" }),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ValidationError");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ValidationError");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -215,12 +215,12 @@ describe("messages service", () => {
       );
 
       // A cursor minted in chat B must not paginate chat A.
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         listMessages(chatA.id, "usr_alice", { cursor: foreign.id }),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ValidationError");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ValidationError");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -254,9 +254,9 @@ describe("messages service", () => {
         memberProfileIds: ["usr_a", "usr_b"],
         createdByProfileId: "usr_a",
       });
-      const result = yield* Effect.either(listMessages(chat.id, "usr_outsider"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) expect(result.left._tag).toBe("NotChatMember");
+      const result = yield* Effect.result(listMessages(chat.id, "usr_outsider"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) expect(result.failure._tag).toBe("NotChatMember");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -271,9 +271,9 @@ describe("messages service", () => {
       });
       yield* sendC2bMessage(chat.id, "usr_a", { body: "commercially sensitive" });
 
-      const result = yield* Effect.either(listMessages(chat.id, "usr_a"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) expect(result.left._tag).toBe("NotC2cChat");
+      const result = yield* Effect.result(listMessages(chat.id, "usr_a"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) expect(result.failure._tag).toBe("NotC2cChat");
     }).pipe(Effect.provide(createTestLayer())),
   );
 
@@ -284,12 +284,12 @@ describe("messages service", () => {
         createdByProfileId: "usr_a",
       });
 
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         sendMessage(chat.id, "usr_a", { ciphertext: "dGVzdA==", nonce: "bm9uY2U=" }),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("NotC2cChat");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("NotC2cChat");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -306,12 +306,12 @@ describe("messages service", () => {
         createdByProfileId: "usr_a",
       });
 
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         sendMessage(chat.id, "usr_outsider", { ciphertext: "dGVzdA==", nonce: "bm9uY2U=" }),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("NotChatMember");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("NotChatMember");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -320,10 +320,10 @@ describe("messages service", () => {
     Effect.gen(function* () {
       const chat = yield* seedChat({ type: "group" });
       yield* seedMember(chat.id, "usr_alice", "admin");
-      const result = yield* Effect.either(sendC2bMessage(chat.id, "usr_alice", { body: "hello" }));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("NotC2bChat");
+      const result = yield* Effect.result(sendC2bMessage(chat.id, "usr_alice", { body: "hello" }));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("NotC2bChat");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -334,12 +334,12 @@ describe("messages service", () => {
         memberProfileIds: ["usr_a", "usr_b"],
         createdByProfileId: "usr_a",
       });
-      const result = yield* Effect.either(
+      const result = yield* Effect.result(
         sendC2bMessage(chat.id, "usr_outsider", { body: "hello" }),
       );
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("NotChatMember");
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("NotChatMember");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -350,10 +350,10 @@ describe("messages service", () => {
         memberProfileIds: ["usr_a", "usr_b"],
         createdByProfileId: "usr_a",
       });
-      const result = yield* Effect.either(sendC2bMessage(chat.id, "usr_a", { body: "" }));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ValidationError");
+      const result = yield* Effect.result(sendC2bMessage(chat.id, "usr_a", { body: "" }));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ValidationError");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -381,20 +381,20 @@ describe("messages service", () => {
   it.effect("listC2bMessages fails NotC2bChat on a c2c chat", () =>
     Effect.gen(function* () {
       const chat = yield* seedChat({ type: "group" });
-      const result = yield* Effect.either(listC2bMessages(chat.id));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("NotC2bChat");
+      const result = yield* Effect.result(listC2bMessages(chat.id));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("NotC2bChat");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
 
   it.effect("listC2bMessages fails ChatNotFound for missing chat", () =>
     Effect.gen(function* () {
-      const result = yield* Effect.either(listC2bMessages("chat_nonexistent"));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ChatNotFound");
+      const result = yield* Effect.result(listC2bMessages("chat_nonexistent"));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ChatNotFound");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -410,10 +410,10 @@ describe("messages service", () => {
       });
       yield* sendC2bMessage(chat.id, "usr_a", { body: "first" });
 
-      const result = yield* Effect.either(listC2bMessages(chat.id, { before: "msg_nope" }));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ValidationError");
+      const result = yield* Effect.result(listC2bMessages(chat.id, { before: "msg_nope" }));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ValidationError");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );
@@ -433,10 +433,10 @@ describe("messages service", () => {
       yield* sendC2bMessage(mine.id, "usr_a", { body: "mine" });
       const other = yield* sendC2bMessage(theirs.id, "usr_c", { body: "theirs" });
 
-      const result = yield* Effect.either(listC2bMessages(mine.id, { before: other.id }));
-      expect(Either.isLeft(result)).toBe(true);
-      if (Either.isLeft(result)) {
-        expect(result.left._tag).toBe("ValidationError");
+      const result = yield* Effect.result(listC2bMessages(mine.id, { before: other.id }));
+      expect(Result.isFailure(result)).toBe(true);
+      if (Result.isFailure(result)) {
+        expect(result.failure._tag).toBe("ValidationError");
       }
     }).pipe(Effect.provide(createTestLayer())),
   );

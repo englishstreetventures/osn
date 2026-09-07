@@ -8,7 +8,7 @@ related:
   - "[[tracing]]"
   - "[[metrics]]"
 packages: ["@shared/observability"]
-last-reviewed: 2026-07-23
+last-reviewed: 2026-09-06
 ---
 
 # Logging
@@ -47,6 +47,41 @@ The JSON logger keeps annotations as structured fields; interpolated strings are
 ## Redaction
 
 Redaction is non-negotiable, but keep the deny-list minimal. The logger layer in `@shared/observability` applies a key-name scrubber to every log entry before serialisation.
+
+### It runs on the output side, on the whole annotations record
+
+`redact()` matches the deny-list against an **object's keys**. It is handed the
+resolved annotations record in one piece, not one value at a time — hand it a
+bare value and it sees a scalar with no key attached and passes it straight
+through.
+
+> [!warning] This was broken until the Effect v4 migration
+> The v3 logger mapped over each annotation *value*
+> (`HashMap.map(options.annotations, redact)`), so **no top-level annotation key
+> was ever redacted**. `Effect.annotateLogs({ accessToken })` reached the sink in
+> clear, on every tier, along with every other deny-listed key below. The page
+> said otherwise; the code did not do it.
+>
+> Nothing caught it because the test named for catching it did not test it — it
+> provided a raw capture logger with no redaction in the chain and asserted the
+> annotation came through unredacted. `shared/observability/tests/layer.test.ts`
+> now runs the real layer, reads what reaches stdout, and asserts a deny-listed
+> key is `[REDACTED]` while an allow-listed one survives.
+
+Effect v4 moved annotations off the logger's `Options` and onto the fiber, so
+there is no input to intercept any more. Redaction therefore sits on the output
+side, wrapping `Logger.formatStructured` — whose output object already carries
+the resolved `message` and `annotations`. Anything that rebuilds the logger must
+keep that seam, and must keep `Logger.tracerLogger` in the `Logger.layer([…])`
+array: that call replaces the **whole** active set, so omitting it drops
+log-to-span correlation with no error.
+
+### The JSON field is `level`, not `logLevel`
+
+v4's structured output names the severity field `level`. Any Grafana query,
+dashboard panel or alert rule still filtering on `logLevel` matches nothing. The
+dashboards live in Grafana Cloud rather than this repo, so that migration is done
+there by hand.
 
 ### Deny-list location
 

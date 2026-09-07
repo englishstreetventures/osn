@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, vendors, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -71,8 +71,7 @@ describe("vendorsService", () => {
     const res = await run(db, vendorsService.update(OTHER, mine.value.id, { status: "booked" }));
     expect(
       Exit.isFailure(res) &&
-        res.cause._tag === "Fail" &&
-        res.cause.error instanceof VendorNotInWedding,
+        Option.getOrUndefined(Cause.findErrorOption(res.cause)) instanceof VendorNotInWedding,
     ).toBe(true);
     // unchanged
     const row = db.select().from(vendors).where(eq(vendors.id, mine.value.id)).get();

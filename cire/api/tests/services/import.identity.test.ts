@@ -348,7 +348,7 @@ describe("diffAgainstDb — a stale id-authoritative draft is refused, not appli
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
-    const failure = Exit.isFailure(exit) ? Cause.failureOption(exit.cause) : Option.none();
+    const failure = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none();
     expect(Option.isSome(failure)).toBe(true);
     expect(Option.getOrThrow(failure)._tag).toBe("StaleDesiredState");
   });

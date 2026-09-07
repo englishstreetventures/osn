@@ -1,5 +1,5 @@
-import { initObservability } from "@shared/observability";
-import { Effect, Logger } from "effect";
+import { initObservability, PrettyLoggerLive } from "@shared/observability";
+import { Effect } from "effect";
 
 import { createApp, SERVICE_NAME } from "./app";
 import { assertCorsOriginsConfigured, isNonLocalEnv, resolveCorsOrigins } from "./lib/cors-config";
@@ -33,7 +33,7 @@ app.listen({ port, reusePort: false });
 void Effect.runPromise(
   Effect.logInfo("zap-api listening (local / bun:sqlite)").pipe(
     Effect.annotateLogs({ port: String(port), service: SERVICE_NAME }),
-    Effect.provide(Logger.pretty),
+    Effect.provide(PrettyLoggerLive),
     Effect.provide(observabilityLayer),
   ),
 );
@@ -51,7 +51,7 @@ void registerWithOsnApi()
           "Social-graph consent checks will fail closed (chats reject members) until it is set.",
       ).pipe(
         Effect.annotateLogs({ service: SERVICE_NAME }),
-        Effect.provide(Logger.pretty),
+        Effect.provide(PrettyLoggerLive),
         Effect.provide(observabilityLayer),
       ),
     ).catch(() => undefined);
@@ -60,7 +60,7 @@ void registerWithOsnApi()
     void Effect.runPromise(
       Effect.logError("zap-api: failed to register ARC key with osn/api", err).pipe(
         Effect.annotateLogs({ service: SERVICE_NAME }),
-        Effect.provide(Logger.pretty),
+        Effect.provide(PrettyLoggerLive),
         Effect.provide(observabilityLayer),
       ),
     ).catch(() => undefined);

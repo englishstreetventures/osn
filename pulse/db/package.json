@@ -27,11 +27,11 @@
   "dependencies": {
     "@shared/db-utils": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "effect": "^3.22.1"
+    "effect": "4.0.0-rc.112"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",
-    "@effect/vitest": "^0.30.0",
+    "@effect/vitest": "4.0.0-rc.112",
     "@shared/typescript-config": "workspace:*",
     "@types/better-sqlite3": "^9.6.0",
     "better-sqlite3": "^13.0.3",

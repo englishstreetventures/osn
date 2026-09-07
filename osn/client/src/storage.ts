@@ -8,7 +8,7 @@ export interface StorageService {
   readonly remove: (key: string) => Effect.Effect<void, StorageError>;
 }
 
-export class Storage extends Context.Tag("@osn/client/Storage")<Storage, StorageService>() {}
+export class Storage extends Context.Service<Storage, StorageService>()("@osn/client/Storage") {}
 
 export const StorageLive = Layer.succeed(Storage, {
   get: (key) =>

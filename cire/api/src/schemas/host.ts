@@ -1,9 +1,9 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 /** A co-host's assignable role — mirrors `HostRole` in `services/hosts.ts`.
  *  `owner` is not assignable (the owner is never rowed into `wedding_hosts`)
  *  and the legacy `host` value is not accepted from clients. */
-export const HostRoleSchema = Schema.Literal("editor", "viewer");
+export const HostRoleSchema = Schema.Literals(["editor", "viewer"]);
 export type HostRoleSchema = Schema.Schema.Type<typeof HostRoleSchema>;
 
 /**
@@ -17,16 +17,8 @@ export type HostRoleSchema = Schema.Schema.Type<typeof HostRoleSchema>;
  * keep working unchanged.
  */
 export const AddHostBody = Schema.Struct({
-  handle: Schema.String.pipe(
-    Schema.transform(Schema.String, {
-      strict: true,
-      decode: (s) => s.trim(),
-      encode: (s) => s,
-    }),
-    Schema.minLength(1),
-    Schema.maxLength(64),
-  ),
-  role: Schema.optionalWith(HostRoleSchema, { default: () => "editor" as const }),
+  handle: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(64)),
+  role: HostRoleSchema.pipe(Schema.withDecodingDefaultType(Effect.succeed("editor" as const))),
 });
 export type AddHostBody = Schema.Schema.Type<typeof AddHostBody>;
 

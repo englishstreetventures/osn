@@ -801,7 +801,7 @@ export const inviteService = {
       // because cleanup hiccuped is not worth it.
       if (existing?.key) {
         yield* deleteAsset(existing.key).pipe(
-          Effect.catchAll((e) =>
+          Effect.catch((e) =>
             Effect.logWarning("invite image cleanup failed", { weddingId, reason: e.reason }),
           ),
         );
@@ -852,7 +852,7 @@ export const inviteService = {
 
       if (existing?.key) {
         yield* deleteAsset(existing.key).pipe(
-          Effect.catchAll((e) =>
+          Effect.catch((e) =>
             Effect.logWarning("invite image cleanup failed", { weddingId, reason: e.reason }),
           ),
         );

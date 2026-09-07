@@ -54,10 +54,9 @@ export interface AssetsBucket {
   delete(key: string): Promise<void> | void;
 }
 
-export class AssetsR2Service extends Context.Tag("AssetsR2Service")<
-  AssetsR2Service,
-  AssetsBucket
->() {}
+export class AssetsR2Service extends Context.Service<AssetsR2Service, AssetsBucket>()(
+  "AssetsR2Service",
+) {}
 
 export class AssetR2Error extends Data.TaggedError("AssetR2Error")<{
   readonly reason: string;

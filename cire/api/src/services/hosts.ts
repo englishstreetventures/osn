@@ -232,13 +232,13 @@ function authorizeWithEntitlement(
     // two checks fail independently, each with its own scoped outcome. If the
     // role half is what defected, `authorizePlain` defects too and the request
     // 500s as it always would have.
-    Effect.catchAllDefect((defect) =>
+    Effect.catchDefect((defect) =>
       Effect.logWarning(
         "cire.host.authorize entitlement fold failed — falling back to the plain role query",
       ).pipe(
         Effect.annotateLogs({ weddingId, entitlement: entitlementKey }),
-        Effect.zipRight(Effect.logDebug(String(defect))),
-        Effect.zipRight(authorizePlain(weddingId, osnProfileId)),
+        Effect.andThen(Effect.logDebug(String(defect))),
+        Effect.andThen(authorizePlain(weddingId, osnProfileId)),
       ),
     ),
   );

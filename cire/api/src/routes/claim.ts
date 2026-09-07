@@ -49,7 +49,7 @@ export const createClaimRoutes = (
 
       return runCire(
         Effect.gen(function* () {
-          const { publicId } = yield* Schema.decodeUnknown(ClaimBody)(raw);
+          const { publicId } = yield* Schema.decodeUnknownEffect(ClaimBody)(raw);
           const result = yield* claimService.lookup(publicId.trim().toUpperCase());
           // Session write may fail (DB transient error) — we still hand the user
           // their invite payload and skip Set-Cookie. Error is logged inside the
@@ -66,7 +66,7 @@ export const createClaimRoutes = (
           return result;
         }).pipe(
           Effect.provideService(DbService, db),
-          Effect.catchTag("ParseError", () =>
+          Effect.catchTag("SchemaError", () =>
             Effect.sync(() => {
               set.status = 400;
               return { error: "Missing or invalid fields" };

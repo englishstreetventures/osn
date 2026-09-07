@@ -1,6 +1,8 @@
 import type { D1Database } from "@cloudflare/workers-types";
+import { loadConfig, parseDeploymentEnvironment } from "@shared/observability/config";
+import { makeLoggerLayer } from "@shared/observability/logger";
 import { makeDbD1Live } from "@zap/db/service";
-import { Effect, Logger } from "effect";
+import { Effect, type Layer } from "effect";
 
 import { createApp, SERVICE_NAME, type App } from "./app";
 import { assertCorsOriginsConfigured, isNonLocalEnv, resolveCorsOrigins } from "./lib/cors-config";
@@ -39,7 +41,35 @@ export interface Env {
 // Build the Elysia graph once per isolate — `env` bindings are stable within an
 // isolate, and `aot: false` means none of the graph is amortised by
 // compilation. Rebuild defensively if the D1 binding identity ever changes.
-let cached: { app: App; dbBinding: D1Database } | undefined;
+// The logger layer is built alongside it, for the same reason and with the same
+// lifetime: one per isolate, not one per log call.
+let cached: { app: App; dbBinding: D1Database; loggerLayer: Layer.Layer<never> } | undefined;
+
+/**
+ * Which tier is this Worker? Read from the request-scoped `env` binding, never
+ * `process.env`: workerd only populates `process.env` from wrangler
+ * `[vars]`/secrets on first access under `nodejs_compat_populate_process_env`,
+ * and never during module evaluation — so reading it at import time would
+ * silently resolve `local` on a live Worker. `ZAP_ENV ?? OSN_ENV` is the same
+ * precedence `isNonLocalEnv` uses, so the logger can never disagree with the
+ * fail-closed CORS guard about where it is running.
+ *
+ * The floor at `dev` is the one deliberate departure. `local` means "a human is
+ * watching stdout", and that tier does not run this file — it runs `local.ts`
+ * on Bun.serve (see the note at the top of `wrangler.toml`). Anything reaching
+ * this module is workerd, where the log sink is Workers Logs: pretty output
+ * there costs several ingested events per entry and cannot be queried by field.
+ * `dev` is the mildest deployed tier, so an env block that names no tier at all
+ * still gets one queryable JSON object per line rather than multi-line ANSI.
+ *
+ * `loadConfig` still runs so its S-L3 production-mismatch check applies.
+ */
+function loggerLayerFor(env: Env): Layer.Layer<never> {
+  const tier = parseDeploymentEnvironment(env.ZAP_ENV ?? env.OSN_ENV);
+  return makeLoggerLayer(
+    loadConfig({ serviceName: SERVICE_NAME, env: tier === "local" ? "dev" : tier }),
+  );
+}
 
 const misconfigured = (detail: string): Response =>
   new Response(JSON.stringify({ error: `Worker misconfigured: ${detail}` }), {
@@ -91,9 +121,20 @@ function buildApp(env: Env): App {
 // INTERNAL_SERVICE_SECRET logs a warning and continues — consent checks then
 // fail closed); throws in non-local envs via the helper so a misconfigured
 // deploy surfaces on the first request rather than silently mis-authing.
+//
+// Both log calls take the same redacting layer the rest of the service runs on
+// (`makeLoggerLayer`), not the bare dev-server pretty logger they used to. This
+// is the first request of every isolate in production, and the error branch logs
+// an arbitrary caught `unknown` from `registerWithOsnApi` — every throw site
+// reachable there today is benign (variable names, an HTTP status, a WebCrypto
+// or workerd `TypeError`), so this is about the shape rather than a present
+// leak. The layer buys three things the pretty logger has none of: the
+// secret/PII deny-list over the message and its annotations, the configured
+// minimum log level, and one queryable JSON object per line instead of
+// multi-line ANSI in Workers Logs. `Logger.tracerLogger` is in both.
 let _registration: Promise<void> | undefined;
 
-function ensureRegistered(): Promise<void> {
+function ensureRegistered(loggerLayer: Layer.Layer<never>): Promise<void> {
   _registration ??= registerWithOsnApi()
     .then((registered) => {
       if (registered) return;
@@ -101,7 +142,7 @@ function ensureRegistered(): Promise<void> {
         Effect.logWarning(
           "zap-api: ARC key registration skipped — INTERNAL_SERVICE_SECRET is unset. " +
             "Social-graph consent checks will fail closed (chats reject members) until it is set.",
-        ).pipe(Effect.annotateLogs({ service: SERVICE_NAME }), Effect.provide(Logger.pretty)),
+        ).pipe(Effect.annotateLogs({ service: SERVICE_NAME }), Effect.provide(loggerLayer)),
       ).catch(() => undefined);
     })
     .catch((err: unknown) => {
@@ -111,7 +152,7 @@ function ensureRegistered(): Promise<void> {
       return Effect.runPromise(
         Effect.logError("zap-api: failed to register ARC key with osn/api", err).pipe(
           Effect.annotateLogs({ service: SERVICE_NAME }),
-          Effect.provide(Logger.pretty),
+          Effect.provide(loggerLayer),
         ),
       ).catch(() => undefined);
     });
@@ -125,12 +166,12 @@ export default {
     if (!env.DB) return misconfigured("missing DB");
 
     if (!cached || cached.dbBinding !== env.DB) {
-      cached = { dbBinding: env.DB, app: buildApp(env) };
+      cached = { dbBinding: env.DB, app: buildApp(env), loggerLayer: loggerLayerFor(env) };
     }
 
     // Kick off (idempotent) ARC registration; don't block the request — consent
     // checks already fail closed if the key isn't registered yet.
-    void ensureRegistered();
+    void ensureRegistered(cached.loggerLayer);
 
     return cached.app.fetch(request);
   },

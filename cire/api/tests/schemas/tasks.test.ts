@@ -5,8 +5,8 @@ import { Effect, Schema } from "effect";
 import { isTimeframeBucket, TIMEFRAME_BUCKET_KEYS } from "../../src/lib/checklist-buckets";
 import { CreateTaskBody, ReorderTasksBody, UpdateTaskBody } from "../../src/schemas/tasks";
 
-const decode = <A, I>(s: Schema.Schema<A, I>, v: unknown) =>
-  Effect.runSync(Effect.either(Schema.decodeUnknown(s)(v)));
+const decode = <A, I>(s: Schema.Codec<A, I>, v: unknown) =>
+  Effect.runSync(Effect.result(Schema.decodeUnknownEffect(s)(v)));
 
 describe("checklist buckets", () => {
   it("has the eight ordered lead-time keys", () => {
@@ -31,36 +31,36 @@ describe("checklist buckets", () => {
 describe("CreateTaskBody", () => {
   it("accepts a title + bucket, defaults notes/dueAt to null", () => {
     const r = decode(CreateTaskBody, { title: "Book venue", timeframeBucket: "12m" });
-    expect(r._tag).toBe("Right");
-    if (r._tag === "Right") {
-      expect(r.right.notes).toBeNull();
-      expect(r.right.dueAt).toBeNull();
+    expect(r._tag).toBe("Success");
+    if (r._tag === "Success") {
+      expect(r.success.notes).toBeNull();
+      expect(r.success.dueAt).toBeNull();
     }
   });
 
   it("rejects an unknown bucket", () => {
-    expect(decode(CreateTaskBody, { title: "x", timeframeBucket: "5m" })._tag).toBe("Left");
+    expect(decode(CreateTaskBody, { title: "x", timeframeBucket: "5m" })._tag).toBe("Failure");
   });
 
   it("rejects an empty title", () => {
-    expect(decode(CreateTaskBody, { title: "", timeframeBucket: "6m" })._tag).toBe("Left");
+    expect(decode(CreateTaskBody, { title: "", timeframeBucket: "6m" })._tag).toBe("Failure");
   });
 });
 
 describe("UpdateTaskBody", () => {
   it("accepts a partial status flip", () => {
-    expect(decode(UpdateTaskBody, { status: "done" })._tag).toBe("Right");
+    expect(decode(UpdateTaskBody, { status: "done" })._tag).toBe("Success");
   });
 
   it("rejects an out-of-set status", () => {
-    expect(decode(UpdateTaskBody, { status: "archived" })._tag).toBe("Left");
+    expect(decode(UpdateTaskBody, { status: "archived" })._tag).toBe("Failure");
   });
 });
 
 describe("ReorderTasksBody", () => {
   it("accepts a bucket + ordered ids", () => {
     expect(decode(ReorderTasksBody, { timeframeBucket: "3m", orderedIds: ["a", "b"] })._tag).toBe(
-      "Right",
+      "Success",
     );
   });
 });

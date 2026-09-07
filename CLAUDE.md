@@ -73,7 +73,7 @@ One label is orthogonal to all of that: **`needs:decision`**, on both repos. It 
 | Understand DB environments (local bun:sqlite vs dev/staging/prod D1) | `[[wiki/systems/database-environments]]` |
 | Cut D1 latency with read replicas (the Sessions API, `first-primary`, one session per invocation, turning replication on) | `[[wiki/systems/d1-read-replication]]` |
 | Write new Effect service or Elysia route | `[[wiki/architecture/backend-patterns]]`, `[[wiki/architecture/schema-layers]]` |
-| Write Effect code, or migrate any of it from v3 to v4 | the `effect-ts` and `effect-v3-to-v4` skills (from `Effect-TS/skills`), then `[[wiki/runbooks/effect-v4-migration]]` for this repo's surface and phase order |
+| Write Effect code (v4 — see §Effect v4 below for the API shapes that changed) | `[[wiki/architecture/backend-patterns]]`, `[[wiki/architecture/schema-layers]]`, `[[wiki/conventions/testing-patterns]]` |
 | Understand accounts, profiles, orgs | `[[wiki/systems/identity-model]]` |
 | Add or verify ARC S2S tokens | `[[wiki/systems/arc-tokens]]` |
 | Let another app sign a user in with their OSN account (OIDC, PKCE, consent, pairwise `sub`) | `[[wiki/systems/oidc-provider]]` |
@@ -217,13 +217,120 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | Component Library | Zaidan-style (shadcn for SolidJS) on Kobalte. Component defaults use `base:`-prefixed classes written directly in source; two class utils cover the rest: `clsx()` conditional joins, `cn()` only for arbitrary conflicts. | `[[wiki/architecture/component-library]]` |
 | Share-source attribution | Closed `ShareSource` enum (`instagram | facebook | tiktok | x | whatsapp | copy_link | other`) drives the share picker, `?source=` URL injection, RSVP attribution columns (`share_source_first` sticky, `share_source_last` overwriting), and four bounded-cardinality counters. Single source of truth in `pulse/api/src/lib/shareSource.ts`; metric attribute type via `import type`. Lightweight `checkEventVisibility` (3 cols) gates the high-frequency share / exposure endpoints instead of the full `loadVisibleEvent`. Organiser self-RSVPs / self-views excluded. | `[[wiki/systems/event-access]]` |
 
+## Effect v4
+
+The repo moved off Effect v3 on 2026-09-06 and is pinned at the exact
+`4.0.0-rc.112` (pre-GA, so exact rather than caret). Everything below is a v3
+form that will not compile, and the v4 form to write instead. Most of the
+surface is unchanged — `Effect.gen`, `provide`, `runPromise`, `tryPromise`,
+`fail`, `flip`, `withSpan`, `catchTag`, `provideService`, `annotateLogs`,
+`Layer.effect`/`succeed`/`merge`, `Option.*`, `Exit.*`, `it.effect`, `it.layer`,
+and **`Data.TaggedError`**, which is this repo's whole error vocabulary and
+needed zero edits.
+
+### Renames
+
+| v3 | v4 |
+| --- | --- |
+| `Effect.catchAll` / `catchAllDefect` / `catchAllCause` | `Effect.catch` / `catchDefect` / `catchCause` |
+| `Effect.either` | `Effect.result` |
+| `Effect.zipRight` / `forkDaemon` / `dieMessage` | `Effect.andThen` / `forkDetach` / `die(new Error(…))` |
+| `Effect.yieldNow()` | `Effect.yieldNow` — a value, not a call |
+| `Layer.scoped` | `Layer.effect` — it supplies and excludes the `Scope` |
+| `Either` module | `Result` — tags are `"Success"`/`"Failure"` |
+| `Cause.failureOption` | `Cause.findErrorOption` |
+| `Context.Tag(id)<Self, Shape>()` | `Context.Service<Self, Shape>()(id)` — argument order flips; `Context.Tag<I, S>` in **type** position is `Context.Key<I, S>` |
+
+Service **identifier strings** are runtime lookup keys. Preserve them exactly
+through any such rewrite — a typo is a service-not-found at request time, not a
+compile error.
+
+### Errors, `Cause` and `Runtime`
+
+`FiberFailure` is gone. `runPromise` rejects with `Cause.squash(cause)`, which
+for a typed failure is the tagged error itself — so a `catch` that checks
+`_tag` now matches. The catch: where v3's `Cause.failureOption` returned `None`
+for a **defect**, `squash` hands you the defect object, which can carry an
+internal message. Gate on the tag before showing a rejection to anyone.
+
+`Cause` is a flat list of reasons, so there is no `Fail` node:
+
+```ts
+// v3: exit.cause._tag === "Fail" && exit.cause.error instanceof NotFound
+Option.getOrUndefined(Cause.findErrorOption(exit.cause)) instanceof NotFound
+```
+
+`ManagedRuntime` no longer extends `Effect`; `runtimeEffect`/`runtime` are
+`contextEffect`/`context`, and `Runtime<R>` is replaced by `Context<R>`.
+
+### Schema
+
+`Schema.decodeUnknown` is `decodeUnknownEffect`, and its failure is tagged
+**`SchemaError`**, not `ParseError` — that is what `catchTag` takes. Constraint
+combinators are *checks*, applied with a schema's `.check(…)`:
+
+```ts
+Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(64))
+Schema.Number.check(Schema.isInt(), Schema.isBetween({ minimum: 0, maximum: 99 }))
+Schema.String.check(Schema.isPattern(/^\d{4}$/))
+Schema.String.check(Schema.makeFilter((s) => ok(s) ? undefined : "why not"))
+```
+
+`isMinLength`/`isMaxLength` cover collections too (v3's `minItems`/`maxItems`).
+A `makeFilter` returns `undefined`/`true` for success and **a string as the
+failure message**; a check's `message` annotation is a plain string, not a
+thunk. `.check(a, b)` short-circuits on the first failure, so ordering a cheap
+bound before an expensive lookup still works.
+
+Four more, and the first two fail quietly:
+
+- **`Schema.Literal` takes one literal, `Schema.Union` takes one array.** Pass
+  the v3 variadic shape and the extra members are dropped rather than rejected;
+  the mistake surfaces later as `{}` where a real type was expected, or as a
+  union that has stopped rejecting one of its cases. Use
+  `Schema.Literals([…])` and `Schema.Union([…])`.
+- **Decode messages no longer echo the input.** v4 renders a reason line plus
+  an `at ["path"]` line where v3 wrote `Expected number, actual "x"`. A test
+  pinned to the old text passes vacuously if it only checks something threw.
+- `Schema.optionalWith(S, { default: () => v })` →
+  `S.pipe(Schema.withDecodingDefaultType(Effect.succeed(v)))`.
+- `Schema.transform(from, to, {decode, encode})` →
+  `from.pipe(Schema.decodeTo(to, SchemaTransformation.transform({ decode, encode })))`.
+  Often unnecessary: `Schema.Trim.check(…)` covers "trim then bound", and
+  `Schema.DateFromString` now rejects a string that parses to an Invalid Date,
+  which is what three hand-rolled transforms here existed for.
+  `Schema.parseJson(S)` is `Schema.fromJsonString(S)`; `DateFromSelf` is `Date`;
+  `Schema.Record({key, value})` is positional, `Schema.Record(key, value)`.
+
+### Logging
+
+`Logger.layer([…])` **replaces the whole active set**, so
+`Logger.tracerLogger` must be listed explicitly or log-to-span correlation
+disappears with no error and no failing type-check. Levels are string literals
+(`"Warn"`, not v3's `"Warning"`), the minimum level is
+`References.MinimumLogLevel` rather than `Logger.withMinimumLogLevel`,
+annotations live on the fiber rather than the logger's `Options`, and **the
+JSON severity field is `level`, not `logLevel`** — a Grafana query on the old
+name matches nothing. `@shared/observability` owns all of this; see
+`[[wiki/observability/logging]]`.
+
+### Layer memoization
+
+The `MemoMap` is shared across `Effect.provide` calls **within one run**, not
+across separate `runPromise` roots. A per-request `Effect.provide(scopedLayer)`
+is a new root every time, so it still **builds and tears the layer down on
+every request** — measured, 5 provides → 5 acquires and 5 releases, against a
+`ManagedRuntime`'s 1 acquire and 0 releases. So the v3 rebuild-cost argument
+for a shared runtime is not weakened at all where it matters; if anything the
+§Conventions "Effect runtime" rule is understated.
+
 ## Conventions
 
 | Area | Rule |
 |---|---|
 | Native apps (iOS) | Swift. One local SPM package at `shared/swift/OSNShared` with four library products — `OSNKit`, `OSNAuth`, `OSNUI`, `OSNTesting`; consumers depend on `.product(name: "OSNKit", package: "OSNShared")`. App targets are thin: all code lives in packages, `*.xcodeproj` is generated by XcodeGen from a committed `project.yml` and is gitignored. **Every target must compile against the macOS SDK too** — `platforms:` is package-level (SPM has no per-target platform) and `swift test` builds every target on the host, so a bare `import UIKit` anywhere in `OSNShared` fails CI. SwiftUI and Liquid Glass exist on macOS 26; genuinely UIKit-only code goes behind `#if canImport(UIKit)` or into the app target |
-| Functional core | Effect.ts trial in OSN/Pulse first; the decision is an open issue in `xchromo/osn`. Pinned at `^3.22.1` across 13 packages; the **v4 bump is planned, not done** — driven by the official `effect-v3-to-v4` skill against upstream's generated rename reference, sized and phased in `[[wiki/runbooks/effect-v4-migration]]`, tracked in #895. Never guess a v4 replacement: look it up |
-| Effect runtime | Build the layer graph **once** (shared `ManagedRuntime` at boot), never `Effect.provide(DbLive/observability)` inside a per-request `runPromise` — it rebuilds the layer (restarts the OTel SDK + opens a new DB conn) every call. `@osn/api` threads one runtime through route factories via `makeAppRunner`. See `[[wiki/architecture/backend-patterns]]` |
+| Functional core | **Effect.ts is the backend, settled — not a trial.** Every backend (`osn/api`, `cire/api`, `pulse/api`, `zap/api`), the shared packages and `@osn/client` are built on it, and the 2026-09-06 v4 migration was carried out on that basis. `effect` and `@effect/vitest` are pinned at the exact `4.0.0-rc.112` across 13 packages — exact rather than caret because it is pre-GA. Nothing is left on v3. The API shapes that moved are in §Effect v4. **The frontends use Effect nowhere**, and that stays an open question rather than a rule: it gets evaluated when the Solid apps move to Solid v2, not before |
+| Effect runtime | Build the layer graph **once** (shared `ManagedRuntime` at boot), never `Effect.provide(DbLive/observability)` inside a per-request `runPromise`. The reason is lifecycle ownership — one OTel SDK and one DB connection per process, owned by something that can close them. The rebuild-cost reason still holds too: v4's shared `MemoMap` spans one run, not separate `runPromise` roots, so a per-request `Effect.provide` of a scoped layer acquires AND releases it every request (measured: 5 provides → 5 acquires, 5 releases; a `ManagedRuntime` → 1 and 0). `@osn/api` threads one runtime through route factories via `makeAppRunner`. See `[[wiki/architecture/backend-patterns]]` |
 | Messaging | `@zap/api` shared backend — Pulse consumes for event chats; users don't need Zap install |
 | Privacy | E2E encryption everywhere; all personalisation data user-accessible + resettable |
 | Platform priority | iOS > Web > Android (Android deferred) |
@@ -240,7 +347,7 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | Versioning | Automatic — changesets consumed + committed by CI on merge to main |
 | Dependency soak | `bunfig.toml` sets `minimumReleaseAge = 259200` (3 days) so a fresh publish cannot install straight away. An entry in `minimumReleaseAgeExcludes` is a hole in that, so it must carry a `# DROP AFTER <name> <YYYY-MM-DD>` marker comment in the same file, dated no more than 30 days out. `scripts/check-release-age-excludes.ts` (CI step in the `script-tests` job, `bun run check:release-age-excludes` locally) fails on a missing, invalid, expired or over-long marker, and on `minimumReleaseAge` itself dropping below 259200 |
 | Vendored trees | `tools/oxlint` holds two plugins and they are not the same kind of thing. `tools/oxlint/house` is ours: a real workspace (`@tools/oxlint-house`), formatted, linted, typechecked and tested like any other package, and where a rule this repo needs but nobody publishes belongs. `tools/oxlint/anti-slop` is a verbatim upstream copy — excluded from oxfmt and oxlint, MIT licence vendored beside it. Its `SHA256SUMS` covers every tracked file and CI checks both the checksums and the file set, so a re-vendor must regenerate it with the recipe in that directory's `README.md`. `.github/CODEOWNERS` puts the tree under a human owner, along with `scripts/`, `.github/`, `bunfig.toml` and the files that decide a guard runs at all (`package.json`, `oxlintrc.json`, `lefthook.yml`) |
-| Agent skills and their evals | A procedure an agent follows lives in `.claude/skills/<name>/SKILL.md`, and nowhere else. **Third-party skills are the one exception to the location, not the rule:** `npx skills add <owner>/<repo>` installs them under `.agents/skills/<name>/` and symlinks `.claude/skills/<name>` at them, with `skills-lock.json` naming the source and content-hashing each file. Install them that way rather than copying the text in, so `npx skills update` can move the pin; the tree and the lock are both under a human owner in `.github/CODEOWNERS`, because a skill runs with full agent permissions. Installed today: `effect-ts` and `effect-v3-to-v4` from `Effect-TS/skills`. Claude Code invokes a skill as `/<name>`, so a wrapper in `.claude/commands/` buys nothing and only splits the procedure across two files that drift; the older commands still in that directory are the ones not yet converted. Skills are also what makes a procedure measurable: `.claude/` is a Tessl plugin (`.tessl-plugin/plugin.json`), and each scenario under `.claude/evals/<scenario>/` runs an agent with and without the skill and scores the gap. A scenario pins a real commit of this repo and builds its branch in `setup.sh`, and that commit ships whatever `.claude/` held at the time, so `setup.sh` deletes it — `exclude` in `scenario.json` does not. Every merged fix PR is a free labelled scenario — pin its parent SHA, one checklist item per finding it fixed. `.claude/settings.json` is committed, so its hooks travel to the remote environment — that is what makes a standing rule hold in a session that never reads a local config. Personal hooks and permissions belong in `.claude/settings.local.json`, which is gitignored; a personal untracked `settings.json` will block the pull that first brings the tracked one down. See `.claude/evals/README.md` |
+| Agent skills and their evals | A procedure an agent follows lives in `.claude/skills/<name>/SKILL.md`, and nowhere else. **Every skill here is ours.** No third-party skill is installed, so there is no `.agents/` tree and no `skills-lock.json`, and neither path is in `.github/CODEOWNERS` or the changeset allowlist any more — an allowlist entry for a path nothing writes is a hole nobody is watching. The two `Effect-TS/skills` ones went with the v4 migration, since a migration skill has no second use and what it taught is in §Effect v4. To install one again, use `npx skills add <owner>/<repo>` rather than copying the text in (so `npx skills update` can move the pin) — it lands in `.agents/skills/<name>/` with a `.claude/skills/<name>` symlink and a content-hashing `skills-lock.json`, and **the same commit must restore the CODEOWNERS and allowlist entries for both paths**: that tree is someone else's instructions running with full agent permissions. Claude Code invokes a skill as `/<name>`, so a wrapper in `.claude/commands/` buys nothing and only splits the procedure across two files that drift; the older commands still in that directory are the ones not yet converted. Skills are also what makes a procedure measurable: `.claude/` is a Tessl plugin (`.tessl-plugin/plugin.json`), and each scenario under `.claude/evals/<scenario>/` runs an agent with and without the skill and scores the gap. A scenario pins a real commit of this repo and builds its branch in `setup.sh`, and that commit ships whatever `.claude/` held at the time, so `setup.sh` deletes it — `exclude` in `scenario.json` does not. Every merged fix PR is a free labelled scenario — pin its parent SHA, one checklist item per finding it fixed. `.claude/settings.json` is committed, so its hooks travel to the remote environment — that is what makes a standing rule hold in a session that never reads a local config. Personal hooks and permissions belong in `.claude/settings.local.json`, which is gitignored; a personal untracked `settings.json` will block the pull that first brings the tracked one down. See `.claude/evals/README.md` |
 
 ## Commands
 

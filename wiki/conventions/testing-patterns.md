@@ -6,7 +6,7 @@ related:
   - "[[backend-patterns]]"
   - "[[schema-layers]]"
   - "[[commands]]"
-last-reviewed: 2026-09-01
+last-reviewed: 2026-09-06
 ---
 
 # Testing Patterns
@@ -88,6 +88,40 @@ it.effect("fails with EventNotFound", () =>
   }).pipe(Effect.provide(createTestLayer()))
 );
 ```
+
+### Reading the error out of an `Exit` (Effect v4)
+
+`Effect.flip` is the first choice because it needs no unwrapping. When a test
+holds an `Exit` instead — from `runPromiseExit`, or a helper that returns one —
+read the error with `Cause.findErrorOption`. v4's `Cause` is a flat list of
+reasons, so there is no `Fail` node to match on and the v3 form does not
+type-check:
+
+```typescript
+// v3: exit.cause._tag === "Fail" && exit.cause.error instanceof VendorNotInWedding
+expect(
+  Option.getOrUndefined(Cause.findErrorOption(exit.cause)) instanceof VendorNotInWedding,
+).toBe(true);
+```
+
+`findErrorOption` returns `None` for a **defect**, so this refuses one exactly
+as the `_tag === "Fail"` check did — a test that should be catching a typed
+failure does not quietly start passing on a crash.
+
+Three more v4 facts that decide whether an assertion is real:
+
+- **`Effect.runPromise` rejects with `Cause.squash(cause)`**, which for a typed
+  failure is the error instance itself. v3 wrapped it in a `FiberFailure` whose
+  prototype was not the error class, so tests written then may assert
+  `instanceof` is `false`. Under v4 it is `true`.
+- **`Either` is `Result`**, and its tags are `"Success"`/`"Failure"`, not
+  `"Right"`/`"Left"`. `expect(x._tag).toBe("Right")` compiles fine against
+  `toBe`'s `any` and simply never matches, so it fails as a puzzling assertion
+  rather than a type error.
+- **`@effect/vitest`'s `assertFailure` changed meaning**: in v3 it asserted on
+  an `Exit`, in v4 it asserts a `Result.Failure`, and the v3 behaviour moved to
+  `assertExitFailure`. This repo uses neither, so nothing here is exposed — but
+  a helper added from a v3 example would be asserting something else.
 
 ## Route Test Pattern
 

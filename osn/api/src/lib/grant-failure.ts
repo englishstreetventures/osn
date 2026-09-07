@@ -16,8 +16,6 @@
  * server already knows the difference; this is the predicate that keeps it.
  */
 
-import { Cause, Option, Runtime } from "effect";
-
 /**
  * A service failure carrying an Effect `Data.TaggedError` discriminator — the
  * only shape this predicate can read an answer from.
@@ -31,17 +29,28 @@ function isTaggedServiceError(value: unknown): value is TaggedServiceError {
 }
 
 /**
- * Unwrap a `FiberFailure` to its typed failure — or take the value as thrown —
- * and narrow it to a tagged service error. Route handlers run effects through
- * `ManagedRuntime.runPromise`, which rejects with a `FiberFailure` wrapping the
- * failure, never the tagged error itself. `null` for a defect or any other
+ * Narrow a rejected value to a tagged service error. `null` for any other
  * value, which the caller reads as "no evidence".
+ *
+ * There is no wrapper to unwrap: Effect v4 removed `FiberFailure`, and route
+ * handlers run effects through `makeAppRunner`'s `run` (`lib/route-runtime.ts`),
+ * which rejects with the typed failure itself.
+ *
+ * That runner, not this narrowing, is what keeps the predicate honest, and it
+ * matters here because this feeds a security decision rather than a message.
+ * A `Data.TaggedError` IS an `Error` with a `_tag`, so `Effect.die`,
+ * `Effect.orDie` or a bare `throw` inside `Effect.sync` produce a DEFECT that
+ * still looks exactly like a tagged failure — and Effect v4's `Cause.squash`
+ * (what a plain `ManagedRuntime.runPromise` rejects with) would hand that
+ * object straight to the check below, so an internal invariant blowing up
+ * anywhere under `POST /token` could answer "status unknown" and pin the
+ * marker up. The runner instead rejects defects as a tagless `OpaqueDefect`,
+ * which falls through to `null` here and therefore to the retracting default:
+ * only a failure a service deliberately put in its error channel can say
+ * anything about the cookie.
  */
 function taggedFailure(e: unknown): TaggedServiceError | null {
-  const failure = Runtime.isFiberFailure(e)
-    ? Option.getOrNull(Cause.failureOption(e[Runtime.FiberFailureCauseId]))
-    : e;
-  return isTaggedServiceError(failure) ? failure : null;
+  return isTaggedServiceError(e) ? e : null;
 }
 
 /**

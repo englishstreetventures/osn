@@ -62,13 +62,13 @@ describe("selectEmailLayer", () => {
 
   it("creds absent + non-local + opt-in set → emits a loud degraded-mode startup warning (no PII)", () => {
     const lines: string[] = [];
-    const captureLayer = Logger.replace(
-      Logger.defaultLogger,
+    const captureLayer = Logger.layer([
+      // v4 log levels are string literals, so there is no `.label` to read.
       Logger.make(({ message, logLevel }) => {
         const msg = Array.isArray(message) ? message.join(" ") : String(message);
-        lines.push(`[${logLevel.label}] ${msg}`);
+        lines.push(`[${logLevel}] ${msg}`);
       }),
-    );
+    ]);
 
     // Selection emits the loud warning synchronously through the supplied
     // observability layer.
@@ -80,8 +80,12 @@ describe("selectEmailLayer", () => {
     // It must name the affected mail classes so an operator understands impact.
     expect(joined.toLowerCase()).toContain("otp");
     expect(joined.toLowerCase()).toContain("security");
-    // It must be at least WARN level (loud).
-    expect(joined).toMatch(/\[(WARN|ERROR|FATAL)\]/);
+    // It must be at least WARN level (loud). v4 log levels are capitalised
+    // string literals ("Warn", not v3's "WARN"), and the capture layer above
+    // interpolates the level verbatim — so the set is spelled the v4 way
+    // rather than matched case-insensitively, which would also accept a level
+    // that does not exist.
+    expect(joined).toMatch(/\[(Warn|Error|Fatal)\]/);
     // No sensitive-token shapes (there is no recipient/code at startup anyway).
     expect(joined).not.toMatch(/\b\d{6}\b/);
   });

@@ -39,7 +39,7 @@ export const isShareSource = (value: unknown): value is ShareSource =>
   typeof value === "string" && SHARE_SOURCE_SET.has(value);
 
 /** Effect Schema literal — for service-layer decode. */
-export const ShareSourceSchema = Schema.Literal(...SHARE_SOURCES);
+export const ShareSourceSchema = Schema.Literals(SHARE_SOURCES);
 
 /**
  * TypeBox union over the share-source enum — for the HTTP boundary.

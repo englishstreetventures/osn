@@ -18,7 +18,7 @@ export interface RedisService {
   readonly client: RedisClient;
 }
 
-export class Redis extends Context.Tag("@shared/redis/Redis")<Redis, RedisService>() {}
+export class Redis extends Context.Service<Redis, RedisService>()("@shared/redis/Redis") {}
 
 /** Redact credentials from Redis URLs in error messages (S-M3). */
 function sanitizeCause(cause: unknown): string {
@@ -33,7 +33,7 @@ function sanitizeCause(cause: unknown): string {
  * In-memory layer for dev/test — no Redis server required.
  * Provides the same `Redis` service tag backed by an in-memory client.
  */
-export const RedisMemoryLive: Layer.Layer<Redis> = Layer.scoped(
+export const RedisMemoryLive: Layer.Layer<Redis> = Layer.effect(
   Redis,
   Effect.gen(function* () {
     const client = createMemoryClient();

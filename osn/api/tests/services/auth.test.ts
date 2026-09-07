@@ -2,7 +2,7 @@ import { it, expect, describe } from "@effect/vitest";
 import { passkeys } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { EmailError, EmailService, makeLogEmailLive } from "@shared/email";
-import { Effect, Layer, Logger, LogLevel } from "effect";
+import { Effect, Layer, Logger, References } from "effect";
 import { beforeAll } from "vitest";
 
 import { createInMemoryRotatedSessionStore } from "../../src/lib/rotated-session-store";
@@ -937,7 +937,7 @@ describe("LogEmailLive local-mode behaviour", () => {
         : String(options.message);
       captured.push(msg);
     });
-    const loggerLayer = Logger.replace(Logger.defaultLogger, sinkLogger);
+    const loggerLayer = Logger.layer([sinkLogger]);
     return { captured, loggerLayer };
   }
 
@@ -947,7 +947,10 @@ describe("LogEmailLive local-mode behaviour", () => {
     return Effect.gen(function* () {
       yield* svc
         .beginRegistration("dev@example.com", "devuser", "1990-01-01", "Dev User")
-        .pipe(Effect.provide(loggerLayer), Logger.withMinimumLogLevel(LogLevel.Debug));
+        .pipe(
+          Effect.provide(loggerLayer),
+          Effect.provideService(References.MinimumLogLevel, "Debug"),
+        );
 
       // Log line: template + subject + to, no OTP code.
       const emailLogs = logLines.filter((l) => l.includes("[email:log]"));

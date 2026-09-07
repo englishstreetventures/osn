@@ -8,9 +8,9 @@ import { cropAspect, decodeCrop, ImageCropBody, isValidCrop } from "../../src/sc
 // the ParseError so a test can assert acceptance/rejection.
 function decodeBody(raw: unknown) {
   return Effect.runSync(
-    Schema.decodeUnknown(ImageCropBody)(raw).pipe(
-      Effect.catchTag("ParseError", () => Effect.fail("reject" as const)),
-      Effect.either,
+    Schema.decodeUnknownEffect(ImageCropBody)(raw).pipe(
+      Effect.catchTag("SchemaError", () => Effect.fail("reject" as const)),
+      Effect.result,
     ),
   );
 }
@@ -56,26 +56,26 @@ describe("isValidCrop", () => {
 describe("ImageCropBody decode", () => {
   it("accepts a valid rectangle", () => {
     const r = decodeBody({ crop: { x: 0.1, y: 0.2, w: 0.4, h: 0.3 } });
-    expect(r._tag).toBe("Right");
-    if (r._tag === "Right") expect(r.right.crop).toEqual({ x: 0.1, y: 0.2, w: 0.4, h: 0.3 });
+    expect(r._tag).toBe("Success");
+    if (r._tag === "Success") expect(r.success.crop).toEqual({ x: 0.1, y: 0.2, w: 0.4, h: 0.3 });
   });
 
   it("accepts crop: null (reset to full image)", () => {
     const r = decodeBody({ crop: null });
-    expect(r._tag).toBe("Right");
-    if (r._tag === "Right") expect(r.right.crop).toBeNull();
+    expect(r._tag).toBe("Success");
+    if (r._tag === "Success") expect(r.success.crop).toBeNull();
   });
 
   it("rejects an out-of-range rectangle with a ParseError", () => {
-    expect(decodeBody({ crop: { x: 0.8, y: 0, w: 0.5, h: 0.5 } })._tag).toBe("Left");
-    expect(decodeBody({ crop: { x: -1, y: 0, w: 0.5, h: 0.5 } })._tag).toBe("Left");
-    expect(decodeBody({ crop: { x: 0, y: 0, w: 0, h: 0 } })._tag).toBe("Left");
+    expect(decodeBody({ crop: { x: 0.8, y: 0, w: 0.5, h: 0.5 } })._tag).toBe("Failure");
+    expect(decodeBody({ crop: { x: -1, y: 0, w: 0.5, h: 0.5 } })._tag).toBe("Failure");
+    expect(decodeBody({ crop: { x: 0, y: 0, w: 0, h: 0 } })._tag).toBe("Failure");
   });
 
   it("rejects a malformed body (missing fields / wrong types)", () => {
-    expect(decodeBody({ crop: { x: 0, y: 0, w: 0.5 } })._tag).toBe("Left");
-    expect(decodeBody({ crop: "nope" })._tag).toBe("Left");
-    expect(decodeBody(null)._tag).toBe("Left");
+    expect(decodeBody({ crop: { x: 0, y: 0, w: 0.5 } })._tag).toBe("Failure");
+    expect(decodeBody({ crop: "nope" })._tag).toBe("Failure");
+    expect(decodeBody(null)._tag).toBe("Failure");
   });
 
   // `screen` picks which hero rectangle a save targets (migration 0046). It is
@@ -85,31 +85,31 @@ describe("ImageCropBody decode", () => {
     const RECT = { x: 0.1, y: 0.2, w: 0.4, h: 0.3 };
     for (const screen of ["desktop", "mobile"] as const) {
       const r = decodeBody({ crop: RECT, screen });
-      expect(r._tag).toBe("Right");
-      if (r._tag === "Right") expect(r.right.screen).toBe(screen);
+      expect(r._tag).toBe("Success");
+      if (r._tag === "Success") expect(r.success.screen).toBe(screen);
     }
   });
 
   it("accepts screen alongside crop: null (a per-screen reset)", () => {
     const r = decodeBody({ crop: null, screen: "mobile" });
-    expect(r._tag).toBe("Right");
-    if (r._tag === "Right") {
-      expect(r.right.crop).toBeNull();
-      expect(r.right.screen).toBe("mobile");
+    expect(r._tag).toBe("Success");
+    if (r._tag === "Success") {
+      expect(r.success.crop).toBeNull();
+      expect(r.success.screen).toBe("mobile");
     }
   });
 
   it("omitting screen decodes with screen undefined (pre-0046 bodies unchanged)", () => {
     const r = decodeBody({ crop: { x: 0.1, y: 0.2, w: 0.4, h: 0.3 } });
-    expect(r._tag).toBe("Right");
-    if (r._tag === "Right") expect(r.right.screen).toBeUndefined();
+    expect(r._tag).toBe("Success");
+    if (r._tag === "Success") expect(r.success.screen).toBeUndefined();
   });
 
   it("rejects an out-of-union or non-string screen", () => {
     const RECT = { x: 0.1, y: 0.2, w: 0.4, h: 0.3 };
-    expect(decodeBody({ crop: RECT, screen: "tablet" })._tag).toBe("Left");
-    expect(decodeBody({ crop: RECT, screen: 1 })._tag).toBe("Left");
-    expect(decodeBody({ crop: RECT, screen: null })._tag).toBe("Left");
+    expect(decodeBody({ crop: RECT, screen: "tablet" })._tag).toBe("Failure");
+    expect(decodeBody({ crop: RECT, screen: 1 })._tag).toBe("Failure");
+    expect(decodeBody({ crop: RECT, screen: null })._tag).toBe("Failure");
   });
 });
 
@@ -154,15 +154,15 @@ describe("source dimensions (natW / natH) — the distortion fix, no migration",
 
   it("round-trips the dims through the request body decode", () => {
     const r = decodeBody({ crop: { x: 0.1, y: 0.2, w: 0.4, h: 0.3, natW: 4000, natH: 3000 } });
-    expect(r._tag).toBe("Right");
-    if (r._tag === "Right") {
-      expect(r.right.crop).toEqual({ x: 0.1, y: 0.2, w: 0.4, h: 0.3, natW: 4000, natH: 3000 });
+    expect(r._tag).toBe("Success");
+    if (r._tag === "Success") {
+      expect(r.success.crop).toEqual({ x: 0.1, y: 0.2, w: 0.4, h: 0.3, natW: 4000, natH: 3000 });
     }
   });
 
   it("rejects a body whose dims are present but invalid", () => {
     expect(decodeBody({ crop: { x: 0, y: 0, w: 0.5, h: 0.5, natW: 0, natH: 100 } })._tag).toBe(
-      "Left",
+      "Failure",
     );
   });
 

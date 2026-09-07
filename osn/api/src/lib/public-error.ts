@@ -10,24 +10,36 @@ export interface PublicErrorResponse {
  * Maps a thrown Effect-tagged error (or anything else) to a stable, public,
  * non-leaky error payload. The full cause is logged server-side for diagnosis,
  * but only opaque codes / sanitised messages cross the wire (S-H5 / S-M6).
+ *
+ * Nothing here ever forwards `e.message`: every arm returns a fixed code and,
+ * at most, a fixed public string. So unlike `makeSafeError` this function is
+ * free to keep looking for a tag inside a defect — finding one refines the
+ * STATUS (a died `DatabaseError` is a 500 `internal_error`, not a 400) and
+ * names the tag in the server-side log, without putting anything the defect
+ * carried on the wire.
  */
 export function publicError(
   e: unknown,
   loggerLayer: Layer.Layer<never> = Layer.empty,
 ): PublicErrorResponse {
-  // Effect's own Cause nodes carry `_tag`s ("Fail", "Die", …) that would
-  // otherwise shadow the domain error's tag — skip them and keep descending
-  // into `.error` / children.
+  // Effect's own Cause reason nodes carry `_tag`s ("Fail", "Die", …) that
+  // would otherwise shadow the domain error's tag — skip them and keep
+  // descending into `.error` / `.defect` / children.
   const CAUSE_TAGS = new Set(["Fail", "Die", "Interrupt", "Sequential", "Parallel", "Empty"]);
   const tag = (() => {
     const seen = new Set<unknown>();
     const queue: object[] = e && typeof e === "object" ? [e] : [];
     // P-I1: bound the traversal. A tagged error's `_tag` sits within a few hops
-    // of the root (the instance itself, or a FiberFailure → Cause → Fail node),
-    // so a small budget never truncates a real lookup — but it guarantees
-    // constant worst-case work on the hot error path when an UNtagged value
-    // (which falls through to the generic default) references a large object
-    // graph (DB layer, fiber state) via a `Die` cause.
+    // of the root, so a small budget never truncates a real lookup. Under the
+    // v4 runner (`makeAppRunner`) there are exactly two shapes to reach:
+    //   - a TYPED failure, which arrives as the tagged error itself — a hit on
+    //     the root, no walking at all. (v3's `FiberFailure` wrapper, and the
+    //     hop through its `Cause` to a `Fail` node, are both gone.)
+    //   - a DEFECT, which arrives as an `OpaqueDefect`: `.cause` → `Cause` →
+    //     `.reasons[0]` (`Die`) → `.defect` → the tagged error. Five hops.
+    // The budget guarantees constant worst-case work on the hot error path
+    // when an UNtagged value (which falls through to the generic default)
+    // references a large object graph (DB layer, fiber state) via a defect.
     let budget = 512;
     let head = 0;
     while (head < queue.length && budget-- > 0) {
@@ -36,11 +48,14 @@ export function publicError(
       seen.add(node);
       const tag_value = (node as { _tag?: unknown })._tag;
       if (typeof tag_value === "string" && !CAUSE_TAGS.has(tag_value)) return tag_value;
-      // Traverse ALL own keys (string + symbol), not just enumerable values:
-      // `Effect.runPromise` rejects with a `FiberFailure` that stores the
-      // underlying tagged error under a symbol-keyed `Cause`, which
-      // `Object.values` never reaches — so the real `_tag` would otherwise be
-      // invisible and every Effect failure would fall through to the default.
+      // Traverse ALL own keys — non-enumerable and symbol ones included, which
+      // is what `Object.values` cannot do. The load-bearing case is now
+      // `Error.cause`: the `new Error(msg, { cause })` form `OpaqueDefect` uses
+      // defines `cause` NON-enumerable, so an enumerable-only walk would never
+      // reach the retained `Cause` and every defect would fall through to the
+      // default. (v4 keys its `Cause`/`Reason` brands by string, so the symbol
+      // case is no longer the reason — but arbitrary thrown values may still
+      // hide a tag behind one, and covering it is free.)
       for (const key of Reflect.ownKeys(node)) {
         // Plain property read via computed destructuring: one [[Get]], no
         // descriptor allocation. An accessor still runs bound to `node`

@@ -61,7 +61,7 @@ export const createAccountRoutes = (
         // correlate two profiles to the same account).
         const verify = await Effect.runPromise(
           verifyStepUp(stepUpToken, "pulse_app_delete").pipe(
-            Effect.catchAll(() => Effect.succeed({ ok: false } as const)),
+            Effect.catch(() => Effect.succeed({ ok: false } as const)),
           ),
         );
         if (!verify.ok) {
@@ -97,7 +97,7 @@ export const createAccountRoutes = (
             .runPromise(
               notifyAppLeft(accountId).pipe(
                 Effect.tap(() => Effect.sync(() => metricPulseEnrollmentNotify("ok"))),
-                Effect.catchAll(() => {
+                Effect.catch(() => {
                   metricPulseEnrollmentNotify("error");
                   return Effect.void;
                 }),

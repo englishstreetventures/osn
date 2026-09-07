@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import { SERVICE_CATEGORIES } from "../lib/service-categories";
 import type { ServiceCategory } from "../lib/service-categories";
@@ -15,18 +15,18 @@ const categoryKeys = SERVICE_CATEGORIES.map((c) => c.key) as [
   ServiceCategory,
   ...ServiceCategory[],
 ];
-const CategorySchema = Schema.Literal(...categoryKeys);
+const CategorySchema = Schema.Literals(categoryKeys);
 
-const Name = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(MAX_NAME_CHARS));
-const Label = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(MAX_LABEL_CHARS));
-const Notes = Schema.String.pipe(Schema.maxLength(MAX_NOTES_CHARS));
+const Name = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(MAX_NAME_CHARS));
+const Label = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(MAX_LABEL_CHARS));
+const Notes = Schema.String.check(Schema.isMaxLength(MAX_NOTES_CHARS));
 // A loose ISO date string (YYYY-MM-DD from the date input). Stored as text.
-const DueAt = Schema.String.pipe(Schema.maxLength(32));
+const DueAt = Schema.String.check(Schema.isMaxLength(32));
 // A money amount in minor units: a non-negative integer, capped for sanity.
-const Minor = Schema.Number.pipe(
-  Schema.int(),
-  Schema.greaterThanOrEqualTo(0),
-  Schema.lessThanOrEqualTo(MAX_MINOR),
+const Minor = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isGreaterThanOrEqualTo(0),
+  Schema.isLessThanOrEqualTo(MAX_MINOR),
 );
 
 // Create item: category + name required; the three money figures + notes are
@@ -34,10 +34,10 @@ const Minor = Schema.Number.pipe(
 export const CreateBudgetItemBody = Schema.Struct({
   category: CategorySchema,
   name: Name,
-  estimateMinor: Schema.optionalWith(Schema.NullOr(Minor), { default: () => null }),
-  quotedMinor: Schema.optionalWith(Schema.NullOr(Minor), { default: () => null }),
-  actualMinor: Schema.optionalWith(Schema.NullOr(Minor), { default: () => null }),
-  notes: Schema.optionalWith(Schema.NullOr(Notes), { default: () => null }),
+  estimateMinor: Schema.NullOr(Minor).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
+  quotedMinor: Schema.NullOr(Minor).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
+  actualMinor: Schema.NullOr(Minor).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
+  notes: Schema.NullOr(Notes).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
 });
 export type CreateBudgetItemBody = Schema.Schema.Type<typeof CreateBudgetItemBody>;
 
@@ -56,7 +56,7 @@ export type UpdateBudgetItemBody = Schema.Schema.Type<typeof UpdateBudgetItemBod
 // Reorder: the new order of item ids within one category.
 export const ReorderBudgetItemsBody = Schema.Struct({
   category: CategorySchema,
-  orderedIds: Schema.Array(Schema.NonEmptyString).pipe(Schema.maxItems(500)),
+  orderedIds: Schema.Array(Schema.NonEmptyString).check(Schema.isMaxLength(500)),
 });
 export type ReorderBudgetItemsBody = Schema.Schema.Type<typeof ReorderBudgetItemsBody>;
 
@@ -64,7 +64,7 @@ export type ReorderBudgetItemsBody = Schema.Schema.Type<typeof ReorderBudgetItem
 export const CreatePaymentBody = Schema.Struct({
   label: Label,
   amountMinor: Minor,
-  dueAt: Schema.optionalWith(Schema.NullOr(DueAt), { default: () => null }),
+  dueAt: Schema.NullOr(DueAt).pipe(Schema.withDecodingDefaultType(Effect.succeed(null))),
 });
 export type CreatePaymentBody = Schema.Schema.Type<typeof CreatePaymentBody>;
 
@@ -82,7 +82,10 @@ export type UpdatePaymentBody = Schema.Schema.Type<typeof UpdatePaymentBody>;
 // The bound MATCHES the settings schema's BudgetTotalMinor (0..100_000_000_000)
 // because the settings service does not re-validate the delegated patch — the
 // two writers of weddings.budget_total_minor must accept the exact same range.
-const BudgetTotal = Schema.Number.pipe(Schema.int(), Schema.between(0, 100_000_000_000));
+const BudgetTotal = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isBetween({ minimum: 0, maximum: 100_000_000_000 }),
+);
 export const SetBudgetTotalBody = Schema.Struct({
   budgetTotalMinor: Schema.NullOr(BudgetTotal),
 });

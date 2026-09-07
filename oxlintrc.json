@@ -241,6 +241,10 @@
     "*.gen.ts",
     "*.astro",
     // Vendored upstream source — linted by its own repo, not ours.
-    "tools/oxlint/anti-slop"
+    "tools/oxlint/anti-slop",
+    // Shallow checkouts of an upstream repo, cloned as reference material and
+    // gitignored (the Effect v4 migration's two lived here). Not our source,
+    // and linting them buries real findings in someone else's warnings.
+    ".repos"
   ]
 }

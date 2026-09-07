@@ -117,7 +117,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
           };
         }).pipe(
           Effect.provideService(DbService, db),
-          Effect.catchAllDefect(() =>
+          Effect.catchDefect(() =>
             Effect.sync(() => {
               set.status = 500;
               return { error: "Internal error" };
@@ -141,7 +141,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
           return runCire(
             claimService.getAllGuests(weddingId).pipe(
               Effect.provideService(DbService, db),
-              Effect.catchAllDefect(() => rosterDefect(set, "guests", weddingId)),
+              Effect.catchDefect(() => rosterDefect(set, "guests", weddingId)),
             ),
           );
         })
@@ -158,7 +158,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
           return runCire(
             claimService.getAllHouseholds(weddingId).pipe(
               Effect.provideService(DbService, db),
-              Effect.catchAllDefect(() => rosterDefect(set, "households", weddingId)),
+              Effect.catchDefect(() => rosterDefect(set, "households", weddingId)),
             ),
           );
         })
@@ -170,7 +170,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
           return runCire(
             claimService.listEvents(weddingId).pipe(
               Effect.provideService(DbService, db),
-              Effect.catchAllDefect(() =>
+              Effect.catchDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;
                   return { error: "Internal error" };
@@ -213,7 +213,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
                     return { error: "Could not deactivate family" };
                   }),
               }),
-              Effect.catchAllDefect(() =>
+              Effect.catchDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;
                   return { error: "Internal error" };
@@ -246,7 +246,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
                     return { error: "Could not reactivate family" };
                   }),
               }),
-              Effect.catchAllDefect(() =>
+              Effect.catchDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;
                   return { error: "Internal error" };
@@ -285,7 +285,7 @@ export const createOrganiserWeddingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
                     return { error: "Could not regenerate code" };
                   }),
               }),
-              Effect.catchAllDefect(() =>
+              Effect.catchDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;
                   return { error: "Internal error" };
@@ -344,7 +344,7 @@ export const createOrganiserExportRoutes = (
               return csvAttachment(toCsv(data), `cire-rsvps-${slug ?? weddingId}.csv`);
             }).pipe(
               Effect.provideService(DbService, db),
-              Effect.catchAllDefect(() => exportDefect(set, "rsvps.csv", weddingId)),
+              Effect.catchDefect(() => exportDefect(set, "rsvps.csv", weddingId)),
             ),
           );
         })
@@ -365,7 +365,7 @@ export const createOrganiserExportRoutes = (
               return csvAttachment(csv, `cire-guests-${slug ?? weddingId}.csv`);
             }).pipe(
               Effect.provideService(DbService, db),
-              Effect.catchAllDefect(() => exportDefect(set, "guests.csv", weddingId)),
+              Effect.catchDefect(() => exportDefect(set, "guests.csv", weddingId)),
             ),
           );
         })
@@ -386,7 +386,7 @@ export const createOrganiserExportRoutes = (
               return csvAttachment(csv, `cire-events-${slug ?? weddingId}.csv`);
             }).pipe(
               Effect.provideService(DbService, db),
-              Effect.catchAllDefect(() => exportDefect(set, "events.csv", weddingId)),
+              Effect.catchDefect(() => exportDefect(set, "events.csv", weddingId)),
             ),
           );
         })
@@ -415,7 +415,7 @@ export const createOrganiserExportRoutes = (
               return csvAttachment(csv, `cire-export-events-${slug ?? weddingId}.csv`);
             }).pipe(
               Effect.provideService(DbService, db),
-              Effect.catchAllDefect(() => exportDefect(set, "export/events.csv", weddingId)),
+              Effect.catchDefect(() => exportDefect(set, "export/events.csv", weddingId)),
             ),
           );
         })
@@ -437,7 +437,7 @@ export const createOrganiserExportRoutes = (
               return csvAttachment(csv, `cire-export-guests-${slug ?? weddingId}.csv`);
             }).pipe(
               Effect.provideService(DbService, db),
-              Effect.catchAllDefect(() => exportDefect(set, "export/guests.csv", weddingId)),
+              Effect.catchDefect(() => exportDefect(set, "export/guests.csv", weddingId)),
             ),
           );
         })
@@ -459,7 +459,7 @@ export const createOrganiserExportRoutes = (
                   set.headers["cache-control"] = "no-store";
                 }),
               ),
-              Effect.catchAllDefect(() =>
+              Effect.catchDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;
                   return { error: "Internal error" };
@@ -497,7 +497,7 @@ export const createOrganiserWeddingCreateRoute = (
 
         return runCire(
           Effect.gen(function* () {
-            const body = yield* Schema.decodeUnknown(CreateWeddingBody)(raw);
+            const body = yield* Schema.decodeUnknownEffect(CreateWeddingBody)(raw);
             const wedding = yield* weddingsService.createForOwner(
               osnProfileId,
               body.displayName,
@@ -507,7 +507,7 @@ export const createOrganiserWeddingCreateRoute = (
             return { wedding };
           }).pipe(
             Effect.provideService(DbService, db),
-            Effect.catchTag("ParseError", () =>
+            Effect.catchTag("SchemaError", () =>
               Effect.sync(() => {
                 set.status = 400;
                 return { error: "Missing or invalid fields" };
@@ -519,7 +519,7 @@ export const createOrganiserWeddingCreateRoute = (
                 return { error: "Could not create wedding" };
               }),
             ),
-            Effect.catchAllDefect(() =>
+            Effect.catchDefect(() =>
               Effect.sync(() => {
                 set.status = 500;
                 return { error: "Internal error" };
@@ -568,7 +568,7 @@ export const createOrganiserPreviewRoutes = (
                   return { error: "Internal error" };
                 }),
               ),
-              Effect.catchAllDefect(() =>
+              Effect.catchDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;
                   return { error: "Internal error" };
@@ -612,12 +612,12 @@ export const createOrganiserRemintRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(RemintBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(RemintBody)(raw);
                 return yield* remintCodesService.remint(weddingId, body.codeStyle);
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.map((r) => ({ codeStyle: r.codeStyle, reminted: r.reminted })),
-                Effect.catchTag("ParseError", () =>
+                Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Missing or invalid fields" };
@@ -635,7 +635,7 @@ export const createOrganiserRemintRoutes = (
                     return { error: "Could not re-mint codes" };
                   }),
                 ),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.sync(() => {
                     set.status = 500;
                     return { error: "Internal error" };
@@ -669,7 +669,7 @@ export const createOrganiserRemintRoutes = (
                   return { error: "Could not mark shared" };
                 }),
               ),
-              Effect.catchAllDefect(() =>
+              Effect.catchDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;
                   return { error: "Internal error" };

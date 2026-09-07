@@ -24,7 +24,7 @@ export interface DbService {
   readonly db: DbHandle<typeof schema>;
 }
 
-export class Db extends Context.Tag("@osn/db/Db")<Db, DbService>() {}
+export class Db extends Context.Service<Db, DbService>()("@osn/db/Db") {}
 
 /** bun:sqlite-backed layer — the `local` environment (dev servers + tests). */
 export const DbLive = makeDbLive(Db, resolveLocalDbPath, schema);

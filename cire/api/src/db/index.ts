@@ -21,7 +21,7 @@ import type { D1QueryClient } from "./d1-session";
  */
 export type Db = BaseSQLiteDatabase<"sync" | "async", unknown, typeof schema>;
 
-export class DbService extends Context.Tag("DbService")<DbService, Db>() {}
+export class DbService extends Context.Service<DbService, Db>()("DbService") {}
 
 /**
  * Construct a Drizzle client over a Cloudflare D1 binding, or over anything that

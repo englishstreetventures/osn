@@ -84,7 +84,7 @@ const ProfileTokenSchema = Schema.Struct({
 const AccountSessionSchema = Schema.Struct({
   hasSession: Schema.Boolean,
   activeProfileId: Schema.String,
-  profileTokens: Schema.Record({ key: Schema.String, value: ProfileTokenSchema }),
+  profileTokens: Schema.Record(Schema.String, ProfileTokenSchema),
   scopes: Schema.Array(Schema.String),
   idToken: Schema.NullOr(Schema.String),
 });

@@ -20,12 +20,12 @@ const manualParse = { parse: () => ({}) };
 
 /** POST /enquiries/:id/messages — reply. */
 const ReplyBody = Schema.Struct({
-  message: Schema.String.pipe(Schema.minLength(1)),
+  message: Schema.String.check(Schema.isMinLength(1)),
 });
 
 /** POST /enquiries/:id/quote — structured quote. */
 const QuoteBody = Schema.Struct({
-  amountMinor: Schema.Number.pipe(Schema.int(), Schema.greaterThan(0)),
+  amountMinor: Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
   note: Schema.optional(Schema.String),
 });
 
@@ -211,7 +211,7 @@ export function createVendorEnquiriesRoutes(
             return { enquiries };
           }).pipe(
             Effect.provideService(DbService, db),
-            Effect.catchAllDefect(() => internal(set)),
+            Effect.catchDefect(() => internal(set)),
           ),
         );
       })
@@ -228,7 +228,7 @@ export function createVendorEnquiriesRoutes(
           }).pipe(
             Effect.provideService(DbService, db),
             Effect.catchTags(catchEnquiryTags(set)),
-            Effect.catchAllDefect(() => internal(set)),
+            Effect.catchDefect(() => internal(set)),
           ),
         );
       })
@@ -242,7 +242,7 @@ export function createVendorEnquiriesRoutes(
 
           return runCire(
             Effect.gen(function* () {
-              const body = yield* Schema.decodeUnknown(ReplyBody)(raw);
+              const body = yield* Schema.decodeUnknownEffect(ReplyBody)(raw);
               const enquiry = yield* loadEnquiryForVendor(db, orgMembership, params.id, profileId);
               if (!enquiry) return yield* notFound(set);
               const message = yield* enquiryService.reply({
@@ -260,9 +260,9 @@ export function createVendorEnquiriesRoutes(
               return { message };
             }).pipe(
               Effect.provideService(DbService, db),
-              Effect.catchTag("ParseError", () => badRequest(set)),
+              Effect.catchTag("SchemaError", () => badRequest(set)),
               Effect.catchTags(catchEnquiryTags(set)),
-              Effect.catchAllDefect(() => internal(set)),
+              Effect.catchDefect(() => internal(set)),
             ),
           );
         },
@@ -276,7 +276,7 @@ export function createVendorEnquiriesRoutes(
 
           return runCire(
             Effect.gen(function* () {
-              const body = yield* Schema.decodeUnknown(QuoteBody)(raw);
+              const body = yield* Schema.decodeUnknownEffect(QuoteBody)(raw);
               const enquiry = yield* loadEnquiryForVendor(db, orgMembership, params.id, profileId);
               if (!enquiry) return yield* notFound(set);
               // The vendor name and the wedding currency are independent single-row
@@ -321,9 +321,9 @@ export function createVendorEnquiriesRoutes(
               return { enquiry: enquiryDto };
             }).pipe(
               Effect.provideService(DbService, db),
-              Effect.catchTag("ParseError", () => badRequest(set)),
+              Effect.catchTag("SchemaError", () => badRequest(set)),
               Effect.catchTags(catchEnquiryTags(set)),
-              Effect.catchAllDefect(() => internal(set)),
+              Effect.catchDefect(() => internal(set)),
             ),
           );
         },

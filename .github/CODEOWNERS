@@ -45,12 +45,12 @@ wrangler.jsonc       @chav-aniket
 # owner is for.
 /tools/oxlint/**     @chav-aniket
 
-# Third-party agent skills, installed by `npx skills add` and reviewed once on
-# the way in — `skills-lock.json` names the source repo and content-hashes each
-# SKILL.md, so an edit to either the tree or the lock changes what an agent is
-# told to do in this repo. `.claude/skills/<name>` is a symlink into
-# `.agents/skills/`, so both paths are owned. Our own skills under
-# `.claude/skills/` are covered by the same pattern.
-/.agents/**          @chav-aniket
+# Agent instructions — slash-commands, skills, settings, eval scenarios. A file
+# here changes what an agent is told to do in this repo, and an agent runs with
+# full permissions, so it gets a human owner.
+#
+# There is no `/.agents/**` or `/skills-lock.json` rule because no third-party
+# skill is installed. If `npx skills add` is ever used again, add both back in
+# the same commit — that tree is someone else's instructions running with our
+# permissions, and it is exactly what this section exists to gate.
 /.claude/**          @chav-aniket
-/skills-lock.json    @chav-aniket

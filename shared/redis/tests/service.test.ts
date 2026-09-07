@@ -1,5 +1,5 @@
 import { describe, it, expect } from "@effect/vitest";
-import { Effect } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { it as vitestIt } from "vitest";
 
 import { Redis, RedisMemoryLive, sanitizeCause } from "../src/service";
@@ -44,6 +44,30 @@ describe("RedisMemoryLive", () => {
       expect(after).toBeNull();
     }).pipe(Effect.provide(RedisMemoryLive)),
   );
+
+  // The layer owns a real connection lifecycle, and Effect v4 merged
+  // `Layer.scoped` into `Layer.effect`. `Layer.effect` supplies and excludes
+  // the layer Scope, so the `Effect.addFinalizer` in `RedisMemoryLive` still
+  // runs on close — but nothing asserted that, and a rewrite that dropped the
+  // scope would type-check and leak connections silently. The memory client's
+  // `quit()` clears its store, which makes the finalizer observable.
+  vitestIt("runs the layer finalizer on scope close", async () => {
+    let captured: { get: (k: string) => Promise<string | null> } | undefined;
+
+    await Effect.runPromise(
+      Effect.scoped(
+        Effect.gen(function* () {
+          const context = yield* Layer.build(RedisMemoryLive);
+          const { client } = Context.get(context, Redis);
+          captured = client;
+          yield* Effect.promise(() => client.set("survives-scope", "no"));
+          expect(yield* Effect.promise(() => client.get("survives-scope"))).toBe("no");
+        }),
+      ),
+    );
+
+    expect(await captured!.get("survives-scope")).toBeNull();
+  });
 });
 
 describe("sanitizeCause (S-M3)", () => {

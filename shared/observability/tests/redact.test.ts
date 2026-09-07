@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { REDACT_KEYS, redact, REDACTION_PLACEHOLDER } from "../src/logger/redact";
+import {
+  CIRCULAR_PLACEHOLDER,
+  REDACT_KEYS,
+  redact,
+  REDACTION_PLACEHOLDER,
+} from "../src/logger/redact";
 
 describe("redact", () => {
   it("passes primitives through unchanged", () => {
@@ -205,10 +210,73 @@ describe("redact", () => {
     expect(out.profileId).toBe("u_123");
   });
 
-  it("throws on cyclic input", () => {
-    const a: { self?: unknown } = {};
-    a.self = a;
-    expect(() => redact(a)).toThrow(/cyclic/);
+  /**
+   * The pretty logger prints an Error by its stack, and local stack traces are
+   * most of what that logger is for — so the scrubbed value has to still BE an
+   * Error, not a `{ name, message }` record. See `src/logger/layer.ts`
+   * §redactInput.
+   */
+  it("returns a real Error with the original stack, not a record of its fields", () => {
+    const err = new TypeError("bad input") as TypeError & { email?: string };
+    err.email = "alice@example.com";
+
+    const out = redact(err);
+
+    expect(out).toBeInstanceOf(Error);
+    const asError = out as TypeError & { email?: string };
+    expect(asError.name).toBe("TypeError");
+    expect(asError.message).toBe("bad input");
+    // The frames captured where the error was thrown, not where redact ran.
+    expect(asError.stack).toBe(err.stack);
+    expect(asError.email).toBe(REDACTION_PLACEHOLDER);
+    // `name` / `message` / `stack` stay non-enumerable, so the scrubbed fields
+    // are the only thing an inspector prints alongside the trace.
+    expect(Object.keys(asError)).toEqual(["email"]);
+  });
+
+  /**
+   * `redact` runs inside the logger on every deployed tier (see
+   * `src/logger/layer.ts`), so a throw here is not a loud bug report — it is a
+   * dead fiber whose only crime was calling `Effect.logError`. These four cases
+   * pin the marker behaviour that replaced the throw.
+   */
+  describe("cyclic input", () => {
+    it("marks a self-referential object instead of throwing", () => {
+      const a: { self?: unknown; email?: string } = { email: "alice@example.com" };
+      a.self = a;
+      const out = redact(a) as Record<string, unknown>;
+      expect(out.self).toBe(CIRCULAR_PLACEHOLDER);
+      // The rest of the object is still walked and still scrubbed.
+      expect(out.email).toBe(REDACTION_PLACEHOLDER);
+    });
+
+    it("marks a cycle reached through an array", () => {
+      const a: { items: unknown[] } = { items: [] };
+      a.items.push(a);
+      const out = redact(a) as { items: unknown[] };
+      expect(out.items[0]).toBe(CIRCULAR_PLACEHOLDER);
+    });
+
+    it("survives a looping Error cause chain — the logger case that motivated this", () => {
+      // `Effect.logError("boom", err)` on an error whose `cause` field points
+      // back at itself used to take out the fiber that logged it. Effect
+      // tagged errors carry `cause` as an own enumerable field, so this shape
+      // is reachable, not theoretical.
+      const err = new Error("boom") as Error & { cause?: unknown };
+      // Own + enumerable, which is how a Data.TaggedError field lands.
+      err.cause = err;
+      const out = redact(err) as Error & { cause?: unknown };
+      expect(out).toBeInstanceOf(Error);
+      expect(out.cause).toBe(CIRCULAR_PLACEHOLDER);
+    });
+
+    it("keeps the primitive fast path allocation-free (P-I1)", () => {
+      // A scalar must not reach the WeakSet-allocating walk at all. Identity
+      // on the way out is the observable proxy for that.
+      const s = "not-an-object";
+      expect(redact(s)).toBe(s);
+      expect(redact(7)).toBe(7);
+    });
   });
 
   it("does not mutate input", () => {

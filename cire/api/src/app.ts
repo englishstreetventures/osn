@@ -542,13 +542,13 @@ export function createApp(db: Db, options: AppOptions = {}) {
     EmailService.pipe(
       Effect.flatMap((email) => email.send(msg)),
       Effect.provide(enquiryEmailLayer),
-      Effect.catchAll((error) =>
+      Effect.catch((error) =>
         Effect.logWarning("[enquiries] email send failed — swallowing", {
           template: msg.template,
           reason: error.reason,
         }),
       ),
-      Effect.catchAllDefect((cause) =>
+      Effect.catchDefect((cause) =>
         Effect.logWarning("[enquiries] email send defected — swallowing", {
           template: msg.template,
           reason: String(cause),

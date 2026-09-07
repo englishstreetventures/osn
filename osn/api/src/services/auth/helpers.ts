@@ -324,16 +324,18 @@ export function sessionHandleFromHash(sessionHash: string): string {
 // Copenhagen Book M3: cap length at 255 (the practical RFC 5321 mailbox
 // ceiling) BEFORE the regex runs — rejects absurd payloads outright and
 // keeps the stored `accounts.email` column bounded.
-export const EmailSchema = Schema.String.pipe(
-  Schema.filter((s) => s.length <= 255 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s), {
-    message: () => "Invalid email",
-  }),
+export const EmailSchema = Schema.String.check(
+  Schema.makeFilter((s) =>
+    s.length <= 255 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) ? undefined : "Invalid email",
+  ),
 );
 
-export const HandleSchema = Schema.String.pipe(
-  Schema.filter((s) => /^[a-z0-9_]{1,30}$/.test(s), {
-    message: () => "Handle must be 1–30 characters: lowercase letters, numbers, underscores only",
-  }),
+export const HandleSchema = Schema.String.check(
+  Schema.makeFilter((s) =>
+    /^[a-z0-9_]{1,30}$/.test(s)
+      ? undefined
+      : "Handle must be 1–30 characters: lowercase letters, numbers, underscores only",
+  ),
 );
 
 /**
@@ -344,19 +346,17 @@ export const HandleSchema = Schema.String.pipe(
  * COPPA-specific 422 rather than a generic 400. The value is never persisted.
  * See [[compliance/coppa]].
  */
-export const BirthdateSchema = Schema.String.pipe(
-  Schema.filter(
-    (s) => {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-      const d = new Date(`${s}T00:00:00.000Z`);
-      if (Number.isNaN(d.getTime())) return false;
-      // Reject dates that don't round-trip (e.g. 2021-02-30 → 2021-03-02).
-      if (d.toISOString().slice(0, 10) !== s) return false;
-      // A birthdate in the future is nonsensical.
-      return d.getTime() <= Date.now();
-    },
-    { message: () => "Invalid birthdate" },
-  ),
+export const BirthdateSchema = Schema.String.check(
+  Schema.makeFilter((s) => {
+    const invalid = "Invalid birthdate";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return invalid;
+    const d = new Date(`${s}T00:00:00.000Z`);
+    if (Number.isNaN(d.getTime())) return invalid;
+    // Reject dates that don't round-trip (e.g. 2021-02-30 → 2021-03-02).
+    if (d.toISOString().slice(0, 10) !== s) return invalid;
+    // A birthdate in the future is nonsensical.
+    return d.getTime() <= Date.now() ? undefined : invalid;
+  }),
 );
 
 /**
@@ -381,10 +381,10 @@ export function ageInYears(birthdate: string, at: Date = new Date()): number {
  * settings-row display without having to `LIKE …%` truncate at read time.
  * Empty strings aren't valid — the caller should PATCH `null` to clear.
  */
-export const PasskeyLabelSchema = Schema.String.pipe(
-  Schema.filter((s) => s.trim().length > 0 && s.length <= 64, {
-    message: () => "Passkey label must be 1–64 characters",
-  }),
+export const PasskeyLabelSchema = Schema.String.check(
+  Schema.makeFilter((s) =>
+    s.trim().length > 0 && s.length <= 64 ? undefined : "Passkey label must be 1–64 characters",
+  ),
 );
 
 /**

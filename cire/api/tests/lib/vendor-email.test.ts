@@ -86,7 +86,7 @@ describe("sendClaimInviteEmail", () => {
 
   it("succeeds (fail-soft) when the transport throws a defect", async () => {
     const defectLayer = Layer.succeed(EmailService, {
-      send: (_input: SendEmailInput) => Effect.dieMessage("unexpected defect in transport"),
+      send: (_input: SendEmailInput) => Effect.die(new Error("unexpected defect in transport")),
     });
 
     const exit = await Effect.runPromiseExit(

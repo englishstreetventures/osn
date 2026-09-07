@@ -1,6 +1,6 @@
 import { DbLive } from "@osn/db/service";
-import { initObservability } from "@shared/observability";
-import { Effect, Layer, Logger } from "effect";
+import { initObservability, PrettyLoggerLive } from "@shared/observability";
+import { Effect, Layer } from "effect";
 
 import { createApp, type App } from "./app";
 import { buildAppDeps, type BuiltDeps, SERVICE_NAME } from "./build-deps";
@@ -107,7 +107,7 @@ export function startBunServer(
       yield* Effect.logInfo("osn-app listening");
     }).pipe(
       Effect.annotateLogs({ port: String(port), service: SERVICE_NAME }),
-      Effect.provide(Logger.pretty),
+      Effect.provide(PrettyLoggerLive),
       Effect.provide(observabilityLayer),
     ),
   );

@@ -320,7 +320,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             });
           }),
         ),
-        Effect.catchAll(() =>
+        Effect.catch(() =>
           Effect.gen(function* () {
             metricRotatedStoreOp({
               action: "track",
@@ -364,7 +364,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             });
           }),
         ),
-        Effect.catchAll(() =>
+        Effect.catch(() =>
           Effect.gen(function* () {
             metricRotatedStoreOp({
               action: "check",
@@ -431,7 +431,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
             });
           }),
         ),
-        Effect.catchAll(() =>
+        Effect.catch(() =>
           Effect.gen(function* () {
             metricRotatedStoreOp({
               action: "revoke_family",

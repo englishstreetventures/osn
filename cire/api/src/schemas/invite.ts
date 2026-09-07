@@ -8,7 +8,7 @@ import {
   PALETTE_SEED_KEYS,
   SECTION_TONES,
 } from "@cire/theme";
-import { Schema } from "effect";
+import { Schema, SchemaTransformation } from "effect";
 
 // ── Image slots ───────────────────────────────────────────────────────────────
 
@@ -156,10 +156,12 @@ const CropField = Schema.NullOr(
     h: Schema.Number,
     natW: Schema.optional(Schema.Number),
     natH: Schema.optional(Schema.Number),
-  }).pipe(
-    Schema.filter((c) => isValidCrop(c), {
-      message: () => "Invalid crop rectangle (each value 0..1, w/h > 0, x+w ≤ 1, y+h ≤ 1)",
-    }),
+  }).check(
+    Schema.makeFilter((c) =>
+      isValidCrop(c)
+        ? undefined
+        : "Invalid crop rectangle (each value 0..1, w/h > 0, x+w ≤ 1, y+h ≤ 1)",
+    ),
   ),
 );
 
@@ -187,7 +189,7 @@ export type CropScreen = (typeof CROP_SCREENS)[number];
  */
 export const ImageCropBody = Schema.Struct({
   crop: CropField,
-  screen: Schema.optional(Schema.Literal(...CROP_SCREENS)),
+  screen: Schema.optional(Schema.Literals(CROP_SCREENS)),
 });
 export type ImageCropBody = Schema.Schema.Type<typeof ImageCropBody>;
 
@@ -213,7 +215,7 @@ export function decodeCrop(raw: string | null): ImageCrop | null {
 // service normalises to null) means "fall back to the built-in default". Caps
 // keep a compromised/abusive organiser token from stuffing the public invite
 // with unbounded text.
-const copyField = (max: number) => Schema.NullOr(Schema.String.pipe(Schema.maxLength(max)));
+const copyField = (max: number) => Schema.NullOr(Schema.String.check(Schema.isMaxLength(max)));
 
 /**
  * Full set of text overrides. The builder form always submits every field, so
@@ -295,11 +297,15 @@ export function clampInt(value: number, min: number, max: number): number {
  * regardless of what the client sends.
  */
 const sliderField = (min: number, max: number) =>
-  Schema.transform(Schema.Int, Schema.Int, {
-    strict: true,
-    decode: (n) => clampInt(n, min, max),
-    encode: (n) => n,
-  });
+  Schema.Int.pipe(
+    Schema.decodeTo(
+      Schema.Int,
+      SchemaTransformation.transform({
+        decode: (n) => clampInt(n, min, max),
+        encode: (n) => n,
+      }),
+    ),
+  );
 
 // ── Theme (per-section colours + fonts) ─────────────────────────────────────────
 
@@ -328,25 +334,25 @@ export {
   SECTION_TONES,
 };
 
-const FontField = Schema.NullOr(Schema.Literal(...FONT_CHOICES));
+const FontField = Schema.NullOr(Schema.Literals(FONT_CHOICES));
 
 // Global typography options (migration 0048). Closed enum KEYS from
 // `@cire/theme` — each resolves there to a fixed CSS value (scale factor /
 // numeric weight / `normal`|`italic`), so free text can never reach a rendered
 // `style`. `null` ⇒ the design pack's built-in look.
-const HeadingSizeField = Schema.NullOr(Schema.Literal(...HEADING_SIZE_CHOICES));
-const WeightField = Schema.NullOr(Schema.Literal(...FONT_WEIGHT_CHOICES));
-const StyleField = Schema.NullOr(Schema.Literal(...FONT_STYLE_CHOICES));
+const HeadingSizeField = Schema.NullOr(Schema.Literals(HEADING_SIZE_CHOICES));
+const WeightField = Schema.NullOr(Schema.Literals(FONT_WEIGHT_CHOICES));
+const StyleField = Schema.NullOr(Schema.Literals(FONT_STYLE_CHOICES));
 
 /** Which derived surface a section sits on. `null` ⇒ the page ground. */
-const ToneField = Schema.NullOr(Schema.Literal(...SECTION_TONES));
+const ToneField = Schema.NullOr(Schema.Literals(SECTION_TONES));
 
 /**
  * Which curated scheme the organiser started from. Presentation only — the five
  * seeds are what actually render — so an unknown/stale key is harmless, but it
  * is still bounded so it can never carry free text into the builder's UI.
  */
-const PresetField = Schema.NullOr(Schema.Literal(...PALETTE_PRESET_KEYS));
+const PresetField = Schema.NullOr(Schema.Literals(PALETTE_PRESET_KEYS));
 
 /**
  * Strict CSS-colour allow-list — the write-time half of the CSS-injection
@@ -359,10 +365,10 @@ export const isThemeColor = isSafeCssColor;
 // A nullable colour field: `null` clears back to the default token; a present
 // value must pass the allow-list or the whole body is rejected with a 400.
 const ColorField = Schema.NullOr(
-  Schema.String.pipe(
-    Schema.filter((s) => isThemeColor(s), {
-      message: () => "Invalid colour (use hex, rgb(a), hsl(a) or oklch)",
-    }),
+  Schema.String.check(
+    Schema.makeFilter((s) =>
+      isThemeColor(s) ? undefined : "Invalid colour (use hex, rgb(a), hsl(a) or oklch)",
+    ),
   ),
 );
 

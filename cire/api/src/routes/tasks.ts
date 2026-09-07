@@ -38,7 +38,7 @@ export const createTaskReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
           tasksService.list(weddingId).pipe(
             Effect.map((list) => ({ tasks: list })),
             Effect.provideService(DbService, db),
-            Effect.catchAllDefect(() =>
+            Effect.catchDefect(() =>
               Effect.sync(() => {
                 set.status = 500;
                 return { error: "Internal error" };
@@ -79,7 +79,7 @@ export const createTaskWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(CreateTaskBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(CreateTaskBody)(raw);
                 const task = yield* tasksService.create({
                   weddingId,
                   title: body.title,
@@ -90,13 +90,13 @@ export const createTaskWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
                 return { task };
               }).pipe(
                 Effect.provideService(DbService, db),
-                Effect.catchTag("ParseError", () =>
+                Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Missing or invalid fields" };
                   }),
                 ),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.sync(() => {
                     set.status = 500;
                     return { error: "Internal error" };
@@ -117,18 +117,18 @@ export const createTaskWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(ReorderTasksBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(ReorderTasksBody)(raw);
                 yield* tasksService.reorder(weddingId, body.timeframeBucket, body.orderedIds);
                 return { ok: true as const };
               }).pipe(
                 Effect.provideService(DbService, db),
-                Effect.catchTag("ParseError", () =>
+                Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Missing or invalid fields" };
                   }),
                 ),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.sync(() => {
                     set.status = 500;
                     return { error: "Internal error" };
@@ -149,7 +149,7 @@ export const createTaskWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(UpdateTaskBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(UpdateTaskBody)(raw);
                 const task = yield* tasksService.update({
                   weddingId,
                   taskId: params.taskId,
@@ -158,7 +158,7 @@ export const createTaskWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
                 return { task };
               }).pipe(
                 Effect.provideService(DbService, db),
-                Effect.catchTag("ParseError", () =>
+                Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Missing or invalid fields" };
@@ -170,7 +170,7 @@ export const createTaskWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
                     return { error: "task_not_found" };
                   }),
                 ),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.sync(() => {
                     set.status = 500;
                     return { error: "Internal error" };
@@ -196,7 +196,7 @@ export const createTaskWriteRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
                   return { error: "task_not_found" };
                 }),
               ),
-              Effect.catchAllDefect(() =>
+              Effect.catchDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;
                   return { error: "Internal error" };

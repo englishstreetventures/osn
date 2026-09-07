@@ -60,7 +60,7 @@ const run = (url: string, options: LinkPreviewOptions) =>
  */
 function failureTag(exit: Exit.Exit<unknown, { readonly _tag: string }>): string | null {
   if (Exit.isSuccess(exit)) return null;
-  const failure = Cause.failureOption(exit.cause);
+  const failure = Cause.findErrorOption(exit.cause);
   return Option.isSome(failure) ? failure.value._tag : `defect:${Cause.pretty(exit.cause)}`;
 }
 

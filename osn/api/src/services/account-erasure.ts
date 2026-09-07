@@ -404,7 +404,7 @@ const markBridgeDone = (
  * forget after returning 202) and the retry sweeper (for any bridge that
  * came back without `*_done_at` set).
  *
- * Per-bridge result is captured via Effect.either so a failing bridge does
+ * Per-bridge result is captured via Effect.result so a failing bridge does
  * not abort the parent — sweeper picks up the unfinished half on its next
  * cycle.
  */
@@ -420,7 +420,7 @@ export const runFanOut = (
       tasks.push(
         dispatchBridge("pulse", pulse, "account:erase", body).pipe(
           Effect.flatMap(() => markBridgeDone("pulse", job.accountId)),
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         ),
       );
     }
@@ -428,7 +428,7 @@ export const runFanOut = (
       tasks.push(
         dispatchBridge("zap", zap, "account:erase", body).pipe(
           Effect.flatMap(() => markBridgeDone("zap", job.accountId)),
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         ),
       );
     }
@@ -640,7 +640,7 @@ export const runFanOutRetrySweep = (
     // P-W3: bounded concurrency. Sequential `for ... yield*` would take
     // 100 × 20s = ~33 minutes per cycle worst-case (each row dispatches
     // two 10s-timeout HTTP calls). Per-row failures are already isolated
-    // inside `runFanOut` via `Effect.catchAll`, so concurrency is safe.
+    // inside `runFanOut` via `Effect.catch`, so concurrency is safe.
     yield* Effect.forEach(
       pending,
       (row) => {

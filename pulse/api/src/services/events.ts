@@ -53,50 +53,57 @@ export class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
   readonly id: string;
 }> {}
 
-const StatusEnum = Schema.Literal("upcoming", "ongoing", "maybe_finished", "finished", "cancelled");
-const VisibilityEnum = Schema.Literal("public", "private");
-const GuestListVisibilityEnum = Schema.Literal("public", "connections", "private");
-const JoinPolicyEnum = Schema.Literal("open", "guest_list");
-const CommsChannelSchema = Schema.Literal("sms", "email");
-const CommsChannelsSchema = Schema.Array(CommsChannelSchema).pipe(
-  Schema.minItems(1),
-  Schema.filter((channels) => new Set(channels).size === channels.length, {
-    message: () => "commsChannels must not contain duplicates",
-  }),
+const StatusEnum = Schema.Literals([
+  "upcoming",
+  "ongoing",
+  "maybe_finished",
+  "finished",
+  "cancelled",
+]);
+const VisibilityEnum = Schema.Literals(["public", "private"]);
+const GuestListVisibilityEnum = Schema.Literals(["public", "connections", "private"]);
+const JoinPolicyEnum = Schema.Literals(["open", "guest_list"]);
+const CommsChannelSchema = Schema.Literals(["sms", "email"]);
+const CommsChannelsSchema = Schema.Array(CommsChannelSchema).check(
+  Schema.isMinLength(1),
+  Schema.makeFilter((channels) =>
+    new Set(channels).size === channels.length
+      ? undefined
+      : "commsChannels must not contain duplicates",
+  ),
 );
 
-// Schema.DateFromString in this Effect version allows Invalid Date — use a validated transform
-const ValidDateString = Schema.String.pipe(Schema.filter((s) => !isNaN(new Date(s).getTime())));
-const DateFromISOString = Schema.transform(ValidDateString, Schema.DateFromSelf, {
-  strict: true,
-  decode: (s) => new Date(s),
-  encode: (d) => d.toISOString(),
-});
+// Effect v3's DateFromString allowed Invalid Date, so this was a validated
+// transform. v4's rejects it ("Expected a valid Date"), so the schema is the
+// stock one again.
+const DateFromISOString = Schema.DateFromString;
 
-const ValidUrl = Schema.String.pipe(Schema.filter((s) => URL.parse(s) !== null));
+const ValidUrl = Schema.String.check(Schema.makeFilter((s) => URL.parse(s) !== null));
 
-const LatitudeSchema = Schema.Number.pipe(Schema.between(-90, 90));
-const LongitudeSchema = Schema.Number.pipe(Schema.between(-180, 180));
+const LatitudeSchema = Schema.Number.check(Schema.isBetween({ minimum: -90, maximum: 90 }));
+const LongitudeSchema = Schema.Number.check(Schema.isBetween({ minimum: -180, maximum: 180 }));
 
 // Length caps on user-provided text fields. Without these, an
 // authenticated user can POST an event with a 10MB description and bloat
 // every discovery response that returns it. The numbers are deliberately
 // generous — they cap abuse without constraining real events.
-const TitleString = Schema.NonEmptyString.pipe(Schema.maxLength(200));
-const DescriptionString = Schema.String.pipe(Schema.maxLength(5000));
-const LocationString = Schema.String.pipe(Schema.maxLength(500));
-const VenueString = Schema.String.pipe(Schema.maxLength(500));
-const CategoryString = Schema.String.pipe(Schema.maxLength(100));
+const TitleString = Schema.NonEmptyString.check(Schema.isMaxLength(200));
+const DescriptionString = Schema.String.check(Schema.isMaxLength(5000));
+const LocationString = Schema.String.check(Schema.isMaxLength(500));
+const VenueString = Schema.String.check(Schema.isMaxLength(500));
+const CategoryString = Schema.String.check(Schema.isMaxLength(100));
 
 // Price input is a major-unit decimal (e.g. 18.50 USD). The service
 // converts to minor units before INSERT. Cap at MAX_PRICE_MAJOR shared
 // across all currencies.
-const PriceAmountMajor = Schema.Number.pipe(
-  Schema.between(0, MAX_PRICE_MAJOR, {
-    message: () => `price must be between 0 and ${MAX_PRICE_MAJOR}`,
-  }),
+const PriceAmountMajor = Schema.Number.check(
+  // v4 filter annotations take `message` as a plain string, not a thunk.
+  Schema.isBetween(
+    { minimum: 0, maximum: MAX_PRICE_MAJOR },
+    { message: `price must be between 0 and ${MAX_PRICE_MAJOR}` },
+  ),
 );
-const CurrencySchema = Schema.Literal(...SUPPORTED_CURRENCIES);
+const CurrencySchema = Schema.Literals(SUPPORTED_CURRENCIES);
 
 // Enforce "both set or both null" invariant. `undefined` on both is fine
 // (price not being changed); otherwise they must pair up.
@@ -132,10 +139,12 @@ const InsertEventSchema = Schema.Struct({
   commsChannels: Schema.optional(CommsChannelsSchema),
   priceAmount: Schema.optional(Schema.NullOr(PriceAmountMajor)),
   priceCurrency: Schema.optional(Schema.NullOr(CurrencySchema)),
-}).pipe(
-  Schema.filter(priceInvariant, {
-    message: () => "priceAmount and priceCurrency must both be set or both be null",
-  }),
+}).check(
+  Schema.makeFilter((v) =>
+    priceInvariant(v)
+      ? undefined
+      : "priceAmount and priceCurrency must both be set or both be null",
+  ),
 );
 
 const UpdateEventSchema = Schema.Struct({
@@ -157,10 +166,12 @@ const UpdateEventSchema = Schema.Struct({
   commsChannels: Schema.optional(CommsChannelsSchema),
   priceAmount: Schema.optional(Schema.NullOr(PriceAmountMajor)),
   priceCurrency: Schema.optional(Schema.NullOr(CurrencySchema)),
-}).pipe(
-  Schema.filter(priceInvariant, {
-    message: () => "priceAmount and priceCurrency must both be set or both be null",
-  }),
+}).check(
+  Schema.makeFilter((v) =>
+    priceInvariant(v)
+      ? undefined
+      : "priceAmount and priceCurrency must both be set or both be null",
+  ),
 );
 
 interface ListEventsParams {
@@ -603,7 +614,7 @@ export const createEvent = (
   Effect.gen(function* () {
     const { db } = yield* Db;
 
-    const validated = yield* Schema.decodeUnknown(InsertEventSchema)(data).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(InsertEventSchema)(data).pipe(
       Effect.tapError(() => Effect.sync(() => metricEventValidationFailure("create", "schema"))),
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
@@ -679,7 +690,7 @@ export const updateEvent = (
       return yield* Effect.fail(new NotEventOwner({ id }));
     }
 
-    const validated = yield* Schema.decodeUnknown(UpdateEventSchema)(data).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(UpdateEventSchema)(data).pipe(
       Effect.tapError(() => Effect.sync(() => metricEventValidationFailure("update", "schema"))),
       Effect.mapError((cause) => new ValidationError({ cause })),
     );

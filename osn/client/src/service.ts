@@ -172,7 +172,7 @@ export interface OsnAuthService {
   ) => Effect.Effect<Response, AuthExpiredError | StorageError>;
 }
 
-export class OsnAuth extends Context.Tag("@osn/client/OsnAuth")<OsnAuth, OsnAuthService>() {}
+export class OsnAuth extends Context.Service<OsnAuth, OsnAuthService>()("@osn/client/OsnAuth") {}
 
 export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, never, Storage> {
   return Layer.effect(
@@ -332,10 +332,10 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         Effect.gen(function* () {
           let lastError: TokenRefreshError = new TokenRefreshError({ cause: "no attempt" });
           for (let attempt = 0; ; attempt += 1) {
-            const result = yield* Effect.either(fetchTokenGrantOnce());
-            if (result._tag === "Right") return result.right;
+            const result = yield* Effect.result(fetchTokenGrantOnce());
+            if (result._tag === "Success") return result.success;
 
-            const err = result.left;
+            const err = result.failure;
             // Terminal 4xx ⇒ genuinely logged out: stop immediately. Map to a
             // TokenRefreshError so the public surface stays a single error type.
             if (err instanceof TerminalGrantError) {
@@ -372,17 +372,17 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       // left for a follow-up; the server grace window already prevents
       // cross-tab races from revoking the family.)
       // -----------------------------------------------------------------------
-      type GrantEither =
-        | { readonly _tag: "Left"; readonly left: TokenRefreshError }
-        | { readonly _tag: "Right"; readonly right: ReturnType<typeof parseTokenResponse> };
-      let inFlightGrant: Promise<GrantEither> | null = null;
+      type GrantResult =
+        | { readonly _tag: "Failure"; readonly failure: TokenRefreshError }
+        | { readonly _tag: "Success"; readonly success: ReturnType<typeof parseTokenResponse> };
+      let inFlightGrant: Promise<GrantResult> | null = null;
 
       const sharedTokenGrant = () =>
         Effect.gen(function* () {
           if (!inFlightGrant) {
             const promise = Effect.runPromise(
-              Effect.either(fetchTokenGrant()),
-            ) as Promise<GrantEither>;
+              Effect.result(fetchTokenGrant()),
+            ) as Promise<GrantResult>;
             inFlightGrant = promise;
             void promise.finally(() => {
               if (inFlightGrant === promise) inFlightGrant = null;
@@ -392,8 +392,8 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             try: () => inFlightGrant!,
             catch: (cause) => new TokenRefreshError({ cause }),
           });
-          if (result._tag === "Left") return yield* Effect.fail(result.left);
-          return result.right;
+          if (result._tag === "Failure") return yield* Effect.fail(result.failure);
+          return result.success;
         });
 
       // -----------------------------------------------------------------------
@@ -405,14 +405,14 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       // reuse detection and revokes every session in the family — the user
       // gets logged out across all devices.
       //
-      // Store the in-flight refresh as a shared Promise<Either>. Concurrent
+      // Store the in-flight refresh as a shared Promise<Result>. Concurrent
       // callers join it instead of kicking off a second /token roundtrip.
       // -----------------------------------------------------------------------
 
-      type RefreshEither =
-        | { readonly _tag: "Left"; readonly left: TokenRefreshError | StorageError }
-        | { readonly _tag: "Right"; readonly right: Session };
-      let inFlightRefresh: Promise<RefreshEither> | null = null;
+      type RefreshResult =
+        | { readonly _tag: "Failure"; readonly failure: TokenRefreshError | StorageError }
+        | { readonly _tag: "Success"; readonly success: Session };
+      let inFlightRefresh: Promise<RefreshResult> | null = null;
 
       const doRefresh = () =>
         Effect.gen(function* () {
@@ -443,9 +443,9 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         Effect.gen(function* () {
           // Join the in-flight refresh if one is already running.
           if (!inFlightRefresh) {
-            // Either-wrapped so the shared promise never rejects — survives
+            // Result-wrapped so the shared promise never rejects — survives
             // FiberFailure wrapping from runPromise across Effect versions.
-            const promise = Effect.runPromise(Effect.either(doRefresh())) as Promise<RefreshEither>;
+            const promise = Effect.runPromise(Effect.result(doRefresh())) as Promise<RefreshResult>;
             inFlightRefresh = promise;
             // Clear the cache once the refresh settles so the next 401 burst
             // kicks off a fresh refresh rather than replaying a stale result.
@@ -458,10 +458,10 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             try: () => inFlightRefresh!,
             catch: (cause) => new TokenRefreshError({ cause }),
           });
-          if (result._tag === "Left") {
-            return yield* Effect.fail(result.left);
+          if (result._tag === "Failure") {
+            return yield* Effect.fail(result.failure);
           }
-          return result.right;
+          return result.success;
         });
 
       // -----------------------------------------------------------------------
@@ -479,7 +479,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
       // detection). On any failure (no/expired cookie → non-2xx, or network),
       // resolve to null: genuinely logged out, fail-safe, no throw.
       // -----------------------------------------------------------------------
-      let inFlightBootstrap: Promise<RefreshEither> | null = null;
+      let inFlightBootstrap: Promise<RefreshResult> | null = null;
 
       const doBootstrap = () =>
         Effect.gen(function* () {
@@ -507,15 +507,15 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         Effect.gen(function* () {
           if (!inFlightBootstrap) {
             const promise = Effect.runPromise(
-              Effect.either(doBootstrap()),
-            ) as Promise<RefreshEither>;
+              Effect.result(doBootstrap()),
+            ) as Promise<RefreshResult>;
             inFlightBootstrap = promise;
             void promise.finally(() => {
               if (inFlightBootstrap === promise) inFlightBootstrap = null;
             });
           }
 
-          // The shared promise is Either-wrapped so it never rejects; any
+          // The shared promise is Result-wrapped so it never rejects; any
           // failure (bad cookie, network, storage) arrives as a Left and maps
           // to null — a failed bootstrap means "logged out", never a throw.
           // A defensive orElse covers the should-never-happen rejection too.
@@ -523,7 +523,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
             try: () => inFlightBootstrap!,
             catch: (cause) => new TokenRefreshError({ cause }),
           }).pipe(
-            Effect.map((r): Session | null => (r._tag === "Left" ? null : r.right)),
+            Effect.map((r): Session | null => (r._tag === "Failure" ? null : r.success)),
             Effect.orElseSucceed((): Session | null => null),
           );
 
@@ -582,7 +582,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
                 body: "{}",
               }),
             catch: () => new StorageError({ cause: "Logout request failed" }),
-          }).pipe(Effect.catchAll(() => Effect.void));
+          }).pipe(Effect.catch(() => Effect.void));
           cache = null;
           yield* storage.remove(ACCOUNT_SESSION_KEY);
         });
@@ -807,15 +807,15 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           if (first.status !== 401) return first;
 
           // Silent refresh + retry once.
-          const refreshed = yield* Effect.either(refreshSession());
-          if (refreshed._tag === "Left") {
+          const refreshed = yield* Effect.result(refreshSession());
+          if (refreshed._tag === "Failure") {
             cache = null;
             yield* storage.remove(ACCOUNT_SESSION_KEY);
-            return yield* Effect.fail(new AuthExpiredError({ cause: refreshed.left }));
+            return yield* Effect.fail(new AuthExpiredError({ cause: refreshed.failure }));
           }
 
           const second = yield* Effect.tryPromise({
-            try: () => fetch(input, withAuth(refreshed.right.accessToken)),
+            try: () => fetch(input, withAuth(refreshed.success.accessToken)),
             catch: (cause) => new AuthExpiredError({ cause }),
           });
           if (second.status === 401) {

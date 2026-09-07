@@ -61,10 +61,12 @@ export const ParsedFamily = Schema.Struct({
    *  front door, which previously accepted a blank or multi-hundred-KB name
    *  straight onto rows the guest invite renders (S-L2). Validation only — no
    *  trim transform, so the diff still compares the exact submitted value. */
-  familyName: Schema.String.pipe(
-    Schema.filter((s) => s.trim().length > 0 && s.length <= 10_000, {
-      message: () => "familyName must be non-blank and at most 10000 characters",
-    }),
+  familyName: Schema.String.check(
+    Schema.makeFilter((s) =>
+      s.trim().length > 0 && s.length <= 10_000
+        ? undefined
+        : "familyName must be non-blank and at most 10000 characters",
+    ),
   ),
   guests: Schema.Array(ParsedGuest),
 });
@@ -106,7 +108,7 @@ export type DesiredState = Schema.Schema.Type<typeof DesiredState>;
  *    left as it is, and the guest sheet's attendance columns are matched against
  *    the events that already exist.
  */
-export const ChangeScope = Schema.Literal("both", "events", "guests");
+export const ChangeScope = Schema.Literals(["both", "events", "guests"]);
 export type ChangeScope = Schema.Schema.Type<typeof ChangeScope>;
 
 // ── Diff plan ─────────────────────────────────────────────────────────────────

@@ -29,7 +29,7 @@ export interface R2Bucket {
   delete(keys: string | string[]): Promise<void> | void;
 }
 
-export class R2Service extends Context.Tag("R2Service")<R2Service, R2Bucket>() {}
+export class R2Service extends Context.Service<R2Service, R2Bucket>()("R2Service") {}
 
 export class R2Error extends Data.TaggedError("R2Error")<{
   readonly reason: string;

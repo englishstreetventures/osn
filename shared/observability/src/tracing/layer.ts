@@ -15,23 +15,12 @@ import type { Layer } from "effect";
 
 import type { ObservabilityConfig } from "../config";
 import { NoopTracingLive } from "./noop";
+import { otlpExporterUrl } from "./url";
 
-/**
- * Build the per-signal OTLP HTTP endpoint URL from the base endpoint.
- *
- * `OTEL_EXPORTER_OTLP_ENDPOINT` is the *base* (e.g.
- * `https://otlp.grafana.net/otlp`); the OTLP/HTTP spec routes traces to
- * `<base>/v1/traces` and metrics to `<base>/v1/metrics`. We build the full
- * URL ourselves (and strip a trailing slash so we never emit `//v1/...`)
- * rather than leaning on the exporter's own env fallback — that fallback
- * silently defaults to `http://localhost:4318` when nothing is set, which is
- * exactly the "blind, perpetually-failing export" we want to avoid. Returns
- * `undefined` when no endpoint is configured so the caller can stay a no-op.
- */
-export const otlpExporterUrl = (
-  endpoint: string | undefined,
-  signal: "traces" | "metrics",
-): string | undefined => (endpoint ? `${endpoint.replace(/\/+$/, "")}/v1/${signal}` : undefined);
+// `otlpExporterUrl` is shared with the workerd-safe `./otlp.ts` exporter and so
+// lives in `./url.ts`, which imports nothing. Re-exported here because this is
+// the path it has always been imported from.
+export { otlpExporterUrl } from "./url";
 
 /**
  * Build the `@effect/opentelemetry` NodeSdk layer.

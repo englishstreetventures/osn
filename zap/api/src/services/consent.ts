@@ -70,7 +70,7 @@ export const checkConsent = (
       try: () => _gate(viewerProfileId, targetProfileId),
       catch: (cause) => cause,
     }).pipe(
-      Effect.catchAll(() =>
+      Effect.catch(() =>
         // Gate threw → graph unreachable → fail closed.
         Effect.gen(function* () {
           metricAccessDenied("members", "blocked");

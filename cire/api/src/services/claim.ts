@@ -354,9 +354,9 @@ export const claimService = {
           ),
         ).pipe(
           Effect.tap(() => Effect.sync(() => metricInviteOpened("ok"))),
-          Effect.catchAll(() =>
+          Effect.catch(() =>
             Effect.sync(() => metricInviteOpened("error")).pipe(
-              Effect.zipRight(
+              Effect.andThen(
                 Effect.logError("invite first-open write failed", { familyId: family.id }),
               ),
             ),

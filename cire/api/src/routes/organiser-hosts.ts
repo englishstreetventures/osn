@@ -124,7 +124,7 @@ export const createOrganiserHostsReadRoutes = (
                 };
               }),
             ),
-            Effect.catchAllDefect(() =>
+            Effect.catchDefect(() =>
               Effect.sync(() => {
                 set.status = 500;
                 return { error: "Internal error" };
@@ -206,7 +206,7 @@ export const createOrganiserHostsWriteRoutes = (
 
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(AddHostBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(AddHostBody)(raw);
 
                 const resolution = yield* Effect.tryPromise({
                   try: () => resolveHandle(body.handle),
@@ -239,7 +239,7 @@ export const createOrganiserHostsWriteRoutes = (
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTags({
-                  ParseError: () =>
+                  SchemaError: () =>
                     Effect.sync(() => {
                       metricHostAdded("error");
                       set.status = 400;
@@ -274,7 +274,7 @@ export const createOrganiserHostsWriteRoutes = (
                       return { error: "Could not add host" };
                     }),
                 }),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.sync(() => {
                     set.status = 500;
                     return { error: "Internal error" };
@@ -310,7 +310,7 @@ export const createOrganiserHostsWriteRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(UpdateHostRoleBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(UpdateHostRoleBody)(raw);
                 const host = yield* hostsService.setRole({
                   weddingId,
                   osnProfileId: params.osnProfileId,
@@ -327,7 +327,7 @@ export const createOrganiserHostsWriteRoutes = (
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.catchTags({
-                  ParseError: () =>
+                  SchemaError: () =>
                     Effect.sync(() => {
                       metricHostRoleChanged("error");
                       set.status = 400;
@@ -346,7 +346,7 @@ export const createOrganiserHostsWriteRoutes = (
                       return { error: "Could not change role" };
                     }),
                 }),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.sync(() => {
                     set.status = 500;
                     return { error: "Internal error" };
@@ -376,7 +376,7 @@ export const createOrganiserHostsWriteRoutes = (
                   return { error: "Could not remove host" };
                 }),
               ),
-              Effect.catchAllDefect(() =>
+              Effect.catchDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;
                   return { error: "Internal error" };

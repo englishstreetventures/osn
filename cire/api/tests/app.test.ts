@@ -143,22 +143,22 @@ describe("unhandled errors", () => {
       }),
     );
 
-    // Isolate OUR structured `onError` line. (Effect's *default* logger also
-    // emits a separate DEBUG "Fiber terminated…" stack dump — local-only, not
-    // the operator log line this finding is about — so we assert on our line,
-    // not the whole capture.)
-    const ourLine = out
-      .split("\n")
-      .filter((l) => l.includes("unhandled request error") || l.startsWith('{"'))
-      .join(" ");
+    // This used to isolate our `onError` line out of the capture, because
+    // Effect v3's *default* logger also emitted a separate DEBUG "Fiber
+    // terminated…" stack dump. Two things changed under v4: `Logger.layer`
+    // replaces the whole active set, so there is no default logger left to
+    // emit that dump; and the local renderer is indented, so our own entry is
+    // no longer one line and a line filter would only ever catch a fragment of
+    // it. The whole capture IS our entry now — which makes the negative
+    // assertion below strictly stronger, since nothing is filtered out of it.
 
-    // The structured line + the error NAME are present (triage signal).
-    expect(ourLine).toContain("unhandled request error");
-    expect(ourLine).toContain("name");
-    expect(ourLine).toContain("SQLiteError"); // the error NAME survives
-    // The raw SQLite message (a D1-internal echo) must NOT appear in our line —
+    // The structured entry + the error NAME are present (triage signal).
+    expect(out).toContain("unhandled request error");
+    expect(out).toContain("name");
+    expect(out).toContain("SQLiteError"); // the error NAME survives
+    // The raw SQLite message (a D1-internal echo) must NOT appear anywhere —
     // "no such table: families" is exactly what would have leaked under the old
     // `message: error.message` log.
-    expect(ourLine).not.toContain("no such table");
+    expect(out).not.toContain("no such table");
   });
 });

@@ -126,7 +126,7 @@ export const eventImageService = {
       // because cleanup hiccuped is not.
       if (existing.key) {
         yield* deleteAsset(existing.key).pipe(
-          Effect.catchAll((e) =>
+          Effect.catch((e) =>
             Effect.logWarning("event image cleanup failed", { weddingId, reason: e.reason }),
           ),
         );
@@ -171,7 +171,7 @@ export const eventImageService = {
 
       if (existing.key) {
         yield* deleteAsset(existing.key).pipe(
-          Effect.catchAll((e) =>
+          Effect.catch((e) =>
             Effect.logWarning("event image cleanup failed", { weddingId, reason: e.reason }),
           ),
         );

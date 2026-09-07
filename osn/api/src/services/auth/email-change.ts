@@ -49,7 +49,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
     Db | EmailService
   > =>
     Effect.gen(function* () {
-      yield* Schema.decodeUnknown(EmailSchema)(newEmail).pipe(
+      yield* Schema.decodeUnknownEffect(EmailSchema)(newEmail).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
       const normalised = newEmail.toLowerCase();

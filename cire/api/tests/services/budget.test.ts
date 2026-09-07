@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, budgetItems, payments, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -100,7 +100,8 @@ describe("budgetService", () => {
     expect(Exit.isFailure(foreign)).toBe(true);
     if (Exit.isFailure(foreign)) {
       expect(
-        foreign.cause._tag === "Fail" && foreign.cause.error instanceof BudgetItemNotInWedding,
+        Option.getOrUndefined(Cause.findErrorOption(foreign.cause)) instanceof
+          BudgetItemNotInWedding,
       ).toBe(true);
     }
     const row = db
@@ -193,7 +194,8 @@ describe("budgetService", () => {
     expect(Exit.isFailure(foreign)).toBe(true);
     if (Exit.isFailure(foreign)) {
       expect(
-        foreign.cause._tag === "Fail" && foreign.cause.error instanceof BudgetItemNotInWedding,
+        Option.getOrUndefined(Cause.findErrorOption(foreign.cause)) instanceof
+          BudgetItemNotInWedding,
       ).toBe(true);
     }
   });
@@ -226,9 +228,9 @@ describe("budgetService", () => {
     );
     expect(Exit.isFailure(wrong)).toBe(true);
     if (Exit.isFailure(wrong)) {
-      expect(wrong.cause._tag === "Fail" && wrong.cause.error instanceof PaymentNotInItem).toBe(
-        true,
-      );
+      expect(
+        Option.getOrUndefined(Cause.findErrorOption(wrong.cause)) instanceof PaymentNotInItem,
+      ).toBe(true);
     }
   });
 

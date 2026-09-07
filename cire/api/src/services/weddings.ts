@@ -208,7 +208,7 @@ export const weddingsService = {
               guestCap: 100,
             },
           })),
-          Effect.catchAll((cause) =>
+          Effect.catch((cause) =>
             // A UNIQUE violation on slug/id is retryable; surface anything else
             // on the final attempt as a WeddingCreateError.
             Effect.succeed({ ok: false as const, cause }),

@@ -171,7 +171,7 @@ export const createRegistryReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions)
             registryService.get(weddingId, { giftsOffset }).pipe(
               Effect.provideService(DbService, db),
               Effect.tapDefect(logDefect(weddingId)),
-              Effect.catchAllDefect(() => internal(set)),
+              Effect.catchDefect(() => internal(set)),
             ),
           );
         }),
@@ -225,7 +225,7 @@ export const createRegistryWriteRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(UpdateRegistrySettingsBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(UpdateRegistrySettingsBody)(raw);
                 // The cash-gifts/Stripe invariant lives in the service (S-M3),
                 // not here: this route used to load the WHOLE snapshot — items,
                 // gift log, currency — to read one boolean off it (P-C2).
@@ -233,10 +233,10 @@ export const createRegistryWriteRoutes = (
                 return { settings };
               }).pipe(
                 Effect.provideService(DbService, db),
-                Effect.catchTag("ParseError", () => badRequest(set)),
+                Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.catchTag("StripeNotReady", () => conflict(set, "stripe_not_ready")),
                 Effect.tapDefect(logDefect(weddingId)),
-                Effect.catchAllDefect(() => internal(set)),
+                Effect.catchDefect(() => internal(set)),
               ),
             );
           },
@@ -249,13 +249,13 @@ export const createRegistryWriteRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(CreateRegistryItemBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(CreateRegistryItemBody)(raw);
                 const item = yield* registryService.createItem({ weddingId, ...body });
                 yield* Effect.sync(() => metricRegistryItemWrite("create"));
                 return { item };
               }).pipe(
                 Effect.provideService(DbService, db),
-                Effect.catchTag("ParseError", () => badRequest(set)),
+                Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.catchTag("InvalidQuantity", () => badRequest(set)),
                 Effect.catchTag("ImageKeyNotInWedding", () =>
                   badRequestCode(set, "image_key_not_in_wedding"),
@@ -264,7 +264,7 @@ export const createRegistryWriteRoutes = (
                   conflict(set, "registry_item_limit_reached"),
                 ),
                 Effect.tapDefect(logDefect(weddingId)),
-                Effect.catchAllDefect(() => internal(set)),
+                Effect.catchDefect(() => internal(set)),
               ),
             );
           },
@@ -277,14 +277,14 @@ export const createRegistryWriteRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(ReorderRegistryItemsBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(ReorderRegistryItemsBody)(raw);
                 yield* registryService.reorderItems(weddingId, body.orderedIds);
                 return { ok: true as const };
               }).pipe(
                 Effect.provideService(DbService, db),
-                Effect.catchTag("ParseError", () => badRequest(set)),
+                Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.tapDefect(logDefect(weddingId)),
-                Effect.catchAllDefect(() => internal(set)),
+                Effect.catchDefect(() => internal(set)),
               ),
             );
           },
@@ -297,7 +297,7 @@ export const createRegistryWriteRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(UpdateRegistryItemBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(UpdateRegistryItemBody)(raw);
                 const item = yield* registryService.updateItem({
                   weddingId,
                   itemId: params.itemId,
@@ -307,14 +307,14 @@ export const createRegistryWriteRoutes = (
                 return { item };
               }).pipe(
                 Effect.provideService(DbService, db),
-                Effect.catchTag("ParseError", () => badRequest(set)),
+                Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.catchTag("InvalidQuantity", () => badRequest(set)),
                 Effect.catchTag("ImageKeyNotInWedding", () =>
                   badRequestCode(set, "image_key_not_in_wedding"),
                 ),
                 Effect.catchTag("RegistryItemNotInWedding", () => itemNotFound(set)),
                 Effect.tapDefect(logDefect(weddingId)),
-                Effect.catchAllDefect(() => internal(set)),
+                Effect.catchDefect(() => internal(set)),
               ),
             );
           },
@@ -342,7 +342,7 @@ export const createRegistryWriteRoutes = (
               Effect.provideService(DbService, db),
               Effect.catchTag("RegistryItemNotInWedding", () => itemNotFound(set)),
               Effect.tapDefect(logDefect(weddingId)),
-              Effect.catchAllDefect(() => internal(set)),
+              Effect.catchDefect(() => internal(set)),
             ),
           );
         })
@@ -353,11 +353,11 @@ export const createRegistryWriteRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(SetThankedBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(SetThankedBody)(raw);
                 // The kind comes off the PATH, so it is validated as strictly
                 // as a body field would be — an unknown value must 400, never
                 // fall through to a table by coincidence.
-                const kind = yield* Schema.decodeUnknown(GiftKindSchema)(params.kind);
+                const kind = yield* Schema.decodeUnknownEffect(GiftKindSchema)(params.kind);
                 yield* registryService.setThanked({
                   weddingId,
                   kind,
@@ -371,10 +371,10 @@ export const createRegistryWriteRoutes = (
                 return { ok: true as const };
               }).pipe(
                 Effect.provideService(DbService, db),
-                Effect.catchTag("ParseError", () => badRequest(set)),
+                Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.catchTag("GiftNotInWedding", () => giftNotFound(set)),
                 Effect.tapDefect(logDefect(weddingId)),
-                Effect.catchAllDefect(() => internal(set)),
+                Effect.catchDefect(() => internal(set)),
               ),
             );
           },
@@ -440,7 +440,7 @@ export const createRegistryLinkPreviewRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(RegistryLinkPreviewBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(RegistryLinkPreviewBody)(raw);
                 const preview = yield* linkPreviewService.preview(
                   body.url,
                   deps.linkPreviewOptions,
@@ -452,15 +452,15 @@ export const createRegistryLinkPreviewRoutes = (
                   images: preview.imageUrls,
                 };
               }).pipe(
-                Effect.catchTag("ParseError", () => badRequest(set)),
+                Effect.catchTag("SchemaError", () => badRequest(set)),
                 Effect.catchTag("LinkPreviewBlocked", () =>
                   Effect.sync(() => metricRegistryLinkPreview("blocked")).pipe(
-                    Effect.zipRight(badRequestCode(set, "blocked_url")),
+                    Effect.andThen(badRequestCode(set, "blocked_url")),
                   ),
                 ),
                 Effect.catchTag("LinkPreviewFetchFailed", () =>
                   Effect.sync(() => metricRegistryLinkPreview("fetch_failed")).pipe(
-                    Effect.zipRight(
+                    Effect.andThen(
                       Effect.sync(() => {
                         set.status = 502;
                         return { error: "preview_fetch_failed" };
@@ -470,7 +470,7 @@ export const createRegistryLinkPreviewRoutes = (
                 ),
                 Effect.catchTag("LinkPreviewUnusableContent", () =>
                   Effect.sync(() => metricRegistryLinkPreview("unusable_content")).pipe(
-                    Effect.zipRight(
+                    Effect.andThen(
                       Effect.sync(() => {
                         set.status = 415;
                         return { error: "unsupported_content_type" };
@@ -480,7 +480,7 @@ export const createRegistryLinkPreviewRoutes = (
                 ),
                 Effect.catchTag("LinkPreviewNoImages", () =>
                   Effect.sync(() => metricRegistryLinkPreview("no_images")).pipe(
-                    Effect.zipRight(
+                    Effect.andThen(
                       Effect.sync(() => {
                         set.status = 422;
                         return { error: "no_images_found" };
@@ -489,7 +489,7 @@ export const createRegistryLinkPreviewRoutes = (
                   ),
                 ),
                 Effect.tapDefect(logDefect(weddingId)),
-                Effect.catchAllDefect(() => internal(set)),
+                Effect.catchDefect(() => internal(set)),
               ),
             );
           },
@@ -591,7 +591,7 @@ export const createRegistryImageRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(RegistrySaveImageFromUrlBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(RegistrySaveImageFromUrlBody)(raw);
                 return yield* registryImageService.storeFromUrl(
                   weddingId,
                   body.url,
@@ -599,7 +599,7 @@ export const createRegistryImageRoutes = (
                 );
               }).pipe(
                 Effect.provideService(AssetsR2Service, deps.assets as AssetsBucket),
-                Effect.catchTag("ParseError", () => badRequest(set)),
+                Effect.catchTag("SchemaError", () => badRequest(set)),
                 registryImageErrors(set, weddingId),
               ),
             );
@@ -643,7 +643,7 @@ function registryImageErrors(set: { status?: number | string }, weddingId: strin
       // only turns it into the one status that IS our fault.
       Effect.catchTag("AssetR2Error", () => internal(set)),
       Effect.tapDefect(logDefect(weddingId)),
-      Effect.catchAllDefect(() => internal(set)),
+      Effect.catchDefect(() => internal(set)),
     );
 }
 
@@ -727,7 +727,7 @@ export const createRegistryImageServeRoutes = (
                 }),
               ),
               Effect.tapDefect(logDefect(weddingId)),
-              Effect.catchAllDefect(() => internal(set)),
+              Effect.catchDefect(() => internal(set)),
             ),
           );
         }),

@@ -240,8 +240,9 @@ DerivedData/
 # Shards handed to the disclosure audit, regenerated from the manifest.
 .migration/audit/
 
-# Cloned by the effect-v3-to-v4 skill: shallow checkouts of the Effect repo
-# used as the migration reference. Reference material, never our source.
+# Shallow checkouts of an upstream repo, cloned as reference material by a
+# migration or a skill that needs to read someone else's source. Never ours,
+# and never committed — the Effect v4 migration's two clones lived here.
 .repos/
 
 # Scratch written by the agent skills and read back after a compaction, never

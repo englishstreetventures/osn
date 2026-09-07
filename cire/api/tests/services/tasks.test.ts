@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID, tasks, weddings } from "@cire/db";
 import { eq } from "drizzle-orm";
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -123,7 +123,9 @@ describe("tasksService", () => {
     );
     expect(Exit.isFailure(res)).toBe(true);
     if (Exit.isFailure(res)) {
-      expect(res.cause._tag === "Fail" && res.cause.error instanceof TaskNotInWedding).toBe(true);
+      expect(
+        Option.getOrUndefined(Cause.findErrorOption(res.cause)) instanceof TaskNotInWedding,
+      ).toBe(true);
     }
     // The task is untouched.
     const row = db

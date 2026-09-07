@@ -1,19 +1,10 @@
-import { Schema } from "effect";
+import { Schema, SchemaTransformation } from "effect";
 
 import { canonicalTimeZone } from "../lib/rsvp-deadline";
 import { MAX_DISPLAY_NAME } from "../services/weddings";
 
 /** Trim then require non-empty — same idiom as `CreateWeddingBody.displayName`. */
-const trimmed = (max: number) =>
-  Schema.String.pipe(
-    Schema.transform(Schema.String, {
-      strict: true,
-      decode: (s) => s.trim(),
-      encode: (s) => s,
-    }),
-    Schema.minLength(1),
-    Schema.maxLength(max),
-  );
+const trimmed = (max: number) => Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(max));
 
 /**
  * Date-only ISO string (`YYYY-MM-DD`). The pattern alone admits impossible
@@ -21,19 +12,18 @@ const trimmed = (max: number) =>
  * same calendar day back — engine-lenient parses that silently roll over are
  * rejected too. Shared by the wedding date and the RSVP deadline.
  */
-const CalendarDate = Schema.String.pipe(
-  Schema.pattern(/^\d{4}-\d{2}-\d{2}$/),
-  Schema.filter(
-    (s) => {
-      const t = Date.parse(`${s}T00:00:00Z`);
-      return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === s;
-    },
-    { message: () => "not a real calendar date" },
-  ),
+const CalendarDate = Schema.String.check(
+  Schema.isPattern(/^\d{4}-\d{2}-\d{2}$/),
+  Schema.makeFilter((s) => {
+    const t = Date.parse(`${s}T00:00:00Z`);
+    return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === s
+      ? undefined
+      : "not a real calendar date";
+  }),
 );
 
 /** ISO 4217 alpha code. Uppercase-only — the form normalises before submit. */
-const Currency = Schema.String.pipe(Schema.pattern(/^[A-Z]{3}$/));
+const Currency = Schema.String.check(Schema.isPattern(/^[A-Z]{3}$/));
 
 /**
  * IANA time-zone identifier (`Australia/Sydney`), validated against the
@@ -48,23 +38,32 @@ const Currency = Schema.String.pipe(Schema.pattern(/^[A-Z]{3}$/));
  * `maxLength` runs FIRST and Effect Schema short-circuits on it, so an
  * oversized blob never reaches the ICU lookup.
  */
-const TimeZone = Schema.String.pipe(
-  Schema.maxLength(64),
-  Schema.filter((s) => canonicalTimeZone(s) !== null, { message: () => "not a known time zone" }),
-  Schema.transform(Schema.String, {
-    strict: true,
-    // The filter above already rejected anything unresolvable, so the fallback
-    // is unreachable — it exists only to keep this total.
-    decode: (s) => canonicalTimeZone(s) ?? s,
-    encode: (s) => s,
-  }),
+const TimeZone = Schema.String.check(
+  Schema.isMaxLength(64),
+  Schema.makeFilter((s) => (canonicalTimeZone(s) !== null ? undefined : "not a known time zone")),
+).pipe(
+  Schema.decodeTo(
+    Schema.String,
+    SchemaTransformation.transform({
+      // The filter above already rejected anything unresolvable, so the fallback
+      // is unreachable — it exists only to keep this total.
+      decode: (s) => canonicalTimeZone(s) ?? s,
+      encode: (s) => s,
+    }),
+  ),
 );
 
-const GuestCountEstimate = Schema.Number.pipe(Schema.int(), Schema.between(1, 10_000));
+const GuestCountEstimate = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isBetween({ minimum: 1, maximum: 10_000 }),
+);
 
 /** Budget in MINOR units. Bounded well past any real wedding ($1B in cents)
  *  but inside the integer-safe range. */
-const BudgetTotalMinor = Schema.Number.pipe(Schema.int(), Schema.between(0, 100_000_000_000));
+const BudgetTotalMinor = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isBetween({ minimum: 0, maximum: 100_000_000_000 }),
+);
 
 /**
  * Body for `PUT /api/organiser/weddings/:weddingId/settings`. PATCH semantics

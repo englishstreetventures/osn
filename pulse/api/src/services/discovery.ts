@@ -26,21 +26,19 @@ export class DiscoveryError extends Data.TaggedError("DiscoveryError")<{
 // Schema
 // ---------------------------------------------------------------------------
 
-const CategoryString = Schema.String.pipe(Schema.maxLength(100));
-const DateFromISOString = Schema.transform(
-  Schema.String.pipe(Schema.filter((s) => !Number.isNaN(new Date(s).getTime()))),
-  Schema.DateFromSelf,
-  { strict: true, decode: (s) => new Date(s), encode: (d) => d.toISOString() },
-);
-const Latitude = Schema.Number.pipe(Schema.between(-90, 90));
-const Longitude = Schema.Number.pipe(Schema.between(-180, 180));
+const CategoryString = Schema.String.check(Schema.isMaxLength(100));
+// v4's DateFromString rejects an Invalid Date, which is all the removed
+// validate-then-transform was for.
+const DateFromISOString = Schema.DateFromString;
+const Latitude = Schema.Number.check(Schema.isBetween({ minimum: -90, maximum: 90 }));
+const Longitude = Schema.Number.check(Schema.isBetween({ minimum: -180, maximum: 180 }));
 // 500 km is plenty for "events near me" — Earth's largest metros are
 // well inside this, and bigger radii stop being a discovery query and
 // become a full city-list query that's better served a different way.
-const RadiusKm = Schema.Number.pipe(Schema.between(0.1, 500));
+const RadiusKm = Schema.Number.check(Schema.isBetween({ minimum: 0.1, maximum: 500 }));
 // Shared cap across currencies; matches `MAX_PRICE_MAJOR` in lib/currency.
-const PriceMajor = Schema.Number.pipe(Schema.between(0, 99999.99));
-const CurrencySchema = Schema.Literal(...SUPPORTED_CURRENCIES);
+const PriceMajor = Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 99999.99 }));
+const CurrencySchema = Schema.Literals(SUPPORTED_CURRENCIES);
 
 export const DiscoveryParamsSchema = Schema.Struct({
   category: Schema.optional(CategoryString),
@@ -55,9 +53,9 @@ export const DiscoveryParamsSchema = Schema.Struct({
   priceMax: Schema.optional(PriceMajor),
   cursorStartTime: Schema.optional(DateFromISOString),
   cursorId: Schema.optional(Schema.String),
-  limit: Schema.optional(Schema.Number.pipe(Schema.between(1, 50))),
-}).pipe(
-  Schema.filter((p) => {
+  limit: Schema.optional(Schema.Number.check(Schema.isBetween({ minimum: 1, maximum: 50 }))),
+}).check(
+  Schema.makeFilter((p) => {
     // Location triangle: lat/lng/radius must all be set together.
     const locBits = [p.lat != null, p.lng != null, p.radiusKm != null];
     const locCount = locBits.filter(Boolean).length;
@@ -159,7 +157,7 @@ export const discoverEvents = (
     const startedAt = performance.now();
     const { db } = yield* Db;
 
-    const params = yield* Schema.decodeUnknown(DiscoveryParamsSchema)(input).pipe(
+    const params = yield* Schema.decodeUnknownEffect(DiscoveryParamsSchema)(input).pipe(
       Effect.mapError((cause) => new DiscoveryValidationError({ cause })),
     );
 

@@ -1,6 +1,8 @@
+import { Data, Effect, Layer } from "effect";
 import { describe, it, expect } from "vitest";
 
 import { publicError } from "../../src/lib/public-error";
+import { makeAppRunner } from "../../src/lib/route-runtime";
 
 /**
  * The tag walk (P-I2 / tracker#446) reads each own key through a plain
@@ -59,9 +61,21 @@ describe("publicError", () => {
   });
 
   it("finds a tag stored under a symbol key", () => {
-    // The reason the walk uses `Reflect.ownKeys` at all: `Effect.runPromise`
-    // rejects with a `FiberFailure` holding its `Cause` under a symbol.
+    // Effect v4 brands its own `Cause`/`Reason` by STRING key, so this is no
+    // longer the reason the walk uses `Reflect.ownKeys` (see the
+    // non-enumerable case below for that). It stays because `e` is an
+    // arbitrary thrown value and a symbol-keyed tag carrier costs nothing to
+    // cover.
     const err = { [Symbol("Cause")]: { _tag: "DatabaseError" } };
+    expect(publicError(err)).toEqual({ status: 500, body: { error: "internal_error" } });
+  });
+
+  it("finds a tag behind a NON-enumerable own key", () => {
+    // This is what `Reflect.ownKeys` actually buys now. `new Error(msg,
+    // { cause })` — the form `OpaqueDefect` uses to retain its `Cause` —
+    // defines `cause` non-enumerable, so an `Object.values` walk would miss
+    // every defect and fall through to the 400 default.
+    const err = new Error("opaque", { cause: { _tag: "DatabaseError" } });
     expect(publicError(err)).toEqual({ status: 500, body: { error: "internal_error" } });
   });
 
@@ -115,4 +129,64 @@ describe("publicError", () => {
       expect(publicError(e)).toEqual({ status: 400, body: { error: "invalid_request" } });
     },
   );
+});
+
+/**
+ * The shapes `publicError` actually receives in production, produced by the
+ * thing that produces them: `makeAppRunner`'s `run`. A typed failure arrives as
+ * the tagged error itself; a defect arrives as a tagless `OpaqueDefect` that
+ * retains its `Cause`, and the walk has to reach through
+ * `.cause` -> `Cause` -> `.reasons[0]` (a `Die`) -> `.defect` to find the tag.
+ */
+describe("publicError on what makeAppRunner's run rejects with", () => {
+  class DatabaseError extends Data.TaggedError("DatabaseError")<{ readonly cause: unknown }> {}
+  class GraphError extends Data.TaggedError("GraphError")<{ readonly message: string }> {}
+
+  const SECRET = "SECRET internal invariant: shard 7 lock table corrupt";
+
+  async function rejectionOf(effect: Effect.Effect<never, unknown>): Promise<unknown> {
+    const { runtime, run } = makeAppRunner(undefined, Layer.empty);
+    try {
+      await run(effect);
+    } catch (e) {
+      return e;
+    } finally {
+      await runtime.dispose();
+    }
+    throw new Error("expected the effect to reject");
+  }
+
+  it("maps a typed DatabaseError failure to 500 internal_error", async () => {
+    const e = await rejectionOf(Effect.fail(new DatabaseError({ cause: SECRET })));
+    expect(publicError(e)).toEqual({ status: 500, body: { error: "internal_error" } });
+  });
+
+  it("maps a DIED DatabaseError to 500 internal_error too", async () => {
+    // The walk still reaches the tag through the retained `Cause`, so a crash
+    // in the DB layer is still reported as a server error rather than being
+    // mislabelled a bad request.
+    const e = await rejectionOf(Effect.die(new DatabaseError({ cause: SECRET })));
+    expect(publicError(e)).toEqual({ status: 500, body: { error: "internal_error" } });
+  });
+
+  it("never puts a defect's message on the wire", async () => {
+    // `publicError` returns fixed codes and fixed public strings only; nothing
+    // the defect carried may appear in the body, whatever tag it wears.
+    for (const eff of [
+      Effect.die(new GraphError({ message: SECRET })),
+      Effect.orDie(Effect.fail(new GraphError({ message: SECRET }))),
+      Effect.die(new DatabaseError({ cause: SECRET })),
+      Effect.fail(new GraphError({ message: SECRET })),
+    ] as Effect.Effect<never, unknown>[]) {
+      const body = JSON.stringify(publicError(await rejectionOf(eff)));
+      expect(body).not.toContain("SECRET");
+    }
+  });
+
+  it("falls through to the 400 default for an untagged defect", async () => {
+    // Pinned as-is, not endorsed: an untagged crash has always mapped to the
+    // generic `invalid_request`, and this change does not move it.
+    const e = await rejectionOf(Effect.die(new Error("boom")));
+    expect(publicError(e)).toEqual({ status: 400, body: { error: "invalid_request" } });
+  });
 });

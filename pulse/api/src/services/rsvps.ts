@@ -53,7 +53,7 @@ export class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
  * Wire-level statuses accepted from clients. "invited" is reserved for the
  * organiser invite flow and is rejected on upsertRsvp.
  */
-const RsvpStatusSchema = Schema.Literal("going", "maybe", "not_going");
+const RsvpStatusSchema = Schema.Literals(["going", "maybe", "not_going"]);
 export type RsvpStatus = Schema.Schema.Type<typeof RsvpStatusSchema>;
 
 const UpsertRsvpSchema = Schema.Struct({
@@ -71,9 +71,9 @@ const InviteGuestsSchema = Schema.Struct({
   // Bulk-invite batch is capped at the same MAX_EVENT_GUESTS platform
   // limit — an organiser can't invite more people than the event itself
   // can hold. See `lib/limits.ts` for the rationale.
-  profileIds: Schema.Array(Schema.NonEmptyString).pipe(
-    Schema.minItems(1),
-    Schema.maxItems(MAX_EVENT_GUESTS),
+  profileIds: Schema.Array(Schema.NonEmptyString).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(MAX_EVENT_GUESTS),
   ),
 });
 
@@ -300,7 +300,7 @@ export const upsertRsvp = (
   data: unknown,
 ): Effect.Effect<EventRsvp, EventNotFound | ValidationError | NotInvited | DatabaseError, Db> =>
   Effect.gen(function* () {
-    const validated = yield* Schema.decodeUnknown(UpsertRsvpSchema)(data).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(UpsertRsvpSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 
@@ -424,7 +424,7 @@ export const inviteGuests = (
   Db
 > =>
   Effect.gen(function* () {
-    const validated = yield* Schema.decodeUnknown(InviteGuestsSchema)(data).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(InviteGuestsSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 

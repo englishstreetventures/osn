@@ -11,7 +11,7 @@
 
 import { createHash } from "node:crypto";
 
-import { Effect, Layer } from "effect";
+import { Effect, Layer, type Duration } from "effect";
 import IORedis from "ioredis";
 
 import { toRedisReply, type RedisClient } from "./client";
@@ -130,14 +130,15 @@ export function createClientFromUrl(url: string): ConnectableRedisClient {
   };
 }
 
-const STARTUP_PING_TIMEOUT_MS = 5_000;
+/** Deadline for the startup PING — unchanged at 5s from the hand-rolled timer. */
+const STARTUP_PING_TIMEOUT: Duration.Input = "5 seconds";
 
 /**
- * Live layer — connects to `REDIS_URL`. `Layer.scoped` ensures `quit()` on
- * shutdown. Fails with `RedisError` if `REDIS_URL` is unset or the connection
- * cannot be verified via PING.
+ * Live layer — connects to `REDIS_URL`. `Layer.effect` supplies the layer Scope,
+ * so the `Effect.addFinalizer` below still runs `quit()` on shutdown. Fails with
+ * `RedisError` if `REDIS_URL` is unset or the connection cannot be verified via PING.
  */
-export const RedisLive: Layer.Layer<Redis, RedisError> = Layer.scoped(
+export const RedisLive: Layer.Layer<Redis, RedisError> = Layer.effect(
   Redis,
   Effect.gen(function* () {
     const url = process.env.REDIS_URL;
@@ -157,21 +158,24 @@ export const RedisLive: Layer.Layer<Redis, RedisError> = Layer.scoped(
     const raw = new IORedis(url);
     const client = wrapIoRedis(raw);
 
-    // P-I2: startup ping with timeout to prevent indefinite hangs
-    let timer: ReturnType<typeof setTimeout>;
+    // P-I2: the startup ping is bounded so an unreachable or firewalled Redis
+    // cannot hang process startup indefinitely. `Effect.timeoutOrElse` rather
+    // than `Effect.timeout` because the deadline must surface as the same
+    // `RedisError` a failed ping does: this layer's error channel is
+    // `RedisError` alone, and the Redis-backed rate limiters fail closed, so a
+    // `TimeoutError` leaking out here would change what the composition root
+    // catches — and the visible symptom of that is rejected requests, not a
+    // crash.
     yield* Effect.tryPromise({
-      try: () =>
-        Promise.race([
-          client.ping().finally(() => clearTimeout(timer)),
-          new Promise<never>((_, reject) => {
-            timer = setTimeout(
-              () => reject(new Error("Redis startup ping timed out")),
-              STARTUP_PING_TIMEOUT_MS,
-            );
-          }),
-        ]),
+      try: () => client.ping(),
       catch: (cause) => new RedisError({ cause: sanitizeCause(cause) }),
-    }).pipe(Effect.tapError(() => Effect.logError("Redis connection failed")));
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: STARTUP_PING_TIMEOUT,
+        orElse: () => Effect.fail(new RedisError({ cause: "Redis startup ping timed out" })),
+      }),
+      Effect.tapError(() => Effect.logError("Redis connection failed")),
+    );
 
     yield* Effect.addFinalizer(() => Effect.promise(() => client.quit().catch(() => {})));
 

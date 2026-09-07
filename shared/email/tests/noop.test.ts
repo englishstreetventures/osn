@@ -1,4 +1,4 @@
-import { Effect, Logger, LogLevel } from "effect";
+import { Cause, Effect, Exit, Logger, Option, References } from "effect";
 import { describe, it, expect } from "vitest";
 
 import { makeNoopEmailLive } from "../src/noop";
@@ -17,15 +17,18 @@ describe("NoopEmailLive", () => {
   /** Capture the structured log output so we can assert on what was emitted. */
   function captureLogs() {
     const lines: string[] = [];
-    const layer = Logger.replace(
-      Logger.defaultLogger,
-      Logger.make(({ message, annotations }) => {
+    // v4 moved annotations off `Options` and onto the fiber, so a logger reads
+    // them itself via `References.CurrentLogAnnotations` — a plain record now,
+    // not a HashMap. `Logger.layer` replaces the whole active set, which is
+    // what this capture sink wants.
+    const layer = Logger.layer([
+      Logger.make(({ message, fiber }) => {
         const msg = Array.isArray(message) ? message.join(" ") : String(message);
-        const annoParts: string[] = [];
-        for (const [k, v] of annotations) annoParts.push(`${k}=${String(v)}`);
+        const annotations = fiber.getRef(References.CurrentLogAnnotations);
+        const annoParts = Object.entries(annotations).map(([k, v]) => `${k}=${String(v)}`);
         lines.push(`${msg} ${annoParts.join(" ")}`);
       }),
-    );
+    ]);
     return { lines, layer };
   }
 
@@ -57,7 +60,7 @@ describe("NoopEmailLive", () => {
       }).pipe(
         Effect.provide(makeNoopEmailLive()),
         Effect.provide(layer),
-        Logger.withMinimumLogLevel(LogLevel.All),
+        Effect.provideService(References.MinimumLogLevel, "All"),
       ),
     );
 
@@ -85,7 +88,11 @@ describe("NoopEmailLive", () => {
       }).pipe(Effect.provide(makeNoopEmailLive())),
     );
     expect(exit._tag).toBe("Failure");
-    const error = (exit as { cause: { _tag: string; error: EmailError } }).cause.error;
+    // v4 flattened `Cause` into an array of reasons, so the old hand-rolled
+    // `{ cause: { error } }` cast no longer describes the shape. Narrow the
+    // Exit and read the failure through the public accessor instead of casting.
+    if (!Exit.isFailure(exit)) throw new Error("expected the send to fail");
+    const error = Option.getOrThrow(Cause.findErrorOption(exit.cause));
     expect(error).toBeInstanceOf(EmailError);
     expect(error.reason).toBe("render_failed");
   });

@@ -125,7 +125,7 @@ export function reapR2Objects(
         catch: (cause) => cause,
       }).pipe(
         Effect.as("ok" as const),
-        Effect.catchAll((cause) =>
+        Effect.catch((cause) =>
           // Best-effort: a failed chunk is logged (chunk index + size only, no
           // keys/PII) and swallowed so the sweep continues.
           Effect.logError("r2 cleanup chunk failed", {

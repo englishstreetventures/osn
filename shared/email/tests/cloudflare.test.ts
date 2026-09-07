@@ -1,4 +1,4 @@
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { makeCloudflareEmailLive } from "../src/cloudflare";
@@ -90,12 +90,12 @@ describe("CloudflareEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         return yield* email.send(input);
-      }).pipe(Effect.provide(layer), Effect.either),
+      }).pipe(Effect.provide(layer), Effect.result),
     );
-    expect(Either.isLeft(either)).toBe(true);
-    if (Either.isLeft(either)) {
-      expect(either.left).toBeInstanceOf(EmailError);
-      expect(either.left.reason).toBe(reason);
+    expect(Result.isFailure(either)).toBe(true);
+    if (Result.isFailure(either)) {
+      expect(either.failure).toBeInstanceOf(EmailError);
+      expect(either.failure.reason).toBe(reason);
     }
   };
 

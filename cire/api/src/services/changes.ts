@@ -1,6 +1,6 @@
 import { events, imports } from "@cire/db";
 import { and, asc, eq, or } from "drizzle-orm";
-import { Effect, ParseResult, Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 import { DbService, dbQuery } from "../db";
 import { ChangeScope, DesiredState } from "../schemas/import";
@@ -59,10 +59,12 @@ export const CsvChangeBody = Schema.Struct({
   guestsCsv: Schema.optional(Schema.String),
   /** Provenance toggle (§6): widen the diff to also remove manually-added rows. */
   removeManual: Schema.optional(Schema.Boolean),
-}).pipe(
-  Schema.filter((body) => CSV_SLOTS.some((slot) => body[slot] !== undefined), {
-    message: () => "at least one of eventsCsv / guestsCsv is required",
-  }),
+}).check(
+  Schema.makeFilter((body) =>
+    CSV_SLOTS.some((slot) => body[slot] !== undefined)
+      ? undefined
+      : "at least one of eventsCsv / guestsCsv is required",
+  ),
 );
 export type CsvChangeBody = Schema.Schema.Type<typeof CsvChangeBody>;
 
@@ -87,7 +89,7 @@ export type DesiredStateChangeBody = Schema.Schema.Type<typeof DesiredStateChang
  * are disjoint (`desiredState` vs `eventsCsv`/`guestsCsv`), so a body decodes to
  * exactly one. A malformed body fails both and surfaces as the shared 400.
  */
-export const ChangeBody = Schema.Union(DesiredStateChangeBody, CsvChangeBody);
+export const ChangeBody = Schema.Union([DesiredStateChangeBody, CsvChangeBody]);
 export type ChangeBody = Schema.Schema.Type<typeof ChangeBody>;
 
 /**
@@ -106,19 +108,14 @@ export type ChangeBody = Schema.Schema.Type<typeof ChangeBody>;
  * A separate pre-pass rather than a `Schema.filter` on either member, because a
  * `Schema.Struct` strips the other door's keys before a filter can see them.
  */
-const ExclusiveFrontDoor = Schema.Unknown.pipe(
-  Schema.filter(
-    (raw) =>
-      !(
-        typeof raw === "object" &&
-        raw !== null &&
-        "desiredState" in raw &&
-        CSV_SLOTS.some((slot) => slot in raw)
-      ),
-    {
-      message: () =>
-        "a change is either an editor draft (desiredState) or a spreadsheet upload (eventsCsv/guestsCsv), never both",
-    },
+const ExclusiveFrontDoor = Schema.Unknown.check(
+  Schema.makeFilter((raw) =>
+    typeof raw === "object" &&
+    raw !== null &&
+    "desiredState" in raw &&
+    CSV_SLOTS.some((slot) => slot in raw)
+      ? "a change is either an editor draft (desiredState) or a spreadsheet upload (eventsCsv/guestsCsv), never both"
+      : undefined,
   ),
 );
 
@@ -250,10 +247,10 @@ export function currentEventsAsParsed(
 export function decodeChangeBody(
   raw: unknown,
   weddingId: string,
-): Effect.Effect<DecodedChange, SpreadsheetParseError | ParseResult.ParseError, DbService> {
+): Effect.Effect<DecodedChange, SpreadsheetParseError | Schema.SchemaError, DbService> {
   return Effect.gen(function* () {
-    const body = yield* Schema.decodeUnknown(ChangeBody)(
-      yield* Schema.decodeUnknown(ExclusiveFrontDoor)(raw),
+    const body = yield* Schema.decodeUnknownEffect(ChangeBody)(
+      yield* Schema.decodeUnknownEffect(ExclusiveFrontDoor)(raw),
     );
 
     if ("desiredState" in body) {

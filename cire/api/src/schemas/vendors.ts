@@ -11,21 +11,21 @@ export const VENDOR_STATUSES = [
   "declined",
 ] as const;
 
-const CategoryKey = Schema.Literal(...SERVICE_CATEGORIES.map((c) => c.key));
-const Status = Schema.Literal(...VENDOR_STATUSES);
-const NonEmpty = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(200));
+const CategoryKey = Schema.Literals(SERVICE_CATEGORIES.map((c) => c.key));
+const Status = Schema.Literals(VENDOR_STATUSES);
+const NonEmpty = Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(200));
 const OptText = Schema.optional(
-  Schema.Union(Schema.String.pipe(Schema.maxLength(2000)), Schema.Null),
+  Schema.Union([Schema.String.check(Schema.isMaxLength(2000)), Schema.Null]),
 );
-const Email = Schema.String.pipe(Schema.minLength(3), Schema.maxLength(200));
-const Minor = Schema.Number.pipe(
-  Schema.int(),
-  Schema.greaterThanOrEqualTo(0),
-  Schema.lessThanOrEqualTo(9_000_000_000_000),
+const Email = Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(200));
+const Minor = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isGreaterThanOrEqualTo(0),
+  Schema.isLessThanOrEqualTo(9_000_000_000_000),
 );
-const OptMinor = Schema.optional(Schema.Union(Minor, Schema.Null));
+const OptMinor = Schema.optional(Schema.Union([Minor, Schema.Null]));
 const PriceBand = Schema.optional(
-  Schema.Union(Schema.Literal("$", "$$", "$$$", "$$$$"), Schema.Null),
+  Schema.Union([Schema.Literals(["$", "$$", "$$$", "$$$$"]), Schema.Null]),
 );
 
 // --- Organiser CRM ---
@@ -55,14 +55,16 @@ export const ReorderVendorsBody = Schema.Struct({
   status: Status,
   // Capped like tasks/budget (P-W1): the reorder builds one UPDATE per id, so
   // an unbounded array is an unbounded write set.
-  orderedIds: Schema.Array(Schema.String.pipe(Schema.minLength(1))).pipe(Schema.maxItems(500)),
+  orderedIds: Schema.Array(Schema.String.check(Schema.isMinLength(1))).check(
+    Schema.isMaxLength(500),
+  ),
 });
 
 /** Organiser seeds a directory listing + invites a vendor by email to claim it. */
 export const SeedListingBody = Schema.Struct({
   name: NonEmpty,
   email: Email,
-  categories: Schema.Array(CategoryKey).pipe(Schema.minItems(1)),
+  categories: Schema.Array(CategoryKey).check(Schema.isMinLength(1)),
   description: OptText,
   phone: OptText,
   website: OptText,
@@ -73,7 +75,7 @@ export const SeedListingBody = Schema.Struct({
 /** Vendor create/update of their own listing (one per org). */
 export const UpsertListingBody = Schema.Struct({
   name: NonEmpty,
-  categories: Schema.Array(CategoryKey).pipe(Schema.minItems(1)),
+  categories: Schema.Array(CategoryKey).check(Schema.isMinLength(1)),
   description: OptText,
   email: OptText,
   phone: OptText,
@@ -87,7 +89,7 @@ export const UpsertListingBody = Schema.Struct({
 
 /** Vendor consumes a claim token, binding the listing to their chosen org. */
 export const ConsumeClaimBody = Schema.Struct({
-  orgId: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(50)),
+  orgId: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(50)),
 });
 
 /** Organiser adds a directory listing to their wedding CRM under one category. */

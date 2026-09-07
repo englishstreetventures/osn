@@ -79,7 +79,7 @@ export const createInvitePublicRoutes = (
               return { error: "Not found" };
             }),
           ),
-          Effect.catchAllDefect(() =>
+          Effect.catchDefect(() =>
             Effect.sync(() => {
               set.status = 500;
               return { error: "Internal error" };
@@ -199,7 +199,7 @@ export const createInvitePublicRoutes = (
               return { error: "Not found" };
             }),
           ),
-          Effect.catchAllDefect(() =>
+          Effect.catchDefect(() =>
             Effect.sync(() => {
               set.status = 500;
               return { error: "Internal error" };
@@ -256,7 +256,7 @@ export const createInvitePublicRoutes = (
               return { error: "Not found" };
             }),
           ),
-          Effect.catchAllDefect(() =>
+          Effect.catchDefect(() =>
             Effect.sync(() => {
               set.status = 500;
               return { error: "Internal error" };
@@ -319,7 +319,7 @@ export const createInviteOrganiserRoutes = (
                 return { error: "Not found" };
               }),
             ),
-            Effect.catchAllDefect(() =>
+            Effect.catchDefect(() =>
               Effect.sync(() => {
                 set.status = 500;
                 return { error: "Internal error" };
@@ -344,12 +344,12 @@ export const createInviteOrganiserRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(InviteTextBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(InviteTextBody)(raw);
                 yield* inviteService.upsertText(weddingId, body);
                 return yield* inviteService.getForWeddingId(weddingId);
               }).pipe(
                 Effect.provideService(DbService, db),
-                Effect.catchTag("ParseError", () =>
+                Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Missing or invalid fields" };
@@ -361,7 +361,7 @@ export const createInviteOrganiserRoutes = (
                     return { error: "Not found" };
                   }),
                 ),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.gen(function* () {
                     yield* Effect.logError("invite text save failed", { weddingId });
                     set.status = 500;
@@ -383,14 +383,14 @@ export const createInviteOrganiserRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(InviteThemeBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(InviteThemeBody)(raw);
                 yield* inviteService.upsertTheme(weddingId, body);
                 return yield* inviteService.getForWeddingId(weddingId);
               }).pipe(
                 Effect.provideService(DbService, db),
                 // A bad colour (allow-list miss) or unknown font (enum miss) both
                 // surface here as a ParseError → 400, never persisted.
-                Effect.catchTag("ParseError", () =>
+                Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Invalid colour or font" };
@@ -402,7 +402,7 @@ export const createInviteOrganiserRoutes = (
                     return { error: "Not found" };
                   }),
                 ),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.gen(function* () {
                     yield* Effect.logError("invite theme save failed", { weddingId });
                     set.status = 500;
@@ -429,7 +429,7 @@ export const createInviteOrganiserRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(InviteDesignBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(InviteDesignBody)(raw);
                 const design = designs.find((d) => d.id === body.designId);
                 if (!design) {
                   set.status = 422;
@@ -446,7 +446,7 @@ export const createInviteOrganiserRoutes = (
                 return yield* inviteService.getForWeddingId(weddingId);
               }).pipe(
                 Effect.provideService(DbService, db),
-                Effect.catchTag("ParseError", () =>
+                Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Missing or invalid fields" };
@@ -458,7 +458,7 @@ export const createInviteOrganiserRoutes = (
                     return { error: "Not found" };
                   }),
                 ),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.gen(function* () {
                     yield* Effect.logError("invite design save failed", { weddingId });
                     set.status = 500;
@@ -542,7 +542,7 @@ export const createInviteOrganiserRoutes = (
                     return { error: "Storage error" };
                   }),
                 ),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.gen(function* () {
                     yield* Effect.logError("invite image upload failed", { weddingId });
                     set.status = 500;
@@ -577,7 +577,7 @@ export const createInviteOrganiserRoutes = (
                   return { error: "Not found" };
                 }),
               ),
-              Effect.catchAllDefect(() =>
+              Effect.catchDefect(() =>
                 Effect.gen(function* () {
                   yield* Effect.logError("invite image remove failed", { weddingId });
                   set.status = 500;
@@ -612,7 +612,7 @@ export const createInviteOrganiserRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(ImageCropBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(ImageCropBody)(raw);
                 const screen = body.screen ?? "desktop";
                 if (screen === "mobile" && slot !== "hero") {
                   set.status = 400;
@@ -622,7 +622,7 @@ export const createInviteOrganiserRoutes = (
                 return yield* inviteService.getForWeddingId(weddingId);
               }).pipe(
                 Effect.provideService(DbService, db),
-                Effect.catchTag("ParseError", () =>
+                Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Invalid crop rectangle" };
@@ -634,7 +634,7 @@ export const createInviteOrganiserRoutes = (
                     return { error: "Not found" };
                   }),
                 ),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.gen(function* () {
                     yield* Effect.logError("invite image crop save failed", { weddingId });
                     set.status = 500;
@@ -726,7 +726,7 @@ export const createInviteOrganiserRoutes = (
                     return { error: "Storage error" };
                   }),
                 ),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.gen(function* () {
                     yield* Effect.logError("event image upload failed", { weddingId });
                     set.status = 500;
@@ -757,7 +757,7 @@ export const createInviteOrganiserRoutes = (
                   return { error: "Not found" };
                 }),
               ),
-              Effect.catchAllDefect(() =>
+              Effect.catchDefect(() =>
                 Effect.gen(function* () {
                   yield* Effect.logError("event image remove failed", { weddingId });
                   set.status = 500;
@@ -783,7 +783,7 @@ export const createInviteOrganiserRoutes = (
             const raw: unknown = await request.json().catch(() => null);
             return runCire(
               Effect.gen(function* () {
-                const body = yield* Schema.decodeUnknown(ImageCropBody)(raw);
+                const body = yield* Schema.decodeUnknownEffect(ImageCropBody)(raw);
                 // Event images render at a single aspect — only the hero has a
                 // phone rectangle (0046), so a mobile-targeted save here is a 400.
                 if (body.screen === "mobile") {
@@ -794,7 +794,7 @@ export const createInviteOrganiserRoutes = (
                 return { eventId, crop: body.crop };
               }).pipe(
                 Effect.provideService(DbService, db),
-                Effect.catchTag("ParseError", () =>
+                Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Invalid crop rectangle" };
@@ -806,7 +806,7 @@ export const createInviteOrganiserRoutes = (
                     return { error: "Not found" };
                   }),
                 ),
-                Effect.catchAllDefect(() =>
+                Effect.catchDefect(() =>
                   Effect.gen(function* () {
                     yield* Effect.logError("event image crop save failed", { weddingId });
                     set.status = 500;

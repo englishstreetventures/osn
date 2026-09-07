@@ -22,7 +22,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
 import type { OidcAuthorizeResult, OidcTokenResult } from "@shared/observability/metrics";
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { Elysia, t } from "elysia";
 
 import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
@@ -130,7 +130,7 @@ code{font-size:.8125rem;opacity:.6}
 };
 
 /**
- * Pulls an `OidcError` out of an Effect failure. `Either` keeps the failure
+ * Pulls an `OidcError` out of an Effect failure. `Result` keeps the failure
  * typed, but the union also carries `DatabaseError`, and only the OIDC arm has
  * a wire code the relying party is allowed to see.
  */
@@ -224,9 +224,9 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
   ): Promise<AuthorizeSession | null> => {
     const token = readSessionCookie(cookieHeader, cookieConfig);
     if (!token) return null;
-    const result = await run(Effect.either(auth.verifyRefreshToken(token)));
-    if (!Either.isRight(result)) return null;
-    return { accountId: result.right.accountId, authTime: result.right.authenticatedAt };
+    const result = await run(Effect.result(auth.verifyRefreshToken(token)));
+    if (!Result.isSuccess(result)) return null;
+    return { accountId: result.success.accountId, authTime: result.success.authenticatedAt };
   };
 
   return (
@@ -279,13 +279,13 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             maxAge: q["max_age"] ?? null,
           };
 
-          const validated = await run(Effect.either(auth.validateAuthorizeRequest(params)));
+          const validated = await run(Effect.result(auth.validateAuthorizeRequest(params)));
 
-          if (Either.isLeft(validated)) {
-            const oidc = asOidcError(validated.left);
+          if (Result.isFailure(validated)) {
+            const oidc = asOidcError(validated.failure);
             if (!oidc) {
               metricOidcAuthorize({ result: "server_error", clientKind: "third_party" });
-              const { status, body } = handleError(validated.left);
+              const { status, body } = handleError(validated.failure);
               set.status = status;
               return body;
             }
@@ -303,7 +303,7 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             return renderAuthorizeErrorPage(oidc.code);
           }
 
-          const outcome = validated.right;
+          const outcome = validated.success;
 
           if (outcome.kind === "error") {
             metricOidcAuthorize({
@@ -534,7 +534,7 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
           }
 
           const result = await run(
-            Effect.either(
+            Effect.result(
               auth.completeAuthorization({
                 requestId: body.requestId,
                 accountId: session.accountId,
@@ -546,10 +546,10 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             ),
           );
 
-          if (Either.isLeft(result)) {
-            const oidc = asOidcError(result.left);
+          if (Result.isFailure(result)) {
+            const oidc = asOidcError(result.failure);
             if (!oidc) {
-              const { status, body: errBody } = handleError(result.left);
+              const { status, body: errBody } = handleError(result.failure);
               set.status = status;
               return errBody;
             }
@@ -560,14 +560,14 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             return { error: oidc.code, error_description: oidc.description };
           }
 
-          if (result.right.isNewLink) {
-            metricOidcConsentGranted(result.right.isFirstParty ? "first_party" : "third_party");
+          if (result.success.isNewLink) {
+            metricOidcConsentGranted(result.success.isFirstParty ? "first_party" : "third_party");
           }
 
           // The request is consumed either way, so the binding cookie has
           // nothing left to bind — expire it rather than let it linger.
           set.headers["set-cookie"] = buildClearBindingCookie(body.requestId, cookieConfig);
-          return { redirectTo: result.right.redirectTo };
+          return { redirectTo: result.success.redirectTo };
         },
         {
           body: t.Object({
@@ -656,7 +656,7 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
           }
 
           const result = await run(
-            Effect.either(
+            Effect.result(
               auth.exchangeAuthorizationCode({
                 clientId,
                 clientSecret,
@@ -667,11 +667,11 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             ),
           );
 
-          if (Either.isLeft(result)) {
-            const oidc = asOidcError(result.left);
+          if (Result.isFailure(result)) {
+            const oidc = asOidcError(result.failure);
             if (!oidc) {
               metricOidcToken({ result: "invalid_request", clientKind: "third_party" });
-              const { status, body: errBody } = handleError(result.left);
+              const { status, body: errBody } = handleError(result.failure);
               set.status = status;
               return errBody;
             }
@@ -685,9 +685,9 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
           // just to label the counter.
           metricOidcToken({
             result: "ok",
-            clientKind: result.right.isFirstParty ? "first_party" : "third_party",
+            clientKind: result.success.isFirstParty ? "first_party" : "third_party",
           });
-          return result.right.response;
+          return result.success.response;
         },
         {
           body: t.Object({

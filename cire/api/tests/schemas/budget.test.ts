@@ -12,8 +12,8 @@ import {
   UpdatePaymentBody,
 } from "../../src/schemas/budget";
 
-const decode = <A, I>(s: Schema.Schema<A, I>, v: unknown) =>
-  Effect.runSync(Effect.either(Schema.decodeUnknown(s)(v)));
+const decode = <A, I>(s: Schema.Codec<A, I>, v: unknown) =>
+  Effect.runSync(Effect.result(Schema.decodeUnknownEffect(s)(v)));
 
 describe("service categories", () => {
   it("has the fourteen ordered keys ending in 'other'", () => {
@@ -44,39 +44,39 @@ describe("service categories", () => {
 describe("CreateBudgetItemBody", () => {
   it("accepts a category + name, defaults money + notes to null", () => {
     const r = decode(CreateBudgetItemBody, { category: "venue", name: "Reception venue" });
-    expect(r._tag).toBe("Right");
-    if (r._tag === "Right") {
-      expect(r.right.estimateMinor).toBeNull();
-      expect(r.right.quotedMinor).toBeNull();
-      expect(r.right.actualMinor).toBeNull();
-      expect(r.right.notes).toBeNull();
+    expect(r._tag).toBe("Success");
+    if (r._tag === "Success") {
+      expect(r.success.estimateMinor).toBeNull();
+      expect(r.success.quotedMinor).toBeNull();
+      expect(r.success.actualMinor).toBeNull();
+      expect(r.success.notes).toBeNull();
     }
   });
 
   it("rejects an unknown category", () => {
-    expect(decode(CreateBudgetItemBody, { category: "spaceship", name: "x" })._tag).toBe("Left");
+    expect(decode(CreateBudgetItemBody, { category: "spaceship", name: "x" })._tag).toBe("Failure");
   });
 
   it("rejects an empty name", () => {
-    expect(decode(CreateBudgetItemBody, { category: "venue", name: "" })._tag).toBe("Left");
+    expect(decode(CreateBudgetItemBody, { category: "venue", name: "" })._tag).toBe("Failure");
   });
 
   it("rejects a negative amount", () => {
     expect(
       decode(CreateBudgetItemBody, { category: "venue", name: "x", estimateMinor: -1 })._tag,
-    ).toBe("Left");
+    ).toBe("Failure");
   });
 
   it("rejects a fractional amount (minor units are integers)", () => {
     expect(
       decode(CreateBudgetItemBody, { category: "venue", name: "x", estimateMinor: 10.5 })._tag,
-    ).toBe("Left");
+    ).toBe("Failure");
   });
 });
 
 describe("UpdateBudgetItemBody", () => {
   it("accepts a partial money patch with an explicit null clear", () => {
-    expect(decode(UpdateBudgetItemBody, { actualMinor: null })._tag).toBe("Right");
+    expect(decode(UpdateBudgetItemBody, { actualMinor: null })._tag).toBe("Success");
   });
 });
 
@@ -84,35 +84,35 @@ describe("ReorderBudgetItemsBody", () => {
   it("accepts a category + ordered ids", () => {
     expect(
       decode(ReorderBudgetItemsBody, { category: "catering", orderedIds: ["a", "b"] })._tag,
-    ).toBe("Right");
+    ).toBe("Success");
   });
 });
 
 describe("CreatePaymentBody", () => {
   it("accepts a label + amount, defaults dueAt to null", () => {
     const r = decode(CreatePaymentBody, { label: "Deposit", amountMinor: 250000 });
-    expect(r._tag).toBe("Right");
-    if (r._tag === "Right") expect(r.right.dueAt).toBeNull();
+    expect(r._tag).toBe("Success");
+    if (r._tag === "Success") expect(r.success.dueAt).toBeNull();
   });
 
   it("rejects a missing amount", () => {
-    expect(decode(CreatePaymentBody, { label: "Deposit" })._tag).toBe("Left");
+    expect(decode(CreatePaymentBody, { label: "Deposit" })._tag).toBe("Failure");
   });
 });
 
 describe("UpdatePaymentBody", () => {
   it("accepts a paid toggle", () => {
-    expect(decode(UpdatePaymentBody, { paid: true })._tag).toBe("Right");
+    expect(decode(UpdatePaymentBody, { paid: true })._tag).toBe("Success");
   });
 });
 
 describe("SetBudgetTotalBody", () => {
   it("accepts a number or null", () => {
-    expect(decode(SetBudgetTotalBody, { budgetTotalMinor: 4_500_000 })._tag).toBe("Right");
-    expect(decode(SetBudgetTotalBody, { budgetTotalMinor: null })._tag).toBe("Right");
+    expect(decode(SetBudgetTotalBody, { budgetTotalMinor: 4_500_000 })._tag).toBe("Success");
+    expect(decode(SetBudgetTotalBody, { budgetTotalMinor: null })._tag).toBe("Success");
   });
 
   it("rejects a negative total", () => {
-    expect(decode(SetBudgetTotalBody, { budgetTotalMinor: -1 })._tag).toBe("Left");
+    expect(decode(SetBudgetTotalBody, { budgetTotalMinor: -1 })._tag).toBe("Failure");
   });
 });

@@ -64,7 +64,7 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
 
         return runCire(
           Effect.gen(function* () {
-            const body = yield* Schema.decodeUnknown(BulkRsvpBody)(raw);
+            const body = yield* Schema.decodeUnknownEffect(BulkRsvpBody)(raw);
 
             const dbService = yield* DbService;
 
@@ -214,7 +214,7 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
             return { rsvps: updatedRsvps };
           }).pipe(
             Effect.provideService(DbService, db),
-            Effect.catchTag("ParseError", () =>
+            Effect.catchTag("SchemaError", () =>
               Effect.sync(() => {
                 set.status = 400;
                 return { error: "Missing or invalid fields" };

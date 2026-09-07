@@ -4,10 +4,11 @@ import { describe, expect, it } from "vitest";
 import { AuthExpiredError, isAuthExpiredError, TokenRefreshError } from "../src/errors";
 
 /**
- * The whole reason this predicate exists is that `instanceof` does not survive
- * the trip out of an Effect. These pin each arm — including the real
- * FiberFailure, produced here rather than hand-written, so an Effect upgrade
- * that changes the printout fails this test instead of a consumer's redirect.
+ * This predicate exists because the error reaching a consumer's `catch` is not
+ * reliably the class. These pin each arm — including the escape from a real
+ * Effect, produced here rather than hand-written, so an Effect upgrade that
+ * changes the rejection shape fails this test instead of a consumer's
+ * redirect.
  */
 describe("isAuthExpiredError", () => {
   it("accepts the unwrapped error", () => {
@@ -23,9 +24,23 @@ describe("isAuthExpiredError", () => {
       () => null,
       (err: unknown) => err,
     );
-    // The premise of the finding: the wrapper is not the error class.
-    expect(escaped instanceof AuthExpiredError).toBe(false);
+    // Effect v4 rejects with `Cause.squash(cause)` — for a typed failure that
+    // is the error itself, where v3 handed back a `FiberFailure` wrapper whose
+    // prototype was not the error class. Pinned so a future change back to a
+    // wrapper is caught here.
+    expect(escaped).toBeInstanceOf(AuthExpiredError);
     expect(isAuthExpiredError(escaped)).toBe(true);
+  });
+
+  // v4 no longer produces this string, but a consumer bundle built against v3
+  // still can, and it is the only arm left once a boundary has stripped both
+  // the prototype and the `_tag`.
+  it("still accepts a v3 FiberFailure printout", () => {
+    expect(
+      isAuthExpiredError({
+        toString: () => "(FiberFailure) AuthExpiredError: Your session has expired.",
+      }),
+    ).toBe(true);
   });
 
   it("rejects a sibling client error", () => {

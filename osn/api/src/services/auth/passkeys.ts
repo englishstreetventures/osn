@@ -325,10 +325,10 @@ export function createPasskeysModule(
       // S-H1: best-effort email notification. Forked daemon — failure
       // logged but never rolls back the enrolment. 10s timeout matches
       // passkey_delete / recovery_code_* paths.
-      yield* Effect.forkDaemon(
+      yield* Effect.forkDetach(
         notifyPasskeyRegisteredByAccountId(accountId).pipe(
           Effect.timeout("10 seconds"),
-          Effect.catchAll(() => Effect.void),
+          Effect.catch(() => Effect.void),
         ),
       );
 

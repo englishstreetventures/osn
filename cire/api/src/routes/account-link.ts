@@ -162,7 +162,7 @@ export const createAccountLinkPostRoute = (
 
         return runCire(
           Effect.gen(function* () {
-            const body = yield* Schema.decodeUnknown(LinkAccountBody)(raw);
+            const body = yield* Schema.decodeUnknownEffect(LinkAccountBody)(raw);
 
             const resolution = yield* Effect.tryPromise({
               try: () => resolveAccount(profileId),
@@ -209,7 +209,7 @@ export const createAccountLinkPostRoute = (
           }).pipe(
             Effect.provideService(DbService, db),
             Effect.catchTags({
-              ParseError: () =>
+              SchemaError: () =>
                 Effect.sync(() => {
                   metricAccountLinkRequest("error");
                   set.status = 400;

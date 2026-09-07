@@ -18,7 +18,7 @@ packages:
   - "@pulse/api"
   - "@osn/api"
   - "@osn/client"
-last-reviewed: 2026-08-31
+last-reviewed: 2026-09-06
 ---
 
 # Schema Layers
@@ -89,40 +89,72 @@ The separation exists for practical reasons:
 
 ```typescript
 // In services/events.ts
-// Schema.DateFromString allows Invalid Date — use a validated transform instead
-const ValidDateString = Schema.String.pipe(
-  Schema.filter((s) => !isNaN(new Date(s).getTime()))
-);
-
-const DateFromISOString = Schema.transform(ValidDateString, Schema.DateFromSelf, {
-  strict: true,
-  decode: (s) => new Date(s),
-  encode: (d) => d.toISOString(),
-});
-
 const InsertEventSchema = Schema.Struct({
   title: Schema.NonEmptyString,
-  startTime: DateFromISOString,  // string → Date (validated)
+  // Rejects a string that parses to an Invalid Date. Effect v3's did not, which
+  // is why three services here used to carry a hand-rolled validate-then-
+  // transform pair in its place.
+  startTime: Schema.DateFromString,  // string → Date (validated)
   status: Schema.optional(
-    Schema.Literal("upcoming", "ongoing", "finished", "cancelled")
+    Schema.Literals(["upcoming", "ongoing", "finished", "cancelled"])
   ),
 });
 
 export const createEvent = (data: unknown) =>
   Effect.gen(function* () {
-    const validated = yield* Schema.decodeUnknown(InsertEventSchema)(data).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(InsertEventSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
     // validated.startTime is now a Date
   });
 ```
 
+## The Effect Schema surface, as of v4
+
+The whole repo moved to Effect 4 on 2026-09-06. These are the forms to write;
+the v3 spellings are gone and will not type-check.
+
+| Purpose | Write this |
+| --- | --- |
+| Decode unknown input | `Schema.decodeUnknownEffect(S)(input)` (`Result` variant: `decodeUnknownResult`, `Exit`: `decodeUnknownExit`, sync: `decodeUnknownSync`) |
+| Catch a decode failure | `Effect.catchTag("SchemaError", …)` — the tag is `SchemaError`, not v3's `ParseError`; the type is `Schema.SchemaError` |
+| Bound a string or collection | `S.check(Schema.isMinLength(a), Schema.isMaxLength(b))` — `isMinLength`/`isMaxLength` cover strings *and* arrays |
+| Bound a number | `S.check(Schema.isBetween({ minimum, maximum }))`, `isInt()`, `isGreaterThan…` |
+| Match a pattern | `S.check(Schema.isPattern(/…/))` |
+| An arbitrary predicate | `S.check(Schema.makeFilter(pred))` |
+| Several literals | `Schema.Literals(["a", "b"])` — `Schema.Literal` takes exactly one |
+| A union | `Schema.Union([A, B])` — one array, not variadic |
+| A key with a decoding default | `S.pipe(Schema.withDecodingDefaultType(Effect.succeed(v)))` |
+| Trim, then bound | `Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(n))` — the checks see the trimmed value |
+| A transform | `S.pipe(Schema.decodeTo(target, SchemaTransformation.transform({ decode, encode })))` |
+| Parse a JSON string | `Schema.fromJsonString(S)`, or `Schema.UnknownFromJsonString` with no inner schema |
+
+Four things about that table are worth knowing before you rely on them:
+
+- **A filter carries its own message.** `Schema.makeFilter` treats `undefined`
+  or `true` as success and **a returned string as the failure message** — which
+  is how a v3 `Schema.filter(pred, { message: () => "…" })` migrates. On a
+  check's optional annotations, `message` is a plain string, not a thunk.
+- **`.check(a, b, …)` short-circuits** on the first failure, so ordering is a
+  guarantee you can rely on. `cire/api`'s `TimeZone` depends on it: its length
+  cap runs before the ICU time-zone lookup precisely so an oversized blob never
+  reaches the lookup.
+- **`Schema.Union` and `Schema.Literal` fail quietly if you pass the v3 shape.**
+  Extra members are dropped rather than rejected at the call, and the mistake
+  surfaces later as `{}` where a real type was expected, or as a union that has
+  simply stopped rejecting one of its cases.
+- **Decode error messages changed and no longer echo the input.** v4 renders a
+  reason line plus an `at ["path"]` line, where v3 wrote
+  `Expected number, actual "not_a_number"`. A test asserting on the old text
+  passes vacuously if it only checks that *something* threw — pin the reason
+  and the path.
+
 ## Rules
 
 - **Never use Effect Schema in route definitions.** TypeBox is the HTTP boundary schema.
 - **Never use TypeBox in service functions.** Effect Schema is the domain boundary schema.
 - **Never transform in the route layer.** Strings stay strings at the HTTP boundary.
-- **Always map `ParseError` to a domain error.** Callers should catch `ValidationError`, not `ParseError`.
+- **Always map `SchemaError` to a domain error.** Callers should catch `ValidationError`, not `SchemaError`.
 - **Client SDK packages use Effect Schema.** `@osn/client` is not an Elysia route layer, so it has no TypeBox. Any runtime validation of external data (e.g. token responses from OAuth endpoints) uses Effect Schema, consistent with the service-layer pattern. Use `Schema.decodeUnknownSync` when the call site is synchronous or non-Effect.
 - **No third-party validation libraries.** Do not introduce Valibot, zod, or similar libraries. TypeBox handles validation at the HTTP boundary; Effect Schema handles it everywhere else.
 

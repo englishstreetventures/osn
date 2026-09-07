@@ -53,10 +53,10 @@ export function createRegistrationModule(
     displayName?: string,
   ): Effect.Effect<ProfileWithEmail, AuthError | ValidationError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      yield* Schema.decodeUnknown(EmailSchema)(email).pipe(
+      yield* Schema.decodeUnknownEffect(EmailSchema)(email).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
-      yield* Schema.decodeUnknown(HandleSchema)(handle).pipe(
+      yield* Schema.decodeUnknownEffect(HandleSchema)(handle).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
 
@@ -173,13 +173,13 @@ export function createRegistrationModule(
     Db | EmailService
   > =>
     Effect.gen(function* () {
-      yield* Schema.decodeUnknown(EmailSchema)(email).pipe(
+      yield* Schema.decodeUnknownEffect(EmailSchema)(email).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
-      yield* Schema.decodeUnknown(HandleSchema)(handle).pipe(
+      yield* Schema.decodeUnknownEffect(HandleSchema)(handle).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
-      yield* Schema.decodeUnknown(BirthdateSchema)(birthdate).pipe(
+      yield* Schema.decodeUnknownEffect(BirthdateSchema)(birthdate).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
 
@@ -432,7 +432,7 @@ export function createRegistrationModule(
     handle: string,
   ): Effect.Effect<{ available: boolean }, ValidationError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      yield* Schema.decodeUnknown(HandleSchema)(handle).pipe(
+      yield* Schema.decodeUnknownEffect(HandleSchema)(handle).pipe(
         Effect.tapError(() => Effect.sync(() => metricAuthHandleCheck("invalid"))),
         Effect.mapError((cause) => new ValidationError({ cause })),
       );

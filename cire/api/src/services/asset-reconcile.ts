@@ -180,7 +180,7 @@ export const assetReconcileService = {
 
       // ── GUARD 1a: build the live set; a READ FAILURE aborts (delete nothing). ──
       const referenced = yield* loadReferencedKeys().pipe(
-        Effect.catchAllDefect((cause) =>
+        Effect.catchDefect((cause) =>
           Effect.fail(new AssetReconcileError({ op: "reconcile", reason: String(cause) })),
         ),
         Effect.tapError((err) =>

@@ -74,7 +74,7 @@ export async function createDrizzleClient<S extends DrizzleSchema>(
 }
 
 export function makeDbLive<S extends DrizzleSchema, A extends { readonly db: Db<S> }>(
-  tag: Context.Tag<any, A>,
+  tag: Context.Key<any, A>,
   // Accepts a thunk so a caller whose path derivation is Bun-only (e.g.
   // `fileURLToPath(import.meta.url)`, which throws on workerd where
   // `import.meta.url` is undefined) can defer it INTO the lazy Layer. On the
@@ -110,7 +110,7 @@ export function createD1Db<S extends DrizzleSchema>(d1: D1Database, schema: S): 
  * change (`makeDbLive(...)` → `makeD1DbLive(...)`).
  */
 export function makeD1DbLive<S extends DrizzleSchema>(
-  tag: Context.Tag<any, { readonly db: Db<S> }>,
+  tag: Context.Key<any, { readonly db: Db<S> }>,
   d1: D1Database,
   schema: S,
 ) {

@@ -125,7 +125,7 @@ describe("maintenanceSweeps.sweepStalePreviews", () => {
 });
 
 describe("maintenanceSweeps — error channel", () => {
-  // The cron handler catches MaintenanceSweepError via Effect.catchAll; a throw
+  // The cron handler catches MaintenanceSweepError via Effect.catch; a throw
   // that escaped as a defect would slip past it. These pin the typed mapping.
   const throwingDb = {
     delete: () => {

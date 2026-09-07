@@ -9,7 +9,7 @@ import { MAX_DISPLAY_NAME } from "../services/weddings";
  *  - `simple` — 6-char hash, shorter friendlier codes.
  *  - `secure` — 10-char hash, harder to guess (default).
  */
-export const CodeStyle = Schema.Literal("simple", "secure");
+export const CodeStyle = Schema.Literals(["simple", "secure"]);
 export type CodeStyle = Schema.Schema.Type<typeof CodeStyle>;
 
 /**
@@ -19,15 +19,7 @@ export type CodeStyle = Schema.Schema.Type<typeof CodeStyle>;
  * `codeStyle` (default `secure` applied in the service when omitted).
  */
 export const CreateWeddingBody = Schema.Struct({
-  displayName: Schema.String.pipe(
-    Schema.transform(Schema.String, {
-      strict: true,
-      decode: (s) => s.trim(),
-      encode: (s) => s,
-    }),
-    Schema.minLength(1),
-    Schema.maxLength(MAX_DISPLAY_NAME),
-  ),
+  displayName: Schema.Trim.check(Schema.isMinLength(1), Schema.isMaxLength(MAX_DISPLAY_NAME)),
   codeStyle: Schema.optional(CodeStyle),
 });
 export type CreateWeddingBody = Schema.Schema.Type<typeof CreateWeddingBody>;

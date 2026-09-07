@@ -21,7 +21,7 @@ export const DEFAULT_ATTENDANCE_VISIBILITY = "connections" as const;
 
 export type AttendanceVisibility = PulseProfile["attendanceVisibility"];
 
-const AttendanceVisibilitySchema = Schema.Literal("connections", "no_one");
+const AttendanceVisibilitySchema = Schema.Literals(["connections", "no_one"]);
 
 const UpdateSettingsSchema = Schema.Struct({
   attendanceVisibility: Schema.optional(AttendanceVisibilitySchema),
@@ -135,7 +135,7 @@ export const updateSettings = (
   data: unknown,
 ): Effect.Effect<PulseProfile, ValidationError | DatabaseError, Db> =>
   Effect.gen(function* () {
-    const validated = yield* Schema.decodeUnknown(UpdateSettingsSchema)(data).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(UpdateSettingsSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 

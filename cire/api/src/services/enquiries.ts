@@ -211,7 +211,7 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
       })
       .pipe(
         Effect.map((v) => v.id),
-        Effect.catchAllDefect(() =>
+        Effect.catchDefect(() =>
           Effect.gen(function* () {
             const db = yield* DbService;
             const [existing] = yield* dbQuery(() =>
@@ -229,8 +229,8 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
             if (!existing) {
               // The insert failed for a reason other than the dedup index —
               // re-raise as a defect so it surfaces rather than silently vanishing.
-              return yield* Effect.dieMessage(
-                "vendors.create failed and no existing row to fall back to",
+              return yield* Effect.die(
+                new Error("vendors.create failed and no existing row to fall back to"),
               );
             }
             return (existing as { id: string }).id;
@@ -613,12 +613,12 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
           }).pipe(
             Effect.provideService(DbService, db),
             // Best-effort: a single enquiry's failure must not abort the claim.
-            Effect.catchAll((cause) =>
+            Effect.catch((cause) =>
               Effect.logError("[enquiries] flush-on-claim failed for one enquiry").pipe(
                 Effect.annotateLogs({ enquiryId: enq.id, reason: String(cause) }),
               ),
             ),
-            Effect.catchAllDefect((cause) =>
+            Effect.catchDefect((cause) =>
               Effect.logError("[enquiries] flush-on-claim defected for one enquiry").pipe(
                 Effect.annotateLogs({ enquiryId: enq.id, reason: String(cause) }),
               ),

@@ -11,7 +11,7 @@ import { createD1Db, DbService } from "./db";
 import { createSessionRoutedClient, runInD1Session } from "./db/d1-session";
 import { setExecutionCtx } from "./lib/execution-ctx";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
-import { runCire } from "./observability";
+import { flushCireTelemetry, runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
 import { maintenanceSweeps } from "./services/maintenance-sweeps";
 import { organiserSessionService } from "./services/organiser-session";
@@ -472,7 +472,21 @@ const handler: ExportedHandler<Env> = {
     // Bound out of the mutable module-level cache before the closure, so the
     // narrowing above survives into it.
     const { app } = cached;
-    return runInD1Session(env.DB, () => app.fetch(request));
+    const response = await runInD1Session(env.DB, () => app.fetch(request));
+
+    // Drain this request's spans to the OTLP collector. Awaited-then-scheduled,
+    // in that order, for two reasons: every span the request opened has ended
+    // by the time `app.fetch` resolves, and `waitUntil` keeps the isolate alive
+    // for the POST without the guest waiting on it.
+    //
+    // This explicit drain is the ONLY reliable one on workerd — no fiber
+    // survives between requests, so the exporter's background interval either
+    // never fires or fires with no live context, and a failed background export
+    // disables the exporter (dropping spans) for 60 seconds. `flushCireTelemetry`
+    // is a no-op when no OTLP endpoint is configured and can never reject. See
+    // `shared/observability/src/tracing/otlp.ts`.
+    ctx.waitUntil(flushCireTelemetry());
+    return response;
   },
 
   // Cron-triggered daily maintenance (C-M2/C-M15 + retention). Configured by the
@@ -529,7 +543,7 @@ const handler: ExportedHandler<Env> = {
     runSweep(() =>
       Effect.runPromise(
         sessionService.sweepExpired().pipe(
-          Effect.catchAll((err) =>
+          Effect.catch((err) =>
             Effect.logError("scheduled session sweep failed", { reason: err.reason }),
           ),
           Effect.provide(dbLayer),
@@ -545,7 +559,7 @@ const handler: ExportedHandler<Env> = {
     runSweep(() =>
       Effect.runPromise(
         organiserSessionService.sweepExpired().pipe(
-          Effect.catchAll((err) =>
+          Effect.catch((err) =>
             Effect.logError("scheduled organiser session sweep failed", { reason: err.reason }),
           ),
           Effect.provide(dbLayer),
@@ -563,7 +577,7 @@ const handler: ExportedHandler<Env> = {
     runSweep(() =>
       Effect.runPromise(
         retentionService.sweepExpiredGuestData(new Date(), { sheets: env.SHEETS }).pipe(
-          Effect.catchAll((err) =>
+          Effect.catch((err) =>
             Effect.logError("scheduled guest-data retention sweep failed", {
               reason: err.reason,
             }),
@@ -577,7 +591,7 @@ const handler: ExportedHandler<Env> = {
     runSweep(() =>
       Effect.runPromise(
         maintenanceSweeps.sweepExpiredVendorClaims().pipe(
-          Effect.catchAll((err) =>
+          Effect.catch((err) =>
             Effect.logError("scheduled vendor-claim sweep failed", { reason: err.reason }),
           ),
           Effect.provide(dbLayer),
@@ -591,7 +605,7 @@ const handler: ExportedHandler<Env> = {
     runSweep(() =>
       Effect.runPromise(
         maintenanceSweeps.sweepStalePreviews(new Date(), { sheets: env.SHEETS }).pipe(
-          Effect.catchAll((err) =>
+          Effect.catch((err) =>
             Effect.logError("scheduled stale-preview sweep failed", { reason: err.reason }),
           ),
           Effect.provide(dbLayer),
@@ -608,7 +622,7 @@ const handler: ExportedHandler<Env> = {
     runSweep(() =>
       Effect.runPromise(
         assetReconcileService.reconcileOrphans(env.ASSETS).pipe(
-          Effect.catchAll((err) =>
+          Effect.catch((err) =>
             Effect.logError("scheduled cire-assets reconciliation failed", {
               reason: err.reason,
             }),

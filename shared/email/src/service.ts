@@ -1,7 +1,7 @@
 /**
  * Email service — transactional-only sender for OSN auth flows.
  *
- * The service is an Effect `Context.Tag`; callers yield it and invoke
+ * The service is an Effect `Context.Service` key; callers yield it and invoke
  * `send({ template, to, data })`. Actual dispatch is determined by the
  * concrete `Layer` provided at boot: `CloudflareEmailLive` in production
  * staging, `LogEmailLive` in local dev + unit tests.
@@ -42,7 +42,6 @@ export interface EmailServiceImpl {
   readonly send: (input: SendEmailInput) => Effect.Effect<void, EmailError>;
 }
 
-export class EmailService extends Context.Tag("@shared/email/EmailService")<
-  EmailService,
-  EmailServiceImpl
->() {}
+export class EmailService extends Context.Service<EmailService, EmailServiceImpl>()(
+  "@shared/email/EmailService",
+) {}

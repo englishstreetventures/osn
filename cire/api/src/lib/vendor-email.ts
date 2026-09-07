@@ -39,7 +39,7 @@ export function sendClaimInviteEmail(
       data: { claimUrl: input.claimUrl, vendorName: input.vendorName },
     });
   }).pipe(
-    Effect.catchAllCause(() =>
+    Effect.catchCause(() =>
       Effect.logWarning("[vendor-email] claim-invite send failed — continuing without email").pipe(
         Effect.annotateLogs({ reason: "transport_error", template: "vendor-claim-invite" }),
       ),

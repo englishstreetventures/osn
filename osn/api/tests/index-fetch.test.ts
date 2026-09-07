@@ -79,7 +79,7 @@ describe("handler.fetch — fail-closed (T-R1)", () => {
  *
  * Drives the real exported `handler.scheduled(event, env, ctx)` with a fake
  * env + a `waitUntil` collector. The DB-backed sweeps run against a stub D1
- * binding and fail internally — they're wrapped in `Effect.catchAll`/`logError`
+ * binding and fail internally — they're wrapped in `Effect.catch`/`logError`
  * so they never throw out of `scheduled`; this test only asserts the
  * registration POSTs fired and are once-per-isolate.
  */

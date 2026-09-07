@@ -204,7 +204,7 @@ function desiredStateFromRow(
   return Effect.gen(function* () {
     if (row.kind === "editor") {
       const json = yield* fetchUpload(row.eventsR2Key);
-      return yield* Schema.decodeUnknown(Schema.parseJson(DesiredState))(json);
+      return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(DesiredState))(json);
     }
     const events =
       scope === "guests"
@@ -384,7 +384,7 @@ export const createOrganiserChangeRoutes = (
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.provideService(R2Service, r2 as R2Bucket),
-                Effect.catchTag("ParseError", () =>
+                Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Missing or invalid fields" };
@@ -435,7 +435,7 @@ export const createOrganiserChangeRoutes = (
 
             return runCire(
               Effect.gen(function* () {
-                const { changeId } = yield* Schema.decodeUnknown(ApplyBody)(raw);
+                const { changeId } = yield* Schema.decodeUnknownEffect(ApplyBody)(raw);
                 const dbService = yield* DbService;
 
                 const [row] = yield* dbQuery(() =>
@@ -555,7 +555,7 @@ export const createOrganiserChangeRoutes = (
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.provideService(R2Service, r2 as R2Bucket),
-                Effect.catchTag("ParseError", () =>
+                Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Missing or invalid fields" };
@@ -624,13 +624,13 @@ export const createOrganiserChangeRoutes = (
 
             return runCire(
               Effect.gen(function* () {
-                const { changeId } = yield* Schema.decodeUnknown(RevertBody)(raw);
+                const { changeId } = yield* Schema.decodeUnknownEffect(RevertBody)(raw);
                 const summary = yield* revertImport(changeId, weddingId);
                 return { summary };
               }).pipe(
                 Effect.provideService(DbService, db),
                 Effect.provideService(R2Service, r2 as R2Bucket),
-                Effect.catchTag("ParseError", () =>
+                Effect.catchTag("SchemaError", () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Missing or invalid fields" };

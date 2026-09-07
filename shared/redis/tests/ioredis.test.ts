@@ -1,7 +1,9 @@
+import { Cause, Effect, Layer, Option } from "effect";
 import type IORedis from "ioredis";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-import { wrapIoRedis, createClientFromUrl } from "../src/ioredis";
+import { RedisError } from "../src/errors";
+import { wrapIoRedis, createClientFromUrl, RedisLive } from "../src/ioredis";
 
 function createMockIoRedis() {
   return {
@@ -181,5 +183,39 @@ describe("createClientFromUrl", () => {
     expect(typeof client.disconnect).toBe("function");
     // Clean up the lazy connection (never opened)
     client.disconnect();
+  });
+});
+
+describe("RedisLive", () => {
+  // `RedisLive` builds a real ioredis socket, so only the branch that fails
+  // before construction is reachable without a server. It is still worth
+  // pinning: the layer is annotated `Layer.Layer<Redis, RedisError>`, and that
+  // annotation is what keeps the startup-ping deadline honest. The ping is
+  // bounded with `Effect.timeoutOrElse` returning a `RedisError` rather than
+  // `Effect.timeout`, which would widen the channel to
+  // `RedisError | TimeoutError` — the composition roots in `osn/api` and
+  // `pulse/api` only know how to fall back on the former, and the Redis-backed
+  // rate limiters fail closed, so a leaked `TimeoutError` would show up as
+  // rejected requests rather than a crash. `tsc` rejects the widened type, so
+  // the annotation is the guard; this test is what proves the tag reaching a
+  // caller is the one they handle.
+  const originalUrl = process.env.REDIS_URL;
+
+  beforeEach(() => {
+    delete process.env.REDIS_URL;
+  });
+
+  afterEach(() => {
+    if (originalUrl === undefined) delete process.env.REDIS_URL;
+    else process.env.REDIS_URL = originalUrl;
+  });
+
+  it("fails with RedisError when REDIS_URL is unset", async () => {
+    const exit = await Effect.runPromiseExit(Effect.scoped(Layer.build(RedisLive)));
+    expect(exit._tag).toBe("Failure");
+    if (exit._tag !== "Failure") return;
+    const error = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
+    expect(error).toBeInstanceOf(RedisError);
+    expect((error as RedisError).cause).toBe("REDIS_URL environment variable is not set");
   });
 });

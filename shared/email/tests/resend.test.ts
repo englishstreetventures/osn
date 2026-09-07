@@ -1,4 +1,4 @@
-import { Effect, Either, Logger } from "effect";
+import { Effect, Result, Logger } from "effect";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { makeResendEmailLive } from "../src/resend";
@@ -88,12 +88,12 @@ describe("ResendEmailLive", () => {
       Effect.gen(function* () {
         const email = yield* EmailService;
         return yield* email.send(input);
-      }).pipe(Effect.provide(layer), Effect.either),
+      }).pipe(Effect.provide(layer), Effect.result),
     );
-    expect(Either.isLeft(either)).toBe(true);
-    if (Either.isLeft(either)) {
-      expect(either.left).toBeInstanceOf(EmailError);
-      expect(either.left.reason).toBe(reason);
+    expect(Result.isFailure(either)).toBe(true);
+    if (Result.isFailure(either)) {
+      expect(either.failure).toBeInstanceOf(EmailError);
+      expect(either.failure.reason).toBe(reason);
     }
   };
 
@@ -179,12 +179,11 @@ describe("ResendEmailLive", () => {
     // Capture everything the transport logs/emits across both a success and a
     // failure path, then assert the secret never appears anywhere observable.
     const lines: string[] = [];
-    const captureLogger = Logger.replace(
-      Logger.defaultLogger,
+    const captureLogger = Logger.layer([
       Logger.make(({ message }) => {
         lines.push(Array.isArray(message) ? message.join(" ") : String(message));
       }),
-    );
+    ]);
 
     // Success path.
     await Effect.runPromise(
@@ -215,10 +214,10 @@ describe("ResendEmailLive", () => {
           to: "alice@example.com",
           data: {},
         });
-      }).pipe(Effect.provide(buildLayer()), Effect.provide(captureLogger), Effect.either),
+      }).pipe(Effect.provide(buildLayer()), Effect.provide(captureLogger), Effect.result),
     );
-    expect(Either.isLeft(either)).toBe(true);
-    // Serialise the whole Either (error + cause) and assert the key is absent —
+    expect(Result.isFailure(either)).toBe(true);
+    // Serialise the whole Result (error + cause) and assert the key is absent —
     // no conditional expect needed.
     expect(JSON.stringify(either)).not.toContain(RESEND_API_KEY);
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 
 import {
   AssetsR2Service,
@@ -53,7 +53,11 @@ function runFromUrl(url: string, opts: LinkPreviewOptions, stub = createAssetsSt
 /** The tag of the failure an exit carries, or `null` if it succeeded. */
 function failureTag(exit: Exit.Exit<unknown, { readonly _tag: string }>): string | null {
   if (!Exit.isFailure(exit)) return null;
-  return exit.cause._tag === "Fail" ? exit.cause.error._tag : exit.cause._tag;
+  // v4's Cause is a list of reasons rather than a tagged node, so a typed
+  // failure is read out of it; anything else (a defect, an interrupt) has no
+  // error to name and reports the reason's own tag.
+  const error = Option.getOrUndefined(Cause.findErrorOption(exit.cause));
+  return error?._tag ?? exit.cause.reasons[0]?._tag ?? null;
 }
 
 describe("registryImageService.storeUpload", () => {

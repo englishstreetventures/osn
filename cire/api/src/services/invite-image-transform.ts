@@ -432,7 +432,7 @@ export function serveTransformedImage(args: {
         // A refused put is a missed cache, not a failed request — but silence here
         // is what let the refusal go unnoticed in the first place, and off the
         // request's own promise chain it would surface as an unhandled rejection.
-        Effect.catchAll((cause) =>
+        Effect.catch((cause) =>
           Effect.logWarning("image cache put failed", {
             cacheSlot,
             variant,

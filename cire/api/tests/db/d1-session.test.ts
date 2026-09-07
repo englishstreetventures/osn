@@ -143,7 +143,7 @@ describe("session routing", () => {
         Effect.runPromise(
           Effect.gen(function* () {
             yield* query("first");
-            yield* Effect.yieldNow();
+            yield* Effect.yieldNow;
             yield* query("second");
           }),
         ),

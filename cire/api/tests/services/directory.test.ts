@@ -9,7 +9,7 @@ import {
   weddings,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
-import { Effect, Exit } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
@@ -346,8 +346,7 @@ describe("directoryService.seedFromCrm", () => {
     );
     expect(
       Exit.isFailure(res) &&
-        res.cause._tag === "Fail" &&
-        res.cause.error instanceof VendorNotInWedding,
+        Option.getOrUndefined(Cause.findErrorOption(res.cause)) instanceof VendorNotInWedding,
     ).toBe(true);
   });
 });
@@ -510,8 +509,7 @@ describe("directoryService.consumeClaim", () => {
     );
     expect(
       Exit.isFailure(second) &&
-        second.cause._tag === "Fail" &&
-        second.cause.error instanceof ClaimInvalid,
+        Option.getOrUndefined(Cause.findErrorOption(second.cause)) instanceof ClaimInvalid,
     ).toBe(true);
   });
 
@@ -549,8 +547,7 @@ describe("directoryService.consumeClaim", () => {
     );
     expect(
       Exit.isFailure(reuse) &&
-        reuse.cause._tag === "Fail" &&
-        reuse.cause.error instanceof ClaimInvalid,
+        Option.getOrUndefined(Cause.findErrorOption(reuse.cause)) instanceof ClaimInvalid,
     ).toBe(true);
   });
 
@@ -598,7 +595,8 @@ describe("directoryService.consumeClaim", () => {
 
     const res = await run(db, directoryService.consumeClaim(fakeToken, "org_late", "usr_late"));
     expect(
-      Exit.isFailure(res) && res.cause._tag === "Fail" && res.cause.error instanceof ClaimInvalid,
+      Exit.isFailure(res) &&
+        Option.getOrUndefined(Cause.findErrorOption(res.cause)) instanceof ClaimInvalid,
     ).toBe(true);
   });
 
@@ -606,7 +604,8 @@ describe("directoryService.consumeClaim", () => {
     const db = db0();
     const res = await run(db, directoryService.consumeClaim("no-such-token", "org_x", "usr_x"));
     expect(
-      Exit.isFailure(res) && res.cause._tag === "Fail" && res.cause.error instanceof ClaimInvalid,
+      Exit.isFailure(res) &&
+        Option.getOrUndefined(Cause.findErrorOption(res.cause)) instanceof ClaimInvalid,
     ).toBe(true);
   });
 });

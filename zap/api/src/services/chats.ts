@@ -87,13 +87,13 @@ export class NotC2cChat extends Data.TaggedError("NotC2cChat")<{
 // Effect schemas (service-layer validation)
 // ---------------------------------------------------------------------------
 
-const ChatTypeEnum = Schema.Literal("dm", "group", "event");
-const TitleString = Schema.String.pipe(Schema.maxLength(MAX_CHAT_TITLE_LENGTH));
+const ChatTypeEnum = Schema.Literals(["dm", "group", "event"]);
+const TitleString = Schema.String.check(Schema.isMaxLength(MAX_CHAT_TITLE_LENGTH));
 
 const ProvisionC2bChatSchema = Schema.Struct({
-  memberProfileIds: Schema.Array(Schema.String).pipe(
-    Schema.minItems(2),
-    Schema.maxItems(MAX_CHAT_MEMBERS),
+  memberProfileIds: Schema.Array(Schema.String).check(
+    Schema.isMinLength(2),
+    Schema.isMaxLength(MAX_CHAT_MEMBERS),
   ),
   createdByProfileId: Schema.String,
   title: Schema.optional(TitleString),
@@ -104,7 +104,7 @@ const CreateChatSchema = Schema.Struct({
   title: Schema.optional(TitleString),
   eventId: Schema.optional(Schema.String),
   memberProfileIds: Schema.optional(
-    Schema.Array(Schema.String).pipe(Schema.maxItems(MAX_CHAT_MEMBERS)),
+    Schema.Array(Schema.String).check(Schema.isMaxLength(MAX_CHAT_MEMBERS)),
   ),
 });
 
@@ -258,7 +258,7 @@ export const createChat = (
   Effect.gen(function* () {
     const { db } = yield* Db;
 
-    const validated = yield* Schema.decodeUnknown(CreateChatSchema)(data).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(CreateChatSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 
@@ -420,7 +420,7 @@ export const updateChat = (
     // them the id names a commercial conversation.
     yield* assertC2c(chat);
 
-    const validated = yield* Schema.decodeUnknown(UpdateChatSchema)(data).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(UpdateChatSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 
@@ -714,7 +714,7 @@ export const provisionC2bChat = (input: {
   Effect.gen(function* () {
     const { db } = yield* Db;
 
-    const validated = yield* Schema.decodeUnknown(ProvisionC2bChatSchema)(input).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(ProvisionC2bChatSchema)(input).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 

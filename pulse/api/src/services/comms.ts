@@ -22,19 +22,21 @@ export class NotEventOwner extends Data.TaggedError("NotEventOwner")<{
 // Schemas
 // ---------------------------------------------------------------------------
 
-export const CommsChannelSchema = Schema.Literal("sms", "email");
+export const CommsChannelSchema = Schema.Literals(["sms", "email"]);
 export type CommsChannel = Schema.Schema.Type<typeof CommsChannelSchema>;
 
-export const CommsChannelsSchema = Schema.Array(CommsChannelSchema).pipe(
-  Schema.minItems(1),
-  Schema.filter((channels) => new Set(channels).size === channels.length, {
-    message: () => "commsChannels must not contain duplicates",
-  }),
+export const CommsChannelsSchema = Schema.Array(CommsChannelSchema).check(
+  Schema.isMinLength(1),
+  Schema.makeFilter((channels) =>
+    new Set(channels).size === channels.length
+      ? undefined
+      : "commsChannels must not contain duplicates",
+  ),
 );
 
 const SendBlastSchema = Schema.Struct({
   channels: CommsChannelsSchema,
-  body: Schema.NonEmptyString.pipe(Schema.maxLength(1600)),
+  body: Schema.NonEmptyString.check(Schema.isMaxLength(1600)),
 });
 
 // ---------------------------------------------------------------------------
@@ -101,7 +103,7 @@ export const sendBlast = (
   Db
 > =>
   Effect.gen(function* () {
-    const validated = yield* Schema.decodeUnknown(SendBlastSchema)(data).pipe(
+    const validated = yield* Schema.decodeUnknownEffect(SendBlastSchema)(data).pipe(
       Effect.mapError((cause) => new ValidationError({ cause })),
     );
 

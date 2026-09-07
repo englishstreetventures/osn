@@ -8,7 +8,7 @@ import { buildAppDeps } from "./build-deps";
 import { selectEmailLayer } from "./lib/email-layer";
 import { readOsnRateLimitBindings } from "./lib/native-rate-limiters";
 import { registerOutboundKeysOnce } from "./lib/outbound-arc";
-import { osnLoggerLayer } from "./observability";
+import { flushOsnTelemetry, osnLoggerLayer } from "./observability";
 import { initRedisClientFromEnv } from "./redis";
 import * as accountErasure from "./services/account-erasure";
 import { setRuntimeTier } from "./services/auth/helpers";
@@ -205,12 +205,29 @@ export function resolveRequestId(request: Request): string {
  * workers types since it touches no DOM Request/Response.
  */
 export interface OsnWorkerHandler {
-  fetch(request: Request, env: Env): Promise<Response>;
+  /**
+   * `ctx` is OPTIONAL, and that is deliberate.
+   *
+   * workerd always passes an `ExecutionContext` as the third argument, and this
+   * handler needs it: `ctx.waitUntil` is the only sound way to drain buffered
+   * OTLP spans after the response has been produced (no fiber survives between
+   * requests on workerd — see `observability.ts`). Widening the signature was
+   * therefore unavoidable.
+   *
+   * Making it optional rather than required keeps every two-argument caller
+   * compiling and behaving exactly as before — `osn/api/tests/index-fetch.test.ts`
+   * drives the real `handler.fetch(req, env)` with no context at all. Those
+   * callers simply skip the telemetry flush; nothing else changes, and a
+   * deployed Worker always has the context. A REQUIRED `ctx` would have been a
+   * breaking change to a deployed entrypoint for the sake of a stricter type
+   * that the runtime does not need.
+   */
+  fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response>;
   scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void>;
 }
 
 export const handler: OsnWorkerHandler = {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     // Tell the auth helpers which tier this is, from the binding rather than
     // `process.env`. The dev-OTP log line is gated on it, and a `process.env`
     // that reads empty on workerd would put a live OTP code in the log sink.
@@ -255,6 +272,20 @@ export const handler: OsnWorkerHandler = {
     // Response from Elysia may have immutable headers; clone to set ours.
     const out = new Response(response.body, response);
     out.headers.set("x-request-id", requestId);
+
+    // Drain this request's spans to the OTLP collector. Scheduled only after
+    // `app.fetch` has resolved, so every span the request opened has ended, and
+    // through `waitUntil` so the isolate stays alive for the POST without the
+    // client waiting on it.
+    //
+    // This explicit drain is the ONLY reliable one on workerd — no fiber
+    // survives between requests, so the exporter's background interval either
+    // never fires or fires with no live context, and a failed background export
+    // disables the exporter (dropping spans) for 60 seconds. `flushOsnTelemetry`
+    // is a no-op when no OTLP endpoint is configured and can never reject; a
+    // caller that passed no `ExecutionContext` (unit tests) just skips it. See
+    // `shared/observability/src/tracing/otlp.ts`.
+    ctx?.waitUntil(flushOsnTelemetry());
     return out;
   },
 
@@ -279,6 +310,13 @@ export const handler: OsnWorkerHandler = {
   // an idempotent upsert; the once-per-isolate latch keeps every later cron
   // tick from re-POSTing. A failure here is logged and swallowed so a transient
   // downstream outage never aborts the sweeps (the next tick retries).
+  //
+  // No explicit telemetry flush here, unlike `fetch`: each sweep below runs
+  // through `Effect.provide(osnLoggerLayer)`, which opens AND closes that
+  // layer's scope around the run, and the OTLP exporter exports on scope close.
+  // Every sweep is already inside its own `ctx.waitUntil`, so the isolate stays
+  // alive for that POST. Switching these to the shared `runOsn` runtime would
+  // remove the scope close and therefore require a flush.
   async scheduled(_event, env, ctx) {
     setRuntimeTier(env.OSN_ENV);
     if (!env.DB) return;
@@ -306,7 +344,7 @@ export const handler: OsnWorkerHandler = {
         );
         await Effect.runPromise(
           accountErasure.runFanOutRetrySweep(fanoutUrls).pipe(
-            Effect.catchAll((err) =>
+            Effect.catch((err) =>
               Effect.logError("scheduled fan-out retry sweep failed", { reason: String(err) }),
             ),
             Effect.provide(dbLayer),
@@ -319,7 +357,7 @@ export const handler: OsnWorkerHandler = {
     ctx.waitUntil(
       Effect.runPromise(
         accountErasure.runHardDeleteSweep().pipe(
-          Effect.catchAll((err) =>
+          Effect.catch((err) =>
             Effect.logError("scheduled hard-delete sweep failed", { reason: String(err) }),
           ),
           Effect.provide(dbLayer),
@@ -334,7 +372,7 @@ export const handler: OsnWorkerHandler = {
     ctx.waitUntil(
       Effect.runPromise(
         runExpiredAuthCodeSweep().pipe(
-          Effect.catchAll((err) =>
+          Effect.catch((err) =>
             Effect.logError("scheduled OIDC code sweep failed", { reason: String(err) }),
           ),
           Effect.provide(dbLayer),

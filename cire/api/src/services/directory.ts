@@ -790,7 +790,7 @@ export function createDirectoryService(config: DirectoryServiceConfig = {}) {
       }).pipe(
         Effect.withSpan("cire.directory.browse"),
         // Fail-soft: a query error yields empty results, never a dashboard-blanking 500.
-        Effect.catchAllDefect(() =>
+        Effect.catchDefect(() =>
           Effect.gen(function* () {
             yield* Effect.logWarning("cire.directory.browse failed").pipe(
               Effect.annotateLogs({ weddingId }),

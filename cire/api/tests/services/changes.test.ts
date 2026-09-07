@@ -1,7 +1,7 @@
 import { describe, it, expect } from "bun:test";
 
 import { BOOTSTRAP_WEDDING_ID } from "@cire/db";
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 
 import { decodeChangeBody } from "../../src/services/changes";
 import { TestDbLayer } from "../db/test-layer";
@@ -41,7 +41,7 @@ describe("decodeChangeBody: editor scope", () => {
     "a body carrying both a desiredState and a CSV slot is refused, not guessed at",
     withDb(
       Effect.gen(function* () {
-        const result = yield* Effect.either(
+        const result = yield* Effect.result(
           decodeChangeBody(
             {
               desiredState: { events: [], families: [] },
@@ -53,7 +53,7 @@ describe("decodeChangeBody: editor scope", () => {
         // Which door the union picks would otherwise hang on whether the
         // `desiredState` happened to parse, and the two doors apply opposite
         // `removeManual`/`matchByName` options.
-        expect(Either.isLeft(result)).toBe(true);
+        expect(Result.isFailure(result)).toBe(true);
       }),
     ),
   );
@@ -62,13 +62,13 @@ describe("decodeChangeBody: editor scope", () => {
     "a desiredState body carrying an unknown scope is refused",
     withDb(
       Effect.gen(function* () {
-        const result = yield* Effect.either(
+        const result = yield* Effect.result(
           decodeChangeBody(
             { desiredState: { events: [], families: [] }, scope: "everything" },
             BOOTSTRAP_WEDDING_ID,
           ),
         );
-        expect(Either.isLeft(result)).toBe(true);
+        expect(Result.isFailure(result)).toBe(true);
       }),
     ),
   );

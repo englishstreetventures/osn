@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 
-import { Effect } from "effect";
+import { Cause, Effect, Exit, Option } from "effect";
 
 import {
   parseEventsCsv,
@@ -652,18 +652,29 @@ describe("UTF-8 BOM tolerance", () => {
  * Every parse rejection says WHICH sheet it came from — with two files in one
  * request, "Malformed spreadsheet" alone doesn't tell an organiser which to open.
  */
+/**
+ * The typed error an exit failed with. v4's Cause is a list of reasons rather
+ * than a tagged node, so the error is read out with `findErrorOption` instead
+ * of matching a `Fail`; a success or a defect throws here rather than letting
+ * the assertions below run against `undefined`.
+ */
+function failureOf<E>(exit: Exit.Exit<unknown, E>): E {
+  if (!Exit.isFailure(exit)) throw new Error("expected the effect to fail");
+  return Option.getOrThrow(Cause.findErrorOption(exit.cause));
+}
+
 describe("parse errors carry their sheet", () => {
   it("stamps sheet='events' on an events-sheet rejection", async () => {
     const exit = await Effect.runPromiseExit(parseEventsCsv("Event Name,Start\nx,not-a-date"));
     expect(exit._tag).toBe("Failure");
-    const err = (exit as { cause: { error: MissingRequiredColumn } }).cause.error;
+    const err = failureOf(exit) as MissingRequiredColumn;
     expect(err.sheet).toBe("events");
   });
 
   it("stamps sheet='guests' on a guests-sheet rejection", async () => {
     const exit = await Effect.runPromiseExit(parseGuestsCsv("Family Name\nSmith", []));
     expect(exit._tag).toBe("Failure");
-    const err = (exit as { cause: { error: MissingRequiredColumn } }).cause.error;
+    const err = failureOf(exit) as MissingRequiredColumn;
     expect(err.sheet).toBe("guests");
   });
 
@@ -679,7 +690,7 @@ describe("parse errors carry their sheet", () => {
     ].join("\n");
     const exit = await Effect.runPromiseExit(parseGuestsCsv(csv, events));
     expect(exit._tag).toBe("Failure");
-    const err = (exit as { cause: { error: UnmatchedEventColumn } }).cause.error;
+    const err = failureOf(exit) as UnmatchedEventColumn;
     // withSheet rebuilds the error by copying fields explicitly; a dropped field
     // here would leave the organiser's message with no location at all.
     expect(err.column).toBe("Sangeet");
@@ -692,7 +703,7 @@ describe("parse errors carry their sheet", () => {
     );
     const exit = await Effect.runPromiseExit(parseEventsCsv(csv));
     expect(exit._tag).toBe("Failure");
-    const err = (exit as { cause: { error: FormulaInjectionDetected } }).cause.error;
+    const err = failureOf(exit) as FormulaInjectionDetected;
     expect(err.row).toBe(2);
     expect(err.column).toBe(1);
     expect(err.snippet).toContain("=SUM");
@@ -706,7 +717,7 @@ describe("parse errors carry their sheet", () => {
     // organiser's spreadsheet column.
     const exit = await Effect.runPromiseExit(parseEventsCsv(""));
     expect(exit._tag).toBe("Failure");
-    const err = (exit as { cause: { error: MalformedSpreadsheet } }).cause.error;
+    const err = failureOf(exit) as MalformedSpreadsheet;
     expect(err.reason).toBe("empty events sheet");
     expect(err.atRow).toBeUndefined();
     expect(err.atColumn).toBeUndefined();
@@ -716,7 +727,7 @@ describe("parse errors carry their sheet", () => {
     const csv = [EVENTS_HEADER, "Mehndi,14/11/2026 15:00,,Australia/Sydney,,,,,,"].join("\n");
     const exit = await Effect.runPromiseExit(parseEventsCsv(csv));
     expect(exit._tag).toBe("Failure");
-    const err = (exit as { cause: { error: MalformedSpreadsheet } }).cause.error;
+    const err = failureOf(exit) as MalformedSpreadsheet;
     expect(err.reason).toBe("Start must be an ISO-8601 timestamp");
     expect(err.atRow).toBe(2);
     expect(err.atColumn).toBe(2);

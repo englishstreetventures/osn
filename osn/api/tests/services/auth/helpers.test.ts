@@ -1,4 +1,4 @@
-import { Effect, Logger, LogLevel } from "effect";
+import { Effect, Logger, References } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -38,14 +38,13 @@ async function capture(effect: Effect.Effect<void>): Promise<string[]> {
   await Effect.runPromise(
     effect.pipe(
       Effect.provide(
-        Logger.replace(
-          Logger.defaultLogger,
+        Logger.layer([
           Logger.make(({ message }) => {
             lines.push(String(message));
           }),
-        ),
+        ]),
       ),
-      Logger.withMinimumLogLevel(LogLevel.Debug),
+      Effect.provideService(References.MinimumLogLevel, "Debug"),
     ),
   );
   return lines;

@@ -54,7 +54,7 @@ export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions
           const raw: unknown = await request.json().catch(() => null);
           return runCire(
             Effect.gen(function* () {
-              const body = yield* Schema.decodeUnknown(OrganiserRsvpBody)(raw);
+              const body = yield* Schema.decodeUnknownEffect(OrganiserRsvpBody)(raw);
 
               // Art. 9(2)(a) gate (mirrors the guest path): the special-category
               // dietary free-text may only be stored WITH consent — here the
@@ -78,7 +78,7 @@ export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions
             }).pipe(
               Effect.provideService(DbService, db),
               Effect.catchTags({
-                ParseError: () =>
+                SchemaError: () =>
                   Effect.sync(() => {
                     set.status = 400;
                     return { error: "Missing or invalid fields" };
@@ -99,7 +99,7 @@ export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions
                     return { error: "guest_not_invited_to_event" };
                   }),
               }),
-              Effect.catchAllDefect(() =>
+              Effect.catchDefect(() =>
                 Effect.sync(() => {
                   set.status = 500;
                   return { error: "Internal error" };

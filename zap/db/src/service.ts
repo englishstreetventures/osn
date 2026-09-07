@@ -13,7 +13,7 @@ export interface DbService {
   readonly db: DbHandle<typeof schema>;
 }
 
-export class Db extends Context.Tag("@zap/db/Db")<Db, DbService>() {}
+export class Db extends Context.Service<Db, DbService>()("@zap/db/Db") {}
 
 /**
  * bun:sqlite-backed layer — the `local` environment (dev servers + tests).

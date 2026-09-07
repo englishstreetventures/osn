@@ -42,10 +42,12 @@ function now(): Date {
   return new Date();
 }
 
-const HandleSchema = Schema.String.pipe(
-  Schema.filter((s) => /^[a-z0-9_]{1,30}$/.test(s), {
-    message: () => "Handle must be 1–30 characters: lowercase letters, numbers, underscores only",
-  }),
+const HandleSchema = Schema.String.check(
+  Schema.makeFilter((s) =>
+    /^[a-z0-9_]{1,30}$/.test(s)
+      ? undefined
+      : "Handle must be 1–30 characters: lowercase letters, numbers, underscores only",
+  ),
 );
 
 const RESERVED_HANDLES = new Set([
@@ -93,7 +95,7 @@ export function createProfileService(authService: AuthService) {
     displayName?: string,
   ): Effect.Effect<PublicProfile, AuthError | ValidationError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      yield* Schema.decodeUnknown(HandleSchema)(handle).pipe(
+      yield* Schema.decodeUnknownEffect(HandleSchema)(handle).pipe(
         Effect.mapError((cause) => new ValidationError({ cause })),
       );
       if (RESERVED_HANDLES.has(handle)) {

@@ -1,7 +1,7 @@
 import { DbLive } from "@pulse/db/service";
-import { initObservability } from "@shared/observability";
+import { initObservability, PrettyLoggerLive } from "@shared/observability";
 import type { ClientIpOptions } from "@shared/rate-limit";
-import { Effect, Logger } from "effect";
+import { Effect } from "effect";
 
 import { createApp, SERVICE_NAME, type AppOptions } from "./app";
 import { assertCorsOriginsConfigured, resolveCorsOrigins } from "./lib/cors-config";
@@ -94,7 +94,7 @@ if (nonLocal && !oidc) {
   void Effect.runPromise(
     Effect.logError(
       "pulse-api: OIDC sign-in disabled — set OSN_ISSUER_URL, OSN_JWKS_URL, PULSE_API_ORIGIN, OSN_OIDC_CLIENT_ID and OSN_OIDC_CLIENT_SECRET to enable it",
-    ).pipe(Effect.provide(Logger.pretty), Effect.provide(observabilityLayer)),
+    ).pipe(Effect.provide(PrettyLoggerLive), Effect.provide(observabilityLayer)),
   ).catch(() => undefined);
 }
 
@@ -120,7 +120,7 @@ if (nonLocal && trustedProxyCountUnconfigured) {
   void Effect.runPromise(
     Effect.logWarning(
       "PULSE_TRUSTED_PROXY_COUNT is unset — per-IP rate limiting will key off the socket peer (direct mode). If @pulse/api sits behind a reverse proxy / load balancer, set PULSE_TRUSTED_PROXY_COUNT to the number of trusted hops so x-forwarded-for is honoured spoof-safely.",
-    ).pipe(Effect.provide(Logger.pretty), Effect.provide(observabilityLayer)),
+    ).pipe(Effect.provide(PrettyLoggerLive), Effect.provide(observabilityLayer)),
   ).catch(() => undefined);
 }
 
@@ -145,7 +145,7 @@ void startKeyRotation()
     return Effect.runPromise(
       Effect.logWarning(warning).pipe(
         Effect.annotateLogs({ service: SERVICE_NAME }),
-        Effect.provide(Logger.pretty),
+        Effect.provide(PrettyLoggerLive),
         Effect.provide(observabilityLayer),
       ),
     ).catch(() => undefined);
@@ -154,7 +154,7 @@ void startKeyRotation()
     void Effect.runPromise(
       Effect.logError("pulse-api: failed to start ARC key rotation", err).pipe(
         Effect.annotateLogs({ service: SERVICE_NAME }),
-        Effect.provide(Logger.pretty),
+        Effect.provide(PrettyLoggerLive),
         Effect.provide(observabilityLayer),
       ),
     )
@@ -167,7 +167,7 @@ void startKeyRotation()
 void Effect.runPromise(
   Effect.logInfo("pulse-api listening (local / bun:sqlite)").pipe(
     Effect.annotateLogs({ port: String(port), service: SERVICE_NAME }),
-    Effect.provide(Logger.pretty),
+    Effect.provide(PrettyLoggerLive),
     Effect.provide(observabilityLayer),
   ),
 );
