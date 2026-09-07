@@ -64,9 +64,10 @@ The body stands on its own: someone opening it months later with nothing checked
 
 `--type` is an org-level field, separate from the labels: `Feature` for new capability, `Bug` for something built that behaves wrongly, `Task` for the rest — a migration, a chore, infrastructure. Exactly one `product:` label. No `area:` unless the work is a finding or is `ops`, `schema` or `docs`; there is no `area:feature`.
 
-Then two things follow from the issue:
+Then three things follow from the issue:
 
 - **The branch name** — kebab-case the title, prefix it: `feat/` for a Feature, `fix/` for a Bug, `chore/`, `refactor/` or `docs/` for a Task. Step 1 uses this name; it does not derive its own.
+- **Complexity** — invoke the **`rate-complexity`** skill. It proposes a rating from the issue body alone and asks the owner to confirm or amend it, then applies a `complexity:` label. Do this **now**, before the branch exists: the rating is the denominator every session-metrics query divides spend by, and one made later — with a token total already on screen — is contaminated and worthless. An unattended run rates it anyway and adds `complexity:unconfirmed`. Never rate from the diff, and never let the agent that does the work rate the work.
 - **Status** — move the issue to **In Progress** in the **OSN Platform** project. `gh project item-edit` needs the `project` scope; if it is missing, say so and move it in the UI rather than skipping it.
 
 ## Step 1 — The branch

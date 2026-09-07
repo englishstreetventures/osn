@@ -48,6 +48,36 @@ Any formula that folds diff size into difficulty collapses those into one row,
 and the metric then punishes the hardest legitimate work in the repository. So
 outliers are a **query over raw fields**, never a stored field.
 
+## Declaring complexity
+
+The rating lives on the **issue**, as a `complexity:` label, and it is set
+**before work starts** — `/new-feat` does it at Step 0 through the
+[[rate-complexity]] skill, which proposes a number from the issue body alone and
+asks the owner to confirm or amend it.
+
+The timing is not a detail. A rating made at pull-request time, with a token
+total already on screen, gets talked into agreeing with whatever the work cost,
+and the metric then confirms every outcome instead of questioning any of them.
+For the same reason the agent that did the work never rates the work: it will
+score the task it struggled with as hard.
+
+| Label | Meaning |
+|---|---|
+| `complexity:1` | One file, no new behaviour |
+| `complexity:2` | One package, following a pattern already here |
+| `complexity:3` | One package, but something must be designed |
+| `complexity:5` | Several packages, or a contract others depend on |
+| `complexity:8` | Cross-cutting, or the shape is unknown at the start |
+| `complexity:unconfirmed` | An agent's rating that no human signed off on |
+
+Fibonacci, so `usd_equivalent ÷ declared` is a real division. The rubric rates
+the **problem**, not the change: a one-line fix to a race condition is not a 1.
+Diff size is recorded separately, on purpose, and the two are never blended.
+
+Exclude unconfirmed ratings from anything you intend to act on — they are an
+agent's guess standing alone, and mostly arrive from the backfill of issues that
+predate the label.
+
 ## Where the data comes from
 
 Claude Code writes a transcript per session under

@@ -45,7 +45,7 @@ GitHub Issues, not the wiki. Two repos:
 
 Route by *kind*, never by severity: an `S-`, `P-` or `C-` ID goes to the tracker however minor it looks. `xchromo/osn` is public, and a finding names an unpatched route.
 
-Every issue carries exactly one `product:` label — `osn-core`, `pulse`, `cire`, `zap`, `shared`, `landing` — and an org issue type: `Feature`, `Bug` or `Task`. An `area:` label is optional and only ever `security`, `performance`, `compliance`, `ops`, `docs` or `schema`; an issue with none is ordinary product work, which is what `Feature` already says. Findings also carry a `severity:`, taken from the tier letter in the ID. Epics are parents with sub-issues, so a phased piece of work is one issue plus its parts.
+Every issue carries exactly one `product:` label — `osn-core`, `pulse`, `cire`, `zap`, `shared`, `landing` — and an org issue type: `Feature`, `Bug` or `Task`. An `area:` label is optional and only ever `security`, `performance`, `compliance`, `ops`, `docs` or `schema`; an issue with none is ordinary product work, which is what `Feature` already says. Findings also carry a `severity:`, taken from the tier letter in the ID. Every issue also carries a `complexity:` rating — `1`, `2`, `3`, `5` or `8` — declared **before** work starts, plus `complexity:unconfirmed` when no human signed off on it. It is the denominator every session-metrics query divides spend by, so a rating made after the cost is known is worthless; `/new-feat` sets it through the `rate-complexity` skill. See `[[wiki/observability/session-metrics]]`. Epics are parents with sub-issues, so a phased piece of work is one issue plus its parts.
 
 ```bash
 gh issue list --repo xchromo/osn --state open --label product:pulse

@@ -7,6 +7,7 @@ import {
   branchSlug,
   classifyPath,
   costOf,
+  declaredFromLabels,
   emptyTokens,
   IDLE_CAP_SECONDS,
   isHumanTurn,
@@ -409,6 +410,50 @@ test("parseNumstat counts a binary file without inventing lines", () => {
 test("parseNumstat flags a migration", () => {
   expect(parseNumstat("5\t0\tcire/db/drizzle/0004_x.sql", 1).touches_migration).toBe(true);
   expect(parseNumstat("5\t0\tosn/api/src/a.ts", 1).touches_migration).toBe(false);
+});
+
+// --- declared complexity ----------------------------------------------------
+
+test("declaredFromLabels reads a confirmed rating", () => {
+  expect(declaredFromLabels(["product:cire", "complexity:3"])).toEqual({
+    declared: 3,
+    method: "confirmed",
+  });
+});
+
+test("declaredFromLabels marks an unconfirmed rating", () => {
+  expect(declaredFromLabels(["complexity:5", "complexity:unconfirmed"])).toEqual({
+    declared: 5,
+    method: "unconfirmed",
+  });
+});
+
+test("declaredFromLabels returns none when no rating is present", () => {
+  expect(declaredFromLabels(["product:osn-core", "area:ops"])).toEqual({
+    declared: null,
+    method: "none",
+  });
+});
+
+// The scale is 1/2/3/5/8. A `complexity:4` is somebody inventing a value, and
+// silently honouring it would put a number in the denominator that the rubric
+// never defined.
+test("declaredFromLabels rejects a rating outside the Fibonacci scale", () => {
+  expect(declaredFromLabels(["complexity:4"]).declared).toBeNull();
+  expect(declaredFromLabels(["complexity:13"]).declared).toBeNull();
+});
+
+// Two ratings is a labelling mistake, not a value to average. Reading it as
+// unrated makes the mistake visible instead of quietly resolving it.
+test("declaredFromLabels treats two ratings as unrated", () => {
+  expect(declaredFromLabels(["complexity:2", "complexity:5"]).declared).toBeNull();
+});
+
+test("declaredFromLabels ignores the unconfirmed marker on its own", () => {
+  expect(declaredFromLabels(["complexity:unconfirmed"])).toEqual({
+    declared: null,
+    method: "none",
+  });
 });
 
 // --- slug -------------------------------------------------------------------

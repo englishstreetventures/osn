@@ -58,7 +58,7 @@ interface CliRun {
   card: Card;
 }
 
-async function run(): Promise<CliRun> {
+async function run(extraArgs: string[] = []): Promise<CliRun> {
   const dir = await mkdtemp(join(tmpdir(), "pr-metrics-cli-"));
 
   try {
@@ -157,6 +157,7 @@ async function run(): Promise<CliRun> {
         "895",
         "--out-dir",
         join(dir, "out"),
+        ...extraArgs,
       ],
       { cwd: dir, stdout: "pipe", stderr: "pipe" },
     );
@@ -227,6 +228,27 @@ test("the CLI charges pre-edit exploration to tokens_before_first_edit", async (
   // first edit (50 out). The subagent's 400 is excluded — a delegated task is
   // not the main thread hunting for the file.
   expect(card.interaction.tokens_before_first_edit).toBe(1_000_150);
+});
+
+// `prep-pr` passes whatever the issue carries, so the rating rides along with
+// the labels and nobody retypes a number the issue already holds.
+test("the CLI reads the declared rating out of the issue labels", async () => {
+  const { card } = await run(["--issue-labels", "product:osn-core,complexity:3"]);
+
+  expect(card.complexity).toEqual({ declared: 3, method: "confirmed" });
+  expect(card.issue.labels).toEqual(["product:osn-core", "complexity:3"]);
+});
+
+test("the CLI keeps an unconfirmed rating marked", async () => {
+  const { card } = await run(["--issue-labels", "complexity:5,complexity:unconfirmed"]);
+
+  expect(card.complexity).toEqual({ declared: 5, method: "unconfirmed" });
+});
+
+test("the CLI records a hand-passed rating as manual", async () => {
+  const { card } = await run(["--complexity", "8"]);
+
+  expect(card.complexity).toEqual({ declared: 8, method: "manual" });
 });
 
 test("the CLI refuses to card main", async () => {

@@ -657,6 +657,43 @@ export function parseNumstat(numstat: string, commits: number): DiffSummary {
   };
 }
 
+/** The five ratings the `complexity:` labels allow. Fibonacci, so that
+ * `usd_equivalent ÷ declared` is a real division rather than an ordinal
+ * pretending to be a number. */
+export const COMPLEXITY_VALUES = [1, 2, 3, 5, 8] as const;
+
+export interface DeclaredComplexity {
+  declared: number | null;
+  method: "confirmed" | "unconfirmed" | "none";
+}
+
+/**
+ * Read the declared rating off an issue's labels.
+ *
+ * The number lives on the issue rather than in the card because it has to be
+ * set before work starts — see `wiki/observability/session-metrics.md`. The
+ * card only transcribes it.
+ *
+ * Two labels rather than one: `complexity:unconfirmed` marks a rating no human
+ * signed off on, which is most of a backfill. Those stay separable so a query
+ * meant to drive a decision can exclude an agent's unreviewed guess. More than
+ * one rating label is a labelling mistake, not a value to average — it reads as
+ * unrated so the mistake shows up rather than being quietly resolved.
+ */
+export function declaredFromLabels(labels: string[]): DeclaredComplexity {
+  const ratings = labels
+    .map((label) => /^complexity:(\d+)$/.exec(label.trim()))
+    .filter((match) => match !== null)
+    .map((match) => Number.parseInt(match[1], 10))
+    .filter((value) => (COMPLEXITY_VALUES as readonly number[]).includes(value));
+
+  if (ratings.length !== 1) return { declared: null, method: "none" };
+
+  const unconfirmed = labels.some((label) => label.trim() === "complexity:unconfirmed");
+
+  return { declared: ratings[0], method: unconfirmed ? "unconfirmed" : "confirmed" };
+}
+
 export interface Card {
   schema_version: number;
   pr: {
@@ -805,15 +842,24 @@ if (import.meta.main) {
   const commits = git(["rev-list", "--count", `${base}..HEAD`]);
   const diff = parseNumstat(numstat, Number.parseInt(commits, 10) || 0);
 
-  const declared = flag("complexity");
+  const issueLabels = (flag("issue-labels") ?? "").split(",").filter(Boolean);
+
+  // The labels are the normal source — `prep-pr` passes whatever the issue
+  // carries and the rating comes along with them, so nobody has to retype a
+  // number the issue already holds. `--complexity` stays as an override for a
+  // branch with no issue, and it is recorded as `manual` so a hand-typed
+  // rating never sits in a query beside one an owner confirmed on an issue.
+  const fromLabels = declaredFromLabels(issueLabels);
+  const override = flag("complexity");
+
   const card = buildCard(records, diff, {
     branch,
     prNumber: flag("pr") ? Number.parseInt(flag("pr") as string, 10) : null,
     issueNumber: flag("issue") ? Number.parseInt(flag("issue") as string, 10) : null,
     issueType: flag("issue-type"),
-    issueLabels: (flag("issue-labels") ?? "").split(",").filter(Boolean),
-    declaredComplexity: declared ? Number.parseInt(declared, 10) : null,
-    complexityMethod: flag("complexity-method") ?? (declared ? "manual" : "none"),
+    issueLabels,
+    declaredComplexity: override ? Number.parseInt(override, 10) : fromLabels.declared,
+    complexityMethod: flag("complexity-method") ?? (override ? "manual" : fromLabels.method),
     baseSha: git(["rev-parse", base]) || null,
     headSha: git(["rev-parse", "HEAD"]) || null,
     mergedAt: flag("merged-at"),
