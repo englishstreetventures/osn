@@ -22,6 +22,34 @@ git rev-parse --is-bare-repository 2>/dev/null                              # ex
 
 Anywhere else — the remote environment, a container, or inside a worktree — **stop** and say: "orchestrate needs the local bare repo root so it can create worktrees — run it from `/Users/ac/.work/osn.git`, or use `new-feat` and `prep-pr` in place instead." There is no static equivalent of this run; the deliverable is merged pull requests.
 
+## The blackboard
+
+Write `ORCHESTRATE.md` at the root of the bare repo — outside every worktree, so
+no `.gitignore` governs it and no worktree can stage it, which is the point: one
+file for a run that spans several branches. Rewrite it at every step
+boundary — a task dispatched, a gate run, a commit made, a PR opened. A long run
+gets compacted, and what survives a compaction is what was written down, not what
+you were holding in context. Read it first after any compaction, before touching a
+worktree. One block per task:
+
+```markdown
+## task 3 — vendor enquiry weddingName
+issue:       xchromo/osn#812
+worktree:    /Users/ac/.work/osn.git/vendor-enquiry-name
+branch:      feat/vendor-enquiry-name (base origin/main)
+pr:          not opened
+gates:       check ok · lint ok · test:run NOT RUN · fmt:check NOT RUN
+findings:    plan 1 · brief 0 · worker 2
+next:        stress-plan finding #2 still open — the DoD names a command that runs nothing
+```
+
+`NOT RUN` is a real value and usually the honest one: a gate whose result you
+cannot name off this file has not been run, whatever anyone reported. `findings:`
+counts where each finding came *from* — the plan's when the plan said to do the
+wrong thing, the brief's when the instruction was right but under-specified, the
+worker's when the brief was right and the code is not. It costs one line and it is
+the only signal that says which stage to spend more on.
+
 ## Step 00 — Feature or task list?
 
 Classify the input before ordering anything.
@@ -33,7 +61,8 @@ Classify the input before ordering anything.
 
 1. `superpowers:brainstorming` turns the idea into an approved spec at `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md`. It has a hard gate — no worktree, no plan, no implementation until the user approves — and a feature spanning independent subsystems comes out as sub-project specs, which become your phases.
 2. `superpowers:writing-plans` turns each approved spec into a task-by-task plan at `docs/superpowers/plans/YYYY-MM-DD-<name>.md`, one per phase. Note each plan's **Global Constraints**; they go into every dispatch.
-3. The ordered phases are the tasks Step 0 orders — one phase, one branch, one PR. Inside a phase, the plan's tasks are the subagent's work, not yours.
+3. Run the `stress-plan` skill on each phase's plan before dispatching that phase. A wrong assumption in a plan is copied faithfully by a good implementer and comes back as a clean diff doing the wrong thing; no downstream review catches it, because every downstream review checks the work against the plan rather than the plan against the repo. Every finding is closed — fixed in the plan or rejected in writing — before Step 2 cuts the worktree.
+4. The ordered phases are the tasks Step 0 orders — one phase, one branch, one PR. Inside a phase, the plan's tasks are the subagent's work, not yours.
 
 Point every dispatch and every reviewer at the phase's **plan file path** and its Global Constraints. The plan is the single source of requirements; do not paste task detail into a dispatch.
 
@@ -69,7 +98,34 @@ git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <pr
 
 ### Step 3 — Hand the task off, whole
 
-Dispatch **one** `general-purpose` subagent that owns planning and implementation. Give it the task, the Step 1 pointers, the worktree path and branch, and these instructions:
+Dispatch **one** `general-purpose` subagent that owns planning and implementation. Give it the task, the Step 1 pointers, the worktree path and branch, and these instructions.
+
+**The dispatch is a contract, not a description.** A subagent inherits no
+conversation, so anything not in the text does not exist, and anything wrong in it
+gets followed to the letter. Every dispatch carries:
+
+- **The reader.** Every file the task creates names the file or command that reads
+  it. If nothing reads it, the task is not done — "create the file" and "make
+  something call it" are separate steps, and an implementer reliably does the
+  first and skips the second.
+- **Never invent an identifier.** Hostname, key name, path, port, flag, package
+  name. Unknown value means stop and report `NEEDS INPUT`, never a plausible
+  placeholder.
+- **The command to run.** Name it, and make sure it actually runs the thing: a
+  type check is not a run, and `bun test ./scripts/` collects no `*.test.sh`.
+- **Commit on the branch.** An uncommitted tree is not a result.
+- **Report only what git cannot tell you** — assumptions, deviations, blockers.
+  You read the diff for everything else.
+- **The shared files** this task touches that another task also touches. That is a
+  real dependency and belongs in the order alongside the logical ones.
+- **The wiki pages to read, by repo path**, and the ones this work makes stale.
+  Paths, never pasted prose — the subagent has its own context window and can open
+  a file; yours is the run's bottleneck.
+
+`test -e` every path a dispatch names before sending it. A whole task has been
+lost to a directory that did not exist, and that was the orchestrator's fault.
+
+Then the instructions themselves:
 
 - Invoke the `new-feat` skill and follow it — it routes to the right sub-skills. Plan the implementation itself; do not wait for a plan from you.
 - Match repo conventions (`CLAUDE.md`, the product's `wiki/apps/<product>-development.md`), add the changeset, follow the observability rules, write tests — TDD where there is logic.
@@ -82,6 +138,29 @@ Do not re-implement or second-guess its design. Its final message is a report to
 For a **large phase** — a plan with many independent tasks — tell the subagent to run `superpowers:subagent-driven-development` against the plan file instead of `new-feat`: a fresh implementer per task, a review per task, a review of the whole branch, all inside the one branch. Still one PR; `prep-pr` runs once at the end.
 
 ### Step 4 — `prep-pr`, with findings fixed
+
+**No subagent's stated verification counts.** Before reading a word of its report,
+check the mechanical half yourself in its worktree: the commit exists and the tree
+is clean (`git -C <dir> status --porcelain`, `git log --oneline <base>..HEAD`), no
+conflict markers survived a rebase, no brief or scratch file was committed, every
+JSON and TOML the branch touched still parses, and `git -C <dir> diff --stat`
+shows it touched what it claimed. Each of those has caught a report that was wrong
+— including one quoting a commit SHA it had invented. Then read the diff, then run
+the gates.
+
+Two rules for anything you dispatch into a worktree:
+
+- **A reviewer never builds.** Read-only means read-only about the tree, not just
+  about your files: two builds running at once in one checkout interleave their
+  output into a directory that never existed, and the measurements taken from it
+  are not real. Take measurements yourself, in a worktree nothing else is
+  touching. A finding quoting a measured number states the worktree and the file
+  count it measured, so you can reject it on sight when the count disagrees with
+  what the app emits.
+- **One agent per worktree, reviewers included**, and never one alongside your own
+  uncommitted edits. A review agent comparing an old shape against a new one
+  reaches for `git checkout <ref> -- <path>`, and putting it back discards
+  whatever you had uncommitted in that tree.
 
 Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. A finding deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the five-section PR body, push, and open the PR.
 
@@ -100,6 +179,25 @@ gh pr view <n> --json mergeStateStatus,statusCheckRollup,state
 - Once `MERGED`, the shepherd runs `git worktree remove --force <dir>`, deletes the local branch, and reports back. Never leave a merged task's worktree behind.
 
 **Between dependent tasks:** `git fetch origin main` and fast-forward local `main` so the next worktree is cut from the updated tip. If a later task's branch already exists and now conflicts, rebase it before its Step 5.
+
+## When a subagent dies mid-task
+
+Session limits, API errors and crashes all land the same way: the agent stops and
+the worktree holds a partial change nobody has verified. Do not re-dispatch into
+it blind — a second agent inherits half-finished edits it did not make and cannot
+tell them from the tree.
+
+1. `git -C <worktree> status --porcelain` and `git log --oneline <base>..HEAD`.
+   Committed work is salvage; an uncommitted tree is a draft with no author.
+2. Read the partial diff yourself. Decide one of three things and write the
+   decision into `ORCHESTRATE.md`: finish it yourself, re-dispatch with a brief
+   that names what is already done, or `git restore` and start the task over.
+3. Re-dispatching wins only when the remaining work is large and separable. Below
+   roughly a file's worth, finishing it yourself is cheaper than writing a brief
+   that describes someone else's half-finished tree.
+4. A limit that resets on a clock is a wait, not a failure. Park the task in
+   `ORCHESTRATE.md` with `next:` filled in and pick up a task that touches no file
+   this one touches.
 
 ## Handling subagent questions
 

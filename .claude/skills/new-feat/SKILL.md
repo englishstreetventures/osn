@@ -7,13 +7,16 @@ Start new work for `$ARGUMENTS`. If it is empty, ask for a feature name, an issu
 
 ## What this run must produce
 
-Three things, in this order — each depends on the one before:
+Four things, in this order — each depends on the one before:
 
 1. **The issue.** Taken by number when one exists, opened otherwise. The branch name is derived from its title, so nothing else can happen first.
 2. **The branch.** A worktree on the local bare repo, or an in-place branch on the remote environment — Step 1 decides which.
 3. **The plan.** Files, steps, the wiki pages the work makes stale, the changeset, and the observability plan.
+4. **The plan, attacked.** `stress-plan` run against it and every finding closed, before a line of code is written.
 
-Report all three in the final message: issue number and its project status, branch name (and worktree path), the plan. In a non-interactive run — no user reading the chat — write the same three things to `NEW-FEAT.md` at the root of the checkout, or to whichever file the task named. It is scratch, never committed.
+Report all four in the final message: issue number and its project status, branch name (and worktree path), the plan, and what the stress-test found.
+
+**Write the plan to `NEW-FEAT.md` at the root of the checkout, always** — not only in a non-interactive run. It is this branch's blackboard as well as its plan: a long session gets compacted, and what survives a compaction is what was written down, not what was being held in context. Read it first after any compaction, before touching a file. Keep it current at every boundary — a step finished, a gate run, a commit made — and record a gate you have not run as `NOT RUN` rather than leaving it blank; that is a real value and usually the honest one. It is scratch, never committed.
 
 ## When a gate cannot run
 
@@ -107,12 +110,33 @@ The plan names:
 - the existing files and patterns in play — Effect services, Elysia routes, Drizzle schema, SolidJS components — and the reference implementation elsewhere in the repo to copy from
 - the files to create or modify, and the steps in order
 - **the wiki pages this work makes stale, by repo path** — `prep-pr` has to update every one, and finding them now is cheaper than at PR time
+- **for every config value the plan says to set, the file and line that reads it.** No citation means the instruction is a guess, and a good implementer will implement the guess cleanly: a wrong config value produces a tidy diff, a green build and no behaviour change, which no gate can fail on. A value read in more than one place is two facts, not one
+- **for a change to any build config, the directories that build writes** and which of them are served publicly. "The build passes" and "the output is what I expected" are different claims
+- **the issue's premise, verified.** An issue states what was true when it was written; check the sentence the work rests on before the plan inherits it
 - Effect, WebSocket or E2E-encryption considerations, if any
 - the changeset — always needed unless every changed file is on the allowlist in `scripts/changeset-required.sh`; `@cire/*` packages are version-less and never share a changeset with a versioned one
 - **the observability plan** for every new service, route or service function — which error paths use `Effect.logError` and any new secret field for the redaction list; which functions get `Effect.withSpan("<domain>.<operation>")` and that outbound HTTP goes through `instrumentedFetch`; which counters or histograms join the owning `metrics.ts`, named `{namespace}.{domain}.{subject}.{measurement}` with a bounded string-literal attribute type — never a user, request or event id. `wiki/observability/overview.md` holds the rules.
+
+## Step 3 — Attack the plan before building on it
+
+Invoke the `stress-plan` skill with the path to `NEW-FEAT.md`. It hands the plan
+to a second model in a fresh context, and every finding is fixed in the plan or
+rejected in writing before implementation starts.
+
+It decides for itself whether the plan is worth attacking — a rename or a flag on
+a value already traced to its reader is skipped, anything touching auth, schema, a
+Worker binding, a build config, more than one package, or a whole class of defect
+is not. Do not pre-empt that call; invoke it and let it skip.
+
+This is the one gate with no downstream equivalent. `prep-pr`'s reviews check the
+code against the plan; nothing else checks the plan against the repo.
+
+## Step 4 — Implement
 
 While implementing, invoke the skill that already encodes the sub-task — UI, Cloudflare, TDD, debugging, brainstorming when scope is open, Obsidian syntax for any wiki edit. The routing table is `references/skills-routing.md`; when unsure whether one fits, invoke it — a wrong fit costs little.
 
 ## Finish
 
-Summarise the issue and its status, the branch (and worktree path), and the plan. On PERSONAL, `cd` into the worktree before any implementation starts. When the user is happy with the implementation, prompt: "Ready to prepare this branch for a PR? Run `/prep-pr` to validate changesets, run tests, get performance and security reviews, and push the branch."
+Summarise the issue and its status, the branch (and worktree path), the plan, and
+what `stress-plan` found — how many findings, how many fixed, how many rejected
+and why. On PERSONAL, `cd` into the worktree before any implementation starts. When the user is happy with the implementation, prompt: "Ready to prepare this branch for a PR? Run `/prep-pr` to validate changesets, run tests, get performance and security reviews, and push the branch."
