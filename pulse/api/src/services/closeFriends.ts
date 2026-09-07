@@ -169,7 +169,7 @@ export const isCloseFriendOf = (
  * friend. Used by the RSVP service to stamp the `isCloseFriend` display
  * flag without N round-trips.
  *
- * osn-tracker#591: this used to clamp `profileIds` to `MAX_BATCH_SIZE`
+ * This used to clamp `profileIds` to `MAX_BATCH_SIZE`
  * (=`MAX_EVENT_GUESTS`, 1000) "to stay within SQLite's variable limit" —
  * SQLite's cap, not D1's. D1 caps a query at 100 bound parameters, so the
  * clamp didn't even help: a caller with 101+ ids still threw

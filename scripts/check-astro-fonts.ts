@@ -19,7 +19,8 @@
  * the built output, zero font preloads, a `--font-ui`-shaped custom property
  * pointing at a family nothing defines — and `astro build` exits 0. Nothing
  * downstream of the build (`wrangler pages deploy dist`) would notice; the
- * broken artefact ships on a green CI run. xchromo/osn-tracker#128.
+ * broken artefact ships on a green CI run. This guard exists to fail that
+ * build instead.
  *
  * This guard takes a `dist` directory and fails unless BOTH hold:
  *
@@ -211,7 +212,7 @@ if (import.meta.main) {
     console.error(`❌ check-astro-fonts: ${packageName} shipped a fontless build.`);
     for (const { problem } of findings) console.error(`   ${problem}`);
     console.error("");
-    console.error("   This is the failure mode in xchromo/osn-tracker#128: Astro's build-time");
+    console.error("   This is the silent-degradation failure mode this guard exists to catch:");
     console.error("   Google Fonts fetch failed and every layer between unifont and astro build");
     console.error(
       "   swallowed the error, so the build still exited 0 with no fonts in it. Re-run",

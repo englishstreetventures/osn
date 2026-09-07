@@ -83,8 +83,11 @@ export function hydrateConsent(): void {
   // Move an already-decided guest onto the `__Host-` name before reading. It
   // has to happen here, on the read path, because the write path never runs
   // again for them: their stored choice reads back fine, so the banner stays
-  // away and nothing would ever perform the secure write the fix for
-  // osn-tracker#163 depends on. See `migrateBareConsentCookie`.
+  // away and nothing would ever perform the migration write. Without that
+  // move, a script on a sibling *.cireweddings.com origin could set a
+  // same-named Domain-scoped cookie and silently override a guest's stored
+  // refusal — the `__Host-` prefix (falling back to the bare name only on
+  // insecure http dev) is what rules that out. See `migrateBareConsentCookie`.
   migrateBareConsentCookie();
   setRecord(readConsentFromDocument());
   setHydrated(true);

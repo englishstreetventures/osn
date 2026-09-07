@@ -29,8 +29,10 @@ export default defineConfig({
   // three page shells used to <link> fonts.googleapis.com, which cost a DNS
   // lookup, a TLS handshake and a render-blocking round trip to a third party
   // before a single word could paint — and told Google LLC (US) the IP and
-  // user-agent of every visitor, with no consent gate in front of it
-  // (`xchromo/osn-tracker#388`). Astro's pipeline also emits the preload links
+  // user-agent of every visitor, with no consent gate in front of it. Self-
+  // hosting the OFL-licensed font files removes that request entirely, so
+  // there is no visitor data sent to Google on page load and nothing left to
+  // disclose as a subprocessor. Astro's pipeline also emits the preload links
   // and the fallback metrics (`optimizedFallbacks`), so the swap from fallback
   // face to real face doesn't shift the layout.
   //

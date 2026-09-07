@@ -179,10 +179,10 @@ export default function VendorEnquiryThread(props: VendorEnquiryThreadProps) {
               {...field}
               rows={3}
               // Inside VendorApp's createAutoSize() panel, same as
-              // ListingEditor's description box: a fixed-width height drag
-              // reads as a content swap to the frame's `lastWidth !== width`
-              // guard and restarts a transition per observer delivery
-              // (osn-tracker#130).
+              // ListingEditor's description box: the reflow guard keys off
+              // width alone, so a height-only resize reads as a content swap
+              // and restarts a transition per observer delivery. Keep this
+              // resize-none until that guard accounts for height too.
               resize="none"
               placeholder="Write a reply…"
               value={draft()}

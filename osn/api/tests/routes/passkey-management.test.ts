@@ -146,7 +146,7 @@ describe("passkey management routes", () => {
       expect(json.passkeys[0]!.label).toBe("Laptop");
     });
 
-    // tracker#468: per-user credential inventory — never cached or stored.
+    // per-user credential inventory — never cached or stored.
     it("sets cache-control: private, no-store", async () => {
       const { tokens } = await seedAccount();
       const res = await app.handle(

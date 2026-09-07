@@ -266,7 +266,7 @@ export const discoverEvents = (
       //   - Connection set is bounded by MAX_EVENT_GUESTS upstream in
       //     `getConnectionIds`.
       //
-      // osn-tracker#592: `connectionIds` binds twice in this one predicate —
+      // `connectionIds` binds twice in this one predicate —
       // once via `inArray`, once via the `sql.join` list inside the EXISTS.
       // Each occurrence bound one parameter per id, so the pair broke D1's
       // 100-parameter cap at ~50 connections even though `MAX_EVENT_GUESTS`

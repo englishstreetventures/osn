@@ -484,13 +484,13 @@ export const purgeAccount = (
 
           // Drop hosted events + their cascading rows for the deleted profiles.
           //
-          // osn-tracker#595 (GDPR): `hostedEventIds` is unbounded — a host
-          // with 101+ hosted events bound one parameter per id here, past
-          // D1's 100-parameter cap, which failed every statement in this
-          // batch (D1 batches are atomic: one failing statement rolls back
-          // the lot) and made an Art. 17 purge unable to ever complete for
-          // exactly the accounts with the most data. `jsonEachIn` binds the
-          // whole id list as one JSON parameter per statement instead. The
+          // GDPR Art. 17: `hostedEventIds` is unbounded, so this binds it via
+          // `jsonEachIn` as a single JSON parameter per statement rather
+          // than one bound parameter per id — binding per-id would hit D1's
+          // 100-parameter cap for a host with 101+ hosted events, failing
+          // every statement in this atomic batch (one failing statement
+          // rolls back the lot) and leaving exactly the accounts with the
+          // most data unable to ever complete a purge. The
           // batch stays one atomic commit per the note above this block —
           // splitting it would reopen the exact half-purged-account risk
           // the single-batch design exists to close.

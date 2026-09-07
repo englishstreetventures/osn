@@ -21,7 +21,7 @@ export function createSecurityEventRoutes(ctx: AuthRouteContext) {
         "/account/security-events",
         async ({ headers, set, server, request }) => {
           // Per-user and sensitive (lists auth events) — never cached or
-          // stored by a shared cache or the browser (tracker#346).
+          // stored by a shared cache or the browser.
           set.headers["cache-control"] = "private, no-store";
 
           const rlErr = await rateLimit(

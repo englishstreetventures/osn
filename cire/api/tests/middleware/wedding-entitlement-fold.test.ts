@@ -11,8 +11,9 @@ import { weddingMember } from "../../src/middleware/wedding-member";
 import { countingDb, appRequest, jsonBody } from "../test-helpers";
 
 /**
- * Proves P-W1 (osn-tracker#116): folding the entitlement check into the role
- * gate's own authorize() query must (a) drop a GATED route's query count —
+ * Proves P-W1: folding the entitlement-set fetch into the role gate's own
+ * authorize() query — rather than a separate round trip after it — must (a)
+ * drop a GATED route's query count —
  * previously the role gate's own 1-2 queries PLUS a separate
  * `entitlementService.has()` query — and (b) leave every route that mounts
  * ONLY a role gate, no entitlement gate, at EXACTLY the query count it always

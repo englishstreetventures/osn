@@ -145,10 +145,10 @@ export default function EnquiryThread(props: EnquiryThreadProps) {
                 onInput={(e) => setDraft(e.currentTarget.value)}
                 rows={3}
                 // Every module view renders inside `ModuleShell`'s
-                // auto-sized frame, whose reflow guard watches width only —
-                // dragging this box's own resize grip at a fixed width
-                // reads as a content change on every delivery
-                // (xchromo/osn-tracker#130).
+                // auto-sized frame, whose reflow guard keys on width only.
+                // A `resize-y` grip here changes height alone, which the
+                // guard misreads as a content swap and relayouts on every
+                // drag — so this textarea must stay `resize="none"`.
                 resize="none"
               />
             )}

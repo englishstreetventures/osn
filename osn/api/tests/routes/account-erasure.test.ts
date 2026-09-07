@@ -278,7 +278,7 @@ describe("account-erasure routes — response bodies", () => {
     expect(status.softDeletedAt!).toBeLessThanOrEqual(status.scheduledFor!);
   });
 
-  // tracker#468: per-user deletion status — never cached or stored.
+  // per-user deletion status — never cached or stored.
   it("GET /account/deletion-status sets cache-control: private, no-store", async () => {
     const layer = createTestLayer();
     const { app, authed } = await seed(layer);

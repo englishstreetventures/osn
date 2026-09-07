@@ -450,14 +450,15 @@ describe("suggestConnections", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // osn-tracker#574: the co-member fan-out used to be one query bounded by
+  // The co-member fan-out now gives each of the caller's organisations its
+  // own share of MAX_ORG_COMEMBER_ROWS, rather than one query bounded by
   // MAX_ORG_COMEMBER_ROWS across ALL the caller's organisations, ordered
-  // `(organisation_id, profile_id)`. Whichever organisation the caller
-  // belonged to happened to sort first absorbed the whole budget, and every
-  // other organisation contributed nothing — a fixed draw per caller, since
-  // organisation ids don't change. This seeds exactly that shape: one
-  // organisation alone big enough to have exhausted the old global budget,
-  // and two small ones that used to be starved by it.
+  // `(organisation_id, profile_id)`. Under that old scheme, whichever
+  // organisation the caller belonged to happened to sort first absorbed the
+  // whole budget, and every other organisation contributed nothing — a fixed
+  // draw per caller, since organisation ids don't change. This seeds exactly
+  // that shape: one organisation alone big enough to have exhausted the old
+  // global budget, and two small ones that used to be starved by it.
   it.effect(
     "every organisation the caller belongs to contributes candidates, not just the biggest one",
     () =>

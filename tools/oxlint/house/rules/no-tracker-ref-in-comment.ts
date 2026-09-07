@@ -24,7 +24,12 @@ type CommentPattern = {
  * hoist to module scope.
  */
 const patterns: readonly CommentPattern[] = [
-  { messageId: "trackerRef", regex: /osn-tracker#\d+/gi },
+  // `tracker#N` without the `osn-` prefix is the same private-issue reference
+  // under a shorter spelling the repo also uses — found live in the wild
+  // (osn/api/src/routes/auth/*.ts, .../graph.ts) after this rule already
+  // shipped, so both spellings are covered rather than only the one the
+  // original audit happened to sample.
+  { messageId: "trackerRef", regex: /\b(?:osn-)?tracker#\d+/gi },
   { messageId: "findingId", regex: /\b[CDPST]-[A-Z]\d+\b/g },
   // The lookbehind rejects a hyphen as well as a word character. A finding tag
   // used as a label ends in a colon too, and without that its own tail would

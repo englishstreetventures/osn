@@ -13,19 +13,21 @@ import {
 import { resetConsentForTest, seedConsentForTest } from "../../../src/lib/consent/testing";
 
 /**
- * CON-S-M1 (osn-tracker#162): `saveConsent` reloads the page on a
- * granted → revoked transition for a category that governs at least one
- * `"gated"` vendor — the only way to tear down a third party's already-run
- * side effects, not just stop it loading further. These tests pin the two
- * conditions that gate the reload (see `saveConsent`'s doc in `store.ts`):
- * the transition direction, and a successful cookie write.
+ * CON-S-M1: `saveConsent` reloads the page on a granted → revoked transition
+ * for a category that governs at least one `"gated"` vendor. Unmounting the
+ * embed removes its DOM and `<script>`, but any globals, listeners, or
+ * storage the vendor's code already set survive that removal — a reload is
+ * the only way to clear them, not just stop the vendor loading further.
+ * These tests pin the two conditions that gate the reload (see
+ * `saveConsent`'s doc in `store.ts`): the transition direction, and a
+ * successful cookie write.
  *
  * `location.reload()` itself is not callable in jsdom, so `reloadPage` is
  * substituted with a spy via `setReloadPageForTest` rather than stubbing
  * `window.location` — the module-level indirection `store.ts` defines for
  * exactly this.
  */
-describe("saveConsent — reload on granted → revoked (osn-tracker#162)", () => {
+describe("saveConsent — reload on granted → revoked", () => {
   const reload = vi.fn();
 
   beforeEach(() => {

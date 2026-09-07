@@ -89,8 +89,9 @@ export type TextareaProps = Omit<SafeProps<"textarea">, "size"> & {
    *  wrong — a textarea inside `ModuleShell`'s auto-sized frame
    *  (`lib/auto-size.ts`). That observer's reflow guard watches width only;
    *  dragging this textarea's own resize grip changes height at a fixed
-   *  width, which the guard reads as a content change on every delivery
-   *  (xchromo/osn-tracker#130). A caller cannot fix this by passing
+   *  width, which the guard reads as a content change on every delivery —
+   *  forcing continuous relayout for as long as the guard stays width-only.
+   *  A caller cannot fix this by passing
    *  `class="resize-none"`: this component appends its own resize class
    *  after `own.class`, so both land on the element and Tailwind resolves
    *  the conflict by the two utilities' order in the generated stylesheet,

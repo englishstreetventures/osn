@@ -469,7 +469,7 @@ describe("auth routes", () => {
       expect(json.error).toBe("unsupported_grant_type");
     });
 
-    // tracker#466: RFC 6749 §5.1 / RFC 6750 §5.3 make no-store mandatory on
+    // RFC 6749 §5.1 / RFC 6750 §5.3 make no-store mandatory on
     // token-endpoint responses. Set first, so even this rejection carries it.
     it("sets cache-control: no-store, including on the unsupported_grant_type rejection", async () => {
       const res = await app.handle(
@@ -1557,7 +1557,7 @@ describe("auth routes", () => {
       expect(json.profiles[0]!.handle).toBe("profilelist");
     });
 
-    // tracker#468: per-user profile list — never cached or stored.
+    // per-user profile list — never cached or stored.
     it("sets cache-control: private, no-store", async () => {
       const { accessToken } = await getAccessToken();
       const res = await app.handle(
@@ -1783,7 +1783,7 @@ describe("auth routes", () => {
       }
     });
 
-    // tracker#467: the plaintext codes cross the wire here and only here —
+    // the plaintext codes cross the wire here and only here —
     // never cached or stored.
     it("POST /recovery/generate sets cache-control: no-store", async () => {
       const { accessToken, stepUpToken } = await registerForRecovery();
@@ -1887,7 +1887,7 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
-    // tracker#469: the assignment used to run after the DB read, inside the
+    // the assignment used to run after the DB read, inside the
     // `try`, so the 401/429/500 paths never got it. Moved to the first
     // statement — this is the rejection path a 200-only test cannot see.
     it("GET /recovery/status sets cache-control: no-store even on the 401 rejection", async () => {
@@ -2176,8 +2176,8 @@ describe("auth routes", () => {
       expect(json.sessions[0]!.id).toMatch(/^[0-9a-f]{16}$/);
     });
 
-    // tracker#468: per-user session metadata, direct sibling of
-    // GET /account/security-events (tracker#346).
+    // per-user session metadata, direct sibling of
+    // GET /account/security-events.
     it("GET /sessions sets cache-control: private, no-store", async () => {
       const { app: freshApp, accessToken, cookieHeader } = await setup();
       const res = await freshApp.handle(
@@ -2465,7 +2465,7 @@ describe("auth routes", () => {
     it("GET /account/security-events requires Bearer auth", async () => {
       const res = await app.handle(new Request("http://localhost/account/security-events"));
       expect(res.status).toBe(401);
-      // tracker#346: the header is set above the guards, so it lands on the
+      // the header is set above the guards, so it lands on the
       // rejections too — not only on the 200.
       expect(res.headers.get("cache-control")).toBe("private, no-store");
     });
@@ -2504,7 +2504,7 @@ describe("auth routes", () => {
       expect(typeof json.events[0]!.createdAt).toBe("number");
     });
 
-    // tracker#346: the list is per-user and names auth events — nothing may
+    // the list is per-user and names auth events — nothing may
     // cache or store it.
     it("GET /account/security-events sets cache-control: private, no-store", async () => {
       const { app: freshApp, accessToken } = await setupWithRecovery();

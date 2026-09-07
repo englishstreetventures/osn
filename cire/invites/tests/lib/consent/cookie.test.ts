@@ -70,11 +70,11 @@ describe("readConsentCookieValue", () => {
     expect(readConsentCookieValue(`novalue; ; ${CONSENT_COOKIE_NAME}=${encoded}`)).toBe(encoded);
   });
 
-  // osn-tracker#163: precedence between the `__Host-` and bare names. The
-  // prefixed name must win whenever it's present — that is what stops a
-  // domain cookie planted by a sibling origin under the bare name from
-  // overriding a refusal this site actually recorded under the prefixed one.
-  describe("prefix precedence (osn-tracker#163)", () => {
+  // Precedence between the `__Host-` and bare names. The prefixed name must
+  // win whenever it's present — that is what stops a domain cookie planted by
+  // a sibling *.cireweddings.com origin under the bare name from overriding a
+  // refusal this site actually recorded under the prefixed one.
+  describe("prefix precedence", () => {
     it("reads the bare name when it is the only one present", () => {
       const header = `${CONSENT_COOKIE_NAME}=${encoded}`;
       expect(readConsentCookieValue(header)).toBe(encoded);
@@ -136,8 +136,11 @@ describe("serialiseConsentCookie", () => {
     expect(readConsentRecord(header)?.grants).toEqual(allGrants());
   });
 
-  // osn-tracker#163
-  describe("cookie name (osn-tracker#163)", () => {
+  // Written as `__Host-cire_consent` when secure so a script on a sibling
+  // *.cireweddings.com origin can't set a same-named Domain-scoped cookie
+  // that silently overrides a guest's stored refusal; falls back to the bare
+  // name on http dev, where `__Host-` cookies are rejected outright.
+  describe("cookie name", () => {
     it("writes the __Host- prefixed name when secure", () => {
       const serialised = serialiseConsentCookie(record, true);
       expect(serialised.startsWith(`${PREFIXED_CONSENT_COOKIE_NAME}=${encoded}`)).toBe(true);

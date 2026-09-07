@@ -138,7 +138,7 @@ describe("GuestsEditor", () => {
     expect((box as HTMLInputElement).checked).toBe(true);
   });
 
-  // S-L (xchromo/osn-tracker#622): the draft-save posts the WHOLE DesiredState,
+  // The draft-save posts the WHOLE DesiredState,
   // so a household slice that resolves without filling the cache must not
   // fall back to `?? []` — that reads as "delete every household", taking its
   // live claim code with it. A generation-discarded load (an invalidate

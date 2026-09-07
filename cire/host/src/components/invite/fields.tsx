@@ -101,10 +101,10 @@ export function TextAreaField(props: {
         maxlength={props.maxLength}
         onInput={(e) => props.onInput(e.currentTarget.value)}
         // The invite builder is a module view, and every module view renders
-        // inside `ModuleShell`'s auto-sized frame, whose reflow guard
-        // watches width only — dragging this box's own resize grip at a
-        // fixed width reads as a content change on every delivery
-        // (xchromo/osn-tracker#130).
+        // inside `ModuleShell`'s auto-sized frame, whose reflow guard keys
+        // on width only — a user-resizable textarea in here would have a
+        // height-only drag misread as a content swap and trigger continuous
+        // relayout, so this must stay resize-none.
         resize="none"
       />
       <Show when={props.hint}>

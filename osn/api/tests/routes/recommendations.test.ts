@@ -97,7 +97,7 @@ describe("recommendations routes", () => {
     expect(json.suggestions).toEqual([]);
   });
 
-  // tracker#468: per-user connection suggestions — never cached or stored.
+  // per-user connection suggestions — never cached or stored.
   it("GET /recommendations/connections sets cache-control: private, no-store", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
     const res = await recsApp.handle(
@@ -109,8 +109,8 @@ describe("recommendations routes", () => {
     expect(res.headers.get("cache-control")).toBe("private, no-store");
   });
 
-  // osn-tracker#311 (timestamp half): a list this endpoint never caches or
-  // stores otherwise gives the client no way to say how fresh it is.
+  // Same no-store list from above: with nothing cached or stored, the response
+  // itself is the only way for the client to know how fresh the suggestions are.
   it("GET /recommendations/connections returns a generatedAt timestamp", async () => {
     const alice = await registerAndGetToken("a@e.com", "alice");
     const before = new Date();
@@ -357,7 +357,7 @@ describe("recommendations routes", () => {
       expect(json.people?.[0]!.connectionStatus).toBe("none");
     });
 
-    // tracker#468: per-user search results — never cached or stored.
+    // per-user search results — never cached or stored.
     it("sets cache-control: private, no-store", async () => {
       const alice = await registerAndGetToken("a@e.com", "alice");
       const res = await recsApp.handle(
