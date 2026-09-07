@@ -148,7 +148,16 @@
     // `key in MAP`: `in` walks the prototype chain, so `constructor`,
     // `toString` and `__proto__` satisfy the guard and the predicate then
     // claims an inherited Object.prototype member is a real entry.
-    "house/no-in-operator-key-guard": "error"
+    "house/no-in-operator-key-guard": "error",
+
+    // A comment must not carry work-tracking state — a tracker issue number, a
+    // review finding tag, a phase or plan code — or narrate how the code got
+    // here. Each stops resolving once the issue closes or the plan ships, and
+    // this repo is public, so a comment naming a private finding is itself a
+    // disclosure. At "warn" until the existing references are cleaned up
+    // (issue #924 does that, then raises this to "error"): `bun run lint` runs
+    // unscoped over the whole tree, so "error" today would fail every PR.
+    "house/no-tracker-ref-in-comment": "warn"
 
     // house/no-non-subscribing-store-read is scoped to cire/**/*-store.ts in
     // the "overrides" block below, not turned on here — the pattern it flags
