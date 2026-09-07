@@ -73,6 +73,19 @@ export const g = 7;
 /** Describes the constant. */
 export const h = 8;
 `,
+  // The visitor is registered on eleven declaration types; every other fixture
+  // exercises ExportNamedDeclaration. A plain FunctionDeclaration and a
+  // ClassDeclaration prove the other entries in that list actually fire.
+  "function-declaration.ts": `
+/** Describes something else entirely. */
+/** Runs the thing. */
+function runThing() {}
+`,
+  "class-declaration.ts": `
+/** Describes something else entirely. */
+/** The thing. */
+class Thing {}
+`,
 } as const;
 
 let fixtureDirectory: string;
@@ -102,6 +115,11 @@ function reportedFiles(diagnostics: Diagnostic[]): string[] {
   return [...new Set(diagnostics.map((d) => d.filename.split("/").at(-1) ?? ""))].toSorted();
 }
 
+/** Every diagnostic reported against one fixture file. */
+function forFixture(diagnostics: Diagnostic[], name: string): Diagnostic[] {
+  return diagnostics.filter((d) => d.filename.endsWith(name));
+}
+
 describe("house/no-stacked-doc-block", () => {
   let diagnostics: Diagnostic[];
 
@@ -129,6 +147,8 @@ describe("house/no-stacked-doc-block", () => {
   it("reports a stack whether or not a blank line separates the blocks", () => {
     expect(reportedFiles(diagnostics)).toEqual([
       "blank-gap.ts",
+      "class-declaration.ts",
+      "function-declaration.ts",
       "module-block-plus-stack.ts",
       "three-deep.ts",
       "zero-gap.ts",
@@ -136,7 +156,12 @@ describe("house/no-stacked-doc-block", () => {
   });
 
   it("reports each stacked declaration once, not once per surplus block", () => {
-    expect(diagnostics).toHaveLength(4);
+    expect(diagnostics).toHaveLength(6);
+  });
+
+  it("fires on declaration types other than a const export", () => {
+    expect(forFixture(diagnostics, "function-declaration.ts")).toHaveLength(1);
+    expect(forFixture(diagnostics, "class-declaration.ts")).toHaveLength(1);
   });
 
   it("counts the blocks in the message", () => {
