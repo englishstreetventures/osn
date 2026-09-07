@@ -265,3 +265,6 @@ TEST-REVIEW.md
 PERFORMANCE-REVIEW.md
 SECURITY-REVIEW.md
 DEPS-REVIEW.md
+# A one-off evaluation a workflow wrote for the owner to decide from. Same kind
+# of thing: what survives the decision goes to the wiki, not to the root.
+TSDOC-EVALUATION.md
