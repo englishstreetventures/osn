@@ -69,6 +69,47 @@ platform quirk. Keep it to the constraint:
 const MAX_MY_CONNECTIONS_FOR_FOF = 500;
 ```
 
+## Known issues and deferrals
+
+**A deferral is an issue with a link, never a paragraph.** If you are choosing
+not to do something now — a limitation you are accepting, a rule left at `warn`,
+a fix scoped out of this change, a workaround standing in for a real one — open
+an issue and let the code carry the link:
+
+```ts
+// Bounded to 500 until xchromo/osn#412 removes the per-request rebuild.
+```
+
+Not:
+
+```ts
+// We cap this at 500 because the layer is rebuilt per request. Ideally the
+// runtime would be shared and this could go away, but that is a bigger change
+// touching four packages, so for now the cap stays.
+```
+
+The second version reads as though someone has it in hand. Nobody does. It has
+no owner, appears in no backlog, and is found only by whoever next opens that
+file — which is the failure this whole page exists to stop, in the one form that
+looks most like diligence.
+
+**A deferral is not a decision.** A settled choice with a reason belongs inline
+and needs no issue: `require-param` stays off because it would demand a
+restatement of the types, and that is true permanently. The test is whether the
+sentence implies future work. "For now", "until", "eventually", "ideally",
+"a bigger change" — those are deferrals wearing an explanation.
+
+This applies to **config comments too**, not just code. `oxlintrc.json` says a
+rule sits at `warn` until issue #924 clears its backlog; what it must not do is
+describe the backlog.
+
+> [!warning]
+> A security, performance or compliance finding lives in the private
+> `xchromo/osn-tracker` and must **not** be linked from a file in this public
+> repo — the link is the disclosure. State the constraint the code is holding to
+> and leave the finding unnamed. `house/no-tracker-ref-in-comment` fails the
+> build on the reference, which is the backstop, not the rule.
+
 ## One block per declaration
 
 Only the **last** doc block in front of a declaration is attached to it. Stack
