@@ -100,6 +100,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[commands]] — CLI commands reference
 - [[devloop-urls]] — named HTTPS hosts per app, one dev stack per worktree
 - [[review-findings]] — finding ID format (S-H1, P-W2, T-M1)
+- [[code-comments]] — what a comment is for, the four references that rot, the TSDoc tags to use
 - [[contributing]] — PR workflow, changesets, branching
 - [[stacked-prs]] — basing one PR on another with the gh CLI, and merging the stack
 - [[component-lab]] — the in-repo Storybook replacement: prototyping components, three.js and canvas
