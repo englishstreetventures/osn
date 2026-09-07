@@ -1,6 +1,6 @@
 {
   "name": "@zap/api",
-  "version": "0.8.37",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "exports": {

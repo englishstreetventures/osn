@@ -1,5 +1,60 @@
 # @osn/crypto
 
+## 0.11.0
+
+### Minor Changes
+
+- d3af349: Move every Effect dependency to 4.0.0-rc.112 and convert the service keys.
+
+  `effect`, `@effect/vitest` and `@effect/opentelemetry` are pinned to one exact
+  version, because v4 releases the ecosystem under a single version number and is
+  still pre-GA — a caret range would let an install move the target mid-migration.
+  `@effect/platform` is dropped: v4 merged it into core, and nothing here imported
+  it.
+
+  `Context.Tag` no longer exists. Class declarations become
+  `Context.Service<Self, Shape>()(id)` — note the argument order flips — and the
+  `Context.Tag<any, A>` parameter types in `@shared/db-utils` become
+  `Context.Key<any, A>`. Every service identifier string is unchanged, since those
+  are the runtime lookup keys. Call sites are untouched: a v4 service key still
+  extends `Effect`, so `yield* Db` works as before.
+
+  This is the first phase of the Effect v4 migration and does not stand alone —
+  the tree does not type-check until the `Schema` work lands.
+
+### Patch Changes
+
+- d3af349: Apply the Effect v4 combinator renames and the Cause/Runtime rework.
+
+  Renames resolved from upstream's generated reference: `catchAllDefect` →
+  `catchDefect`, `catchAllCause` → `catchCause`, `catchAll` → `catch`, `either` →
+  `result`, `forkDaemon` → `forkDetach`, `zipRight` → `andThen`, `dieMessage` →
+  `die(new Error(…))`, `Layer.scoped` → `Layer.effect`, `Cause.failureOption` →
+  `Cause.findErrorOption`. The `Either` module became `Result`, whose variants are
+  tagged `Success`/`Failure` and carry `success`/`failure` rather than
+  `right`/`left`.
+
+  `Runtime.isFiberFailure` and `FiberFailureCauseId` are gone: v4's runner rejects
+  with `Cause.squash(cause)`, which is the typed failure itself, so the two
+  osn-api error-shaping helpers no longer unwrap anything. That changes one thing
+  on a security path — `Cause.squash` surfaces a _defect_ where v3's
+  `Cause.failureOption` returned `None` — and both helpers now document it.
+
+  Adds a test asserting the Redis layer's finalizer runs on scope close. The
+  `Layer.scoped` → `Layer.effect` rewrite would have leaked connections silently
+  if the scope had been dropped: it type-checks either way, and nothing covered it.
+
+  Second phase of the Effect v4 migration; the tree does not type-check until the
+  `Schema` work lands.
+
+- Updated dependencies [d3af349]
+- Updated dependencies [d3af349]
+- Updated dependencies [d3af349]
+- Updated dependencies [d3af349]
+- Updated dependencies [d3af349]
+  - @osn/db@0.21.0
+  - @shared/observability@0.14.0
+
 ## 0.10.18
 
 ### Patch Changes

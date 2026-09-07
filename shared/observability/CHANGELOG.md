@@ -1,5 +1,166 @@
 # @shared/observability
 
+## 0.14.0
+
+### Minor Changes
+
+- d3af349: Move every Effect dependency to 4.0.0-rc.112 and convert the service keys.
+
+  `effect`, `@effect/vitest` and `@effect/opentelemetry` are pinned to one exact
+  version, because v4 releases the ecosystem under a single version number and is
+  still pre-GA — a caret range would let an install move the target mid-migration.
+  `@effect/platform` is dropped: v4 merged it into core, and nothing here imported
+  it.
+
+  `Context.Tag` no longer exists. Class declarations become
+  `Context.Service<Self, Shape>()(id)` — note the argument order flips — and the
+  `Context.Tag<any, A>` parameter types in `@shared/db-utils` become
+  `Context.Key<any, A>`. Every service identifier string is unchanged, since those
+  are the runtime lookup keys. Call sites are untouched: a v4 service key still
+  extends `Effect`, so `yield* Db` works as before.
+
+  This is the first phase of the Effect v4 migration and does not stand alone —
+  the tree does not type-check until the `Schema` work lands.
+
+- d3af349: Rebuild the logger for Effect v4, and fix a secret leak in annotation redaction.
+
+  `redact()` matches the deny-list against an object's **keys**, and the v3 logger
+  mapped over each annotation **value** — so it only ever saw a bare scalar with no
+  key attached and passed it through. `Effect.annotateLogs({ accessToken })`
+  reached the sink in clear, along with every other deny-listed key, on every tier.
+  The record is now passed whole.
+
+  v4 moved annotations off the logger's `Options` and onto the fiber, so redaction
+  moves to the output side, wrapping `Logger.formatStructured`. `Logger.layer`
+  replaces the whole active set, so `Logger.tracerLogger` is listed explicitly —
+  omitting it drops log-to-span correlation silently. `LogLevel` is now string
+  literals (`"Warn"`, not v3's `"Warning"`), and the minimum level is a
+  `References.MinimumLogLevel` service rather than `Logger.minimumLogLevel`.
+
+  Adds `PrettyLoggerLive` for the dev-server entrypoints, replacing v3's
+  `Logger.pretty`. It exists as one export rather than eleven inline
+  `Logger.layer([…])` arrays so `tracerLogger` has a single place to be got right.
+
+  Local output loses ANSI colour for an indented structured rendering:
+  `consolePretty` is opaque, so there is no seam to redact through it, and one
+  redaction point covering every tier is the better trade.
+
+  **The JSON severity field is now `level`, not `logLevel`.** Grafana queries,
+  panels and alerts filtering on the old name match nothing and must be updated in
+  Grafana Cloud by hand.
+
+- d3af349: OTLP trace export now works on Cloudflare Workers. Both deployed Workers
+  (`id.musubi.social`, `api.cireweddings.com`) had `Effect.withSpan` at 177 call
+  sites and exported nothing: `shared/observability/src/tracing/layer.ts` builds
+  `NodeSdk.layer(...)`, and `@effect/opentelemetry` ships only `NodeSdk`/`WebSdk`,
+  neither of which runs on workerd.
+
+  New `shared/observability/src/tracing/otlp.ts` — `makeOtlpTracing(config)` —
+  builds a tracing layer on Effect v4's own `effect/unstable/observability`
+  (`OtlpTracer` + `OtlpSerialization.layerJson`) over `FetchHttpClient`, so the
+  whole path is `globalThis.fetch` and has no Node dependency. It returns
+  `{ layer, flush, enabled }`; the layer is a `Layer.Layer<never>` (the
+  `Tracer.Tracer` reference is erased from a layer's output type) so it drops
+  straight into the existing layer graphs and no route factory or `AppDeps`
+  signature changed.
+
+  The background export interval is deliberately pushed 24h out: on workerd no
+  fiber survives between requests, and a failed background export disables the
+  exporter — dropping spans — for 60 seconds. `flush` inside `ctx.waitUntil(...)`,
+  after the response is produced, is the only sound drain, and it drains every
+  live exporter (a `Layer` is memoized per `MemoMap`, so osn/api's two long-lived
+  runtimes each hold one). `config.traceSampleRatio` is applied as a head-based,
+  parent-respecting sampler, matching what the Bun path gets from
+  `ParentBasedSampler`.
+
+  Inert unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set: the layer is `Layer.empty`,
+  `flush` is a no-op, and nothing is ever POSTed.
+
+  `osn/api`:
+
+  - `osnLoggerLayer` now carries the tracer as well as the redacting logger, and
+    `build-deps.ts` already merges it into the shared `appRuntime` every route
+    runs on — so the route spans are exported without touching a route.
+  - `runOsn`/`runOsnSync` moved onto a module-scope `ManagedRuntime` (mirroring
+    cire/api). `Effect.provide` opens _and closes_ a layer's scope per call, which
+    with an exporter attached meant building and tearing one down per call.
+  - `OsnWorkerHandler.fetch` gained an **optional** third `ctx: ExecutionContext`
+    parameter, needed for `ctx.waitUntil(flushOsnTelemetry())`. Optional so every
+    existing two-argument caller keeps compiling and behaving identically (they
+    just skip the flush); a deployed Worker always receives the context.
+
+  `shared/observability`:
+
+  - `otlpExporterUrl` moved to `src/tracing/url.ts` (re-exported from
+    `src/tracing/layer.ts`, so its import path is unchanged) — the workerd
+    exporter needs it and must not reach the NodeSdk module.
+  - `src/tracing/index.ts` is now the workerd-safe barrel and no longer
+    re-exports `./layer`; `makeTracingLayer` is still exported from the package
+    root, which is Bun-only by construction.
+  - `tests/tracing/workerd-safety.test.ts` walks the static import graph of every
+    subpath the two Workers import and fails on a Node-only dependency, including
+    a not-vacuous check that the detector still fires on the Bun-only root barrel.
+
+  Traces only. Metric export stays deferred: `src/metrics/factory.ts` builds its
+  instruments from the raw `@opentelemetry/api` meter rather than Effect's
+  `Metric`, so `OtlpMetrics` cannot see any of them.
+
+  Known limitation, documented in the code: `src/fetch/instrument.ts` and
+  `src/tracing/propagation.ts` use the raw `@opentelemetry/api` registry, which
+  nothing bridges to Effect's tracer. An inbound `traceparent` does not become the
+  parent of these spans and `instrumentedFetch`'s client spans are not their
+  children, so what is exported is a correctly attributed root span per fiber root
+  rather than one joined request trace — which is already the shape of the data,
+  since the repo makes 244 separate `runCire()`/`runOsn()`/`run()` calls.
+
+### Patch Changes
+
+- d3af349: Drop five `Logger` imports left dead by the v4 logger rework, and finish the
+  Effect v4 migration: with `@cire/api` moved off v3 in the same change, the
+  whole monorepo type-checks and passes its tests under Effect v4.
+
+  The observability change is the test-only one: `Logger.layer` replaces the
+  whole active logger set, so the default logger that used to emit a separate
+  "Fiber terminated…" stack dump is gone, and a capture is now exactly the
+  entry under test.
+
+- d3af349: Redact the pretty logger, stop a deployed Worker from using it, and stop
+  `redact` from killing the fiber that logged.
+
+  `layer.ts` claimed `Logger.consolePretty()` was "opaque, so there is no seam to
+  redact through", and the v4 migration gave up ANSI colour on the `local` tier on
+  that basis. The claim was false. v4 exposes the entry on the **input** side:
+  `Logger.Options` carries `message`, and the pretty logger reads annotations as
+  `fiber.getRef(References.CurrentLogAnnotations)`. Shadowing both and delegating
+  to an untouched `consolePretty` redacts it while Effect keeps ownership of
+  colour, log spans, `LogToStderr`, `ConsoleRef` and the fiber id.
+
+  So `PrettyLoggerLive` is redacted now, and `local` gets colour back — the
+  colour-for-redaction trade was never a real trade. The unredacted-logger
+  category is gone from the codebase entirely, which is the point: no call site
+  can pick the wrong one.
+
+  `redact` gained an `Error` branch returning a real `Error` with scrubbed own
+  properties, so the stack traces the pretty logger exists for survive the scrub.
+  Nothing changes on the JSON path, where `formatStructured` has already flattened
+  values before `redact` sees them.
+
+  `redact` also no longer **throws** on cyclic input; it returns `[Circular]`. It
+  runs inside the logger on every deployed tier, so `Effect.logError("x", err)`
+  with a looping `cause` chain was killing the fiber that logged. A logger must
+  not be able to do that. The primitive fast path is untouched.
+
+  `zap/api/src/index.ts` is a deployed Worker (`main = "src/index.ts"`, route
+  `zap.cireweddings.com`) and was the only non-dev-server consumer of
+  `PrettyLoggerLive` — so its two registration log lines had no redaction, no
+  minimum log level, no span correlation, and emitted multi-line ANSI into Workers
+  Logs, which is exactly what the `dev` tier is denied the pretty logger for. It
+  now builds `makeLoggerLayer` from the workerd-safe subpaths, memoised per
+  isolate. No secret was reaching those lines today — all four reachable throw
+  sites in `registerWithOsnApi` are benign — the problem was the shape.
+
+  shared/observability: 92 -> 101. zap/api: 179, unchanged.
+
 ## 0.13.8
 
 ### Patch Changes

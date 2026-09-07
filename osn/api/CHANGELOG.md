@@ -1,5 +1,237 @@
 # @osn/osn
 
+## 3.21.0
+
+### Minor Changes
+
+- d3af349: Move every Effect dependency to 4.0.0-rc.112 and convert the service keys.
+
+  `effect`, `@effect/vitest` and `@effect/opentelemetry` are pinned to one exact
+  version, because v4 releases the ecosystem under a single version number and is
+  still pre-GA — a caret range would let an install move the target mid-migration.
+  `@effect/platform` is dropped: v4 merged it into core, and nothing here imported
+  it.
+
+  `Context.Tag` no longer exists. Class declarations become
+  `Context.Service<Self, Shape>()(id)` — note the argument order flips — and the
+  `Context.Tag<any, A>` parameter types in `@shared/db-utils` become
+  `Context.Key<any, A>`. Every service identifier string is unchanged, since those
+  are the runtime lookup keys. Call sites are untouched: a v4 service key still
+  extends `Effect`, so `yield* Db` works as before.
+
+  This is the first phase of the Effect v4 migration and does not stand alone —
+  the tree does not type-check until the `Schema` work lands.
+
+- d3af349: OTLP trace export now works on Cloudflare Workers. Both deployed Workers
+  (`id.musubi.social`, `api.cireweddings.com`) had `Effect.withSpan` at 177 call
+  sites and exported nothing: `shared/observability/src/tracing/layer.ts` builds
+  `NodeSdk.layer(...)`, and `@effect/opentelemetry` ships only `NodeSdk`/`WebSdk`,
+  neither of which runs on workerd.
+
+  New `shared/observability/src/tracing/otlp.ts` — `makeOtlpTracing(config)` —
+  builds a tracing layer on Effect v4's own `effect/unstable/observability`
+  (`OtlpTracer` + `OtlpSerialization.layerJson`) over `FetchHttpClient`, so the
+  whole path is `globalThis.fetch` and has no Node dependency. It returns
+  `{ layer, flush, enabled }`; the layer is a `Layer.Layer<never>` (the
+  `Tracer.Tracer` reference is erased from a layer's output type) so it drops
+  straight into the existing layer graphs and no route factory or `AppDeps`
+  signature changed.
+
+  The background export interval is deliberately pushed 24h out: on workerd no
+  fiber survives between requests, and a failed background export disables the
+  exporter — dropping spans — for 60 seconds. `flush` inside `ctx.waitUntil(...)`,
+  after the response is produced, is the only sound drain, and it drains every
+  live exporter (a `Layer` is memoized per `MemoMap`, so osn/api's two long-lived
+  runtimes each hold one). `config.traceSampleRatio` is applied as a head-based,
+  parent-respecting sampler, matching what the Bun path gets from
+  `ParentBasedSampler`.
+
+  Inert unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set: the layer is `Layer.empty`,
+  `flush` is a no-op, and nothing is ever POSTed.
+
+  `osn/api`:
+
+  - `osnLoggerLayer` now carries the tracer as well as the redacting logger, and
+    `build-deps.ts` already merges it into the shared `appRuntime` every route
+    runs on — so the route spans are exported without touching a route.
+  - `runOsn`/`runOsnSync` moved onto a module-scope `ManagedRuntime` (mirroring
+    cire/api). `Effect.provide` opens _and closes_ a layer's scope per call, which
+    with an exporter attached meant building and tearing one down per call.
+  - `OsnWorkerHandler.fetch` gained an **optional** third `ctx: ExecutionContext`
+    parameter, needed for `ctx.waitUntil(flushOsnTelemetry())`. Optional so every
+    existing two-argument caller keeps compiling and behaving identically (they
+    just skip the flush); a deployed Worker always receives the context.
+
+  `shared/observability`:
+
+  - `otlpExporterUrl` moved to `src/tracing/url.ts` (re-exported from
+    `src/tracing/layer.ts`, so its import path is unchanged) — the workerd
+    exporter needs it and must not reach the NodeSdk module.
+  - `src/tracing/index.ts` is now the workerd-safe barrel and no longer
+    re-exports `./layer`; `makeTracingLayer` is still exported from the package
+    root, which is Bun-only by construction.
+  - `tests/tracing/workerd-safety.test.ts` walks the static import graph of every
+    subpath the two Workers import and fails on a Node-only dependency, including
+    a not-vacuous check that the detector still fires on the Bun-only root barrel.
+
+  Traces only. Metric export stays deferred: `src/metrics/factory.ts` builds its
+  instruments from the raw `@opentelemetry/api` meter rather than Effect's
+  `Metric`, so `OtlpMetrics` cannot see any of them.
+
+  Known limitation, documented in the code: `src/fetch/instrument.ts` and
+  `src/tracing/propagation.ts` use the raw `@opentelemetry/api` registry, which
+  nothing bridges to Effect's tracer. An inbound `traceparent` does not become the
+  parent of these spans and `instrumentedFetch`'s client spans are not their
+  children, so what is exported is a correctly attributed root span per fiber root
+  rather than one joined request trace — which is already the shape of the data,
+  since the repo makes 244 separate `runCire()`/`runOsn()`/`run()` calls.
+
+### Patch Changes
+
+- d3af349: Apply the Effect v4 combinator renames and the Cause/Runtime rework.
+
+  Renames resolved from upstream's generated reference: `catchAllDefect` →
+  `catchDefect`, `catchAllCause` → `catchCause`, `catchAll` → `catch`, `either` →
+  `result`, `forkDaemon` → `forkDetach`, `zipRight` → `andThen`, `dieMessage` →
+  `die(new Error(…))`, `Layer.scoped` → `Layer.effect`, `Cause.failureOption` →
+  `Cause.findErrorOption`. The `Either` module became `Result`, whose variants are
+  tagged `Success`/`Failure` and carry `success`/`failure` rather than
+  `right`/`left`.
+
+  `Runtime.isFiberFailure` and `FiberFailureCauseId` are gone: v4's runner rejects
+  with `Cause.squash(cause)`, which is the typed failure itself, so the two
+  osn-api error-shaping helpers no longer unwrap anything. That changes one thing
+  on a security path — `Cause.squash` surfaces a _defect_ where v3's
+  `Cause.failureOption` returned `None` — and both helpers now document it.
+
+  Adds a test asserting the Redis layer's finalizer runs on scope close. The
+  `Layer.scoped` → `Layer.effect` rewrite would have leaked connections silently
+  if the scope had been dropped: it type-checks either way, and nothing covered it.
+
+  Second phase of the Effect v4 migration; the tree does not type-check until the
+  `Schema` work lands.
+
+- d3af349: Rebuild the logger for Effect v4, and fix a secret leak in annotation redaction.
+
+  `redact()` matches the deny-list against an object's **keys**, and the v3 logger
+  mapped over each annotation **value** — so it only ever saw a bare scalar with no
+  key attached and passed it through. `Effect.annotateLogs({ accessToken })`
+  reached the sink in clear, along with every other deny-listed key, on every tier.
+  The record is now passed whole.
+
+  v4 moved annotations off the logger's `Options` and onto the fiber, so redaction
+  moves to the output side, wrapping `Logger.formatStructured`. `Logger.layer`
+  replaces the whole active set, so `Logger.tracerLogger` is listed explicitly —
+  omitting it drops log-to-span correlation silently. `LogLevel` is now string
+  literals (`"Warn"`, not v3's `"Warning"`), and the minimum level is a
+  `References.MinimumLogLevel` service rather than `Logger.minimumLogLevel`.
+
+  Adds `PrettyLoggerLive` for the dev-server entrypoints, replacing v3's
+  `Logger.pretty`. It exists as one export rather than eleven inline
+  `Logger.layer([…])` arrays so `tracerLogger` has a single place to be got right.
+
+  Local output loses ANSI colour for an indented structured rendering:
+  `consolePretty` is opaque, so there is no seam to redact through it, and one
+  redaction point covering every tier is the better trade.
+
+  **The JSON severity field is now `level`, not `logLevel`.** Grafana queries,
+  panels and alerts filtering on the old name match nothing and must be updated in
+  Grafana Cloud by hand.
+
+- d3af349: Migrate the Effect Schema surface of the four service packages to v4.
+
+  v3's constraint combinators are v4 _checks_, applied through a schema's
+  `.check(...)` rather than `.pipe(...)`: `maxLength`/`minLength`/`minItems`/
+  `maxItems` collapse onto `isMaxLength`/`isMinLength`, `int` becomes `isInt`, and
+  `between(a, b)` becomes `isBetween({ minimum, maximum })` — still inclusive at
+  both ends, so no range moved. `Schema.filter` becomes
+  `Schema.check(Schema.makeFilter(…))`, and because a v4 filter carries its own
+  failure message in its return value, the `{ message: () => "…" }` option becomes
+  the predicate returning that string; every validator keeps its exact wording.
+  `Schema.Literal` takes a single literal, so enums (and the spreads over
+  `SUPPORTED_CURRENCIES`, `SHARE_SOURCES` and `INTEREST_CATEGORIES`) become
+  `Schema.Literals([…])`. `Schema.decodeUnknown` becomes
+  `Schema.decodeUnknownEffect`, and `Schema.Record` takes its key and value
+  positionally.
+
+  Three copies of a workaround are deleted rather than ported. `@pulse/api`'s
+  events, series and discovery services each carried a hand-rolled "validate the
+  string, then transform to a Date" pair because v3's `DateFromString` accepted a
+  string that parses to an Invalid Date. v4's rejects it, so all three are now
+  `Schema.DateFromString`.
+
+  `@osn/client`'s `isAuthExpiredError` keeps all three of its arms, but the
+  comments no longer claim a `FiberFailure` is what arrives: v4 removed the
+  wrapper and `runPromise` rejects with the squashed error itself, so `instanceof`
+  now carries the common path. The printout arm stays for a consumer bundle built
+  against v3, and for any boundary that strips both the prototype and the `_tag`.
+
+  Every migrated check was verified to still _reject_, not merely type-check.
+
+- d3af349: Drop five `Logger` imports left dead by the v4 logger rework, and finish the
+  Effect v4 migration: with `@cire/api` moved off v3 in the same change, the
+  whole monorepo type-checks and passes its tests under Effect v4.
+
+  The observability change is the test-only one: `Logger.layer` replaces the
+  whole active logger set, so the default logger that used to emit a separate
+  "Fiber terminated…" stack dump is gone, and a capture is now exactly the
+  entry under test.
+
+- d3af349: Stop a defect carrying an allow-listed tag from reaching a client.
+
+  Effect v4 removed `FiberFailure`. `ManagedRuntime.runPromise` rejects with
+  `Cause.squash(cause)`, and `squash` returns the **defect object** when the cause
+  carries no `Fail` — where v3's `Cause.failureOption` returned `None` and the
+  helper answered `null`. A `Data.TaggedError` IS an `Error` carrying a `_tag`, so
+  `Effect.die`, `Effect.orDie` and a bare `throw` inside `Effect.sync` all put an
+  allow-listed tag straight in front of `makeSafeError`'s allowlist, which then
+  returns the defect's message. `Effect.orDie` is already an established pattern
+  here (`routes/graph.ts`, `recommendations.ts`, `organisation.ts`).
+
+  Nothing was leaking: every construction site of the three allow-listed tags uses
+  `Effect.fail`. But that is a convention with no enforcement, and the doc comments
+  asserted it as a structural guarantee. Now it is one.
+
+  `makeAppRunner` goes through `runPromiseExit` and inspects the `Exit`: a `Fail`
+  is rethrown via `Cause.findErrorOption` (unchanged for all 136 call sites, and
+  `run` keeps its `Promise<A>` signature), anything else becomes an `OpaqueDefect`
+  that deliberately carries no `_tag`. Both the shared-runtime and test-layer
+  branches funnel through the same path, so a test cannot observe error handling
+  the routes do not have.
+
+  `OpaqueDefect` exposes its `Cause` through a prototype getter over the native
+  non-enumerable `Error.cause`, not an own field: a constructor parameter property
+  is enumerable, and `JSON.stringify` would then serialise the whole `Cause` —
+  re-opening the leak through any structured logger that walks enumerable keys.
+  `JSON.stringify(defect)` is `{"name":"OpaqueDefect"}`.
+
+  `public-error.ts` needed no behaviour change but its comments were stale: the
+  `FiberFailure → Cause → Fail` justification is dead, and the symbol-key
+  rationale was wrong (v4 brands `Cause` with _string_ keys). What `Reflect.ownKeys`
+  actually buys now is reaching the **non-enumerable** `Error.cause`, which is the
+  only route to a defect's `Cause` — pinned by a test.
+
+  Also fixes a latent flaw in both old test harnesses: `throw new Error("expected
+rejection")` sat inside the `try`, so its own rejection became the value under
+  test and a generic-message assertion could pass vacuously.
+
+  osn/api: 1141 -> 1153.
+
+- Updated dependencies [d3af349]
+- Updated dependencies [d3af349]
+- Updated dependencies [d3af349]
+- Updated dependencies [d3af349]
+- Updated dependencies [d3af349]
+- Updated dependencies [d3af349]
+- Updated dependencies [d3af349]
+  - @osn/db@0.21.0
+  - @shared/crypto@0.11.0
+  - @shared/db-utils@0.7.0
+  - @shared/email@0.5.0
+  - @shared/observability@0.14.0
+  - @shared/redis@0.5.0
+  - @shared/turnstile@0.2.16
+
 ## 3.20.34
 
 ### Patch Changes
