@@ -8,7 +8,8 @@
     "promise",
     "vitest",
     "node",
-    "jsx-a11y"
+    "jsx-a11y",
+    "jsdoc"
   ],
   "categories": {
     "correctness": "error",
@@ -157,7 +158,30 @@
     // disclosure. At "warn" until the existing references are cleaned up
     // (issue #924 does that, then raises this to "error"): `bun run lint` runs
     // unscoped over the whole tree, so "error" today would fail every PR.
-    "house/no-tracker-ref-in-comment": "warn"
+    "house/no-tracker-ref-in-comment": "warn",
+
+    // jsdoc — a tag you write must carry content. Every rule here measured
+    // zero hits across the tree when it was turned on, so each one only ever
+    // fires on new drift.
+    //
+    // require-param and require-returns are deliberately absent: they would
+    // add 1624 and 1934 warnings, every one asking for a restatement of a
+    // signature TypeScript already carries.
+    //
+    // The two "off" entries below are load-bearing. Listing the plugin turns
+    // on its whole rule set, and both of these sit in the correctness category
+    // this file sets to error, so leaving either at its default fails lint:
+    // require-yields wants a @yields tag on every generator, which here means
+    // every Effect.gen (22 errors); check-tag-names reads a scoped package
+    // name wrapped onto the start of a line inside prose as a tag (3 errors,
+    // all false).
+    "jsdoc/require-yields": "off",
+    "jsdoc/check-tag-names": "off",
+    "jsdoc/empty-tags": "warn",
+    "jsdoc/require-param-description": "warn",
+    "jsdoc/require-returns-description": "warn",
+    "jsdoc/no-defaults": "warn",
+    "jsdoc/implements-on-classes": "warn"
 
     // house/no-non-subscribing-store-read is scoped to cire/**/*-store.ts in
     // the "overrides" block below, not turned on here — the pattern it flags
