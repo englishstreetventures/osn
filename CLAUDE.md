@@ -80,6 +80,7 @@ One label is orthogonal to all of that: **`needs:decision`**, on both repos. It 
 | Add a handle/name search (query normalisation, LIKE escaping, index-friendly prefix ranges — use `@shared/db-utils/search`, never a hand-rolled `LIKE 'q%'`) | `[[wiki/systems/social-graph]]` §Search |
 | Add rate limiting to endpoint | `[[wiki/systems/rate-limiting]]`, `[[wiki/systems/redis]]` |
 | Instrument logging, tracing, metrics | `[[wiki/observability/overview]]`, then specific page |
+| See what an agent session cost a PR (token/cost cards, the complexity comparison, the DuckDB queries) | `[[wiki/observability/session-metrics]]` |
 | Write or review tests | `[[wiki/conventions/testing-patterns]]` |
 | Run the devloop (named HTTPS hosts per app, a stack per worktree, adding an app to it) | `[[wiki/conventions/devloop-urls]]` |
 | Split one goal across several PRs (stacked PRs — setting the base with the gh CLI, merge order, rebasing a stack) | `[[wiki/conventions/stacked-prs]]` |

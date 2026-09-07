@@ -1,0 +1,15 @@
+{
+  "name": "@tools/pr-metrics",
+  "private": true,
+  "description": "Session-performance cards — what an agent session cost the pull request it produced",
+  "type": "module",
+  "scripts": {
+    "card": "bun run index.ts",
+    "check": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@shared/typescript-config": "workspace:*",
+    "typescript": "^6.0.3"
+  }
+}

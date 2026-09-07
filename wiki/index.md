@@ -77,6 +77,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[metrics]] — naming convention, typed attributes, cardinality enforcement
 - [[feature-checklist]] — per-feature observability checklist
 - [[cire-workerd]] — what cire does differently on workerd (no OTel SDK, deferred export)
+- [[session-metrics]] — per-PR agent cost cards: schema, the declared-complexity comparison, DuckDB queries
 
 ## Apps
 
