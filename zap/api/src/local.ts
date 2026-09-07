@@ -2,7 +2,8 @@ import { initObservability } from "@shared/observability";
 import { Effect, Logger } from "effect";
 
 import { createApp, SERVICE_NAME } from "./app";
-import { assertCorsOriginsConfigured, isNonLocalEnv, resolveCorsOrigins } from "./lib/cors-config";
+import { assertCorsPolicyConfigured, resolveCorsPolicy } from "./lib/cors-config";
+import { isNonLocalEnv } from "./lib/deployment-env";
 import { DEFAULT_JWKS_URL, DEFAULT_VERIFICATION } from "./lib/jwks";
 import { registerWithOsnApi } from "./services/zapGraphBridge";
 
@@ -21,10 +22,10 @@ if (nonLocal && DEFAULT_JWKS_URL.startsWith("http://")) {
 
 // S-M2: restrict CORS to a known origin allowlist instead of the open
 // reflect-any default. Fail closed in non-local envs (empty allowlist throws).
-const corsOrigins = resolveCorsOrigins(process.env);
-assertCorsOriginsConfigured(corsOrigins, nonLocal);
+const corsPolicy = resolveCorsPolicy(process.env);
+assertCorsPolicyConfigured(corsPolicy, nonLocal);
 
-const app = createApp({ verification: DEFAULT_VERIFICATION, corsOrigins });
+const app = createApp({ verification: DEFAULT_VERIFICATION, corsOrigins: corsPolicy.origins });
 
 const port = process.env.PORT || 3002;
 

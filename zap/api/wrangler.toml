@@ -45,6 +45,13 @@ migrations_dir = "../db/drizzle"
 ZAP_ENV = "staging"
 OSN_JWKS_URL = "https://api.staging.osn.example/.well-known/jwks.json"
 OSN_ISSUER_URL = "https://api.staging.osn.example"
+# Same https-in-a-named-tier rule as production below: the ARC bridge refuses a
+# plaintext OSN_API_URL once the tier is named, and its default is
+# http://localhost:4000.
+OSN_API_URL = "https://api.staging.osn.example"
+# No browser calls this tier either. See the production block for what "none"
+# means and why it is not the same as leaving the variable unset.
+ZAP_CORS_ORIGIN = "none"
 
 [[env.staging.d1_databases]]
 binding = "DB"
@@ -78,11 +85,30 @@ migrations_dir = "../db/drizzle"
 # OSN_ISSUER_URL byte for byte — a mismatch 401s every authenticated request,
 # so the two flip in the same deploy. Set before first deploy.
 [env.production.vars]
+# The tier marker, and the thing every non-local guard in this Worker keys off:
+# HTTPS-only JWKS and issuer URLs, the ARC bridge's refusal to boot without
+# INTERNAL_SERVICE_SECRET, its https check on OSN_API_URL, JSON logs at the
+# production level, and the CORS rule below. Naming the tier is what turns them
+# on — an env block that names none reads as `local` and every one of them is
+# quietly off. `ZAP_ENV` wins over `OSN_ENV` so this Worker can be moved between
+# tiers without touching the shared marker.
+ZAP_ENV = "production"
 OSN_JWKS_URL = "https://id.musubi.social/.well-known/jwks.json"
 OSN_ISSUER_URL = "https://id.musubi.social"
-# zapGraphBridge validates OSN_API_URL is https at module load in production
-# (it sends ARC tokens to osn-api's graph). osn-api serves on id.musubi.social.
+# zapGraphBridge refuses a plaintext OSN_API_URL in a named tier (it sends ARC
+# tokens to osn-api's graph). osn-api serves on id.musubi.social.
 OSN_API_URL = "https://id.musubi.social"
+# zap-api's production surface is service-to-service — cire-api reaches it with
+# ARC tokens, which are not a browser and carry no Origin — plus user routes
+# that no shipped client calls yet (`@zap/app` does not exist). So the correct
+# allowlist is empty, and `none` is how a deployment says that OUT LOUD.
+#
+# It is not the same as omitting the variable. An omitted `ZAP_CORS_ORIGIN` in a
+# named tier is a deploy that forgot, and refuses to boot; `none` is a deploy
+# that decided, and boots serving no `Access-Control-Allow-Origin` to anyone.
+# Replace it with the real origin list in the same commit that ships a browser
+# client for this API.
+ZAP_CORS_ORIGIN = "none"
 
 # OSN_JWT_SECRET is sensitive — set it per environment as a Worker secret, not a
 # plaintext var:

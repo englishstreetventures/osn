@@ -3,7 +3,8 @@ import { makeDbD1Live } from "@zap/db/service";
 import { Effect, Logger } from "effect";
 
 import { createApp, SERVICE_NAME, type App } from "./app";
-import { assertCorsOriginsConfigured, isNonLocalEnv, resolveCorsOrigins } from "./lib/cors-config";
+import { assertCorsPolicyConfigured, resolveCorsPolicy } from "./lib/cors-config";
+import { isNonLocalEnv } from "./lib/deployment-env";
 import { DEFAULT_ISSUER_URL, DEFAULT_JWKS_URL } from "./lib/jwks";
 import { registerWithOsnApi } from "./services/zapGraphBridge";
 
@@ -20,6 +21,11 @@ export { createApp } from "./app";
  */
 export interface Env {
   DB?: D1Database;
+  /** CORS allowlist (S-M2), comma-separated — or `none`. */
+  ZAP_CORS_ORIGIN?: string;
+  /** Tier marker. `ZAP_ENV` wins over the shared `OSN_ENV`. */
+  ZAP_ENV?: string;
+  OSN_ENV?: string;
   /**
    * JWKS endpoint of the OSN issuer that signs access tokens (W1/W2 — ES256
    * verification). Required in deployed envs so the Worker verifies Bearer
@@ -29,11 +35,6 @@ export interface Env {
   OSN_JWKS_URL?: string;
   /** Expected `iss` on access tokens — osn-api's own `OSN_ISSUER_URL`. */
   OSN_ISSUER_URL?: string;
-  /** CORS allowlist (S-M2), comma-separated. */
-  ZAP_CORS_ORIGIN?: string;
-  /** Environment discriminator — `local` vs anything else. */
-  ZAP_ENV?: string;
-  OSN_ENV?: string;
 }
 
 // Build the Elysia graph once per isolate — `env` bindings are stable within an
@@ -48,7 +49,11 @@ const misconfigured = (detail: string): Response =>
   });
 
 function buildApp(env: Env): App {
-  const nonLocal = isNonLocalEnv({ ZAP_ENV: env.ZAP_ENV, OSN_ENV: env.OSN_ENV });
+  // Everything but the `DB` binding: the guards below read several vars each,
+  // and a caller that picks out one key loses the tier along with it.
+  const { DB: _binding, ...vars } = env;
+
+  const nonLocal = isNonLocalEnv(vars);
 
   // S-H (mirrors pulse-api): fetching JWKS over plaintext HTTP in a deployed
   // env lets any process with network access serve a forged key set.
@@ -74,13 +79,16 @@ function buildApp(env: Env): App {
 
   // S-M2: restrict CORS to a known origin allowlist instead of the open
   // reflect-any default. Fail closed in non-local envs (empty allowlist throws).
-  const corsOrigins = resolveCorsOrigins({ ZAP_CORS_ORIGIN: env.ZAP_CORS_ORIGIN });
-  assertCorsOriginsConfigured(corsOrigins, nonLocal);
+  // The whole `env`, not a one-key pick: the fallback branch reads the tier, so
+  // a narrowed object reads as local wherever it runs — which is how a
+  // production Worker used to end up allowlisting the localhost dev origins.
+  const corsPolicy = resolveCorsPolicy(vars);
+  assertCorsPolicyConfigured(corsPolicy, nonLocal);
 
   return createApp({
     dbLayer: makeDbD1Live(env.DB as D1Database),
     verification: { jwksUrl: jwksUrl ?? DEFAULT_JWKS_URL, issuer },
-    corsOrigins,
+    corsOrigins: corsPolicy.origins,
   });
 }
 

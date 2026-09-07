@@ -1331,13 +1331,22 @@ jobs:
         working-directory: osn/social
 
   # ═══ zap/api (Worker + D1) ═════════════════════════════════════════════════
-  # DORMANT: zap-api is not yet provisioned in prod (the D1 database doesn't
-  # exist yet). Until the real D1 id is filled in (a deploy-time step — see
-  # wiki/runbooks/production-deploy.md), the "Detect zap prod provisioning"
-  # step below detects the placeholder and emits provisioned=false, causing
-  # both the migrate + deploy steps to be skipped. The job runs green + inert.
-  # Once zap-db-prod is created and its id replaces the placeholder, both steps
-  # fire on the next push to main.
+  # ARMED, NEVER YET RUN. zap-db-prod exists and its real id has been in
+  # `zap/api/wrangler.toml` since #841 (2026-08-31), so the "Detect zap prod
+  # provisioning" step below emits provisioned=true and this job WILL migrate
+  # and deploy — the header used to call it dormant, which stopped being true
+  # the moment that id landed. What has actually kept zap-api off production is
+  # the `production` GitHub Environment: every run since has expired or been
+  # cancelled waiting for a human approval that was never given, so not one
+  # step of this job has executed.
+  #
+  # The placeholder check stays as a guard, not as the off switch: it is what
+  # stops a deploy against a database that does not exist if the id is ever
+  # reset. The off switch is the approval gate.
+  #
+  # Before approving the first run, finish §9.2/§9.3 of
+  # wiki/runbooks/production-deploy.md — the Worker boots without them, but
+  # social-graph consent checks fail closed until its ARC key is registered.
   #
   # Zap has no dev tier (out of scope for the 2026-08-13 dev-tier work), so this
   # job has no dev counterpart to promote from — it goes straight to the
@@ -1368,9 +1377,9 @@ jobs:
             ${{ runner.os }}-bun-
       - name: Install dependencies
         run: bun install
-      # zap-api is not provisioned in prod until its D1 exists + its id is filled
-      # into wrangler.toml (a deploy-time step). Until then, SKIP (green) so this
-      # job never deploys against a non-existent DB and never reds the pipeline.
+      # Skip (green) rather than red the pipeline if the prod D1 id is ever a
+      # placeholder again — deploying against a non-existent database would fail
+      # the run for a reason that has nothing to do with the commit.
       - name: Detect zap prod provisioning
         id: zapcheck
         run: |

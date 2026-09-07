@@ -6,6 +6,8 @@ import {
 } from "@shared/crypto";
 import { Data, Effect } from "effect";
 
+import { isNonLocalEnv } from "../lib/deployment-env";
+
 /**
  * Isolated bridge to the OSN social graph over ARC-authenticated HTTP.
  *
@@ -32,9 +34,12 @@ export class GraphBridgeError extends Data.TaggedError("GraphBridgeError")<{
 // tests (NODE_ENV=test) never trip the guard.
 function getOsnApiUrl(): string {
   const url = process.env.OSN_API_URL ?? "http://localhost:4000";
-  // Prevent ARC tokens being sent over plaintext in production.
-  if (process.env.NODE_ENV === "production" && !url.startsWith("https://")) {
-    throw new Error(`OSN_API_URL must use https:// in production (got: ${url})`);
+  // Prevent ARC tokens being sent over plaintext in a deployed environment.
+  // Gated on the shared tier predicate, not `NODE_ENV`: workerd never populates
+  // `NODE_ENV` from wrangler `[vars]` unless the operator sets it by that exact
+  // name, so this check has never once run on a deployed Worker.
+  if (isNonLocalEnv(process.env) && !url.startsWith("https://")) {
+    throw new Error(`OSN_API_URL must use https:// in non-local environments (got: ${url})`);
   }
   return url;
 }
@@ -99,7 +104,7 @@ async function arcAuthHeader(): Promise<string> {
 // ---------------------------------------------------------------------------
 
 function isLocalEnv(): boolean {
-  return !process.env.OSN_ENV || process.env.OSN_ENV === "local";
+  return !isNonLocalEnv(process.env);
 }
 
 /**

@@ -12,7 +12,7 @@ related:
   - "[[cire-vendors]]"
   - "[[musubi-identity-migration]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-06
+last-reviewed: 2026-09-07
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -386,7 +386,7 @@ wrong.
 | osn-api | `OSN_ISSUER_URL` | **Yes** | `https://id.musubi.social` — the value every row below must match |
 | cire-api | `OSN_ISSUER_URL` | **Yes — 503 without it** | `https://id.musubi.social` |
 | pulse-api | `OSN_ISSUER_URL` | **Yes** | `https://id.musubi.social` (no deploy job yet) |
-| zap-api | `OSN_ISSUER_URL` | **Yes** | `https://id.musubi.social` (prod D1 unprovisioned; deploy job skips) |
+| zap-api | `OSN_ISSUER_URL` | **Yes** | `https://id.musubi.social` (deploy job armed, never approved — see §9) |
 
 A trailing slash on either side is tolerated — the comparison normalises both
 — but nothing else is. An **empty** value is rejected outright rather than
@@ -1091,7 +1091,13 @@ You need not delete the Pages project — leave it idle.
 
 > ⚠️ **Requires explicit authorization; prod writes.** Every step in this section changes production infrastructure or sets production secrets. Do NOT run any of these steps without explicit human authorisation from the team. They are a deploy-time checklist, not automated tasks.
 
-These steps are manual follow-ups to the c2b chats PR (Zap PR A). The `deploy-zap-api` CI job exists in `.github/workflows/deploy.yml` but stays **dormant** until you finish step 9.1 — it does not fire on merges until the prod D1 id is filled in.
+These steps are manual follow-ups to the c2b chats PR (Zap PR A).
+
+**Where this stands.** Step 9.1 is done: `zap-db-prod` exists and its real id has been in `zap/api/wrangler.toml` since #841 (2026-08-31), so the `deploy-zap-api` job in `.github/workflows/deploy.yml` is **armed** — its provisioning check emits `provisioned=true` and it would migrate and deploy. It has still never run a single step, because it targets the approval-gated `production` GitHub Environment and no run has been approved. The approval, not the placeholder, is the off switch.
+
+`[env.production.vars]` now names the tier (`ZAP_ENV = "production"`), which is what turns on the HTTPS-only JWKS/issuer checks, the ARC bridge's https check on `OSN_API_URL` and its refusal to boot without `INTERNAL_SERVICE_SECRET`, production-level JSON logs, and the CORS rule. It also sets `ZAP_CORS_ORIGIN = "none"` — the explicit "this deployment serves no browser origin" marker. Omitting the variable in a named tier is a deploy that *forgot*, and the Worker refuses to boot; `none` is a deploy that *decided*. Replace it with a real origin list in the same commit that ships a browser client for this API.
+
+Steps 9.2–9.5 remain, and 9.2/9.3 should be finished **before** anyone approves the first production run: the Worker boots without them, but social-graph consent checks fail closed (chats reject members) until zap-api's ARC key is registered.
 
 ### 9.1 Create the zap-db-prod D1 database
 
@@ -1112,9 +1118,9 @@ database_id = "<paste-id-here>"          # replace "placeholder-replace-after-d1
 migrations_dir = "../db/drizzle"
 ```
 
-⚠️ Committing this change **activates the dormant `deploy-zap-api` CI job**. Later merges to `main` then build and deploy zap-api to production and apply D1 migrations on their own.
+⚠️ Committing this change **arms the `deploy-zap-api` CI job**. Later merges to `main` that touch zap then queue a production deploy — which still waits on a human approving the `production` GitHub Environment before any step runs.
 
-Commit and merge the change.
+Commit and merge the change. *(Done — #841, 2026-08-31.)*
 
 ### 9.2 Set zap-api production secrets
 
@@ -1139,7 +1145,7 @@ bunx wrangler secret put INTERNAL_SERVICE_SECRET --env production
 |---|---|---|
 | `OSN_JWKS_URL` | Set as `[vars]` in wrangler.toml | Already in `zap/api/wrangler.toml [env.production.vars]` = `https://id.musubi.social/.well-known/jwks.json`. No separate secret needed. |
 | `INTERNAL_SERVICE_SECRET` | **Yes (for §9.3)** | Guards `POST /internal/register-service`. Without it zap-api returns 501 on that endpoint. |
-| `ZAP_CORS_ORIGIN` | Optional | Only needed once `@zap/app` client ships and calls user-facing routes. `c2b` uses only internal ARC routes. |
+| `ZAP_CORS_ORIGIN` | No — it is a `[vars]` entry, not a secret | Already `"none"` in `zap/api/wrangler.toml [env.production.vars]`: an explicit empty allowlist, because `c2b` uses internal ARC routes only and no browser client ships yet. Change it to a real comma-separated origin list when `@zap/app` does. |
 
 ### 9.3 Register cire-api's ARC public key with zap-api
 
