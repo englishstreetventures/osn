@@ -60,11 +60,21 @@ export const maxEmailLength = 255;
 // O3: enforced at the edge.
 export const enforced = true;
 `,
+  // Two more citation styles this repo actually uses, beyond the Copenhagen
+  // Book fixture above — neither should report.
+  "normative-citation-other-standards.ts": `
+// WCAG M1: contrast ratio floor for body text.
+export const contrastFloor = 4.5;
+// ISO M2: date fields are always this format.
+export const dateFormat = "yyyy-MM-dd";
+`,
   "narrative.ts": `
 // This used to be a synchronous read.
 export const a = 1;
 // The delay was reported as "quite a wait" before the hold was budgeted.
 export const b = 2;
+// Still used by removeMember — not a fold target in this plan.
+export const c = 3;
 `,
   // Location precision: the tag sits on the block's fourth line, and that is
   // the line the diagnostic must point at — not the line the block opens on.
@@ -176,7 +186,7 @@ describe("house/no-tracker-ref-in-comment", () => {
   it("reports each reference separately rather than once per comment", () => {
     expect(forFixture(diagnostics, "finding-id.ts")).toHaveLength(3);
     expect(forFixture(diagnostics, "phase-code.ts")).toHaveLength(2);
-    expect(forFixture(diagnostics, "narrative.ts")).toHaveLength(2);
+    expect(forFixture(diagnostics, "narrative.ts")).toHaveLength(3);
     expect(forFixture(diagnostics, "tracker-ref.ts")).toHaveLength(1);
   });
 
@@ -206,6 +216,16 @@ describe("house/no-tracker-ref-in-comment", () => {
 
   it("stays quiet on prose that only resembles a reference", () => {
     expect(forFixture(diagnostics, "clean.ts")).toHaveLength(0);
+  });
+
+  it("catches all three narrative phrases, not just the first two", () => {
+    const messages = forFixture(diagnostics, "narrative.ts").map((d) => d.message);
+    expect(messages.some((m) => m.includes("narrates how the code got here"))).toBe(true);
+    expect(forFixture(diagnostics, "narrative.ts")).toHaveLength(3);
+  });
+
+  it("exempts citation styles beyond the Copenhagen Book", () => {
+    expect(forFixture(diagnostics, "normative-citation-other-standards.ts")).toHaveLength(0);
   });
 
   it("reports under the plugin's rule id", () => {
