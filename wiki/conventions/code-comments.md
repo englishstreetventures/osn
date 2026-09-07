@@ -52,6 +52,13 @@ what would replace it. `xchromo/osn` issues only, never the private tracker:
 /** Single Worker by choice, not by constraint — see xchromo/osn#412. */
 ```
 
+> [!warning]
+> Never "fix" an `osn-tracker#589` reference by dropping the repo to `#589`.
+> The bare form passes the linter and resolves to an unrelated issue in the
+> public repo, so the edit looks clean and quietly invents a wrong
+> cross-reference. Replace the reference with the constraint it stood for, or
+> delete it.
+
 **4. An inline explanation**, when the reason is genuinely local: a bound that
 comes from somewhere non-obvious, an ordering that matters, a workaround for a
 platform quirk. Keep it to the constraint:
@@ -61,6 +68,26 @@ platform quirk. Keep it to the constraint:
 // into two inArray calls.
 const MAX_MY_CONNECTIONS_FOR_FOF = 500;
 ```
+
+## One block per declaration
+
+Only the **last** doc block in front of a declaration is attached to it. Stack
+two and an editor shows the reader the second one, while the first documents
+nothing — and whatever it was really describing has silently lost its comment.
+
+```ts
+/** Verifies the ARC token and rejects an unsigned caller. */
+/** Builds the Elysia plugin. */          // ← only this one is attached
+export function arcMiddleware() { … }
+```
+
+A blank line between them changes nothing, which is why
+`house/no-stacked-doc-block` asks the source code for the comments before a
+declaration rather than measuring the gap. It runs at `warn`: 64 sites today,
+four of them in auth code, so it goes to `error` once those are clear.
+
+A block **opening the file** is exempt — that one documents the module, not
+whatever declaration happens to follow it. Put it above the first `import`.
 
 ## Length
 
@@ -83,14 +110,29 @@ a subtlety a reader would otherwise get wrong (UTF-8 versus UTF-16 length).
 Prose is the default. Where a tag is the clearer form, use the
 [TSDoc](https://tsdoc.org) set rather than inventing one:
 
+The tag set is closed, and it is four tags:
+
 | Tag | For |
 |---|---|
 | `@see` | The wiki path or public issue carrying the fuller reasoning |
-| `@remarks` | Detail that follows the one-line summary |
-| `@example` | A call site worth copying |
-| `@defaultValue` | What a value falls back to |
+| `{@link Name}` | Naming another symbol in this repo, in place of a backticked identifier |
 | `@deprecated` | What to use instead, named |
-| `@internal` | Exported for another module here, not part of the package's surface |
+| `@param` | Only what the type cannot say — a unit, a range, a caller obligation |
+
+Anything else is a review rejection, and most of it is a lint error too.
+`jsdoc/check-tag-names` runs at `error` and denies every tag it does not
+recognise, which covers all the TSDoc-only spellings — `@remarks`,
+`@defaultValue`, `@typeParam`, `@inheritDoc`, `@packageDocumentation`, `@alpha`,
+`@beta` — and anything invented. The classic-JSDoc spellings it *does* accept
+(`@example`, `@throws`, `@internal`, `@since`, `@public`, `@override`) are out
+by convention rather than by the linter, so they need a reviewer to catch.
+
+The test for any tag: **name the retrieval or reasoning task it makes possible.**
+If the answer is "it documents the code", delete it.
+
+A scoped package name is a trap. `@simplewebauthn/browser` at the start of a
+doc-comment line parses as a tag, so backtick it — which is the right style
+anyway.
 
 **Do not write `@param` or `@returns` for what the types already say.** That is
 the redundant-comment problem in a tag's clothing. Both stay off in
@@ -104,10 +146,8 @@ so they only ever fire on new drift: `empty-tags`, `require-param-description`,
 `require-returns-description`, `no-defaults`, `implements-on-classes`. Together
 they say: a tag you write must carry content.
 
-`jsdoc/check-tag-names` is deliberately **off**. Its only three hits are false
-positives — a scoped package name (`@simplewebauthn/browser`) wrapped onto the
-start of a line inside prose, which the parser reads as a tag. A warning stream
-with known-false entries is one nobody reads.
+`jsdoc/require-yields` is deliberately **off**. It wants a `@yields` tag on
+every generator function, which in this repo means every `Effect.gen`.
 
 ## Reviewing a comment
 

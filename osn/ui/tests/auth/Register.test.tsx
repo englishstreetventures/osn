@@ -9,8 +9,8 @@ import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
  * and the adoptSession hand-off. None of those is covered anywhere else.
  *
  * Strategy: inject a stub RegistrationClient directly via the `client` prop,
- * mock @osn/client/solid (useAuth → adoptSession spy), and mock
- * @simplewebauthn/browser (toggleable support flag). The WebAuthn mock is
+ * mock `@osn/client/solid` (useAuth → adoptSession spy), and mock
+ * `@simplewebauthn/browser` (toggleable support flag). The WebAuthn mock is
  * hoisted via vi.hoisted() so tests can flip `webauthnSupported` between
  * renders before the component imports it.
  */

@@ -135,7 +135,7 @@ export interface RegistrationClient {
    *
    * Returns the server's creation options verbatim — feed them straight to
    * `navigator.credentials.create` (or `startRegistration` from
-   * @simplewebauthn/browser, which takes the same JSON shape).
+   * `@simplewebauthn/browser`, which takes the same JSON shape).
    */
   passkeyRegisterBegin(input: {
     profileId: string;

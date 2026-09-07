@@ -56,7 +56,7 @@ export interface PasskeysClient {
    *
    * Returns the server's WebAuthn creation options verbatim — feed them
    * straight to `navigator.credentials.create` (or `startRegistration` from
-   * @simplewebauthn/browser, which takes the same JSON shape).
+   * `@simplewebauthn/browser`, which takes the same JSON shape).
    */
   registerBegin(input: {
     accessToken: string;
