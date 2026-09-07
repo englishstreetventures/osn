@@ -1,4 +1,4 @@
-import { Effect, Logger } from "effect";
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import type { DeploymentEnvironment } from "../src/config";
@@ -33,51 +33,53 @@ describe("makeLoggerLayer", () => {
     expect(() => makeLoggerLayer(config)).not.toThrow();
   });
 
-  it("end-to-end: Effect.logInfo with secret annotations emits a redacted entry", async () => {
-    // Capture log entries by swapping Logger.jsonLogger-style output
-    // with a test sink that records every emitted entry. We verify
-    // that the sink receives redacted annotations.
-    const captured: Array<{ message: unknown; annotations: Map<string, unknown> }> = [];
-    const captureLogger = Logger.make<unknown, void>((options) => {
-      const annotations = new Map<string, unknown>();
-      for (const [k, v] of options.annotations as Iterable<[string, unknown]>) {
-        annotations.set(k, v);
-      }
-      captured.push({ message: options.message, annotations });
-    });
+  // The real end-to-end redaction test. The case this replaced was named for
+  // this behaviour but did not check it: it built `makeLoggerLayer` into an
+  // unused `_loggerLayer`, provided a RAW capture logger with no redaction in
+  // the chain, and then asserted the annotation came through unredacted. So
+  // redaction was covered by `redact.test.ts` at the pure-function level and by
+  // nothing at the layer level — which is how the key-vs-value bug survived.
+  //
+  // This runs the actual layer and reads what reached stdout.
+  it("end-to-end: secret annotations are redacted in the emitted entry", async () => {
+    const written: string[] = [];
+    const original = globalThis.console.log;
+    globalThis.console.log = (...args: unknown[]) => {
+      written.push(args.map((a) => String(a)).join(" "));
+    };
+    try {
+      const config = loadConfig({ serviceName: "test", env: "production" });
+      await Effect.runPromise(
+        Effect.logInfo("login attempt").pipe(
+          Effect.annotateLogs({
+            accessToken: "eyJsecret",
+            email: "alice@example.com",
+            profileId: "u_123",
+          }),
+          Effect.provide(makeLoggerLayer(config)),
+        ),
+      );
+    } finally {
+      globalThis.console.log = original;
+    }
 
-    // Build a production config so our layer uses `jsonLogger` under the
-    // hood — then replace it with the capture logger via a separate
-    // layer. `makeLoggerLayer` installs redaction via `Logger.map` on
-    // the base logger's input; to verify redaction end-to-end we need
-    // to call the redacted logger directly. Simpler: use the same
-    // `makeRedactingLogger` approach via the package's Layer.
-    const config = loadConfig({ serviceName: "test", env: "production" });
-    const _loggerLayer = makeLoggerLayer(config);
+    const entry = JSON.parse(written.join("\n")) as {
+      message: unknown;
+      annotations: Record<string, unknown>;
+    };
 
-    // Run a logInfo with annotated secrets, using the capture logger as
-    // the inner sink so we can inspect what the redaction layer
-    // actually forwarded.
-    await Effect.runPromise(
-      Effect.logInfo("login attempt").pipe(
-        Effect.annotateLogs({
-          profileId: "u_123",
-          email: "alice@example.com",
-          accessToken: "eyJsecret",
-          handle: "alice",
-        }),
-        Effect.provide(Logger.replace(Logger.defaultLogger, captureLogger)),
-      ),
-    );
+    // Both are on the deny-list in redact.ts. Neither was redacted before the
+    // key check went in: the logger mapped over each annotation VALUE, and
+    // `redact` matches an object's KEYS, so a bare string arrived with no key
+    // attached and passed straight through.
+    expect(entry.annotations.accessToken).toBe("[REDACTED]");
+    expect(entry.annotations.email).toBe("[REDACTED]");
 
-    // The capture logger above is raw — NOT wrapped in the redaction
-    // layer (that path is covered by `redact.test.ts`). What we're
-    // asserting here is simpler: the loggerLayer construction succeeds
-    // and the overall pipeline runs without errors, and that the
-    // capture logger observed the call.
-    expect(captured.length).toBe(1);
-    expect(captured[0]?.message).toEqual(["login attempt"]);
-    expect(captured[0]?.annotations.get("profileId")).toBe("u_123");
+    // Not on the deny-list — proves this is the deny-list at work and not a
+    // blanket scrub of every annotation.
+    expect(entry.annotations.profileId).toBe("u_123");
+
+    expect(entry.message).toBe("login attempt");
   });
 });
 

@@ -1,7 +1,7 @@
 import { HashMap, Layer, Logger, LogLevel } from "effect";
 
 import type { LogLevel as ConfigLogLevel, ObservabilityConfig } from "../config";
-import { redact } from "./redact";
+import { redact, REDACT_KEYS, REDACTION_PLACEHOLDER } from "./redact";
 
 const LOG_LEVEL_MAP = {
   trace: LogLevel.Trace,
@@ -18,13 +18,25 @@ const LOG_LEVEL_MAP = {
  *
  * `base` must be a logger that *writes* (`Logger.Logger<unknown, void>`), not
  * one that formats — see the note on `makeLoggerLayer` about `jsonLogger`.
+ *
+ * **The annotation key has to be checked, not just the value.** `redact()`
+ * matches the deny-list against an object's KEYS; handed a bare value it sees a
+ * scalar with no key attached and returns it untouched. This used to read
+ * `HashMap.map(options.annotations, (value) => redact(value))` — discarding the
+ * key `HashMap.map` supplies as its second argument — so no top-level
+ * annotation was ever redacted and `Effect.annotateLogs({ accessToken })`
+ * reached the sink in clear. `redact(value)` still runs on the values that
+ * survive the key check, so a secret nested inside a non-deny-listed annotation
+ * is scrubbed as before.
  */
 const makeRedactingLogger = (base: Logger.Logger<unknown, void>): Logger.Logger<unknown, void> =>
   Logger.make<unknown, void>((options) =>
     base.log({
       ...options,
       message: redact(options.message),
-      annotations: HashMap.map(options.annotations, (value) => redact(value)),
+      annotations: HashMap.map(options.annotations, (value, key) =>
+        REDACT_KEYS.has(String(key).toLowerCase()) ? REDACTION_PLACEHOLDER : redact(value),
+      ),
     }),
   );
 
