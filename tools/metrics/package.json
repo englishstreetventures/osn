@@ -1,0 +1,35 @@
+{
+  "name": "@tools/metrics",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Session-metrics dashboard — charts over the pull-request cards in .claude/metrics, local only",
+  "scripts": {
+    "dev": "portless",
+    "dev:app": "dev-env vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "tsc --noEmit",
+    "test": "bunx --bun vitest",
+    "test:run": "bunx --bun vitest run"
+  },
+  "portless": {
+    "name": "metrics",
+    "script": "dev:app"
+  },
+  "dependencies": {
+    "@observablehq/plot": "^0.6.17",
+    "@osn/ui": "workspace:*",
+    "@tailwindcss/vite": "^4.3.3",
+    "solid-js": "^1.9.15",
+    "tailwindcss": "^4.3.3"
+  },
+  "devDependencies": {
+    "@shared/dev-urls": "workspace:*",
+    "@shared/typescript-config": "workspace:*",
+    "typescript": "^6.0.3",
+    "vite": "^8.2.2",
+    "vite-plugin-solid": "^2.11.14",
+    "vitest": "^4.1.11"
+  }
+}

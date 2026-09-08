@@ -60,6 +60,9 @@ export const DEV_APPS = {
   // here because it is a long-running dev server that portless has to name, not
   // because anything addresses it.
   "@tools/lab": { name: "lab", port: 4400 },
+  // Same story: the session-metrics dashboard (`bun run dev:metrics`) is a
+  // dev server portless has to name, and nothing addresses it.
+  "@tools/metrics": { name: "metrics", port: 4401 },
 } as const satisfies Record<string, DevApp>;
 
 export type DevAppId = keyof typeof DEV_APPS;

@@ -120,6 +120,9 @@ export const DEV_ENV = {
   // `DEV_ENV` has to cover every `DEV_APPS` key — an entry it can forget is one
   // an app can forget too. A story that does need an origin adds it here.
   "@tools/lab": () => ({}),
+  // The metrics dashboard reads committed JSON off disk through Vite; no
+  // sibling to address either.
+  "@tools/metrics": () => ({}),
 } satisfies Record<DevAppId, (urls: Urls, self: DevAppId, env: DevEnv) => Record<string, string>>;
 
 /**

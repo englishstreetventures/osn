@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 856,
+    "branch": "fix/pulse-d1-bind-cap",
+    "base_sha": "15e404061d22adc354aeebda036351cf728ce450",
+    "head_sha": "caf24cd736bf28fdf1d7ca62a2d7c1c4bf88af9b",
+    "generated_at": "2026-09-07T07:42:21.696Z",
+    "merged_at": "2026-09-06T09:25:51Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 590,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 3,
+    "first_ts": "2026-08-31T10:29:01.752Z",
+    "last_ts": "2026-08-31T10:58:14.629Z",
+    "span_seconds": 1753,
+    "active_seconds": 350,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 5.028939749999999,
+    "tokens": {
+      "input": 84,
+      "output": 65025,
+      "thinking": 0,
+      "cache_write_5m": 374445,
+      "cache_write_1h": 0,
+      "cache_read": 2125227
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 84,
+          "output": 65025,
+          "thinking": 0,
+          "cache_write_5m": 374445,
+          "cache_write_1h": 0,
+          "cache_read": 2125227
+        },
+        "usd_equivalent": 5.028939749999999,
+        "messages": 44
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 84,
+          "output": 65025,
+          "thinking": 0,
+          "cache_write_5m": 374445,
+          "cache_write_1h": 0,
+          "cache_read": 2125227
+        },
+        "usd_equivalent": 5.028939749999999,
+        "messages": 44
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {},
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 3,
+      "docs": 0,
+      "config": 0,
+      "source": 9
+    },
+    "loc": {
+      "generated": {
+        "added": 18,
+        "deleted": 0
+      },
+      "test": {
+        "added": 616,
+        "deleted": 2
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 272,
+        "deleted": 35
+      }
+    },
+    "packages": [
+      "pulse/api",
+      "shared/db-utils"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 3,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Read": 16,
+      "Grep": 5,
+      "StructuredOutput": 3
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

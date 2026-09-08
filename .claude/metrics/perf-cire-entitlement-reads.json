@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 852,
+    "branch": "perf/cire-entitlement-reads",
+    "base_sha": "fcf34fccdf0b4a94f3c8efd2f73dec7fdba0b3b6",
+    "head_sha": "16d786d2fc27a381037f8b64b391856bb1d819fc",
+    "generated_at": "2026-09-07T07:42:26.611Z",
+    "merged_at": "2026-08-31T06:44:15Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 116,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 2,
+    "first_ts": "2026-08-31T05:27:55.471Z",
+    "last_ts": "2026-08-31T05:40:10.692Z",
+    "span_seconds": 735,
+    "active_seconds": 90,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 1.4136684999999993,
+    "tokens": {
+      "input": 47,
+      "output": 14703,
+      "thinking": 0,
+      "cache_write_5m": 102596,
+      "cache_write_1h": 0,
+      "cache_read": 809267
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 47,
+          "output": 14703,
+          "thinking": 0,
+          "cache_write_5m": 102596,
+          "cache_write_1h": 0,
+          "cache_read": 809267
+        },
+        "usd_equivalent": 1.4136684999999993,
+        "messages": 22
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 47,
+          "output": 14703,
+          "thinking": 0,
+          "cache_write_5m": 102596,
+          "cache_write_1h": 0,
+          "cache_read": 809267
+        },
+        "usd_equivalent": 1.4136684999999993,
+        "messages": 22
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {},
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 4,
+      "docs": 1,
+      "config": 0,
+      "source": 12
+    },
+    "loc": {
+      "generated": {
+        "added": 29,
+        "deleted": 0
+      },
+      "test": {
+        "added": 679,
+        "deleted": 1
+      },
+      "docs": {
+        "added": 11,
+        "deleted": 3
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 429,
+        "deleted": 92
+      }
+    },
+    "packages": [
+      "cire/api"
+    ],
+    "touches_migration": false,
+    "commits": 3
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Read": 7,
+      "Grep": 3,
+      "StructuredOutput": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}
