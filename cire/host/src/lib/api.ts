@@ -9,7 +9,7 @@ export const apiUrl = (path: string) => `${CIRE_API_URL}${path}`;
 
 /**
  * The tag as an error NAME at the head of the printout — bare, or behind
- * Effect's `(FiberFailure)` prefix. Anchored, not a substring scan (S-L2):
+ * Effect's `(FiberFailure)` prefix. Anchored, not a substring scan:
  * errors reaching this predicate include `EnquiryApiError`, whose message is
  * the server's `error` code verbatim, so an unanchored match would let a
  * server-supplied string decide to sign the organiser out.

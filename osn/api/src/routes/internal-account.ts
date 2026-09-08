@@ -49,7 +49,7 @@ export function createInternalAccountRoutes(
         if (!caller) return { error: "Unauthorized" };
 
         try {
-          // S-H2: returns the verified accountId derived from the token's
+          // The response returns the verified accountId derived from the token's
           // `sub` claim. Pulse / Zap use this server-to-server response
           // rather than trusting a client-supplied accountId from the
           // request body. The accountId never appears in any user-facing
@@ -57,7 +57,7 @@ export function createInternalAccountRoutes(
           const result = await run(auth.verifyStepUpForExternalPurpose(body.token, body.purpose));
           return { ok: true as const, account_id: result.accountId };
         } catch (err) {
-          // S-M1: surface a structured `reason` so callers can map distinct
+          // The catch block surfaces a structured `reason` so callers can map distinct
           // failures to precise client-facing errors. Specific result types
           // are recorded in `osn.auth.step_up.verified` by verifyStepUpToken.
           const message =
@@ -96,9 +96,9 @@ export function createInternalAccountRoutes(
         // proved by the matching `/internal/step-up/verify` call earlier
         // in the request lifecycle (the verify-then-leave pattern); we
         // can't re-verify the same step-up token here because the JTI
-        // is single-use. Residual S-H3 risk (a compromised Pulse can
+        // is single-use. Residual risk (a compromised Pulse can
         // flip arbitrary enrollments) is mitigated by the bounded ARC
-        // key TTL + per-kid rate limit (backlogged as S-M24).
+        // key TTL + per-kid rate limit.
         try {
           const result = await run(
             accountErasure.recordAppEnrollmentLeft(body.account_id, body.app),

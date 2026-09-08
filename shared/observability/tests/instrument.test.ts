@@ -100,7 +100,7 @@ describe("instrumentedFetch", () => {
     expect(hdrs).toBeInstanceOf(Headers);
   });
 
-  // S-H4: query strings must not land in span attributes, since they
+  // Query strings must not land in span attributes, since they
   // frequently carry OAuth codes, magic-link tokens, presigned
   // signatures, etc. We can't directly inspect the span's attributes
   // without hooking a recording processor, but we CAN verify that the

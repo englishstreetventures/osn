@@ -131,7 +131,7 @@ describe("initRedisClient", () => {
   });
 
   // -------------------------------------------------------------------------
-  // S-L1: REDIS_REQUIRED
+  // Branch 4: REDIS_REQUIRED
   // -------------------------------------------------------------------------
 
   it("exits process when REDIS_REQUIRED is true and Redis fails", async () => {

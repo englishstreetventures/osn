@@ -207,7 +207,7 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── Validation error paths (T-E1) ────────────────────────────────────
+  // ── Validation error paths ───────────────────────────────────────────
 
   it.effect("createChat fails with ValidationError for oversized title", () =>
     Effect.gen(function* () {
@@ -221,7 +221,7 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── Authorization edge cases (T-S2) ─────────────────────────────────
+  // ── Authorization edge cases ─────────────────────────────────────────
 
   it.effect("removeMember fails with NotChatAdmin when non-admin removes another member", () =>
     Effect.gen(function* () {
@@ -238,7 +238,7 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── Membership filtering (T-S3) ─────────────────────────────────────
+  // ── Membership filtering ─────────────────────────────────────────────
 
   it.effect("listChats returns empty when chats exist but user is not a member", () =>
     Effect.gen(function* () {
@@ -253,7 +253,7 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── getChatMembers standalone (T-U2) ────────────────────────────────
+  // ── getChatMembers standalone ────────────────────────────────────────
 
   it.effect("getChatMembers returns all members", () =>
     Effect.gen(function* () {
@@ -409,7 +409,7 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── P-W1 listChats pagination ───────────────────────────────────────────
+  // ── listChats pagination ────────────────────────────────────────────────
 
   it.effect("listChats applies the default limit (50) and returns newest first", () =>
     Effect.gen(function* () {
@@ -464,7 +464,7 @@ describe("chats service", () => {
       }
       const page1 = yield* listChats("usr_alice", { limit: 2 });
       expect(page1.chats.map((c) => c.title)).toEqual(["Chat 4", "Chat 3"]);
-      // P-I4: continuation metadata — nextCursor is the last row of the page.
+      // Continuation metadata — nextCursor is the last row of the page.
       expect(page1.hasMore).toBe(true);
       expect(page1.nextCursor).toBe(page1.chats[1]!.id);
 
@@ -540,7 +540,7 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── P-W2 addMember member-count invariant (COUNT(*) path) ────────────────
+  // ── addMember member-count invariant (COUNT(*) path) ─────────────────────
 
   it.effect("addMember rejects with MemberLimitReached at the member cap", () =>
     Effect.gen(function* () {
@@ -558,7 +558,7 @@ describe("chats service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── P-W4 getChatMembers pagination ────────────────────────────────────────
+  // ── getChatMembers pagination ─────────────────────────────────────────────
 
   it.effect("getChatMembers applies the default limit (100)", () =>
     Effect.gen(function* () {
@@ -936,7 +936,7 @@ describe("chats service", () => {
 
         // Both fibers pass the pre-check's dup-count read before either
         // inserts, so the real discriminator here is the insert's
-        // `isUniqueConstraintFailure` catch, not the P-W2 pre-check fold.
+        // `isUniqueConstraintFailure` catch, not the dup-count pre-check fold.
         // Interleaving is scheduler-dependent, not guaranteed identical on
         // every run — the assertion is on the aggregate outcome, not on
         // which fiber hits the catch.

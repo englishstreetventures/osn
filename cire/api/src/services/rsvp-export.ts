@@ -156,7 +156,7 @@ export const rsvpExportService = {
       const db = yield* DbService;
 
       // All four reads are independently wedding-scoped — collapse them to one
-      // D1 round-trip (RT-P-I1; matches the parallel shape in state-export.ts
+      // D1 round-trip (matches the parallel shape in state-export.ts
       // and table-export.ts).
       const [eventRows, invitedByEvent, rsvpRows, invitedRows] = yield* Effect.all(
         [
@@ -336,7 +336,7 @@ export const rsvpExportService = {
       const db = yield* DbService;
 
       // (a), (b), and (c) are all independently wedding-scoped — collapse them
-      // to one D1 round-trip (RT-P-I1; matches the parallel shape in
+      // to one D1 round-trip (matches the parallel shape in
       // state-export.ts and table-export.ts).
       const [eventRows, guestRows, rsvpRows] = yield* Effect.all(
         [

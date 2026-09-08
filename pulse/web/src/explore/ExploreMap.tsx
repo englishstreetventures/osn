@@ -55,7 +55,7 @@ function fmtTime(d: Date) {
 }
 
 /**
- * Reactive dark-mode signal (P-W5). Reads the root/body classList once and
+ * Reactive dark-mode signal. Reads the root/body classList once and
  * keeps a signal in sync via `MutationObserver`, so theme-derived styles are
  * O(1) signal reads that re-run reactively on theme flips instead of
  * re-touching the DOM on every access.
@@ -85,7 +85,7 @@ function StyleMap(props: { width: number; height: number }) {
   const labelColor = () => (isDark() ? "oklch(0.6 0.005 60)" : "oklch(0.55 0.01 60)");
 
   // Grid lines are memoised on the (already resize-debounced) size so the
-  // arrays rebuild once per size change instead of on every access (P-W4).
+  // arrays rebuild once per size change instead of on every access.
   const vLines = createMemo(() => {
     const lines: number[] = [];
     for (let x = 60; x < w() - 40; x += 34) lines.push(x);
@@ -394,7 +394,7 @@ export function ExploreMap(props: {
   onMount(() => {
     if (!wrapRef) return;
     // Trailing-edge ~100ms debounce so the canvas heatmap + SVG map redraw
-    // once per resize burst instead of on every observer frame (P-W3). The
+    // once per resize burst instead of on every observer frame. The
     // very first measurement applies immediately so the initial paint isn't
     // delayed behind the debounce window.
     let resizeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -501,7 +501,7 @@ export function ExploreMap(props: {
             // A real <button> so keyboard + touch users can reach the
             // popover (and its "See venue" link) \u2014 the hover-only div made
             // venues with a co-located event pin unreachable without a
-            // pointer (C-M2 / WCAG 2.1.1).
+            // pointer (WCAG 2.1.1).
             return (
               <button
                 type="button"

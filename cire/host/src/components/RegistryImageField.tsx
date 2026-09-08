@@ -64,7 +64,7 @@ interface Preview {
  * scheme before a page is ever fetched — but a candidate list arrives over the
  * wire as plain JSON, and `javascript:` in an `src` or an `href` runs in the
  * organiser's own origin. Same render-site check, same reason, as `isHttpsUrl`
- * in `RegistryView.tsx` (precedent CON-S-L2).
+ * in `RegistryView.tsx`.
  */
 function isHttpsUrl(value: string): boolean {
   try {
@@ -135,7 +135,7 @@ export default function RegistryImageField(props: {
       try {
         // `thumb` (320px), not the default `card` (800px): this paints into an
         // 80px box, so the card variant would spend several times the bytes and
-        // the decode on detail no one can see (P-W4).
+        // the decode on detail no one can see.
         const res = await authFetch(
           apiUrl(`${base()}/image/${encodeURIComponent(name)}?variant=thumb`),
         );
@@ -483,7 +483,7 @@ export default function RegistryImageField(props: {
                           referrer that pairs their IP with a wedding. */}
                       {/* These are the shop's own full-size product images — six of
                           them, at whatever pixel dimensions the shop happens to
-                          publish, all decoding into an 80px box (P-I2). The width and
+                          publish, all decoding into an 80px box. The width and
                           height let the browser reserve the box before any of them
                           arrive, so the row does not reflow as they land; `lazy` and
                           `async` keep the ones below the fold off the main thread. */}

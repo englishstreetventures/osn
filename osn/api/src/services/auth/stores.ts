@@ -11,7 +11,7 @@ import { metricCeremonyStoreEntryDelta, metricCeremonyStoreOp } from "../../metr
 import type { PublicProfile } from "./types";
 
 /**
- * O3: minimal per-account cap surface — structurally compatible with
+ * Minimal per-account cap surface — structurally compatible with
  * `RateLimiterBackend` from `@shared/rate-limit` and the Redis rate-limiter,
  * so `index.ts` can pass a `createRedisRateLimiter(...)` straight in.
  */
@@ -20,7 +20,7 @@ export interface AccountCapLimiter {
 }
 
 /**
- * O3: the full set of ceremony / pending-state stores threaded through the
+ * The full set of ceremony / pending-state stores threaded through the
  * auth service. Bundled so `index.ts` wires one Redis client into all of them
  * in a single place, and so tests can override the whole set at once.
  */
@@ -53,7 +53,7 @@ export interface PendingRegistration {
   expiresAt: number;
 }
 
-// O3: in-memory bounds (pending registrations, pending CDL, login challenges)
+// In-memory bounds (pending registrations, pending CDL, login challenges)
 // are now enforced inside the ceremony store (CEREMONY_STORE_MAX) rather than
 // per-call-site, so the old MAX_* constants are gone.
 
@@ -74,7 +74,7 @@ export interface CrossDeviceRequest {
   profile?: PublicProfile;
 }
 
-// O3: challenge / pending-state value shapes. The stores that hold them are
+// Challenge / pending-state value shapes. The stores that hold them are
 // instantiated per-service (in-memory default or injected Redis-backed) inside
 // createAuthService — see CeremonyStores.
 
@@ -124,17 +124,16 @@ export interface PendingAuthorizeRequest {
    * Unix seconds. When set, the deciding session must have been CREATED at or
    * after this instant — i.e. the user re-authenticated after the request was
    * parked. Set when `prompt=login` was demanded or `max_age` was already
-   * exceeded at `/authorize` (S-H1 oidc). Null when any live session may decide.
+   * exceeded at `/authorize`. Null when any live session may decide.
    */
   requireAuthAfter: number | null;
   /**
    * SHA-256 hex of the browser-binding secret handed out as a short-TTL
-   * HttpOnly cookie alongside the interaction redirect (S-M1 oidc). The
-   * decision (and context read) must present the matching cookie, so a leaked
-   * or guessed request id is useless in any other browser. Required: every
-   * parked request carries one (S-L4 — the mid-deploy `undefined` tolerance
-   * was removed once #316 shipped, so a writer that omits it can no longer
-   * silently disable the binding check).
+   * HttpOnly cookie alongside the interaction redirect. The decision (and
+   * context read) must present the matching cookie, so a leaked or guessed
+   * request id is useless in any other browser. Required: every parked
+   * request carries one — a writer that omits it cannot silently disable the
+   * binding check.
    */
   bindingHash: string;
   /** Milliseconds. */
@@ -166,7 +165,7 @@ export interface StepUpJtiStore {
   consume(jti: string, ttlMs: number): Promise<boolean>;
 }
 
-/** Default in-memory jti store — single-process only (S-H1). */
+/** Default in-memory jti store — single-process only. */
 export function createInMemoryJtiStore(): StepUpJtiStore {
   return {
     async consume(jti, ttlMs) {
@@ -182,7 +181,7 @@ export function createInMemoryJtiStore(): StepUpJtiStore {
 }
 
 /**
- * O3: build the default in-memory ceremony stores. Each carries the metric
+ * Build the default in-memory ceremony stores. Each carries the metric
  * observer so per-namespace op/entry telemetry works identically to the
  * Redis-backed path. Used when `AuthConfig.ceremonyStores` is omitted.
  */
@@ -218,7 +217,7 @@ export function createDefaultCeremonyStores(): CeremonyStores {
 }
 
 /**
- * O3: a default in-memory fixed-window per-account cap limiter. Structurally a
+ * A default in-memory fixed-window per-account cap limiter. Structurally a
  * `RateLimiterBackend` so the same `check(key)` contract is satisfied by the
  * Redis-backed limiter injected in production.
  */

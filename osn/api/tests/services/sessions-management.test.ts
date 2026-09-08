@@ -136,7 +136,7 @@ describe("revokeAccountSession", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // S-M4: idempotent — a handle from another account (or a made-up one)
+  // Idempotent — a handle from another account (or a made-up one)
   // returns { revokedSelf: false } rather than surfacing "Session not
   // found", so revoke can't be weaponised as a handle-existence oracle.
   it.effect("silently ignores a handle that doesn't belong to the caller's account", () =>
@@ -159,7 +159,7 @@ describe("revokeAccountSession", () => {
   );
 });
 
-// T-S2: session rotation (C2) must preserve the uaLabel / ipHash it was
+// Session rotation (C2) must preserve the uaLabel / ipHash it was
 // issued with. Otherwise the Settings "Firefox on macOS" device flips to
 // "Unknown device" on every refresh — a subtle UX regression that doesn't
 // fail any existing assertion.

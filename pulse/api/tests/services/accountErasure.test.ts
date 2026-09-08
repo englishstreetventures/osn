@@ -72,7 +72,7 @@ describe("pulse account-erasure: requestErasure", () => {
         expect(result.newlyScheduled).toBe(true);
 
         const { db } = yield* Db;
-        // S-M5/C-M1: RSVPs, close-friends, comms, and pulse_users are NOT
+        // RSVPs, close-friends, comms, and pulse_users are NOT
         // deleted at soft-delete time — they survive the grace window so
         // cancellation is fully reversible. Hard-delete sweeper purges
         // them after 7 days.
@@ -116,7 +116,7 @@ describe("pulse account-erasure: requestErasure", () => {
     Effect.gen(function* () {
       const { eventId } = yield* seedPulseData();
       const { db } = yield* Db;
-      // Onboarding state for the leaving account (C-H1 re-review surface).
+      // Onboarding state for the leaving account.
       yield* Effect.promise(() =>
         db.insert(pulseAccountOnboarding).values({
           accountId: ACCOUNT_ID,
@@ -155,7 +155,7 @@ describe("pulse account-erasure: requestErasure", () => {
         db.select().from(pulseUsers).where(eq(pulseUsers.profileId, PROFILE_ID)),
       );
       expect(pu).toHaveLength(0);
-      // Onboarding + profileId→accountId cache rows purged (C-H1).
+      // Onboarding + profileId→accountId cache rows purged.
       const ob = yield* Effect.promise(() =>
         db
           .select()
@@ -201,7 +201,7 @@ describe("pulse account-erasure: purgeAccount (full-account fan-out)", () => {
       const { eventId } = yield* seedPulseData();
       const { db } = yield* Db;
       // Lineup + onboarding rows for the merge-introduced tables — these
-      // must be purged too (S-M2 / C-H1 from the post-merge re-review).
+      // must be purged too.
       yield* Effect.promise(() =>
         db.insert(eventLineup).values({
           id: "lnp_" + crypto.randomUUID().replace(/-/g, "").slice(0, 12),

@@ -92,7 +92,7 @@ export const events = sqliteTable(
     createdByProfileId: text("created_by_profile_id").notNull(),
     createdByName: text("created_by_name"),
     createdByAvatar: text("created_by_avatar"),
-    // ── Host-cancellation lifecycle (C-H2 — Flow B) ───────────────────────
+    // ── Host-cancellation lifecycle ─────────────────────────────────────
     // When the host leaves Pulse, hosted events transition to a "cancelled"
     // public-facing state for 14 days so attendees can see the event was
     // cancelled, then are hard-deleted by the event-cancellation sweeper.

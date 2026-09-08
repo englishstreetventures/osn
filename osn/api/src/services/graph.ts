@@ -11,7 +11,7 @@ import { withGraphBlockOp, withGraphConnectionOp } from "../metrics";
 // ---------------------------------------------------------------------------
 
 // `message` reaches clients verbatim via the routes' `safeError` allowlist
-// (S-M17) — construct with static string literals only, never interpolated
+// — construct with static string literals only, never interpolated
 // causes or user input. Pinned by tests/lib/safe-error-static-messages.test.ts.
 export class GraphError extends Data.TaggedError("GraphError")<{
   readonly message: string;
@@ -156,7 +156,7 @@ export function createGraphService() {
         return yield* Effect.fail(new GraphError({ message: "Cannot connect to yourself" }));
       }
 
-      // P-W3: the block check and the existing-connection check are
+      // The block check and the existing-connection check are
       // independent reads — run them concurrently. Failure priority is
       // preserved by checking `blocked` first below.
       const [blocked, status] = yield* Effect.all(

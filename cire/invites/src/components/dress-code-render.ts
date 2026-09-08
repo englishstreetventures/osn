@@ -1,7 +1,7 @@
 /**
  * Validates a CSS color string before it is interpolated into an inline
  * `style` attribute — the render-time half of the CSS-injection gate. The
- * single source of truth lives in `@cire/theme` (IB-S-L1) and is shared with
+ * single source of truth lives in `@cire/theme` and is shared with
  * the API's write-time validator, so the two sides cannot drift.
  */
 export { isSafeCssColor as isValidColor } from "@cire/theme";

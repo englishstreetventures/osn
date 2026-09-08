@@ -145,7 +145,7 @@ describe("ExploreMap", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Venue layer (T-R1)
+  // Venue layer
   // -------------------------------------------------------------------------
 
   it("renders a clickable venue pin for a venue the server returned", () => {
@@ -239,7 +239,7 @@ describe("ExploreMap", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Keyboard access to the event-pin popover (C-M2 / WCAG 2.1.1)
+  // Keyboard access to the event-pin popover (WCAG 2.1.1)
   // -------------------------------------------------------------------------
 
   const coLocatedFixtures = () => ({
@@ -303,7 +303,7 @@ describe("ExploreMap", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Reactive dark mode (P-W5) — useIsDark keeps a signal in sync with the
+  // Reactive dark mode — useIsDark keeps a signal in sync with the
   // root classList via MutationObserver, so theme-derived SVG fills flip
   // without a re-render.
   // -------------------------------------------------------------------------
@@ -368,7 +368,7 @@ describe("ExploreMap", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Resize debounce (P-W3) — first measurement applies immediately; later
+  // Resize debounce — first measurement applies immediately; later
   // bursts collapse to one trailing-edge update after ~100ms.
   // -------------------------------------------------------------------------
 

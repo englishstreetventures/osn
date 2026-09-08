@@ -166,7 +166,7 @@ describe("GET /events/discover", () => {
 
   it("returns 429 when the client IP cannot be resolved (fail-closed)", async () => {
     // No x-forwarded-for under trustedProxyCount:1 → UNRESOLVED_IP → deny,
-    // even though the limiter itself would allow. Guards the S-M34 invariant
+    // even though the limiter itself would allow. Guards the invariant
     // that an unresolved IP never shares a bucket.
     const res = await app.handle(new Request("http://localhost/events/discover"));
     expect(res.status).toBe(429);

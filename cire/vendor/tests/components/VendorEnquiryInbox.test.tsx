@@ -100,7 +100,7 @@ describe("VendorEnquiryInbox", () => {
     expect(screen.getByText(/2[,.]?500/)).toBeInTheDocument();
   });
 
-  // ── Relative age (T-U3) ─────────────────────────────────────────────────────
+  // ── Relative age ─────────────────────────────────────────────────────
 
   it("never renders a negative age when the server clock runs ahead", async () => {
     // `lastMessageAt` and `Date.now()` come from two different clocks. A message

@@ -6,8 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 /**
  * SettingsPanel loads the wedding profile and PUTs the whole form back. The
  * OSN auth + api helpers + toasts are stubbed; this asserts the load/seed, the
- * PUT body (incl. cents conversion and the slug never being sent — read-only,
- * S-M1), and the co-host read-only gate. Location is deliberately NOT here —
+ * PUT body (incl. cents conversion and the slug never being sent — read-only),
+ * and the co-host read-only gate. Location is deliberately NOT here —
  * an event's place is its free-text `address` (the sole location source).
  */
 
@@ -75,7 +75,7 @@ describe("SettingsPanel", () => {
     await waitFor(() => {
       expect(screen.getByDisplayValue("Aisha & Ben")).toBeTruthy();
     });
-    // Slug renders read-only text (renames are deliberately unsupported — S-M1).
+    // Slug renders read-only text (renames are deliberately unsupported).
     expect(screen.getByText("aisha-and-ben")).toBeTruthy();
     expect(screen.queryByDisplayValue("aisha-and-ben")).toBeNull();
     expect(screen.getByText(/can.t be changed/)).toBeTruthy();
@@ -106,7 +106,7 @@ describe("SettingsPanel", () => {
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
     expect(body.displayName).toBe("Aisha & Benjamin");
     expect(body.currency).toBe("AUD");
-    // The slug is never sent — read-only in Settings (S-M1).
+    // The slug is never sent — read-only in Settings.
     expect("slug" in body).toBe(false);
     expect(onWeddingUpdated).toHaveBeenCalledWith({
       displayName: "Aisha & Benjamin",

@@ -238,7 +238,7 @@ describe("internal graph routes (ARC-protected)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Fallback runtime with an observability layer (S-L30)
+  // Fallback runtime with an observability layer
   // -------------------------------------------------------------------------
 
   // The fix threads a logger layer into the FALLBACK runtime — the path
@@ -475,9 +475,9 @@ describe("internal graph routes (ARC-protected)", () => {
   // -------------------------------------------------------------------------
 
   describe("GET /graph/internal/profile-account", () => {
-    // The endpoint requires the dedicated graph:resolve-account scope (S-M1
-    // pulse-onboarding), granted alongside graph:read as in the real
-    // pulse-api / cire-api registrations.
+    // The endpoint requires the dedicated graph:resolve-account scope,
+    // granted alongside graph:read as in the real pulse-api / cire-api
+    // registrations.
     const RESOLVE_SCOPES = "graph:read,graph:resolve-account";
 
     it("returns the accountId that owns the profile", async () => {
@@ -1212,7 +1212,7 @@ describe("internal graph routes (ARC-protected)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // POST /graph/internal/register-service  (T-R1)
+  // POST /graph/internal/register-service
   // -------------------------------------------------------------------------
 
   describe("POST /graph/internal/register-service", () => {
@@ -1228,7 +1228,7 @@ describe("internal graph routes (ARC-protected)", () => {
       // The secret is now threaded into the factory (not read from process.env
       // inside the handler), so rebuild the app with it set for this block.
       app = createInternalGraphRoutes(layer, undefined, SECRET);
-      // S-M1 requires a genuinely importable JWK — generate a real key pair.
+      // The registration endpoint requires a genuinely importable JWK — generate a real key pair.
       const kp = await generateArcKeyPair();
       validBody = {
         serviceId: "zap-api",
@@ -1279,7 +1279,7 @@ describe("internal graph routes (ARC-protected)", () => {
     });
 
     it("accepts org:read scope (needed for cire-api org-membership resolvers)", async () => {
-      // T-R3: org:read must be in PERMITTED_SCOPES so the registration curl in
+      // org:read must be in PERMITTED_SCOPES so the registration curl in
       // the §6.2 runbook can widen cire-api's grant to include org:read.
       const res = await app.handle(
         new Request("http://localhost/graph/internal/register-service", {
@@ -1428,7 +1428,7 @@ describe("internal graph routes (ARC-protected)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // DELETE /graph/internal/service-keys/:keyId  (T-R2)
+  // DELETE /graph/internal/service-keys/:keyId
   // -------------------------------------------------------------------------
 
   describe("DELETE /graph/internal/service-keys/:keyId", () => {

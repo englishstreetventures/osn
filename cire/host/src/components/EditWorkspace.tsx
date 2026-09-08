@@ -84,7 +84,7 @@ export default function EditWorkspace(props: {
           {(m) => (
             <button
               type="button"
-              /* `aria-describedby`, not `title` (C-L1). A `title` tooltip needs a
+              /* `aria-describedby`, not `title`. A `title` tooltip needs a
                  hover: it is unreachable on touch, unreachable by keyboard, and
                  announced inconsistently by AT — so the only sentence explaining
                  what the two modes actually DO was missing for exactly the users

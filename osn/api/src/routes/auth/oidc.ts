@@ -186,8 +186,8 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
   };
 
   /**
-   * S-M1: does this browser hold the binding cookie for the parked request?
-   * Every parked request carries a binding hash (S-L4), so there is no
+   * Does this browser hold the binding cookie for the parked request?
+   * Every parked request carries a binding hash, so there is no
    * "no hash → accept" path — a missing or wrong cookie always fails.
    */
   const bindingMatches = (
@@ -195,7 +195,7 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
     cookieHeader: string | undefined,
     requestId: string,
   ): boolean => {
-    // S-L4: every parked request carries a binding hash now, so there is no
+    // Every parked request carries a binding hash now, so there is no
     // "no hash → accept" path that a future writer could trip into.
     const secret = readBindingCookie(cookieHeader, requestId, cookieConfig);
     if (secret === null) return false;
@@ -346,7 +346,7 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
           }
           if (prepared.kind === "interaction") {
             metricOidcAuthorize({ result: "interaction", clientKind });
-            // S-M1: bind the parked request to this browser. The consent screen's
+            // Bind the parked request to this browser. The consent screen's
             // context + decision calls must arrive with this cookie, so a leaked
             // or guessed request id approves nothing anywhere else.
             set.headers["set-cookie"] = buildBindingCookie(
@@ -423,7 +423,7 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
 
           try {
             const parked = await run(auth.loadAuthorizeRequest(query.request));
-            // S-M1: a context read without the binding cookie is answered
+            // A context read without the binding cookie is answered
             // exactly like an unknown id — an attacker holding a leaked
             // request id learns nothing, not even that it exists.
             if (!parked || !bindingMatches(parked.bindingHash, headers.cookie, query.request)) {
@@ -681,7 +681,7 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
             return fail(oidc.code === "invalid_client" ? 401 : 400, oidc.code, oidc.description);
           }
 
-          // P-W1: the exchange already read the client — no second lookup
+          // The exchange already read the client — no second lookup
           // just to label the counter.
           metricOidcToken({
             result: "ok",
@@ -715,7 +715,7 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
       // -----------------------------------------------------------------------
       // GET /oidc/connections — the apps this account has authorised.
       //
-      // The user-facing half of `oauth_consents` (S-M3 oidc): what the
+      // The user-facing half of `oauth_consents`: what the
       // settings surface lists, and the record Art. 15 says the person may
       // see. Access-token authed like every other settings read.
       // -----------------------------------------------------------------------
@@ -768,7 +768,7 @@ export function createOidcRoutes(ctx: AuthRouteContext) {
       // -----------------------------------------------------------------------
       // DELETE /oidc/connections/:clientId — withdraw an app's authorization.
       //
-      // Art. 7(3): revoking must be as easy as granting (C-M3 oidc). Revoking
+      // Art. 7(3): revoking must be as easy as granting. Revoking
       // marks the consent row and kills any authorization code in flight for
       // the pair; the relying party's next /authorize gets `consent_required`.
       // -----------------------------------------------------------------------

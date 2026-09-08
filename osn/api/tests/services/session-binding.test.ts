@@ -288,7 +288,7 @@ describe("classifyCallerSession (destructive-path resolution)", () => {
       const r = yield* auth.classifyCallerSession(profile.accountId, profile.id, {
         sessionBinding: claims.sessionBinding,
       });
-      // Must NOT collapse to `none` — that was the S-M2 account-wide wipe.
+      // Must NOT collapse to `none` — that would wipe every session on the account.
       expect(r._tag).toBe("stale");
     }).pipe(Effect.provide(createTestLayer())),
   );

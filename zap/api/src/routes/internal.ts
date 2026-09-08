@@ -225,7 +225,7 @@ export const createInternalRoutes = (dbLayer: Layer.Layer<DbType> = DbLive) => {
       )
       // ------------------------------------------------------------------
       // ARC-gated `/internal/account-export` — called by osn-api when
-      // fanning out a DSAR account export (C-H1). Returns NDJSON: one
+      // fanning out a DSAR account export. Returns NDJSON: one
       // `{"section":"zap.chats","record":{...}}` line per chat membership of
       // the supplied profile IDs. Message content is EXCLUDED.
       // ------------------------------------------------------------------

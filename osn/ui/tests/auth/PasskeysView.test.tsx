@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { PasskeysView } from "../../src/auth/PasskeysView";
 
 /**
- * Settings → Passkeys view (T-M1). Covers the orchestration logic that
+ * Settings → Passkeys view. Covers the orchestration logic that
  * isn't exercised at the service / HTTP layer: list rendering, inline
  * rename, confirm-gated delete, and step-up threading into the delete
  * call. The `PasskeysClient` + `StepUpClient` are stubbed so we assert
@@ -118,7 +118,7 @@ describe("PasskeysView", () => {
     fireEvent.input(input, { target: { value: "  Primary  " } });
     fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
 
-    // Step-up dialog opens (S-M2). Use the OTP factor.
+    // Step-up dialog opens. Use the OTP factor.
     await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
     fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
     const codeInput = await waitFor(() => screen.getByLabelText(/code/i) as HTMLInputElement);
@@ -323,7 +323,7 @@ describe("PasskeysView", () => {
     expect(pk.registerComplete).not.toHaveBeenCalled();
   });
 
-  // T-E2: most likely real-world failure shape — the user dismisses the
+  // Most likely real-world failure shape — the user dismisses the
   // browser's WebAuthn prompt. registerBegin already resolved, so we must
   // surface the error AND release the `busy` / `pending` lock so the Add
   // button is clickable again.
@@ -361,7 +361,7 @@ describe("PasskeysView", () => {
     await waitFor(() => expect(addButton.disabled).toBe(false));
   });
 
-  // T-S1: the S-L1 lock must cover the Add button too — a rename/delete
+  // The step-up lock must cover the Add button too — a rename/delete
   // step-up in flight must not allow a second ceremony to kick off.
   it("disables Add passkey while a rename/delete step-up is in flight (T-S1)", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });
@@ -438,7 +438,7 @@ describe("PasskeysView", () => {
     expect(screen.getByText(/Backed-up passkey/i)).toBeTruthy();
   });
 
-  // S-L1: while a step-up is in flight, every Rename / Delete button on the
+  // While a step-up is in flight, every Rename / Delete button on the
   // page is disabled to prevent a rapid double-click swapping the pending id.
   it("locks every Rename/Delete button while a step-up is in flight (S-L1)", async () => {
     pk.list.mockResolvedValue({ passkeys: passkeyRows });

@@ -29,7 +29,7 @@
 const MARKER = /^#\s*DROP AFTER\s+(\S+)\s+(\d{4}-\d{2}-\d{2})\s*$/;
 
 // The 3-day soak window `minimumReleaseAge` itself must never drop below —
-// see the S-M2 check below.
+// see the soak-window check below.
 const MIN_RELEASE_AGE_SECONDS = 259200;
 
 // Ten times the 3-day soak window an exclude suspends. A longer exception
@@ -86,7 +86,7 @@ export function checkReleaseAgeExcludes(toml: string, now: Date = new Date()): r
   const today = now.toISOString().slice(0, 10);
   const findings: Finding[] = [];
 
-  // S-M2: the excludes list is only a hole in the soak window if the soak
+  // The excludes list is only a hole in the soak window if the soak
   // window itself is intact. Checking the exception without checking the
   // rule lets `minimumReleaseAge` drop to 0 (or vanish) and this guard still
   // reports green. A deliberate change to the constant below is then a
@@ -112,7 +112,7 @@ export function checkReleaseAgeExcludes(toml: string, now: Date = new Date()): r
       continue;
     }
 
-    // S-M1: the marker was regex-matched, not parsed — "9999-99-99" matches
+    // The marker was regex-matched, not parsed — "9999-99-99" matches
     // \d{4}-\d{2}-\d{2} and then sorts above every real date as a string,
     // never getting flagged as expired. Round-trip it through `Date` instead.
     if (!isValidCalendarDate(dropDate)) {
@@ -133,7 +133,7 @@ export function checkReleaseAgeExcludes(toml: string, now: Date = new Date()): r
       continue;
     }
 
-    // S-M1: an unbounded marker lets "DROP AFTER left-pad 2999-01-01" pass
+    // An unbounded marker lets "DROP AFTER left-pad 2999-01-01" pass
     // forever. Cap it at ten times the 3-day soak window it suspends — a
     // longer exception needs a renewal commit, which is a review point.
     const daysOut = Math.round(

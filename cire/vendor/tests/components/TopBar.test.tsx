@@ -159,13 +159,11 @@ describe("TopBar", () => {
         onSignOut={() => {}}
       />
     ));
-    // Sign out used to be a third bare button beside the two view toggles,
-    // which put "leave" one mis-click from "switch view".
     expect(screen.queryByRole("button", { name: /sign out/i })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /account menu/i })).toBeInTheDocument();
   });
 
-  // ── The deferred account menu (P-W1) ──────────────────────────────────────
+  // ── The deferred account menu ─────────────────────────────────────────────
   //
   // Kobalte's dropdown-menu is the package's only consumer of the library and
   // is ~28.6 KB gzip, so it is behind a `lazy()`. What has to stay true is that

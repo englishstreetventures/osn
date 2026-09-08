@@ -113,7 +113,7 @@ export const createChatsRoutes = (
             ),
           );
           if ("error" in result) return result;
-          // P-I4: continuation metadata — clients stop without probing an
+          // Continuation metadata — clients stop without probing an
           // empty extra page.
           return { chats: result.chats, nextCursor: result.nextCursor, hasMore: result.hasMore };
         },
@@ -156,7 +156,7 @@ export const createChatsRoutes = (
       .post(
         "/",
         async ({ body, headers, set }) => {
-          // S-H1: Zap runs behind Cloudflare, so the only trustworthy client IP
+          // Zap runs behind Cloudflare, so the only trustworthy client IP
           // is `cf-connecting-ip` (W3 trust policy). A missing/malformed header
           // yields the UNRESOLVED sentinel — fail closed (429) rather than
           // bucket every header-less request together under a spoofable key.
@@ -271,7 +271,7 @@ export const createChatsRoutes = (
               return yield* getChatMembers(params.id, {
                 limit: query.limit ? Number(query.limit) : undefined,
                 offset: query.offset ? Number(query.offset) : undefined,
-                // P-I5: assertMember above proved the chat exists.
+                // assertMember above proved the chat exists.
                 assertedExists: true,
               });
             }).pipe(
@@ -283,7 +283,7 @@ export const createChatsRoutes = (
             set.status = 404;
             return { message: "Chat not found" };
           }
-          // P-I4: continuation metadata for offset paging.
+          // Continuation metadata for offset paging.
           return { members: result.members, hasMore: result.hasMore };
         },
         {
@@ -298,7 +298,7 @@ export const createChatsRoutes = (
       .post(
         "/:id/members",
         async ({ params, body, headers, set }) => {
-          // S-H1: Cloudflare-only client IP, fail closed when unresolved.
+          // Cloudflare-only client IP, fail closed when unresolved.
           const ip = getClientIp(headers, { trustCloudflare: true });
           if (isUnresolvedIp(ip) || !(await rateLimiters.addMember.check(ip))) {
             set.status = 429;
@@ -422,7 +422,7 @@ export const createChatsRoutes = (
       .post(
         "/:id/messages",
         async ({ params, body, headers, set }) => {
-          // S-H1: Cloudflare-only client IP, fail closed when unresolved.
+          // Cloudflare-only client IP, fail closed when unresolved.
           const ip = getClientIp(headers, { trustCloudflare: true });
           if (isUnresolvedIp(ip) || !(await rateLimiters.sendMessage.check(ip))) {
             set.status = 429;

@@ -247,7 +247,7 @@ describe("venue routes", () => {
     expect(body.slots.map((s) => s.artistName)).toEqual(["Opener", "Headliner"]);
   });
 
-  // --- S-M1: anonymous surface returns the public allowlist only ---
+  // --- Anonymous surface returns the public allowlist only ---
 
   it("GET /venues/:org/:venue/events omits organiser-internal fields", async () => {
     const { Effect: E } = await import("effect");
@@ -305,7 +305,7 @@ describe("venue routes", () => {
     }
   });
 
-  // --- T-R1: scope/limit query params at the HTTP layer ---
+  // --- Scope/limit query params at the HTTP layer ---
 
   describe("events query params", () => {
     async function seedProgramme() {
@@ -413,7 +413,7 @@ describe("venue routes", () => {
     });
   });
 
-  // --- S-H1 + T-R2: lineup visibility / containment gate ---
+  // --- Lineup visibility / containment gate ---
 
   describe("lineup access gate", () => {
     async function seedLineupFixtures() {
@@ -520,7 +520,7 @@ describe("venue routes", () => {
     });
   });
 
-  // --- S-L1: per-IP rate limit on the /venues group ---
+  // --- Per-IP rate limit on the /venues group ---
 
   it("returns 429 once the per-IP rate limit is exhausted", async () => {
     const layer = createTestLayer();

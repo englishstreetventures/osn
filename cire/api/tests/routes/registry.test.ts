@@ -217,7 +217,7 @@ describe("registry routes (entitled)", () => {
 
   it("rejects a non-https external URL", async () => {
     // `external_url` reaches an <a href> on the guest site. A javascript: or
-    // data: value there is a script sink (precedent CON-S-L2), so the scheme is
+    // data: value there is a script sink, so the scheme is
     // checked at the boundary, not just the shape.
     const app = buildApp({ grantRegistry: true });
     for (const externalUrl of [
@@ -319,7 +319,7 @@ describe("registry routes (entitled)", () => {
   });
 
   it("refuses a key naming a different slot of the caller's OWN wedding", async () => {
-    // S-M1. The wedding half of the key is right, so the ownership check passes —
+    // The wedding half of the key is right, so the ownership check passes —
     // what stops it is the slot. Without that, an editor could point an item at
     // their own invite hero and have deleting the item reap the hero's object.
     const app = buildApp({ grantRegistry: true });
@@ -901,7 +901,7 @@ describe("deleting an item reaps its image", () => {
   });
 
   it("keeps the object while a second item still points at it", async () => {
-    // S-M1: the same picture can back two items. The reap fires on the LAST
+    // The same picture can back two items. The reap fires on the LAST
     // reference, not the first delete — otherwise the survivor loses its picture.
     const assets = createAssetsStub();
     const app = buildApp({ grantRegistry: true, assets });

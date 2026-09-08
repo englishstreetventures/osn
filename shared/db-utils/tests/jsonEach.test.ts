@@ -98,7 +98,7 @@ describe("jsonEachIn", () => {
     expect(rows).toHaveLength(0);
   });
 
-  it("reusing one jsonEachIn(...) call across two predicates binds it twice, not once (osn-tracker#592 shape)", () => {
+  it("reusing one jsonEachIn(...) call across two predicates binds it twice, not once", () => {
     // discovery.ts's friends filter splices the same connectionIds set into
     // two branches of one `or(...)` — this is that shape reduced to the
     // fixture table. 2 total params (not 2×N) either way: the fix is

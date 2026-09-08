@@ -27,7 +27,7 @@ export async function buildAppDeps_Bun(): Promise<
   const { layer: observabilityLayer } = initObservability({ serviceName: SERVICE_NAME });
 
   // -------------------------------------------------------------------------
-  // Redis client — env-driven backend selection (S-M2). See `./redis.ts` for
+  // Redis client — env-driven backend selection. See `./redis.ts` for
   // the full lifecycle (TLS warning, credential redaction, REDIS_REQUIRED
   // fail-closed mode, lazyConnect).
   // -------------------------------------------------------------------------
@@ -96,7 +96,7 @@ export function startBunServer(
           "Using ephemeral JWT key pair — tokens will be invalidated on restart. Set OSN_JWT_PRIVATE_KEY and OSN_JWT_PUBLIC_KEY for persistent keys.",
         );
       }
-      // W3.3 (S-M34): warn if a non-local deploy hasn't declared its proxy
+      // W3.3: warn if a non-local deploy hasn't declared its proxy
       // topology. Direct/socket-peer attribution behind an undeclared load
       // balancer collapses every user onto the LB's IP.
       if (envNonLocal && trustedProxyCountUnconfigured) {

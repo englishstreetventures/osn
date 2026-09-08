@@ -47,9 +47,7 @@ describe("ChangePreview", () => {
   });
 
   it("counts household RENAMES in the households update cell", () => {
-    // A household rename travels as `familyUpdates` (id-matched, in-place). The
-    // cell used to be hard-coded 0 ("families have no update concept"), so a
-    // rename-only save previewed as an all-zero plan.
+    // A household rename travels as `familyUpdates` (id-matched, in-place).
     render(() => (
       <ChangePreview
         plan={plan({ familyUpdates: [{}, {}, {}] })}

@@ -77,7 +77,7 @@ export function createOriginGuard(config: OriginGuardConfig) {
     const authorization = request.headers.get("authorization");
     if (authorization && /^ARC\s/i.test(authorization)) return;
 
-    // Secondary path-based signal (segment-boundary matched). P-W1: extract
+    // Secondary path-based signal (segment-boundary matched). Extract
     // pathname without a full URL parse to avoid a per-request allocation.
     const pathStart = request.url.indexOf("/", request.url.indexOf("//") + 2);
     const path = pathStart >= 0 ? request.url.slice(pathStart) : request.url;

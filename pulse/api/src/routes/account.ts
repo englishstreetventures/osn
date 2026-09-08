@@ -54,7 +54,7 @@ export const createAccountRoutes = (
           return { error: "step_up_required" } as const;
         }
 
-        // S-H2: pulse-api derives the accountId server-to-server from
+        // pulse-api derives the accountId server-to-server from
         // osn-api's verified `sub` claim on the step-up token rather than
         // accepting one in the request body. The accountId is never
         // visible client-side (P6 invariant — no external observer can
@@ -127,7 +127,7 @@ export const createAccountRoutes = (
       {
         parse: "application/json",
         // accountId is derived server-to-server from the step-up verify
-        // response's verified `sub` claim (S-H2); it is intentionally
+        // response's verified `sub` claim; it is intentionally
         // absent from access tokens (P6) and from this request body.
         body: t.Object({
           step_up_token: t.Optional(t.String()),

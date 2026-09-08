@@ -86,7 +86,7 @@ export const PULSE_METRICS = {
   // Pulse → osn-api app-enrollment JOIN callback, fired once on first
   // onboarding completion (mirrors the leave-side deletion callback).
   onboardingEnrollmentNotify: "pulse.onboarding.enrollment_notify",
-  // C-H2 Flow B — leave-Pulse account erasure
+  // Flow B — leave-Pulse account erasure
   accountDeletionRequested: "pulse.account.deletion.requested",
   accountDeletionCompleted: "pulse.account.deletion.completed",
   accountDeletionDuration: "pulse.account.deletion.duration",
@@ -135,8 +135,8 @@ type WriteRateLimitedAttrs = {
  * Closed set of event categories allowed as a metric attribute value.
  * Free-text categories supplied by users (see `InsertEventSchema`) are
  * bucketed into `"other"` by `bucketCategory()` below so metric
- * cardinality cannot be inflated by crafted `category` strings
- * (S-C3). Extend this list as new first-class categories are added.
+ * cardinality cannot be inflated by crafted `category` strings.
+ * Extend this list as new first-class categories are added.
  */
 const ALLOWED_CATEGORIES = [
   "none",
@@ -586,7 +586,7 @@ export const metricEventStatusTransition = (from: EventStatus, to: EventStatus):
   eventStatusTransitions.inc({ from, to });
 
 /**
- * Batch variant for the grouped status-transition writer (P-W5/P-W1):
+ * Batch variant for the grouped status-transition writer:
  * one bulk `UPDATE … WHERE id IN (…)` per (from → to) group records the
  * whole group in a single `add(count)` so the counter's per-event
  * semantics are preserved without N individual increments.
@@ -921,7 +921,7 @@ const onboardingEnrollmentNotify = createCounter<EnrollmentNotifyAttrs>({
   unit: "{call}",
 });
 
-/** Bucket a raw count into the closed `InterestsBucket` union (S-C3 pattern). */
+/** Bucket a raw count into the closed `InterestsBucket` union. */
 const bucketInterests = (count: number): InterestsBucket => {
   if (count <= 0) return "0";
   if (count <= 3) return "1-3";
@@ -962,7 +962,7 @@ export const metricOnboardingEnrollmentNotify = (result: Result): void =>
   onboardingEnrollmentNotify.inc({ result });
 
 // ---------------------------------------------------------------------------
-// Account deletion (C-H2 Flow B — leave Pulse)
+// Account deletion (Flow B — leave Pulse)
 // ---------------------------------------------------------------------------
 
 type AccountDeletionRequestedAttrs = {

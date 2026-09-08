@@ -35,7 +35,7 @@ export function ConnectionsPage() {
   const token = () => session()?.accessToken ?? "";
   const [tab, setTab] = createSignal<Tab>("all");
 
-  // Single keyed resource for all four tabs (P-W5). Rapid tab-switching
+  // Single keyed resource for all four tabs. Rapid tab-switching
   // produces a single in-flight request at a time thanks to Solid's
   // source-change cancellation semantics, rather than firing one request
   // per tab entered.

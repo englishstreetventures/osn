@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 
-// S-L2: free-text + array bounds. `dietary` is stored unbounded otherwise, and
+// Free-text + array bounds. `dietary` is stored unbounded otherwise, and
 // the batch array had no length cap — a single request could push an arbitrary
 // payload. 500 chars is generous for dietary notes; 200 RSVPs comfortably
 // covers the largest realistic family-batch submit.
@@ -12,7 +12,7 @@ const MAX_RSVP_BATCH = 200;
 // `rsvps.dietary_consent_version`, so the stored Art. 9(2)(a) evidence always
 // pins the copy actually shown. Bump (date-stamped, matching the wiki
 // `last-reviewed` convention) whenever the consent wording materially changes.
-// See [[wiki/compliance/dpia/cire-guest-data]] → C-H2.
+// See [[wiki/compliance/dpia/cire-guest-data]].
 export const DIETARY_CONSENT_VERSION = "2026-06-17";
 
 // Free-text dietary field, capped at MAX_DIETARY_CHARS.
@@ -42,7 +42,7 @@ export type BulkRsvpBody = Schema.Schema.Type<typeof BulkRsvpBody>;
 // params, so the body carries only the answer. `dietaryConsent` is the
 // organiser's ATTESTATION that the guest consented to storing the dietary
 // free-text (the Art. 9(2)(a) evidence for `consent_source='organiser_attested'`
-// — see [[wiki/compliance/dpia/cire-guest-data]] → C-H2 organiser-attested
+// — see [[wiki/compliance/dpia/cire-guest-data]], organiser-attested
 // variant). Same 500-char dietary cap + consent gate as the guest path.
 export const OrganiserRsvpBody = Schema.Struct({
   status: Schema.Literals(["attending", "declined", "maybe"]),

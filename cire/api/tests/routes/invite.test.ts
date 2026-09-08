@@ -133,7 +133,7 @@ const orgBase = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/invite`;
 
 /**
  * Claim a seeded household's code and return its `cire_session` cookie header.
- * The closing section's image is delivered only to a claimed session (S-H1), so
+ * The closing section's image is delivered only to a claimed session, so
  * the serve tests need a real one rather than a hand-made token.
  */
 async function guestCookie(
@@ -367,7 +367,7 @@ describe("PUT /invite/text (organiser)", () => {
     expect(body.closing.message).toBe("No boxed gifts please");
   });
 
-  // S-H1. The closing section is addressed to the invited household, so it is
+  // The closing section is addressed to the invited household, so it is
   // delivered ONLY in the claim response. `GET /api/invite/:slug` is
   // unauthenticated — anything it returns is readable by anyone with the slug,
   // so the note must not be in it. Asserted on the RAW body, not a parsed field:
@@ -461,7 +461,7 @@ describe("PUT /invite/text (organiser)", () => {
   });
 
   // Per-field caps are arguments to the shared copyField factory — pin each new
-  // field's specific cap so a transposed/typo'd limit can't slip through (T-S2).
+  // field's specific cap so a transposed/typo'd limit can't slip through.
   it("rejects an over-long details eyebrow with 400 (cap 80)", async () => {
     const { app } = buildApp();
     const res = await appRequest(app, `${orgBase}/text`, {
@@ -678,7 +678,7 @@ describe("invite image upload + serve + remove", () => {
     expect(body.story.imageUrl).toBeNull();
     expect(body.hero.imageUrl).toBeNull();
 
-    // The bytes need a claimed session (S-H1) — see the gate tests below.
+    // The bytes need a claimed session — see the gate tests below.
     const img = await appRequest(app, imageUrl, { headers: { Cookie: await guestCookie(app) } });
     expect(img.status).toBe(200);
     expect(new Uint8Array(await img.arrayBuffer())).toEqual(PNG);
@@ -767,7 +767,7 @@ describe("invite image upload + serve + remove", () => {
     expect(body.footer.imageCrop).toBeNull();
   });
 
-  // ── S-H1: the closing motif is session-gated ──────────────────────────────
+  // ── The closing motif is session-gated ──────────────────────────────
   it("404s the footer image without a claimed session", async () => {
     const { app } = buildApp();
     await appRequest(app, `${orgBase}/image/footer`, {
@@ -1070,7 +1070,7 @@ describe("invite image transforms (Cloudflare Images)", () => {
     expect(img.status).toBe(200);
     // AVIF negotiated from Accept; transformed bytes (not the original PNG).
     expect(img.headers.get("content-type")).toBe("image/avif");
-    expect(img.headers.get("vary")).toBe("Accept, Origin"); // CROP-S-L1
+    expect(img.headers.get("vary")).toBe("Accept, Origin");
     expect(new Uint8Array(await img.arrayBuffer())).toEqual(TRANSFORMED);
     // `hero` variant ⇒ 1600px render width, served SHARP (no blur).
     expect(images.widths).toEqual([1600]);
@@ -1254,7 +1254,7 @@ describe("invite image transforms — Cache API short-circuit", () => {
       expect(cache.store.size).toBe(1);
 
       // A real re-upload: `storeAsset` mints a fresh uuid-suffixed R2 key, and
-      // the cache version is a digest of that key (NOT the client ?v=, S-M1), so
+      // the cache version is a digest of that key (NOT the client ?v=), so
       // the new bytes can never be served the stale cached transform.
       await uploadHero(app);
 

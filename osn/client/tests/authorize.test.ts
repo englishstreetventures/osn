@@ -238,7 +238,7 @@ describe("createAuthorizeClient", () => {
     });
   });
 
-  // AZ-P-I2. Without a deadline a stalled issuer leaves the consent screen on
+  // Without a deadline a stalled issuer leaves the consent screen on
   // its spinner until the browser gives up — the retry screen only helps once
   // the promise settles, so the promise has to settle.
   describe("deadlines", () => {
@@ -318,9 +318,9 @@ describe("createAuthorizeClient", () => {
       expect(fn).not.toHaveBeenCalled();
     });
 
-    // T-S1 / P-W1 / S-L3: `fetch` settles when HEADERS arrive. A server that
-    // flushes headers then stalls mid-body used to escape the deadline
-    // entirely — the exact indefinite spinner this feature exists to bound.
+    // `fetch` settles when HEADERS arrive. A server that flushes headers
+    // then stalls mid-body would otherwise escape the deadline entirely —
+    // the exact indefinite spinner this feature exists to bound.
     it("bounds a response whose headers arrive but whose body stalls", async () => {
       vi.useFakeTimers();
       try {
@@ -354,7 +354,7 @@ describe("createAuthorizeClient", () => {
       }
     });
 
-    // T-S2: `0` is a documented opt-out and a falsy guard — the classic spot
+    // `0` is a documented opt-out and a falsy guard — the classic spot
     // for a `||`-instead-of-`??` slip, which would silently reinstate a 10s
     // deadline while every other test still passed.
     it("honours timeoutMs: 0 as an opt-out", async () => {
@@ -378,7 +378,7 @@ describe("createAuthorizeClient", () => {
       expect(DEFAULT_AUTHORIZE_TIMEOUT_MS).toBe(10_000);
     });
 
-    // S-M1: aborting a fetch does not un-send it. `submitDecision` consumes the
+    // Aborting a fetch does not un-send it. `submitDecision` consumes the
     // parked request, writes the consent row and mints the code, so a
     // client-side deadline that fires mid-commit would surface a RETRYABLE
     // error over a grant that actually happened. The read keeps its deadline;

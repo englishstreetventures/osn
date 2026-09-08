@@ -14,7 +14,7 @@ const unauthenticated = { osnProfileId: undefined as string | undefined };
  * `sub` claim) onto the request context. On any failure — missing header,
  * bad signature, expired token, wrong audience — responds 401.
  *
- * Audience is enforced inside the single jwtVerify pass (P-I1) — the
+ * Audience is enforced inside the single jwtVerify pass — the
  * audience parameter is mandatory.
  */
 export function osnAuth(options: OsnAuthOptions) {

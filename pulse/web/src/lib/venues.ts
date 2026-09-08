@@ -144,7 +144,7 @@ export async function fetchVenueEvents(
  * Allow a URL onto an `href`/`src` attribute only when it parses with an
  * http(s) scheme. Venue rows are seed-only today, but `website_url` /
  * `hero_image_url` are destined for org self-service — a `javascript:`
- * value must never reach the DOM (S-M2).
+ * value must never reach the DOM.
  */
 export function safeHttpUrl(raw: string | null): string | null {
   if (!raw) return null;

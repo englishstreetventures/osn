@@ -438,10 +438,9 @@ export const inviteGuests = (
     // Find which users already have a row for this event (any status).
     //
     // `profileIds` is schema-capped at MAX_EVENT_GUESTS (1000, see
-    // `InviteGuestsSchema` above), which is well past D1's 100-bound-parameter
-    // cap — binding the list directly as individual parameters would throw
-    // on any batch over 100. `jsonEachIn` binds the whole list as one JSON
-    // parameter instead, so bind count no longer grows with input size.
+    // `InviteGuestsSchema` above), well past D1's 100-bound-parameter cap, so
+    // `jsonEachIn` binds the whole list as one JSON parameter — bind count
+    // does not grow with input size.
     const existing = yield* Effect.tryPromise({
       try: () =>
         db
@@ -474,9 +473,8 @@ export const inviteGuests = (
     // Each row binds 6 parameters (its 6 keys), so a plain multi-row
     // `.values(rows)` insert would hit D1's 100-bound-parameter cap around
     // ~16 invitees — an order of magnitude below the 1000-guest schema cap
-    // this route advertises. `insertManyViaJsonEach` binds the whole row
-    // set as one JSON parameter instead, so bind count no longer grows with
-    // input size.
+    // this route advertises. `insertManyViaJsonEach` binds the whole row set
+    // as one JSON parameter instead.
     yield* Effect.tryPromise({
       // `.run()`'s return type is `T | Promise<T>` (sync bun:sqlite / async
       // D1) — `Promise.resolve` normalises it to a real thenable the same
@@ -506,7 +504,7 @@ export const listRsvps = (
     status?: EventRsvp["status"];
     limit?: number;
     /**
-     * Already-loaded event row (P-W1/P-I15). The routes gate every RSVP
+     * Already-loaded event row. The routes gate every RSVP
      * read behind `loadVisibleEvent`, which has just fetched this exact
      * row — passing it here skips the redundant internal re-fetch.
      * When omitted the event is loaded (and 404-checked) as before.
@@ -519,13 +517,13 @@ export const listRsvps = (
   Db
 > =>
   Effect.gen(function* () {
-    // S-L3: the pre-loaded row is only an optimisation — never let a
+    // The pre-loaded row is only an optimisation — never let a
     // mismatched hint decide another event's authorization. On mismatch,
     // fall back to loading the row for `eventId` ourselves.
     const hinted = options.event && options.event.id === eventId ? options.event : undefined;
     const event = hinted ?? (yield* loadEvent(eventId));
 
-    // S-H4: invite lists are organiser-only. Return empty rather than
+    // Invite lists are organiser-only. Return empty rather than
     // an error so the route can render the same 200-empty response as
     // any other "no visible rows" state — the existence of the event
     // is already gated upstream by the route's canViewEvent check.
@@ -602,7 +600,7 @@ export const latestRsvps = (
   eventId: string,
   viewerId: string | null,
   limit = 5,
-  /** Already-loaded event row — see `listRsvps` (P-W1/P-I15). */
+  /** Already-loaded event row — see `listRsvps`. */
   event?: Event,
 ): Effect.Effect<
   RsvpWithProfile[],
@@ -618,14 +616,14 @@ export const latestRsvps = (
 export const rsvpCounts = (
   eventId: string,
   /**
-   * Already-loaded event row — see `listRsvps` (P-I15). Only used as an
+   * Already-loaded event row — see `listRsvps`. Only used as an
    * existence proof: when provided, the internal `loadEvent` 404-check
    * is skipped.
    */
   event?: Event,
 ): Effect.Effect<RsvpCounts, EventNotFound | DatabaseError, Db> =>
   Effect.gen(function* () {
-    // S-L3: only honour the existence hint when it names THIS event.
+    // Only honour the existence hint when it names THIS event.
     if (!event || event.id !== eventId) yield* loadEvent(eventId); // 404 if missing
     const { db } = yield* Db;
     const rows = yield* Effect.tryPromise({

@@ -63,9 +63,9 @@ export interface CeremonyStore<V> {
 export const CEREMONY_STORE_MAX = 10_000;
 
 /**
- * P-W1 (cdl) / P-W4: the full TTL scan runs at most once per this window,
- * mirroring the `maybeSweepExpiredTokens` debounce in `@shared/crypto`'s
- * arc.ts. Lazy expiry on `get` keeps stale reads correct between sweeps.
+ * The full TTL scan runs at most once per this window, mirroring the
+ * `maybeSweepExpiredTokens` debounce in `@shared/crypto`'s arc.ts. Lazy
+ * expiry on `get` keeps stale reads correct between sweeps.
  */
 const SWEEP_DEBOUNCE_MS = 30_000;
 
@@ -78,9 +78,8 @@ interface MemoryEntry<V> {
  * In-memory ceremony store — single-process dev/test. Mirrors the old inline
  * `Map` behaviour with amortised eviction: `get` lazily drops an expired
  * entry it touches, `set` triggers a debounced full TTL sweep (at most once
- * per {@link SWEEP_DEBOUNCE_MS} — P-W1 (cdl): previously the O(n) scan ran on
- * EVERY write), and a FIFO drop enforced on every `set` keeps the map hard-
- * bounded under abuse even if every entry is still live.
+ * per {@link SWEEP_DEBOUNCE_MS}), and a FIFO drop enforced on every `set`
+ * keeps the map hard-bounded under abuse even if every entry is still live.
  */
 export function createInMemoryCeremonyStore<V>(
   namespace: RedisNamespace,

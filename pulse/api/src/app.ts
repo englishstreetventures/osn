@@ -39,7 +39,7 @@ export interface AppOptions {
    */
   rateLimiters?: PulseRateLimiters;
   /**
-   * Client-IP trust policy (S-M34) for the per-IP limiters on the
+   * Client-IP trust policy for the per-IP limiters on the
    * unauthenticated discover / share / exposure surfaces. The composition
    * root derives this from `PULSE_TRUSTED_PROXY_COUNT` (or `trustCloudflare`
    * behind CF). Defaults to `{}` — direct mode, socket peer only.

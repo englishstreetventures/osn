@@ -11,18 +11,18 @@ export const CDL_TTL_SECONDS = 300; // 5 min
 export const MAX_OTP_ATTEMPTS = 5;
 
 /**
- * COPPA hard age gate (C-H8). Registration rejects anyone under this age
+ * COPPA hard age gate. Registration rejects anyone under this age
  * before any personal information is collected (before the OTP is sent), so
  * OSN never gains "actual knowledge" of an under-13 user. The birthdate is
  * validated transiently and NEVER persisted. See [[compliance/coppa]].
  */
 export const MIN_AGE_YEARS = 13;
-// O3: short TTL for WebAuthn challenge entries (passkey register / login /
+// Short TTL for WebAuthn challenge entries (passkey register / login /
 // step-up). 120s matches the previous inline `Date.now() + 120_000`.
 export const CHALLENGE_TTL_MS = 120_000;
 
-// Per-account profile-switch rate limiting (S-M3). Fixed window:
-// max 20 switches per hour per account. O3: enforced via an injectable
+// Per-account profile-switch rate limiting. Fixed window:
+// max 20 switches per hour per account. Enforced via an injectable
 // per-account cap limiter (`profileSwitchCap`) so the window is shared across
 // pods; the default is an in-memory fixed-window limiter with these bounds.
 export const PROFILE_SWITCH_MAX = 20;
@@ -60,7 +60,7 @@ export const RESERVED_HANDLES = new Set([
 ]);
 
 /**
- * Hard cap on concurrent sessions per account (S-M1). An attacker who
+ * Hard cap on concurrent sessions per account. An attacker who
  * compromises an account cannot inflate the revocation / list surface
  * beyond this limit; new sessions LRU-evict the oldest rather than
  * rejecting the legitimate login. Typical users have <10 sessions
@@ -89,7 +89,7 @@ export const MAX_SESSIONS_PER_ACCOUNT = 50;
  */
 export const ROTATION_GRACE_MS = 10_000;
 /**
- * Hard cap on passkeys per account (P-I10). An attacker with a stolen
+ * Hard cap on passkeys per account. An attacker with a stolen
  * access token (or a hijacked enrollment token) cannot add unlimited
  * credentials; 10 is comfortably above the real-world ceiling of one
  * passkey per device for a typical user.
@@ -103,13 +103,13 @@ export const MAX_PASSKEYS_PER_ACCOUNT = 10;
  */
 export const PASSKEY_LAST_USED_COALESCE_MS = 60_000;
 /**
- * Minimum gap between `last_used_at` writes on the hot-path (P-W4).
+ * Minimum gap between `last_used_at` writes on the hot-path.
  * The Sessions UI doesn't need sub-second accuracy; coalescing to 60s
  * cuts per-refresh DB writes by ~60× at typical 5-min refresh cadence.
  */
 export const LAST_USED_AT_COALESCE_MS = 60_000;
 /**
- * Per-account cap on `/account/email/begin` (S-H3). Complements the
+ * Per-account cap on `/account/email/begin`. Complements the
  * per-IP rate limit and prevents an authenticated attacker pooling
  * their allowance across rotating IPs to spam the OSN sending domain.
  * Window is 24h to match the 2-per-7-days hard cap on complete.
@@ -160,7 +160,7 @@ export const OIDC_PARAM_MAX_LENGTH = 512;
 export const OIDC_MAX_AGE_CEILING_SEC = 315_360_000;
 
 /**
- * Client identifiers no relying party may ever hold (S-M2 oidc). Each value is
+ * Client identifiers no relying party may ever hold. Each value is
  * (or is reserved to become) a first-party JWT audience or an ARC S2S
  * audience; a client registered under one of these names would mint OIDC
  * access tokens whose `aud` collides with an internal verifier's pin.

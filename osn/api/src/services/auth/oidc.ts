@@ -125,7 +125,7 @@ export type AuthorizeOutcome =
       requestId: string;
       reason: "login" | "select_account" | "consent" | "create";
       /**
-       * Raw browser-binding secret (S-M1 oidc). The route sets it as a
+       * Raw browser-binding secret. The route sets it as a
        * short-TTL HttpOnly cookie; only its hash is parked server-side.
        */
       bindingSecret: string;
@@ -185,8 +185,7 @@ export interface OidcTokenResponse {
 
 /**
  * A successful exchange plus the metric dimension the route needs, so the
- * route does not have to re-read the client purely to label a counter
- * (P-W1 oidc).
+ * route does not have to re-read the client purely to label a counter.
  */
 export interface ExchangeResult {
   response: OidcTokenResponse;
@@ -223,7 +222,7 @@ export interface ClientRegistrationResult {
   clientSecret: string | null;
 }
 
-/** One row of the user-facing "apps you have authorised" list (S-M3 oidc). */
+/** One row of the user-facing "apps you have authorised" list. */
 export interface OidcConnectionSummary {
   clientId: string;
   /** Null only if the client row was hand-deleted out from under the consent. */
@@ -294,7 +293,7 @@ const generateAuthorizationCode = (): string => {
 };
 
 /**
- * The browser-binding secret for a parked request (S-M1 oidc): 32 random
+ * The browser-binding secret for a parked request: 32 random
  * bytes, base64url, `oab_` prefixed. Travels only in an HttpOnly cookie; the
  * ceremony store holds its SHA-256.
  */
@@ -558,7 +557,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
   /**
    * Looks up an enabled relying party. Disabled clients read as absent, and so
    * does any client whose id collides with a reserved first-party or S2S
-   * audience (S-M2 oidc) — a row seeded under such a name could mint OIDC
+   * audience — a row seeded under such a name could mint OIDC
    * access tokens whose `aud` an internal verifier pins, so the registry
    * refuses to see it no matter how it got written.
    */
@@ -566,7 +565,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
     Effect.gen(function* () {
       if (isReservedOidcClientId(clientId)) return null;
       const { db } = yield* Db;
-      // P-I3: explicit projection — `rowToClient` names every column it uses,
+      // Explicit projection — `rowToClient` names every column it uses,
       // plus `disabledAt` for the liveness check.
       const rows = yield* Effect.tryPromise({
         try: () =>
@@ -804,7 +803,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
   ): Effect.Effect<{ id: string; profileId: string; scope: string } | null, DatabaseError, Db> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
-      // P-I3: three used columns plus the liveness marker, not SELECT *.
+      // Three used columns plus the liveness marker, not SELECT *.
       const rows = yield* Effect.tryPromise({
         try: () =>
           db
@@ -843,7 +842,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
     Effect.gen(function* () {
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1000);
-      // P-W4: insert-first. A first link — the common case for a growing
+      // Insert-first. A first link — the common case for a growing
       // provider — is one statement; only the re-consent path pays the
       // read-merge-write, because a scope UNION cannot be expressed in the
       // conflict clause.
@@ -958,7 +957,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
 
   /**
    * The account's live consents, joined to the client registry so the list
-   * can show a name and logo (S-M3 oidc). A consent whose client row was
+   * can show a name and logo. A consent whose client row was
    * hand-deleted still appears — the grant is the user's record, not the
    * client's — with a null name.
    */
@@ -1010,7 +1009,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
             scope: input.scope,
             codeChallenge: input.codeChallenge,
             nonce: input.nonce,
-            // S-H1 oidc: the SESSION's establishment time, never `nowSec` — a
+            // The SESSION's establishment time, never `nowSec` — a
             // code minted off a month-old cookie must not claim the user just
             // authenticated, because relying parties act on `auth_time`.
             authTime: input.authTime,
@@ -1162,11 +1161,11 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
         claims["email_verified"] = true;
       }
 
-      // P-W5: the two signatures share nothing but the key, which is already
+      // The two signatures share nothing but the key, which is already
       // resident — so they run concurrently instead of back-to-back.
       // The access token carries `typ: "at+jwt"` (RFC 9068) so no verifier can
       // ever mistake it for an ID token or a first-party token, on top of the
-      // `aud` separation (S-M2 oidc).
+      // `aud` separation.
       const { idToken, accessToken } = yield* Effect.all(
         {
           idToken: Effect.tryPromise({
@@ -1354,7 +1353,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
 
   /**
    * Parks a validated request for the consent UI. Returns the opaque id plus
-   * the raw browser-binding secret (S-M1 oidc) — the route turns the secret
+   * the raw browser-binding secret — the route turns the secret
    * into a cookie; only its hash is stored here.
    *
    * `requireAuthAfter` records, in the parked request itself, that the flow
@@ -1439,7 +1438,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
       // `none` has already been rejected alongside them during validation.
       // `prompt=login` parks with `requireAuthAfter = now`: the decision will
       // only accept a session created after this instant, so the demand for a
-      // fresh ceremony is enforced server-side, not just displayed (S-H1 oidc).
+      // fresh ceremony is enforced server-side, not just displayed.
       if (prompts.has("login")) {
         return yield* interaction("login", nowSec);
       }
@@ -1543,13 +1542,12 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
         );
       }
 
-      // S-M1 oidc: the decision must come from the browser that parked the
+      // The decision must come from the browser that parked the
       // request. Checked BEFORE the request is consumed, so a forged attempt
       // does not burn the real user's pending flow. Every parked request now
-      // carries a binding hash (S-L4 — the mid-deploy tolerance was removed),
-      // so the binding is always enforced. The error is byte-identical to the
-      // unknown-id case: a caller without the binding cookie must not learn
-      // that the id exists.
+      // carries a binding hash, so the binding is always enforced. The error
+      // is byte-identical to the unknown-id case: a caller without the
+      // binding cookie must not learn that the id exists.
       if (
         input.bindingSecret === null ||
         !hexEqual(sha256Hex(input.bindingSecret), parked.bindingHash)
@@ -1559,7 +1557,7 @@ export function createOidcModule(ctx: AuthContext, profiles: ProfilesModule) {
         );
       }
 
-      // S-H1 oidc: a flow that demanded a fresh sign-in (`prompt=login`, or
+      // A flow that demanded a fresh sign-in (`prompt=login`, or
       // `max_age` exceeded at /authorize) only accepts a session created after
       // the request was parked — and `max_age` is re-checked outright, because
       // a user can sit on the consent screen while their session ages past it.

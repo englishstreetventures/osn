@@ -57,7 +57,7 @@ export function createAccountErasureRoutes(
   rateLimiters: AccountErasureRateLimiters = createDefaultAccountErasureRateLimiters(),
   cookieConfig: CookieSessionConfig = { secure: false },
   /**
-   * Client-IP trust policy (S-M5 / S-M34). See `createAuthRoutes` for the
+   * Client-IP trust policy. See `createAuthRoutes` for the
    * full contract. Defaults to `{}` (direct mode, socket peer only).
    */
   clientIpConfig: Omit<ClientIpOptions, "socketIp"> = {},
@@ -71,7 +71,7 @@ export function createAccountErasureRoutes(
 
   const handleError = (e: unknown) => publicError(e, loggerLayer);
 
-  /** Per-request transport socket peer (S-M34); `null` under `app.handle`. */
+  /** Per-request transport socket peer; `null` under `app.handle`. */
   type IpCtx = {
     server: { requestIP?: (req: Request) => { address?: string } | null } | null;
     request: Request;
@@ -86,7 +86,7 @@ export function createAccountErasureRoutes(
     limiter: RateLimiterBackend,
   ): Promise<{ error: string } | null> {
     const ip = getClientIp(headers, { ...clientIpConfig, socketIp });
-    // S-M34: never key the limiter on an unresolved IP — deny instead of
+    // Never key the limiter on an unresolved IP — deny instead of
     // sharing one bucket across all un-attributable requests.
     if (isUnresolvedIp(ip)) {
       metricAuthRateLimited(endpoint);
@@ -181,7 +181,7 @@ export function createAccountErasureRoutes(
 
             metricAccountDeletionRequested(result.newlyScheduled ? "ok" : "already_pending");
 
-            // No fan-out here (S-H1): cross-service purges only fire from
+            // No fan-out here: cross-service purges only fire from
             // the sweeper AFTER the 7-day grace window elapses, so a
             // restore during the window loses nothing on Pulse / Zap.
             // See `runFanOutSweep` in services/account-erasure.ts.

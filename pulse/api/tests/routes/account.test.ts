@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, vi } from "vitest";
 import { createTestLayer } from "../helpers/db";
 
 /**
- * Route-level coverage for the `/account` group (T-R1). The DSAR-critical
+ * Route-level coverage for the `/account` group. The DSAR-critical
  * handlers were rewired from per-request `Effect.provide(dbLayer)` to a
  * factory-scoped `ManagedRuntime` with `as Effect.Effect<…, Db>` casts —
  * these tests prove the runtime wiring the casts assert: one request per

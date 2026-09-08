@@ -57,7 +57,7 @@ export const oidcErrorResponse = t.Object({
 /**
  * A session envelope WITHOUT the refresh token — the return shape of
  * `toTokenResponseCookieOnly`. The refresh token lives only in the
- * HttpOnly cookie (S-M2), which is why it is absent here and must stay
+ * HttpOnly cookie, which is why it is absent here and must stay
  * absent: adding it to the schema would not leak it (Elysia only strips,
  * never invents), but it would document a field first-party clients must
  * never look for.

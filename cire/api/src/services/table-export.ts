@@ -10,7 +10,7 @@ import { decodePalette, safeHttpUrl } from "./claim";
 
 /**
  * Invited-guest count per event for one wedding, aggregated IN SQL (`GROUP BY`
- * returns one row per event instead of one per membership — P-W1) with the
+ * returns one row per event instead of one per membership) with the
  * same host-family exclusion as every other organiser read. Shared by the
  * events CSV export and the RSVP dashboard view.
  */
@@ -61,8 +61,8 @@ export const tableExportService = {
       const db = yield* DbService;
 
       // The two reads are independently wedding-scoped — collapse them to one
-      // D1 round-trip (RT-P-I1; matches the parallel shape in state-export.ts
-      // and rsvp-export.ts).
+      // D1 round-trip (matches the parallel shape in state-export.ts and
+      // rsvp-export.ts).
       const [eventRows, guestRows] = yield* Effect.all(
         [
           dbQuery(() =>
@@ -180,8 +180,8 @@ export const tableExportService = {
       const db = yield* DbService;
 
       // The two reads are independently wedding-scoped — collapse them to one
-      // D1 round-trip (RT-P-I1; matches the parallel shape in state-export.ts
-      // and rsvp-export.ts).
+      // D1 round-trip (matches the parallel shape in state-export.ts and
+      // rsvp-export.ts).
       const [eventRows, invitedByEvent] = yield* Effect.all(
         [
           dbQuery(() =>

@@ -562,7 +562,7 @@ describe("fidelity columns (E2 — honoured, not just ignored)", () => {
     expect(families[0]!.id).toBeUndefined();
   });
 
-  // ── Collision contract (T-S1 — must NOT change) ─────────────────────────────
+  // ── Collision contract (must NOT change) ─────────────────────────────
   // When an event is NAMED after a reserved fidelity label, only the LAST header
   // occurrence is fidelity metadata (the exporter appends it after the event
   // columns); a SINGLE occurrence stays the event's attendance column — biased

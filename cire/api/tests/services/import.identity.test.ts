@@ -76,11 +76,7 @@ async function seedHousehold(
 describe("diffAgainstDb — a guest whose first name collides with a sibling's", () => {
   /**
    * Two guests in one household CAN normalise to the same first name (a sheet
-   * carrying "Sam" and "sam ", a household of two "Guest"s). The per-family
-   * collection the removal scan reads used to be keyed by that normalised name,
-   * so one of the two was shadowed out of it entirely: dropping that guest from
-   * the desired state emitted NO removal at all, and the editor's delete was a
-   * silent no-op.
+   * carrying "Sam" and "sam ", a household of two "Guest"s).
    */
   it("emits a removal for the shadowed duplicate, not for its twin", async () => {
     const { db, layer } = freshDb();

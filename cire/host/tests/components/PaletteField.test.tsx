@@ -181,7 +181,7 @@ describe("PaletteField", () => {
   });
 
   it("keeps the live region mounted and the per-frame numbers out of it", async () => {
-    // C-L1. `role="status"` is implicitly atomic, and this region's trigger is
+    // `role="status"` is implicitly atomic, and this region's trigger is
     // a pointer-rate colour drag, so two things have to hold: the region must
     // not be mounted and unmounted as warnings flip in and out (a region
     // inserted with its content announces unreliably, and the churn reflows the
@@ -214,7 +214,7 @@ describe("PaletteField", () => {
 
   it("warns off the SHARED token map when the parent supplies one", async () => {
     // The production path. `InviteBuilder` always passes `tokens` (it derives
-    // once per drag frame and shares the result, P-W1), so the internal
+    // once per drag frame and shares the result), so the internal
     // derivation the tests above exercise is the path that never runs in the
     // app — a warning wired only to `internalTokens` would be permanently
     // silent for every real organiser with the suite green.

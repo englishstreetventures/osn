@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
-// S-M34: see `../helpers/routes` for why the factory is wrapped here.
+// See `../helpers/routes` for why the factory is wrapped here.
 import { createProfileRoutes } from "../helpers/routes";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
@@ -180,7 +180,7 @@ describe("profile routes", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Rate limiting (T-R1)
+  // Rate limiting
   // -------------------------------------------------------------------------
   describe("rate limiting", () => {
     it("returns 429 after exceeding rate limit on /profiles/create", async () => {

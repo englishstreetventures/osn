@@ -169,7 +169,7 @@ it.effect("clamps the result count to the requested limit", () =>
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-// T-S5 — applyTransitions preserves row order, so the parallel myStatus
+// applyTransitions preserves row order, so the parallel myStatus
 // array zips back by index. Interleave transitioning (already-started,
 // stored "upcoming") and non-transitioning (future) events with different
 // myStatus/isHost values and assert each returned entry's pairing.

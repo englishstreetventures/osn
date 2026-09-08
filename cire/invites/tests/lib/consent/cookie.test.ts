@@ -156,7 +156,7 @@ describe("serialiseConsentCookie", () => {
   });
 });
 
-describe("writeConsentToDocumentAndVerify (osn-tracker#162 read-back)", () => {
+describe("writeConsentToDocumentAndVerify read-back", () => {
   afterEach(clearBothCookies);
 
   it("returns true and leaves the record readable when the write actually lands", () => {
@@ -233,12 +233,11 @@ function onSecureOriginWithJar(initial: string, body: (jar: () => string) => voi
 }
 
 /**
- * S-M1 (found reviewing this branch): preferring the prefixed name on read only
- * helps once this origin has WRITTEN the prefixed name — and for an
- * already-decided guest that write never happens, because their choice reads
- * back fine, the banner stays away, and `saveConsent` is never called again.
- * Without a read-path migration their refusal stays shadowable for the cookie's
- * whole 182 days.
+ * Preferring the prefixed name on read only helps once this origin has
+ * WRITTEN the prefixed name — and for an already-decided guest that write
+ * never happens, because their choice reads back fine, the banner stays
+ * away, and `saveConsent` is never called again. Without a read-path
+ * migration their refusal stays shadowable for the cookie's whole 182 days.
  */
 describe("migrateBareConsentCookie (S-M1)", () => {
   it("moves an already-decided guest onto the prefixed name, and drops the bare one", () => {

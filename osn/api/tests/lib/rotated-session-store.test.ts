@@ -65,10 +65,10 @@ describe("createInMemoryRotatedSessionStore", () => {
   });
 
   it("revokeFamily keeps the FIFO queue aligned with live entries (P-I1)", async () => {
-    // Regression guard: prior to P-I1 the `order` queue retained revoked
-    // keys, so after enough revocations the cap check could evict still-live
-    // entries prematurely. Exercise the alignment by revoking half, then
-    // filling to just past the cap — the retained entries must survive.
+    // Regression guard: the `order` queue must drop a key as soon as its
+    // family is revoked, or the cap check could evict still-live entries
+    // from other families instead. Exercise the alignment by revoking half,
+    // then filling to just past the cap — the retained entries must survive.
     const store = createInMemoryRotatedSessionStore();
     for (let i = 0; i < 10; i++) {
       // eslint-disable-next-line no-await-in-loop -- sequential tracking
@@ -147,10 +147,9 @@ describe("createRedisRotatedSessionStore (memory-backed RedisClient)", () => {
   it("revokeFamily is a no-op (TTL drives eviction on the Redis backend)", async () => {
     // Deliberate design: the DB-level DELETE FROM sessions is the
     // authoritative family revocation. Redis hash keys expire under their
-    // own PX TTL; skipping proactive cleanup keeps `track` single-round-trip
-    // and removes the S-L1/S-L3/P-W1/P-W2 concerns raised against the
-    // prior family-set design. A repeat replay post-revocation just
-    // re-fires the metric, which is informative rather than harmful.
+    // own PX TTL; skipping proactive cleanup keeps `track` single-round-trip.
+    // A repeat replay post-revocation just re-fires the metric, which is
+    // informative rather than harmful.
     const store = createRedisRotatedSessionStore(client);
     await store.track("h1", "famA", 60_000);
     await store.revokeFamily("famA");

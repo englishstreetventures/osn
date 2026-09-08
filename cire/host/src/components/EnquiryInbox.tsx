@@ -1,8 +1,8 @@
 import { For, Show } from "solid-js";
 
 import type { EnquiryListItem } from "../lib/enquiries-store";
-// ENQ-P-W3: shared, memoised formatters — this renders inside a `<For>`, so a
-// per-call `new Intl.NumberFormat` cost one construction per row per render.
+// Formatters are shared and memoised: this renders inside a `<For>`, so a
+// per-call `new Intl.NumberFormat` would cost one construction per row per render.
 import { formatMinor } from "../lib/money";
 import { categoryLabel } from "../lib/service-categories";
 

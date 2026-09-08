@@ -63,9 +63,9 @@ export function IconSearch(props: NavIconProps) {
 }
 
 /**
- * Person-with-a-plus — Discover, i.e. people to add. It used to be a
- * magnifier-with-a-plus, which now belongs to Search; two magnifiers side by
- * side in the tab bar read as the same destination twice.
+ * Person-with-a-plus — Discover, i.e. people to add. Distinct from Search's
+ * magnifier icon; two magnifiers side by side in the tab bar would read as
+ * the same destination twice.
  */
 export function IconDiscover(props: NavIconProps) {
   return (

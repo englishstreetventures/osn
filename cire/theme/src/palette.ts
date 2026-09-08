@@ -226,7 +226,7 @@ export function fontChoiceHasStack(choice: FontChoice): boolean {
 export function fontStack(choice: string | null | undefined): string | null {
   if (!choice || choice === "default") return null;
   // Object.hasOwn so prototype-chain keys ("constructor", …) stay unknown
-  // rather than leaking an inherited function through the closed map (S-L1).
+  // rather than leaking an inherited function through the closed map.
   return Object.hasOwn(FONT_STACKS, choice)
     ? FONT_STACKS[choice as keyof typeof FONT_STACKS]
     : null;
@@ -236,7 +236,7 @@ export function fontStack(choice: string | null | undefined): string | null {
 
 /**
  * Every custom property {@link derivePalette} emits. Exported so the guest
- * site's style sink can allow-list exactly these names (S-L1: a caller wiring
+ * site's style sink can allow-list exactly these names (a caller wiring
  * unvalidated data into a `style` must not be able to smuggle in an arbitrary
  * CSS property) and so a test can assert the two sides agree.
  */
@@ -262,7 +262,7 @@ export const DERIVED_TOKENS = [
   "--toast-border",
   "--toast-error",
   "--toast-success",
-  // Invite-specific compositions that used to be hardcoded literals.
+  // Invite-specific compositions.
   "--invite-hero-grad-1",
   "--invite-hero-grad-2",
   "--invite-hero-grad-3",

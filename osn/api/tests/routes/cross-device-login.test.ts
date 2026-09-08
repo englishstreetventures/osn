@@ -4,7 +4,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
-// S-M34: wrapped factory (trust XFF under app.handle). See helpers/routes.
+// Wrapped factory (trust XFF under app.handle). See helpers/routes.
 import { createAuthRoutes } from "../helpers/routes";
 
 function buildEmailCapture(baseLayer: ReturnType<typeof createTestLayer>) {

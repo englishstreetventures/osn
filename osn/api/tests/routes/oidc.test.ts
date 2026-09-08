@@ -21,7 +21,7 @@ import { createDefaultAuthRateLimiters } from "../../src/routes/auth/limiters";
 import { renderAuthorizeErrorPage } from "../../src/routes/auth/oidc";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayerWithSqlite } from "../helpers/db";
-// S-M34: wrapped factory (trust XFF under app.handle). See helpers/routes.
+// Wrapped factory (trust XFF under app.handle). See helpers/routes.
 import { createAuthRoutes, type AuthRateLimiters } from "../helpers/routes";
 
 const REDIRECT_URI = "https://rp.example.com/callback";
@@ -382,7 +382,7 @@ describe("renderAuthorizeErrorPage", () => {
   });
 
   it("does not resolve a planted Object.prototype member as copy (#492 item 3)", () => {
-    // S-L3-shaped guard pin, matching the house form in
+    // Guard pin matching the house form in
     // osn/social/tests/components/AuthorizePage.test.tsx. Non-enumerable, so
     // no unrelated `for...in` loop across the test run can see it, and
     // removed again in `finally`.
@@ -466,7 +466,7 @@ describe("GET /authorize/context", () => {
 
 /**
  * Starts an authorize flow that needs interaction. Returns the parked request
- * id and the browser-binding cookie the response set (S-M1) as a `name=value`
+ * id and the browser-binding cookie the response set as a `name=value`
  * pair ready to join onto a Cookie header.
  */
 async function startAuthorize(

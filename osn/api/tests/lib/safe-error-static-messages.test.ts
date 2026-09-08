@@ -1,5 +1,5 @@
 /**
- * S-M17 guard: `makeSafeError` forwards the `message` of allow-listed tagged
+ * Guard: `makeSafeError` forwards the `message` of allow-listed tagged
  * errors (`GraphError`, `OrgError`, `NotFoundError`) verbatim to clients, so
  * every construction site must use a static string literal — an interpolated
  * cause or user input would silently re-open the DB-internals leak the

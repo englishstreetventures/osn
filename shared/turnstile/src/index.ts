@@ -96,7 +96,7 @@ export async function siteverify(
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: form.toString(),
-      // S-L2: bound the call so a hung siteverify can't tie up the isolate. An
+      // Bound the call so a hung siteverify can't tie up the isolate. An
       // abort lands in the catch below → fail-closed `{ ok: false }`, so a slow
       // Cloudflare degrades to "reject" rather than "hang then reject".
       signal: AbortSignal.timeout(5_000),

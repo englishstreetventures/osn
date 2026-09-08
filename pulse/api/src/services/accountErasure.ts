@@ -324,7 +324,7 @@ export const runHardDeleteSweep = (
               ),
             db.delete(eventComms).where(eq(eventComms.sentByProfileId, row.profileId)),
             db.delete(pulseUsers).where(eq(pulseUsers.profileId, row.profileId)),
-            // C-H1 (re-review): onboarding state is Pulse-scoped personal
+            // Onboarding state is Pulse-scoped personal
             // data (interests, opt-ins) and must go with the leave. The
             // profileId→accountId cache row goes too — keeping it would
             // preserve the exact account↔profile correlation the P6
@@ -405,7 +405,7 @@ export const purgeAccount = (
   Effect.gen(function* () {
     const { db } = yield* Db;
 
-    // S-H1: replay-protection ledger. The first call for an accountId
+    // Replay-protection ledger. The first call for an accountId
     // commits the work + ledger row in one tx; subsequent calls find the
     // row and return a no-op response. This prevents a captured
     // `account:erase` ARC token from being replayed against arbitrary
@@ -451,7 +451,7 @@ export const purgeAccount = (
       catch: (cause) => new PulseErasureDbError({ cause }),
     })).map((r) => r.id);
 
-    // P-W2: bulk DELETEs via inArray instead of looping per profile/event.
+    // Bulk DELETEs via inArray instead of looping per profile/event.
     // Three statements per child table regardless of profile count, which
     // keeps the batch's write-lock window bounded and well under
     // FANOUT_TIMEOUT_MS = 10s as the host-event count grows.
@@ -473,7 +473,7 @@ export const purgeAccount = (
           db.delete(eventComms).where(inArray(eventComms.sentByProfileId, profileIds)),
           db.delete(pulseUsers).where(inArray(pulseUsers.profileId, profileIds)),
 
-          // C-H1 (re-review): Pulse-scoped personal data added by the
+          // Pulse-scoped personal data added by the
           // onboarding feature — interests/opt-ins keyed by accountId, and
           // the profileId→accountId cache rows whose survival would
           // preserve the exact correlation the P6 invariant prevents.

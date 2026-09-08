@@ -11,8 +11,8 @@ import { RESERVED_HANDLES } from "./auth/constants";
 // Errors
 // ---------------------------------------------------------------------------
 
-// `message` reaches clients verbatim via the routes' `safeError` allowlist
-// (S-M17) — construct with static string literals only, never interpolated
+// `message` reaches clients verbatim via the routes' `safeError` allowlist —
+// construct with static string literals only, never interpolated
 // causes or user input. Pinned by tests/lib/safe-error-static-messages.test.ts.
 export class OrgError extends Data.TaggedError("OrgError")<{
   readonly message: string;
@@ -72,13 +72,13 @@ export function createOrganisationService() {
       // Org handles live in the same namespace as profile handles — creation
       // cross-checks both tables below — so the reserved list applies here too.
       // Without this, `admin`, `api` or the dev-login principal's handles are
-      // takeable as an organisation. Same generic message as a collision
-      // (S-H2): don't confirm which names exist.
+      // takeable as an organisation. Same generic message as a collision:
+      // don't confirm which names exist.
       if (RESERVED_HANDLES.has(handle)) {
         return yield* Effect.fail(new OrgError({ message: "Handle unavailable" }));
       }
 
-      // P-W1: parallelise all pre-insert checks (handle profile, handle org, owner exists)
+      // Parallelise all pre-insert checks (handle profile, handle org, owner exists)
       const [existingProfile, existingOrg, ownerRows] = yield* Effect.tryPromise({
         try: () =>
           Promise.all([
@@ -93,7 +93,7 @@ export function createOrganisationService() {
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      // S-H2: use generic message to avoid confirming handle existence
+      // Use generic message to avoid confirming handle existence
       if (existingProfile.length > 0 || existingOrg.length > 0) {
         return yield* Effect.fail(new OrgError({ message: "Handle unavailable" }));
       }
@@ -109,7 +109,7 @@ export function createOrganisationService() {
       // Insert org + owner-as-admin atomically. The handle pre-checks above are
       // best-effort (D1 has no interactive transaction); the UNIQUE constraint on
       // organisations.handle is the race-safe guard, mapped to a generic message
-      // (S-H2 — don't confirm handle existence). Atomic batch on D1, sequential
+      // (don't confirm handle existence). Atomic batch on D1, sequential
       // on bun:sqlite.
       yield* Effect.tryPromise({
         try: () =>
@@ -141,7 +141,7 @@ export function createOrganisationService() {
         },
       });
 
-      // P-I1: construct return value from known inputs instead of re-fetching
+      // Construct return value from known inputs instead of re-fetching
       return {
         id: orgId,
         handle,
@@ -196,7 +196,7 @@ export function createOrganisationService() {
     Effect.gen(function* () {
       const { db } = yield* Db;
 
-      // P-I1: org-exists and admin-check are independent queries — run in parallel.
+      // Org-exists and admin-check are independent queries — run in parallel.
       const [orgRows, memberRows] = yield* Effect.all(
         [
           Effect.tryPromise({
@@ -245,7 +245,7 @@ export function createOrganisationService() {
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      // P-W6: construct return from known state instead of re-fetching
+      // Construct return from known state instead of re-fetching
       const org = orgRows[0];
       return {
         ...org,
@@ -298,7 +298,7 @@ export function createOrganisationService() {
       const limit = clampLimit(options.limit);
       const offset = options.offset ?? 0;
 
-      // P-W4: single JOIN query instead of two-step lookup
+      // Single JOIN query instead of two-step lookup
       const rows = yield* Effect.tryPromise({
         try: () =>
           db
@@ -336,7 +336,7 @@ export function createOrganisationService() {
     Effect.gen(function* () {
       const { db } = yield* Db;
 
-      // P-W2: parallelise all pre-insert checks
+      // Parallelise all pre-insert checks
       const [orgRows, callerMember, targetRows, existing] = yield* Effect.tryPromise({
         try: () =>
           Promise.all([
@@ -423,7 +423,7 @@ export function createOrganisationService() {
         return yield* Effect.fail(new OrgError({ message: "Cannot remove the owner" }));
       }
 
-      // P-W1: caller-is-admin and target-is-member checks are independent — run in parallel.
+      // Caller-is-admin and target-is-member checks are independent — run in parallel.
       const [callerMember, targetMember] = yield* Effect.all(
         [
           Effect.tryPromise({
@@ -579,7 +579,7 @@ export function createOrganisationService() {
         return yield* Effect.fail(new NotFoundError({ message: "Organisation not found" }));
       }
 
-      // P-W5: single JOIN query instead of two-step lookup
+      // Single JOIN query instead of two-step lookup
       const rows = yield* Effect.tryPromise({
         try: () =>
           db

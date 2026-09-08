@@ -46,7 +46,7 @@ export function createProfileRoutes(
   loggerLayer: Layer.Layer<never> = Layer.empty,
   rateLimiters: ProfileRateLimiters = createDefaultProfileRateLimiters(),
   /**
-   * Client-IP trust policy (S-M34). See `createAuthRoutes` for the full
+   * Client-IP trust policy. See `createAuthRoutes` for the full
    * contract. Defaults to `{}` (direct mode, socket peer only). Tests that
    * key per-IP buckets off an `x-forwarded-for` header pass
    * `{ trustedProxyCount: 1 }`.
@@ -70,7 +70,7 @@ export function createProfileRoutes(
 
   const rl = rateLimiters;
 
-  /** Per-request transport socket peer (S-M34); `null` under `app.handle`. */
+  /** Per-request transport socket peer; `null` under `app.handle`. */
   type IpCtx = {
     server: { requestIP?: (req: Request) => { address?: string } | null } | null;
     request: Request;
@@ -85,7 +85,7 @@ export function createProfileRoutes(
     limiter: RateLimiterBackend,
   ): Promise<{ error: string } | null> {
     const ip = getClientIp(headers, { ...clientIpConfig, socketIp });
-    // S-M34: never key the limiter on an unresolved IP — deny instead of
+    // Never key the limiter on an unresolved IP — deny instead of
     // sharing one bucket across all un-attributable requests.
     if (isUnresolvedIp(ip)) {
       metricAuthRateLimited(endpoint);

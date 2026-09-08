@@ -15,10 +15,8 @@ const app = createApp(db, {
   claimLimiter: createRateLimiter({ maxRequests: 10_000, windowMs: 60_000 }),
 });
 
-// S-C2 adjacent: this is credentialed CORS on an auth API. The contract the
-// old hand-rolled Hono callback documented — echo the request origin verbatim
-// when allowlisted, never `*`, no header on mismatch — must survive the
-// @elysiajs/cors swap.
+// This is credentialed CORS on an auth API: echo the request origin verbatim
+// when allowlisted, never `*`, and emit no header on mismatch.
 describe("CORS", () => {
   it("echoes an allowlisted Origin verbatim with credentials", async () => {
     const res = await appRequest(app, "/api/claim", {
@@ -116,7 +114,7 @@ function brokenClaimApp(): ReturnType<typeof createApp> {
   });
 }
 
-// S-M1: Elysia's default error renderer would put `error.message` (D1 error
+// Elysia's default error renderer would put `error.message` (D1 error
 // strings, Effect causes) in the body; the onError hook must keep defects
 // generic.
 describe("unhandled errors", () => {
@@ -130,7 +128,7 @@ describe("unhandled errors", () => {
     expect(await jsonBody(res)).toEqual({ error: "Internal error" });
   });
 
-  // OBS-S-L2: the structured error log must carry a NON-SENSITIVE identifier
+  // The structured error log must carry a NON-SENSITIVE identifier
   // (the Elysia `code` + the error `name`/`_tag`) but NEVER the free-form
   // `error.message` — `redact()` scrubs by object key, not by substring, so a
   // raw message echoing a D1 internal or guest input would land verbatim.

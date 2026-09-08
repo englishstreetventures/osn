@@ -72,7 +72,7 @@ export function createPasskeyLoginRoutes(ctx: AuthRouteContext) {
             const result = await run(auth.beginPasskeyLogin(body.identifier ?? null));
             return result;
           } catch (e) {
-            // S-H5/S-M6: never leak the raw cause. `handleError` logs the real
+            // Never leak the raw cause. `handleError` logs the real
             // error server-side (Effect logging) and returns an opaque code.
             const { status, body: errBody } = handleError(e);
             set.status = status;
@@ -139,7 +139,7 @@ export function createPasskeyLoginRoutes(ctx: AuthRouteContext) {
               profile: result.profile,
             };
           } catch (e) {
-            // S-H5/S-M6: never leak the raw cause. `handleError` logs the real
+            // Never leak the raw cause. `handleError` logs the real
             // error server-side (Effect logging) and returns an opaque code.
             const { status, body: errBody } = handleError(e);
             set.status = status;

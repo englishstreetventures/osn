@@ -69,7 +69,7 @@ describe("loadConfig", () => {
     });
   });
 
-  // S-M1: strict header parser
+  // Header values are parsed strictly, rejecting CRLF and control characters.
   it("rejects OTEL_EXPORTER_OTLP_HEADERS with CRLF in values", () => {
     process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer\r\nX-Evil: injected";
     expect(() => loadConfig()).toThrow(/invalid value/);
@@ -85,7 +85,7 @@ describe("loadConfig", () => {
     expect(() => loadConfig()).toThrow(/invalid header name/);
   });
 
-  // S-L3: production env mismatch guard
+  // Rejects a mismatch between OSN_ENV=production and an explicit env override.
   it("throws when OSN_ENV=production but the override disagrees", () => {
     process.env.OSN_ENV = "production";
     expect(() => loadConfig({ env: "local" })).toThrow(/production/);

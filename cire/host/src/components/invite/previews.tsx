@@ -351,8 +351,8 @@ export function SectionSample(props: {
                 src={previewVariantSrc(url())!}
                 // Named, not `alt=""`, and matching the crop path's label below:
                 // whether a non-sighted organiser is told their closing image
-                // exists must not depend on whether a crop happens to be saved
-                // (C-L1). "artwork", not "image" — a name that repeats the role
+                // exists must not depend on whether a crop happens to be saved.
+                // "artwork", not "image" — a name that repeats the role
                 // AT tools already announce is the `img-redundant-alt` lint.
                 // The GUEST band stays decorative on both paths; this is a
                 // preview, where "the band is populated" is the point.
@@ -409,9 +409,9 @@ export function SectionSample(props: {
             {props.eyebrow}
           </span>
         </Show>
-        {/* The heading sample follows the typography variables, fallbacks from
-          `@cire/theme` — it used to be decoratively italic, which would now
-          lie about an explicit "Normal" pick. */}
+        {/* The heading sample follows the typography variables, with fallbacks
+          from `@cire/theme` — hardcoding it italic here would lie about an
+          explicit "Normal" pick. */}
         <Show when={props.heading}>
           <span
             style={{

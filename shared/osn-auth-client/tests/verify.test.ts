@@ -114,9 +114,10 @@ describe("extractClaims", () => {
   });
 });
 
-// T-E2: negative/rotation paths. These drive the real JWKS-fetch path (no
+// Negative/rotation paths. These drive the real JWKS-fetch path (no
 // testKey) so we can assert how many upstream fetches each scenario costs —
-// pinning the P-C1 amplification fix.
+// pinning the fix that stops a repeated bad token from forcing a refetch on
+// every attempt.
 describe("extractClaims — negative + rotation paths", () => {
   const JWKS_URL = "http://issuer/.well-known/jwks.json";
 
@@ -255,7 +256,7 @@ describe("extractClaims — negative + rotation paths", () => {
     expect(fetchCount).toBe(1);
   });
 
-  // X2: issuer enforcement matrix.
+  // Issuer enforcement matrix.
   const ISS = "https://osn-api.example.com";
 
   it("issuer set + matching iss → claims resolve", async () => {
@@ -388,7 +389,7 @@ describe("extractClaims — negative + rotation paths", () => {
     expect(result2?.profileId).toBe("usr_b");
   });
 
-  // X2: clock-skew tolerance (±30s).
+  // Clock-skew tolerance (±30s).
   it("token expired 10s ago → still accepted (within 30s clockTolerance)", async () => {
     const now = Math.floor(Date.now() / 1000);
     const token = await new SignJWT({})

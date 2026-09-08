@@ -75,8 +75,8 @@ export function createProfileSwitchModule(
     Db
   > =>
     Effect.gen(function* () {
-      // Per-account rate limit (S-M3): bounds damage from a stolen token. O3:
-      // routed through the rate-limiter family so the window is shared across
+      // Per-account rate limit: bounds damage from a stolen token. It is routed
+      // through the rate-limiter family so the window is shared across
       // pods. `check` returns false once the cap is exceeded.
       const switchAllowed = yield* Effect.promise(() => profileSwitchCap.check(accountId));
       if (!switchAllowed) {
@@ -93,7 +93,7 @@ export function createProfileSwitchModule(
       }
       // The session is account-scoped and unchanged, but its binding is
       // per-profile: find the caller's session, then re-derive the binding
-      // for the profile being switched to. P-W1: when the route saw a
+      // for the profile being switched to. When the route saw a
       // session cookie the lookup is a membership test on the id list, which
       // skips deriving a binding for every session on the account. Drops to
       // null when the caller has neither a live cookie nor a resolvable

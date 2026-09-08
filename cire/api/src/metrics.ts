@@ -84,7 +84,7 @@ export const CIRE_METRICS = {
   accountLinkRequests: "cire.account_link.requests",
   accountLinkUnlinks: "cire.account_link.unlinks",
   accountLinkResolveDuration: "cire.account_link.resolve.duration",
-  // CSRF origin guard (C5 / S-L3).
+  // CSRF origin guard (C5).
   originGuardRejections: "cire.origin_guard.rejections",
   // Per-family claim-code regeneration (C2).
   familyCodeRegenerated: "cire.family_code.regenerated",
@@ -169,7 +169,7 @@ export type AccountLinkResult =
 /** Outcome of the S2S osn-api profile→account resolve. */
 export type ResolveResult = "ok" | "not_found" | "error";
 
-/** Why the origin guard rejected a state-changing request (C5 / S-L3). */
+/** Why the origin guard rejected a state-changing request (C5). */
 export type OriginRejectReason = "missing" | "mismatch";
 
 /** Outcome of a per-family claim-code regeneration (C2). */

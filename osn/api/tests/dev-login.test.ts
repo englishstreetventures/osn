@@ -163,7 +163,7 @@ describe("dev-login", () => {
     expect(body.profile.handle).toBe(DEV_PRINCIPAL.handle);
     expect(body.session.token_type).toBe("Bearer");
     expect(body.session.access_token.length).toBeGreaterThan(0);
-    // The refresh token stays out of the body (S-M2) — cookie only.
+    // The refresh token stays out of the body — cookie only.
     expect(JSON.stringify(body.session)).not.toContain("refresh");
 
     const cookie = res.headers.get("set-cookie") ?? "";

@@ -15,7 +15,7 @@ export interface CreateProfileFormProps {
    * calls on input and gates the submit button on `available`. Build it from
    * the existing `registrationClient.checkHandle` in the consuming app. The
    * form aborts the previous in-flight check via the `signal` before issuing
-   * a new one (P-W10) — implementations that ignore it still work.
+   * a new one — implementations that ignore it still work.
    */
   checkHandle?: (handle: string, signal?: AbortSignal) => Promise<{ available: boolean }>;
   onSuccess?: (profile: { id: string; handle: string }) => void;
@@ -34,7 +34,7 @@ export function CreateProfileForm(props: CreateProfileFormProps) {
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;
   // Cancels the previous in-flight availability probe when a new one fires,
-  // so debounced typing bursts never stack requests (P-W10).
+  // so debounced typing bursts never stack requests.
   let checkAbort: AbortController | null = null;
   onCleanup(() => {
     if (debounceTimer) clearTimeout(debounceTimer);

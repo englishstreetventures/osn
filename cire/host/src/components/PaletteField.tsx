@@ -69,7 +69,7 @@ export default function PaletteField(props: {
   value: PaletteState;
   onChange: (next: PaletteState) => void;
   /** The derived token map, when the parent already owns it. The invite
-   *  builder derives once per drag frame and shares (P-W1: without this the
+   *  builder derives once per drag frame and shares (without this the
    *  same five seeds were derived 2–3× per pointermove across the
    *  builder/field boundary); a standalone mount derives internally. */
   tokens?: Record<string, string>;
@@ -276,7 +276,7 @@ export default function PaletteField(props: {
           the card colour back toward the page) is a design decision, not one the
           builder can make for them. */}
       {/* The live region is ALWAYS mounted, with the `Show` inside it rather
-          than around it (C-L1). A `role="status"` inserted together with its
+          than around it. A `role="status"` inserted together with its
           content is announced unreliably, and this one's trigger is a pointer
           drag — so wrapping it would have mounted and unmounted the region (and
           reflowed the sidebar under it) at frame rate whenever a colour hovered
@@ -291,7 +291,7 @@ export default function PaletteField(props: {
       >
         <Show when={warnings().length > 0}>
           <span class="font-body text-text tracking-[0.04em]">Some colours are hard to read</span>
-          {/* `Index`, not `For` (P-W1). `For` reconciles by item REFERENCE, and
+          {/* `Index`, not `For`. `For` reconciles by item REFERENCE, and
               `paletteContrastWarnings` allocates fresh objects from a token map
               whose identity changes every pointermove frame of a colour drag —
               so no row would ever match and all of them would be torn down and

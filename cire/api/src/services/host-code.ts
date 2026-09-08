@@ -160,7 +160,7 @@ export const hostCodeService = {
       const missing = eventRows.filter((e) => !linked.has(e.id));
       if (missing.length > 0) {
         // One atomic batch (D1) / sequential run (bun:sqlite) instead of a
-        // round-trip per event — P-W1. `onConflictDoNothing` + the guest_events
+        // round-trip per event. `onConflictDoNothing` + the guest_events
         // PK keep it idempotent across concurrent previews.
         const statements = missing.map((e) =>
           db

@@ -216,7 +216,7 @@ export function diffAgainstDb(
     const manageEvents = scope !== "guests";
     const manageGuests = scope !== "events";
 
-    // C1: the wedding's claim-code tier drives every NEW family code minted by
+    // The wedding's claim-code tier drives every NEW family code minted by
     // this import. Read once; default to `secure` if the row is somehow absent
     // (defensive — `weddingId` is always a real, owned wedding here). Skipped
     // entirely when the guest half isn't managed: its only consumer is
@@ -721,10 +721,10 @@ export function diffAgainstDb(
     // the current-guest count (same join + ne(kind,'host') as entitlementService).
     //
     // `derivedCap` rides on the returned plan so `applyImport` doesn't re-scan
-    // the SAME entitlement rows a second time in the SAME request (P-W2) — see
+    // the SAME entitlement rows a second time in the SAME request — see
     // `applyImport`'s call to `assertGuestCapacity`. It's set ONLY when this
     // block actually ran the entitlement query below; the pre-check branch
-    // (P-I2) proves the cap can't matter without ever learning its real value,
+    // proves the cap can't matter without ever learning its real value,
     // so it leaves `derivedCap` unset and `applyImport` falls back to its own
     // (still cheap, still narrowed) query — correct either way, per
     // `assertGuestCapacity`'s "never a way to skip the check" contract.
@@ -735,13 +735,13 @@ export function diffAgainstDb(
       // this plan: current real guests minus removals plus new creates.
       const currentRealGuests = existingGuests.length;
       const resulting = currentRealGuests - guestRemoves.length + guestCreates.length;
-      // P-I2: `resulting` can only rise as far as `currentRealGuests +
+      // `resulting` can only rise as far as `currentRealGuests +
       // guestCreates.length` (removes only ever bring it DOWN), and the cap can
       // never fall below `BASE_GUEST_CAP` — so once that upper bound sits at or
       // under the floor, no entitlement row on earth could make this breach.
       // Skip the query entirely rather than fetch rows whose answer is moot.
       if (currentRealGuests + guestCreates.length > BASE_GUEST_CAP) {
-        // P-I3: only the two capacity keys can raise the cap above the floor —
+        // Only the two capacity keys can raise the cap above the floor —
         // narrow the scan instead of pulling every entitlement row.
         const entRows = yield* dbQuery(() =>
           db
@@ -925,7 +925,7 @@ export function applyImport(
     // Slugs already taken by this wedding's surviving events, so fresh mints
     // can't collide on the (wedding_id, slug) unique index — within the sheet
     // ("Ceremony" + "Ceremony!") or against events this plan keeps. Skipped
-    // when the plan creates no events (P-I2) — the set is only consulted by
+    // when the plan creates no events — the set is only consulted by
     // mintUniqueEventSlug.
     const removedEventIds = new Set(plan.eventRemoves.map((er) => er.id));
     const existingSlugRows =
@@ -1015,7 +1015,7 @@ export function applyImport(
     // The wedding conjunct is defence in depth: every plan reaching here today
     // is built from wedding-scoped reads, but that guarantee lives in
     // diffAgainstDb — this keeps the statement itself tenant-safe if a future
-    // caller ever hands applyImport a plan from elsewhere (S-L1).
+    // caller ever hands applyImport a plan from elsewhere.
     for (const fu of plan.familyUpdates) {
       statements.push(
         db
@@ -1088,9 +1088,9 @@ export function applyImport(
     const netGuestDelta = plan.guestCreates.length - plan.guestRemoves.length;
     if (netGuestDelta > 0) {
       // `plan.derivedCap` — set by `diffAgainstDb` in the SAME request when its
-      // own preview warning already ran the entitlement query (P-W2) — lets
+      // own preview warning already ran the entitlement query — lets
       // this skip a second scan of the same rows. Absent (a plan built before
-      // this field existed, the P-I2 pre-check branch that proved the cap
+      // this field existed, the pre-check branch that proved the cap
       // couldn't matter without learning it, or any other caller of
       // `applyImport`), `assertGuestCapacity` runs its own query and enforces
       // exactly as it always has — a missing cap is never a reason to skip

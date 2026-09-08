@@ -85,13 +85,14 @@ interface GuestTableProps {
 export default function GuestTable(props: GuestTableProps) {
   const { authFetch } = useAuth();
   // Guest rows live in a module-scoped, weddingId-keyed cache (`guests-store`,
-  // the P-I3 fetch-lift sibling of `events-store`) so this fetch fires once per
+  // the fetch-lift sibling of `events-store`) so this fetch fires once per
   // wedding and is reused when the module shell unmounts/remounts us on a
   // Guests ↔ Schedule switch. An import apply invalidates the entry.
   const guests = () => guestsAccessor(props.weddingId)() ?? [];
   // The event id→name chip map reads the SHARED events cache instead of a second
-  // `/events` fetch (the other half of P-I3): a Schedule visit already populated
-  // it, and if not we `ensureEventsLoaded` it once below.
+  // `/events` fetch (the same fetch-lift pattern as the guest cache above): a
+  // Schedule visit already populated it, and if not we `ensureEventsLoaded` it
+  // once below.
   const eventNameById = createMemo(
     () => new Map((eventsAccessor(props.weddingId)() ?? []).map((e) => [e.id, e.name])),
   );
@@ -198,7 +199,7 @@ export default function GuestTable(props: GuestTableProps) {
   onMount(async () => {
     try {
       // Guests + events both flow through their shared caches (one fetch each per
-      // wedding, deduped across module switches — P-I3). Events are needed only
+      // wedding, deduped across module switches). Events are needed only
       // for the chip map; a Schedule visit may already have them. The invite
       // message is a light per-mount read (no store — it's tiny + non-essential).
       const [, , inviteRes] = await Promise.all([

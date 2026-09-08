@@ -65,7 +65,7 @@ const FONT_STYLE_VALUES = {
 // `Object.hasOwn` (not a bare index) so prototype-chain keys ("constructor",
 // "toString", …) resolve to null like any other unknown key — this resolver is
 // the render-time half of the injection defence, so it must stay closed for
-// EVERY string, not just ones that miss the prototype (S-L1).
+// EVERY string, not just ones that miss the prototype.
 function ownValue(map: Record<string, string>, choice: string): string | null {
   return Object.hasOwn(map, choice) ? map[choice] : null;
 }

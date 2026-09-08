@@ -76,7 +76,7 @@ describe("accountLinkService.link", () => {
 
   it("fails with the GuestNotInFamily tag when the guest is in a different family", async () => {
     const db = fixture();
-    // T-E1: assert the exact error channel — the route's 403 mapping keys off
+    // Assert the exact error channel — the route's 403 mapping keys off
     // this tag, so a swap to a different tagged error must fail the test.
     const err = await run(
       db,
@@ -119,11 +119,11 @@ describe("accountLinkService.link", () => {
         .pipe(Effect.flip),
     );
     expect(dup._tag).toBe("AccountLinkConflict");
-    // AL-S-L2: both conflicting indexes collapse to a single opaque reason.
+    // Both conflicting indexes collapse to a single opaque reason.
     expect((dup as { reason: string }).reason).toBe("already_linked");
 
     // Same account, different seat in the same family → (family_id, account)
-    // violation. AL-S-L2: this is INDISTINGUISHABLE from the guest_id conflict
+    // violation. This is INDISTINGUISHABLE from the guest_id conflict
     // above — same opaque reason — so a caller can't probe sibling-seat
     // membership of their own household.
     const seated = await run(
@@ -142,7 +142,7 @@ describe("accountLinkService.link", () => {
   });
 
   it("surfaces a non-conflict insert failure as AccountLinkWriteError (op: insert)", async () => {
-    // T-S1: drop the table so the insert fails for a NON-unique reason
+    // Drop the table so the insert fails for a NON-unique reason
     // (`conflictReason` returns null) — exercises the 500 path, not the 409 one.
     const db = fixture();
     db.run(sql`DROP TABLE guest_account_links`);
@@ -162,10 +162,10 @@ describe("accountLinkService.link", () => {
   });
 });
 
-// T-S2: pin the SQLite-message → reason mapping directly, independent of the
+// Pin the SQLite-message → reason mapping directly, independent of the
 // driver's exact wording (the integration 409s depend on it).
 //
-// AL-S-L2: BOTH UNIQUE indexes map to the same opaque `already_linked` reason —
+// BOTH UNIQUE indexes map to the same opaque `already_linked` reason —
 // the two cases must be indistinguishable (membership-oracle defence).
 describe("conflictReason", () => {
   it("classifies the family+account UNIQUE index as the opaque reason", () => {
@@ -237,7 +237,7 @@ describe("accountLinkService.unlink", () => {
   });
 
   it("surfaces a delete failure as AccountLinkWriteError (op: delete)", async () => {
-    // T-S1: drop the table so the delete throws — exercises the unlink 500 path.
+    // Drop the table so the delete throws — exercises the unlink 500 path.
     const db = fixture();
     db.run(sql`DROP TABLE guest_account_links`);
     const err = await run(

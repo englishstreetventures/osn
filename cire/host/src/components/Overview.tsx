@@ -281,7 +281,7 @@ export default function Overview(props: {
     peekCachedBudget(props.weddingId)?.currency ?? data()?.profile?.currency ?? "AUD";
 
   // Reactive clock so the agenda's "today" boundary follows the real calendar
-  // day even if the dashboard is left open across midnight (P-W2). Only the
+  // day even if the dashboard is left open across midnight. Only the
   // date matters to buildAgenda, so we refresh once per local midnight rather
   // than ticking continuously.
   const [nowMs, setNowMs] = createSignal(Date.now());
@@ -312,7 +312,7 @@ export default function Overview(props: {
     });
   }
 
-  // OV-P-W3: countdown depends on nowMs() so it recomputes at midnight rather
+  // Countdown depends on nowMs() so it recomputes at midnight rather
   // than using a stale Date captured at render time.
   const countdown = createMemo(() => {
     const iso = weddingDate();
@@ -333,11 +333,11 @@ export default function Overview(props: {
 
   const vendorCountValue = createMemo(() => vendorCount(props.weddingId));
 
-  // OV-P-W1: memoize upcomingPayments — each call re-filters + re-sorts the
+  // Memoize upcomingPayments — each call re-filters + re-sorts the
   // full payments array; three raw calls per Budget card render becomes one.
   const upcomingPaymentsMemo = createMemo(() => upcomingPayments(props.weddingId));
 
-  // OV-P-I2: memoize spentSoFar — each call re-reduces all budget items; two
+  // Memoize spentSoFar — each call re-reduces all budget items; two
   // raw calls per Budget card render becomes one.
   const spentSoFarMemo = createMemo(() => spentSoFar(props.weddingId));
 
@@ -440,9 +440,7 @@ export default function Overview(props: {
         <Show when={!isFresh()}>
           {/* The home reads top-down as a briefing: the agenda band first —
               what needs attention, dated — then the module snapshots beneath
-              it. (The agenda used to be a fixed-measure left column beside the
-              cards, which left the page lopsided: one list down one side, six
-              cards down the other.) The written summary the band will lead
+              it. The written summary the band will lead
               with slots in at the top of this stack, above `<WhatsNext />`.
               The band earns the full width by laying its rows out in columns —
               see the list inside `WhatsNext`. */}

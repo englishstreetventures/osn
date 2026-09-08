@@ -71,7 +71,7 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
                 sessionMetaFrom(headers, socketIpOf({ server, request })),
               ),
             );
-            // S-L2: wire field is `recoveryCodes` (not `codes`) so the
+            // The wire field is `recoveryCodes` (not `codes`) so the
             // redaction deny-list entry actually matches in logs.
             return { recoveryCodes: result.recoveryCodes };
           } catch (e) {
@@ -85,8 +85,8 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
             step_up_token: t.Optional(t.String()),
           }),
           response: {
-            // The only time the plaintext codes ever cross the wire. S-L2:
-            // the field is `recoveryCodes` so the log redaction deny-list
+            // The only time the plaintext codes ever cross the wire. The
+            // field is `recoveryCodes` so the log redaction deny-list
             // entry matches — renaming it here silently un-redacts them.
             200: t.Object({ recoveryCodes: t.Array(t.String()) }),
             400: errorResponse,

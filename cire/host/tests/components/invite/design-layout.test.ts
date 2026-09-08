@@ -45,7 +45,7 @@ describe("designLayout", () => {
     // `lookup ?? default` never fires and every field reads `undefined` — a
     // fourth, unintended shape. Not reachable today (the API validates
     // `designId` against the catalog), but the fallback should hold whatever
-    // the caller passes (S-L2).
+    // the caller passes.
     const fallback = designLayout(DEFAULT_DESIGN_ID);
     for (const key of ["constructor", "__proto__", "toString", "hasOwnProperty", "valueOf"]) {
       expect(designLayout(key)).toEqual(fallback);

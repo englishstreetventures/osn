@@ -16,7 +16,7 @@ import {
 
 /**
  * Route-level coverage for the `/internal` group: the shared-secret
- * registration gate and the ARC-gated `account-export` DSAR endpoint (C-H1).
+ * registration gate and the ARC-gated `account-export` DSAR endpoint.
  * Message content is never read — only chat-membership metadata is emitted.
  */
 

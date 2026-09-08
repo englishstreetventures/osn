@@ -74,7 +74,7 @@ test("multiple excludes are checked independently", () => {
   ]);
 });
 
-// S-M1 — the marker date is round-trip parsed and bounded, not just regex-shaped.
+// The marker date is round-trip parsed and bounded, not just regex-shaped.
 
 test("a marker that matches the date regex but is not a real calendar date fails", () => {
   const toml = bunfig(`["left-pad"]`, "# DROP AFTER left-pad 9999-99-99");
@@ -111,7 +111,7 @@ test("a marker 31 days out fails", () => {
   ]);
 });
 
-// S-M2 — the guard checks minimumReleaseAge itself, not only the exclude list.
+// The guard checks minimumReleaseAge itself, not only the exclude list.
 
 test("minimumReleaseAge below the 3-day soak window fails even with a clean exclude list", () => {
   const toml = bunfig("[]", "", "0");

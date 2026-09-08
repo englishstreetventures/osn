@@ -34,9 +34,9 @@ export interface SecurityEventSummary {
 export interface SecurityEventsClient {
   list(input: { accessToken: string }): Promise<{ events: SecurityEventSummary[] }>;
   /**
-   * Acknowledges a single security event. Requires a fresh step-up token
-   * (S-M1) — the banner is the defence against a compromised access token,
-   * so the access token alone cannot dismiss it.
+   * Acknowledges a single security event. Requires a fresh step-up token —
+   * the banner is the defence against a compromised access token, so the
+   * access token alone cannot dismiss it.
    */
   acknowledge(input: {
     accessToken: string;

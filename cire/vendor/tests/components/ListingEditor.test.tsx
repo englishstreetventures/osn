@@ -121,7 +121,7 @@ describe("ListingEditor", () => {
     );
   });
 
-  // ── The save-error record (T-U2) ────────────────────────────────────────────
+  // ── The save-error record ────────────────────────────────────────────
 
   it("keeps a rejected save on the surface, not only in a toast", async () => {
     vi.spyOn(store, "fetchListing").mockResolvedValue(listing());

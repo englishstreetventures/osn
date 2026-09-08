@@ -115,7 +115,7 @@ export const createOrganiserSettingsRoutes = (db: Db, osnAuthOptions: OsnAuthOpt
                 // moment it landed, and a guest turned away is never told the
                 // date moved. Refused for every caller, owner included — "today"
                 // stays available, since the deadline closes at the END of its
-                // day (S-L3).
+                // day.
                 RsvpDeadlineInPast: () =>
                   Effect.sync(() => {
                     set.status = 400;

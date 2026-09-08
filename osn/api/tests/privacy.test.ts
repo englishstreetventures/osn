@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 import { createAuthService } from "../src/services/auth";
 import { makeTestAuthConfig } from "./helpers/auth-config";
 import { createTestLayer } from "./helpers/db";
-// S-M34: wrapped factories (trust XFF under app.handle). See helpers/routes.
+// Wrapped factories (trust XFF under app.handle). See helpers/routes.
 import { createAuthRoutes, createProfileRoutes } from "./helpers/routes";
 
 /**

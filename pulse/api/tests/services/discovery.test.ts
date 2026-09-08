@@ -294,7 +294,7 @@ it.effect("friendsOnly returns empty when viewer has no connections (S-L1: no JS
   ),
 );
 
-// S-M1 — friends signal is positive-engagement only.
+// Friends signal is positive-engagement only.
 it.effect("friendsOnly excludes 'invited' (organiser-only pre-RSVP) signal", () =>
   provide(
     Effect.gen(function* () {
@@ -573,7 +573,7 @@ it.effect("rejects partial cursor (startTime without id)", () =>
 );
 
 // ---------------------------------------------------------------------------
-// Series metadata (T-U1)
+// Series metadata
 // ---------------------------------------------------------------------------
 
 const seedSeries = (id: string, title: string) =>
@@ -628,7 +628,7 @@ it.effect("series map is empty when no event in the page belongs to a series", (
 );
 
 // ---------------------------------------------------------------------------
-// Edge cases (T-S1)
+// Edge cases
 // ---------------------------------------------------------------------------
 
 it.effect("cursor tiebreak orders by id when startTimes collide", () =>
@@ -699,7 +699,7 @@ it.effect("priceMin > 0 still excludes free events even with priceMax set", () =
 );
 
 // ---------------------------------------------------------------------------
-// Negative paths (T-E1)
+// Negative paths
 // ---------------------------------------------------------------------------
 
 it.effect("propagates GraphBridgeError when friends lookup fails", () =>

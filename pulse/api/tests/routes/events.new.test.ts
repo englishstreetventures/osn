@@ -319,7 +319,7 @@ describe("Share-attribution routes", () => {
       Effect.succeed(new Map<string, ProfileDisplay>()),
     );
     layer = createTestLayer();
-    // P4: the share / exposure pings are rate-limited per IP. Under
+    // The share / exposure pings are rate-limited per IP. Under
     // `app.handle(...)` there is no socket peer, so we declare a single
     // trusted proxy and feed a stable `x-forwarded-for` so the limiter can
     // resolve a keying IP (matches the osn/api auth-route test convention).
@@ -385,7 +385,7 @@ describe("Share-attribution routes", () => {
   });
 
   it("POST /events/:id/share returns 429 when the client IP is unresolved", async () => {
-    // No x-forwarded-for under trustedProxyCount:1 → fail-closed (S-M34).
+    // No x-forwarded-for under trustedProxyCount:1 → fail-closed.
     const res = await post(app, `/events/${eventId}/share`, { source: "whatsapp" });
     expect(res.status).toBe(429);
   });
@@ -449,7 +449,7 @@ describe("ICS route", () => {
     expect(res.status).toBe(404);
   });
 
-  // P-I14 — private cache headers + weak ETag derived from updatedAt.
+  // Private cache headers + weak ETag derived from updatedAt.
   it("GET /events/:id/ics sets Cache-Control and a weak ETag", async () => {
     const createRes = await post(
       app,
@@ -630,7 +630,7 @@ describe("Comms routes", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Visibility gate (S-H1/H2/H3/H5) — every direct-fetch route hides
+// Visibility gate — every direct-fetch route hides
 // private events from non-authorised callers. The discovery filter and
 // the direct-fetch filter must agree at all times.
 // ---------------------------------------------------------------------------
@@ -678,7 +678,6 @@ describe("Private event visibility gate", () => {
     publicEventId = ((await publicRes.json()) as { event: { id: string } }).event.id;
   });
 
-  // S-H1
   it("GET /events/:id returns 404 for private events to non-organiser viewers", async () => {
     const res = await get(app, `/events/${privateEventId}`, bobToken);
     expect(res.status).toBe(404);
@@ -706,7 +705,6 @@ describe("Private event visibility gate", () => {
     expect(res.status).toBe(200);
   });
 
-  // S-H2
   it("GET /events/:id/ics returns 404 for private events to non-authorised callers", async () => {
     const res = await get(app, `/events/${privateEventId}/ics`);
     expect(res.status).toBe(404);
@@ -717,7 +715,6 @@ describe("Private event visibility gate", () => {
     expect(res.status).toBe(200);
   });
 
-  // S-H3
   it("GET /events/:id/comms returns 404 for private events to non-authorised callers", async () => {
     const res = await get(app, `/events/${privateEventId}/comms`);
     expect(res.status).toBe(404);
@@ -728,7 +725,6 @@ describe("Private event visibility gate", () => {
     expect(res.status).toBe(200);
   });
 
-  // S-H5
   it("GET /events/:id/rsvps/counts returns 404 for private events to non-authorised callers", async () => {
     const res = await get(app, `/events/${privateEventId}/rsvps/counts`);
     expect(res.status).toBe(404);
@@ -745,7 +741,7 @@ describe("Private event visibility gate", () => {
     expect(res.status).toBe(404);
   });
 
-  // S-H4: invited list is organiser-only even on visible events
+  // Invited list is organiser-only even on visible events
   it("GET /events/:id/rsvps?status=invited returns empty for non-organisers", async () => {
     await post(app, `/events/${publicEventId}/invite`, { profileIds: ["usr_bob"] }, aliceToken);
     const res = await get(app, `/events/${publicEventId}/rsvps?status=invited`, bobToken);
@@ -763,7 +759,7 @@ describe("Private event visibility gate", () => {
     expect(body.rsvps[0]!.profileId).toBe("usr_bob");
   });
 
-  // S-L3: invitedByProfileId is gated to organiser viewers
+  // invitedByProfileId is gated to organiser viewers
   it("GET /events/:id/rsvps hides invitedByProfileId from non-organiser viewers", async () => {
     await post(app, `/events/${publicEventId}/invite`, { profileIds: ["usr_bob"] }, aliceToken);
     // Bob accepts the invite — now appears as "going" for everyone.
@@ -798,7 +794,7 @@ describe("Private event visibility gate", () => {
 });
 
 // ---------------------------------------------------------------------------
-// S-M3 — text field length caps
+// Text field length caps
 // ---------------------------------------------------------------------------
 
 describe("Event text field length caps (S-M3)", () => {

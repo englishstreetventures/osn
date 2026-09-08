@@ -65,9 +65,9 @@ it.effect("parseRRule rejects BYDAY with MONTHLY", () =>
   }),
 );
 
-// S-L2: an UNTIL before the series start parses as valid grammar but can
-// never yield an instance, so without this the organiser gets a series and an
-// empty calendar with no error to explain it.
+// An UNTIL before the series start parses as valid grammar but can never
+// yield an instance, so without this check the organiser gets a series and
+// an empty calendar with no error to explain it.
 it.effect("parseRRule rejects UNTIL before dtstart when dtstart is known", () =>
   Effect.gen(function* () {
     const dtstart = new Date("2030-06-04T18:00:00.000Z");
@@ -135,8 +135,8 @@ it.effect("expandRRule MONTHLY walks by month", () =>
   }),
 );
 
-// S-L2. `extend_window` hands the expander a horizon of now + 90 days, so a
-// series that starts further out than that legitimately arrives with an empty
+// `extend_window` hands the expander a horizon of now + 90 days, so a series
+// that starts further out than that legitimately arrives with an empty
 // window on every sweep — it must return immediately, not walk to a valve.
 it.effect("expandRRule returns nothing when the window ends before dtstart", () =>
   Effect.sync(() => {
@@ -148,7 +148,7 @@ it.effect("expandRRule returns nothing when the window ends before dtstart", () 
   }),
 );
 
-// P-I5: the valve sits at MAX_SERIES_INSTANCES and the proof that it cannot
+// The valve sits at MAX_SERIES_INSTANCES and the proof that it cannot
 // truncate has a margin of exactly ONE iteration — every step past the first
 // emits an instance, so `targetCount` is reached at step 260 and the guard
 // fires at 261. This is the tightest legal walk: a BYDAY whose only weekday
@@ -285,7 +285,7 @@ it.effect("updateSeries propagates to non-override instances only", () =>
       // Flip one instance to override by patching it directly.
       yield* updateEvent(instances[1]!.id, { venue: "Custom" }, "usr_alice");
 
-      // P-W2: the single UPDATE … RETURNING reports how many non-override
+      // The single UPDATE … RETURNING reports how many non-override
       // instances it touched (3 of 4 — the override row is excluded).
       const result = yield* updateSeries(series.id, { venue: "Updated" }, "usr_alice");
       expect(result.updated).toBe(3);

@@ -223,10 +223,10 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
   });
 
   it("writes only the columns the patch names, so a co-host can't clobber owner fields", async () => {
-    // S-L1: the save used to read the row and write all seven columns back. A
-    // co-host's deadline patch would then rewrite displayName/currency/budget
-    // with whatever it read a moment earlier, reverting an owner's concurrent
-    // edit to fields the gate exists to protect. Simulated here by moving an
+    // A save that reads the row and writes all seven columns back would let a
+    // co-host's deadline patch rewrite displayName/currency/budget with
+    // whatever it read a moment earlier, reverting an owner's concurrent edit
+    // to fields the gate exists to protect. Simulated here by moving an
     // owner-only column BETWEEN the co-host's read and their write.
     const { app, db } = buildApp();
     await req(app, "PUT", SETTINGS_PATH, OWNER, { displayName: "Aisha & Ben" });
@@ -451,7 +451,7 @@ describe("PUT /api/organiser/weddings/:weddingId/settings", () => {
       { rsvpDeadlineTimezone: "Mars/Olympus_Mons" },
       { rsvpDeadlineTimezone: "GMT+11" },
       // Fixed-offset zones construct fine in `Intl` but never apply DST, so a
-      // deadline stored as one drifts across a transition (S-L2).
+      // deadline stored as one drifts across a transition.
       { rsvpDeadlineTimezone: "+05:30" },
       { rsvpDeadlineTimezone: "-14:00" },
     ]) {

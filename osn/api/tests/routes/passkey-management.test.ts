@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
-// S-M34: wrapped factory (trust XFF under app.handle). See helpers/routes.
+// Wrapped factory (trust XFF under app.handle). See helpers/routes.
 import { createAuthRoutes } from "../helpers/routes";
 
 /**
@@ -54,7 +54,7 @@ describe("passkey management routes", () => {
 
   /**
    * Build a route app that allows OTP step-up for rename + delete (the
-   * default is passkey-only — S-L4 — but driving a real WebAuthn ceremony
+   * default is passkey-only, but driving a real WebAuthn ceremony
    * in tests isn't practical, so we widen the allow-list explicitly).
    * Returns the app, an access token, and a helper that drives the OTP
    * step-up ceremony and hands back a fresh step-up token each call.
@@ -285,7 +285,7 @@ describe("passkey management routes", () => {
       expect(json.error).toBe("step_up_required");
     });
 
-    // T-S2: end-to-end happy path. The route layer is the only place that
+    // End-to-end happy path. The route layer is the only place that
     // wires the X-Step-Up-Token header into the service call — exercise it
     // with a real minted token so a regression in that wiring fails here.
     it("succeeds with a valid step-up token and returns { remaining }", async () => {
@@ -330,10 +330,8 @@ describe("passkey management routes", () => {
       expect(res.status).toBe(400);
     });
 
-    // S-L3: a Bearer-only delete (no session cookie) must still identify the
-    // caller's own session, via the access token's `osn_sid` binding. Before that
-    // fallback existed this branch nuked EVERY session on the account — the
-    // caller logged themselves out of every device by removing a passkey.
+    // A Bearer-only delete (no session cookie) must still identify the
+    // caller's own session, via the access token's `osn_sid` binding.
     it("keeps the caller's session and revokes the others without a cookie", async () => {
       const { app: verifiedApp, accessToken, tokens, profile, mintOtpStepUp } = await setupStepUp();
       const other = await Effect.runPromise(
@@ -373,7 +371,7 @@ describe("passkey management routes", () => {
       expect(err._tag).toBe("AuthError");
     });
 
-    // S-M2: a presented-but-stale binding must fail closed (409), never
+    // A presented-but-stale binding must fail closed (409), never
     // collapse into the account-wide session wipe.
     it("fails closed (409) when the caller's session binding is stale", async () => {
       const { app: verifiedApp, accessToken, tokens, profile, mintOtpStepUp } = await setupStepUp();
@@ -398,7 +396,7 @@ describe("passkey management routes", () => {
       expect(res.status).toBe(409);
     });
 
-    // S-L4: default config rejects OTP step-up for delete. The dedicated
+    // Default config rejects OTP step-up for delete. The dedicated
     // passkey-only AMR config knob is the intended production posture.
     it("rejects OTP step-up when passkeyDeleteAllowedAmr omits it", async () => {
       const email = makeLogEmailLive();
@@ -448,7 +446,7 @@ describe("passkey management routes", () => {
     });
   });
 
-  // T-S1: route-level cross-account guard. The service rejects with
+  // Route-level cross-account guard. The service rejects with
   // AuthError; this confirms `handleError` doesn't downgrade that into a
   // 500 (or surface a useful "is this id real?" oracle).
   describe("PATCH /passkeys/:id (cross-account)", () => {

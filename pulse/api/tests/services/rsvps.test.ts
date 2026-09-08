@@ -301,7 +301,7 @@ it.effect("rsvpCounts groups by status", () =>
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-// P-I15 / P-W1 — the routes gate every RSVP read behind loadVisibleEvent
+// The routes gate every RSVP read behind loadVisibleEvent
 // and thread the loaded row into the service, which then skips its own
 // event fetch. Same results either way.
 it.effect("rsvpCounts and listRsvps accept a preloaded event and return identical results", () =>

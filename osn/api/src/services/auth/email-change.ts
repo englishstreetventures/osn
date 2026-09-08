@@ -55,10 +55,10 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       const normalised = newEmail.toLowerCase();
       const { db } = yield* Db;
 
-      // S-H3: per-account cap beneath the per-IP rate limit. An attacker
+      // Per-account cap beneath the per-IP rate limit. An attacker
       // with a stolen access token behind a rotating-IP proxy can't pool
       // their allowance to spam the OSN sending domain at arbitrary inboxes.
-      // O3: routed through the rate-limiter family (shared across pods); the
+      // Routed through the rate-limiter family (shared across pods); the
       // limiter owns the window + opportunistic eviction.
       const emailChangeAllowed = yield* Effect.promise(() => emailChangeBeginCap.check(accountId));
       if (!emailChangeAllowed) {
@@ -82,10 +82,10 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         return yield* Effect.fail(new AuthError({ message: "New email matches current email" }));
       }
 
-      // P-W3: 2-per-7-days cap uses an indexed aggregate instead of a full
+      // The 2-per-7-days cap uses an indexed aggregate instead of a full
       // history fetch. `email_changes_account_completed_at_idx` serves the
       // predicate (accountId + completedAt range) in one scan. This runs
-      // BEFORE the collision probe below (S-H2): a capped caller must not be
+      // BEFORE the collision probe below: a capped caller must not be
       // able to tell a taken address from a free one by watching which check
       // fails first.
       const windowStart = Math.floor(Date.now() / 1000) - EMAIL_CHANGE_WINDOW_SECONDS;
@@ -110,13 +110,13 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         );
       }
 
-      // S-H2: silently succeed on collisions — an authenticated caller
+      // Silently succeed on collisions — an authenticated caller
       // must not learn whether another account owns an email. Registration
       // treats this as first-class (see the `beginRegistration` comment);
       // email change must match. The UNIQUE(email) constraint at `complete`
       // is the real defence against a race-winning swap.
       const collision = yield* Effect.tryPromise({
-        // P-I1: projecting the indexed column alone lets UNIQUE(email) answer
+        // Projecting the indexed column alone lets UNIQUE(email) answer
         // the probe from the index without reading the account row.
         try: () =>
           db
@@ -146,7 +146,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
 
       yield* logDevOtp("email-change", code);
 
-      // S-L5 framing lives in the template itself
+      // The email's anti-enumeration framing lives in the template itself
       // (shared/email/src/templates/otp.ts → renderEmailChangeOtp).
       const email = yield* EmailService;
       yield* email
@@ -198,7 +198,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
         return yield* Effect.fail(new AuthError({ message: "Invalid or expired code" }));
       }
       if (!timingSafeEqualString(pending.codeHash, hashSessionToken(code))) {
-        // O3: persist the attempt bump + carry remaining TTL (store doesn't alias).
+        // Persist the attempt bump + carry remaining TTL (store doesn't alias).
         const attempts = pending.attempts + 1;
         if (attempts >= MAX_OTP_ATTEMPTS) {
           yield* dropPending(accountId);
@@ -218,7 +218,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
       const nowSec = Math.floor(Date.now() / 1000);
       const windowStart = nowSec - EMAIL_CHANGE_WINDOW_SECONDS;
 
-      // P-W3 + P-I4: rate check + current-account fetch move OUT of the
+      // The rate check + current-account fetch move OUT of the
       // transaction so the write section holds the writer lock as briefly
       // as possible. Race-safety is preserved by the UNIQUE(email)
       // constraint catching concurrent winners at `tx.update`.

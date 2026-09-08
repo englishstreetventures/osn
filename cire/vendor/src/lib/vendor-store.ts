@@ -137,7 +137,7 @@ export async function consumeClaim(
   return body.listing;
 }
 
-// ── Claim → editor handoff (VP-P-W2) ────────────────────────────────────────
+// ── Claim → editor handoff ──────────────────────────────────────────────────
 // `consumeClaim` already returns the listing, but the claim page redirects
 // with a full document navigation (`window.location.href`), which drops
 // everything in memory. sessionStorage crosses that gap the same way
@@ -161,7 +161,7 @@ interface ClaimedListingSeed {
  * same thing to every reader of them, so a seed missing one behaves exactly
  * like a listing that never had it. The required ones are not so forgiving —
  * `ListingEditor` renders `listed` straight into the status chip, so a seed
- * without it puts the word "undefined" on screen (S-L1).
+ * without it puts the word "undefined" on screen.
  */
 interface ListingCandidate {
   id?: unknown;

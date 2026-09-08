@@ -155,7 +155,7 @@ export interface AuthRouteOptions {
   /** Per-IP limiter for the session probe + sign-out. */
   sessionLimiter?: RateLimiterBackend;
   /**
-   * Client-IP trust policy (S-M34), same value the events routes get. Defaults
+   * Client-IP trust policy, same value the events routes get. Defaults
    * to `{}` — direct mode, socket peer only, never a spoofable
    * `x-forwarded-for`.
    */
@@ -177,7 +177,7 @@ export const createAuthRoutes = (
   const runtime = ManagedRuntime.make(dbLayer);
 
   /**
-   * Resolve the trusted per-IP key under the configured policy (S-M34), the
+   * Resolve the trusted per-IP key under the configured policy, the
    * same helper pair the unauthenticated events surfaces use — Pulse limits
    * per-IP inline in the route factory rather than through a middleware.
    */

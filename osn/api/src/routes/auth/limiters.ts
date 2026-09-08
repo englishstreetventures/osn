@@ -92,7 +92,7 @@ export type AuthRateLimiters = Readonly<{
 /**
  * Default in-memory rate limiter bundle used when callers don't pass an
  * explicit `rateLimiters` override. Limits match the values documented in
- * CLAUDE.md > Rate Limiting (S-H1): 5 req/IP/min on send endpoints, 10
+ * CLAUDE.md > Rate Limiting: 5 req/IP/min on send endpoints, 10
  * req/IP/min on verify/complete endpoints.
  */
 export function createDefaultAuthRateLimiters(): AuthRateLimiters {
@@ -110,9 +110,8 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     passkeyRegisterComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     profileSwitch: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     profileList: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
-    // Recovery generation: the step-up gate is now the primary defence
-    // against stolen-access-token abuse (superseding the per-day cap
-    // relied on previously for S-M1). Keep a coarse per-IP throttle in
+    // Recovery generation: the step-up gate is the primary defence
+    // against stolen-access-token abuse. Keep a coarse per-IP throttle in
     // place so the endpoint isn't trivially floodable.
     recoveryGenerate: createRateLimiter({ maxRequests: 10, windowMs: 3_600_000 }),
     // Read-only count, polled by the settings panel on mount and after every

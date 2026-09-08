@@ -24,7 +24,7 @@ const EXPONENT: CurrencyExponents = {
   JPY: 0,
 };
 
-// P-I1: cache formatters instead of reconstructing on every call. With
+// Cache formatters instead of reconstructing on every call. With
 // ~6 currencies × a small number of locales this caps at a handful of
 // entries; keeps the helper cheap on long feeds.
 const formatterCache = new Map<string, Intl.NumberFormat>();

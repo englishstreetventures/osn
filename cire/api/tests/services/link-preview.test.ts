@@ -522,7 +522,7 @@ describe("scanHtml", () => {
   });
 
   it("scans a flood of unterminated tags in linear time", () => {
-    // P-C1. The URL is attacker-chosen, so the document is too, and the old
+    // The URL is attacker-chosen, so the document is too, and the old
     // patterns backtracked quadratically on an opening tag that never closes:
     // half a megabyte of `<img ` measured ~25s of CPU against a 10ms budget on
     // Cloudflare's free tier. Each shape is padded near the byte cap the fetch
@@ -544,7 +544,7 @@ describe("scanHtml", () => {
   });
 
   it("stops collecting <img> candidates well before a page can list a thousand", () => {
-    // P-W1: only six URLs are ever emitted, and social-card candidates outrank
+    // Only six URLs are ever emitted, and social-card candidates outrank
     // every `<img>`, so a cap on rank-2 collection cannot change the output —
     // it only stops the scan from scaling with a page's tag count.
     const imgs = Array.from(
@@ -667,7 +667,7 @@ describe("preview — image candidates", () => {
   });
 
   it("emits the same six urls from a page listing hundreds of images", async () => {
-    // P-W1: the rank-2 cap changes what the scanner COLLECTS, never what the
+    // The rank-2 cap changes what the scanner COLLECTS, never what the
     // preview emits.
     const imgs = Array.from(
       { length: 300 },
@@ -706,8 +706,8 @@ describe("preview — image candidates", () => {
   });
 
   it("resolves distinct image hosts at the same time, not one after another", async () => {
-    // P-W3: the checks used to run in series inside the emit loop, so six hosts
-    // cost six round trips end to end. Ordering is unchanged — only the waiting is.
+    // Distinct image hosts resolve at the same time, so six hosts cost one
+    // round trip's wait rather than six. Ordering is unchanged — only the waiting is.
     let inFlight = 0;
     let peak = 0;
     const imgs = ["a", "b", "c"]
@@ -739,8 +739,8 @@ describe("preview — image candidates", () => {
   });
 
   it("aborts an in-flight DNS lookup when the operation's budget expires", async () => {
-    // P-W3: the lookups now share the preview's one time budget instead of
-    // running beside it with only their own per-query timeout.
+    // The lookups share the preview's one time budget instead of running
+    // beside it with only their own per-query timeout.
     let aborted = false;
     const { fetchImpl } = recordingFetch(() =>
       htmlResponse('<img src="https://cdn.example/a.jpg" width="600">'),

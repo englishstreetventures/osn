@@ -185,7 +185,7 @@ export const listMessages = (
     // Cursor-based pagination: fetch messages older than the cursor.
     const conditions = [eq(messages.chatId, chatId)];
     if (opts.cursor) {
-      // Z6: the cursor is a message ID. Scope the lookup to THIS chat so a
+      // The cursor is a message ID. Scope the lookup to THIS chat so a
       // cursor from another chat can't be used to probe message timing, and
       // reject an unknown/foreign cursor with a validation error instead of
       // silently falling back to page 1 (which masks a malformed client or a

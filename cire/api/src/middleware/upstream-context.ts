@@ -35,7 +35,7 @@ export function hasWeddingGateError(ctx: unknown): boolean {
 /**
  * The entitlement presence check a role gate (weddingMember/weddingEditor)
  * already folded into its OWN authorize() query, when it was called with an
- * `entitlementKey` (P-W1). `weddingEntitlement(db, key)` reads this instead of
+ * `entitlementKey`. `weddingEntitlement(db, key)` reads this instead of
  * running its own query — but only trusts it when the fold's `key` matches
  * ITS key; a mismatch (or absence, e.g. the role gate ran with no key, or this
  * gate is mounted standalone in a test) returns `undefined` so the caller

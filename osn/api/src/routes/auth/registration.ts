@@ -58,7 +58,7 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
       //
       // Always returns `{ sent: true }` (or a public error code on validation
       // failure) regardless of whether the email/handle is already taken —
-      // this removes the user-enumeration oracle (S-M1).
+      // this removes the user-enumeration oracle.
       // -------------------------------------------------------------------------
       .post(
         "/register/begin",
@@ -93,7 +93,7 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
           body: t.Object({
             email: t.String(),
             handle: t.String(),
-            // C-H8 (COPPA): date of birth (YYYY-MM-DD). Required; the under-13
+            // COPPA: date of birth (YYYY-MM-DD). Required; the under-13
             // gate rejects with 422 before the OTP is sent, and the value is
             // never persisted. See [[compliance/coppa]].
             birthdate: t.String(),
@@ -106,7 +106,7 @@ export function createRegistrationRoutes(ctx: AuthRouteContext) {
           response: {
             200: t.Object({ sent: t.Boolean() }),
             400: errorResponse,
-            // C-H8 (COPPA): `age_restricted`, raised before the OTP is sent.
+            // COPPA: `age_restricted`, raised before the OTP is sent.
             422: errorResponse,
             429: errorResponse,
             500: errorResponse,

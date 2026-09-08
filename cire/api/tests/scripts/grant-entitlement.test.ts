@@ -14,7 +14,7 @@ describe("buildGrants", () => {
     expect(() => buildGrants("wed_vr", ["bogus" as never], "x")).toThrow();
   });
 
-  // S-M1: validate operator-supplied CLI args before SQL interpolation
+  // Validate operator-supplied CLI args before SQL interpolation.
   it("rejects a malicious weddingId containing SQL injection payload", () => {
     expect(() => buildGrants("wed_'; DROP TABLE x;--", ["vendors"], "operator")).toThrow(
       "invalid weddingId",

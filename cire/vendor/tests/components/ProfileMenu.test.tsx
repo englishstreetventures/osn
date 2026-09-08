@@ -116,7 +116,7 @@ describe("ProfileMenu", () => {
     await waitFor(() => expect(onSignOut).toHaveBeenCalled());
   });
 
-  // ── Haptics (T-U1) ────────────────────────────────────────────────────────
+  // ── Haptics ────────────────────────────────────────────────────────────────
 
   it("offers a haptics switch at all, and defaults it on", async () => {
     // Whether a *stored* preference is honoured is `readHapticsPreference`'s

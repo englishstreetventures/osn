@@ -569,8 +569,8 @@ describe("ImportPanel — surfacing import failures", () => {
     expect(document.body.textContent).toContain("families: +2 / ~1 / -0");
     expect(document.body.textContent).not.toContain("undefined");
 
-    // T-S2 — all THREE caches, not two. The source comment names the failure:
-    // "a stale household in an id-authoritative draft is a destructive
+    // All THREE caches must be invalidated here, not two. The source comment names
+    // the failure: "a stale household in an id-authoritative draft is a destructive
     // remove+create", and the editor is now one radio click away over the very
     // same weddingId-keyed stores.
     expect(invalidateEventsMock).toHaveBeenCalledWith("wed_a");

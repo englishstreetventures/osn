@@ -120,7 +120,7 @@ describe("messages service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── Validation error paths (T-E2) ────────────────────────────────────
+  // ── Validation error paths ──────────────────────────────────────────
 
   it.effect("sendMessage fails with ValidationError for oversized ciphertext", () =>
     Effect.gen(function* () {
@@ -140,7 +140,7 @@ describe("messages service", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // ── Cursor pagination (T-U1) ─────────────────────────────────────────
+  // ── Cursor pagination ────────────────────────────────────────────────
 
   it.effect("listMessages supports cursor-based pagination", () =>
     Effect.gen(function* () {

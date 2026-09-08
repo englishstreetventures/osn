@@ -3,7 +3,7 @@ import { describe, expect, it } from "bun:test";
 import { bucketParseReason } from "../src/metrics";
 
 /**
- * T-S1: `bucketParseReason` is the one branching, attribute-shaping bit of the
+ * `bucketParseReason` is the one branching, attribute-shaping bit of the
  * metrics wiring — it maps a free-text spreadsheet tagged-error `_tag` onto the
  * bounded `ParseRejectReason` union that becomes a metric attribute. A wrong or
  * missing case would silently mis-bucket (or, without the `default`, widen

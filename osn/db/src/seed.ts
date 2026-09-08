@@ -258,8 +258,8 @@ export function buildSeedServiceAccounts(now: Date): NewServiceAccount[] {
       // registrations send (`graphBridge.ts` REGISTERED_SCOPES and
       // `outbound-arc.ts` ALLOWED_SCOPES). allowedScopes is stored per
       // service and each /register-service upsert replaces it wholesale, so
-      // divergent values ping-pong on boot/rotation (S-H1).
-      // graph:resolve-account gates /graph/internal/profile-account (S-M1).
+      // divergent values ping-pong on boot/rotation.
+      // graph:resolve-account gates /graph/internal/profile-account.
       allowedScopes: "graph:read,graph:resolve-account,step-up:verify,app-enrollment:write",
       createdAt: now,
       updatedAt: now,

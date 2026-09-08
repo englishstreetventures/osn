@@ -274,7 +274,7 @@ describe("RecoveryCodesView", () => {
     await waitFor(() => screen.getByText(sampleCodes[0]!));
   });
 
-  // S-L1: an unreadable count is not proof there is nothing to lose. The
+  // An unreadable count is not proof there is nothing to lose. The
   // warning has to appear anyway, or a failed status read silently skips the
   // one prompt standing between the user and a destroyed set.
   it("still warns before rotating when the status read fails", async () => {

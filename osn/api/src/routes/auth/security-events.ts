@@ -89,7 +89,7 @@ export function createSecurityEventRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            // S-M1: step-up gate. Access token alone is insufficient — an
+            // Step-up gate. Access token alone is insufficient — an
             // XSS-captured token must not be able to silently dismiss the
             // banner that exists precisely to notice that compromise.
             const headerToken = headers["x-step-up-token"];

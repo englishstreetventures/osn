@@ -3,7 +3,7 @@ import { describe, it, expect } from "bun:test";
 import { isSafeCssColor } from "../src/index";
 
 /**
- * Direct behavioural pin for the single source of truth (IB-S-L1). The
+ * Direct behavioural pin for the single source of truth. The
  * consumer suites (`cire/invites` dress-code-render, `cire/api` invite 400s)
  * verify only the re-export plumbing; this file keeps the validator
  * self-verifying even if a consumer's wiring changes.

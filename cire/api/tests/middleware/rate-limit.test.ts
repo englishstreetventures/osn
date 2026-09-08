@@ -40,7 +40,7 @@ describe("rateLimitMiddleware", () => {
     expect(res.headers.get("Retry-After")).toBe("60");
   });
 
-  // C4: fail closed when the IP can't be resolved — a request that reaches the
+  // Fail closed when the IP can't be resolved — a request that reaches the
   // Worker with no/invalid cf-connecting-ip must be denied, never bucketed into
   // a shared fallback key. `appRequest` injects a default CF IP, so we bypass it
   // and hit the app directly with no header to exercise the unresolved path.

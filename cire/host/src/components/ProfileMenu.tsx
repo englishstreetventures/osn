@@ -60,7 +60,7 @@ export default function ProfileMenu(props: {
 
   // The avatar URL rides in from the OIDC `picture` claim with no validation
   // at any earlier hop, so the sink enforces the scheme: render only an
-  // absolute https URL, else fall back to the initial (S-L1, prep-pr review).
+  // absolute https URL, else fall back to the initial.
   const httpsAvatarUrl = () => {
     const raw = props.session?.avatarUrl;
     if (!raw) return null;

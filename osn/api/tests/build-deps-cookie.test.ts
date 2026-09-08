@@ -9,7 +9,7 @@ import { osnLoggerLayer } from "../src/observability";
 import { createTestLayer } from "./helpers/db";
 
 /**
- * T-U1. `OSN_COOKIE_DOMAIN` is a one-line pass-through in the composition root,
+ * `OSN_COOKIE_DOMAIN` is a one-line pass-through in the composition root,
  * and that is exactly why it was worth pinning: the marker's whole purpose is
  * to be readable from a DIFFERENT host than the issuer that sets it, so if this
  * var stops reaching `cookieConfig` nothing throws — every cold-start browser

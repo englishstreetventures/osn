@@ -88,7 +88,7 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
               set.status = 401;
               return { error: "unauthorized" };
             }
-            // S-M2: rename is gated by step-up too. Otherwise an XSS-captured
+            // Rename is gated by step-up too. Otherwise an XSS-captured
             // access token could swap labels to mislead the user about which
             // credential they're confirming a delete on. Same AMR set as
             // delete (defaults to passkey-only via passkeyDeleteAllowedAmr).
@@ -153,7 +153,7 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
               set.status = 403;
               return { error: "step_up_required" };
             }
-            // S-L4: passkey-delete uses its own AMR set (defaults to
+            // Passkey-delete uses its own AMR set (defaults to
             // passkey-only). The caller necessarily has a passkey by
             // construction (last-passkey guard), so requiring one for
             // deletion is the strongest available signal.
@@ -173,7 +173,7 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
                 sessionBinding: claims.sessionBinding,
               }),
             );
-            // S-M2: never let a presented-but-stale binding collapse into the
+            // Never let a presented-but-stale binding collapse into the
             // account-wide session wipe. Fail closed instead.
             if (caller._tag === "stale") {
               set.status = 409;
@@ -206,7 +206,7 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
             400: errorResponse,
             401: errorResponse,
             403: errorResponse,
-            // S-M2: a presented-but-stale session binding.
+            // 409 is returned for a presented-but-stale session binding.
             409: errorResponse,
             429: errorResponse,
             500: errorResponse,

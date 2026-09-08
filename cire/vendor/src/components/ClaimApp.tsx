@@ -50,7 +50,7 @@ function ClaimContent() {
     try {
       const listing = await consumeClaim(authFetch, token(), org.id);
       // Hand the listing forward across the full-page redirect below, so the
-      // editor doesn't re-fetch what this call already got back (VP-P-W2).
+      // editor doesn't re-fetch what this call already got back.
       seedClaimedListing(org.id, listing);
       haptic("commit");
       sessionStorage.removeItem(CLAIM_TOKEN_KEY);

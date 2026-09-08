@@ -85,7 +85,7 @@ describe("SectionSample", () => {
 
     // Compared against `@cire/theme`, not against a literal retyped here: if
     // the canonical fallback ever moves, this asserts the sample moved with it
-    // rather than pinning today's value in a second place (T-S3).
+    // rather than pinning today's value in a second place.
     expect(heading["font-size"]).toBe(headingSizeCss("1.5rem"));
     expect(heading["font-weight"]).toBe(typographyVar("headingWeight"));
     expect(heading["font-style"]).toBe(typographyVar("headingStyle"));
@@ -184,7 +184,7 @@ describe("SectionSample", () => {
 
   it("names the closing image identically whether or not a crop is saved", () => {
     // Same image, same slot: whether a non-sighted organiser is told the band
-    // exists must not hinge on an unrelated setting (C-L1).
+    // exists must not hinge on an unrelated setting.
     const cropped = render(() => (
       <SectionSample
         {...props}

@@ -65,7 +65,7 @@ export function AuthProvider(props: AuthProviderProps) {
     run(Effect.flatMap(OsnAuth, (auth) => auth.loadSession())),
   );
 
-  // P-W2: Gate profiles on session — only fetch when a session exists.
+  // Gate profiles on session — only fetch when a session exists.
   // SolidJS createResource with a source signal only fires the fetcher when
   // the source is truthy, preventing wasted requests for unauthenticated users.
   const [profiles, { mutate: mutateProfiles, refetch: refetchProfiles }] = createResource<
@@ -81,7 +81,7 @@ export function AuthProvider(props: AuthProviderProps) {
 
   const [activeProfileId, setActiveProfileId] = createSignal<string | null>(null);
 
-  // S-L2: Derive activeProfileId reactively from session state instead of
+  // Derive activeProfileId reactively from session state instead of
   // a fire-and-forget initialisation call.
   createEffect(() => {
     const sess = session();

@@ -87,9 +87,8 @@ describe("registerProfile", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // T-S2: the P-W11 single OR-probe must preserve the email-first error
-  // priority of the old two sequential checks when BOTH fields collide —
-  // against two different existing accounts.
+  // The single OR-probe must preserve the email-first error priority when
+  // both fields collide against two different existing accounts.
   it.effect(
     "reports the email collision when email and handle collide with different accounts",
     () =>
@@ -474,7 +473,7 @@ describe("beginRegistration + completeRegistration", () => {
   // #557: pins the *direction* of the narrowed match — a genuine duplicate
   // must still land on the caller-facing AuthError (not DatabaseError), and
   // the pending entry must survive so a retry is possible (registration.ts
-  // :393-396). Distinct from the S-H4 test above: that one only asserts the
+  // :393-396). Distinct from the TOCTOU test above: that one only asserts the
   // error class and message; this one proves survival by re-driving the
   // exact same code and observing the same conflict again, rather than the
   // "Invalid or expired code" a wiped pending entry would produce instead.
@@ -653,7 +652,7 @@ describe("passkey registration", () => {
       expect(result.options).toBeTruthy();
       expect(result.options.challenge).toBeTruthy();
       expect(result.options.user.name).toBe("@passkeyuser");
-      // P6: WebAuthn userID must be passkeyUserId (UUID), never accountId
+      // WebAuthn userID must be passkeyUserId (UUID), never accountId
       const decoded = new TextDecoder().decode(
         Uint8Array.from(atob(result.options.user.id), (c) => c.charCodeAt(0)),
       );
@@ -662,7 +661,7 @@ describe("passkey registration", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // Pins the WebAuthn-option posture (M-PK + S-H2):
+  // Pins the WebAuthn-option posture (M-PK):
   //   • `residentKey: "preferred"` — FIDO2 security keys without a resident-
   //     key slot still register (as non-discoverable), so identified login
   //     works for them.
@@ -720,8 +719,8 @@ describe("passkey login", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // T-U1: discoverable flow — beginPasskeyLogin(null) must return options
-  // plus a server-minted challengeId. The identifier-less path is how
+  // Discoverable flow — beginPasskeyLogin(null) must return options plus a
+  // server-minted challengeId. The identifier-less path is how
   // conditional-UI autofill drives sign-in.
   it.effect("beginPasskeyLogin(null) returns options + a UUID challengeId", () =>
     Effect.gen(function* () {
@@ -746,7 +745,7 @@ describe("passkey login", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // S-H2: identified login must match the verifier (`requireUserVerification:
+  // Identified login must match the verifier (`requireUserVerification:
   // true`), so options sets `userVerification: "required"`. The
   // identifier-less flow above is identical — the two must not diverge.
   it.effect("beginPasskeyLogin(identifier) uses userVerification 'required'", () =>
@@ -775,8 +774,8 @@ describe("passkey login", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // T-U1: the challengeId variant of completePasskeyLoginDirect must apply
-  // the same challenge guard as the identified flow — an unknown id fails
+  // The challengeId variant of completePasskeyLoginDirect must apply the
+  // same challenge guard as the identified flow — an unknown id fails
   // fast, before any DB / credential lookup.
   it.effect("completePasskeyLoginDirect rejects an unknown challengeId before DB work", () =>
     Effect.gen(function* () {
@@ -865,13 +864,13 @@ describe("verifyAccessToken", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // S-M2 regression pin: a JWT signed with the same key but lacking the
+  // Regression pin: a JWT signed with the same key but lacking the
   // `aud: "osn-access"` claim (e.g. a step-up token or any future token
   // type) must not authenticate access-token routes.
   it.effect("rejects a token without aud: 'osn-access' (S-M2)", () =>
     Effect.gen(function* () {
       const { SignJWT } = yield* Effect.tryPromise(() => import("jose"));
-      // O1: carry the correct `iss` so the token passes the issuer check and
+      // Carry the correct `iss` so the token passes the issuer check and
       // actually reaches the aud-pinning branch this test is pinning. (A
       // missing/wrong `iss` is rejected earlier — separately covered below.)
       const forged = yield* Effect.tryPromise(() =>
@@ -968,7 +967,7 @@ describe("LogEmailLive local-mode behaviour", () => {
 });
 
 // ---------------------------------------------------------------------------
-// P2: Two-tier token model
+// Two-tier token model
 // ---------------------------------------------------------------------------
 
 describe("two-tier token model (P2)", () => {
@@ -1081,7 +1080,7 @@ describe("two-tier token model (P2)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// P2: Profile switching
+// Profile switching
 // ---------------------------------------------------------------------------
 
 describe("switchProfile (P2)", () => {
@@ -1130,7 +1129,7 @@ describe("switchProfile (P2)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// P2: listAccountProfiles
+// listAccountProfiles
 // ---------------------------------------------------------------------------
 
 describe("listAccountProfiles (P2)", () => {
@@ -1307,7 +1306,7 @@ describe("server-side sessions (C1)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// C2: Refresh token rotation + reuse detection
+// Refresh token rotation + reuse detection
 // ---------------------------------------------------------------------------
 
 describe("refresh token rotation (C2)", () => {
@@ -1412,7 +1411,7 @@ describe("refresh token rotation (C2)", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // P-W1: the verifier carries the device metadata off the row it already
+  // The verifier carries the device metadata off the row it already
   // loaded, so `refreshTokens` no longer re-reads the same session by primary
   // key. If this stops being returned, the rotation path silently loses the
   // device's identity.
@@ -1469,7 +1468,7 @@ describe("refresh token rotation (C2)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// H1: Session invalidation on security events
+// Session invalidation on security events
 // ---------------------------------------------------------------------------
 
 describe("invalidateOtherAccountSessions (H1)", () => {

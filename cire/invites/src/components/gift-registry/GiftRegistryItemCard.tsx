@@ -96,8 +96,8 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
    * The shop link, re-checked HERE rather than trusted from the column.
    *
    * The API validates on write; this is the second half of the same gate at the
-   * render site (CON-S-L2 — a `vendor.privacyUrl` reached an `href` unchecked and
-   * `javascript:` was therefore a same-origin script sink). A row can also arrive
+   * render site: an unchecked `vendor.privacyUrl` reaching an `href` makes
+   * `javascript:` a same-origin script sink. A row can also arrive
    * from a migration or a restored backup, which never passed that write path.
    * `null` ⇒ no link is rendered at all.
    */
@@ -167,8 +167,8 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
     <article
       data-gift-item={props.item.id}
       // `content-visibility:auto` on the same box that declares the reserve —
-      // the two only work as a pair, and the reserve was inert without it
-      // (P-W4). The list is now a whole page of up to 500 cards created at
+      // the two only work as a pair, and the reserve is inert without it.
+      // The list is now a whole page of up to 500 cards created at
       // once, so skipping layout and paint for the off-screen ones is the
       // difference on a phone. Focus and find-in-page still force-render a
       // contained subtree, so an open claim form is unaffected.

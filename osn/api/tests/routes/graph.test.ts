@@ -7,7 +7,7 @@ import { createGraphRoutes } from "../../src/routes/graph";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
-// S-M34: wrapped factory (trust XFF under app.handle). See helpers/routes.
+// Wrapped factory (trust XFF under app.handle). See helpers/routes.
 import { createAuthRoutes } from "../helpers/routes";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;

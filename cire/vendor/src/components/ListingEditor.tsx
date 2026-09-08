@@ -43,8 +43,8 @@ export default function ListingEditor(props: ListingEditorProps) {
   const { authFetch } = useAuth();
 
   // Load the listing (may be null for a brand-new org). A claim that just
-  // redirected here may have left the listing seeded in sessionStorage
-  // (VP-P-W2) — use it once instead of re-fetching what consumeClaim already
+  // redirected here may have left the listing seeded in sessionStorage —
+  // use it once instead of re-fetching what consumeClaim already
   // returned.
   const [listing] = createResource(async () => {
     const seeded = takeSeededListing(props.orgId);
@@ -69,8 +69,8 @@ export default function ListingEditor(props: ListingEditorProps) {
   // row's `checked()[key]` read re-runs on every toggle, not just the one
   // that changed — this is a single signal, not one per key, and SolidJS has
   // no way to see that only one property moved. That recomputes 14 boolean
-  // lookups per toggle (`SERVICE_CATEGORIES` has 14 entries) instead of one —
-  // cheap enough that a per-key signal split isn't worth the complexity.
+  // lookups per toggle (`SERVICE_CATEGORIES` has 14 entries), which costs
+  // nothing worth a per-key signal split.
   const [checked, setChecked] = createSignal<Record<string, boolean>>({});
 
   const [seeded, setSeeded] = createSignal(false);
@@ -115,7 +115,7 @@ export default function ListingEditor(props: ListingEditorProps) {
       .map(([k]) => k),
   );
 
-  // ── Save-button disable condition (VP-P-I3) ──────────────────────────────
+  // ── Save-button disable condition ────────────────────────────────────────
   // createMemo dedupes to signal-change boundaries rather than re-running on every
   // render pass of the button effect.
   const saveDisabled = createMemo(
@@ -246,10 +246,10 @@ export default function ListingEditor(props: ListingEditorProps) {
                 rows={3}
                 maxLength={2000}
                 // This field sits inside `createAutoSize()`'s frame, whose
-                // reflow guard keys on width only, not height — a `resize-y`
-                // textarea in here would have its height-only drag misread as
-                // a content swap and get forced into continuous relayout. Any
-                // textarea inside an auto-sized panel must stay resize="none".
+                // reflow guard keys on width only. A `resize-y` textarea has
+                // its height-only drag misread as a content swap and forced
+                // into continuous relayout — any textarea inside an auto-sized
+                // panel must stay `resize="none"`.
                 resize="none"
               />
             )}

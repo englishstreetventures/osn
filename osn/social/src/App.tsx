@@ -68,9 +68,9 @@ function Layout(props: { children?: import("solid-js").JSX.Element }) {
         when={bare()}
         fallback={
           <AuthProvider config={{ issuerUrl: OSN_ISSUER_URL }}>
-            {/* Mount only the active shell (P-W1): one chunk fetched, one
+            {/* Mount only the active shell: one chunk fetched, one
                 shell hydrating, and a single mounted auth-dialog surface at
-                any width (S-L1). The CSS hidden classes on each shell remain
+                any width. The CSS hidden classes on each shell remain
                 as a paint-level fallback around the breakpoint flip. */}
             <Show when={isMobile()} fallback={<Sidebar />}>
               <MobileChrome />
@@ -96,8 +96,8 @@ function Layout(props: { children?: import("solid-js").JSX.Element }) {
 
 /** Tracks the `md` breakpoint so shell mounting and JS-positioned chrome (the
  *  toaster) follow the same mobile/desktop split as the CSS. Client-only SPA,
- *  so the signal initialises synchronously — correct from the first render
- *  (P-I2), no post-mount flip. */
+ *  so the signal initialises synchronously — correct from the first render,
+ *  no post-mount flip. */
 function useIsMobile() {
   const mq = window.matchMedia("(max-width: 767px)");
   const [isMobile, setIsMobile] = createSignal(mq.matches);

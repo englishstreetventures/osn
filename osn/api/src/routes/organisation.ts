@@ -362,7 +362,7 @@ export function createOrganisationRoutes(
           if (!(await requireRateLimit(caller.profileId, set)))
             return { error: "Too many requests" };
 
-          // P-W2: resolve org and target profile in parallel (independent DB lookups).
+          // Resolve org and target profile in parallel (independent DB lookups).
           const [organisation, target] = await Promise.all([
             resolveOrg(params.handle, set),
             resolveHandle(params.profileHandle, set),
@@ -410,7 +410,7 @@ export function createOrganisationRoutes(
           if (!(await requireRateLimit(caller.profileId, set)))
             return { error: "Too many requests" };
 
-          // P-W2: resolve org and target profile in parallel (independent DB lookups).
+          // Resolve org and target profile in parallel (independent DB lookups).
           const [organisation, target] = await Promise.all([
             resolveOrg(params.handle, set),
             resolveHandle(params.profileHandle, set),
@@ -449,7 +449,7 @@ export function createOrganisationRoutes(
           if (!(await requireRateLimit(caller.profileId, set)))
             return { error: "Too many requests" };
 
-          // P-W2: resolve org and target profile in parallel (independent DB lookups).
+          // Resolve org and target profile in parallel (independent DB lookups).
           const [organisation, target] = await Promise.all([
             resolveOrg(params.handle, set),
             resolveHandle(params.profileHandle, set),

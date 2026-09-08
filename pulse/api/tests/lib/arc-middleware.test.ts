@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // Spy ONLY the middleware-level metric helper. `verifyArcToken`'s internal
 // emissions go through arc.ts's own module-scope import of arc-metrics, so
 // they are NOT captured by this spy — which is exactly what lets these tests
-// assert the S-L6 no-double-count rule: the middleware records early exits,
+// assert the no-double-count rule: the middleware records early exits,
 // verifyArcToken records everything that reaches it.
 vi.mock("@shared/crypto", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@shared/crypto")>();

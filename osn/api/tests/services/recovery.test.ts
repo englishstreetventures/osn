@@ -63,7 +63,7 @@ describe("generateRecoveryCodesForAccount", () => {
   );
 });
 
-// T-U2 — countActiveRecoveryCodes SQL-aggregate rewrite (P-I1).
+// countActiveRecoveryCodes computes active/total via a SQL aggregate.
 describe("countActiveRecoveryCodes", () => {
   it.effect("returns {active: 9, total: 10} after one code is consumed", () =>
     Effect.gen(function* () {
@@ -139,7 +139,7 @@ describe("consumeRecoveryCode", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // S-M2: known vs unknown identifier should present the same error AND
+  // Known vs unknown identifier should present the same error AND
   // execute the same set of DB + hash work, so the caller can't distinguish
   // "identifier doesn't exist" from "code is wrong" via timing.
   it.effect("unknown identifier and wrong-code return the same generic error", () =>
@@ -250,7 +250,7 @@ describe("O2 recovery-code lockout", () => {
       expect(lockedErr._tag).toBe("AuthError");
       expect(lockedErr.message).toBe("Invalid request");
 
-      // T-E1: the locked branch must be READ-ONLY — the correct code presented
+      // The locked branch must be READ-ONLY — the correct code presented
       // while locked must NOT have been consumed. Every recovery_codes row for
       // the account still has used_at IS NULL.
       const { db } = yield* Db;

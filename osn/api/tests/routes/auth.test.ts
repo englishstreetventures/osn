@@ -11,7 +11,7 @@ import {
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
-// S-M34: route factory wrapped to trust XFF + default a loopback IP under
+// Route factory wrapped to trust XFF + default a loopback IP under
 // `app.handle(...)`. See `../helpers/routes` for the rationale.
 import { createAuthRoutes } from "../helpers/routes";
 
@@ -107,7 +107,7 @@ async function mintStepUp(
   freshApp: ReturnType<typeof createAuthRoutes>,
   accessToken: string,
   latestCode: () => string | undefined,
-  /** Binds the token to one gate — required by `/recovery/generate` (S-M1). */
+  /** Binds the token to one gate — required by `/recovery/generate`. */
   purpose?: string,
 ): Promise<string> {
   await freshApp.handle(
@@ -221,7 +221,7 @@ describe("auth routes", () => {
       expect(json.handle).toBe("verifyme");
       expect(json.email).toBe("verify-me@example.com");
       expect(json.session.access_token.length).toBeGreaterThan(0);
-      // C3: refresh_token no longer in body — carried in HttpOnly cookie
+      // refresh_token is carried in the HttpOnly cookie, not the response body
       expect(json.session.refresh_token).toBeUndefined();
       expect(json.session.token_type).toBe("Bearer");
       expect(json.session.expires_in).toBeGreaterThan(0);
@@ -707,7 +707,7 @@ describe("auth routes", () => {
   });
 
   describe("POST /login/passkey/begin", () => {
-    // S-M1: begin is enumeration-safe. Unknown identifier, known-with-
+    // Begin is enumeration-safe. Unknown identifier, known-with-
     // zero-passkeys, and known-with-passkeys all return 200 with the same
     // envelope shape `{ options: { …, allowCredentials: [...] } }`. An
     // attacker cannot probe the handle / email namespace through this
@@ -790,7 +790,7 @@ describe("auth routes", () => {
       expect(res.status).toBe(400);
     });
 
-    // T-R1: identifier ⊕ challengeId — exactly one must be present.
+    // Identifier ⊕ challengeId — exactly one must be present.
     it("returns 400 invalid_request when both identifier and challengeId are present", async () => {
       const res = await app.handle(
         new Request("http://localhost/login/passkey/complete", {
@@ -824,7 +824,7 @@ describe("auth routes", () => {
     });
   });
 
-  // T-R2: identifier-less (discoverable) /login/passkey/begin — emits a
+  // Identifier-less (discoverable) /login/passkey/begin — emits a
   // challengeId the client must round-trip to /login/passkey/complete.
   describe("POST /login/passkey/begin (discoverable)", () => {
     it("returns { options, challengeId } with no identifier in the body", async () => {
@@ -872,7 +872,7 @@ describe("auth routes", () => {
       expect(json.code_challenge_methods_supported).toEqual(["S256"]);
       expect(json.subject_types_supported).toEqual(["pairwise"]);
       // Relying parties key off this list — auth_time in particular backs the
-      // S-H1 max_age/prompt=login behaviour and must stay advertised.
+      // max_age/prompt=login behaviour and must stay advertised.
       expect(json.claims_supported).toEqual(
         expect.arrayContaining(["sub", "auth_time", "email", "email_verified"]),
       );
@@ -1061,7 +1061,7 @@ describe("auth routes", () => {
       expect(res.status).toBe(401);
     });
 
-    // S-H1: begin requires a step-up token once the account has ≥1
+    // Begin requires a step-up token once the account has ≥1
     // passkey. A bare access token is insufficient — a stolen token
     // (XSS) cannot silently enroll a new authenticator.
     it("S-H1: rejects when account has ≥1 passkey and no step-up token", async () => {
@@ -1255,7 +1255,7 @@ describe("auth routes", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Rate limiting (S-H1)
+  // Rate limiting
   // -------------------------------------------------------------------------
   describe("rate limiting", () => {
     it("returns 429 after exceeding rate limit on /handle/:handle", async () => {
@@ -1368,7 +1368,7 @@ describe("auth routes", () => {
     });
 
     // -----------------------------------------------------------------------
-    // S-M34: client-IP hardening. These use the RAW factory (no default-XFF
+    // Client-IP hardening. These use the RAW factory (no default-XFF
     // wrapper) so they observe the production fail-closed behaviour.
     // -----------------------------------------------------------------------
     it("denies (429) a header-less request under a trusted-proxy policy (fail-closed)", async () => {
@@ -1992,7 +1992,7 @@ describe("auth routes", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Step-up (sudo) ceremonies — T-R1
+  // Step-up (sudo) ceremonies
   //
   // Service-layer behaviour is exercised in services/step-up.test.ts; these
   // tests pin the HTTP wire contract: Bearer-auth gate, rate-limiter wiring,
@@ -2109,7 +2109,7 @@ describe("auth routes", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Session introspection + revocation — T-R2
+  // Session introspection + revocation
   // ---------------------------------------------------------------------------
   describe("session routes", () => {
     async function setup(): Promise<{
@@ -2261,7 +2261,7 @@ describe("auth routes", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Email change — T-R3
+  // Email change
   // ---------------------------------------------------------------------------
   describe("email change routes", () => {
     async function setupWithStepUp(): Promise<{
@@ -2516,7 +2516,7 @@ describe("auth routes", () => {
       expect(res.headers.get("cache-control")).toBe("private, no-store");
     });
 
-    // S-M1: an access-token-only ack would let an XSS silently dismiss the
+    // An access-token-only ack would let an XSS silently dismiss the
     // very banner that warns about its own compromise.
     it("POST /account/security-events/:id/ack without a step-up token returns 403", async () => {
       const { app: freshApp, accessToken, generatedEventId } = await setupWithRecovery();

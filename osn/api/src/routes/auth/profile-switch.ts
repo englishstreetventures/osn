@@ -12,7 +12,7 @@ export function createProfileSwitchRoutes(ctx: AuthRouteContext) {
       // -------------------------------------------------------------------------
       // Profile switching (P2 — multi-account)
       //
-      // S-H1: these endpoints authenticate via Bearer access token (not
+      // These endpoints authenticate via Bearer access token (not
       // refresh token in body). The access token's `sub` is `profileId`;
       // we resolve `accountId` via DB lookup.
       // -------------------------------------------------------------------------

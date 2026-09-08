@@ -195,7 +195,7 @@ describe("ImportPanel — the first-run glow, as animated", () => {
   });
 
   it("animates opacity ONLY — the property the compositor can take", () => {
-    // The whole point of the pseudo-element (P-W1): an animated `box-shadow`
+    // The whole point of the pseudo-element: an animated `box-shadow`
     // re-paints and re-rasters the open guide — the tallest box on screen —
     // every frame for 7.8s, on the same thread that has to scroll it. A static
     // shadow faded by `opacity` is rastered once and composited on the GPU. If

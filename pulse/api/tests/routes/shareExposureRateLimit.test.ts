@@ -8,8 +8,8 @@ import { createTestLayer, seedEvent } from "../helpers/db";
 import { TEST_VERIFICATION } from "../helpers/verification";
 
 /**
- * P4: per-IP rate limiting on the unauthenticated share / exposure pings,
- * using the hardened `getClientIp` trust policy (S-M34). These tests pin
+ * Per-IP rate limiting on the unauthenticated share / exposure pings,
+ * using the hardened `getClientIp` trust policy. These tests pin
  * `trustedProxyCount: 1` so the keying IP is taken from `x-forwarded-for`
  * (under `app.handle(...)` there is no socket peer). Fail-closed on a
  * blocking/throwing backend AND on an unresolved IP.
@@ -124,7 +124,7 @@ describe("P4 — per-IP share / exposure rate limiting", () => {
 
   it("share: 429 (fail-closed) when the client IP is unresolved", async () => {
     // No x-forwarded-for under trustedProxyCount:1 → UNRESOLVED_IP → deny,
-    // even though the limiter would allow. Guards the S-M34 invariant.
+    // even though the limiter would allow. Guards the fail-closed-on-unresolved-IP invariant.
     const app = buildApp(layer, allow, allow);
     const res = await post(app, `/events/${eventId}/share`, { source: "whatsapp" });
     expect(res.status).toBe(429);

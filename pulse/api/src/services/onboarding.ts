@@ -275,7 +275,7 @@ export const completeOnboarding = (
       catch: (cause) => new DatabaseError({ cause }),
     });
 
-    // S-L1: re-read the persisted row before returning. With
+    // Re-read the persisted row before returning. With
     // `onConflictDoNothing`, two concurrent first-completions both see
     // "no row" in the read above and both attempt to insert; one wins
     // and the other's payload is silently discarded. Returning `validated`

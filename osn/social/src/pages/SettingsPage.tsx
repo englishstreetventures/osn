@@ -12,7 +12,7 @@ import { registrationClient } from "../lib/authClients";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
 
 // Code-split the Security section so `@simplewebauthn/browser` is only
-// fetched when the user opens that tab (P-I1).
+// fetched when the user opens that tab.
 const SecuritySection = lazy(() => import("../components/SecuritySection"));
 const ConnectedAppsSection = lazy(() =>
   import("../components/ConnectedAppsSection").then((m) => ({ default: m.ConnectedAppsSection })),

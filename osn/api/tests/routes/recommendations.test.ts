@@ -109,8 +109,8 @@ describe("recommendations routes", () => {
     expect(res.headers.get("cache-control")).toBe("private, no-store");
   });
 
-  // Same no-store list from above: with nothing cached or stored, the response
-  // itself is the only way for the client to know how fresh the suggestions are.
+  // A list this endpoint never caches or stores otherwise gives the client
+  // no way to say how fresh it is.
   it("GET /recommendations/connections returns a generatedAt timestamp", async () => {
     const alice = await registerAndGetToken("a@e.com", "alice");
     const before = new Date();
@@ -194,7 +194,7 @@ describe("recommendations routes", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Limit parsing (T-S1)
+  // Limit parsing
   // -------------------------------------------------------------------------
 
   it("accepts a numeric ?limit query param", async () => {
@@ -231,7 +231,7 @@ describe("recommendations routes", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Rate limiting (S-H1/P-C2)
+  // Rate limiting
   // -------------------------------------------------------------------------
 
   it("returns 429 when the rate limiter rejects", async () => {

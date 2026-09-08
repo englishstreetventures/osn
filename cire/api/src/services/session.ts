@@ -171,7 +171,7 @@ export const sessionService = {
    * Prune every session whose `expiresAt` has passed (`<= now`). A guest login
    * leaves a row that is dead the moment its 30-day window lapses but is never
    * deleted on the read path (`validate` only *reports* expiry); without this
-   * the table grows unbounded (C-M2/C-M15). Run from the Worker's `scheduled`
+   * the table grows unbounded. Run from the Worker's `scheduled`
    * cron handler. Boundary is inclusive so a row expiring exactly at `now` is
    * swept. Returns the number of rows deleted.
    */

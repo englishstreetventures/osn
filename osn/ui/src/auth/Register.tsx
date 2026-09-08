@@ -16,7 +16,7 @@ type Step = "details" | "verify" | "passkey" | "done";
 const HANDLE_RE = /^[a-z0-9_]{1,30}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BIRTHDATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-// C-H8 (COPPA): mirror the server's under-13 gate for immediate feedback. The
+// (COPPA) Mirrors the server's under-13 gate for immediate feedback. The
 // server remains authoritative — it re-checks and returns 422 for under-13.
 const MIN_AGE_YEARS = 13;
 
@@ -84,7 +84,7 @@ export function Register(props: RegisterProps) {
   >("idle");
   let handleTimer: ReturnType<typeof setTimeout> | null = null;
   // Cancels the previous in-flight availability probe when a new one fires,
-  // so debounced typing bursts never stack requests (P-W10).
+  // so debounced typing bursts never stack requests.
   let handleAbort: AbortController | null = null;
   onCleanup(() => {
     if (handleTimer) clearTimeout(handleTimer);
@@ -120,7 +120,7 @@ export function Register(props: RegisterProps) {
     }, 300);
   }
 
-  // C-H8: a birthdate that both parses and clears the under-13 gate. The
+  // A birthdate that both parses and clears the under-13 gate. The
   // server re-checks authoritatively (422 on under-13); this is UX only.
   const birthdateOk = () =>
     BIRTHDATE_RE.test(birthdate()) && ageInYears(birthdate()) >= MIN_AGE_YEARS;

@@ -22,7 +22,7 @@ describe("parseTokenResponse", () => {
     it("parses a full token response (refresh_token is dropped: cookie-only)", () => {
       const session = parseTokenResponse(validFull);
       expect(session.accessToken).toBe("at_abc123");
-      // C3: refresh token is intentionally absent from the Session type —
+      // Refresh token is intentionally absent from the Session type —
       // it lives in the HttpOnly cookie, not in application JS.
       expect("refreshToken" in session).toBe(false);
       expect(session.idToken).toBe("id_tok_456");

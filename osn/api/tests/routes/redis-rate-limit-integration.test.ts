@@ -20,7 +20,7 @@ import { createGraphRoutes } from "../../src/routes/graph";
 import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
-// S-M34: wrapped factory (trust XFF under app.handle). See helpers/routes.
+// Wrapped factory (trust XFF under app.handle). See helpers/routes.
 import { createAuthRoutes } from "../helpers/routes";
 
 let config: Awaited<ReturnType<typeof makeTestAuthConfig>>;
@@ -39,7 +39,7 @@ describe("auth routes with Redis-backed rate limiters", () => {
   it("createAuthRoutes accepts Redis-backed rate limiters without error", () => {
     const client = createMemoryClient();
     const limiters = createRedisAuthRateLimiters(client);
-    // Should not throw — validates every slot at construction time (S-L2)
+    // Should not throw — validates every slot at construction time
     expect(() => createAuthRoutes(config, layer, undefined, limiters)).not.toThrow();
   });
 

@@ -428,7 +428,7 @@ describe("registryService.claim", () => {
   });
 
   /**
-   * THE ORDER IS THE SECURITY PROPERTY (S-M1). A `cire_session` names a
+   * THE ORDER IS THE SECURITY PROPERTY. A `cire_session` names a
    * household, not a wedding, so a holder of any valid cookie can aim it at any
    * slug. Checking the ITEM first told them whether the id they guessed exists
    * on a wedding they cannot read; checking the FAMILY first tells them only
@@ -744,7 +744,7 @@ describe("registry ownership + range guards", () => {
   });
 
   it("refuses a key naming another SLOT of the same wedding", async () => {
-    // S-M1: the wedding matches, so ownership alone would wave it through. What
+    // The wedding matches, so ownership alone would wave it through. What
     // an item may name is an object minted for the `registry` slot — anything
     // else would let a delete reap an invite or event image.
     const db = db0();
@@ -764,7 +764,7 @@ describe("registry ownership + range guards", () => {
   });
 
   it("reports an image key as orphaned only when the deleted item was its last holder", async () => {
-    // S-M1: two items may carry the same key (duplicate an item, or paste the
+    // Two items may carry the same key (duplicate an item, or paste the
     // same picture twice). Reaping on the first delete would blank the survivor.
     const db = db0();
     const first = await ok(db, registryService.createItem({ ...newItem(), imageKey: ownKey }));

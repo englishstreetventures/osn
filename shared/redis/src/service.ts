@@ -20,7 +20,7 @@ export interface RedisService {
 
 export class Redis extends Context.Service<Redis, RedisService>()("@shared/redis/Redis") {}
 
-/** Redact credentials from Redis URLs in error messages (S-M3). */
+/** Redact credentials from Redis URLs in error messages. */
 function sanitizeCause(cause: unknown): string {
   const msg = cause instanceof Error ? cause.message : String(cause);
   return msg.replace(/rediss?:\/\/[^@\s]*@/g, (match) => {

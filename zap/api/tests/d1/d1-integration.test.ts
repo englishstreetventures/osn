@@ -73,7 +73,7 @@ describe("zap/api over real D1 (Miniflare)", () => {
   });
 
   it("sendMessage then listMessages persists via the async driver", async () => {
-    // Z3: a DM is exactly two people, so the second member is required — a bare
+    // A DM is exactly two people, so the second member is required — a bare
     // `{ type: "dm" }` now fails `InvalidDmMembership`. Z4 then graph-gates every
     // member, fail-closed, so the consent gate has to be stubbed open (this suite
     // is about the async D1 driver, not the graph).

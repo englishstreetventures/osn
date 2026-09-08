@@ -35,7 +35,7 @@ export interface RedisJtiStoreConfig {
 
 /**
  * Redis-backed step-up jti store. Replaces the default in-memory map so the
- * single-use property holds across multi-pod deployments (S-H1).
+ * single-use property holds across multi-pod deployments.
  */
 export function createRedisJtiStore(
   client: RedisClient,
@@ -50,7 +50,7 @@ export function createRedisJtiStore(
         const result = await client.eval(CONSUME_JTI_SCRIPT, [key], [ttlMs]);
         return result === 1 || result === "1";
       } catch {
-        // S-H1: fail closed by default — a Redis outage must not regress
+        // Fail closed by default — a Redis outage must not regress
         // single-use semantics. An unavailable replay guard is equivalent
         // to a ceremony no one actually completed.
         return !failClosed;

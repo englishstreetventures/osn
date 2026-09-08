@@ -75,7 +75,7 @@ describe("SignInPanel", () => {
     expect(startSignIn).toHaveBeenCalledTimes(1);
     const [, returnTo, options] = startSignIn.mock.calls[0]!;
     expect(new URL(returnTo as string).pathname).toBe("/");
-    // T-S2: and no `prompt`. Removing the second button is only half the
+    // Confirms the return path carries no `prompt` option. Removing the second button is only half the
     // change — passing `{ prompt: "create" }` through the one that remains
     // would reinstate the removed guess, and every other assertion here
     // (the button count, the absent "Create account" label) would stay green.

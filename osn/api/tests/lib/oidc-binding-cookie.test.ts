@@ -1,5 +1,5 @@
 /**
- * Unit tests for the OIDC browser-binding cookie helpers (S-M1 oidc).
+ * Unit tests for the OIDC browser-binding cookie helpers.
  *
  * The route tests only run under the non-secure local config, so the
  * `__Host-` secure branch — the one production uses — is pinned here: name

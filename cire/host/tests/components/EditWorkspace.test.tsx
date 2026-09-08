@@ -120,11 +120,9 @@ describe("EditWorkspace", () => {
   });
 
   it("explains each mode in text an AT can resolve, not a hover tooltip", () => {
-    // C-L1 — the hints used to live only in `title`: unreachable on touch,
-    // unreachable by keyboard, inconsistently announced. Each control now points
-    // at a real paragraph, and BOTH ids must resolve even though only the active
-    // hint is shown — an `aria-describedby` pointing at nothing is no
-    // description at all.
+    // Each control points at a real paragraph, and BOTH ids must resolve even
+    // though only the active hint is shown — an `aria-describedby` pointing at
+    // nothing is no description at all.
     mount();
     for (const name of [/web editor/i, /spreadsheet import/i]) {
       const control = mode(name);

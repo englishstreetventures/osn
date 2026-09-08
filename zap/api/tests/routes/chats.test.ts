@@ -37,7 +37,7 @@ function req(
       method,
       headers: {
         "Content-Type": "application/json",
-        // S-H1: write endpoints derive the rate-limit key from `cf-connecting-ip`
+        // Write endpoints derive the rate-limit key from `cf-connecting-ip`
         // (Zap runs behind Cloudflare) and fail closed (429) when it is
         // unresolved. Supply a stable test IP so the limiter buckets requests
         // deterministically instead of denying every header-less request.
@@ -93,7 +93,7 @@ describe("chats routes", () => {
     expect(res.status).toBe(401);
   });
 
-  // ── Token verification (W1: ES256 / JWKS) ─────────────────────────────────
+  // ── Token verification (ES256 / JWKS) ─────────────────────────────────
 
   it("GET /chats returns 401 for a token signed with the wrong key", async () => {
     // A second, unrelated signer — correct shape, key the route never trusts.
@@ -248,7 +248,7 @@ describe("chats routes", () => {
     expect(bobData.chats).toHaveLength(0);
   });
 
-  // ── List chats pagination (P-W1) ────────────────────────────────────────
+  // ── List chats pagination ────────────────────────────────────────
 
   it("GET /chats?limit=1 pages and ?cursor= continues from it", async () => {
     // Seed with controlled createdAt (second resolution in the schema) so the
@@ -385,7 +385,7 @@ describe("chats routes", () => {
     expect(data.members).toHaveLength(1);
   });
 
-  // ── Member pagination (P-W4) ────────────────────────────────────────────
+  // ── Member pagination ────────────────────────────────────────────
 
   it("GET /chats/:id/members pages with limit/offset", async () => {
     const createRes = await req(app, "POST", "/chats", {

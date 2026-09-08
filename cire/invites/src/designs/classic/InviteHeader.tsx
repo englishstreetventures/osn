@@ -40,7 +40,7 @@ interface InviteHeaderProps {
   /**
    * Customisation resolved at build time in `index.astro` and used as the
    * initial render, so the hero paints with the real image/copy in the SSR'd
-   * HTML instead of after a client fetch waterfall (IB-P-W1). The island still
+   * HTML instead of after a client fetch waterfall. The island still
    * revalidates on mount to pick up changes made since the build.
    */
   initial?: InviteCustomisation | null;

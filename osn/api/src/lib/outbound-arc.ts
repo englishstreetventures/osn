@@ -16,8 +16,8 @@ import { Effect } from "effect";
 
 /**
  * Comma-separated scopes osn-api registers with each downstream (Pulse + Zap)
- * when it uploads its ARC public key. `account:erase` drives the C-H2 delete
- * fan-out; `account:export` drives the C-H1 DSAR export fan-out. A downstream
+ * when it uploads its ARC public key. `account:erase` drives the delete
+ * fan-out; `account:export` drives the DSAR export fan-out. A downstream
  * only accepts an inbound token whose scope is in the key's registered set, so
  * both must be registered here for either fan-out to authenticate.
  */

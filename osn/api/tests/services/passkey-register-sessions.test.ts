@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { beforeAll, vi } from "vitest";
 
-// O4: `completePasskeyRegistration` runs a real WebAuthn attestation through
+// `completePasskeyRegistration` runs a real WebAuthn attestation through
 // `@simplewebauthn/server`, which we cannot produce in a unit test. We stub the
 // verifier so the function reaches the session-invalidation branch this test
 // pins. `generateRegistrationOptions` is left to produce a normal challenge.
@@ -162,7 +162,7 @@ describe("O4 completePasskeyRegistration session invalidation", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // T-U1: pins the per-call-site template/kind wiring of the shared
+  // This test pins the per-call-site template/kind wiring of the shared
   // notifySecurityEventByAccountId helper — a swapped template here would
   // pass every other test silently.
   it.effect("sends the passkey-added notification email on successful enrolment", () => {

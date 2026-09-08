@@ -65,7 +65,7 @@ describe("claimed-listing handoff (VP-P-W2)", () => {
     expect(takeSeededListing("o1")).toBeUndefined();
   });
 
-  // S-L1: every field `Listing` declares as required and non-nullable is
+  // Every field `Listing` declares as required and non-nullable is
   // checked, because `ListingEditor` renders `listed` straight into the status
   // chip — a seed without it would put the word "undefined" on screen.
   it.each(["id", "name", "listed", "categories", "createdAt", "updatedAt"] as const)(

@@ -4,7 +4,7 @@ import { getTableConfig } from "drizzle-orm/sqlite-core";
 
 import * as schema from "../src/schema";
 
-// Composite-index drift guard (mirrors pulse/db's P-I2 test). Migration 0026
+// Composite-index drift guard (mirrors pulse/db's equivalent test). Migration 0026
 // replaced the dead single-column events_sort_order_idx + events_wedding_idx
 // pair with one composite index covering the (wedding filter, sort) access
 // pattern used by every events read. This pins the schema declaration so the

@@ -159,7 +159,7 @@ describe("gala InvitePage", () => {
     expect(cls).toContain("border-text/55");
     expect(cls).not.toContain("border-border");
     expect(cls).not.toContain("bg-transparent");
-    // T-S2: classic asserts BOTH halves of the focus affordance, so gala must
+    // Classic asserts BOTH halves of the focus affordance, so gala must
     // too — a half-copied drift guard drifts.
     expect(cls).toContain("focus:border-gold");
     expect(cls).toContain("focus-visible:outline-[var(--invite-focus)]");
@@ -367,7 +367,7 @@ describe("gala InvitePage", () => {
     expect(queryByText(/Dear Priya/)).toBeNull();
     expect(queryByText("Mehndi")).toBeNull();
 
-    // S-M1 — the same contract classic pins: the returned form must be
+    // The same contract classic pins: the returned form must be
     // USABLE. `submitCode` never clears `loading` on success, so before the
     // fix this came back with a disabled input and a stuck "Checking…" submit.
     // Both packs share `createClaimCode`, so both need the guard or they drift.
@@ -379,7 +379,7 @@ describe("gala InvitePage", () => {
     fireEvent.input(input, { target: { value: "OKAFOR-LILY-AB12CD" } });
     expect(submit.disabled).toBe(false);
 
-    // C-L1: focus follows the swap instead of falling to <body>.
+    // Focus follows the swap instead of falling to <body>.
     expect(document.activeElement).toBe(input);
   });
 
@@ -604,7 +604,7 @@ describe("gala InvitePage", () => {
 
   it("hides the closing section until the guest claims their code, then shows it", async () => {
     // The closing content rides the CLAIM response — the public invite payload
-    // redacts it (S-H1), so there is no prop to seed it with pre-claim.
+    // redacts it, so there is no prop to seed it with pre-claim.
     const claimed = {
       ...claim,
       preview: true,
@@ -806,7 +806,7 @@ describe("gala InvitePage", () => {
       expect(getByText("RSVPs closed on Tuesday 1 September 2020.")).toBeTruthy();
       const closed = getAllByRole("button", { name: "RSVPs closed" }) as HTMLButtonElement[];
       expect(closed.length).toBeGreaterThan(0);
-      // `aria-disabled`, not the native attribute — see C-M2 in EventCard.
+      // `aria-disabled`, not the native attribute — see EventCard for the same pattern.
       expect(closed.every((b) => b.getAttribute("aria-disabled") === "true")).toBe(true);
       // Each closed button points at the section notice, which is the only
       // place the DATE is stated.
@@ -867,7 +867,7 @@ describe("gala InvitePage", () => {
       await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
       // The single-member fixture greets the individual, not the household.
       expect(getByText(/Dear Priya/)).toBeTruthy();
-      // T-U2: and the code form is actually GONE, not merely behind the events.
+      // The code form is actually GONE too, not merely behind the events.
       // A restore runs no choreography, so `setRevealed(true)` in `onRestored`
       // is the only thing that flips it — drop that line and every returning
       // guest loads their invite with the form still sitting on top of it. The
@@ -987,7 +987,7 @@ describe("gala InvitePage", () => {
       );
     });
   });
-  // Ported verbatim from classic (T-U1): gala renders its own claim markup
+  // Ported verbatim from classic: gala renders its own claim markup
   // instead of reusing `LoginSection`, so `LoginSection.test.tsx`'s swap tests
   // protect classic only. Without these, reverting BOTH of gala's `revealed`
   // bindings back to `claimResult()` — undoing the fix entirely — passes.
@@ -1048,7 +1048,7 @@ describe("gala InvitePage", () => {
     });
 
     it("hides the form when REPORTED, not merely when the sequence ends", async () => {
-      // T-U3: the mirror of the test above. Holding the sequence open after it
+      // The mirror of the test above. Holding the sequence open after it
       // reports is the only way to tell "hidden on report" from "hidden by the
       // `finally`" — once the promise settles the `finally` masks the
       // difference, which is why dropping the `onFormHidden` wiring was
@@ -1234,7 +1234,7 @@ describe("gala InvitePage", () => {
       const { container, getByTestId } = render(() => <InvitePage apiUrl="https://api.test" />);
       await waitFor(() => expect(getByTestId("toaster-stub")).toBeTruthy());
 
-      // Present in preview mode at all — the thing that used to be missing.
+      // Present in preview mode at all.
       const toaster = getByTestId("toaster-stub");
       // And not nested inside the section Motion One transforms.
       expect(toaster.closest("section")).toBeNull();

@@ -386,12 +386,9 @@ describe("residual contrast warnings", () => {
 
   test("holds secondary text to the TEXT minimum, not the UI floor", () => {
     // Every `--color-text-muted` site on the guest invite is small text (0.74 –
-    // 0.92rem), so WCAG AA asks 4.5:1. `derivePalette` used to hold muted to
-    // the 3:1 UI floor against `card` alone while this table asked 4.5 of it —
-    // a bar stated in the warning and not applied in the derivation (C-L2), so
-    // a guest could read a 4.36:1 caption on a palette nothing had flagged as
-    // broken. The derivation now walks it against all three surfaces at 4.5,
-    // and where a straddling scheme still leaves a residue the pair says 4.5.
+    // 0.92rem), so WCAG AA asks 4.5:1. `derivePalette` walks muted contrast
+    // against all three surfaces at 4.5:1, and where a straddling scheme still
+    // leaves a residue the pair says 4.5.
     const straddle = derivePalette({ ground: "#101010", card: "#f2f2f2", ink: "#eeeeee" });
     expect(
       paletteContrastWarnings(straddle).find((w) => w.id === "muted-on-raised")!.required,

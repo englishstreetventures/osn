@@ -11,7 +11,7 @@ import {
 } from "../../src/lib/guests-store";
 
 /**
- * The guests store is the second half of the P-I3 fetch-lift (sibling of
+ * The guests store is the second half of the fetch-lift (sibling of
  * `events-store`): it dedupes the guest-list fetch across module switches so a
  * remounting GuestTable / Overview snapshot doesn't refire it. The behaviours the
  * DOM tests can't see are pinned here: concurrent-caller dedupe, cache-hit

@@ -33,7 +33,7 @@ describe("isAuthExpired", () => {
     expect(isAuthExpired(wrapped)).toBe(true);
   });
 
-  // S-L2: the printout arm is anchored, so a message that merely QUOTES the
+  // The printout arm is anchored, so a message that merely QUOTES the
   // tag is not an expiry. `EnquiryApiError.message` is the server's `error`
   // code verbatim — an unanchored match would hand a sign-out decision to
   // whatever string the API returned.

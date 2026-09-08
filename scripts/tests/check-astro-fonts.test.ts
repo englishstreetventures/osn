@@ -153,11 +153,11 @@ test("familyNamesFromAstroConfig finds nothing when there is no fonts array", ()
   expect(familyNamesFromAstroConfig("export default defineConfig({});")).toEqual([]);
 });
 
-// S-M1 (found reviewing this branch): Astro drops a family whose metadata
-// fetch failed and CONTINUES — it emits neither a real @font-face nor even the
-// optimizedFallbacks rule for it. Every package here declares two families, so
-// a partial outage leaves the surviving family satisfying both whole-build
-// checks while the other silently vanishes.
+// Astro drops a family whose metadata fetch failed and CONTINUES — it emits
+// neither a real @font-face nor even the optimizedFallbacks rule for it.
+// Every package here declares two families, so a partial outage leaves the
+// surviving family satisfying both whole-build checks while the other
+// silently vanishes.
 test("a build missing ONE of two declared families is caught", async () => {
   const distDir = await makeDist();
   await mkdir(join(distDir, "_astro", "fonts"), { recursive: true });
@@ -203,8 +203,8 @@ test("a config the parser cannot read fails rather than passing", async () => {
   expect(findings[0]!.problem).toContain("could not read any font family name");
 });
 
-// S-L1: a bare recursive readdir returns subdirectories too, so an empty
-// nested directory used to read as "fonts present".
+// A bare recursive readdir returns subdirectories too, so an empty nested
+// directory must not read as "fonts present".
 test("an empty subdirectory under _astro/fonts does not count as a font file", async () => {
   const distDir = await makeDist();
   await mkdir(join(distDir, "_astro", "fonts", "schibsted"), { recursive: true });

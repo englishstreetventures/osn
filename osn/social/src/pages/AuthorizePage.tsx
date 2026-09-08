@@ -120,7 +120,7 @@ export function AuthorizePage() {
   // away — a read left in flight past unmount holds a connection open and
   // resolves into a component that no longer exists.
   //
-  // S-M1: the decision POST deliberately does NOT. Aborting a fetch does not
+  // The decision POST deliberately does NOT. Aborting a fetch does not
   // un-send it, and that call is what records consent and mints the code — so
   // cancelling it client-side cannot undo the grant, it only hides that the
   // grant may have happened. Reads are safe to abandon; writes are not.

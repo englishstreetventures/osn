@@ -86,7 +86,7 @@ const RESERVED_HANDLES = new Set([
 export function createProfileService(authService: AuthService) {
   /**
    * Creates a new profile under the given account.
-   * Enforces `maxProfiles` limit (S-L1) and validates handle availability
+   * Enforces `maxProfiles` limit and validates handle availability
    * against both user and organisation handles (shared namespace).
    */
   const createProfile = (
@@ -126,7 +126,7 @@ export function createProfileService(authService: AuthService) {
       // Check-and-insert. D1 has no interactive transaction, so the pre-checks
       // run as one read and the create as one write. The UNIQUE constraint on
       // users.handle (mirrored against organisations.handle) is the authoritative,
-      // race-safe guard (S-H1, S-M2) — a concurrent create racing the same handle
+      // race-safe guard — a concurrent create racing the same handle
       // hits the constraint and is mapped to "Handle already taken" below. The
       // maxProfiles count check is best-effort: a rare simultaneous double-create
       // could exceed the cap by one, which is not security-sensitive.
@@ -254,7 +254,7 @@ export function createProfileService(authService: AuthService) {
         promoteId = remaining[0]?.id;
       }
 
-      // Atomic cascade delete + default-promotion (S-H2, P-W1, P-W2). Child rows
+      // Atomic cascade delete + default-promotion. Child rows
       // are deleted before the profile row (FK safety); the promotion update (if
       // any) runs last. Atomic batch on D1, sequential on bun:sqlite.
       yield* Effect.tryPromise({

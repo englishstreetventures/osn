@@ -141,9 +141,9 @@ describe("step-up OTP ceremony", () => {
     }).pipe(Effect.provide(cap.layer));
   });
 
-  // T-S1: 5-min TTL is the containment window. A regression that drops the
+  // 5-min TTL is the containment window. A regression that drops the
   // `exp` claim or mis-sets the TTL would silently weaken the threat model.
-  // O1: with a 30s verifier clockTolerance, a 1.1s real-clock wait no longer
+  // With a 30s verifier clockTolerance, a 1.1s real-clock wait no longer
   // proves expiry rejection — the token would still be inside tolerance. We
   // forge a step-up token whose `exp` is well past the 30s window (but
   // otherwise valid: correct iss/aud/sub/amr/jti) so the assertion is
@@ -192,10 +192,10 @@ describe("step-up OTP ceremony", () => {
   );
 });
 
-// T-S1: account deletion is the highest-stakes step-up consumer (Flow A —
+// Account deletion is the highest-stakes step-up consumer (Flow A —
 // full account erasure) and had no direct coverage. It shares the recovery
-// AMR allow-list, so pin both directions of the S-C1 confused-deputy guard.
-// S-M1: generating burns the account's whole existing set, so the gate
+// AMR allow-list, so pin both directions of the confused-deputy guard.
+// Generating burns the account's whole existing set, so the gate
 // requires a token minted for exactly that ceremony. Pin both directions.
 describe("verifyStepUpForRecoveryGenerate (S-M1 purpose binding)", () => {
   it.effect("rejects a purposeless token", () => {
@@ -285,7 +285,7 @@ describe("verifyStepUpForAccountDelete (S-C1 purpose binding)", () => {
   });
 });
 
-// T-S1: the cross-service verifier (`/internal/step-up/verify` for Pulse /
+// The cross-service verifier (`/internal/step-up/verify` for Pulse /
 // Zap) accepts any account (`expectedAccountId = null`) but requires a
 // matching purpose, and must return the accountId from the verified sub.
 describe("verifyStepUpForExternalPurpose", () => {

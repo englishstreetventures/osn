@@ -100,7 +100,7 @@ export function LoginSection(props: LoginSectionProps) {
     // focusing — the form is `display: none` until it does, and `focus()` on a
     // hidden element is silently dropped.
     props.onSignOut?.();
-    // C-L1: the click removes the focused button from the accessibility tree,
+    // The click removes the focused button from the accessibility tree,
     // which would drop focus to `<body>` and leave a keyboard or screen-reader
     // user at the top of the document with no signal that the form is back.
     // The code input is both the announcement (it has an accessible name) and

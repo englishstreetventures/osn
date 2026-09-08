@@ -191,7 +191,7 @@ describe("InvitePage", () => {
     // No further network call beyond the original claim — the preview never POSTs.
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // S-L1: the host code is stripped from the URL after the one-time claim.
+    // The host code is stripped from the URL after the one-time claim.
     expect(window.location.search).not.toContain("code");
   });
 
@@ -587,12 +587,10 @@ describe("InvitePage", () => {
     expect(queryByText(/Dear Priya/)).toBeNull();
     expect(queryByText("Mehndi")).toBeNull();
 
-    // S-M1: the returned form must be USABLE, not merely present. `submitCode`
-    // clears `loading` on every failure branch but not on success, so before
-    // this was fixed the form came back with a disabled input and a submit
-    // button stuck reading "Checking…" — the escape hatch led nowhere. The
-    // original version of this test asserted only that the field was blank,
-    // which is exactly why it passed against a dead form.
+    // The returned form must be usable, not merely present. `submitCode`
+    // clears `loading` on every failure branch but not on success, so this
+    // checks that the input is enabled and the submit button re-enables once
+    // a code is typed, not just that the field is blank.
     const input = getByPlaceholderText(/PATEL-JOY/) as HTMLInputElement;
     expect(input.value).toBe("");
     expect(input.disabled).toBe(false);
@@ -605,7 +603,7 @@ describe("InvitePage", () => {
     fireEvent.input(input, { target: { value: "OKAFOR-LILY-AB12CD" } });
     expect(submit.disabled).toBe(false);
 
-    // C-L1: focus lands on the code input rather than falling to <body>, so a
+    // Focus lands on the code input rather than falling to <body>, so a
     // keyboard or screen-reader user is told the form is back and is already
     // on the control they need.
     expect(document.activeElement).toBe(input);
@@ -713,10 +711,10 @@ describe("InvitePage", () => {
 
   it("P-W2: a reset during the unlock choreography is not undone by its trailing setRevealed", async () => {
     // `onFormHidden` makes the button visible at the end of step 1, then the
-    // sequence runs on for ~200ms. A click in that gap used to be clobbered by
-    // handleClaimed's unconditional `finally { setRevealed(true) }`, leaving the
-    // form hidden with claimResult null — the welcome banner rendering from
-    // nothing, unrecoverable without a reload.
+    // sequence runs on for ~200ms. A reset click in that gap must survive
+    // handleClaimed's unconditional `finally { setRevealed(true) }` — the form
+    // must not end up hidden with claimResult null, which would render the
+    // welcome banner from nothing, unrecoverable without a reload.
     const { unlockRevealSequence } =
       await import("../../../src/designs/classic/UnlockReveal.motion");
     let releaseSequence: (() => void) | undefined;
@@ -842,7 +840,7 @@ describe("InvitePage", () => {
 
   it("hides the closing section until the guest claims their code, then shows it", async () => {
     // The closing content rides the CLAIM response — the public invite payload
-    // redacts it (S-H1), so there is no prop to seed it with pre-claim.
+    // redacts it, so there is no prop to seed it with pre-claim.
     const claimed = {
       ...claim,
       preview: true,
@@ -1039,9 +1037,8 @@ describe("InvitePage", () => {
 
       expect(getByText("RSVPs closed on Tuesday 1 September 2020.")).toBeTruthy();
       const respond = getByRole("button", { name: "RSVPs closed" }) as HTMLButtonElement;
-      // `aria-disabled`, not the native attribute — see C-M2 in EventCard. The
-      // button stays focusable and points at the notice, which is where the
-      // date actually is.
+      // `aria-disabled`, not the native attribute. The button stays focusable
+      // and points at the notice, which is where the date actually is.
       expect(respond.getAttribute("aria-disabled")).toBe("true");
       expect(respond.getAttribute("aria-describedby")).toBe("rsvp-deadline-notice");
       expect(document.getElementById("rsvp-deadline-notice")?.textContent).toContain(
@@ -1103,7 +1100,7 @@ describe("InvitePage", () => {
       await waitFor(() => expect(getByText("Mehndi")).toBeTruthy(), { timeout: 2000 });
       // The single-member fixture greets the individual, not the household.
       expect(getByText(/Dear Priya/)).toBeTruthy();
-      // T-U2: and the code form is actually GONE, not merely behind the events.
+      // And the code form is actually GONE, not merely behind the events.
       // A restore runs no choreography, so `setRevealed(true)` in `onRestored`
       // is the only thing that flips it — drop that line and every returning
       // guest loads their invite with the form still sitting on top of it. The
@@ -1289,7 +1286,7 @@ describe("InvitePage", () => {
     });
 
     it("hides the form when REPORTED, not merely when the sequence ends", async () => {
-      // T-U3: the mirror of the test above. Holding the sequence open AFTER it
+      // The mirror of the test above. Holding the sequence open AFTER it
       // reports is the only way to tell "hidden on report" from "hidden by the
       // `finally`" — once the promise settles the `finally` masks the
       // difference, which is why dropping the `onFormHidden` wiring altogether
@@ -1479,7 +1476,7 @@ describe("InvitePage", () => {
       const { container, getByTestId } = render(() => <InvitePage apiUrl="https://api.test" />);
       await waitFor(() => expect(getByTestId("toaster-stub")).toBeTruthy());
 
-      // Present in preview mode at all — the thing that used to be missing.
+      // Present in preview mode, not only after claiming.
       const toaster = getByTestId("toaster-stub");
       // And not nested inside the section Motion One transforms.
       expect(toaster.closest("section")).toBeNull();

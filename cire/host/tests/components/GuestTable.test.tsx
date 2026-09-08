@@ -95,7 +95,7 @@ describe("GuestTable", () => {
     resetOrganiserMocks();
     writeText.mockReset();
     downloadBlobMock.mockReset();
-    // GuestTable reads guests + events from module-scoped caches (P-I3); clear
+    // GuestTable reads guests + events from module-scoped caches; clear
     // them so each test starts cold and its mocked fetch sequence is honoured.
     __resetGuestsCache();
     __resetEventsCache();
@@ -455,7 +455,7 @@ describe("GuestTable", () => {
 
     fireEvent.input(screen.getByLabelText("Search guests"), { target: { value: "Jones" } });
 
-    // The filter is debounced (P-W1) — it only applies once typing pauses.
+    // The filter is debounced — it only applies once typing pauses.
     await waitFor(() => expect(screen.queryByText("Sharma")).toBeNull());
     expect(screen.getByText("Jones")).toBeTruthy();
   });

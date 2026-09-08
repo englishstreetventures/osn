@@ -21,7 +21,7 @@ const { layer: observabilityLayer } = initObservability({ serviceName: SERVICE_N
 
 const nonLocal = process.env.OSN_ENV && process.env.OSN_ENV !== "local";
 
-// S-H3: fetching public keys over plaintext HTTP in a deployed env allows
+// Fetching public keys over plaintext HTTP in a deployed env allows
 // any process with network access to serve a forged JWK set. Fail fast.
 const jwksUrl = process.env.OSN_JWKS_URL ?? "http://localhost:4000/.well-known/jwks.json";
 if (nonLocal && jwksUrl.startsWith("http://")) {
@@ -52,7 +52,7 @@ const redisClient = await initRedisClient({
 const rateLimiters = makeRateLimiters(redisClient);
 
 // ---------------------------------------------------------------------------
-// Client-IP trust policy (S-M34) for the per-IP limiters on the
+// Client-IP trust policy for the per-IP limiters on the
 // unauthenticated discover / share / exposure surfaces.
 // `PULSE_TRUSTED_PROXY_COUNT` is the number of trusted reverse proxies: the
 // keying IP is taken that many hops from the right of `x-forwarded-for`.
@@ -112,7 +112,7 @@ const app = createApp(appOptions);
 
 const port = process.env.PORT || 3001;
 
-// S-M34: warn when running non-local without an explicit proxy count — the
+// Warn when running non-local without an explicit proxy count — the
 // per-IP limiters then key off the socket peer (direct mode). Behind a load
 // balancer that means everyone shares the LB's IP; set
 // PULSE_TRUSTED_PROXY_COUNT to the number of trusted hops.

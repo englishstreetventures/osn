@@ -107,9 +107,9 @@ describe("OnboardingGate", () => {
       locationPerm: "prompt",
     });
     renderAt("/welcome");
-    // The gate fetches (the source signal is the token, not the path —
-    // see P-W1 fix in OnboardingGate.tsx) but the redirect effect
-    // short-circuits because we're already at the destination.
+    // The gate's fetch resource is keyed on the token, not the path, but
+    // the redirect effect short-circuits because we're already at the
+    // destination.
     await waitFor(() => expect(mockFetchStatus).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 20));
     expect(lastPathname).toBe("/welcome");
@@ -133,10 +133,9 @@ describe("OnboardingGate", () => {
     history.set({ value: "/" });
     await new Promise((r) => setTimeout(r, 20));
     // Token didn't change, so the resource source value didn't change,
-    // so the fetcher must not have re-run. This is the regression guard
-    // for the P-W1 fix in OnboardingGate.tsx — historically the source
-    // included `pathname`, which made the resource re-fetch every time
-    // the user toggled between `/welcome` and another route.
+    // so the fetcher must not have re-run. The resource source must not
+    // include `pathname`, or it would re-fetch every time the user
+    // toggled between `/welcome` and another route.
     expect(mockFetchStatus).toHaveBeenCalledTimes(1);
   });
 

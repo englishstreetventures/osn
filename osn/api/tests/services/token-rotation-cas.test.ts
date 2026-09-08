@@ -213,7 +213,7 @@ describe("refresh rotation CAS 0-rows → benign race (family preserved)", () =>
         expect(error._tag).toBe("AuthError");
         // Distinct from the "token does not verify" message on purpose: the
         // route reads it to decide NOT to retract the session marker, because
-        // the winning grant's cookie is alive (S-M2).
+        // the winning grant's cookie is alive.
         expect(error.message).toBe(ROTATION_RACE_MESSAGE);
 
         // 2. The family is PRESERVED — the concurrent winner's sibling session

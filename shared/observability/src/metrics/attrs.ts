@@ -36,7 +36,7 @@ export type ArcVerifyResult =
   | "expired"
   | "bad_signature"
   | "unknown_issuer"
-  | "revoked_key" // kid known but revoked (or its registration expired) — distinguishable from unknown_issuer on dashboards (S-L6)
+  | "revoked_key" // kid known but revoked (or its registration expired) — distinguishable from unknown_issuer on dashboards
   | "scope_denied"
   | "audience_mismatch"
   | "malformed";
@@ -140,7 +140,7 @@ export type RecoveryCodeConsumeResult = "success" | "invalid" | "used";
 export type SecurityEventKind =
   | "recovery_code_generate"
   | "recovery_code_consume"
-  // O2: emitted when an account crosses the recovery-code failed-attempt
+  // Emitted when an account crosses the recovery-code failed-attempt
   // lockout threshold (per-account, keyed on the resolved accountId).
   | "recovery_code_lockout"
   | "passkey_register"
@@ -214,7 +214,7 @@ export type OidcTokenResult = "ok" | "invalid_grant" | "invalid_client" | "inval
 /** Whether the relying party belongs to us. Two values — safe to dimension by. */
 export type OidcClientKind = "first_party" | "third_party";
 
-/** Auth endpoints subject to IP-based rate limiting (S-H1). */
+/** Auth endpoints subject to IP-based rate limiting. */
 export type AuthRateLimitedEndpoint =
   | "register_begin"
   | "register_complete"

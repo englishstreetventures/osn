@@ -22,7 +22,7 @@ export interface AuthFetchOptions {
 
 /**
  * Parse response body as JSON, returning null if the body isn't JSON.
- * Prevents SyntaxError from surfacing to UI toasts (S-L2).
+ * Prevents SyntaxError from surfacing to UI toasts.
  */
 export async function safeJson<T>(res: Response): Promise<(T & { error?: string }) | null> {
   try {
@@ -32,7 +32,7 @@ export async function safeJson<T>(res: Response): Promise<(T & { error?: string 
   }
 }
 
-/** Cap server-supplied error strings before surfacing to the UI (S-L2). */
+/** Cap server-supplied error strings before surfacing to the UI. */
 export function safeErrorMessage(value: unknown, status: number): string {
   if (typeof value !== "string" || value.length === 0) return `Request failed: ${status}`;
   return value.length > 200 ? `${value.slice(0, 200)}…` : value;

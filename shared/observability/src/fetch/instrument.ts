@@ -39,7 +39,7 @@ export const instrumentedFetch: FetchFn = async (input, init) => {
     parsed = undefined;
   }
 
-  // S-H4: never record the query string on a span. URLs routinely
+  // Never record the query string on a span. URLs routinely
   // carry secrets in the query component (OAuth `code`, magic-link
   // `token`, presigned S3 signatures, OTP callbacks). Record only
   // `<scheme>://<host><port?><path>`. If parsing failed we have no
@@ -61,7 +61,7 @@ export const instrumentedFetch: FetchFn = async (input, init) => {
   });
 
   // Reuse the caller's Headers instance when possible — avoids an
-  // extra allocation per outbound call (P-I3). Only fall back to
+  // extra allocation per outbound call. Only fall back to
   // constructing a new Headers when the caller passed a plain
   // record/array or nothing at all.
   const headers = init?.headers instanceof Headers ? init.headers : new Headers(init?.headers);

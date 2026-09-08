@@ -36,7 +36,7 @@ export {
 // `metricArcTokenVerification` is additionally exported for receiver-side
 // middlewares whose early-exit branches (kid unknown/revoked, registry scope
 // denial) reject BEFORE `verifyArcToken` runs and would otherwise be invisible
-// on the verification counter (S-L6).
+// on the verification counter.
 export { ARC_METRICS, metricArcTokenVerification } from "./arc-metrics";
 
 // Recovery codes — Copenhagen Book M2

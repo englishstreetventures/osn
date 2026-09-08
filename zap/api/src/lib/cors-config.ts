@@ -1,5 +1,5 @@
 /**
- * CORS allowlist derivation for zap-api (S-M2 zap).
+ * CORS allowlist derivation for zap-api.
  *
  * Centralised + side-effect-free so the fallback list and the non-local
  * fail-closed invariant can be unit-tested without booting the app. Mirrors

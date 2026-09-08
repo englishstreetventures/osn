@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { issuerPreconnect } from "../vite.config";
 
 /**
- * T-M1 / AZ-P-I1. Every failure mode of this plugin is silent: a dropped
+ * Every failure mode of this plugin is silent: a dropped
  * `crossorigin` opens a *second* connection instead of reusing one (the exact
  * opposite of the optimisation), and a typo'd env var emits no tag and no
  * warning. Nothing about `/authorize` looks broken in any of those cases — the
@@ -30,7 +30,7 @@ describe("issuerPreconnect", () => {
     expect(tags[0]!.attrs?.href).toBe("https://id.musubi.social");
   });
 
-  // S-L1 / P-W2. The connection-pool key includes the credentials flag, and
+  // The connection-pool key includes the credentials flag, and
   // `GET /authorize/context` is `credentials: "include"`. An anonymous
   // preconnect (`crossorigin=""`) lands in a different bucket, so the socket is
   // not reused AND an extra idle TLS connection is opened — strictly worse than

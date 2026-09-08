@@ -26,7 +26,7 @@ export function OnboardingGate() {
   // Including pathname in the source signal made `createResource` re-run
   // every time the user navigated `/welcome` ↔ another route (because the
   // source flipped to null and back), defeating the "once per session"
-  // guarantee in the docstring (P-W1). The pathname check stays, but it's
+  // guarantee in the docstring. The pathname check stays, but it's
   // moved into the redirect effect where it belongs — deciding whether to
   // navigate, not whether to fetch.
   const fetchKey = () => {

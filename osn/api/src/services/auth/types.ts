@@ -60,7 +60,7 @@ export interface SecurityEventSummary {
 /**
  * Public-safe shape returned by `listPasskeys`. Deliberately omits
  * `publicKey` + `counter` (internal to the WebAuthn ceremony) and
- * `credentialId` (S-L2: not needed by the Settings UI; reduces the
+ * `credentialId` (not needed by the Settings UI; reduces the
  * supply-chain-attack surface for targeted-phishing exfiltration of
  * authenticator-model fingerprints). The opaque `pk_<hex>` `id` is the
  * only handle the management surface needs.

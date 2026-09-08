@@ -649,7 +649,7 @@ describe("a cookie for one wedding buys nothing on another", () => {
     const foreign = await guestCookie(app, FOREIGN_FAMILY);
     const res = await claim(app, foreign, { quantity: 1 });
     expect(res.status).toBe(404);
-    // The SAME code an unpublished or unentitled registry gives (S-M1). The
+    // The SAME code an unpublished or unentitled registry gives. The
     // family is checked BEFORE the item, so a holder of any valid cookie learns
     // neither whether this wedding has a list nor whether the item id they
     // guessed exists on it.
@@ -685,9 +685,8 @@ describe("a cookie for one wedding buys nothing on another", () => {
   });
 
   it("cannot read its own household on another wedding's slug either", async () => {
-    // It used to answer 200 `{claims: []}` here — which, against a 404 for an
-    // unpublished list, let anyone holding any valid session walk slugs and
-    // learn which weddings have a published gift list (S-M1). Same 404 now.
+    // Answers the same 404 as an unpublished list, so no cookie-holder can
+    // walk slugs and learn which weddings have a published gift list.
     const { app } = buildApp({ shippingAddress: "12 Wattle St, Fitzroy" });
     const local = await guestCookie(app);
     expect((await claim(app, local, { quantity: 1 })).status).toBe(200);

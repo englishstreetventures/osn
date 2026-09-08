@@ -118,8 +118,8 @@ export const stateExportService = {
       const db = yield* DbService;
 
       // The three reads are independently wedding-scoped — collapse them to one
-      // D1 round-trip (RT-P-I1; matches the parallel shape in table-export.ts
-      // and rsvp-export.ts).
+      // D1 round-trip (matches the parallel shape in table-export.ts and
+      // rsvp-export.ts).
       const [eventRows, guestRows, linkRows] = yield* Effect.all(
         [
           dbQuery(() =>
@@ -208,7 +208,7 @@ export const stateExportService = {
         }
       });
 
-      // RT-P-I2: warn when the produced guest-row count exceeds MAX_ROWS so the
+      // Warn when the produced guest-row count exceeds MAX_ROWS so the
       // "export > what import re-accepts" case is visible before an organiser
       // hits it (the import parser caps both sheets at MAX_ROWS and rejects the
       // upload). Snapshot semantics require the full export — no pagination — so

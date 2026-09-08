@@ -253,7 +253,7 @@ describe("round trip: hostile + sparse inputs (T-S1/T-S2)", () => {
     withDb(
       Effect.gen(function* () {
         const db = yield* DbService;
-        // T-S1: event names colliding with the reserved fidelity headers. The
+        // Event names colliding with the reserved fidelity headers. The
         // guests parser must keep their attendance columns (only the LAST
         // occurrence — the exporter-appended fidelity column — is ignored).
         db.insert(events)
@@ -276,15 +276,15 @@ describe("round trip: hostile + sparse inputs (T-S1/T-S2)", () => {
             slug: "family-code",
             name: "Family Code",
             description: "",
-            // T-S2: open-ended "" endAt sentinel + null address/URLs/palette.
+            // Open-ended "" endAt sentinel + null address/URLs/palette.
             startAt: "2026-12-02T10:00:00+11:00",
             endAt: "",
             timezone: "Australia/Sydney",
             sortOrder: 91,
           })
           .run();
-        // Invite an existing guest to both colliding events — the links are
-        // exactly what T-S1's silent-drop bug would lose.
+        // Invite an existing guest to both colliding events — collision
+        // handling must preserve both links.
         const [someGuest] = yield* dbQuery(() =>
           db
             .select({ id: guests.id })
@@ -295,7 +295,7 @@ describe("round trip: hostile + sparse inputs (T-S1/T-S2)", () => {
         );
         db.insert(guestEvents).values({ guestId: someGuest!.id, eventId: "evt_guest_id" }).run();
         db.insert(guestEvents).values({ guestId: someGuest!.id, eventId: "evt_family_code" }).run();
-        // T-S2: a non-null nickname must round-trip too.
+        // A non-null nickname must round-trip too.
         db.update(guests).set({ nickname: "Nicky" }).where(eq(guests.id, someGuest!.id)).run();
 
         for (const fidelity of ["import", "full"] as const) {

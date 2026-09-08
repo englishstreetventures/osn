@@ -59,7 +59,7 @@ export const ParsedFamily = Schema.Struct({
   /** Non-blank, bounded (same 10k cell cap the CSV parser enforces). The CSV
    *  front door already guarantees both; this closes the DesiredState JSON
    *  front door, which previously accepted a blank or multi-hundred-KB name
-   *  straight onto rows the guest invite renders (S-L2). Validation only — no
+   *  straight onto rows the guest invite renders. Validation only — no
    *  trim transform, so the diff still compares the exact submitted value. */
   familyName: Schema.String.check(
     Schema.makeFilter((s) =>
@@ -211,10 +211,10 @@ export const ImportPlan = Schema.Struct({
   warnings: Schema.Array(Schema.String),
   /**
    * The wedding's guest-capacity ceiling, when `diffAgainstDb`'s preview
-   * warning already derived it from the entitlement set (P-W2) — lets
+   * warning already derived it from the entitlement set — lets
    * `applyImport` enforce the cap without re-scanning the same rows in the
    * SAME request. Absent whenever the preview never needed the real cap
-   * (P-I2's pre-check proved the import couldn't breach it, or `guestCreates`
+   * (the base-cap pre-check proved the import couldn't breach it, or `guestCreates`
    * was empty); `applyImport` MUST keep enforcing the cap itself in that case,
    * never treat absence as "no cap".
    */

@@ -239,7 +239,7 @@ export const registryImageService = {
       // add up to a Worker's whole wall clock.
       const signal = AbortSignal.timeout(timeoutMs);
       // The guard carries the same signal, so its DNS lookups run inside that
-      // budget rather than beside it (P-W3).
+      // budget rather than beside it.
       const guard = createUrlGuard(resolveHost, signal);
 
       const fetched = yield* Effect.promise(() =>

@@ -110,7 +110,7 @@ export function createWellKnownRoutes(ctx: AuthRouteContext) {
       .get(
         "/.well-known/jwks.json",
         ({ set }) => {
-          // S-H1: explicit caching contract — aligns with pulse-side JWKS_CACHE_TTL_MS (5 min).
+          // Explicit caching contract — aligns with pulse-side JWKS_CACHE_TTL_MS (5 min).
           set.headers["cache-control"] = "public, max-age=300, stale-while-revalidate=60";
           metricAuthJwksServed();
           return jwksResponse;

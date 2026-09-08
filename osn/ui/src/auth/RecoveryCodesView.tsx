@@ -135,7 +135,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
     }
   });
 
-  // P-W2: read `status.latest` rather than `status()` so the button label
+  // Read `status.latest` rather than `status()` so the button label
   // doesn't join the resource's Suspense boundary and blank the whole panel
   // on every refetch.
   const hasCodes = () => {
@@ -143,7 +143,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
     return s != null && s.total > 0;
   };
 
-  // S-L1: an unreadable status counts as "might have codes". Rotation is
+  // An unreadable status counts as "might have codes". Rotation is
   // destructive, so a failed count must not silently skip the warning.
   const mayHaveCodes = () => {
     const s = status.latest;
@@ -156,7 +156,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
   // a rotation and would warn a brand-new user about codes they don't have.
   const locked = () => busy() || pending() || status.loading;
 
-  // P-I1: the skeleton and the "Checking…" label are for the COLD read only.
+  // The skeleton and the "Checking…" label are for the COLD read only.
   // `status.loading` is also true on the refetch `acknowledge()` triggers, and
   // gating on it would withdraw an already-known count from the screen for a
   // round-trip — the same "don't blank a warm value" rule that put `hasCodes()`

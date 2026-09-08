@@ -75,7 +75,7 @@ export function buildClearSessionCookie(config: CookieSessionConfig): string {
  * straight into a response header, and a value carrying `;` or CR/LF would
  * splice extra attributes onto the cookie. Validating at the one point that
  * emits it keeps that closed if the value ever comes from somewhere less
- * trusted (S-L2).
+ * trusted.
  */
 const HOSTNAME_PATTERN = /^[a-z0-9.-]+$/i;
 

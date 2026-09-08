@@ -104,7 +104,7 @@ describe("what renders at all", () => {
     // the same silence every other claim-gated section of the invitation keeps,
     // rather than a link to a page they cannot open.
     //
-    // AND IT COSTS NOTHING (P-W1). Without the hint the read could only ever
+    // AND IT COSTS NOTHING. Without the hint the read could only ever
     // 401, and this band sits on a PUBLIC invite every visitor scrolls past, so
     // an unconditional call would spend an account-wide Worker request per page
     // view to render nothing.

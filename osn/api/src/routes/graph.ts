@@ -23,7 +23,7 @@ import {
 // Uses the shared `createRateLimiter` from lib/rate-limit so Phase 2 of the
 // Redis migration swaps graph and auth rate limiters via the same
 // backend abstraction. Previous inline `rateLimitStore` + `checkRateLimit`
-// duplicated the logic AND never evicted expired entries (P-W1 / S-L18);
+// duplicated the logic AND never evicted expired entries;
 // the shared limiter handles sweeping + maxEntries for us.
 // ---------------------------------------------------------------------------
 
@@ -63,7 +63,7 @@ const PaginationQuery = t.Object({
   offset: t.Optional(t.String()),
 });
 
-// Shared projection for profile fields in list responses (L3: displayName typed as nullable)
+// Shared projection for profile fields in list responses (displayName typed as nullable)
 function profileProjection(u: Profile) {
   return {
     id: u.id,
@@ -97,7 +97,7 @@ export function createGraphRoutes(
   /** Shared application runtime (see `createAuthRoutes`). */
   runtime?: AppRuntime,
 ) {
-  // Fail-fast: validate the injected rate limiter at construction time (S-L2).
+  // Fail-fast: validate the injected rate limiter at construction time.
   if (typeof rateLimiter?.check !== "function") {
     throw new Error("Graph rateLimiter must have a check() method");
   }
@@ -127,7 +127,7 @@ export function createGraphRoutes(
 
   // Enforce rate limit; set 429 on breach. Async to accommodate future
   // Redis backend where `check()` returns a Promise.
-  // Fail-closed (S-M1): if the backend rejects, treat as rate-limited.
+  // Fail-closed: if the backend rejects, treat as rate-limited.
   async function requireRateLimit(
     profileId: string,
     set: { status?: number | string },
@@ -537,7 +537,7 @@ export function createGraphRoutes(
       )
       // -------------------------------------------------------------------------
       // Block status check
-      // M1: user-facing endpoint reports only whether *caller* has blocked *target*.
+      // User-facing endpoint reports only whether *caller* has blocked *target*.
       // The symmetric eitherBlocked check is reserved for ARC token (service-to-service) calls.
       // -------------------------------------------------------------------------
       .get(

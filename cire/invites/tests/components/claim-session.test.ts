@@ -138,7 +138,7 @@ describe("createSessionRestore", () => {
   });
 
   it("ignores a 200 whose body is not a claim payload", async () => {
-    // The client half of the S-H1 trust boundary: without this a truncated or
+    // The client half of the trust boundary: without this a truncated or
     // error-shaped 200 is spread onto claimResult and the page renders a
     // household with no members.
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ familyName: "Okafor" })));

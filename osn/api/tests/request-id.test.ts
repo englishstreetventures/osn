@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { REQUEST_ID_RE, resolveRequestId } from "../src/index";
 
 /**
- * T-S2 — `resolveRequestId` / `REQUEST_ID_RE` (S-H3).
+ * `resolveRequestId` / `REQUEST_ID_RE`.
  *
  * The Workers entry re-applies the x-request-id sanitization the omitted
  * observability plugin used to do: echo a client-supplied id ONLY when it

@@ -146,7 +146,7 @@ describe("RegistryView — the gift list", () => {
     render(() => <RegistryView weddingId="wed_1" view="list" canEdit={true} />);
     await screen.findByText("Copper pan");
     // Named by what it opens, not by "Link" — a screen-reader user hitting a
-    // list of them otherwise hears the same word once per row (C-L2).
+    // list of them otherwise hears the same word once per row.
     const links = screen.getAllByRole("link", { name: /^Open the shop page for/ });
     expect(links).toHaveLength(1);
     expect(links[0]).toHaveAccessibleName("Open the shop page for Copper pan");

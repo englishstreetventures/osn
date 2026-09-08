@@ -141,7 +141,7 @@ export function sectionVars(
  * (AnimatedModal) filter through this set, so a future caller wiring
  * unvalidated data into the prop can never smuggle an arbitrary CSS property
  * (e.g. `background-image`) into the DOM — the sink enforces the contract
- * instead of relying on every caller remembering it (S-L1).
+ * instead of relying on every caller remembering it.
  */
 const ALLOWED_THEME_VAR_KEYS: ReadonlySet<string> = new Set<string>([
   ...DERIVED_TOKENS,

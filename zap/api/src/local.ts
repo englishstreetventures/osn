@@ -19,7 +19,7 @@ if (nonLocal && DEFAULT_JWKS_URL.startsWith("http://")) {
   throw new Error("OSN_JWKS_URL must use HTTPS in non-local environments");
 }
 
-// S-M2: restrict CORS to a known origin allowlist instead of the open
+// Restrict CORS to a known origin allowlist instead of the open
 // reflect-any default. Fail closed in non-local envs (empty allowlist throws).
 const corsOrigins = resolveCorsOrigins(process.env);
 assertCorsOriginsConfigured(corsOrigins, nonLocal);

@@ -69,7 +69,7 @@ export const addCloseFriend = (
     const { db } = yield* Db;
     // Single round-trip: ON CONFLICT DO NOTHING ... RETURNING returns rows
     // only when the insert actually fires, which is exactly the
-    // duplicate-vs-new signal the metric needs (P-W2).
+    // duplicate-vs-new signal the metric needs.
     const inserted = yield* Effect.tryPromise({
       try: () =>
         db
@@ -94,7 +94,7 @@ export const removeCloseFriend = (
   Effect.gen(function* () {
     const { db } = yield* Db;
     // Single round-trip: DELETE ... RETURNING returns the deleted row, or
-    // empty when nothing matched — the not-found signal (P-W2).
+    // empty when nothing matched — the not-found signal.
     const deleted = yield* Effect.tryPromise({
       try: () =>
         db

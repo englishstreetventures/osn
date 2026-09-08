@@ -141,13 +141,13 @@ export function ConsentPreferences() {
           Choose what this invite is allowed to load. You can change this at any time from the link
           in the footer of any page.
         </p>
-        {/* CON-S-M1: turning off a category whose content already ran this
+        {/* Turning off a category whose content already ran this
             visit reloads the page — see `saveConsent` in
             `lib/consent/store.ts` — so that company's code is cleared, not
             just stopped from running again. Stated here rather than left
             implicit, because a silent reload the guest didn't expect is its
             own kind of surprising. Hedged on "if", because the reload only
-            happens when there is something to clear (P-W1): a guest who never
+            happens when there is something to clear: a guest who never
             opened an event's details sheet loaded no embed, and reloading them
             would cost a full page load to clear nothing. */}
         <p class="font-body text-text-muted/80 mt-1.5 text-[0.76rem] leading-relaxed">

@@ -46,7 +46,7 @@ export function createPasskeyManagementModule(
       const { db } = yield* Db;
       // Explicit projection so the public type never widens by accident —
       // adding publicKey / counter later must be an intentional edit here.
-      // S-L2: `credentialId` is intentionally excluded from the projection.
+      // `credentialId` is intentionally excluded from the projection.
       // The Settings UI only needs the opaque `pk_<hex>` `id` to drive
       // rename/delete; emitting credentialIds would let a malicious bundled
       // dependency exfiltrate authenticator-model fingerprints for targeted
@@ -135,7 +135,7 @@ export function createPasskeyManagementModule(
     /**
      * Hashed id of the caller's own session, so H1 invalidation spares it.
      * The route derives it from the HttpOnly cookie, falling back to the
-     * access token's `osn_sid` binding — never from body input (S-H1).
+     * access token's `osn_sid` binding — never from body input.
      */
     currentSessionHash: string | null,
     eventMeta?: SessionMeta,
@@ -157,7 +157,7 @@ export function createPasskeyManagementModule(
         uaLabel: eventMeta?.uaLabel ?? null,
       };
 
-      // S-M1 / P-W1: gate-then-delete inside one transaction so two concurrent
+      // Gate-then-delete inside one transaction so two concurrent
       // DELETEs cannot race past the last-passkey guard.
       type TxResult =
         | { ok: true; remaining: number }
@@ -213,12 +213,12 @@ export function createPasskeyManagementModule(
 
       metricSecurityEventRecorded("passkey_delete");
 
-      // H1: revoke other sessions. An attacker who stole a session + the
+      // Revoke other sessions. An attacker who stole a session + the
       // passkey shouldn't keep working after the credential goes away.
       if (currentSessionHash) {
         yield* invalidateOtherAccountSessions(accountId, currentSessionHash, "passkey_delete");
       } else {
-        // S-L3: the caller has no identifiable session at all — the route
+        // The caller has no identifiable session at all — the route
         // found neither a cookie nor a live session matching the access
         // token's `osn_sid` binding. We nuke every session on the account
         // because there is genuinely no "self" to preserve. This branch is

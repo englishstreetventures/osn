@@ -9,7 +9,7 @@ export interface DiscoveryFilterValues {
   to: string | null;
   radiusKm: number | null;
   /**
-   * S-L2/P-W2: location is resolved at most once per filter session, when
+   * Location is resolved at most once per filter session, when
    * the user explicitly clicks "Use my location". The drawer never fires
    * `navigator.geolocation` implicitly. If the user enters a radius
    * without granting location, the filter is dropped silently with an

@@ -275,7 +275,7 @@ describe("validateDraft — client mirror of the server field rules", () => {
   });
 });
 
-// ── E6: event editing on the shared draft ─────────────────────────────────────
+// ── event editing on the shared draft ─────────────────────────────────────
 
 describe("createGuestEventDraft — event editing (E6)", () => {
   it("edits an existing event id-stably (rename ⇒ UPDATE, keeps id)", () => {

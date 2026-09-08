@@ -53,7 +53,7 @@ export const createCloseFriendsRoutes = (
         }
         // Short private cache: the list only mutates via the same
         // POST/DELETE routes, and 30s absorbs repeat reads on rapid
-        // navigation without staleness that matters in practice (P-W3).
+        // navigation without staleness that matters in practice.
         set.headers["cache-control"] = "private, max-age=30";
         const ids = await runtime.runPromise(listCloseFriendIds(claims.profileId));
         if (ids.length === 0) return { closeFriends: [] };

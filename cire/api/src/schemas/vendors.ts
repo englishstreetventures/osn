@@ -53,8 +53,8 @@ export const UpdateVendorBody = Schema.Struct({
 
 export const ReorderVendorsBody = Schema.Struct({
   status: Status,
-  // Capped like tasks/budget (P-W1): the reorder builds one UPDATE per id, so
-  // an unbounded array is an unbounded write set.
+  // Capped like tasks/budget: the reorder builds one UPDATE per id, so an
+  // unbounded array is an unbounded write set.
   orderedIds: Schema.Array(Schema.String.check(Schema.isMinLength(1))).check(
     Schema.isMaxLength(500),
   ),

@@ -17,11 +17,11 @@ beforeAll(async () => {
 });
 
 /**
- * S-M5 (osn): the erasure endpoints must key their per-IP limiters via the
+ * The erasure endpoints must key their per-IP limiters via the
  * shared `clientIpConfig` trust policy — spoofable left-most XFF hops must
  * not choose the bucket, and an unresolvable client must be denied rather
- * than pooled into a shared "unknown" bucket (S-M34 posture, mirroring the
- * auth / profile routes).
+ * than pooled into a shared "unknown" bucket, matching the
+ * auth / profile routes.
  */
 describe("account-erasure routes — client-IP keying (S-M5)", () => {
   function recordingLimiters(): {

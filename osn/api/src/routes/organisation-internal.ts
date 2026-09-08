@@ -13,7 +13,7 @@ import { createOrganisationService } from "../services/organisation";
 
 const AUDIENCE = "osn-api";
 const SCOPE_ORG_READ = "org:read";
-/** S-M2: defined now so future mutation endpoints use the write scope, not read. */
+/** Defined now so future mutation endpoints use the write scope, not read. */
 const _SCOPE_ORG_WRITE = "org:write";
 void _SCOPE_ORG_WRITE;
 

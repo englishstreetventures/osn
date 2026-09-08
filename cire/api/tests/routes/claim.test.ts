@@ -215,7 +215,7 @@ describe("POST /api/claim", () => {
   );
 });
 
-// S-C2: the per-IP limiter must gate the real endpoint, not just exist as a
+// The per-IP limiter must gate the real endpoint, not just exist as a
 // plugin — a refactor that drops `.use(rateLimitMiddleware(...))` from
 // `createClaimRoutes` should fail here.
 describe("POST /api/claim rate limiting (S-C2)", () => {
@@ -398,8 +398,8 @@ describe("GET /api/claim/session", () => {
     // not `[] === []` on the parts guests care most about: an existing RSVP
     // (what pre-fills the modal on a return visit), a deadline (whose banner
     // must be computed by the same function as the write path's 403) and a
-    // closing note (the S-H1-gated section whose ONLY delivery point is this
-    // payload). Without the seed a regression that emptied `rsvps` would pass.
+    // closing note (the credential-gated section whose ONLY delivery point is
+    // this payload). Without the seed a regression that emptied `rsvps` would pass.
     const { body: seedClaim } = await claimFor("TESTONE-IVY-AA11");
     const guestId = seedClaim.members[0]!.guestId;
     const eventId = (seedClaim.events[0] as { id: string }).id;
@@ -503,7 +503,7 @@ describe("GET /api/claim/session", () => {
     const res = await getSession(cookie);
     expect(res.status).toBe(200);
     // The body carries guest names, per-event dietary free text (Art. 9) and the
-    // S-H1-gated closing note. `no-store` keeps it out of every cache whatever a
+    // credential-gated closing note. `no-store` keeps it out of every cache whatever a
     // future page rule says; `Vary: Cookie` stops any cache that ignores that
     // from replaying one household's invite to another.
     expect(res.headers.get("Cache-Control")).toBe("no-store");

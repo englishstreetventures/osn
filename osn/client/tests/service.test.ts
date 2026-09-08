@@ -213,7 +213,7 @@ it.effect("authFetch fails with AuthExpiredError when there is no session", () =
   }).pipe(Effect.provide(createTestLayer())),
 );
 
-// S-H1 / P-W1: single-flight refresh. Parallel 401s must fire exactly ONE
+// Single-flight refresh. Parallel 401s must fire exactly ONE
 // /token roundtrip — a second roundtrip would replay the rotated-out cookie
 // and trip C2 reuse detection, revoking every session in the family.
 it.effect("authFetch dedupes concurrent refreshes — only ONE /token roundtrip fires", () =>

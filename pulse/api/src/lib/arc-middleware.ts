@@ -44,7 +44,7 @@ export class ServiceKeyMismatchError extends Error {
 }
 
 export async function registerServiceKey(input: RegisterServiceKeyInput): Promise<void> {
-  // S-L1: refuse to overwrite a kid registered to a different serviceId.
+  // Refuse to overwrite a kid registered to a different serviceId.
   // The single INTERNAL_SERVICE_SECRET is the trust root for both Pulse
   // and Zap; without this guard, a holder could pivot across services
   // by reusing another's kid.
@@ -145,7 +145,7 @@ export async function requireArc(
   expectedAudience: string,
   requiredScope: string,
 ): Promise<ArcCaller | null> {
-  // S-L6: the early-exit branches below reject before `verifyArcToken` runs
+  // The early-exit branches below reject before `verifyArcToken` runs
   // (which self-reports its own outcomes, incl. "ok"), so each one records
   // the shared `arc.token.verification` counter itself — otherwise
   // kid-unknown / kid-revoked / registry-scope-denied failures are invisible
@@ -187,7 +187,7 @@ export async function requireArc(
     return null;
   }
   try {
-    // X1: pass the registered issuer as expectedIssuer so jose cryptographically
+    // Pass the registered issuer as expectedIssuer so jose cryptographically
     // binds the signed `iss` to the kid's registered service. The explicit
     // post-verify equality check below is kept as defence-in-depth (and can be
     // dropped one release after this adoption settles).
@@ -215,6 +215,6 @@ export async function requireArc(
  */
 export const PERMITTED_INBOUND_SCOPES = new Set([
   "account:erase",
-  "account:export", // C-H1 DSAR export fan-out from osn-api
+  "account:export", // DSAR export fan-out from osn-api
   "graph:read", // future-proofing for an osn-api fan-out that needs profile lookups
 ]);

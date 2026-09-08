@@ -73,18 +73,18 @@ describe("pulse/api account erasure over real D1 (Miniflare)", () => {
     expect(status.scheduled).toBe(false);
   });
 
-  // Regression guard: `hostedEventIds` is read unbounded, then bound into
-  // four DELETEs inside one atomic commitBatch via `jsonEachIn` — a single
-  // JSON parameter per statement rather than one bound parameter per id, so
-  // an account that hosted more than ~100 events doesn't push the batch over
-  // D1's 100-bound-parameter cap. Because the deletes are deliberately one
-  // batch, a failing statement rolls every statement back — a purge could
-  // never partially complete, so before this fix it could never complete at
-  // all for exactly the accounts with the most data to erase.
+  // `hostedEventIds` is read unbounded, then bound into four DELETEs inside
+  // one atomic commitBatch via `jsonEachIn` — a single JSON parameter per
+  // statement rather than one per id, so an account that hosted more than
+  // ~100 events stays under D1's 100-bound-parameter cap. The deletes are
+  // deliberately one batch, so a failing statement rolls every statement
+  // back: a purge cannot partially complete, which makes the cap the
+  // difference between completing and never completing for exactly the
+  // accounts with the most data to erase.
   //
-  // This has to run against real D1: bun:sqlite enforces no bind cap, so the
+  // This has to run against real D1; bun:sqlite enforces no bind cap, so the
   // unit tier passes against the bug.
-  it("purges an account that hosted more than 100 events (osn-tracker#595)", async () => {
+  it("purges an account that hosted more than 100 events", async () => {
     const now = new Date();
     const hosted = Array.from({ length: 150 }, (_, i) => ({
       id: `evt_bulk_${i}`,

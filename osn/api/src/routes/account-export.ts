@@ -24,7 +24,7 @@ import { createAuthService, type AuthConfig } from "../services/auth";
 import { errorResponse, stepUpRequiredResponse } from "./auth/response-schemas";
 
 /**
- * C-H1 — `GET /account/export` (DSAR Art. 15 access / Art. 20 portability).
+ * `GET /account/export` (DSAR Art. 15 access / Art. 20 portability).
  *
  * Self-service, step-up gated, rate-limited to 1 export / 24 h / account.
  * Streams the bundle as NDJSON (see `services/account-export.ts` for the wire

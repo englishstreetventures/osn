@@ -101,7 +101,7 @@ describe("LoginSection greeting", () => {
 });
 
 describe("LoginSection form/welcome swap", () => {
-  // Anchored to content, not to sibling order (T-S3): a positional
+  // Anchored to content, not to sibling order: a positional
   // `section > div > div` lookup silently re-points at the wrong element the
   // day a wrapper or a third sibling is added, and an assertion on the wrong
   // element passes for the wrong reason instead of failing.

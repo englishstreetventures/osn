@@ -30,13 +30,13 @@ export interface AppOptions {
    */
   verification?: OsnTokenVerification;
   /**
-   * Per-IP write limiters (Cloudflare-keyed, S-H1). Defaults to in-memory
+   * Per-IP write limiters (Cloudflare-keyed). Defaults to in-memory
    * counters; a deployment that needs a globally-shared throttle wires a
    * durable backend at the composition root.
    */
   rateLimiters?: ZapRateLimiters;
   /**
-   * CORS allowlist (S-M2). Replaces the open reflect-any default. The
+   * CORS allowlist. Replaces the open reflect-any default. The
    * composition root resolves + fail-closed-validates this. Omitted → the
    * permissive `cors()` default (tests only).
    */

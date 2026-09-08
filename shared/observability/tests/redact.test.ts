@@ -360,7 +360,7 @@ describe("redact", () => {
    * regression anchor: the file header in `src/logger/redact.ts` documents
    * the "real fields only" rule, and this test makes that intent executable
    * so a well-meaning "let's add password back for safety" PR has to
-   * acknowledge it. Mirrors the historical S-M31 / S-H21 trim decision.
+   * acknowledge it.
    */
   it("no longer scrubs keys that do not correspond to real fields", () => {
     const input = {

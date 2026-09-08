@@ -414,7 +414,7 @@ describe.each([
       // save landed, so it satisfies this wait exactly as well as the label
       // does. Reading `.textContent` off null instead throws inside the
       // predicate, and a predicate that can never again succeed retries to the
-      // deadline and fails hard rather than degrading (T-E1). The window that
+      // deadline and fails hard rather than degrading. The window that
       // has to contain the first poll shrank with the dwell, and this
       // assertion is a clock ANCHOR for the toast checks below, not a claim
       // about how long the sheet stays up.
@@ -481,7 +481,7 @@ describe.each([
       // save landed, so it satisfies this wait exactly as well as the label
       // does. Reading `.textContent` off null instead throws inside the
       // predicate, and a predicate that can never again succeed retries to the
-      // deadline and fails hard rather than degrading (T-E1). The window that
+      // deadline and fails hard rather than degrading. The window that
       // has to contain the first poll shrank with the dwell, and this
       // assertion is a clock ANCHOR for the toast checks below, not a claim
       // about how long the sheet stays up.
@@ -553,8 +553,7 @@ describe.each([
     const wrapper = input.closest("form")?.parentElement as HTMLElement;
     expect(Number.parseFloat(getComputedStyle(wrapper).opacity)).toBe(1);
 
-    // Usable, not just visible — the S-M1 pair to this, measured in a real
-    // browser rather than jsdom.
+    // Usable, not just visible — measured in a real browser rather than jsdom.
     expect(input.disabled).toBe(false);
     const rect = input.getBoundingClientRect();
     expect(rect.width, "the code field has no box").toBeGreaterThan(0);

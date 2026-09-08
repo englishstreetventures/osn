@@ -71,9 +71,9 @@ async function applyVersion(
 }
 
 /**
- * Apply an import the way the /apply route does under E3: capture the
- * full-fidelity before-image FIRST, apply, then record the before-keys on the
- * change row. Revert then uses the before-image path.
+ * Apply an import the way the /apply route does: capture the full-fidelity
+ * before-image FIRST, apply, then record the before-keys on the change row.
+ * Revert then uses the before-image path.
  */
 async function applyWithBeforeImage(
   layer: Layer.Layer<DbService | R2Service>,

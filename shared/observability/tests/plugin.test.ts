@@ -38,7 +38,7 @@ describe("observabilityPlugin", () => {
     expect(res.headers.get("x-request-id")).toBe("req_external_abc123");
   });
 
-  // S-H3: strict validation. Bun's Request constructor rejects
+  // Strict validation. Bun's Request constructor rejects
   // literal CRLF in headers before we ever see the value, which is
   // already a layer of defence. What we test here is our extra
   // layer: values that Bun accepts but that fail our stricter
@@ -96,14 +96,14 @@ describe("observabilityPlugin", () => {
         },
       }),
     );
-    // S-H2: the plugin accepts the request, but silently ignores the
+    // The plugin accepts the request, but silently ignores the
     // traceparent for anonymous callers (no ARC auth header). We can't
     // assert the trace-id on the span without a recording processor,
     // but we can assert no throw + successful handler execution.
     expect(res.status).toBe(200);
   });
 
-  // S-H2: only ARC-authenticated callers are trusted for traceparent
+  // Only ARC-authenticated callers are trusted for traceparent
   it("ignores traceparent from an anonymous caller and treats as root", async () => {
     // This is a smoke test — without hooking into the exporter we
     // can't observe the parent link. What we verify is that the

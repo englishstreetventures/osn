@@ -185,7 +185,7 @@ export const listVenueEvents = (
 
     // Surface auto-derived statuses (e.g. ongoing) — same treatment as
     // every other read path. Batched into one UPDATE per (from → to)
-    // group (P-W5) instead of one write per stale row.
+    // group instead of one write per stale row.
     const transitioned = yield* applyTransitions(rows);
     metricVenueEventsListed(scope, transitioned.length);
     return transitioned;

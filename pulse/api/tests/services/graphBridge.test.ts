@@ -148,7 +148,7 @@ describe("getAccountIdForProfile", () => {
   });
 
   it("mints its token with the dedicated graph:resolve-account scope (T-U2)", async () => {
-    // osn-api's /profile-account rejects plain graph:read (S-M1) — a silent
+    // osn-api's /profile-account rejects plain graph:read — a silent
     // regression to the default scope would only surface as production 401s.
     vi.mocked(getOrCreateArcToken).mockClear();
     mockFetch({ accountId: "acc_alice" });
@@ -176,7 +176,7 @@ describe("getAccountIdForProfile", () => {
   });
 });
 
-// ── startKeyRotation (T-U2) ──────────────────────────────────────────────────
+// ── startKeyRotation ─────────────────────────────────────────────────────────
 
 describe("startKeyRotation", () => {
   const SECRET = "test-internal-secret";
@@ -238,7 +238,7 @@ describe("startKeyRotation", () => {
     const body = JSON.parse(init?.body as string) as Record<string, unknown>;
     expect(body.serviceId).toBe("pulse-api");
     // The FULL pulse-api scope union — must match outbound-arc's registration
-    // (service-level allowedScopes, last-write-wins upsert — S-H1).
+    // (service-level allowedScopes, last-write-wins upsert).
     expect(body.allowedScopes).toBe(
       "graph:read,graph:resolve-account,step-up:verify,app-enrollment:write",
     );

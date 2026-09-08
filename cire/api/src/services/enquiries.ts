@@ -393,7 +393,7 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
           if (!deps.zap) return yield* Effect.fail(new ZapUnavailable());
           const zap = deps.zap;
           const chatId = enquiry.zapChatId;
-          // Cap the fetch (P-W2): an unbounded thread could blow the Workers 6MB
+          // Cap the fetch: an unbounded thread could blow the Workers 6MB
           // response wall. v1 has no cursor UI — just the ceiling.
           const { messages } = yield* Effect.promise(() =>
             zap.listC2bMessages(chatId, { limit: 50 }),
@@ -626,7 +626,7 @@ export function createEnquiryService(deps: EnquiryServiceDeps) {
           );
         };
 
-        // Bounded-concurrency flush (P-W3): don't block the claim response
+        // Bounded-concurrency flush: don't block the claim response
         // linearly in N. Each flush is self-isolating (never-fails), so the pool
         // drains every buffered enquiry regardless of individual outcomes.
         yield* Effect.all((buffered as EnquiryRow[]).map(flushOne), { concurrency: 5 });

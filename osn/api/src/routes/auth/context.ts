@@ -27,7 +27,7 @@ import { createAuthService, type AuthConfig } from "../../services/auth";
 import type { AuthRateLimiters } from "./limiters";
 
 /**
- * Convert a TokenSet to wire format WITHOUT the refresh token (S-M2).
+ * Convert a TokenSet to wire format WITHOUT the refresh token.
  * Used for first-party flows where the refresh token is in the HttpOnly cookie.
  * Omitting it from the body prevents XSS exfiltration of the session token.
  */
@@ -64,7 +64,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
     turnstileVerifier,
   } = deps;
 
-  // Fail-fast: validate every limiter slot at construction time (S-L2) so a
+  // Fail-fast: validate every limiter slot at construction time so a
   // partially-valid object surfaces immediately instead of on the first
   // request to a rarely-hit endpoint.
   for (const [key, backend] of Object.entries(rateLimiters)) {
@@ -73,10 +73,10 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
     }
   }
 
-  // P-I2: pre-build the static JWKS response once at route construction time.
+  // Pre-build the static JWKS response once at route construction time.
   // The key does not change during the server's lifetime — no need to allocate
   // a new object (and spread-copy all JWK fields) on every request.
-  // S-L2: include key_ops alongside use for RFC 7517 compliance.
+  // Include key_ops alongside use for RFC 7517 compliance.
   //
   // Deliberately not `as const`: that widens to a readonly tuple, which no
   // TypeBox `t.Array` accepts, and the JWKS route now declares a response
@@ -101,8 +101,8 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
   const handleError = (e: unknown) => publicError(e, loggerLayer);
 
   /**
-   * Resolve the request's trusted keying IP under the configured policy
-   * (S-M34). `socketIp` is the per-request transport peer (Bun
+   * Resolve the request's trusted keying IP under the configured policy.
+   * `socketIp` is the per-request transport peer (Bun
    * `server.requestIP`); it is only consulted in direct mode. Returns the
    * `UNRESOLVED_IP` sentinel when the IP can't be trusted — callers check
    * `isUnresolvedIp` and deny rather than bucketing everyone together.
@@ -111,7 +111,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
     getClientIp(headers, { ...clientIpConfig, socketIp });
 
   /**
-   * Per-request transport socket peer (S-M34), read from Bun's
+   * Per-request transport socket peer, read from Bun's
    * `server.requestIP(request)`. Used by direct-mode IP resolution where
    * there is no trusted proxy. `server` is absent under `app.handle(...)` in
    * tests, so this returns `null` there — tests drive per-IP buckets via an
@@ -141,7 +141,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
   });
 
   // ---------------------------------------------------------------------------
-  // IP-based rate limiters (S-H1). Injected via the `rateLimiters` parameter
+  // IP-based rate limiters. Injected via the `rateLimiters` parameter
   // so callers can swap in Redis-backed backends at composition time.
   // ---------------------------------------------------------------------------
 
@@ -149,7 +149,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
 
   // Async to accommodate future Redis backends where `check()` returns a Promise.
   // In-memory backends resolve immediately; `await` on a non-Promise is a no-op.
-  // Fail-closed (S-M1): if the backend rejects, treat it as rate-limited so a
+  // Fail-closed: if the backend rejects, treat it as rate-limited so a
   // Redis outage blocks rather than bypasses the limiter.
   async function rateLimit(
     headers: Record<string, string | undefined>,
@@ -158,7 +158,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
     limiter: RateLimiterBackend,
   ): Promise<{ error: string } | null> {
     const ip = resolveIp(headers, socketIp);
-    // S-M34: an unresolved IP must NOT key the limiter — a shared "unknown"
+    // An unresolved IP must NOT key the limiter — a shared "unknown"
     // bucket is both a spoofing bypass and a DoS amplifier. Deny outright.
     if (isUnresolvedIp(ip)) {
       metricAuthRateLimited(endpoint);

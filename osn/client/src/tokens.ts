@@ -73,7 +73,7 @@ export interface AccountSession {
 }
 
 // ---------------------------------------------------------------------------
-// Schema validation (S-H2, S-M4)
+// Schema validation
 // ---------------------------------------------------------------------------
 
 const ProfileTokenSchema = Schema.Struct({
@@ -124,7 +124,7 @@ export function extractJwtSub(jwt: string): string | null {
   try {
     const payload = jwt.split(".")[1];
     if (!payload) return null;
-    // S-M1: JWT payloads use Base64URL encoding (RFC 7515) — convert to standard Base64
+    // JWT payloads use Base64URL encoding (RFC 7515) — convert to standard Base64
     const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
     const decoded = JSON.parse(atob(base64)) as { sub?: string };
     return decoded.sub ?? null;

@@ -129,7 +129,7 @@ describe("beginEmailChange + completeEmailChange", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // S-H2: begin must NOT reveal collisions — silently returns { sent: true }
+  // Begin must NOT reveal collisions — silently returns { sent: true }
   // so an authenticated caller cannot enumerate other users' email addresses.
   it.effect("silently succeeds on collision (no enumeration oracle)", () => {
     const { layer, captured } = makeEmailCapture();
@@ -150,7 +150,7 @@ describe("beginEmailChange + completeEmailChange", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // O3/S-H2 write-time guard: the begin-time collision check only sees
+  // Write-time guard: the begin-time collision check only sees
   // accounts as they stand *right then*. Account B can grab the target
   // address (via its own, independent change) in the gap between account
   // A's begin (collision check passes — nobody holds it yet) and A's
@@ -201,7 +201,7 @@ describe("beginEmailChange + completeEmailChange", () => {
       );
       expect(err._tag).toBe("AuthError");
       expect(err.message).toMatch(/invalid or expired code/i);
-      // Regression pin for S3: the conflict branch tags its metric bucket
+      // Regression pin: the conflict branch tags its metric bucket
       // explicitly rather than leaving it to `classifyError`'s substring
       // match (which would also fire here, but for the wrong reason).
       expect(err).toMatchObject({ metricResult: "conflict" });
@@ -309,7 +309,7 @@ describe("beginEmailChange + completeEmailChange", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // Regression pin for S1: a non-uniqueness constraint failure at the write
+  // Regression pin: a non-uniqueness constraint failure at the write
   // must surface as DatabaseError, never get folded into the same generic
   // AuthError the OTP-mismatch/UNIQUE-conflict paths return. FK enforcement
   // is on in this tree (`PRAGMA foreign_keys = ON`, see `@osn/db/testing`),
@@ -340,7 +340,7 @@ describe("beginEmailChange + completeEmailChange", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // #512 T-E3 / #521: five wrong submissions lock out the pending change;
+  // Five wrong submissions lock out the pending change;
   // the sixth, correct, submission still fails because the entry is gone.
   // Step-up tokens are single-use (jti consumed on verify), so a naive test
   // reusing one token across submissions dies at replay before reaching the
@@ -406,7 +406,7 @@ describe("beginEmailChange + completeEmailChange", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // #512 T-E3: expiry is wall-clock (`Date.now()` comparisons), so this must
+  // Expiry is wall-clock (`Date.now()` comparisons), so this must
   // run on the real clock. it.effect's TestClock suspends Effect.sleep until
   // manually advanced — it would hang here, and advancing it wouldn't help
   // since the service never reads TestClock. it.live is required.
@@ -438,7 +438,7 @@ describe("beginEmailChange + completeEmailChange", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // #484 / #514 P-I4: proves the S2 delete (removing a conflicted pending
+  // Proves the S2 delete (removing a conflicted pending
   // change) actually matters, rather than being dead code. Extends the race
   // test's world: A's complete already lost the genuine UNIQUE race once
   // (S2 fires, pending is gone). A second, non-uniqueness fault is then
@@ -484,7 +484,7 @@ describe("beginEmailChange + completeEmailChange", () => {
       const secondErr = yield* Effect.flip(
         a.auth.completeEmailChange(a.profile.accountId, codeA, freshStepUpToken, null),
       );
-      // With S2: the pending entry is already gone, so this short-circuits
+      // With the S2 delete in place: the pending entry is already gone, so this short-circuits
       // at `!pending` — AuthError. Without S2, the pending entry would
       // survive and reach the write, where `ec_block_update` fires a
       // non-UNIQUE message that S1 correctly re-throws as DatabaseError.
@@ -526,7 +526,7 @@ describe("beginEmailChange + completeEmailChange", () => {
     }).pipe(Effect.provide(layer));
   });
 
-  // #559 S-H2: the 7-day cap check must run BEFORE the collision probe, so a
+  // The 7-day cap check must run BEFORE the collision probe, so a
   // capped caller can't tell a taken address from a free one by comparing
   // which failure they get. Drives the cap directly via raw rows (cheaper
   // than two full ceremonies) rather than reusing "enforces 2-per-7-days

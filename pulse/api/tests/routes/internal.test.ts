@@ -9,7 +9,7 @@ import { createInternalRoutes } from "../../src/routes/internal";
 import { createTestLayer, seedCloseFriend, seedEvent } from "../helpers/db";
 
 /**
- * Route-level coverage for the `/internal` group (T-R1): the shared-secret
+ * Route-level coverage for the `/internal` group: the shared-secret
  * registration gates and the ARC-gated `account-deleted` purge, whose
  * handler was rewired to the factory-scoped `ManagedRuntime` with an
  * `as Effect.Effect<…, Db>` cast — the happy path proves that wiring.

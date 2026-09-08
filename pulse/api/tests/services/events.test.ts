@@ -822,7 +822,7 @@ it.effect("listTodayEvents returns transitioned statuses", () =>
   ),
 );
 
-// P-W5 / P-W1 — the list read paths batch status-transition writes into one
+// The list read paths batch status-transition writes into one
 // UPDATE per (from → to) group. Semantics must match the per-row writer:
 // persisted transitions land in the DB, maybe_finished stays display-only.
 it.effect("listEvents persists batched status transitions grouped by (from → to)", () =>
@@ -867,7 +867,7 @@ it.effect("listEvents persists batched status transitions grouped by (from → t
   ),
 );
 
-// P-W3 — the "today" feed is bounded at the DB layer.
+// The "today" feed is bounded at the DB layer.
 it.effect("listTodayEvents caps the result set at 200 rows", () =>
   provide(
     Effect.gen(function* () {
@@ -883,7 +883,7 @@ it.effect("listTodayEvents caps the result set at 200 rows", () =>
   ),
 );
 
-// P-I7 — createEvent uses INSERT … RETURNING; DB column defaults must come
+// createEvent uses INSERT … RETURNING; DB column defaults must come
 // back on the returned row without a second read.
 it.effect("createEvent returns DB defaults in the same round-trip", () =>
   provide(

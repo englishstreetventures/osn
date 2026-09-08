@@ -309,7 +309,7 @@ describe("RegistryImageField — an item that already has a picture", () => {
     await waitFor(() => expect(authFetch).toHaveBeenCalled());
     const [url] = authFetch.mock.calls[0]!;
     expect(String(url)).toContain("/api/organiser/weddings/wed_1/registry/image/registry-abc");
-    // The 320px variant, not the 800px default — it paints into an 80px box (P-W4).
+    // The 320px variant, not the 800px default — it paints into an 80px box.
     expect(String(url)).toContain("?variant=thumb");
   });
 

@@ -102,7 +102,7 @@ describe("assertGuestCapacity", () => {
     expect(Exit.isSuccess(exit)).toBe(true);
   });
 
-  // P-I3: the fallback query only reads capacity_500/capacity_1000. A wedding
+  // The fallback query only reads capacity_500/capacity_1000. A wedding
   // holding every OTHER entitlement must still land on the 100 floor.
   it("non-capacity entitlements (vendors, ai, registry, premium_templates) never raise the cap", async () => {
     const db = createDb();
@@ -120,7 +120,7 @@ describe("assertGuestCapacity", () => {
     expect(Exit.isFailure(exit)).toBe(true);
   });
 
-  // P-W2: precomputedCap, when given, is trusted outright — no query runs, no
+  // precomputedCap, when given, is trusted outright — no query runs, no
   // re-derivation from the entitlement table happens. Proven here at the
   // service boundary; import.ts's own test proves the actual query-count
   // saving end to end.

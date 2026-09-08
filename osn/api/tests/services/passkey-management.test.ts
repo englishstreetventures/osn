@@ -389,7 +389,7 @@ describe("listPasskeys hides secret columns", () => {
   );
 });
 
-// T-U3: positively lock the PasskeySummary key set so a silent drop in the
+// Positively lock the PasskeySummary key set so a silent drop in the
 // explicit projection (e.g. backupEligible going missing) fails loudly.
 describe("listPasskeys public shape", () => {
   it.effect("exposes exactly the PasskeySummary field set", () =>
@@ -398,7 +398,7 @@ describe("listPasskeys public shape", () => {
       yield* seedPasskey(alice.accountId, { lastUsedAt: 100 });
       const { passkeys: rows } = yield* auth.listPasskeys(alice.accountId);
       expect(rows).toHaveLength(1);
-      // S-L2: credentialId is intentionally excluded from the public shape.
+      // credentialId is intentionally excluded from the public shape.
       const expectedKeys = [
         "aaguid",
         "backupEligible",
@@ -414,7 +414,7 @@ describe("listPasskeys public shape", () => {
   );
 });
 
-// S-H1: step-up gate on /passkey/register/* when the account already has
+// Step-up gate on /passkey/register/* when the account already has
 // ≥1 passkey. First-passkey bootstrap is exempt (no ceremony reachable
 // before the account has credentials). Prevents silent passkey enrollment
 // via a stolen access token.
@@ -455,7 +455,7 @@ describe("passkey register step-up gate (S-H1)", () => {
   });
 });
 
-// T-U2: MAX_PASSKEYS_PER_ACCOUNT cap enforcement — begin refuses past the
+// MAX_PASSKEYS_PER_ACCOUNT cap enforcement — begin refuses past the
 // limit; complete's race-guard refuses even if begin was passed concurrently.
 describe("passkey count cap (MAX_PASSKEYS_PER_ACCOUNT)", () => {
   it.effect("beginPasskeyRegistration rejects once the account has 10 passkeys", () =>
@@ -477,7 +477,7 @@ describe("passkey count cap (MAX_PASSKEYS_PER_ACCOUNT)", () => {
       for (let i = 0; i < 9; i++) {
         yield* seedPasskey(alice.accountId);
       }
-      // S-H1: begin requires step-up once the account has ≥1 passkey.
+      // Begin requires step-up once the account has ≥1 passkey.
       // Mint one via the OTP ceremony.
       yield* auth.beginStepUpOtp(alice.accountId);
       const { stepUpToken } = yield* auth.completeStepUpOtp(

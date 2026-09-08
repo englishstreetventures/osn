@@ -115,9 +115,9 @@ describe("buildTransformCacheKey", () => {
   });
 
   it("differs by version so a re-upload (bumped updatedAt) mints a fresh entry (T-S1)", () => {
-    // After the S-M1 fix the version is the server-side row `updatedAt` epoch ms,
-    // not the client `?v=`. Two different versions must yield different keys so a
-    // re-uploaded image isn't served the stale cached transform.
+    // The version is the server-side row `updatedAt` epoch ms, not the client
+    // `?v=`. Two different versions must yield different keys so a re-uploaded
+    // image isn't served the stale cached transform.
     const base = { slug: "s", slot: "hero", variant: "card", format: "image/jpeg" } as const;
     const v1 = buildTransformCacheKey({ ...base, version: "1718000000000" });
     const v2 = buildTransformCacheKey({ ...base, version: "1718999999999" });
@@ -313,9 +313,9 @@ describe("serveTransformedImage — what the cache is handed vs what the client 
   }
 
   it("stores a public copy of a private image while telling the client `private`", async () => {
-    // P-W2: Cloudflare's cache refuses to store a `private` response, so a gated
-    // slot was paying for the transform on every single request. The stored copy
-    // is storable; the served one is not, and the key it sits under is synthetic.
+    // Cloudflare's cache refuses to store a `private` response, so a gated slot
+    // would pay for the transform on every single request. The stored copy is
+    // storable; the served one is not, and the key it sits under is synthetic.
     const cache = createCacheStub();
     (globalThis as { caches?: unknown }).caches = cache.binding;
 

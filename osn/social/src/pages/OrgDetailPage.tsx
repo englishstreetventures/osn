@@ -28,7 +28,7 @@ export function OrgDetailPage() {
   const { session } = useAuth();
   const token = () => session()?.accessToken ?? "";
 
-  // Stable memoised source key (P-W4). Returning a fresh object per read
+  // Stable memoised source key. Returning a fresh object per read
   // makes Solid's === equality check always fail, triggering a refetch
   // on every signal tick. A string key is referentially stable per
   // (token, id) pair so the resource only refetches when one changes.

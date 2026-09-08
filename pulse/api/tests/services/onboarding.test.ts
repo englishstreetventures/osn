@@ -209,7 +209,7 @@ describe("completeOnboarding", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // S-L1: with `onConflictDoNothing` two concurrent first-time completes
+  // With `onConflictDoNothing` two concurrent first-time completes
   // both pass the "no row exists" check, both attempt to insert, one
   // wins. The loser's payload was historically returned to the client
   // even though it wasn't persisted. After re-selecting before return,

@@ -61,7 +61,7 @@ describe("createSecurityEventsClient", () => {
     const [url, init] = fetchMock.mock.calls[0]!;
     expect(url).toBe("https://osn.example.com/account/security-events/sev_abcdef012345/ack");
     expect(init?.method).toBe("POST");
-    // S-M1: the step-up token is passed through the body (not a header) to
+    // The step-up token is passed through the body (not a header) to
     // match the shape `/recovery/generate` uses.
     expect(JSON.parse(String(init?.body))).toEqual({ step_up_token: "eyJ.step.up" });
     expect(new Headers(init?.headers).get("authorization")).toBe("Bearer acc");

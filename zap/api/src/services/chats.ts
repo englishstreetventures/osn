@@ -188,7 +188,7 @@ export const listChats = (
   Effect.gen(function* () {
     const { db } = yield* Db;
 
-    // P-W1: bounded page size — default 50, cap 100, floor 1.
+    // Bounded page size — default 50, cap 100, floor 1.
     const requested = Number.isFinite(opts.limit) ? (opts.limit as number) : DEFAULT_CHAT_LIMIT;
     const limit = Math.min(Math.max(1, requested), MAX_CHAT_LIMIT);
 
@@ -267,7 +267,7 @@ export const createChat = (
       new Set((validated.memberProfileIds ?? []).filter((uid) => uid !== creatorProfileId)),
     );
 
-    // Z3: a DM is exactly two people — the creator plus one other. Anything
+    // A DM is exactly two people — the creator plus one other. Anything
     // else is a group/event chat and must be created as one.
     if (validated.type === "dm" && initialMembers.length !== 1) {
       return yield* Effect.fail(
@@ -275,9 +275,9 @@ export const createChat = (
       );
     }
 
-    // Z3/Z4: every profile pulled into the chat must consent (graph-gated).
+    // Every profile pulled into the chat must consent (graph-gated).
     // Fail-closed on graph-unreachable. Checked BEFORE any insert so a denied
-    // member never leaves a half-built chat behind. P-W1: run the per-member
+    // member never leaves a half-built chat behind. Run the per-member
     // S2S consent checks with bounded concurrency (up to MAX_CHAT_MEMBERS) so
     // they overlap instead of serialising one round-trip at a time; any
     // rejection still short-circuits (Effect.forEach fails fast), preserving
@@ -497,16 +497,16 @@ export const addMember = (
     // message routes order around. Members and admins already know.
     yield* assertC2c(chat);
 
-    // Z3: a DM is sealed at two members — no widening into a group via add.
+    // A DM is sealed at two members — no widening into a group via add.
     if (chat.type === "dm") {
       return yield* Effect.fail(new InvalidDmMembership({ memberCount: 3 }));
     }
 
-    // Z3/Z4: the actor must share a permitted graph relationship with the
+    // The actor must share a permitted graph relationship with the
     // profile being added. Fail-closed on graph-unreachable.
     yield* checkConsent(requestingProfileId, profileId);
 
-    // P-W2/cap+duplicate fold: one query over chat_members instead of a
+    // Cap+duplicate fold: one query over chat_members instead of a
     // COUNT(*) followed by a separate indexed duplicate lookup. `sum()` from
     // drizzle-orm 0.45.2 is typed `SQL<string | null>`
     // (`sql\`sum(...)\`.mapWith(String)`), which does not typecheck against a
@@ -640,7 +640,7 @@ export const removeMember = (
     // under it to be behind one.
     yield* assertC2c(chat);
 
-    // Z5: never strand a chat with zero admins. If the target is the last
+    // Never strand a chat with zero admins. If the target is the last
     // remaining admin, the removal (self-leave included) is rejected — an
     // admin must hand off the role first.
     if (memberRows[0]!.role === "admin") {
@@ -675,14 +675,14 @@ export const getChatMembers = (
 ): Effect.Effect<{ members: ChatMember[]; hasMore: boolean }, ChatNotFound | DatabaseError, Db> =>
   Effect.gen(function* () {
     const { db } = yield* Db;
-    // P-I5: callers that already gated on assertMember have proven the chat
+    // Callers that already gated on assertMember have proven the chat
     // exists (a membership row FK-references it) — skip the redundant load.
     // Un-gated callers keep the 404 contract.
     if (!opts.assertedExists) {
       yield* getChat(chatId);
     }
 
-    // P-W4: limit/offset pagination — members are bounded at MAX_CHAT_MEMBERS
+    // Limit/offset pagination — members are bounded at MAX_CHAT_MEMBERS
     // (500), so offset paging is stable enough. Default 100, cap 500, floor 1.
     const requested = Number.isFinite(opts.limit) ? (opts.limit as number) : DEFAULT_MEMBER_LIMIT;
     const limit = Math.min(Math.max(1, requested), MAX_MEMBER_LIMIT);

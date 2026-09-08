@@ -85,7 +85,7 @@ describe("LogEmailLive", () => {
     expect(error.reason).toBe("render_failed");
   });
 
-  // T-U2: the ring is capped at MAX_RECORD (256). If the eviction branch
+  // The ring is capped at MAX_RECORD (256). If the eviction branch
   // silently flips (`>=` → `>`, or `shift()` drops out of a refactor) the
   // recorder would grow unbounded in long test runs.
   it("evicts the oldest entry once the ring hits MAX_RECORD", async () => {

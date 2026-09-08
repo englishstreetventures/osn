@@ -90,7 +90,7 @@ export default function SettingsPanel(props: SettingsPanelProps) {
   // strings so a half-typed value never round-trips through parseFloat.
   const [displayName, setDisplayName] = createSignal("");
   // Read-only: renaming the slug would free the old one for another organiser
-  // to claim while printed invite links still point at it (S-M1) — a rename
+  // to claim while printed invite links still point at it — a rename
   // feature needs slug tombstoning first.
   const [slug, setSlug] = createSignal("");
   const [weddingDate, setWeddingDate] = createSignal("");

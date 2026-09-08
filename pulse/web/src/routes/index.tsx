@@ -76,9 +76,9 @@ function mergeAdvanced(base: DiscoveryQuery, v: DiscoveryFilterValues): Discover
   }
   if (v.friendsOnly) merged.friendsOnly = true;
   // Radius requires a centre point; the user resolves coords explicitly
-  // via the "Use my location" button in the drawer (S-L2/P-W2 — never
-  // implicit). Without coords we drop the radius silently — the drawer
-  // copy makes the requirement clear.
+  // via the "Use my location" button in the drawer (never implicit).
+  // Without coords we drop the radius silently — the drawer copy makes
+  // the requirement clear.
   if (v.radiusKm != null && v.coords) {
     merged.radiusKm = v.radiusKm;
     merged.lat = v.coords.lat;

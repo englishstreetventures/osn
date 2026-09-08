@@ -30,7 +30,7 @@ export interface Env {
   OSN_JWKS_URL?: string;
   /** CORS allowlist (P3), comma-separated. */
   PULSE_CORS_ORIGIN?: string;
-  /** Number of trusted reverse proxies in front of the Worker (S-M34). */
+  /** Number of trusted reverse proxies in front of the Worker. */
   PULSE_TRUSTED_PROXY_COUNT?: string;
   /** Environment discriminator — `local` vs anything else. */
   OSN_ENV?: string;
@@ -52,7 +52,7 @@ export interface Env {
 }
 
 /**
- * Client-IP trust policy (S-M34) for the per-IP limiters on the unauthenticated
+ * Client-IP trust policy for the per-IP limiters on the unauthenticated
  * discover / share / exposure surfaces. `PULSE_TRUSTED_PROXY_COUNT` is the
  * number of trusted reverse proxies in front of the Worker: the keying IP is
  * taken that many hops from the right of `x-forwarded-for` (the only

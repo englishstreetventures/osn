@@ -54,7 +54,7 @@ export interface InviteCustomisation {
   // NOTE: the closing section (`footer_*`) is deliberately ABSENT here. It is
   // addressed to the invited household, so the API redacts it from the public
   // `GET /api/invite/:slug` this type describes and delivers it in the claim
-  // response instead (see `ClaimResult.closing`). S-H1.
+  // response instead (see `ClaimResult.closing`).
   heroDisplay: HeroDisplay;
   theme: InviteTheme;
   /** Which design pack renders this invite (0045). Optional so payloads from

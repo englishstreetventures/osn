@@ -165,7 +165,7 @@ export const organiserSessionService = {
 
   /**
    * Prune every session past its expiry (`<= now`). `validate` only *reports*
-   * expiry, so without this the table grows without bound — the same C-M2/C-M15
+   * expiry, so without this the table grows without bound — the same
    * reasoning as the guest sweep. Run from the Worker's `scheduled` cron.
    * Returns the number of rows deleted.
    */

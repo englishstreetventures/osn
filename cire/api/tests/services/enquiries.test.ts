@@ -431,7 +431,7 @@ describe("enquiryService.getMessages", () => {
     expect(res.value[0]!.body).toBe("Are you free on our date?");
     expect(res.value[0]!.id).not.toBe("pending");
 
-    // P-W2: the fetch is capped (limit 50) to stay under the Workers 6MB wall.
+    // The fetch is capped (limit 50) to stay under the Workers 6MB wall.
     const listCall = zap.listCalls.find((c) => c.chatId === enq.zapChatId);
     expect(listCall).toBeDefined();
     expect(listCall!.opts?.limit).toBe(50);

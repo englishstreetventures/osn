@@ -2,7 +2,7 @@
  * CORS / Origin-guard allowlist derivation.
  *
  * Centralised so the fallback list and the non-local fail-closed invariant
- * (S-L4) can be unit-tested in isolation from module-scope bootstrap in
+ * can be unit-tested in isolation from module-scope bootstrap in
  * `src/index.ts`.
  */
 
@@ -26,7 +26,7 @@ export type CorsEnv = Readonly<Record<string, string | undefined>>;
  * Strip trailing slash + lowercase scheme/host so an operator typo
  * (`HTTPS://Foo.com/`) still matches the browser-supplied Origin header
  * (`https://foo.com`). Origins have no path component, so lowercasing the
- * whole string is safe. S-L2.
+ * whole string is safe.
  */
 function normaliseOrigin(raw: string): string {
   const trimmed = raw.trim();
@@ -35,7 +35,7 @@ function normaliseOrigin(raw: string): string {
 }
 
 /**
- * S-L1: `secure` is the single non-local predicate — in a secure env the
+ * `secure` is the single non-local predicate — in a secure env the
  * fallback is never used, so a deploy that forgets both `OSN_ENV` and
  * `OSN_CORS_ORIGIN` still fails closed at `assertCorsOriginsConfigured`.
  */
@@ -51,7 +51,7 @@ export function resolveCorsOrigins(env: CorsEnv, secure: boolean): string[] {
 }
 
 /**
- * S-L4: refuse to boot a non-local deploy with an empty CORS allowlist —
+ * Refuse to boot a non-local deploy with an empty CORS allowlist —
  * the Origin guard would silently allow every request through if it did.
  */
 export function assertCorsOriginsConfigured(origins: readonly string[], secure: boolean): void {

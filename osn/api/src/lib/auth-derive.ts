@@ -6,7 +6,7 @@ import type { AuthService } from "../services/auth";
 /**
  * Resolves a Bearer access token from the Authorization header. Returns
  * the token claims on success, or null if the header is missing / invalid.
- * Used by profile and auth endpoints that authenticate via access token (S-H1).
+ * Used by profile and auth endpoints that authenticate via access token.
  */
 export async function resolveAccessTokenPrincipal(
   auth: AuthService,

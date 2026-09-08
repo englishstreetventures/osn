@@ -55,7 +55,7 @@ describe("classifyError", () => {
   });
 
   describe("metricResult override", () => {
-    // Regression pin for S3: the message clearly matches the "invalid"
+    // Regression pin: the message clearly matches the "invalid"
     // substring rule (→ validation_error), but a caller-set metricResult
     // must win — this is the whole point of the override.
     it("an explicit metricResult beats the message-keyword match", () => {

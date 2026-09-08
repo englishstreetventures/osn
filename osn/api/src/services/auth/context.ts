@@ -37,10 +37,10 @@ export function createAuthContext(config: AuthConfig) {
   const rotatedSessionStore = config.rotatedSessionStore ?? createInMemoryRotatedSessionStore();
   const rotatedSessionStoreBackend = rotatedSessionStore.backend;
 
-  // O3: ceremony / pending-state stores. Default to per-service in-memory;
+  // Ceremony / pending-state stores. Default to per-service in-memory;
   // index.ts injects Redis-backed equivalents in multi-pod deployments.
   const stores = config.ceremonyStores ?? createDefaultCeremonyStores();
-  // O3: per-account caps routed through the rate-limiter family.
+  // Per-account caps routed through the rate-limiter family.
   const profileSwitchCap =
     config.profileSwitchCap ??
     createInMemoryAccountCap(PROFILE_SWITCH_MAX, PROFILE_SWITCH_WINDOW_MS);
@@ -50,7 +50,7 @@ export function createAuthContext(config: AuthConfig) {
       EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,
       EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
     );
-  // O2: per-account recovery-code lockout counter.
+  // Per-account recovery-code lockout counter.
   const recoveryLockoutStore = config.recoveryLockoutStore ?? createInMemoryRecoveryLockoutStore();
   /**
    * HMAC-SHA256 pepper for IP hashing. Only applied when the caller has

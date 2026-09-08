@@ -99,7 +99,7 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
           }
         },
         {
-          // S-C1: optional `purpose` binds the minted token to a specific
+          // Optional `purpose` binds the minted token to a specific
           // destructive operation (e.g. "account_delete"). Verifiers that
           // require a purpose reject tokens minted for any other purpose.
           body: t.Object({
@@ -211,7 +211,7 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
           }
         },
         {
-          // S-C1: see /step-up/passkey/complete for the purpose-claim rationale.
+          // See /step-up/passkey/complete for the purpose-claim rationale.
           body: t.Object({
             code: t.String(),
             purpose: t.Optional(

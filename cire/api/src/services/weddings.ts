@@ -81,7 +81,7 @@ export const weddingsService = {
           .from(weddings)
           .where(eq(weddings.ownerOsnProfileId, osnProfileId))
           .orderBy(asc(weddings.createdAt))
-          // Defensive ceiling (P-I1): an organiser hosts a handful of weddings,
+          // Defensive ceiling: an organiser hosts a handful of weddings,
           // so this never truncates real data — it just bounds the worst-case
           // payload if a single profile ever accumulates pathologically many.
           .limit(200)

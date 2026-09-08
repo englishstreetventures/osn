@@ -13,7 +13,7 @@ import { requireArc } from "../../src/lib/arc-middleware";
 import { createTestLayer } from "../helpers/db";
 
 // ---------------------------------------------------------------------------
-// T-S1: requireArc — untrusted-input fast-path and peekClaims edge cases
+// requireArc — untrusted-input fast-path and peekClaims edge cases
 //
 // The route integration tests cover the happy path (valid ARC token) and the
 // basic 401 cases (wrong audience, wrong scope, expired). These unit tests
@@ -132,7 +132,7 @@ describe("requireArc — valid structure but unregistered service", () => {
 });
 
 // ---------------------------------------------------------------------------
-// X1: issuer binding. requireArc passes the peeked `iss` to verifyArcToken as
+// Issuer binding: requireArc passes the peeked `iss` to verifyArcToken as
 // expectedIssuer, so the signed `iss` is cryptographically required to match
 // the issuer its `kid` is registered under in the DB.
 // ---------------------------------------------------------------------------

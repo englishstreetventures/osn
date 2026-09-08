@@ -23,7 +23,7 @@ function countConstructions() {
 }
 
 /**
- * ENQ-P-W3. The behaviour these pin is mostly the memoisation, because that is
+ * The behaviour these pin is mostly the memoisation, because that is
  * the whole point of the module and the part a refactor can silently undo — a
  * reinstated per-call `new Intl.NumberFormat` renders identically and would
  * pass every output assertion below.

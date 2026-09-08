@@ -171,7 +171,7 @@ describe("ColorPicker", () => {
 
   it("says so when it discards an incomplete entry", async () => {
     // Snapping the field back is visible to anyone watching it and invisible to
-    // everyone else (C-L3). A discard must be perceivable programmatically too,
+    // everyone else. A discard must be perceivable programmatically too,
     // or a screen-reader user leaves the field believing their colour applied.
     const onChange = vi.fn();
     render(() => <ColorPicker label="Accent" value="#d4af37" onChange={onChange} />);

@@ -102,7 +102,7 @@ function postLink(
 }
 
 /**
- * After a successful link the server rotates the guest session (C6) and returns
+ * After a successful link the server rotates the guest session and returns
  * a fresh `Set-Cookie`. Subsequent requests in the same household must use the
  * rotated cookie — the old one is revoked. Returns the new cookie if the
  * response rotated, else the prior cookie unchanged.
@@ -130,7 +130,7 @@ describe("POST /api/account/link", () => {
     expect(rows[0]!.guestId).toBe(guestId);
   });
 
-  // C6: a successful link rotates the guest session — fresh Set-Cookie, old
+  // A successful link rotates the guest session — fresh Set-Cookie, old
   // token revoked (session-fixation defence).
   it("rotates the guest session cookie on a successful link", async () => {
     const { db, app } = buildApp();
@@ -204,13 +204,13 @@ describe("POST /api/account/link", () => {
     const guestId = guestIdByName(db, "Bo");
     const first = await postLink(app, { cookie, bearer, guestId });
     expect(first.status).toBe(201);
-    // C6: the link rotated the session — reuse the fresh cookie for the retry.
+    // The link rotated the session — reuse the fresh cookie for the retry.
     const res = await postLink(app, { cookie: rotatedCookie(first, cookie), bearer, guestId });
     expect(res.status).toBe(409);
     expect(await jsonBody(res)).toEqual({ error: "already_linked" });
   });
 
-  // AL-S-L2: the "same account, different seat" conflict must be
+  // The "same account, different seat" conflict must be
   // INDISTINGUISHABLE from the "same invitee linked twice" conflict above —
   // identical status AND body — so the caller can't probe sibling-seat
   // membership of their own household (a membership oracle).
@@ -221,7 +221,7 @@ describe("POST /api/account/link", () => {
     const cleo = guestIdByName(db, "Cleo");
     const first = await postLink(app, { cookie, bearer: await auth.sign("usr_a"), guestId: bo });
     expect(first.status).toBe(201);
-    // C6: reuse the rotated cookie for the second link in the same household.
+    // Reuse the rotated cookie for the second link in the same household.
     const res = await postLink(app, {
       cookie: rotatedCookie(first, cookie),
       bearer: await auth.sign("usr_b"),
@@ -265,7 +265,7 @@ describe("GET /api/account/link", () => {
     const cookie = await claimCookie(app, SAMPLETON);
     const guestId = guestIdByName(db, "Bo");
     const linked = await postLink(app, { cookie, bearer: await auth.sign("usr_alice"), guestId });
-    // C6: the link rotated the session — read links with the fresh cookie.
+    // The link rotated the session — read links with the fresh cookie.
     const cookie2 = rotatedCookie(linked, cookie);
 
     const res = await app.fetch(
@@ -300,7 +300,7 @@ describe("DELETE /api/account/link/:guestId", () => {
     const guestId = guestIdByName(db, "Bo");
     const linked = await postLink(app, { cookie, bearer: await auth.sign("usr_alice"), guestId });
     expect(db.select().from(guestAccountLinks).all()).toHaveLength(1);
-    // C6: the link rotated the session — delete with the fresh cookie.
+    // The link rotated the session — delete with the fresh cookie.
     const cookie2 = rotatedCookie(linked, cookie);
 
     const del = () =>

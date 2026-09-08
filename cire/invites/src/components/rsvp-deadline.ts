@@ -12,7 +12,7 @@ import type { RsvpDeadline } from "./types";
 /**
  * DOM id of the events-section deadline notice. Shared by both design packs so
  * each card's closed Respond button can point `aria-describedby` at it and
- * announce WHEN RSVPs shut, not just that they did (C-M2). Exactly one notice
+ * announce WHEN RSVPs shut, not just that they did. Exactly one notice
  * renders per page, so a fixed id is safe — and keeping it here stops the two
  * packs and `EventCard` drifting onto three different strings, which would fail
  * silently (a dangling `aria-describedby` is simply ignored).
@@ -34,7 +34,7 @@ export function isRsvpClosed(deadline: RsvpDeadline | null | undefined, now: Dat
 /**
  * Day formatters keyed by zone. Constructing one is the expensive part (~75µs)
  * while `format` on an existing instance is cheap, and this is called from a
- * reactive scope plus the modal's `closedOn` prop (P-I3). Only successful
+ * reactive scope plus the modal's `closedOn` prop. Only successful
  * lookups are cached, so an unknown zone costs a throwaway construction and
  * stores nothing; the keys that land come from the API payload and are already
  * validated, so the map is bounded by the real IANA set.

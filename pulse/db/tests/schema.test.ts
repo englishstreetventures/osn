@@ -245,7 +245,7 @@ describe("event_rsvps schema", () => {
     const { indexes } = getTableConfig(schema.eventRsvps);
     const indexNames = new Set(indexes.map((i) => i.config.name));
     expect(indexNames.has("event_rsvps_event_status_idx")).toBe(true);
-    // P-I1: the single-column event index is subsumed by the composite's
+    // The single-column event index is subsumed by the composite's
     // leading column (and the unique pair index) — it must stay dropped.
     expect(indexNames.has("event_rsvps_event_idx")).toBe(false);
     // Companion that must not regress alongside it.

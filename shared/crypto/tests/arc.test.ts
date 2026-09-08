@@ -230,7 +230,7 @@ describe("createArcToken / verifyArcToken", () => {
     ).rejects.toThrow("Invalid scope format");
   });
 
-  // X1: optional expectedIssuer enforcement.
+  // Optional expectedIssuer enforcement.
   it("accepts a token whose iss matches expectedIssuer", async () => {
     const token = await createArcToken(privateKey, {
       iss: "pulse-api",
@@ -334,7 +334,7 @@ describe("getOrCreateArcToken", () => {
     vi.useRealTimers();
   });
 
-  // X3: the cache key includes ttl, so a different requested TTL must not
+  // The cache key includes ttl, so a different requested TTL must not
   // serve a cached token minted with another TTL.
   it("does not reuse a cached token across differing TTLs (X3)", async () => {
     const base = { iss: "pulse-api", aud: "osn-core", scope: "graph:read", kid: "test-kid" };
@@ -349,7 +349,7 @@ describe("getOrCreateArcToken", () => {
     expect(tokenCacheSize()).toBe(2);
   });
 
-  // X3: scope is canonicalised (trim + lowercase) before keying, so
+  // Scope is canonicalised (trim + lowercase) before keying, so
   // formatting-only differences collapse onto one cache entry...
   it("collapses formatting-only scope differences onto one cache entry (X3)", async () => {
     const a = await getOrCreateArcToken(privateKey, {
@@ -368,7 +368,7 @@ describe("getOrCreateArcToken", () => {
     expect(tokenCacheSize()).toBe(1);
   });
 
-  // ...but differing scope ORDER stays distinct (X3: no sorting), because the
+  // ...but differing scope ORDER stays distinct (no sorting), because the
   // signed `scope` claim preserves order too.
   it("keeps differing scope order as distinct cache entries (X3, unsorted)", async () => {
     const ab = await getOrCreateArcToken(privateKey, {
@@ -629,7 +629,7 @@ describe("resolvePublicKey", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // T-E1: cache-hit scope enforcement path
+  // Enforces scope on the cache-hit path without re-querying the DB.
   effectIt.effect("enforces scope on cache-hit path without re-querying DB", () =>
     Effect.gen(function* () {
       const { db } = yield* Db;
@@ -673,7 +673,7 @@ describe("resolvePublicKey", () => {
     }).pipe(Effect.provide(createTestLayer())),
   );
 
-  // T-U1: evictPublicKeyCacheEntry forces re-lookup and respects DB revocation
+  // evictPublicKeyCacheEntry forces re-lookup and respects DB revocation.
   effectIt.effect("evictPublicKeyCacheEntry forces DB re-lookup and sees revocation", () =>
     Effect.gen(function* () {
       const { db } = yield* Db;
@@ -780,7 +780,7 @@ describe("resolvePublicKey", () => {
 });
 
 // ---------------------------------------------------------------------------
-// P-W25: publicKeyCache LRU eviction
+// publicKeyCache LRU eviction
 // ---------------------------------------------------------------------------
 
 describe("publicKeyCache LRU eviction", () => {
@@ -934,7 +934,7 @@ describe("publicKeyCache LRU eviction", () => {
     expect(publicKeyCacheSize()).toBe(3);
   });
 
-  // T-S1: a scope-denied cache hit must NOT promote the entry to MRU
+  // A scope-denied cache hit must NOT promote the entry to MRU
   it("scope-failure hit does not update lastAccess — entry still gets evicted (T-S1)", async () => {
     const layer = createTestLayer();
     const run = <A>(eff: Effect.Effect<A, unknown, Db>) =>
@@ -981,7 +981,7 @@ describe("publicKeyCache LRU eviction", () => {
     expect(resB._tag).toBe("Success"); // B survived — was not LRU
   });
 
-  // T-S2: cap=1 boundary — only one entry fits at a time
+  // Cap=1 boundary — only one entry fits at a time
   it("cap=1: second entry evicts first, size stays 1 (T-S2)", async () => {
     clearPublicKeyCache();
     _setPublicKeyCacheMaxSizeForTest(1);

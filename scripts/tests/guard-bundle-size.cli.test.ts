@@ -318,7 +318,7 @@ test("blank lines and comment-only lines in the budgets file are ignored", async
   );
 });
 
-// T-U1: every other "package directory" case above mkdirs the fixture path
+// Every other "package directory" case above mkdirs the fixture path
 // first — even the ones asserting a DIFFERENT failure (missing dist/server,
 // no matching row) always start from a package directory that exists. This
 // is the sibling branch: the package directory argument itself was never
@@ -342,7 +342,7 @@ test("exits non-zero when the package directory itself was never created", async
   }
 });
 
-// T-U2: the one existing blank/comment-lines test above always includes a
+// The one existing blank/comment-lines test above always includes a
 // real record alongside the blank/comment lines, so `any_record` in run_all()
 // never actually reaches 0 through that case. This is the vacuous-pass guard
 // itself: a budgets file that is ALL comments/blank lines still passes
@@ -366,7 +366,7 @@ test("--all exits non-zero on a budgets file containing only comments and blank 
 
 // lookup_and_run's single-package path checks the directory exists (via
 // resolve_label) before ever consulting the budgets file, and emits a
-// polished ::error:: naming it (see the T-U1 test above). run_all() built its
+// polished ::error:: naming it. run_all() built its
 // pkg_dir straight from BUDGETS_ROOT/REC_PKG and handed it to run_guard with
 // no such check, so a stale or typo'd row surfaced as a raw, unprefixed
 // `cd: no such file or directory` from the subshell instead. This asserts

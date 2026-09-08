@@ -70,7 +70,7 @@ describe("MapPreview", () => {
     expect(getByText("View on map")).toBeTruthy();
   });
 
-  // T-S1: when there's no venue text to name the link, the accessible name
+  // When there's no venue text to name the link, the accessible name
   // falls back to the generic "Open the venue in maps".
   it("uses an accessible-name fallback when there is no venue but a mapsUrl is present", () => {
     const url = "https://maps.google.com/?q=somewhere";
@@ -80,7 +80,7 @@ describe("MapPreview", () => {
     expect(getByLabelText(/open the venue in maps/i)).toBeTruthy();
   });
 
-  // T-S2: a dangerous organiser-supplied mapsUrl (e.g. javascript:) must never
+  // A dangerous organiser-supplied mapsUrl (e.g. javascript:) must never
   // reach the anchor href — the component routes through resolveMapsUrl, which
   // rejects non-http(s) schemes and falls back to the safe Google Maps search
   // URL derived from the address.
@@ -120,11 +120,11 @@ describe("MapPreview", () => {
       const iframe = container.querySelector("iframe")!;
       expect(iframe.getAttribute("title")).toBe("Map of 12 Banksia Lane, Strathfield");
       expect(iframe.getAttribute("loading")).toBe("lazy");
-      // S-L2: matches the page-level referrer policy so the slug-bearing path
+      // Matches the page-level referrer policy so the slug-bearing path
       // is not leaked to Google; only the origin (which the key restriction
       // needs) is sent cross-origin.
       expect(iframe.getAttribute("referrerpolicy")).toBe("strict-origin-when-cross-origin");
-      // S-L1: least-privilege sandbox — no top-navigation / forms.
+      // Least-privilege sandbox — no top-navigation / forms.
       const sandbox = iframe.getAttribute("sandbox") ?? "";
       expect(sandbox).toContain("allow-scripts");
       expect(sandbox).toContain("allow-same-origin");

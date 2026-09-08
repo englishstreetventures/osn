@@ -19,7 +19,7 @@ export type RedisNamespace =
   | "rate_limit"
   | "rotated_session"
   | "step_up_jti"
-  // O3: ceremony / pending-state stores migrated off process-local Maps.
+  // Ceremony / pending-state stores migrated off process-local Maps.
   | "reg_challenge"
   | "login_challenge"
   | "pending_registration"
@@ -27,7 +27,7 @@ export type RedisNamespace =
   | "step_up_otp"
   | "pending_email_change"
   | "cross_device"
-  // O2: per-account recovery-code lockout counter.
+  // Per-account recovery-code lockout counter.
   | "recovery_lockout"
   // OIDC: validated /authorize requests parked while the consent UI runs.
   | "oidc_authorize_request";

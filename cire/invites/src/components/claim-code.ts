@@ -32,7 +32,7 @@ export interface ClaimCode {
 /**
  * Headless claim-code submission primitive — the code entry field, the
  * Turnstile-gated POST to `/api/claim`, and the `?code=` deep-link auto-claim
- * (with its S-L1 URL strip), factored out of LoginSection so every design
+ * (with its URL strip), factored out of LoginSection so every design
  * pack (classic, gala, …) can reuse the identical behaviour behind whatever
  * markup it wants.
  */
@@ -130,7 +130,7 @@ export function createClaimCode(options: ClaimCodeOptions): ClaimCode {
     const prefill = url.searchParams.get("code");
     if (prefill && !options.result()) {
       setCode(prefill.trim().toUpperCase());
-      // S-L1: strip the credential from the address bar + forward history
+      // Strip the credential from the address bar + forward history
       // immediately. submitCode already captured the value, and the claim sets
       // the session cookie, so the URL copy is no longer needed.
       url.searchParams.delete("code");

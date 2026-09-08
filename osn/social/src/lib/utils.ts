@@ -9,7 +9,7 @@ export function profileInitials(profile: PublicProfile | null): string {
 /**
  * Only allow http(s) avatar URLs. Defense-in-depth against a
  * hypothetical server-side regression that lets users set avatarUrl to
- * a data: or other URL scheme (S-L3).
+ * a data: or other URL scheme.
  */
 export function safeAvatarUrl(url: string | null | undefined): string | null {
   if (!url) return null;

@@ -47,7 +47,7 @@ describe("isAuthExpiredError", () => {
     expect(isAuthExpiredError(new TokenRefreshError({ cause: "boom" }))).toBe(false);
   });
 
-  // S-L2: the printout arm is anchored to the tag heading the string, so a
+  // The printout arm is anchored to the tag heading the string, so a
   // message that merely quotes it is not an expiry. Consumers catch errors
   // whose message is a server-supplied code; an unanchored `includes` would
   // let that string decide to sign someone out.

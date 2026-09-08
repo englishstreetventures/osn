@@ -81,7 +81,7 @@ export function createRedisCeremonyStores(
     onError: (op, cause) => onError?.("recovery_lockout", op, cause),
   });
 
-  // O3: the two per-account caps routed through the rate-limiter family. The
+  // The two per-account caps routed through the rate-limiter family. The
   // limiter `check(accountId)` returns `true` while under the cap.
   const profileSwitchCap: AccountCapLimiter = createRedisRateLimiter(client, {
     namespace: "auth:profile_switch_cap",

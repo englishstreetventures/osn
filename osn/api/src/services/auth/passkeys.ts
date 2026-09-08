@@ -54,7 +54,7 @@ import type { TokensModule } from "./tokens";
 import type { ProfileWithEmail, PublicProfile, SessionMeta, TokenSet } from "./types";
 import { toPublicProfile } from "./types";
 
-// P-I2: hoisted — a TextEncoder is stateless, so one module-level instance
+// Hoisted — a TextEncoder is stateless, so one module-level instance
 // serves every registration ceremony instead of allocating per call.
 const textEncoder = new TextEncoder();
 
@@ -82,7 +82,7 @@ export function createPasskeysModule(
   const beginPasskeyRegistration = (
     accountId: string,
     /**
-     * S-H1: required when the account already has ≥1 passkey. First-
+     * Required when the account already has ≥1 passkey. First-
      * credential enrollment (bootstrap) bypasses the gate — no step-up
      * ceremony is reachable before the account has any authenticators.
      * Verified below after the existingPasskeys read.
@@ -119,7 +119,7 @@ export function createPasskeysModule(
         return yield* Effect.fail(new AuthError({ message: "Account not found" }));
       }
 
-      // P-I10: refuse to mint options past the per-account cap. Checked
+      // Refuse to mint options past the per-account cap. Checked
       // BEFORE the step-up gate so a user who's already at the cap
       // doesn't burn a single-use step-up token for nothing.
       if (existingPasskeys.length >= MAX_PASSKEYS_PER_ACCOUNT) {
@@ -128,7 +128,7 @@ export function createPasskeysModule(
         );
       }
 
-      // S-H1: once the account has any passkey, adding another requires a
+      // Once the account has any passkey, adding another requires a
       // fresh step-up token. A stolen access token alone cannot bind a
       // new authenticator.
       if (existingPasskeys.length > 0) {
@@ -159,8 +159,8 @@ export function createPasskeysModule(
             // keeps the factor strength at "something you have + something
             // you are/know" — obsolete UP-only U2F tokens cannot register,
             // which is intentional: they would subsequently fail the
-            // verifier's `requireUserVerification: true` anyway (S-H2 —
-            // options and verify must agree).
+            // verifier's `requireUserVerification: true` anyway (options
+            // and verify must agree).
             authenticatorSelection: {
               residentKey: "preferred",
               userVerification: "required",
@@ -194,10 +194,10 @@ export function createPasskeysModule(
      * when one names a live row, otherwise from the access token's
      * `osn_sid` binding. Either way it is server-derived, never
      * user-supplied body input, so an attacker holding only an access
-     * token cannot skip H1 invalidation by omitting a field (S-H1).
+     * token cannot skip H1 invalidation by omitting a field.
      */
     callerSessionHash: string | null,
-    /** IP + UA for the security_events row (S-H1). Best-effort; omitted in tests. */
+    /** IP + UA for the security_events row. Best-effort; omitted in tests. */
     eventMeta?: SessionMeta,
   ): Effect.Effect<{ passkeyId: string }, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
@@ -239,7 +239,7 @@ export function createPasskeysModule(
       const ts = now();
       const nowSec = Math.floor(ts.getTime() / 1000);
 
-      // S-H1: write the audit row in the SAME transaction as the passkey
+      // Write the audit row in the SAME transaction as the passkey
       // insert so a signed-out attacker who skips the notification path
       // still leaves a row in security_events for the user to discover.
       const securityEventRow: typeof securityEvents.$inferInsert = {
@@ -252,7 +252,7 @@ export function createPasskeysModule(
         uaLabel: eventMeta?.uaLabel ?? null,
       };
 
-      // P-W1 / P-I10: cap enforcement. `beginPasskeyRegistration` already refuses
+      // Cap enforcement. `beginPasskeyRegistration` already refuses
       // past the limit; this is the belt-and-braces check. D1 has no interactive
       // transaction, so the count read runs first and the passkey + audit insert
       // commit as one atomic batch. A pair of completes racing the cap could
@@ -295,7 +295,7 @@ export function createPasskeysModule(
 
       metricSecurityEventRecorded("passkey_register");
 
-      // H1: Invalidate all other sessions on passkey registration.
+      // Invalidate all other sessions on passkey registration.
       // An attacker who stole a session token cannot persist after the
       // legitimate user adds a passkey.
       //
@@ -306,7 +306,7 @@ export function createPasskeysModule(
       if (callerSessionHash) {
         yield* invalidateOtherAccountSessions(accountId, callerSessionHash);
       } else {
-        // O4: the caller has no identifiable session at all — no cookie, and
+        // The caller has no identifiable session at all — no cookie, and
         // either no `osn_sid` in the access token or one that matches no live
         // session row. Previously this branch was a silent no-op — H1
         // invalidation was skipped entirely, so a stolen session survived the
@@ -322,7 +322,7 @@ export function createPasskeysModule(
         metricSessionSecurityInvalidation("passkey_register");
       }
 
-      // S-H1: best-effort email notification. Forked daemon — failure
+      // Best-effort email notification. Forked daemon — failure
       // logged but never rolls back the enrolment. 10s timeout matches
       // passkey_delete / recovery_code_* paths.
       yield* Effect.forkDetach(
@@ -383,9 +383,9 @@ export function createPasskeysModule(
             }),
           catch: (cause) => new AuthError({ message: String(cause) }),
         });
-        // O3: the store self-bounds (CEREMONY_STORE_MAX in-memory, native PX
-        // expiry on Redis) and sweeps expired entries on insert, so the prior
-        // explicit P-I2 size-cap check is folded into the store.
+        // The store self-bounds (CEREMONY_STORE_MAX in-memory, native PX
+        // expiry on Redis) and sweeps expired entries on insert, so no
+        // separate size-cap check is needed.
         const challengeId = crypto.randomUUID();
         yield* Effect.promise(() =>
           stores.loginChallenges.set(
@@ -402,7 +402,7 @@ export function createPasskeysModule(
 
       // Resolve passkeys for the account when the identifier is known, or
       // nothing when it isn't. Both branches run a DB SELECT so the query
-      // latency distribution is the same (S-M1: no timing oracle).
+      // latency distribution is the same (no timing oracle).
       const { db } = yield* Db;
       const profilePasskeys = profile
         ? yield* Effect.tryPromise({
@@ -412,12 +412,12 @@ export function createPasskeysModule(
         : yield* Effect.tryPromise({
             // Burn-in query: hit the table with a never-matching accountId
             // so an unknown identifier costs the same shape of work as a
-            // known one. O5: random per-request sentinel — see probeAccountId.
+            // known one. Random per-request sentinel — see probeAccountId.
             try: () => db.select().from(passkeys).where(eq(passkeys.accountId, probeAccountId())),
             catch: (cause) => new DatabaseError({ cause }),
           });
 
-      // S-M1: equalise the response envelope. Unknown identifier AND
+      // Equalise the response envelope. Unknown identifier AND
       // known-with-zero-passkeys return a single fabricated credentialId;
       // known-with-passkeys returns the real allowCredentials. The wire
       // shape — `{ options: { …, allowCredentials: [...], userVerification } }`
@@ -451,7 +451,7 @@ export function createPasskeysModule(
           generateAuthenticationOptions({
             rpID: config.rpId,
             allowCredentials,
-            // S-H2: `verifyAuthenticationResponse` sets
+            // `verifyAuthenticationResponse` sets
             // `requireUserVerification: true`, so options and verify must
             // agree. "required" here matches the verifier, matches the
             // identifier-less flow, and makes the ceremony phishing-
@@ -470,7 +470,7 @@ export function createPasskeysModule(
       // legitimate timeout — preserves the enumeration safety into
       // the complete step too.
       if (realCredentials) {
-        // O3: store self-bounds + self-sweeps (see discoverable branch above).
+        // Store self-bounds + self-sweeps (see discoverable branch above).
         yield* Effect.promise(() =>
           stores.loginChallenges.set(
             normalised,
@@ -554,7 +554,7 @@ export function createPasskeysModule(
         if (!account) {
           return yield* Effect.fail(new AuthError({ message: "Invalid request" }));
         }
-        // S-M3: discoverable flow — the credential row supplies the account.
+        // Discoverable flow — the credential row supplies the account.
         // Cross-check the assertion's `userHandle` against the account's
         // stored `passkeyUserId`. The signature already binds the assertion
         // to the credential, so this is defence-in-depth: if a future schema
@@ -578,7 +578,7 @@ export function createPasskeysModule(
         }
       }
 
-      // S-L5: never reflect the WebAuthn library's error text to the caller —
+      // Never reflect the WebAuthn library's error text to the caller —
       // it can pinpoint failure mode (challenge mismatch vs origin mismatch
       // vs counter regression) and lets an attacker probe the verifier. We
       // log the cause for operators (annotation goes through the redaction
@@ -614,7 +614,7 @@ export function createPasskeysModule(
         return yield* Effect.fail(new AuthError({ message: "Passkey verification failed" }));
       }
 
-      // Update counter + coalesced last_used_at (P-W4 parallel to sessions).
+      // Update counter + coalesced last_used_at (parallel to sessions).
       const nowSec = Math.floor(Date.now() / 1000);
       const shouldTouchLastUsed =
         !pk.lastUsedAt || Date.now() - pk.lastUsedAt * 1000 >= PASSKEY_LAST_USED_COALESCE_MS;

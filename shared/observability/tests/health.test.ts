@@ -40,7 +40,7 @@ describe("healthRoutes", () => {
     expect(body.status).toBe("not_ready");
   });
 
-  // S-H1: /ready must NOT leak internal probe error messages. The
+  // /ready must NOT leak internal probe error messages. The
   // response body on a thrown probe must be identical to the response
   // body on a `return false` probe — no `reason`, no `error`, no
   // `stack`. Operators see the underlying cause in logs.
