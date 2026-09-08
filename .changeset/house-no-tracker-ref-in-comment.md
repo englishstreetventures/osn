@@ -1,0 +1,21 @@
+---
+"@tools/oxlint-house": patch
+---
+
+Add `house/no-tracker-ref-in-comment`, an oxlint rule that flags a comment carrying work-tracking state or a bug's history.
+
+Four shapes, each reported separately with its own message and pointed at the line it sits on rather than the top of the block containing it: an `osn-tracker#` issue number, a review finding tag (`\b[CDPST]-[A-Z]\d+\b`, covering the security, perf, tests, docs and compliance tiers, single- or multi-digit, and matched mid-line so a parenthesised `(S-M1)` or a prefixed `IB-S-L2` is caught), a phase or plan code (`\b[A-Z]\d+:`), and past-tense narration ("used to be", "was reported as"). All four stop resolving once the issue closes or the plan ships, and the code they annotate is then left with a reason nobody can look up — and osn is public, so a comment naming a private tracker finding is a disclosure as well as a dead link.
+
+A bare `#123` is deliberately not matched: that is an ordinary public cross-reference, and flagging it would make the rule fire on healthy "follows the approach in #123" comments. Present-tense "reported as" is likewise left alone — it is ordinary prose ("anything slower is reported as a timeout"), and only the past-tense form reliably marks narration.
+
+The rule ships at `"warn"` rather than `"error"`. `bun run lint` runs oxlint unscoped over the whole tree with no `--deny-warnings`, and it reports 1600 references across 483 files today (1396 finding tags, 101 plan codes, 60 tracker issues, 43 narrations), so `"error"` would fail every pull request's lint job — including the one adding the rule. The cleanup that clears those files raises the severity as its last step.
+
+A citation to a standard that numbers its clauses — the Copenhagen Book, an RFC, NIST, OWASP, WCAG, ISO, FIPS — is exempt from the plan-code pattern. Those numbers look identical to an internal phase tag and are the opposite thing: a stable external reference, which is the kind of pointer the convention exists to encourage. A bare plan code on the same line still reports.
+
+A reference is reported once per occurrence rather than once per comment, so a line carrying two tags reports twice and a single pass over the warnings clears the file. The phase-code pattern refuses a match preceded by a hyphen, because a finding tag used as a label ends in a colon as well and would otherwise report a second time as a plan code that was never there.
+
+The convention was not written down anywhere before, so the rule and its documentation land together. `wiki/conventions/code-comments.md` is the new page — what earns a comment, the four references that rot, what to write instead in order of preference (a rename, then a `@see` to a wiki path or public issue, then an inline reason), and where the line sits on length. CLAUDE.md gets a one-line Conventions row pointing at it, and an entry in the wiki-navigation table.
+
+A stable reference is the encouraged form, not a banned one: a wiki page by repo path, or a public `xchromo/osn` issue. Only the private tracker's IDs and the finding tags are out, and a bare `#123` was never matched.
+
+oxlint's jsdoc plugin is turned on alongside, at `warn`, for the five rules that measured zero hits across the tree — `empty-tags`, `require-param-description`, `require-returns-description`, `no-defaults`, `implements-on-classes`. They only ever fire on new drift, and together they say a tag you write must carry content. `require-param` and `require-returns` are deliberately excluded: they would add 1624 and 1934 warnings asking for a restatement of a signature TypeScript already carries, which is the redundant-comment problem in a tag's clothing. Two further rules are explicitly `off` because listing the plugin enables its whole set and both sit in the correctness category this repo treats as an error — `require-yields` wants a tag on every generator, which here means every `Effect.gen`, and `check-tag-names` reads a scoped package name wrapped onto the start of a line as a tag.

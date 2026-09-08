@@ -69,7 +69,7 @@ Two things to check, both in the same PR as the code:
 - **`CLAUDE.md`** — only if this branch adds a pattern, package, convention or architectural decision a future session needs. Reusable context, not noise.
 - **The wiki page for every system this branch changes.** A modified system means an updated page; a new one means a new page, linked from at least two existing pages plus the CLAUDE.md navigation table and `wiki/index.md`. `CLAUDE.md` §Wiki maintenance rules holds the frontmatter and linking requirements — follow them there rather than repeating them here.
 
-**Then check the links you just wrote resolve.** `mcp__obsidian-wiki__find_broken_links` indexes `main` and cannot see this branch, so check locally — the `comm -23` recipe is in `reference/wikilink-check.md`.
+**Then check the links you just wrote resolve.** `mcp__obsidian-wiki__find_broken_links` indexes `main` and cannot see this branch, so check locally — the `comm -23` recipe is in `references/wikilink-check.md`.
 
 Commit any doc updates with the message: `docs: update wiki for <branch-summary>`.
 
@@ -110,6 +110,6 @@ gh stack link <bottom-pr> [<middle-pr> …] <this-pr>   # bottom to top
 gh stack checkout <stack-number>                       # confirm
 ```
 
-Why `checkout` and not `view` confirms it, and what to do with no network: `reference/registering-a-stack.md`.
+Why `checkout` and not `view` confirms it, and what to do with no network: `references/registering-a-stack.md`.
 
 Report the PR number, its base branch, whether the stack is registered, and the issues it closes.
