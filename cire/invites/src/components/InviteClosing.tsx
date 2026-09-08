@@ -10,6 +10,64 @@ import { isFooterEmpty } from "./invite-emptiness";
 import { buildSrcSet, variantSrc } from "./invite-images";
 
 /**
+ * The tallest a closing band may be. `dvh`, not `vh`, so a phone's collapsing
+ * URL bar doesn't leave it measured against a viewport that isn't there.
+ *
+ * Exported for the drift guard in the tests: it appears BOTH as a literal
+ * inside {@link BAND_IMG_CLASS} (Tailwind's scanner reads source text — a
+ * computed class emits no CSS at all) and as this value in the cropped path's
+ * width `calc`, so the two have to be asserted equal rather than trusted.
+ */
+export const BAND_MAX_HEIGHT = "85dvh";
+
+/**
+ * The uncropped band: full-bleed, the source's own proportions (`h-auto`),
+ * bounded by the screen. `object-cover` bites only when that bound does, and
+ * crops centred — acceptable for an image the organiser never framed.
+ */
+export const BAND_IMG_CLASS = "block h-auto max-h-[85dvh] w-full object-cover";
+
+/**
+ * The widest a CROPPED band may be, so the screen-height bound never becomes a
+ * `max-height` clip: paired with `width: 100%` this is `min(100%, cap × aspect)`
+ * — full-bleed at any ordinary landscape shape, a centred column only when the
+ * band would otherwise outgrow the screen. Written as a `max-width` rather than
+ * a literal `min()` because `min()` is the one form the test tier's CSS parser
+ * discards, and a contract nothing can assert is a contract that rots.
+ */
+export function bandMaxWidth(aspect: number): string {
+  return `calc(${BAND_MAX_HEIGHT} * ${aspect})`;
+}
+
+/**
+ * The band's shape when a crop carries no captured source dims (a legacy
+ * rectangle saved before the editor recorded them). 16∶9 — the wide frame the
+ * closing slot's crop editor now opens on (`CROP_ASPECT.footer`), so the
+ * fallback matches what an organiser would have been shown.
+ */
+const LEGACY_CROP_ASPECT = 16 / 9;
+
+export interface InviteClosingProps {
+  /** The couple's closing note. Blank/whitespace-only ⇒ no note. */
+  message?: string | null;
+  /**
+   * The closing image's URL *path* as the API reports it, or null for none. The
+   * component prepends `apiUrl` — callers pass the payload value unchanged.
+   */
+  imageUrl?: string | null;
+  /** Crop rectangle the organiser framed the closing image with, if any. */
+  imageCrop?: ImageCrop | null;
+  /** cire-api origin the image path is resolved against. */
+  apiUrl: string;
+  /**
+   * Validated CSS-variable map for this section's surface — the WELCOME
+   * section's vars (`sectionVars(theme, "welcome")`), since this section
+   * deliberately shares that tone rather than carrying one of its own.
+   */
+  themeVars?: Record<string, string>;
+}
+
+/**
  * The invite's CLOSING SECTION — the couple's own sign-off: an optional
  * EDGE-TO-EDGE image over an optional closing note ("Looking forward to
  * celebrating with you", "No boxed gifts please").
@@ -81,65 +139,6 @@ import { buildSrcSet, variantSrc } from "./invite-images";
  * organiser "footer" next to a page that also has a legal footer would be
  * ambiguous about which one they are editing.
  */
-
-/**
- * The tallest a closing band may be. `dvh`, not `vh`, so a phone's collapsing
- * URL bar doesn't leave it measured against a viewport that isn't there.
- *
- * Exported for the drift guard in the tests: it appears BOTH as a literal
- * inside {@link BAND_IMG_CLASS} (Tailwind's scanner reads source text — a
- * computed class emits no CSS at all) and as this value in the cropped path's
- * width `calc`, so the two have to be asserted equal rather than trusted.
- */
-export const BAND_MAX_HEIGHT = "85dvh";
-
-/**
- * The uncropped band: full-bleed, the source's own proportions (`h-auto`),
- * bounded by the screen. `object-cover` bites only when that bound does, and
- * crops centred — acceptable for an image the organiser never framed.
- */
-export const BAND_IMG_CLASS = "block h-auto max-h-[85dvh] w-full object-cover";
-
-/**
- * The widest a CROPPED band may be, so the screen-height bound never becomes a
- * `max-height` clip: paired with `width: 100%` this is `min(100%, cap × aspect)`
- * — full-bleed at any ordinary landscape shape, a centred column only when the
- * band would otherwise outgrow the screen. Written as a `max-width` rather than
- * a literal `min()` because `min()` is the one form the test tier's CSS parser
- * discards, and a contract nothing can assert is a contract that rots.
- */
-export function bandMaxWidth(aspect: number): string {
-  return `calc(${BAND_MAX_HEIGHT} * ${aspect})`;
-}
-
-/**
- * The band's shape when a crop carries no captured source dims (a legacy
- * rectangle saved before the editor recorded them). 16∶9 — the wide frame the
- * closing slot's crop editor now opens on (`CROP_ASPECT.footer`), so the
- * fallback matches what an organiser would have been shown.
- */
-const LEGACY_CROP_ASPECT = 16 / 9;
-
-export interface InviteClosingProps {
-  /** The couple's closing note. Blank/whitespace-only ⇒ no note. */
-  message?: string | null;
-  /**
-   * The closing image's URL *path* as the API reports it, or null for none. The
-   * component prepends `apiUrl` — callers pass the payload value unchanged.
-   */
-  imageUrl?: string | null;
-  /** Crop rectangle the organiser framed the closing image with, if any. */
-  imageCrop?: ImageCrop | null;
-  /** cire-api origin the image path is resolved against. */
-  apiUrl: string;
-  /**
-   * Validated CSS-variable map for this section's surface — the WELCOME
-   * section's vars (`sectionVars(theme, "welcome")`), since this section
-   * deliberately shares that tone rather than carrying one of its own.
-   */
-  themeVars?: Record<string, string>;
-}
-
 export function InviteClosing(props: InviteClosingProps) {
   // The whole section is a conditional segment: nothing set ⇒ render nothing.
   // `isFooterEmpty` is the shared predicate the organiser builder mirrors for

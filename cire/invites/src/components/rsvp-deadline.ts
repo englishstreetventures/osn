@@ -1,5 +1,3 @@
-import type { RsvpDeadline } from "./types";
-
 /**
  * Guest-side rendering of the wedding's RSVP deadline.
  *
@@ -9,6 +7,7 @@ import type { RsvpDeadline } from "./types";
  * the server can't do — re-derive `closed` as the clock moves, since a guest
  * can sit on a claimed invite for hours and the payload was computed once.
  */
+import type { RsvpDeadline } from "./types";
 
 /**
  * DOM id of the events-section deadline notice. Shared by both design packs so
@@ -32,11 +31,6 @@ export function isRsvpClosed(deadline: RsvpDeadline | null | undefined, now: Dat
   return now.getTime() > closesAt;
 }
 
-/**
- * The deadline day in words — "Sunday 1 September 2026" — read in the wedding's
- * OWN zone, so a guest in another country sees the date the couple wrote, not
- * the one their own clock would roll it to.
- */
 /**
  * Day formatters keyed by zone. Constructing one is the expensive part (~75µs)
  * while `format` on an existing instance is cheap, and this is called from a
@@ -65,6 +59,11 @@ function dayFormatter(timezone: string): Intl.DateTimeFormat | null {
   }
 }
 
+/**
+ * The deadline day in words — "Sunday 1 September 2026" — read in the wedding's
+ * OWN zone, so a guest in another country sees the date the couple wrote, not
+ * the one their own clock would roll it to.
+ */
 export function formatDeadlineDay(deadline: RsvpDeadline): string {
   const at = Date.parse(`${deadline.date}T12:00:00Z`);
   if (Number.isNaN(at)) return deadline.date;

@@ -17,14 +17,6 @@ import { deriveSessionBinding, hashSessionToken, sessionHandleFromHash } from ".
 import type { SessionSummary } from "./types";
 
 /**
- * Finds the session id whose per-profile binding equals `sessionBinding`.
- *
- * The comparison is constant-time even though the presented value arrives
- * inside a JWT this server signed — nobody can iterate candidates today, and
- * keeping the digest comparison uniform means that stays true if `osn_sid`
- * ever becomes settable from another surface.
- */
-/**
  * How a destructive "revoke every OTHER session" path should treat the caller.
  * See {@link createSessionsModule}'s `classifyCallerSession`.
  */
@@ -33,6 +25,14 @@ export type CallerSessionResolution =
   | { readonly _tag: "none" }
   | { readonly _tag: "stale" };
 
+/**
+ * Finds the session id whose per-profile binding equals `sessionBinding`.
+ *
+ * The comparison is constant-time even though the presented value arrives
+ * inside a JWT this server signed — nobody can iterate candidates today, and
+ * keeping the digest comparison uniform means that stays true if `osn_sid`
+ * ever becomes settable from another surface.
+ */
 function matchBinding(
   sessionIds: readonly string[],
   profileId: string,

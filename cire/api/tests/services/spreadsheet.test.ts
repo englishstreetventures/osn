@@ -649,10 +649,6 @@ describe("UTF-8 BOM tolerance", () => {
 });
 
 /**
- * Every parse rejection says WHICH sheet it came from — with two files in one
- * request, "Malformed spreadsheet" alone doesn't tell an organiser which to open.
- */
-/**
  * The typed error an exit failed with. v4's Cause is a list of reasons rather
  * than a tagged node, so the error is read out with `findErrorOption` instead
  * of matching a `Fail`; a success or a defect throws here rather than letting
@@ -663,6 +659,10 @@ function failureOf<E>(exit: Exit.Exit<unknown, E>): E {
   return Option.getOrThrow(Cause.findErrorOption(exit.cause));
 }
 
+/**
+ * Every parse rejection says WHICH sheet it came from — with two files in one
+ * request, "Malformed spreadsheet" alone doesn't tell an organiser which to open.
+ */
 describe("parse errors carry their sheet", () => {
   it("stamps sheet='events' on an events-sheet rejection", async () => {
     const exit = await Effect.runPromiseExit(parseEventsCsv("Event Name,Start\nx,not-a-date"));

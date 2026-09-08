@@ -5,23 +5,6 @@ import { Effect } from "effect";
 import { runCire, runCireSync } from "../src/observability";
 
 /**
- * T-U1: the load-bearing contract of `runCire` / `runCireSync` is that they
- * install `cireLoggerLayer`, so every log line is routed through the shared
- * redaction deny-list. The deny-list *logic* is owned + tested upstream
- * (`@shared/observability` redact.test.ts); these tests pin that cire actually
- * *applies* it — i.e. a PII-bearing context object passed to a cire log call
- * comes out `[REDACTED]` end-to-end, and a refactor that drops the layer (or
- * swaps `runCire` back to a bare `Effect.runPromise`) fails loudly.
- *
- * Note on shape: cire logs context as the log message argument
- * (`Effect.logError("msg", { weddingId })`) — never via `Effect.annotateLogs`.
- * `redact()` walks that message object and scrubs by key, which is the path
- * exercised here. (Annotation VALUES are redacted by the shared logger too, but
- * a denied annotation KEY carrying a primitive is not — a pre-existing shared
- * limitation cire does not exercise; tracked as a follow-up.)
- */
-
-/**
  * Capture everything Effect's logger writes for one run. Effect's default
  * loggers emit through `globalThis.console`, so we temporarily swap those
  * methods for a sink. (`globalThis.console` is used rather than the bare
@@ -47,6 +30,22 @@ async function captureLogs(run: () => unknown | Promise<unknown>): Promise<strin
   return lines.join("\n");
 }
 
+/**
+ * T-U1: the load-bearing contract of `runCire` / `runCireSync` is that they
+ * install `cireLoggerLayer`, so every log line is routed through the shared
+ * redaction deny-list. The deny-list *logic* is owned + tested upstream
+ * (`@shared/observability` redact.test.ts); these tests pin that cire actually
+ * *applies* it — i.e. a PII-bearing context object passed to a cire log call
+ * comes out `[REDACTED]` end-to-end, and a refactor that drops the layer (or
+ * swaps `runCire` back to a bare `Effect.runPromise`) fails loudly.
+ *
+ * Note on shape: cire logs context as the log message argument
+ * (`Effect.logError("msg", { weddingId })`) — never via `Effect.annotateLogs`.
+ * `redact()` walks that message object and scrubs by key, which is the path
+ * exercised here. (Annotation VALUES are redacted by the shared logger too, but
+ * a denied annotation KEY carrying a primitive is not — a pre-existing shared
+ * limitation cire does not exercise; tracked as a follow-up.)
+ */
 describe("runCire / runCireSync redaction wiring", () => {
   it("scrubs PII keys in a cire log message object", async () => {
     const out = await captureLogs(() =>

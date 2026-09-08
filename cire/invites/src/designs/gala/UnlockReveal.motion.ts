@@ -1,5 +1,3 @@
-import { animate, stagger } from "motion";
-
 /**
  * Motion v12 does NOT persist a keyframe animation's final value: when the
  * animation finishes, the element reverts to its base styles. The events
@@ -12,6 +10,7 @@ import { animate, stagger } from "motion";
  * Choreography differs from classic (tighter, denser rhythm to match gala's
  * narrow claim panel + wide events column) but every guard is verbatim.
  */
+import { animate, stagger } from "motion";
 
 /** Longest we wait on one animation before the reveal proceeds without it. */
 const STEP_TIMEOUT_MS = 1000;

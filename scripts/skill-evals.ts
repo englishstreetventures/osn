@@ -335,6 +335,18 @@ function cmdChanged() {
   for (const skill of skills) console.log(skill);
 }
 
+/** A skill with no scenario is the normal state, not an error.
+ *
+ * Most skills have never had one written — `orchestrate`, `stress-plan`,
+ * `rate-complexity`, `setup-osn` and `review-deps` among them — so a branch
+ * that edits one has nothing to narrow a run to. Failing there reddens the
+ * check on a pull request that has done nothing wrong, and a red check nobody
+ * can act on is a check people learn to ignore. So an empty pick writes no
+ * scenario, prints nothing on stdout and exits 0; the caller reads the empty
+ * stdout and skips the run.
+ *
+ * A name that is not a skill at all still fails. That one is a typo, and the
+ * whole point of the exit code is to catch the case a human can fix. */
 function cmdSubset() {
   const out = readArg("--out") ?? fail("subset needs --out <dir>");
   const wanted = (readArg("--skills") ?? "")
@@ -344,13 +356,25 @@ function cmdSubset() {
   if (wanted.length === 0) fail("subset needs --skills a,b");
 
   const skills = listSkills();
+  const unknown = wanted.filter((s) => !skills.includes(s));
+  if (unknown.length > 0) {
+    fail(
+      `not a skill in ${SKILLS_DIR}/: ${unknown.join(", ")}\n` +
+        `Known skills: ${skills.join(", ")}`,
+    );
+  }
+
   const picked = listScenarios().filter((s) => {
     const owner = skillOf(s, skills);
     return owner !== null && wanted.includes(owner);
   });
-  if (picked.length === 0) fail(`no scenarios for: ${wanted.join(", ")}`);
 
   mkdirSync(out, { recursive: true });
+  if (picked.length === 0) {
+    console.error(`No scenarios cover: ${wanted.join(", ")}. Nothing to run.`);
+    return;
+  }
+
   for (const scenario of picked)
     cpSync(join(EVALS_DIR, scenario), join(out, scenario), { recursive: true });
   for (const scenario of picked) console.log(scenario);

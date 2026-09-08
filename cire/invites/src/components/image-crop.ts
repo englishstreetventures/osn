@@ -97,14 +97,6 @@ export function cropAspectRatio(crop: ImageCrop | null | undefined, fallback: nu
 }
 
 /**
- * CSS `style` properties that render the cropped region of `imageUrl` inside a box,
- * scaled UNIFORMLY (single-value `background-size`) so the image keeps its
- * proportions — never stretched. Returns the background layer props only; the
- * caller owns the box's `aspect-ratio` (use `cropAspectRatio`) and `overflow:
- * hidden`. Returns `null` when the crop is absent/identity, so the caller falls
- * back to a plain `<img object-cover>`.
- */
-/**
  * Escape a URL for interpolation inside a CSS `url("…")` string context
  * (S-L1): backslash + double-quote are escaped and control characters
  * stripped, so the value can never terminate the string no matter where a
@@ -121,6 +113,14 @@ function cssUrlValue(imageUrl: string): string {
   return out;
 }
 
+/**
+ * CSS `style` properties that render the cropped region of `imageUrl` inside a box,
+ * scaled UNIFORMLY (single-value `background-size`) so the image keeps its
+ * proportions — never stretched. Returns the background layer props only; the
+ * caller owns the box's `aspect-ratio` (use `cropAspectRatio`) and `overflow:
+ * hidden`. Returns `null` when the crop is absent/identity, so the caller falls
+ * back to a plain `<img object-cover>`.
+ */
 export function cropBackgroundStyle(
   imageUrl: string,
   crop: ImageCrop | null | undefined,

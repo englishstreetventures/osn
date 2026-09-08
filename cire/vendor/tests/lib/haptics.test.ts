@@ -2,6 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
+ * Load a fresh library + wrapper against whatever `navigator.vibrate` is now.
+ *
  * What is worth testing here is the *gate*, not the waveform.
  *
  * No test environment can feel a vibration, and happy-dom has no Vibration API
@@ -14,8 +16,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * semantic name maps to exactly one preset pattern, and importing the module
  * touches neither `navigator` nor the document until something is triggered.
  */
-
-/** Load a fresh library + wrapper against whatever `navigator.vibrate` is now. */
 async function load() {
   vi.resetModules();
   const theme = await import("../../src/lib/theme");

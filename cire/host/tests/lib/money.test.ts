@@ -9,12 +9,6 @@ import {
 } from "../../src/lib/money";
 
 /**
- * ENQ-P-W3. The behaviour these pin is mostly the memoisation, because that is
- * the whole point of the module and the part a refactor can silently undo — a
- * reinstated per-call `new Intl.NumberFormat` renders identically and would
- * pass every output assertion below.
- */
-/**
  * Count constructions without losing real formatting. A bare `vi.spyOn` is not
  * enough: invoked with `new`, the spy yields its own instance rather than the
  * original's, so every `.format` call would blow up.
@@ -28,6 +22,12 @@ function countConstructions() {
     );
 }
 
+/**
+ * ENQ-P-W3. The behaviour these pin is mostly the memoisation, because that is
+ * the whole point of the module and the part a refactor can silently undo — a
+ * reinstated per-call `new Intl.NumberFormat` renders identically and would
+ * pass every output assertion below.
+ */
 describe("formatMinor", () => {
   afterEach(() => {
     __resetMoneyFormatters();

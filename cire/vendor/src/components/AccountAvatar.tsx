@@ -1,6 +1,3 @@
-import type { RpSession } from "@shared/rp-auth";
-import { Show } from "solid-js";
-
 /**
  * The account avatar, and the identity strings that go with it.
  *
@@ -14,6 +11,8 @@ import { Show } from "solid-js";
  * identity is a border, a circle and one glyph, none of which need an 86 KB
  * menu library to draw.
  */
+import type { RpSession } from "@shared/rp-auth";
+import { Show } from "solid-js";
 
 /** The trigger's box. Worn by the real trigger and by the placeholder alike. */
 export const AVATAR_TRIGGER_CLASS =

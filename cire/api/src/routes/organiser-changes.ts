@@ -33,6 +33,12 @@ import type {
 
 const ONE_MB = 1 * 1024 * 1024;
 
+/** Cap on the one untrusted value this body reflects (see below). */
+const MAX_REFLECTED_LABEL = 64;
+
+function truncateLabel(s: string): string {
+  return s.length > MAX_REFLECTED_LABEL ? `${s.slice(0, MAX_REFLECTED_LABEL)}…` : s;
+}
 /**
  * The 422 body for a spreadsheet parse rejection, shared by preview and apply.
  *
@@ -57,15 +63,7 @@ const ONE_MB = 1 * 1024 * 1024;
  *    and the client renders it through SolidJS text interpolation, which
  *    escapes — but a future renderer or log sink must treat it as untrusted.
  *  - `FormulaInjectionDetected.snippet` — untrusted, and withheld entirely.
- */
-
-/** Cap on the one untrusted value this body reflects (see above). */
-const MAX_REFLECTED_LABEL = 64;
-
-function truncateLabel(s: string): string {
-  return s.length > MAX_REFLECTED_LABEL ? `${s.slice(0, MAX_REFLECTED_LABEL)}…` : s;
-}
-/**
+ *
  * The wire body itself — the union of what the four branches below emit, named
  * so the contract above is a type rather than a comment. `reason` is only on a
  * `MalformedSpreadsheet`; `row`/`column` are absent on the two column errors;

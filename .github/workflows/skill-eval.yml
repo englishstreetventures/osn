@@ -213,16 +213,32 @@ jobs:
         if: steps.skills.outputs.list != ''
         run: bun run scripts/skill-evals.ts check-names
 
-      - uses: tesslio/setup-tessl@25ec223fc0da33b41b8044ff5ab2b85235f4f91e # v2
-        if: steps.skills.outputs.list != ''
-        with:
-          token: ${{ secrets.TESSL_TOKEN }}
-
+      # Most skills have no scenario, so a branch can change one and leave
+      # nothing to run. `subset` prints a name per scenario and exits 0 either
+      # way; an empty stdout is the signal to skip the rest of the job rather
+      # than to fail it. This runs before `setup-tessl` so that the skip costs
+      # nothing.
       - name: Narrow the run to those skills' scenarios
+        id: subset
         if: steps.skills.outputs.list != ''
         env:
           SKILLS: ${{ steps.skills.outputs.list }}
-        run: bun run scripts/skill-evals.ts subset --skills "$SKILLS" --out "$RUNNER_TEMP/scenarios"
+        run: |
+          # Not a pipe into `grep -c`: `|| true` on that pipeline would swallow
+          # a real `subset` failure — an unknown skill name — as a count of 0.
+          bun run scripts/skill-evals.ts subset \
+            --skills "$SKILLS" --out "$RUNNER_TEMP/scenarios" > "$RUNNER_TEMP/picked.txt"
+          COUNT=$(grep -c . "$RUNNER_TEMP/picked.txt" || true)
+          echo "Scenarios to run: $COUNT"
+          if [ "$COUNT" = "0" ]; then
+            echo "::notice::No eval scenario covers ${SKILLS}; skipping the run."
+          fi
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+      - uses: tesslio/setup-tessl@25ec223fc0da33b41b8044ff5ab2b85235f4f91e # v2
+        if: steps.subset.outputs.count != '' && steps.subset.outputs.count != '0'
+        with:
+          token: ${{ secrets.TESSL_TOKEN }}
 
       # `--skip-baseline` because the baseline cannot move when only a skill
       # changed, and it is half the solves. `-n 1` because this is the inner
@@ -241,7 +257,7 @@ jobs:
       - name: Start the eval run
         id: run
         continue-on-error: true
-        if: steps.skills.outputs.list != ''
+        if: steps.subset.outputs.count != '' && steps.subset.outputs.count != '0'
         env:
           TESSL_TOKEN: ${{ secrets.TESSL_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -266,7 +282,7 @@ jobs:
       # goes into a sticky comment, and `skill-eval-collect.yml` picks it up on
       # its next sweep and edits the table in.
       - name: Leave the run id for the collector
-        if: steps.skills.outputs.list != '' && steps.run.outcome == 'success'
+        if: steps.subset.outputs.count != '' && steps.subset.outputs.count != '0' && steps.run.outcome == 'success'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}

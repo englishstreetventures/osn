@@ -1,8 +1,3 @@
-import { timingSafeEqualString } from "@shared/crypto/timing-safe";
-import { generateToken, sha256Base64Url } from "@shared/crypto/tokens";
-
-import { verifyIdToken } from "./verify-id-token";
-
 /**
  * OIDC **relying-party** half of signing in with an OSN account — the server
  * side of the flow whose browser side is `@shared/rp-auth`.
@@ -40,6 +35,10 @@ import { verifyIdToken } from "./verify-id-token";
  *    request that carries both (RFC 6749 §2.3), so sending one and only one is
  *    not a style choice.
  */
+import { timingSafeEqualString } from "@shared/crypto/timing-safe";
+import { generateToken, sha256Base64Url } from "@shared/crypto/tokens";
+
+import { verifyIdToken } from "./verify-id-token";
 
 /** Scopes we ask for. `email` is separate consent; the product's UI shows it. */
 const SCOPE = "openid profile email";

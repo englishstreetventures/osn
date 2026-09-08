@@ -1,5 +1,3 @@
-import { animate, stagger } from "motion";
-
 /**
  * Motion v12 does NOT persist a keyframe animation's final value: when the
  * animation finishes, the element reverts to its base styles. The events
@@ -9,6 +7,7 @@ import { animate, stagger } from "motion";
  * — the keyframes only paint the transition — and each animate call is guarded
  * so a throwing or stalled animation can never hide the invite.
  */
+import { animate, stagger } from "motion";
 
 /** Longest we wait on one animation before the reveal proceeds without it. */
 const STEP_TIMEOUT_MS = 1000;

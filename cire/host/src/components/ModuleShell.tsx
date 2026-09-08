@@ -57,29 +57,6 @@ const InviteBuilder = lazy(loadInviteBuilder);
 const RegistryView = lazy(loadRegistry);
 
 /**
- * Which sub-tab hides which chunk, so pointing at one can start its fetch.
- *
- * Deferring the bytes is the point of the split; paying for them on the click
- * rather than on the intent is what would turn a first-load win into a
- * first-interaction stall. A hover or a keyboard focus on the sub-tab is enough
- * warning to cover the round trip, and by the time the click lands the module is
- * usually resolved — so the panel mounts without the fallback below ever
- * painting. The module registry dedupes, so warming twice costs nothing and
- * warming a chunk that is already in costs nothing either.
- */
-/**
- * Keyed `module:sub`, and TYPED so a stale module segment fails `tsc` rather
- * than going quiet (T-U2 / P-I3). The lookup below is `?.()` over a swallowed
- * rejection, so a key naming a module that no longer exists produces no error,
- * no warning and no failing test — the only symptom is that hovering the tab
- * stops warming the chunk and every click pays the full round trip behind
- * `PanelLoading`, which is precisely the "first-load win turned into a
- * first-interaction stall" this map exists to prevent. The `events`-for-
- * `schedule` rename this file just went through is exactly that hazard. The
- * template-literal type catches half of it here; `ModuleShell.test.tsx` pins the
- * sub half, which types can't reach.
- */
-/**
  * What one of those chunks resolves to: a panel, default-exported.
  *
  * The warm-up below never reads the module — it only wants the fetch started —
@@ -91,13 +68,35 @@ const RegistryView = lazy(loadRegistry);
  */
 type PanelModule = { readonly default: Component<never> };
 
-/** The warm-up table's shape. Keyed `module:sub`, and the sub half is an open
- *  string, so the key set is open — a pair with no lazy panel simply has no
- *  loader. */
+/**
+ * The warm-up table's shape. Keyed `module:sub`, and the sub half is an open
+ * string, so the key set is open — a pair with no lazy panel simply has no
+ * loader. The module half is TYPED so a stale module segment fails `tsc`
+ * rather than going quiet (T-U2 / P-I3). The lookup below is `?.()` over a
+ * swallowed rejection, so a key naming a module that no longer exists
+ * produces no error, no warning and no failing test — the only symptom is
+ * that hovering the tab stops warming the chunk and every click pays the
+ * full round trip behind `PanelLoading`, which is precisely the "first-load
+ * win turned into a first-interaction stall" this map exists to prevent.
+ * The `events`-for-`schedule` rename this file just went through is exactly
+ * that hazard. The template-literal type catches half of it here;
+ * `ModuleShell.test.tsx` pins the sub half, which types can't reach.
+ */
 interface PanelLoaders {
   readonly [key: `${Module}:${string}`]: (() => Promise<PanelModule>) | undefined;
 }
 
+/**
+ * Which sub-tab hides which chunk, so pointing at one can start its fetch.
+ *
+ * Deferring the bytes is the point of the split; paying for them on the click
+ * rather than on the intent is what would turn a first-load win into a
+ * first-interaction stall. A hover or a keyboard focus on the sub-tab is enough
+ * warning to cover the round trip, and by the time the click lands the module is
+ * usually resolved — so the panel mounts without the fallback below ever
+ * painting. The module registry dedupes, so warming twice costs nothing and
+ * warming a chunk that is already in costs nothing either.
+ */
 const PANEL_LOADERS: PanelLoaders = {
   "events:edit": loadEventsEditor,
   "guests:edit": loadGuestsEditor,

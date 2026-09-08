@@ -219,11 +219,6 @@ export function cropAspectRatio(crop: ImageCrop | null | undefined, fallback: nu
 }
 
 /**
- * UNIFORM crop render (single-value `background-size`) — the image keeps its
- * proportions, never stretched. The caller owns the box's `aspect-ratio` (use
- * `cropAspectRatio`) and `overflow: hidden`. Mirrors cire/invites.
- */
-/**
  * Escape a URL for interpolation inside a CSS `url("…")` string context
  * (S-L1): backslash + double-quote are escaped and control characters
  * stripped, so the value can never terminate the string no matter where a
@@ -240,6 +235,11 @@ function cssUrlValue(imageUrl: string): string {
   return out;
 }
 
+/**
+ * UNIFORM crop render (single-value `background-size`) — the image keeps its
+ * proportions, never stretched. The caller owns the box's `aspect-ratio` (use
+ * `cropAspectRatio`) and `overflow: hidden`. Mirrors cire/invites.
+ */
 export function cropBackgroundStyle(
   imageUrl: string,
   crop: ImageCrop | null | undefined,

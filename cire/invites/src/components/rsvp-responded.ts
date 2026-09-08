@@ -69,9 +69,10 @@ export function hasHouseholdResponded(
  * 2. **Settle** (→ `TOTAL_DURATION_MS`): the filled, ticked button sits still
  *    long enough to read, and then simply stays. All that expires at the end
  *    is the tick's draw animation and the parent's `justResponded` cue.
+ *
+ * The fill's sweep, in either direction — must equal the `duration-500`
+ * utility on the fill layer.
  */
-
-/** The fill's sweep, in either direction — must equal the `duration-500` utility on the fill layer. */
 export const SWEEP_DURATION_MS = 500;
 
 /** Matches `--animate-tick-draw`'s delay in `global.css` — unchanged from the Save-button era. */

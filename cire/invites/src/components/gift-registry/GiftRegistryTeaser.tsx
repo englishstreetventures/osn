@@ -1,20 +1,3 @@
-import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
-
-import {
-  fetchGiftRegistry,
-  giftRegistryAvailabilityCopy,
-  giftRegistryBody,
-  giftRegistryEyebrow,
-  giftRegistryHeading,
-  giftRegistryImageBase,
-  giftRegistryPath,
-  sortGiftRegistryItems,
-  type GiftRegistry,
-  type GiftRegistryItem,
-} from "../../lib/gift-registry";
-import { CLAIM_SESSION_EVENT, hasClaimedHint } from "../claim-session";
-import { buildSrcSet, variantSrc } from "../invite-images";
-
 /**
  * THE GIFT LIST'S PLACE ON THE INVITE — a short band that says the couple have
  * one, shows a few of the gifts, and links to the page that holds them.
@@ -41,6 +24,22 @@ import { buildSrcSet, variantSrc } from "../invite-images";
  * NO COUNTS OF WHO. Same rule as the page: the availability line is quantities
  * only. Names and totals are the couple's.
  */
+import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
+
+import {
+  fetchGiftRegistry,
+  giftRegistryAvailabilityCopy,
+  giftRegistryBody,
+  giftRegistryEyebrow,
+  giftRegistryHeading,
+  giftRegistryImageBase,
+  giftRegistryPath,
+  sortGiftRegistryItems,
+  type GiftRegistry,
+  type GiftRegistryItem,
+} from "../../lib/gift-registry";
+import { CLAIM_SESSION_EVENT, hasClaimedHint } from "../claim-session";
+import { buildSrcSet, variantSrc } from "../invite-images";
 
 /** How many gifts the peek row shows. The fourth is desktop-only — see below. */
 export const GIFT_TEASER_PREVIEW_COUNT = 4;

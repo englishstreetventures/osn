@@ -1,5 +1,3 @@
-import { createEffect, createSignal, type JSX, onCleanup, onMount } from "solid-js";
-
 /**
  * One indicator that moves between items, instead of one border per item.
  *
@@ -23,6 +21,7 @@ import { createEffect, createSignal, type JSX, onCleanup, onMount } from "solid-
  * containing block (`relative`), and the pill must be `absolute` with `inset-0`
  * unset — it takes its whole geometry from `style()`.
  */
+import { createEffect, createSignal, type JSX, onCleanup, onMount } from "solid-js";
 
 /** The subset of DOMRect the geometry needs. Named so the maths can be tested. */
 export interface RectLike {

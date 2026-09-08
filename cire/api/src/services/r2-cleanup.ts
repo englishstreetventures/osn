@@ -2,35 +2,6 @@ import { Effect } from "effect";
 
 import { metricR2ObjectsSwept } from "../metrics";
 
-/**
- * Best-effort bulk R2 object reaper, shared by any flow that orphans R2 objects
- * when it deletes the D1 rows that referenced them (today: the guest-data
- * retention sweep; a future organiser wedding-delete flow would call it too).
- *
- * Why a separate helper: cire stores R2 **keys** in D1 (`imports.events_r2_key`
- * / `guests_r2_key` in the `cire-sheets` bucket; `wedding_invite_customisations`
- * hero/story keys + `events.event_image_key` in `cire-assets`). D1's
- * `ON DELETE cascade` fans out *within* D1 but NEVER reaches R2, so deleting a
- * wedding/import row silently orphans its objects (uploaded guest sheets +
- * wedding photos — personal data) forever. The caller collects the keys BEFORE
- * deleting the rows, then hands them here.
- *
- * Contract:
- *  - **Best-effort.** A failed object delete is logged (`Effect.logError`, keys
- *    are non-PII opaque paths — counts + chunk index only, never guest data) and
- *    NEVER aborts the caller's sweep. Orphaning a handful of objects is strictly
- *    better than a stuck retention sweep that leaves a whole cohort's PII in D1.
- *  - **Bounded.** Keys are deduped and chunked so a purge touching many objects
- *    respects the Worker CPU/subrequest budget; each chunk is one `delete([...])`
- *    multi-key call where the binding supports it (Cloudflare R2), falling back
- *    to per-key deletes only when a binding rejects the array form
- *    *synchronously* — an asynchronous rejection is a real delete failure, not
- *    a feature gap, so it is counted as failed rather than retried per-key.
- *  - **Metric.** Emits the bounded-cardinality `cire.r2.objects.swept` counter
- *    (`bucket` ∈ sheets|assets, `result` ∈ ok|error) — count is the number of
- *    keys in the request, so the sum tracks reclaimed objects per bucket.
- */
-
 /** The two cire R2 buckets, as a bounded label for the swept metric. */
 export type R2BucketLabel = "sheets" | "assets";
 
@@ -66,10 +37,37 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 /**
+ * Best-effort bulk R2 object reaper, shared by any flow that orphans R2 objects
+ * when it deletes the D1 rows that referenced them (today: the guest-data
+ * retention sweep; a future organiser wedding-delete flow would call it too).
+ *
+ * Why a separate helper: cire stores R2 **keys** in D1 (`imports.events_r2_key`
+ * / `guests_r2_key` in the `cire-sheets` bucket; `wedding_invite_customisations`
+ * hero/story keys + `events.event_image_key` in `cire-assets`). D1's
+ * `ON DELETE cascade` fans out *within* D1 but NEVER reaches R2, so deleting a
+ * wedding/import row silently orphans its objects (uploaded guest sheets +
+ * wedding photos — personal data) forever. The caller collects the keys BEFORE
+ * deleting the rows, then hands them here.
+ *
  * Delete `keys` from `bucket`, best-effort. Resolves successfully even if some
  * (or all) deletes fail — failures are logged and counted, never thrown. Empty
  * / all-null key list is a no-op (no metric, no log). Null/blank keys are
  * filtered out so an unset image column never produces a bogus delete.
+ *
+ * Contract:
+ *  - **Best-effort.** A failed object delete is logged (`Effect.logError`, keys
+ *    are non-PII opaque paths — counts + chunk index only, never guest data) and
+ *    NEVER aborts the caller's sweep. Orphaning a handful of objects is strictly
+ *    better than a stuck retention sweep that leaves a whole cohort's PII in D1.
+ *  - **Bounded.** Keys are deduped and chunked so a purge touching many objects
+ *    respects the Worker CPU/subrequest budget; each chunk is one `delete([...])`
+ *    multi-key call where the binding supports it (Cloudflare R2), falling back
+ *    to per-key deletes only when a binding rejects the array form
+ *    *synchronously* — an asynchronous rejection is a real delete failure, not
+ *    a feature gap, so it is counted as failed rather than retried per-key.
+ *  - **Metric.** Emits the bounded-cardinality `cire.r2.objects.swept` counter
+ *    (`bucket` ∈ sheets|assets, `result` ∈ ok|error) — count is the number of
+ *    keys in the request, so the sum tracks reclaimed objects per bucket.
  */
 export function reapR2Objects(
   bucket: DeletableBucket | undefined,

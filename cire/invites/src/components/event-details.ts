@@ -1,5 +1,3 @@
-import type { EventSummary } from "./types";
-
 /**
  * Helpers for the holistic event-details view. Pure, framework-free, and
  * timezone-aware — the modal stays declarative and these stay unit-testable.
@@ -9,6 +7,7 @@ import type { EventSummary } from "./types";
  * stored lat/lng coordinates, so every "where" affordance below is derived
  * from `address` / `mapsUrl` alone — no map API key, no network call.
  */
+import type { EventSummary } from "./types";
 
 /** Resolve the canonical venue string from the free-form `address`, or null when unset. */
 export function venueLine(event: Pick<EventSummary, "address">): string | null {

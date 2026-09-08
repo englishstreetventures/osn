@@ -1,12 +1,3 @@
-import { events, registryItems, weddingInviteCustomisations } from "@cire/db";
-import { isNotNull } from "drizzle-orm";
-import { Data, Effect } from "effect";
-
-import { DbService, dbQuery } from "../db";
-import { metricR2ObjectsSwept } from "../metrics";
-import { reapR2Objects } from "./r2-cleanup";
-import type { DeletableBucket } from "./r2-cleanup";
-
 /**
  * `cire-assets` orphan reconciliation (IB-S-L2 — the open `cire-assets` half).
  *
@@ -49,6 +40,14 @@ import type { DeletableBucket } from "./r2-cleanup";
  *
  * Runs OFF the hot path — only from the Worker `scheduled()` cron handler.
  */
+import { events, registryItems, weddingInviteCustomisations } from "@cire/db";
+import { isNotNull } from "drizzle-orm";
+import { Data, Effect } from "effect";
+
+import { DbService, dbQuery } from "../db";
+import { metricR2ObjectsSwept } from "../metrics";
+import { reapR2Objects } from "./r2-cleanup";
+import type { DeletableBucket } from "./r2-cleanup";
 
 /** R2 key prefix that holds invite images. ONLY keys under this are touched. */
 export const ASSETS_PREFIX = "assets/";

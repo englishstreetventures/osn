@@ -5,7 +5,7 @@ tags: [convention, review]
 related:
   - "[[contributing]]"
   - "[[stacked-prs]]"
-last-reviewed: 2026-08-31
+last-reviewed: 2026-09-08
 ---
 
 # Review Finding IDs
@@ -53,6 +53,37 @@ Each finding uses a four-field format:
 | **Why** | Why this matters (risk, impact) |
 | **Solution** | Concrete fix or mitigation |
 | **Rationale** | Why this solution is the right approach |
+
+## Critical and high findings are not deferrable
+
+> [!important] A `critical` or `high` finding is fixed on the branch that found
+> it, or in a pull request opened immediately after and linked before that
+> branch merges. Filing it and moving on is not one of the options.
+
+Everything below this line is about how a finding is *recorded*. This rule is
+about whether it is allowed to stay open, and it comes first because the
+recording convention exists to serve it rather than to substitute for it.
+
+The reasoning is the same one that makes the tracker private. A filed-and-open
+`critical` or `high` is a live, unpatched defect whose location is now written
+down; the issue is an attack map with a timer on it, and every day it stays
+open is a day that map exists for a defect nobody is fixing. A finding fixed in
+the same breath as it is found never becomes that.
+
+`medium` and below may be filed and scheduled. `info` records an observation
+and asks for no fix at all.
+
+Two consequences worth stating, because they are the ones people work around:
+
+- **"Out of scope for this branch" is not a deferral.** If the finding is real
+  and it is `high`, the follow-up pull request is opened now, not added to a
+  backlog. A tracked follow-up that exists as a link in the PR body satisfies
+  this; one that exists as an intention does not.
+- **Downgrading severity to avoid the rule is the failure mode.** Severity
+  comes from the tier letter in the finding ID, which the review assigns
+  before anyone knows what fixing it would cost. Re-rating it afterwards to
+  make it deferrable is the same contamination as re-rating an issue's
+  complexity once its token cost is on screen.
 
 ## Filing a finding
 

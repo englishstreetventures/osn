@@ -76,7 +76,7 @@ test("a scenario belongs to the longest matching skill name", async () => {
   try {
     const out = join(dir, "out");
     const wrong = await run(dir, "subset", "--skills", "review", "--out", out);
-    expect(wrong.exitCode).toBe(1);
+    expect(wrong.stdout.trim()).toBe("");
     const right = await run(
       dir,
       "subset",
@@ -86,6 +86,57 @@ test("a scenario belongs to the longest matching skill name", async () => {
       join(dir, "out2"),
     );
     expect(right.stdout.trim()).toBe("review-security-two");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// Most skills have never had a scenario written for them, so a branch that
+// edits one narrows a run to nothing. That is the ordinary case and must not
+// redden the check.
+test("subset skips, rather than fails, when a skill has no scenario", async () => {
+  const dir = await makeTree(["prep-pr", "orchestrate"], ["prep-pr-one"]);
+  try {
+    const out = join(dir, "out");
+    const result = await run(dir, "subset", "--skills", "orchestrate", "--out", out);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("");
+    expect(result.stderr).toContain("orchestrate");
+    expect(await Bun.file(join(out, "prep-pr-one/task.md")).exists()).toBe(false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// A skill that has scenarios and one that has none, named together: the ones
+// that exist still run.
+test("subset keeps the scenarios that do exist alongside a skill with none", async () => {
+  const dir = await makeTree(["prep-pr", "orchestrate"], ["prep-pr-one"]);
+  try {
+    const out = join(dir, "out");
+    const result = await run(dir, "subset", "--skills", "orchestrate,prep-pr", "--out", out);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("prep-pr-one");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// The exit code still has a job: a name that is not a skill at all is a typo,
+// and silently running nothing would hide it.
+test("subset fails on a name that is not a skill", async () => {
+  const dir = await makeTree(["prep-pr"], ["prep-pr-one"]);
+  try {
+    const result = await run(
+      dir,
+      "subset",
+      "--skills",
+      "prep-pr,prep-prr",
+      "--out",
+      join(dir, "out"),
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("prep-prr");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

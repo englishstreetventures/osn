@@ -116,24 +116,6 @@ function peekClaims(token: string): { kid: string; iss: string; scopes: string[]
 }
 
 /**
- * ARC token verification guard for Elysia route handlers.
- *
- * Validates the `Authorization: ARC <token>` header against the
- * `service_accounts` table:
- * 1. Extracts the raw token
- * 2. Peeks the `iss` claim to resolve the public key
- * 3. Verifies signature, audience, expiry, and required scope
- *
- * On success, returns the verified {@link ArcCaller} claims.
- * On failure, sets `set.status = 401` and returns `null`.
- *
- * @param authorization - The raw Authorization header value
- * @param set - Elysia's response status setter
- * @param run - Effect runner bound to the request's Db layer
- * @param expectedAudience - The service ID this token must be addressed to (e.g. "osn-api")
- * @param requiredScope - The scope the token must include (e.g. "graph:read")
- */
-/**
  * Classifies a `resolvePublicKey` failure into a bounded `ArcVerifyResult`
  * for the shared `arc.token.verification` counter (S-L1, mirrors the pulse
  * receiver's S-L6 instrumentation). `issuerConfirmed` says whether the DB
@@ -166,6 +148,24 @@ function classifyResolveFailure(
   return { result: "unknown_issuer", issuerConfirmed: false };
 }
 
+/**
+ * ARC token verification guard for Elysia route handlers.
+ *
+ * Validates the `Authorization: ARC <token>` header against the
+ * `service_accounts` table:
+ * 1. Extracts the raw token
+ * 2. Peeks the `iss` claim to resolve the public key
+ * 3. Verifies signature, audience, expiry, and required scope
+ *
+ * On success, returns the verified {@link ArcCaller} claims.
+ * On failure, sets `set.status = 401` and returns `null`.
+ *
+ * @param authorization - The raw Authorization header value
+ * @param set - Elysia's response status setter
+ * @param run - Effect runner bound to the request's Db layer
+ * @param expectedAudience - The service ID this token must be addressed to (e.g. "osn-api")
+ * @param requiredScope - The scope the token must include (e.g. "graph:read")
+ */
 export async function requireArc(
   authorization: string | undefined,
   set: { status?: number | string },

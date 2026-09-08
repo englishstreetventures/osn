@@ -33,9 +33,10 @@
  * in a sibling `<session-id>/subagents/*.jsonl` directory rather than the main
  * transcript — miss it and a card under-reports by however much was delegated,
  * which on an orchestrated task is most of it.
+ *
+ * `SCHEMA_VERSION` is bumped whenever a field changes meaning or leaves.
+ * Readers key off this.
  */
-
-/** Bump when a field changes meaning or leaves. Readers key off this. */
 export const SCHEMA_VERSION = 1;
 
 /**
@@ -934,6 +935,36 @@ export function renderDetails(card: Card): string {
 }
 
 /**
+ * The repository root, so `.claude/metrics` means the same directory whichever
+ * way these commands are invoked.
+ *
+ * This is not a nicety. The documented form is
+ * `bun run --cwd tools/pr-metrics report`, and `--cwd` sets the process
+ * working directory — so a default of `.claude/metrics` resolved against the
+ * cwd pointed at `tools/pr-metrics/.claude/metrics`, which never exists.
+ * `report` exited 1 on the exact command in its own README. `card` was worse:
+ * it silently *created* that directory inside the package, and the
+ * `SessionEnd` hook ends in `|| true`, so every card the hook ever wrote went
+ * there and nobody saw it fail.
+ *
+ * Falling back to the cwd keeps the tests working outside a checkout, where
+ * every path is passed explicitly anyway.
+ */
+export function repoRoot(): string {
+  const result = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  return result.success ? result.stdout.toString().trim() : ".";
+}
+
+/** Where cards live, resolved against the repository rather than the cwd. */
+export function defaultMetricsDir(): string {
+  return `${repoRoot()}/.claude/metrics`;
+}
+
+/**
  * `feat/pr-session-metrics` → `feat-pr-session-metrics`.
  *
  * One file per branch, never one appended ledger: several branches are open at
@@ -1052,7 +1083,7 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const outDir = flag("out-dir") ?? ".claude/metrics";
+  const outDir = flag("out-dir") ?? defaultMetricsDir();
   const outPath = `${outDir}/${branchSlug(branch)}.json`;
   require("node:fs").mkdirSync(outDir, { recursive: true });
   require("node:fs").writeFileSync(outPath, `${JSON.stringify(card, null, 2)}\n`);

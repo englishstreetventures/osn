@@ -44,6 +44,17 @@ import { webSessionService } from "../services/webSession";
 const PREFIX = "/api/auth";
 
 /**
+ * The slice of OpenAPI 3.1 schema syntax the hand-written responses below use.
+ * `type` takes an array for the nullable spelling (`["string", "null"]`).
+ */
+interface OpenApiSchemaNode {
+  readonly type: string | readonly string[];
+  readonly format?: string;
+  readonly properties?: { readonly [property: string]: OpenApiSchemaNode };
+  readonly required?: readonly string[];
+}
+
+/**
  * Hand-written OpenAPI responses for the four routes below.
  *
  * swift-openapi-generator refuses a document in which any operation carries no
@@ -58,17 +69,6 @@ const PREFIX = "/api/auth";
  * spelling swift-openapi-generator keeps (see `scripts/generate-openapi.ts`).
  * The cast in `docSchema` is what lets a 3.1 schema be written here.
  */
-/**
- * The slice of OpenAPI 3.1 schema syntax the hand-written responses below use.
- * `type` takes an array for the nullable spelling (`["string", "null"]`).
- */
-interface OpenApiSchemaNode {
-  readonly type: string | readonly string[];
-  readonly format?: string;
-  readonly properties?: { readonly [property: string]: OpenApiSchemaNode };
-  readonly required?: readonly string[];
-}
-
 const docSchema = (schema: OpenApiSchemaNode) => schema as never;
 
 const jsonResponse = (description: string, schema: OpenApiSchemaNode) => ({

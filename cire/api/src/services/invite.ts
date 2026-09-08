@@ -30,14 +30,6 @@ export class WeddingNotFound extends Data.TaggedError("WeddingNotFound")<{
 }> {}
 
 /**
- * The customisation as the invite renders it. Text fields are the raw stored
- * overrides (`null` ⇒ the guest site / organiser preview falls back to the
- * built-in default copy). Image fields are ready-to-use URL *paths* — clients
- * prepend their API origin — carrying a `?v=` cache-buster derived from that
- * SLOT's own R2 key (`versionFromKey`), so a re-uploaded image isn't served
- * stale and bumping one slot never busts another's cache.
- */
-/**
  * Per-section theme as the invite renders it. Every field is nullable; `null`
  * means "use the built-in default token", so an un-themed invite renders exactly
  * as before. Fonts are bounded enum keys (the guest site maps them to a concrete
@@ -106,6 +98,14 @@ export interface HeroDisplay {
   titleBackdrop: { opacity: number; blur: number };
 }
 
+/**
+ * The customisation as the invite renders it. Text fields are the raw stored
+ * overrides (`null` ⇒ the guest site / organiser preview falls back to the
+ * built-in default copy). Image fields are ready-to-use URL *paths* — clients
+ * prepend their API origin — carrying a `?v=` cache-buster derived from that
+ * SLOT's own R2 key (`versionFromKey`), so a re-uploaded image isn't served
+ * stale and bumping one slot never busts another's cache.
+ */
 export interface InviteCustomisation {
   hero: {
     title: string | null;

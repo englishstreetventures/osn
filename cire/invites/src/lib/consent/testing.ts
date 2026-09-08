@@ -1,13 +1,3 @@
-import type { ConsentCategory } from "./categories";
-import { CONSENT_COOKIE_NAME, PREFIXED_CONSENT_COOKIE_NAME } from "./cookie";
-import {
-  type ConsentGrants,
-  defaultGrants,
-  encodeConsentRecord,
-  makeConsentRecord,
-} from "./record";
-import { resetConsentStoreForTest } from "./store";
-
 /**
  * Test helpers for the consent framework.
  *
@@ -20,6 +10,15 @@ import { resetConsentStoreForTest } from "./store";
  * against a record the application would actually have written — not a
  * hand-rolled approximation of one that might no longer parse.
  */
+import type { ConsentCategory } from "./categories";
+import { CONSENT_COOKIE_NAME, PREFIXED_CONSENT_COOKIE_NAME } from "./cookie";
+import {
+  type ConsentGrants,
+  defaultGrants,
+  encodeConsentRecord,
+  makeConsentRecord,
+} from "./record";
+import { resetConsentStoreForTest } from "./store";
 
 /**
  * Delete the consent cookie — both names, since a browser-tier test running

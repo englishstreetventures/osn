@@ -1,9 +1,3 @@
-import { render } from "@solidjs/testing-library";
-import { afterEach, describe, expect, it } from "vitest";
-import { commands } from "vitest/browser";
-
-import "../../src/styles/global.css";
-
 /**
  * The invite's reduced-motion promise, checked against the engine rather than
  * against the text of `global.css`.
@@ -20,6 +14,11 @@ import "../../src/styles/global.css";
  * back, which is only meaningful in a browser: jsdom parses no stylesheet and
  * `matchMedia` there is a stub that never matches anything.
  */
+import { render } from "@solidjs/testing-library";
+import { afterEach, describe, expect, it } from "vitest";
+import { commands } from "vitest/browser";
+
+import "../../src/styles/global.css";
 
 /** Typed accessor for the command registered in `vitest.config.ts`. */
 const emulate = (options: { reducedMotion?: "reduce" | "no-preference" }) =>

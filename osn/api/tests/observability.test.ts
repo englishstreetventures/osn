@@ -1,8 +1,3 @@
-import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
-
-import { osnLoggerLayer, runOsn, runOsnSync } from "../src/observability";
-
 /**
  * The load-bearing contract of `runOsn` / `runOsnSync` is that they install
  * `osnLoggerLayer` — the workerd-safe, logger-only observability layer — so
@@ -20,6 +15,10 @@ import { osnLoggerLayer, runOsn, runOsnSync } from "../src/observability";
  * not redacted — a pre-existing shared-logger limitation, see cire's
  * observability.test.ts note — so it would be the wrong thing to assert.)
  */
+import { Effect } from "effect";
+import { describe, expect, it } from "vitest";
+
+import { osnLoggerLayer, runOsn, runOsnSync } from "../src/observability";
 
 /**
  * Capture everything Effect's logger writes for one run. Effect's default

@@ -227,7 +227,11 @@ Invoke the `review-security` skill (`.claude/skills/review-security/SKILL.md`) a
 
 Wait for both agents to complete. Present both reports to the user in full, using the finding IDs from each review (e.g. S-H1, P-W2) so they can be referenced in the PR description.
 
-Ask the user: "Do you want to address any findings before pushing?" If yes, pause and let the user make changes, then re-run steps 3 and 4 before continuing. With no user, list the findings under `## Decisions` with what you would fix and what you would defer, and continue.
+**A `critical` or `high` finding is not deferrable.** Fix it on this branch, or open the follow-up pull request immediately and link it from this one before either merges. That is the whole option set — filing it and continuing is not in it, and neither is "out of scope for this branch". A filed-and-open `high` is a live unpatched defect whose location is now written down; the issue is an attack map with a timer on it. `medium` and below may be filed and scheduled.
+
+Severity comes from the tier letter in the finding ID, assigned by the review before anyone knows what fixing it costs. Re-rating it afterwards to make it deferrable is the failure mode this rule exists to prevent — the same contamination as re-rating an issue's complexity once its token cost is on screen.
+
+Ask the user: "Do you want to address any findings before pushing?" If yes, pause and let the user make changes, then re-run steps 3 and 4 before continuing. With no user, fix every `critical` and `high` on the branch and re-run steps 3 and 4; list what you fixed and what you deferred under `## Decisions`, and continue. A run that cannot fix them — no tooling, no network — says so plainly and names them as blocking rather than reporting the branch ready.
 
 ---
 

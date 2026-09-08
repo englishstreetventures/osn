@@ -24,7 +24,13 @@
  * worse than no card, because a query cannot tell it from a cheap one.
  */
 
-import { buildCard, declaredFromLabels, parseNumstat, type SessionRecord } from "./index.ts";
+import {
+  buildCard,
+  declaredFromLabels,
+  defaultMetricsDir,
+  parseNumstat,
+  type SessionRecord,
+} from "./index.ts";
 
 interface PullRequest {
   number: number;
@@ -108,7 +114,7 @@ function numstatFromApi(files: ChangedFile[]): string {
 if (import.meta.main) {
   const repo = flag("repo") ?? "xchromo/osn";
   const limit = flag("limit") ?? "100";
-  const outDir = flag("out-dir") ?? ".claude/metrics";
+  const outDir = flag("out-dir") ?? defaultMetricsDir();
   const sessionsDir = flag("sessions-dir") ?? `${process.env.HOME}/.claude/projects`;
   const dryRun = Bun.argv.includes("--dry-run");
 
