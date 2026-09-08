@@ -1,5 +1,23 @@
 # @osn/api
 
+## 0.27.1
+
+### Patch Changes
+
+- 6474854: Fix every `house/no-stacked-doc-block` site in these packages (xchromo/osn#926).
+
+  A declaration with two or more leading doc blocks only has its last block attached — the earlier one silently documents nothing, and an editor hovering the declaration never shows it. Two shapes accounted for all 26 sites across these packages: a genuine module doc that had been placed after the file's `import` line rather than at line 1, which the rule's module-block exemption checks literally, and so read as stacked in front of whatever the doc block happened to precede — moved to line 1, restoring both blocks to their correct attachment; and two doc blocks that were both actually describing the same declaration, split apart for no good reason — merged into one, with content preserved and no duplication.
+
+  No prose was rewritten and no behavior changed. Every fix was spot-checked by an independent adversarial pass against the real diff before being applied, confirming no content was lost and every surviving block attaches to the declaration it actually describes.
+
+- Updated dependencies [6474854]
+  - @shared/crypto@0.11.1
+  - @shared/db-utils@0.7.1
+  - @shared/observability@0.14.1
+  - @shared/osn-auth-client@0.4.21
+  - @pulse/db@0.20.1
+  - @zap/db@0.6.1
+
 ## 0.27.0
 
 ### Minor Changes
