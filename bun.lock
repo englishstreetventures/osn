@@ -188,7 +188,7 @@
     },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.20.33",
+      "version": "3.21.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.15",
@@ -219,7 +219,7 @@
     },
     "osn/client": {
       "name": "@osn/client",
-      "version": "2.13.8",
+      "version": "2.14.0",
       "dependencies": {
         "effect": "4.0.0-rc.112",
       },
@@ -236,7 +236,7 @@
     },
     "osn/db": {
       "name": "@osn/db",
-      "version": "0.20.13",
+      "version": "0.21.0",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -255,7 +255,7 @@
     },
     "osn/landing": {
       "name": "@osn/landing",
-      "version": "0.1.10",
+      "version": "0.1.11",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
@@ -278,7 +278,7 @@
     },
     "osn/social": {
       "name": "@osn/social",
-      "version": "0.12.22",
+      "version": "0.12.23",
       "dependencies": {
         "@osn/client": "workspace:*",
         "@osn/ui": "workspace:*",
@@ -304,7 +304,7 @@
     },
     "osn/ui": {
       "name": "@osn/ui",
-      "version": "1.10.5",
+      "version": "1.10.6",
       "dependencies": {
         "@kobalte/core": "^0.13.13",
         "@osn/client": "workspace:*",
@@ -329,7 +329,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.26.27",
+      "version": "0.27.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -360,7 +360,7 @@
     },
     "pulse/db": {
       "name": "@pulse/db",
-      "version": "0.19.6",
+      "version": "0.20.0",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -379,7 +379,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.10",
+      "version": "0.1.11",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
@@ -402,7 +402,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.22.39",
+      "version": "0.22.41",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -437,7 +437,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.10.17",
+      "version": "0.11.0",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -453,7 +453,7 @@
     },
     "shared/db-utils": {
       "name": "@shared/db-utils",
-      "version": "0.6.6",
+      "version": "0.7.0",
       "dependencies": {
         "drizzle-orm": "^0.45.2",
         "effect": "4.0.0-rc.112",
@@ -477,7 +477,7 @@
     },
     "shared/email": {
       "name": "@shared/email",
-      "version": "0.4.11",
+      "version": "0.5.0",
       "dependencies": {
         "@shared/observability": "workspace:*",
         "effect": "4.0.0-rc.112",
@@ -490,7 +490,7 @@
     },
     "shared/feature-flags": {
       "name": "@shared/feature-flags",
-      "version": "0.2.10",
+      "version": "0.2.12",
       "dependencies": {
         "@growthbook/growthbook": "^1.7.0",
         "@shared/observability": "workspace:*",
@@ -510,7 +510,7 @@
     },
     "shared/observability": {
       "name": "@shared/observability",
-      "version": "0.13.7",
+      "version": "0.14.0",
       "dependencies": {
         "@effect/opentelemetry": "4.0.0-rc.112",
         "@opentelemetry/api": "^1.9.1",
@@ -542,7 +542,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.4.18",
+      "version": "0.4.20",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "^6.2.10",
@@ -566,7 +566,7 @@
     },
     "shared/redis": {
       "name": "@shared/redis",
-      "version": "0.4.7",
+      "version": "0.5.0",
       "dependencies": {
         "@upstash/redis": "^1.38.3",
         "effect": "4.0.0-rc.112",
@@ -631,7 +631,7 @@
     },
     "shared/turnstile": {
       "name": "@shared/turnstile",
-      "version": "0.2.14",
+      "version": "0.2.16",
       "dependencies": {
         "@shared/observability": "workspace:*",
       },
@@ -646,7 +646,7 @@
     },
     "tools/lab": {
       "name": "@tools/lab",
-      "version": "0.1.9",
+      "version": "0.1.10",
       "dependencies": {
         "@osn/ui": "workspace:*",
         "@tailwindcss/vite": "^4.3.3",
@@ -674,9 +674,16 @@
         "typescript": "^6.0.3",
       },
     },
+    "tools/pr-metrics": {
+      "name": "@tools/pr-metrics",
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+        "typescript": "^6.0.3",
+      },
+    },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.8.36",
+      "version": "0.9.0",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -703,7 +710,7 @@
     },
     "zap/db": {
       "name": "@zap/db",
-      "version": "0.5.14",
+      "version": "0.6.0",
       "dependencies": {
         "@shared/db-utils": "workspace:*",
         "drizzle-orm": "^0.45.2",
@@ -1553,6 +1560,8 @@
     "@tools/lab": ["@tools/lab@workspace:tools/lab"],
 
     "@tools/oxlint-house": ["@tools/oxlint-house@workspace:tools/oxlint/house"],
+
+    "@tools/pr-metrics": ["@tools/pr-metrics@workspace:tools/pr-metrics"],
 
     "@turbo/darwin-64": ["@turbo/darwin-64@2.10.12", "", { "os": "darwin", "cpu": "x64" }, "sha512-9nKgKoF6ZOUsM+or0OtNf+TTJSfGvDNP7ZFv/ZGWVwOSCkumyctQiTeHwB4UNljHTnC41AqylgbunLDHoccNrA=="],
 

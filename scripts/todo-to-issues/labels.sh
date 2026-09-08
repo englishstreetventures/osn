@@ -36,6 +36,24 @@ for repo in xchromo/osn xchromo/osn-tracker; do
 
   create "epic" "3e4b9e" "Parent issue with sub-issues"
 
+  # Declared complexity, set before work starts and never after. It is the
+  # denominator every session-metrics query divides spend by, so a rating made
+  # once the token cost is on screen gets talked into agreeing with it and the
+  # metric stops questioning anything. Fibonacci so that cost ÷ complexity is a
+  # real division, and it rates the *problem*: a one-line fix to a race
+  # condition is not a 1. `/new-feat` applies one through the rate-complexity
+  # skill; see wiki/observability/session-metrics.md.
+  create "complexity:1" "0e8a16" "One file, no new behaviour"
+  create "complexity:2" "7ed321" "One package, an existing pattern followed"
+  create "complexity:3" "fbca04" "One package, something must be designed"
+  create "complexity:5" "d93f0b" "Several packages, or a contract others depend on"
+  create "complexity:8" "b60205" "Cross-cutting, or the shape is unknown at the start"
+
+  # Not a rating — a caveat on one. An agent rated this and no human signed
+  # off, which is most of the backfill over issues that predate the label.
+  # Exclude these from any query you intend to act on.
+  create "complexity:unconfirmed" "bfbfbf" "An agent's rating that no human signed off on"
+
   # Orthogonal to every label above: a state, not a category. An agent working
   # the backlog applies it when the next step needs a choice only the repo
   # owner can make, writes the choice up in the body, and moves to another

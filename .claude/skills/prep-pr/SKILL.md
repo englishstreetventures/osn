@@ -409,6 +409,34 @@ says.
 **Test plan.** The gates that ran, with their real results, and below the table
 anything a reviewer must exercise by hand — including the honest negatives.
 
+### Append the session metrics
+
+After `## Test plan` and before the shape check, append the card for this
+branch — what the session that produced this pull request cost, what it
+changed, and how much steering it needed:
+
+```bash
+bun run --cwd tools/pr-metrics card -- \
+  --issue-labels "$(gh issue view "$ISSUE" --repo xchromo/osn --json labels --jq '[.labels[].name] | join(",")')" \
+  --pr "$PR" --issue "$ISSUE"                       # writes .claude/metrics/<branch>.json
+
+bun run --cwd tools/pr-metrics card -- \
+  --issue-labels "…" --format markdown >> <body-file>   # appends the block
+```
+
+Two runs on purpose: the first writes the committed card, the second prints the
+`<details>` block on stdout with none of the warnings in it. **Commit the JSON
+file with the branch** — the card is the durable record and
+`~/.claude/projects` is neither committed nor shared.
+
+It is a `<details>` block and not a section, and that is a constraint rather
+than a preference: the shape check below permits exactly five `##` headings, so
+a metrics section would fail a body that is otherwise correct. `<details>` adds
+no heading.
+
+If the collector cannot run — no transcripts on this machine, no `gh` — say so
+under `## Decisions` and carry on. A missing card never blocks a pull request.
+
 ### Check the body before you finish
 
 ```bash

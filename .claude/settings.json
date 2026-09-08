@@ -12,6 +12,18 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"${CLAUDE_PROJECT_DIR:-.}\" && bun run --cwd tools/pr-metrics card >/dev/null 2>&1 || true",
+            "timeout": 60
+          }
+        ]
+      }
     ]
   }
 }

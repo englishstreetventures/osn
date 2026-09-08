@@ -1,0 +1,13 @@
+{
+  "extends": "@shared/typescript-config/base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["bun-types"],
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "declarationMap": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": ["index.ts", "backfill.ts", "report.ts", "tests"]
+}
