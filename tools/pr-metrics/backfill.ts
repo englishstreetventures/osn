@@ -24,7 +24,10 @@
  * worse than no card, because a query cannot tell it from a cheap one.
  */
 
+import { existsSync, readFileSync } from "node:fs";
+
 import {
+  branchSlug,
   buildCard,
   declaredFromLabels,
   defaultMetricsDir,
@@ -43,7 +46,7 @@ interface PullRequest {
   closingIssuesReferences: { number: number }[];
 }
 
-interface ChangedFile {
+export interface ChangedFile {
   filename: string;
   additions: number;
   deletions: number;
@@ -68,8 +71,34 @@ function flag(name: string): string | null {
 
 /** GitHub's per-file additions and deletions, reshaped into the `git diff
  * --numstat` lines `parseNumstat` already understands. */
-function numstatFromApi(files: ChangedFile[]): string {
-  return files.map((f) => `${f.additions}\t${f.deletions}\t${f.filename}`).join("\n");
+export function numstatFromApi(files: ChangedFile[]): string {
+  return files
+    .filter((f) => {
+      // Git permits tabs and newlines in a path and the files API returns it
+      // verbatim, so such a name would inject an extra record into the numstat
+      // that `parseNumstat` counts as a real file. Dropping it loses one row of
+      // a diff summary; keeping it corrupts the whole card.
+      if (typeof f.filename !== "string" || /[\t\n\r]/.test(f.filename)) {
+        console.warn(`  ⚠️  skipping a changed file whose name carries a tab or newline.`);
+
+        return false;
+      }
+
+      return true;
+    })
+    .map((f) => `${f.additions}\t${f.deletions}\t${f.filename}`)
+    .join("\n");
+}
+
+/** The branch a card on disk was written for, or `null` if it cannot be read. */
+function readCardBranch(path: string): string | null {
+  try {
+    const card = JSON.parse(readFileSync(path, "utf8") as string) as { pr?: { branch?: string } };
+
+    return card.pr?.branch ?? null;
+  } catch {
+    return null;
+  }
 }
 
 if (import.meta.main) {
@@ -152,7 +181,25 @@ if (import.meta.main) {
       generatedAt: new Date().toISOString(),
     });
 
-    const path = `${outDir}/${pull.headRefName.replace(/[^a-zA-Z0-9._-]/g, "-")}.json`;
+    // `branchSlug`, not a copy of its first step: the inline version omitted
+    // the trailing `^-+|-+$` strip, so a branch name ending in a character
+    // outside the class made `backfill` and `card` write two different files
+    // for the same branch, and nothing downstream keys on the filename.
+    const path = `${outDir}/${branchSlug(pull.headRefName)}.json`;
+
+    // `branchSlug` is not injective — `feat/x-`, `feat-x` and `feat/x` all slug
+    // to `feat-x` — and this loop writes many cards in one pass. `card` writes
+    // one per run and cannot see a clash; here it is visible, and a silently
+    // overwritten card is indistinguishable from a pull request that was never
+    // backfilled at all.
+    const existing = written > 0 && existsSync(path) ? readCardBranch(path) : null;
+    if (existing !== null && existing !== pull.headRefName) {
+      console.warn(
+        `  ⚠️  slug collision on ${branchSlug(pull.headRefName)}.json: \`${existing}\` and \`${pull.headRefName}\` — keeping the first, skipping #${pull.number}.`,
+      );
+      skipped.push(pull.number);
+      continue;
+    }
 
     if (dryRun) {
       console.log(
