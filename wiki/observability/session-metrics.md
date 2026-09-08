@@ -14,7 +14,7 @@ related:
   - "[[observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-09-07
+last-reviewed: 2026-09-08
 ---
 
 # Session Metrics
@@ -82,14 +82,20 @@ predate the label.
 
 Claude Code writes a transcript per session under
 `~/.claude/projects/<encoded-cwd>/`, and stamps `gitBranch` on every assistant
-message. That field is the whole join: this repository runs one worktree and one
-branch per task, so a branch name maps to exactly one pull request.
+message. For a session that runs in its own task worktree that field is the
+join: this repository runs one worktree and one branch per task, so a branch
+name maps to exactly one pull request. For delegated work it is not enough —
+see [[#Attributing subagent spend]].
 
-Two traps the collector handles and any reimplementation must:
+Three traps the collector handles and any reimplementation must:
 
 - **Subagent spend is in a sibling directory**, `<session-id>/subagents/*.jsonl`,
   not in the main transcript. Missing it under-reports every delegated task, and
   on orchestrated work that is most of the cost.
+- **One conversation is sometimes written into two session files.** 615 assistant
+  records on this machine — 5.2% of session spend — appear in both, and reading
+  them twice doubles the branch's cost. `readRecordsForBranch` keys on
+  `requestId` and returns each once.
 - **Most `role: "user"` records are machinery** — tool results, hook output,
   system reminders, slash-command envelopes. Counting them destroys `user_turns`
   as a measure of steering.
@@ -104,6 +110,73 @@ Two traps the collector handles and any reimplementation must:
   same text in the same session is collapsed — but two identical `user` turns
   are never collapsed, because a person who types "continue" twice steered
   twice.
+
+## Attributing subagent spend
+
+`gitBranch` is a property of the **session**, captured once when it starts and
+inherited by every subagent. A subagent working in a task worktree therefore
+records the branch its *parent* started on, and `isolation: "worktree"` does not
+help — it pins the subagent's `cwd` and still reports the parent's `gitBranch`.
+
+The scale, measured over 904 transcript files and 9.03e9 tokens:
+
+| Where the spend sits | Share |
+|---|---|
+| Stamped `HEAD` (the bare-repo root) | 62.4% |
+| Stamped `main` | 12.1% |
+| A real branch | 25.5% |
+
+Subagent transcripts are 27.0% of all spend, and **85.8% of that is stamped
+`HEAD`** against 7.4% on a real branch. A branch whose work was delegated saw
+almost none of its own cost.
+
+So `orchestrate` puts a marker on its own line at the top of every dispatch
+prompt:
+
+```
+TASK-BRANCH: feat/example
+```
+
+`resolveDispatchBranch` in `tools/pr-metrics/index.ts` reads it back. Every
+subagent transcript has a sibling `agent-<id>.meta.json` carrying the
+`toolUseId` of the `Agent` call that spawned it; that id appears on the
+`tool_use` block in the parent transcript, whose `input.prompt` is the dispatch.
+The marked branch then replaces `gitBranch` for every record in that file.
+
+Three things about it worth keeping:
+
+- **The parent may be another subagent.** `spawnDepth: 2` is 79 of this
+  machine's 363 subagent files, 8.3% of subagent spend, and every one of those
+  parents is a sibling `subagents/*.jsonl` rather than the session file.
+- **A child with no marker inherits its parent's branch.** Depth-2 prompts are
+  written by `stress-plan`, `prep-pr` and
+  `superpowers:subagent-driven-development` — the last a plugin this repository
+  cannot edit — so requiring a marker everywhere would lose their spend.
+- **Nothing enforces the marker.** It is a line a skill instructs an agent to
+  write, so `card` counts the subagent files that resolve to nothing under a
+  `main`/`HEAD` session and warns. A forgotten marker shows up on the next card
+  instead of silently under-reporting.
+- **A marker is never sufficient on its own.** `~/.claude/projects` holds every
+  project on the machine, and a card is committed to a public repository
+  carrying `tool_calls`, `skills` and `subagents` keyed verbatim from the
+  transcript — MCP server and private skill names among them. So a marked
+  transcript is admitted only from a project directory this repository owns,
+  derived from `git worktree list` and the common git dir. Two checkouts sharing
+  a branch name is a collision, not an attack, and it must not publish one
+  project's metadata from the other.
+- **The marker is read from the first three lines**, and the value has to look
+  like a ref. Dispatch prompts quote text nobody here wrote — issue bodies,
+  review comments, fetched pages — and a planted `TASK-BRANCH:` line further
+  down would otherwise re-point a subagent's whole spend onto another card.
+
+This is **forward-looking only**. Historical transcripts carry no marker, so the
+85.8% stays where it is; the fix changes what new work records, not what old
+work recorded.
+
+A wholly delegated card reports zero `user_turns` and "not observed" for first
+edit by construction — those skip sidechain records. The steering for
+orchestrated work lives in the orchestrator's own session, which is deliberately
+not carded: a session that only dispatches is not one task's cost.
 
 `~/.claude/projects/` is local and unversioned, so a card can only be generated
 on the machine that did the work. Once written it is committed, which is what

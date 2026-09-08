@@ -37,6 +37,9 @@
  * `SCHEMA_VERSION` is bumped whenever a field changes meaning or leaves.
  * Readers key off this.
  */
+
+import { closeSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
+
 export const SCHEMA_VERSION = 1;
 
 /**
@@ -127,11 +130,16 @@ export interface ToolUseInput {
   subagent_type?: string;
   file_path?: string;
   command?: string;
+  /** The dispatch prompt. Carries the `TASK-BRANCH:` marker that
+   * `resolveDispatchBranch` reads. */
+  prompt?: string;
 }
 
 export interface ContentBlock {
   type?: string;
   name?: string;
+  /** Present on `tool_use` blocks; pairs with a subagent's `meta.toolUseId`. */
+  id?: string;
   input?: ToolUseInput;
 }
 
@@ -139,6 +147,10 @@ export interface SessionRecord {
   type?: string;
   sessionId?: string;
   gitBranch?: string;
+  /** Stable per API call. The dedupe key: one conversation is sometimes
+   * written into two session files, and both copies carry this. */
+  requestId?: string;
+  uuid?: string;
   timestamp?: string;
   isSidechain?: boolean;
   isCompactSummary?: boolean;
@@ -980,37 +992,446 @@ export function branchSlug(branch: string): string {
 // CLI
 // ---------------------------------------------------------------------------
 
-function readSessionRecords(sessionsDir: string, branch: string): SessionRecord[] {
-  const roots = [`${sessionsDir}/*/*.jsonl`, `${sessionsDir}/*/*/subagents/*.jsonl`];
-  const records: SessionRecord[] = [];
+/** The marker `orchestrate` puts at the top of every dispatch prompt.
+ *
+ * `m` because the marker is not required to be the very first line — a
+ * dispatch may lead with a worktree instruction — only to be alone on its own. */
+const TASK_BRANCH_MARKER = /^TASK-BRANCH:[ \t]*(\S+)[ \t]*$/m;
 
-  for (const pattern of roots) {
+/** How far into a prompt the marker is honoured.
+ *
+ * A dispatch prompt routinely quotes text this repository did not author —
+ * issue bodies, review comments, fetched pages — and a planted
+ * `TASK-BRANCH: something-else` line would otherwise re-point a subagent's whole
+ * spend onto another branch's card, which is then committed publicly. The skill
+ * asks for the marker on the first line; a small window allows a leading
+ * worktree instruction without honouring anything quoted further down. */
+const MARKER_WINDOW_LINES = 3;
+
+/** A ref this repository could actually have. Rejects `..`, a leading dash and
+ * anything outside the characters a branch name uses, so a malformed or hostile
+ * capture names no card at all rather than an unexpected one. */
+const PLAUSIBLE_REF = /^[A-Za-z0-9][\w.\-/]*$/;
+
+function markerBranch(prompt: string): string | null {
+  const head = prompt.split("\n", MARKER_WINDOW_LINES).join("\n");
+  const captured = TASK_BRANCH_MARKER.exec(head)?.[1];
+  if (!captured || captured.includes("..") || !PLAUSIBLE_REF.test(captured)) return null;
+
+  return captured;
+}
+
+/**
+ * The branch a subagent was dispatched to work on, or `null`.
+ *
+ * `gitBranch` cannot answer this. It is a property of the *session*, captured
+ * once when the session starts and inherited by every subagent, so a subagent
+ * working in a task worktree records the branch its parent started on. Across
+ * this machine's transcripts that is 85.8% of subagent spend stamped `HEAD`.
+ *
+ * The pairing is already on disk: every `agent-<id>.jsonl` has a sibling
+ * `agent-<id>.meta.json` carrying the `toolUseId` of the `Agent` tool call that
+ * spawned it, and that id appears in the parent transcript on the `tool_use`
+ * block whose `input.prompt` is the dispatch.
+ */
+const resolvedBranches = new Map<string, string | null>();
+
+export function resolveDispatchBranch(
+  subagentFile: string,
+  seen = new Set<string>(),
+): string | null {
+  // Resolution is a pure function of the tree, and both readers plus the CLI's
+  // warning path resolve the same files; without this the later walks repeat
+  // the first in full.
+  const memo = resolvedBranches.get(subagentFile);
+  if (memo !== undefined) return memo;
+
+  const branch = resolveUncached(subagentFile, seen);
+  resolvedBranches.set(subagentFile, branch);
+
+  return branch;
+}
+
+function resolveUncached(subagentFile: string, seen: Set<string>): string | null {
+  // A malformed tree could point a parent back at its child; a chain this long
+  // is not a real dispatch either way.
+  if (seen.has(subagentFile) || seen.size > 8) return null;
+  seen.add(subagentFile);
+
+  const meta = readSubagentMeta(subagentFile.replace(/\.jsonl$/, ".meta.json"));
+  const toolUseId = meta?.toolUseId;
+  if (!toolUseId) return null;
+
+  for (const parent of parentCandidates(subagentFile, meta)) {
+    const prompt = findDispatchPrompt(parent, toolUseId);
+    if (prompt === null) continue;
+
+    const marked = markerBranch(prompt);
+    if (marked) return marked;
+
+    // No marker on this dispatch. If another subagent wrote it, that agent was
+    // itself dispatched to a branch, and this one inherits it: the skills that
+    // dispatch at depth 2 do not emit the marker and cannot all be edited.
+    return parent.includes("/subagents/") ? resolveDispatchBranch(parent, seen) : null;
+  }
+
+  return null;
+}
+
+/** The sidecar Claude Code writes beside every subagent transcript. */
+export interface SubagentMeta {
+  agentType?: string;
+  description?: string;
+  model?: string;
+  parentAgentId?: string;
+  spawnDepth?: number;
+  /** The `Agent` tool call that spawned this subagent. The join to the parent. */
+  toolUseId?: string;
+}
+
+function readSubagentMeta(file: string): SubagentMeta | null {
+  try {
+    return JSON.parse(readFileSync(file, "utf8") as string) as SubagentMeta;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Where the `tool_use` that spawned this subagent might live: the session
+ * transcript first, then every sibling subagent transcript.
+ *
+ * The siblings are not optional. 79 of this machine's 363 subagent files are
+ * `spawnDepth: 2` — dispatched by another subagent — and every one of those
+ * parents is a sibling rather than the session file.
+ */
+function parentCandidates(subagentFile: string, meta: SubagentMeta | null): string[] {
+  const subagentsDir = subagentFile.replace(/\/[^/]+$/, "");
+  const session = `${subagentFile.replace(/\/subagents\/[^/]+$/, "")}.jsonl`;
+
+  // The sidecar names the dispatching agent outright on every nested subagent —
+  // 79 of 79 depth-2 sidecars on this machine carry `parentAgentId`, and the
+  // file it names exists in all 79 — so the sibling scan is a fallback, not the
+  // mechanism. Scanning first was O(n²): the largest directory here holds 127
+  // subagent transcripts and every nested child re-read all of them.
+  const named = meta?.parentAgentId ? [`${subagentsDir}/agent-${meta.parentAgentId}.jsonl`] : [];
+
+  let siblings: string[] = [];
+  try {
+    siblings = readdirSync(subagentsDir)
+      .filter((name) => name.endsWith(".jsonl"))
+      .map((name) => `${subagentsDir}/${name}`)
+      .filter((file) => file !== subagentFile);
+  } catch {
+    siblings = [];
+  }
+
+  return [...named, session, ...siblings];
+}
+
+/** Every dispatch prompt in a transcript, by `tool_use` id.
+ *
+ * Built once per parent file. A session file is the parent of many subagents —
+ * one 9.4 MB file here was read 203 times before this cache, and the largest
+ * transcript is 72 MB — so a per-call read was quadratic in subagents per
+ * session, and the `split("\n")` array was re-allocated on each one. */
+const dispatchPrompts = new Map<string, Map<string, string>>();
+
+function promptIndex(file: string): Map<string, string> {
+  const memo = dispatchPrompts.get(file);
+  if (memo !== undefined) return memo;
+
+  const index = new Map<string, string>();
+  dispatchPrompts.set(file, index);
+
+  let text: string;
+  try {
+    text = readFileSync(file, "utf8") as string;
+  } catch {
+    return index;
+  }
+
+  for (const line of text.split("\n")) {
+    // Most lines carry no dispatch, and these files reach tens of megabytes, so
+    // reject before the parse.
+    if (!line.includes('"tool_use"')) continue;
+
+    let record: SessionRecord;
+    try {
+      record = JSON.parse(line) as SessionRecord;
+    } catch {
+      continue;
+    }
+
+    const content = record.message?.content;
+    if (!Array.isArray(content)) continue;
+
+    for (const block of content) {
+      // `content` holds plain strings as well as blocks, so narrow before
+      // reading a field — the same guard `toolUses` uses.
+      if (block === null || typeof block !== "object") continue;
+      if (block.type === "tool_use" && block.id && typeof block.input?.prompt === "string") {
+        index.set(block.id, block.input.prompt);
+      }
+    }
+  }
+
+  return index;
+}
+
+/** The `input.prompt` of the `tool_use` block with this id, or `null`. */
+function findDispatchPrompt(file: string, toolUseId: string): string | null {
+  return promptIndex(file).get(toolUseId) ?? null;
+}
+
+/**
+ * How Claude Code names a project directory: the session's working directory
+ * with `/` and `.` both flattened to `-`.
+ */
+export function encodeProjectDir(path: string): string {
+  return path.replaceAll(/[/.]/g, "-");
+}
+
+/** Every worktree of this repository, plus the common git dir that a
+ * bare-repo-root session records. Used to decide which project directories
+ * under `~/.claude/projects` belong to this checkout. */
+export function repoProjectPaths(): string[] {
+  const paths = new Set<string>();
+
+  const worktrees = Bun.spawnSync(["git", "worktree", "list", "--porcelain"], { stdout: "pipe" });
+  for (const line of worktrees.stdout.toString().split("\n")) {
+    if (line.startsWith("worktree ")) paths.add(line.slice("worktree ".length).trim());
+  }
+
+  const common = Bun.spawnSync(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    stdout: "pipe",
+  });
+  const dir = common.stdout.toString().trim();
+  // A bare repo's common dir IS the root every worktree hangs off, and an
+  // orchestrator session runs there. A normal clone's is `<root>/.git`.
+  if (dir) paths.add(dir.replace(/\/\.git$/, ""));
+
+  return [...paths].filter(Boolean);
+}
+
+/** Options both readers share. */
+export interface ReadOptions {
+  /** Absolute paths this repository owns. When given, a subagent transcript is
+   * admitted on the strength of its `TASK-BRANCH:` marker only if it sits under
+   * one of them.
+   *
+   * `~/.claude/projects` holds every project on the machine, and a card is
+   * committed to a public repository, carrying `interaction.tool_calls`,
+   * `skills` and `subagents` keyed verbatim from the transcript — MCP server
+   * and private skill names among them. A marker is an attribution hint an
+   * agent wrote, not a proof of provenance, so it is never sufficient on its
+   * own. */
+  repoPaths?: string[];
+}
+
+/** Every transcript file under a `~/.claude/projects`-shaped directory. */
+function transcriptFiles(
+  sessionsDir: string,
+  repoPaths?: string[],
+): { file: string; isSubagent: boolean; ownedByRepo: boolean }[] {
+  const roots: [string, boolean][] = [
+    [`${sessionsDir}/*/*.jsonl`, false],
+    [`${sessionsDir}/*/*/subagents/*.jsonl`, true],
+  ];
+  const files: { file: string; isSubagent: boolean; ownedByRepo: boolean }[] = [];
+  const prefixes = repoPaths?.map(encodeProjectDir);
+
+  for (const [pattern, isSubagent] of roots) {
     const found = Bun.spawnSync(["sh", "-c", `ls -1 ${pattern} 2>/dev/null || true`], {
       stdout: "pipe",
     });
 
     for (const file of found.stdout.toString().split("\n").filter(Boolean)) {
-      let text: string;
+      files.push({ file, isSubagent, ownedByRepo: ownedByRepo(sessionsDir, file, prefixes) });
+    }
+  }
+
+  return files;
+}
+
+/** The first line of a file, without reading the rest of it. The 366 subagent
+ * transcripts here total 200 MB and only their first line is wanted. */
+function firstLine(file: string): string | null {
+  let fd: number | null = null;
+  try {
+    fd = openSync(file, "r");
+    const buffer = Buffer.alloc(64 * 1024);
+    const read = readSync(fd, buffer, 0, buffer.length, 0);
+    const text = buffer.toString("utf8", 0, read);
+    const newline = text.indexOf("\n");
+
+    return newline === -1 ? text : text.slice(0, newline);
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) closeSync(fd);
+  }
+}
+
+/** Whether a transcript's project directory belongs to this repository. With
+ * no prefixes given, nothing is scoped and every file counts as owned. */
+function ownedByRepo(sessionsDir: string, file: string, prefixes: string[] | undefined): boolean {
+  if (!prefixes || prefixes.length === 0) return true;
+
+  const project = file.slice(sessionsDir.length + 1).split("/")[0] ?? "";
+
+  return prefixes.some((prefix) => project === prefix || project.startsWith(`${prefix}-`));
+}
+
+/** `requestId` where there is one, else the record's own uuid. A record with
+ * neither is always kept: dropping it would be worse than counting it twice. */
+function dedupeKey(record: SessionRecord): string | null {
+  return record.requestId ?? record.uuid ?? null;
+}
+
+/**
+ * Subagent transcripts that carry no marker and whose own `gitBranch` is not a
+ * task branch — so their spend lands on no card at all.
+ *
+ * Nothing enforces the marker; it is a line a skill instructs an agent to
+ * write. This is what makes a forgotten one visible on the next card instead
+ * of silently reproducing the under-reporting the marker exists to fix.
+ */
+export function unattributedSubagentFiles(sessionsDir: string, options: ReadOptions = {}): number {
+  let count = 0;
+
+  for (const { file, isSubagent, ownedByRepo } of transcriptFiles(sessionsDir, options.repoPaths)) {
+    if (!isSubagent || !ownedByRepo) continue;
+    if (resolveDispatchBranch(file) !== null) continue;
+
+    const head = firstLine(file);
+    if (head === null) continue;
+
+    let record: SessionRecord;
+    try {
+      record = JSON.parse(head) as SessionRecord;
+    } catch {
+      continue;
+    }
+
+    if (!record.gitBranch || record.gitBranch === "main" || record.gitBranch === "HEAD") count++;
+  }
+
+  return count;
+}
+
+/**
+ * Every task branch a transcript mentions, with its records. One pass, for
+ * `backfill`, which cards many branches at once and would otherwise re-read
+ * hundreds of megabytes per branch.
+ *
+ * Shares `readRecordsForBranch`'s rules — marker resolution and `requestId`
+ * dedupe — because two readers with different rules produced a backfilled card
+ * and a live card that disagreed about the same branch.
+ */
+export function recordsByBranch(
+  sessionsDir: string,
+  options: ReadOptions = {},
+): Map<string, SessionRecord[]> {
+  const byBranch = new Map<string, SessionRecord[]>();
+  const seen = new Set<string>();
+
+  for (const { file, isSubagent, ownedByRepo } of transcriptFiles(sessionsDir, options.repoPaths)) {
+    const resolved = isSubagent && ownedByRepo ? resolveDispatchBranch(file) : null;
+
+    let text: string;
+    try {
+      text = readFileSync(file, "utf8") as string;
+    } catch {
+      continue;
+    }
+
+    for (const line of text.split("\n")) {
+      if (resolved === null && !line.includes('"gitBranch"')) continue;
+
+      let record: SessionRecord;
       try {
-        text = require("node:fs").readFileSync(file, "utf8") as string;
+        record = JSON.parse(line) as SessionRecord;
       } catch {
         continue;
       }
 
-      for (const line of text.split("\n")) {
-        // Cheap reject before the parse: these files run to megabytes and the
-        // overwhelming majority of lines belong to other branches.
-        if (!line.includes(branch)) continue;
+      const branch = resolved ?? record.gitBranch;
+      // `main` and the bare-repo `HEAD` are not task branches, and `card`
+      // refuses both.
+      if (!branch || branch === "main" || branch === "HEAD") continue;
 
-        let record: SessionRecord;
-        try {
-          record = JSON.parse(line) as SessionRecord;
-        } catch {
-          continue;
-        }
-
-        if (record.gitBranch === branch) records.push(record);
+      const key = dedupeKey(record);
+      if (key !== null) {
+        if (seen.has(key)) continue;
+        seen.add(key);
       }
+
+      const existing = byBranch.get(branch);
+      if (existing) existing.push(record);
+      else byBranch.set(branch, [record]);
+    }
+  }
+
+  return byBranch;
+}
+
+/**
+ * The records belonging to one branch.
+ *
+ * Two things beyond a `gitBranch` match. A subagent file's branch comes from
+ * `resolveDispatchBranch` when the dispatch carried a marker — `gitBranch`
+ * there is the *parent session's* and is wrong by construction. And a record
+ * present in two session files is returned once; Claude Code sometimes writes
+ * one conversation into two files, and both copies are real.
+ */
+export function readRecordsForBranch(
+  sessionsDir: string,
+  branch: string,
+  options: ReadOptions = {},
+): SessionRecord[] {
+  const records: SessionRecord[] = [];
+  const seen = new Set<string>();
+
+  for (const { file, isSubagent, ownedByRepo } of transcriptFiles(sessionsDir, options.repoPaths)) {
+    // One resolve per file, before any line is read. When it answers, it
+    // answers for every record in the file — and it also decides whether the
+    // per-line reject below can be used at all.
+    // A marker admits a file only from a project directory this repository
+    // owns; see `ReadOptions.repoPaths`.
+    const resolved = isSubagent && ownedByRepo ? resolveDispatchBranch(file) : null;
+    if (resolved !== null && resolved !== branch) continue;
+
+    let text: string;
+    try {
+      text = readFileSync(file, "utf8") as string;
+    } catch {
+      continue;
+    }
+
+    for (const line of text.split("\n")) {
+      // These files run to tens of megabytes and most lines belong to other
+      // branches, so reject before the parse. It cannot be used on a resolved
+      // file: those lines are stamped with the parent's branch and carry the
+      // resolved name nowhere.
+      if (resolved === null && !line.includes(branch)) continue;
+
+      let record: SessionRecord;
+      try {
+        record = JSON.parse(line) as SessionRecord;
+      } catch {
+        continue;
+      }
+
+      if (resolved === null && record.gitBranch !== branch) continue;
+
+      const key = dedupeKey(record);
+      if (key !== null) {
+        if (seen.has(key)) continue;
+        seen.add(key);
+      }
+
+      records.push(record);
     }
   }
 
@@ -1044,7 +1465,7 @@ if (import.meta.main) {
 
   const sessionsDir = flag("sessions-dir") ?? `${process.env.HOME}/.claude/projects`;
   const base = flag("base") ?? "origin/main";
-  const records = readSessionRecords(sessionsDir, branch);
+  const records = readRecordsForBranch(sessionsDir, branch, { repoPaths: repoProjectPaths() });
 
   const numstat = git(["diff", "--numstat", `${base}...HEAD`]);
   const commits = git(["rev-list", "--count", `${base}..HEAD`]);
@@ -1093,6 +1514,18 @@ if (import.meta.main) {
       `⚠️  pr-metrics: no session records matched branch \`${branch}\` under ${sessionsDir}.`,
     );
     console.warn("   The card still carries the diff; spend and interaction are zero.");
+
+    // The usual cause on delegated work: the dispatch carried no
+    // `TASK-BRANCH:` marker, so the subagent's spend is stamped with the
+    // orchestrator session's branch and belongs to no card.
+    const unattributed = unattributedSubagentFiles(sessionsDir, { repoPaths: repoProjectPaths() });
+    if (unattributed > 0) {
+      console.warn(
+        `   ${unattributed} subagent transcript(s) carry no TASK-BRANCH marker and sit under a`,
+      );
+      console.warn("   `main`/`HEAD` session, so their spend lands on no card. See");
+      console.warn("   wiki/observability/session-metrics.md §Attributing subagent spend.");
+    }
   }
 
   if (card.spend.unpriced_models.length > 0) {

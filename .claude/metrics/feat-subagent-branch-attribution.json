@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": null,
+    "branch": "feat/subagent-branch-attribution",
+    "base_sha": "9d62e4f9acc33d85c033c0b3c848569d8c540299",
+    "head_sha": "253d6e92fdbc9ca778c60a7c1d7126ad361b6308",
+    "generated_at": "2026-09-08T12:51:00.097Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 942,
+    "type": "Feature",
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-09-08T11:41:46.779Z",
+    "last_ts": "2026-09-08T12:44:09.509Z",
+    "span_seconds": 3743,
+    "active_seconds": 1583,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 11.330775249999997,
+    "tokens": {
+      "input": 974,
+      "output": 9772,
+      "thinking": 0,
+      "cache_write_5m": 471489,
+      "cache_write_1h": 0,
+      "cache_read": 12272868
+    },
+    "by_model": {
+      "claude-opus-5": {
+        "tokens": {
+          "input": 204,
+          "output": 8981,
+          "thinking": 0,
+          "cache_write_5m": 334563,
+          "cache_write_1h": 0,
+          "cache_read": 10034963
+        },
+        "usd_equivalent": 7.334045249999999,
+        "messages": 102
+      },
+      "claude-fable-5-1": {
+        "tokens": {
+          "input": 770,
+          "output": 791,
+          "thinking": 0,
+          "cache_write_5m": 136926,
+          "cache_write_1h": 0,
+          "cache_read": 2237905
+        },
+        "usd_equivalent": 3.99673,
+        "messages": 25
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 974,
+          "output": 9772,
+          "thinking": 0,
+          "cache_write_5m": 471489,
+          "cache_write_1h": 0,
+          "cache_read": 12272868
+        },
+        "usd_equivalent": 11.330775249999997,
+        "messages": 127
+      }
+    },
+    "effort": {
+      "high": 127
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 2,
+      "docs": 2,
+      "config": 0,
+      "source": 2
+    },
+    "loc": {
+      "generated": {
+        "added": 9,
+        "deleted": 0
+      },
+      "test": {
+        "added": 777,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 87,
+        "deleted": 4
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 454,
+        "deleted": 60
+      }
+    },
+    "packages": [
+      "tools/pr-metrics"
+    ],
+    "touches_migration": false,
+    "commits": 4
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Edit": 19,
+      "Bash": 18,
+      "Read": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 3,
+      "max_edits_one_file": 11
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

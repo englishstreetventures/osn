@@ -104,6 +104,16 @@ Dispatch **one** `general-purpose` subagent that owns planning and implementatio
 conversation, so anything not in the text does not exist, and anything wrong in it
 gets followed to the letter. Every dispatch carries:
 
+- **The branch, as the first line: `TASK-BRANCH: <branch>`.** On its own line,
+  verbatim, in **every** prompt this skill sends to the `Agent` tool — Step 3's
+  hand-off, Step 4's fix subagents, Step 5's shepherd, and every re-dispatch.
+  A subagent's `gitBranch` is the *orchestrator session's*, captured once at
+  session start and inherited, so without this line its spend is attributed to
+  `main` and lands on no card. It is 85.8% of subagent spend today. The
+  collector reads the marker back out of this prompt
+  (`tools/pr-metrics/index.ts`, `resolveDispatchBranch`); a subagent that
+  dispatches further work does not need to repeat it, because a child with no
+  marker inherits its parent's.
 - **The reader.** Every file the task creates names the file or command that reads
   it. If nothing reads it, the task is not done — "create the file" and "make
   something call it" are separate steps, and an implementer reliably does the

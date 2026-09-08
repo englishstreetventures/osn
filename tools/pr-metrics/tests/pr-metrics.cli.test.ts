@@ -368,3 +368,200 @@ test("card writes to the repository root even when run with --cwd", async () => 
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+/** Claude Code names a project directory after the session's cwd, with `/` and
+ * `.` flattened to `-`. The collector only trusts a `TASK-BRANCH:` marker from a
+ * project directory this repository owns, so a fixture has to be named the way
+ * a real one would be. `git` resolves symlinks (`/var` → `/private/var` on
+ * macOS), so the name comes from git rather than from `mkdtemp`. */
+async function projectDirFor(repo: string): Promise<string> {
+  const proc = Bun.spawn(["git", "rev-parse", "--show-toplevel"], { cwd: repo, stdout: "pipe" });
+  const top = (await new Response(proc.stdout).text()).trim();
+  await proc.exited;
+
+  return top.replaceAll(/[/.]/g, "-");
+}
+
+// The unit tests feed `resolveDispatchBranch` a hand-built tree. This one runs
+// the real script end to end over a subagent transcript stamped with a
+// DIFFERENT branch from the card's — which is the actual shape on disk, and the
+// shape the old `gitBranch` match dropped entirely.
+test("card attributes a subagent stamped `main` to the branch its dispatch marked", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pr-metrics-marker-"));
+  const branch = "feat/marker-fixture";
+
+  try {
+    const git = async (...args: string[]) => {
+      const proc = Bun.spawn(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+      await proc.exited;
+    };
+    await git("init", "-q", "-b", "main");
+    await git("config", "user.email", "test@example.com");
+    await git("config", "user.name", "Test");
+    await git("config", "commit.gpgsign", "false");
+    await writeFile(join(dir, "seed.txt"), "seed\n");
+    await git("add", ".");
+    await git("commit", "-qm", "seed");
+    await git("checkout", "-qb", branch);
+    await mkdir(join(dir, "osn", "api", "src"), { recursive: true });
+    await writeFile(join(dir, "osn", "api", "src", "svc.ts"), "export const a = 1;\n");
+    await git("add", ".");
+    await git("commit", "-qm", "work");
+
+    const project = join(dir, "sessions", await projectDirFor(dir));
+    const subagents = join(project, "sess-1", "subagents");
+    await mkdir(subagents, { recursive: true });
+
+    // The orchestrator session runs on `main` and dispatches with the marker.
+    await writeFile(
+      join(project, "sess-1.jsonl"),
+      `${JSON.stringify({
+        type: "assistant",
+        sessionId: "sess-1",
+        gitBranch: "main",
+        timestamp: "2026-09-07T10:00:00.000Z",
+        requestId: "req-parent",
+        message: {
+          model: "claude-opus-5",
+          content: [
+            {
+              type: "tool_use",
+              id: "toolu_dispatch",
+              name: "Agent",
+              input: { prompt: `TASK-BRANCH: ${branch}\n\nImplement it.` },
+            },
+          ],
+        },
+      })}\n`,
+    );
+
+    await writeFile(
+      join(subagents, "agent-worker.meta.json"),
+      JSON.stringify({ agentType: "implementer", toolUseId: "toolu_dispatch", spawnDepth: 1 }),
+    );
+    // Stamped `main` — inherited from the parent session, wrong by construction.
+    await writeFile(
+      join(subagents, "agent-worker.jsonl"),
+      [
+        JSON.stringify({
+          type: "assistant",
+          sessionId: "sess-1",
+          gitBranch: "main",
+          isSidechain: true,
+          effort: "high",
+          requestId: "req-w1",
+          timestamp: "2026-09-07T10:01:00.000Z",
+          message: { model: "claude-opus-5", usage: { output_tokens: 700 } },
+        }),
+        JSON.stringify({
+          type: "assistant",
+          sessionId: "sess-1",
+          gitBranch: "main",
+          isSidechain: true,
+          effort: "high",
+          requestId: "req-w2",
+          timestamp: "2026-09-07T10:01:30.000Z",
+          message: { model: "claude-opus-5", usage: { output_tokens: 300 } },
+        }),
+      ].join("\n"),
+    );
+
+    const proc = Bun.spawn(
+      [
+        "bun",
+        SCRIPT,
+        "--branch",
+        branch,
+        "--base",
+        "main",
+        "--sessions-dir",
+        join(dir, "sessions"),
+        "--out-dir",
+        join(dir, "cards"),
+      ],
+      { cwd: dir, stdout: "pipe", stderr: "pipe" },
+    );
+    await proc.exited;
+
+    const card = JSON.parse(
+      await Bun.file(join(dir, "cards", "feat-marker-fixture.json")).text(),
+    ) as Card;
+
+    // The exact sum, not merely non-zero: a non-zero assertion cannot tell a
+    // resolved file from a stray record that matched some other way.
+    expect(card.spend.tokens.output).toBe(1000);
+    expect(card.spend.by_actor.subagent.tokens.output).toBe(1000);
+    expect(card.spend.by_actor.main.tokens.output).toBe(0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// The marker is a line a skill asks an agent to write, so nothing enforces it.
+// This warning is the whole enforcement story, and it fires on exactly the run
+// where the operator has no other signal — the card that came back empty. The
+// existing empty-card test points at a directory with no transcripts at all, so
+// the count is always 0 and this block never ran.
+test("the CLI names unmarked subagent transcripts when a card comes back empty", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pr-metrics-warn-"));
+  const branch = "feat/nothing-matched";
+
+  try {
+    const git = async (...args: string[]) => {
+      const proc = Bun.spawn(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+      await proc.exited;
+    };
+    await git("init", "-q", "-b", "main");
+    await git("config", "user.email", "test@example.com");
+    await git("config", "user.name", "Test");
+    await git("config", "commit.gpgsign", "false");
+    await writeFile(join(dir, "seed.txt"), "seed\n");
+    await git("add", ".");
+    await git("commit", "-qm", "seed");
+    await git("checkout", "-qb", branch);
+
+    // One unmarked subagent under a `main` session: its spend belongs to no card.
+    const project = join(dir, "sessions", await projectDirFor(dir));
+    const subagents = join(project, "sess-1", "subagents");
+    await mkdir(subagents, { recursive: true });
+    await writeFile(
+      join(project, "sess-1.jsonl"),
+      `${JSON.stringify({ type: "assistant", gitBranch: "main", timestamp: "2026-09-08T10:00:00.000Z" })}\n`,
+    );
+    await writeFile(
+      join(subagents, "agent-orphan.jsonl"),
+      `${JSON.stringify({ type: "assistant", gitBranch: "main", isSidechain: true })}\n`,
+    );
+
+    const proc = Bun.spawn(
+      [
+        "bun",
+        SCRIPT,
+        "--branch",
+        branch,
+        "--base",
+        "main",
+        "--sessions-dir",
+        join(dir, "sessions"),
+        "--out-dir",
+        join(dir, "cards"),
+      ],
+      { cwd: dir, stdout: "pipe", stderr: "pipe" },
+    );
+    const stderr = await new Response(proc.stderr).text();
+    await proc.exited;
+
+    expect(stderr).toContain("no session records matched");
+    expect(stderr).toContain("1 subagent transcript(s) carry no TASK-BRANCH marker");
+    // The pointer the operator is sent to must exist; a rename would otherwise
+    // break it silently.
+    expect(stderr).toContain("wiki/observability/session-metrics.md");
+    expect(
+      await Bun.file(
+        new URL("../../../wiki/observability/session-metrics.md", import.meta.url).pathname,
+      ).text(),
+    ).toContain("## Attributing subagent spend");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

@@ -29,7 +29,8 @@ import {
   declaredFromLabels,
   defaultMetricsDir,
   parseNumstat,
-  type SessionRecord,
+  recordsByBranch,
+  repoProjectPaths,
 } from "./index.ts";
 
 interface PullRequest {
@@ -65,46 +66,6 @@ function flag(name: string): string | null {
   return index >= 0 && Bun.argv[index + 1] ? Bun.argv[index + 1] : null;
 }
 
-/** Every branch that appears in a transcript, with its records. One pass over
- * the logs; a per-PR scan would re-read gigabytes once per pull request. */
-function recordsByBranch(sessionsDir: string): Map<string, SessionRecord[]> {
-  const byBranch = new Map<string, SessionRecord[]>();
-  const patterns = [`${sessionsDir}/*/*.jsonl`, `${sessionsDir}/*/*/subagents/*.jsonl`];
-
-  for (const pattern of patterns) {
-    const found = sh(["sh", "-c", `ls -1 ${pattern} 2>/dev/null || true`]);
-
-    for (const file of found.out.split("\n").filter(Boolean)) {
-      let text: string;
-      try {
-        text = require("node:fs").readFileSync(file, "utf8") as string;
-      } catch {
-        continue;
-      }
-
-      for (const line of text.split("\n")) {
-        if (!line.includes('"gitBranch"')) continue;
-
-        let record: SessionRecord;
-        try {
-          record = JSON.parse(line) as SessionRecord;
-        } catch {
-          continue;
-        }
-
-        const branch = record.gitBranch;
-        if (!branch || branch === "main") continue;
-
-        const existing = byBranch.get(branch);
-        if (existing) existing.push(record);
-        else byBranch.set(branch, [record]);
-      }
-    }
-  }
-
-  return byBranch;
-}
-
 /** GitHub's per-file additions and deletions, reshaped into the `git diff
  * --numstat` lines `parseNumstat` already understands. */
 function numstatFromApi(files: ChangedFile[]): string {
@@ -138,7 +99,7 @@ if (import.meta.main) {
   }
 
   const pulls = JSON.parse(listed.out) as PullRequest[];
-  const byBranch = recordsByBranch(sessionsDir);
+  const byBranch = recordsByBranch(sessionsDir, { repoPaths: repoProjectPaths() });
 
   console.log(
     `pr-metrics backfill: ${pulls.length} merged PR(s), ${byBranch.size} branch(es) with transcripts.`,
