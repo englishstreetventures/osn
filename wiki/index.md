@@ -7,7 +7,7 @@ related:
   - "[[deferred-decisions]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-09-06
+last-reviewed: 2026-09-08
 ---
 
 # OSN Wiki
@@ -25,6 +25,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[monorepo-structure]] — workspace layout, domain prefixes, directory tree
 - [[backend-patterns]] — Elysia route factories, Effect pipelines, service layer
 - [[schema-layers]] — Elysia TypeBox (HTTP) vs Effect Schema (domain)
+- [[effect-v4-api]] — the v3 forms that no longer compile, and the v4 form to write instead
 - [[s2s-patterns]] — graphBridge, cross-package calls, ARC token flow
 - [[frontend-patterns]] — SolidJS, shared UI tokens, lazy loading
 - [[component-library]] — Zaidan/shadcn-style components, Kobalte primitives, CVA variants
