@@ -944,19 +944,18 @@ describe("RsvpModal", () => {
     expect(getByText(/RSVPs have closed/)).toBeTruthy();
   });
 
+  /**
+   * A successful RSVP used to be indistinguishable from a mis-tap: the sheet
+   * simply vanished. These pin the confirmation that replaced that — the gold
+   * sweep, the tick, and the held beat before the sheet closes itself.
+   *
+   * happy-dom and jsdom compute no CSS, so none of this can assert what the
+   * guest actually SEES. What is checkable is the contract the visuals hang
+   * off: which classes are present, which state flags flip, and what the
+   * component does with focus and callbacks. The durations themselves are
+   * guarded in `rsvp-saved.test.ts`.
+   */
   describe("confirmed state", () => {
-    /**
-     * A successful RSVP used to be indistinguishable from a mis-tap: the sheet
-     * simply vanished. These pin the confirmation that replaced that — the gold
-     * sweep, the tick, and the held beat before the sheet closes itself.
-     *
-     * happy-dom and jsdom compute no CSS, so none of this can assert what the
-     * guest actually SEES. What is checkable is the contract the visuals hang
-     * off: which classes are present, which state flags flip, and what the
-     * component does with focus and callbacks. The durations themselves are
-     * guarded in `rsvp-saved.test.ts`.
-     */
-
     /** Stub a 200 and answer for Priya, leaving the sheet mid-confirmation. */
     async function confirmOnce(props: Partial<{ onClose: () => void; withDietary: boolean }> = {}) {
       const rsvps: RsvpSummary[] = [

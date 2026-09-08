@@ -1,14 +1,3 @@
-import { imports } from "@cire/db";
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
-import { Effect } from "effect";
-
-import { DbService, dbQuery } from "../db";
-import type { DeletableBucket } from "./r2-cleanup";
-import { reapR2Objects } from "./r2-cleanup";
-import { R2Service, storeBeforeImage } from "./r2-imports";
-import type { R2Error } from "./r2-imports";
-import { stateExportService } from "./state-export";
-
 /**
  * Change-history checkpointing (guest+event editor E3, [[guest-event-editor]]
  * §4). Two operations run at apply time, BEFORE the change mutates the DB:
@@ -25,6 +14,16 @@ import { stateExportService } from "./state-export";
  *     revertability (E6 surfaces this in the UI). Reuses the shared
  *     best-effort R2 reaper (`r2-cleanup.ts`).
  */
+import { imports } from "@cire/db";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { Effect } from "effect";
+
+import { DbService, dbQuery } from "../db";
+import type { DeletableBucket } from "./r2-cleanup";
+import { reapR2Objects } from "./r2-cleanup";
+import { R2Service, storeBeforeImage } from "./r2-imports";
+import type { R2Error } from "./r2-imports";
+import { stateExportService } from "./state-export";
 
 /** Retained before-images per wedding. Decided in [[guest-event-editor]] §4/§11:
  *  snapshots are small text objects, but unbounded per-save growth needs a Free-

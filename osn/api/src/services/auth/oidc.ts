@@ -305,24 +305,6 @@ const generateBindingSecret = (): string => {
 };
 
 /**
- * Semantic validation for client registration, beyond the TypeBox shape.
- * Pure and exported so the rules are unit-testable and reusable by any future
- * admin surface. Returns the normalised inputs on success — trimmed name,
- * deduplicated URIs — or the first human-readable problem.
- *
- * The rules exist because every one of them is an attack surface:
- *  - redirect URIs are the open-redirect / code-theft boundary — https only
- *    (http tolerated solely for loopback development), no fragments (RFC 6749
- *    §3.1.2), exact strings, bounded count and length;
- *  - `logo_url` flows into the first-party consent/connections UI as an image
- *    `src`, so a non-https scheme is a stored-XSS-adjacent foothold;
- *  - the name renders on the consent screen, so it is length-bounded.
- *
- * `client_id` is server-generated (`cid_` + random), so the reserved-id
- * deny-list cannot collide by construction — `findClient` still enforces it
- * as defence in depth for hand-seeded rows.
- */
-/**
  * True when a name carries a character that lets it lie about its identity on
  * the consent screen without changing how it reads: bidirectional
  * overrides/embeddings (which reverse or reorder glyphs), zero-width
@@ -424,6 +406,24 @@ const RESERVED_NAME_SKELETONS: ReadonlySet<string> = new Set(
   RESERVED_OIDC_CLIENT_NAMES.map(clientNameSkeleton),
 );
 
+/**
+ * Semantic validation for client registration, beyond the TypeBox shape.
+ * Pure and exported so the rules are unit-testable and reusable by any future
+ * admin surface. Returns the normalised inputs on success — trimmed name,
+ * deduplicated URIs — or the first human-readable problem.
+ *
+ * The rules exist because every one of them is an attack surface:
+ *  - redirect URIs are the open-redirect / code-theft boundary — https only
+ *    (http tolerated solely for loopback development), no fragments (RFC 6749
+ *    §3.1.2), exact strings, bounded count and length;
+ *  - `logo_url` flows into the first-party consent/connections UI as an image
+ *    `src`, so a non-https scheme is a stored-XSS-adjacent foothold;
+ *  - the name renders on the consent screen, so it is length-bounded.
+ *
+ * `client_id` is server-generated (`cid_` + random), so the reserved-id
+ * deny-list cannot collide by construction — `findClient` still enforces it
+ * as defence in depth for hand-seeded rows.
+ */
 export function validateClientRegistration(input: {
   name: string;
   redirectUris: string[];

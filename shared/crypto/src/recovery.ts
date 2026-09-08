@@ -1,5 +1,3 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-
 /**
  * Copenhagen Book M2 — single-use recovery codes.
  *
@@ -29,6 +27,8 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
  * separated by ASCII hyphens. Users can type the dashes or omit them; we
  * normalise on compare.
  */
+
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
 /** Length of the raw hex code, excluding separators. */
 const CODE_HEX_LENGTH = 16;

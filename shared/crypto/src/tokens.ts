@@ -1,5 +1,3 @@
-import { Effect } from "effect";
-
 /**
  * Opaque bearer-token primitives, shared by every cookie-backed session an OSN
  * relying party issues (cire's guest households and organisers, pulse's web
@@ -13,6 +11,8 @@ import { Effect } from "effect";
  * index pulls in `@osn/db` and the observability stack, which a relying party
  * minting a cookie has no business loading.
  */
+
+import { Effect } from "effect";
 
 /**
  * 256 bits of `crypto.getRandomValues` entropy → base64url (no padding).

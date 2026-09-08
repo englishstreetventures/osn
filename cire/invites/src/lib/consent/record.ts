@@ -7,24 +7,6 @@ import {
 } from "./categories";
 
 /**
- * The consent record — what we persist, and the rules for reading it back.
- *
- * Deliberately a plain, versioned, self-describing object rather than a bag of
- * booleans: a stored decision has to survive us changing our minds about the
- * category list, and it has to be possible to tell "this guest refused
- * everything" apart from "this guest has never been asked". That distinction is
- * the whole point — the first must never re-prompt, the second always must.
- * `null` (no record) means unasked; a record with every optional grant `false`
- * means refused, and is a decision we are obliged to keep honouring.
- *
- * Under the opt-out defaults those two states also differ in what they ALLOW —
- * unasked permits `embeds`, refused does not — which makes conflating them a
- * privacy bug rather than merely a UX one. Three distinct grant maps exist for
- * that reason: {@link defaultGrants} (the floor), {@link preDecisionGrants}
- * (unasked), and {@link allGrants} (accept-all).
- */
-
-/**
  * Storage-shape version. Bump ONLY when the record's structure changes in a way
  * `decodeConsentRecord` can't read; a mismatch discards the record and re-asks.
  */
@@ -44,6 +26,23 @@ export const CONSENT_POLICY_VERSION = "2026-07-29";
 
 export type ConsentGrants = Record<ConsentCategory, boolean>;
 
+/**
+ * The consent record — what we persist, and the rules for reading it back.
+ *
+ * Deliberately a plain, versioned, self-describing object rather than a bag of
+ * booleans: a stored decision has to survive us changing our minds about the
+ * category list, and it has to be possible to tell "this guest refused
+ * everything" apart from "this guest has never been asked". That distinction is
+ * the whole point — the first must never re-prompt, the second always must.
+ * `null` (no record) means unasked; a record with every optional grant `false`
+ * means refused, and is a decision we are obliged to keep honouring.
+ *
+ * Under the opt-out defaults those two states also differ in what they ALLOW —
+ * unasked permits `embeds`, refused does not — which makes conflating them a
+ * privacy bug rather than merely a UX one. Three distinct grant maps exist for
+ * that reason: {@link defaultGrants} (the floor), {@link preDecisionGrants}
+ * (unasked), and {@link allGrants} (accept-all).
+ */
 export interface ConsentRecord {
   /** {@link CONSENT_RECORD_VERSION} at the time of writing. */
   readonly v: number;

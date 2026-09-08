@@ -33,9 +33,10 @@
  * in a sibling `<session-id>/subagents/*.jsonl` directory rather than the main
  * transcript — miss it and a card under-reports by however much was delegated,
  * which on an orchestrated task is most of it.
+ *
+ * `SCHEMA_VERSION` is bumped whenever a field changes meaning or leaves.
+ * Readers key off this.
  */
-
-/** Bump when a field changes meaning or leaves. Readers key off this. */
 export const SCHEMA_VERSION = 1;
 
 /**

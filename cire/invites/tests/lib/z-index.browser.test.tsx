@@ -1,11 +1,3 @@
-import { render } from "@solidjs/testing-library";
-import { describe, expect, it } from "vitest";
-
-import { AnimatedModal } from "../../src/components/AnimatedModal";
-
-import "../../src/styles/global.css";
-import { Z_CLASS, Z_LAYER } from "../../src/lib/z-index";
-
 /**
  * The #203 invariant, asserted against what the browser actually paints.
  *
@@ -29,6 +21,13 @@ import { Z_CLASS, Z_LAYER } from "../../src/lib/z-index";
  * Each check below therefore reads computed style or hit-tests real geometry,
  * rather than re-asserting the constants.
  */
+import { render } from "@solidjs/testing-library";
+import { describe, expect, it } from "vitest";
+
+import { AnimatedModal } from "../../src/components/AnimatedModal";
+
+import "../../src/styles/global.css";
+import { Z_CLASS, Z_LAYER } from "../../src/lib/z-index";
 
 /** A stand-in for the portalled popover: same z-class, same `fixed`, real geometry. */
 function Popover() {

@@ -1,5 +1,3 @@
-import { context, propagation, trace } from "@opentelemetry/api";
-
 /**
  * W3C Trace Context propagation helpers.
  *
@@ -7,6 +5,7 @@ import { context, propagation, trace } from "@opentelemetry/api";
  * `tracestate`) headers. These helpers are thin wrappers so callers don't
  * need to import `@opentelemetry/api` directly.
  */
+import { context, propagation, trace } from "@opentelemetry/api";
 
 /**
  * Inject the current active span's trace context into an outbound

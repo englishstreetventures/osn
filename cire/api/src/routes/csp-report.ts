@@ -1,11 +1,3 @@
-import type { RateLimiterBackend } from "@shared/rate-limit";
-import { Effect } from "effect";
-import { Elysia } from "elysia";
-
-import { getClientIp, isUnresolvedIp } from "../lib/client-ip";
-import { bucketCspDirective, metricCspReport } from "../metrics";
-import { runCire } from "../observability";
-
 /**
  * Public, unauthenticated CSP violation-report collector.
  *
@@ -37,6 +29,13 @@ import { runCire } from "../observability";
  *    a claim code could ride in the query), and the disposition. Never the full
  *    URL. The document path can contain a public wedding slug — that is not PII.
  */
+import type { RateLimiterBackend } from "@shared/rate-limit";
+import { Effect } from "effect";
+import { Elysia } from "elysia";
+
+import { getClientIp, isUnresolvedIp } from "../lib/client-ip";
+import { bucketCspDirective, metricCspReport } from "../metrics";
+import { runCire } from "../observability";
 
 /** Reports above this many bytes are dropped unparsed (a real report is ~1 KB). */
 const MAX_REPORT_BYTES = 16 * 1024;

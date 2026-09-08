@@ -1,11 +1,3 @@
-import { Duration, Effect, Layer, Tracer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
-import { OtlpExporter, OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
-
-import type { ObservabilityConfig } from "../config";
-import { NoopTracingLive } from "./noop";
-import { otlpExporterUrl } from "./url";
-
 /**
  * OTLP/HTTP trace export that runs on Cloudflare Workers (workerd).
  *
@@ -57,6 +49,13 @@ import { otlpExporterUrl } from "./url";
  * several fiber roots regardless. Bridging the two registries is a separate
  * piece of work; do not assume a joined trace when reading this data.
  */
+import { Duration, Effect, Layer, Tracer } from "effect";
+import { FetchHttpClient } from "effect/unstable/http";
+import { OtlpExporter, OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
+
+import type { ObservabilityConfig } from "../config";
+import { NoopTracingLive } from "./noop";
+import { otlpExporterUrl } from "./url";
 
 /**
  * How long the exporter's background export loop sleeps before its first tick.

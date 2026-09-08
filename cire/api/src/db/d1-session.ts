@@ -1,5 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
-
 /**
  * D1 Sessions API wiring: route every query a request makes through one D1
  * session, so read replicas can serve the second and later queries.
@@ -79,6 +77,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
  *    uses none today. Anything of that shape needs the session captured and
  *    re-established explicitly with {@link withD1Session}.
  */
+
+import { AsyncLocalStorage } from "node:async_hooks";
 
 /**
  * The half of `D1Database` that Drizzle's D1 driver actually calls.

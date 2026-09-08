@@ -1,12 +1,3 @@
-import {
-  getTableColumns,
-  sql,
-  type Column,
-  type InferInsertModel,
-  type SQL,
-  type Table,
-} from "drizzle-orm";
-
 /**
  * D1 caps a query at 100 bound parameters
  * (developers.cloudflare.com/d1/platform/limits/). bun:sqlite — every test
@@ -26,6 +17,14 @@ import {
  * `col IN (SELECT value FROM json_each(?))` into a `LIST SUBQUERY` rather
  * than a scan.
  */
+import {
+  getTableColumns,
+  sql,
+  type Column,
+  type InferInsertModel,
+  type SQL,
+  type Table,
+} from "drizzle-orm";
 
 /**
  * A `col IN (...)` right-hand side whose parameter list is a single bound

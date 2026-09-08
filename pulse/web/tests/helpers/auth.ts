@@ -1,12 +1,11 @@
-import type { RpSession } from "@shared/rp-auth";
-import { type Mock, vi } from "vitest";
-
 /**
  * Test double for `@shared/rp-auth/solid`.
  *
  * The browser holds no token under the BFF model, so a test says who is signed
  * in by setting `authState.session` — there is nothing else to stub.
  */
+import type { RpSession } from "@shared/rp-auth";
+import { type Mock, vi } from "vitest";
 
 /** A signed-in viewer. Override any field per test. */
 export function fakeSession(overrides: Partial<RpSession> = {}): RpSession {

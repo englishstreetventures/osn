@@ -60,16 +60,6 @@ export interface ThreeCanvasProps {
 }
 
 /**
- * Frees the GPU-side memory a scene holds: geometries, materials, and the
- * textures those materials point at.
- *
- * `Material.dispose()` does not touch its own textures, and a texture is the
- * expensive upload — a remount that leaves them behind grows GPU memory every
- * cycle, which in this tool means every save. Only the standard map slots are
- * walked; a texture a story keeps somewhere else is that story's to free in
- * `onDispose`.
- */
-/**
  * The texture slots a standard three.js material can carry. Not every material
  * has every one — `MeshBasicMaterial` has no `roughnessMap` — so they are all
  * optional and the read is a plain property access.
@@ -112,6 +102,16 @@ function disposeMaterial(material: Material) {
   material.dispose();
 }
 
+/**
+ * Frees the GPU-side memory a scene holds: geometries, materials, and the
+ * textures those materials point at.
+ *
+ * `Material.dispose()` does not touch its own textures, and a texture is the
+ * expensive upload — a remount that leaves them behind grows GPU memory every
+ * cycle, which in this tool means every save. Only the standard map slots are
+ * walked; a texture a story keeps somewhere else is that story's to free in
+ * `onDispose`.
+ */
 function disposeScene(scene: Scene) {
   scene.traverse((object) => {
     const mesh = object as Mesh;

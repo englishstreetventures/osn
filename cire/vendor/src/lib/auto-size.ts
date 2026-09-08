@@ -1,5 +1,3 @@
-import { createSignal, onCleanup, onMount } from "solid-js";
-
 /**
  * Animate a box between two content heights it never knew in advance.
  *
@@ -40,6 +38,7 @@ import { createSignal, onCleanup, onMount } from "solid-js";
  * content swap happens at a fixed width, a reflow does not. It is free to know —
  * the rect being measured for the height carries it.
  */
+import { createSignal, onCleanup, onMount } from "solid-js";
 
 /** Past this many px, snap instead of animate. Roughly a tall laptop viewport. */
 export const AUTO_SIZE_CAP = 480;

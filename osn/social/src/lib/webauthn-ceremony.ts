@@ -2,6 +2,8 @@ import type { RunPasskeyCeremony } from "@osn/ui/auth/StepUpDialog";
 import { startAuthentication } from "@simplewebauthn/browser";
 
 /**
+ * Runs the assertion (sign-in / step-up) ceremony.
+ *
  * This app's WebAuthn assertion (sign-in / step-up) ceremony runner, handed
  * to the `@osn/ui` auth surfaces (`StepUpDialog`, `PasskeysView`,
  * `SecurityEventsBanner`, …) as the `runPasskeyCeremony` prop.
@@ -33,8 +35,6 @@ import { startAuthentication } from "@simplewebauthn/browser";
  * authenticator; a member outside the narrower union would be rejected by the
  * WebAuthn ceremony itself, not silently misread here.
  */
-
-/** Runs the assertion (sign-in / step-up) ceremony. */
 export const runPasskeyCeremony: RunPasskeyCeremony = (options) =>
   startAuthentication({
     optionsJSON: options as Parameters<typeof startAuthentication>[0]["optionsJSON"],

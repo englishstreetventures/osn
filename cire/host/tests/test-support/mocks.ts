@@ -1,5 +1,3 @@
-import { type Mock, vi } from "vitest";
-
 /**
  * Shared module mocks for the organiser component suites.
  *
@@ -21,6 +19,7 @@ import { type Mock, vi } from "vitest";
  * `importOriginal` spread, per-test toast assertions) keep their own local
  * mock — this covers the common case, it isn't a mandate.
  */
+import { type Mock, vi } from "vitest";
 
 /** `authFetch` from the mocked `useAuth()`. Set per test with `mockResolvedValue`. */
 export const authFetchMock: Mock = vi.fn();

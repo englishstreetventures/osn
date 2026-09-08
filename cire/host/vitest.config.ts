@@ -1,10 +1,3 @@
-import tailwindcss from "@tailwindcss/vite";
-import { playwright } from "@vitest/browser-playwright";
-import solid from "vite-plugin-solid";
-import { defineConfig } from "vitest/config";
-
-import { emulateMedia } from "./tests/test-support/browser-commands.ts";
-
 /**
  * Two test projects, deliberately separated — the same split `@cire/invites` runs,
  * and for the same reason.
@@ -21,6 +14,13 @@ import { emulateMedia } from "./tests/test-support/browser-commands.ts";
  * Browser tests are named `*.browser.test.ts(x)` and are excluded from `unit` by
  * that name, so every file lands in exactly one project.
  */
+
+import tailwindcss from "@tailwindcss/vite";
+import { playwright } from "@vitest/browser-playwright";
+import solid from "vite-plugin-solid";
+import { defineConfig } from "vitest/config";
+
+import { emulateMedia } from "./tests/test-support/browser-commands.ts";
 
 /** Shared by both projects — same compiler, and the Tailwind build the app ships
  *  (the browser tier needs it: `global.css` is `@import "tailwindcss"`, and a

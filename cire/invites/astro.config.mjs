@@ -88,8 +88,7 @@ function minifySsrBuild() {
  *
  * So #617 stays open on its own: astro's actions runtime is the entry, it
  * runs at request time, and there's no app-level lever to remove it.
- */
-/**
+ *
  * `motion` (plus its `motion-dom`/`motion-utils` deps) is ~187 KB raw of dead
  * weight in the SSR Worker build (tracker #287). The three `.motion.ts`
  * modules that import it — `components/Modal.motion.ts`,

@@ -13,21 +13,6 @@ import {
 import { buildSrcSet, variantSrc } from "../invite-images";
 
 /**
- * One gift on the couple's list, as a guest sees it.
- *
- * THE PRIVACY PROPERTY THIS COMPONENT EXISTS TO KEEP: a guest sees COUNTS, never
- * names. "1 of 2 left" and nothing else. Who reserved a gift, what anyone spent,
- * and any running total are the couple's alone. That is enforced at the API —
- * the public read never selects a claimant identity — and this card must never
- * become the place it leaks back in. The ONLY name this component may ever
- * render is the household's OWN `displayName`, echoed back inside its own claim,
- * and only because that household typed it.
- *
- * A CLAIM IS NOT A PURCHASE. The guest reserves; nothing is charged, nothing is
- * sent. The copy says "reserve" throughout for that reason.
- */
-
-/**
  * The image box's shape. Exported for the drift guard in the tests: it exists
  * BOTH as the literal `aspect-[4/3]` inside {@link GIFT_CARD_IMAGE_CLASS} — the
  * Tailwind scanner reads source text, so a computed class emits no CSS at all —
@@ -57,6 +42,20 @@ export interface GiftRegistryItemCardProps {
   onRelease: () => void;
 }
 
+/**
+ * One gift on the couple's list, as a guest sees it.
+ *
+ * THE PRIVACY PROPERTY THIS COMPONENT EXISTS TO KEEP: a guest sees COUNTS, never
+ * names. "1 of 2 left" and nothing else. Who reserved a gift, what anyone spent,
+ * and any running total are the couple's alone. That is enforced at the API —
+ * the public read never selects a claimant identity — and this card must never
+ * become the place it leaks back in. The ONLY name this component may ever
+ * render is the household's OWN `displayName`, echoed back inside its own claim,
+ * and only because that household typed it.
+ *
+ * A CLAIM IS NOT A PURCHASE. The guest reserves; nothing is charged, nothing is
+ * sent. The copy says "reserve" throughout for that reason.
+ */
 export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
   const [open, setOpen] = createSignal(false);
   /**

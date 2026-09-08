@@ -15,9 +15,7 @@ import { defineBrowserCommand } from "@vitest/browser-playwright";
  *
  * (Mirrors `cire/invites`'s command of the same name, with `colorScheme` added: the
  * portal ships two ramps, and the readable-ink contract has to hold in both.)
- */
-
-/**
+ *
  * Emulate media preferences for the remainder of the current test.
  *
  * Always restore them in an `afterEach` — the browser context is shared across

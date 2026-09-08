@@ -2,8 +2,9 @@ import type { RunPasskeyRegistration } from "@osn/ui/auth/StepUpDialog";
 import { startRegistration } from "@simplewebauthn/browser";
 
 /**
- * This app's WebAuthn attestation (enrolment) ceremony runner, handed to
- * `@osn/ui`'s `PasskeysView` as the `runPasskeyRegistration` prop.
+ * Runs the attestation (enrolment) ceremony. This app's WebAuthn attestation
+ * (enrolment) ceremony runner, handed to `@osn/ui`'s `PasskeysView` as the
+ * `runPasskeyRegistration` prop.
  *
  * Kept out of `webauthn-ceremony.ts`: registration only runs from the
  * Security tab (`SecuritySection`), which is already its own lazy chunk. The
@@ -26,8 +27,6 @@ import { startRegistration } from "@simplewebauthn/browser";
  * authenticator; a member outside the narrower union would be rejected by the
  * WebAuthn ceremony itself, not silently misread here.
  */
-
-/** Runs the attestation (enrolment) ceremony. */
 export const runPasskeyRegistration: RunPasskeyRegistration = (options) =>
   startRegistration({
     optionsJSON: options as Parameters<typeof startRegistration>[0]["optionsJSON"],

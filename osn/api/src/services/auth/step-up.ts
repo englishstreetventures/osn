@@ -98,19 +98,15 @@ export function createStepUpModule(ctx: AuthContext) {
     });
 
   /**
-   * Verifies a step-up token and returns the amr values it carries. Fails
-   * with an AuthError on any signature / audience / expiry / replay issue;
-   * the error message is intentionally generic so the wire doesn't leak
-   * whether it was a wrong sub or a replayed jti.
-   */
-  /**
    * Verifies a step-up token and returns the amr + purpose it carries
    * along with the verified accountId (the token's `sub` claim). Pass
    * `expectedAccountId` to enforce a sub equality check (most callers do);
    * pass `null` to accept any account — used by cross-service verifiers
    * like `/internal/step-up/verify` where the calling service derives the
    * accountId from the token's verified sub rather than asserting one
-   * up front.
+   * up front. Fails with an AuthError on any signature / audience / expiry
+   * / replay issue; the error message is intentionally generic so the wire
+   * doesn't leak whether it was a wrong sub or a replayed jti.
    */
   const verifyStepUpToken = (
     token: string,

@@ -162,10 +162,9 @@
 
     // Only the last doc block in front of a declaration is attached to it, so
     // a stack means an editor shows the reader the wrong text and whatever the
-    // earlier block described has quietly lost its comment. At "warn" until the
-    // existing sites are fixed — issue #926 does that and raises this to
-    // "error".
-    "house/no-stacked-doc-block": "warn",
+    // earlier block described has quietly lost its comment. Raised to "error"
+    // by xchromo/osn#926, which cleared every existing site.
+    "house/no-stacked-doc-block": "error",
 
     // jsdoc — a tag you write must carry content. Every rule here measured
     // zero hits across the tree when it was turned on, so each one only ever

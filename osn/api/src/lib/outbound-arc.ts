@@ -1,7 +1,3 @@
-import { exportKeyToJwk, generateArcKeyPair, getOrCreateArcToken } from "@shared/crypto";
-import { instrumentedFetch } from "@shared/observability";
-import { Effect } from "effect";
-
 /**
  * Outbound ARC token issuer for osn-api.
  *
@@ -14,6 +10,9 @@ import { Effect } from "effect";
  * service on startup via the shared `INTERNAL_SERVICE_SECRET` (same flow
  * Pulse uses to register with osn-api). Rotated automatically.
  */
+import { exportKeyToJwk, generateArcKeyPair, getOrCreateArcToken } from "@shared/crypto";
+import { instrumentedFetch } from "@shared/observability";
+import { Effect } from "effect";
 
 /**
  * Comma-separated scopes osn-api registers with each downstream (Pulse + Zap)

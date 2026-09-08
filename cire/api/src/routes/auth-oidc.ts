@@ -21,26 +21,6 @@ import { organiserSessionService } from "../services/organiser-session";
 
 const PREFIX = "/api/auth";
 
-/**
- * Organiser sign-in, the OIDC relying-party side.
- *
- * The browser never holds an OSN token here. It bounces to the issuer, comes
- * back with a code, and leaves with a cire session cookie — host-scoped to
- * `api.cireweddings.com`, opaque, SHA-256 hashed at rest, exactly like the
- * guest session. See `@shared/osn-auth-client/oidc-rp` for why the redirect URI
- * is a constant and why a token without `osn_profile_id` is refused.
- *
- * **CSRF.** Moving organiser auth from a bearer header to a cookie makes
- * organiser writes CSRF-eligible for the first time. Two things cover that, and
- * both must stay: the app-wide `originGuard(corsOrigins)` on every
- * state-changing method, and `SameSite=Lax` on the cookie itself — the same
- * pair the guest session has always relied on. `Lax` (not `Strict`) is forced
- * by the callback, which arrives as a top-level cross-site GET navigation.
- *
- * Both OIDC legs are GETs, so the origin guard does not apply to them; the
- * `state` match is what protects the callback.
- */
-
 /** Seven days — must match `organiserSessionService`'s default TTL. */
 const SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 
@@ -98,6 +78,25 @@ export interface AuthOidcRouteOptions {
   sessionLimiter: RateLimiterBackend;
 }
 
+/**
+ * Organiser sign-in, the OIDC relying-party side.
+ *
+ * The browser never holds an OSN token here. It bounces to the issuer, comes
+ * back with a code, and leaves with a cire session cookie — host-scoped to
+ * `api.cireweddings.com`, opaque, SHA-256 hashed at rest, exactly like the
+ * guest session. See `@shared/osn-auth-client/oidc-rp` for why the redirect URI
+ * is a constant and why a token without `osn_profile_id` is refused.
+ *
+ * **CSRF.** Moving organiser auth from a bearer header to a cookie makes
+ * organiser writes CSRF-eligible for the first time. Two things cover that, and
+ * both must stay: the app-wide `originGuard(corsOrigins)` on every
+ * state-changing method, and `SameSite=Lax` on the cookie itself — the same
+ * pair the guest session has always relied on. `Lax` (not `Strict`) is forced
+ * by the callback, which arrives as a top-level cross-site GET navigation.
+ *
+ * Both OIDC legs are GETs, so the origin guard does not apply to them; the
+ * `state` match is what protects the callback.
+ */
 export const createAuthOidcRoutes = (
   db: Db,
   { oidc, secureCookies, loginFallbackUrl, startLimiter, sessionLimiter }: AuthOidcRouteOptions,

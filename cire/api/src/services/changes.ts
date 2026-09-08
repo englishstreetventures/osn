@@ -1,14 +1,3 @@
-import { events, imports } from "@cire/db";
-import { and, asc, eq, or } from "drizzle-orm";
-import { Effect, Schema } from "effect";
-
-import { DbService, dbQuery } from "../db";
-import { ChangeScope, DesiredState } from "../schemas/import";
-import type { ParsedEvent, ParsedFamily } from "../schemas/import";
-import { decodePalette, safeHttpUrl } from "./claim";
-import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
-import type { SpreadsheetParseError } from "./spreadsheet";
-
 /**
  * The general change pipeline (guest+event editor E4, [[guest-event-editor]]
  * §3/§7). Both front doors — a spreadsheet upload (`{eventsCsv, guestsCsv}`) and
@@ -26,8 +15,30 @@ import type { SpreadsheetParseError } from "./spreadsheet";
  *     409s if it moved, so two co-hosts editing at once get a clean conflict
  *     instead of a silent last-writer-wins.
  */
+import { events, imports } from "@cire/db";
+import { and, asc, eq, or } from "drizzle-orm";
+import { Effect, Schema } from "effect";
+
+import { DbService, dbQuery } from "../db";
+import { ChangeScope, DesiredState } from "../schemas/import";
+import type { ParsedEvent, ParsedFamily } from "../schemas/import";
+import { decodePalette, safeHttpUrl } from "./claim";
+import { parseEventsCsv, parseGuestsCsv } from "./spreadsheet";
+import type { SpreadsheetParseError } from "./spreadsheet";
 
 // ── Request body shapes ─────────────────────────────────────────────────────
+
+/**
+ * The sheet slots a spreadsheet upload can carry.
+ *
+ * Named once because three separate places have to agree on the list: the
+ * struct's own fields, the "at least one sheet" refinement, and the
+ * {@link ExclusiveFrontDoor} pre-pass that refuses a body carrying both front
+ * doors. The struct still has to spell each field out — Effect Schema needs
+ * literal keys — but the two checks derive from this, so adding a third slot
+ * cannot leave a door quietly unguarded.
+ */
+const CSV_SLOTS = ["eventsCsv", "guestsCsv"] as const;
 
 /**
  * A spreadsheet upload: the CSV texts. Kept distinct from the DesiredState shape
@@ -42,18 +53,6 @@ import type { SpreadsheetParseError } from "./spreadsheet";
  * refinement below (and, being the last union member, surfaces as the shared
  * 400 rather than a confusing empty-sheet parse error).
  */
-/**
- * The sheet slots a spreadsheet upload can carry.
- *
- * Named once because three separate places have to agree on the list: the
- * struct's own fields, the "at least one sheet" refinement, and the
- * {@link ExclusiveFrontDoor} pre-pass that refuses a body carrying both front
- * doors. The struct still has to spell each field out — Effect Schema needs
- * literal keys — but the two checks derive from this, so adding a third slot
- * cannot leave a door quietly unguarded.
- */
-const CSV_SLOTS = ["eventsCsv", "guestsCsv"] as const;
-
 export const CsvChangeBody = Schema.Struct({
   eventsCsv: Schema.optional(Schema.String),
   guestsCsv: Schema.optional(Schema.String),

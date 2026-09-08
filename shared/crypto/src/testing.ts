@@ -1,7 +1,3 @@
-import { SignJWT } from "jose";
-
-import { generateArcKeyPair } from "./jwk";
-
 /**
  * Test-only helpers for minting OSN user access tokens.
  *
@@ -16,6 +12,9 @@ import { generateArcKeyPair } from "./jwk";
  * production code has no business reaching for. Import from
  * `@shared/crypto/testing`.
  */
+import { SignJWT } from "jose";
+
+import { generateArcKeyPair } from "./jwk";
 
 /**
  * The `iss` these tokens carry unless a caller says otherwise.

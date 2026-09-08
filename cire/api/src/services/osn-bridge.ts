@@ -529,12 +529,6 @@ export interface OsnOrgSummary {
 export type OsnProfileOrgsResolver = (profileId: string) => Promise<OsnOrgSummary[]>;
 
 /**
- * Builds an {@link OsnProfileOrgsResolver} backed by a real ARC-authenticated
- * call to `GET /organisations/internal/profile-orgs`. Uses the `org:read`
- * scope (distinct from `graph:read`) — cire-api's registration must include
- * `org:read` in `allowedScopes` for this call to succeed.
- */
-/**
  * One org as it arrives from osn-api. The keys are the ones {@link toOrgSummary}
  * reads; every value stays `unknown` because the payload is never trusted as
  * typed — the checks below turn it into an {@link OsnOrgSummary} or nothing.
@@ -582,6 +576,12 @@ function toOrgSummary(value: unknown): OsnOrgSummary | null {
   };
 }
 
+/**
+ * Builds an {@link OsnProfileOrgsResolver} backed by a real ARC-authenticated
+ * call to `GET /organisations/internal/profile-orgs`. Uses the `org:read`
+ * scope (distinct from `graph:read`) — cire-api's registration must include
+ * `org:read` in `allowedScopes` for this call to succeed.
+ */
 export function createArcProfileOrgsResolver(config: ArcResolverConfig): OsnProfileOrgsResolver {
   const base = config.osnApiUrl.replace(/\/+$/, "");
 

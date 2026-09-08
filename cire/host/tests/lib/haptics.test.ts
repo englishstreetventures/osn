@@ -13,9 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * The contract asserted: nothing fires when the host has haptics off, each
  * semantic name maps to exactly one preset pattern, and importing the module
  * touches neither `navigator` nor the document until something is triggered.
+ *
+ * Load a fresh library + wrapper against whatever `navigator.vibrate` is now.
  */
-
-/** Load a fresh library + wrapper against whatever `navigator.vibrate` is now. */
 async function load() {
   vi.resetModules();
   const theme = await import("../../src/lib/theme");
