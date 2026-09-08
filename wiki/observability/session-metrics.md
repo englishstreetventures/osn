@@ -371,7 +371,16 @@ installed:
 ```bash
 bun run --cwd tools/pr-metrics report               # all seven
 bun run --cwd tools/pr-metrics report -- --waste    # just one
+bun run --cwd tools/pr-metrics report -- --json     # structured, for an agent
 ```
+
+`--json` emits the same tables as data, each keeping its `note`. The note is
+not decoration — it holds the exclusions, and a consumer that reads only rows
+will state a ranking's conclusion without its "18 cards excluded" qualifier.
+
+The **`analyse-sessions` skill** is the way in for an agent: it runs the report,
+reads coverage before anything else, and carries the four traps that have
+already produced two wrong findings from this data.
 
 That matters because **DuckDB does not exist in a remote session.** None of the
 `duckdb` npm packages ship a binary — they are all libraries — so `bunx` is no

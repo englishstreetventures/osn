@@ -11,6 +11,7 @@ bun run --cwd tools/pr-metrics card -- --format markdown     # the PR-body block
 bun run --cwd tools/pr-metrics backfill -- --dry-run         # merged PRs, retroactively
 bun run --cwd tools/pr-metrics report                        # read the cards back
 bun run --cwd tools/pr-metrics report -- --waste             # just one analysis
+bun run --cwd tools/pr-metrics report -- --json              # structured, for an agent
 ```
 
 `report` needs nothing installed and runs in every environment, including a

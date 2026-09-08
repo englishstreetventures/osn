@@ -367,6 +367,20 @@ if (import.meta.main) {
   const asked = Object.keys(REPORTS).filter((name) => Bun.argv.includes(`--${name}`));
   const selected = asked.length > 0 ? asked : Object.keys(REPORTS);
 
+  // `--json` prints the same tables as data and nothing else, so an agent
+  // reading this does not have to parse ASCII columns back into numbers. The
+  // `note` on each table travels with it deliberately: it carries the
+  // exclusions and caveats, and a consumer that sees only rows will state a
+  // ranking's conclusion without its "18 cards excluded" qualifier.
+  if (Bun.argv.includes("--json")) {
+    const tables = Object.fromEntries(
+      selected.map((name) => [name, REPORTS[name as keyof typeof REPORTS](rows)]),
+    );
+
+    console.log(JSON.stringify({ cards: cards.length, merged: rows.length, dir, tables }, null, 2));
+    process.exit(0);
+  }
+
   console.log(`pr-metrics report: ${cards.length} card(s) in ${dir}, ${rows.length} merged.`);
 
   for (const name of selected) {
