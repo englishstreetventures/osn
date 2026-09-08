@@ -241,6 +241,8 @@ printf '%s\\n' "$*" >> "$GH_CALL_LOG"
 case "$*" in
   *"pr list"*)
     printf '%s' '[{"number":${PR},"headRefName":"${BRANCH}","mergedAt":"2026-09-09T12:00:00Z","baseRefOid":"aaa","headRefOid":"bbb","labels":[],"closingIssuesReferences":[]}]' ;;
+  *"api graphql"*)
+    printf '%s' '{"data":{"repository":{"p${PR}":{"commits":{"totalCount":3}}}}}' ;;
   *"/files"*)
     printf '%s\\n' '{"filename":"osn/api/src/svc.ts","additions":1,"deletions":0}' ;;
   *)
@@ -309,7 +311,9 @@ test("backfill cards a marked subagent, and agrees with `card` on both figure an
     const calls = await readFile(f.log, "utf8");
     expect(calls).toContain("pr list");
     expect(calls).toContain(`repos/xchromo/osn/pulls/${PR}/files`);
-    expect(calls).toContain("--jq .commits");
+    // One batched GraphQL document, not a REST call per pull request.
+    expect(calls).toContain("api graphql");
+    expect(calls).not.toContain("--jq .commits");
 
     // The filename `branchSlug` would produce, not the inline slug: a trailing
     // dash is where the two used to differ.
@@ -395,7 +399,7 @@ test("--dry-run reports what it would write and writes nothing", async () => {
     // exercised — a dry run is not an offline run.
     const calls = await readFile(f.log, "utf8");
     expect(calls).toContain("pr list");
-    expect(calls).toContain("--jq .commits");
+    expect(calls).toContain("api graphql");
   } finally {
     await rm(f.dir, { recursive: true, force: true });
   }
@@ -417,6 +421,8 @@ printf '%s\\n' "$*" >> "$GH_CALL_LOG"
 case "$*" in
   *"pr list"*)
     printf '%s' '[{"number":${PR},"headRefName":"${BRANCH}","mergedAt":"2026-09-09T12:00:00Z","baseRefOid":"aaa","headRefOid":"bbb","labels":[],"closingIssuesReferences":[]},{"number":9999,"headRefName":"${SLUG}","mergedAt":"2026-09-09T13:00:00Z","baseRefOid":"ccc","headRefOid":"ddd","labels":[],"closingIssuesReferences":[]}]' ;;
+  *"api graphql"*)
+    printf '%s' '{"data":{"repository":{"p${PR}":{"commits":{"totalCount":3}},"p9999":{"commits":{"totalCount":1}}}}}' ;;
   *"/files"*)
     printf '%s\\n' '{"filename":"osn/api/src/svc.ts","additions":1,"deletions":0}' ;;
   *)
@@ -481,6 +487,26 @@ exit 1
     expect(firstLine).toContain("pr-metrics backfill:");
     expect(firstLine).toContain("authenticated");
     expect(await Bun.file(join(f.dir, "cards", `${SLUG}.json`)).exists()).toBe(false);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+// The whole point of the batching: `gh` invocations must grow with the number of
+// pull requests once, not twice. Before this, a `--limit 100` run made 201 calls
+// and took about 150 s; the count is what stops that returning unnoticed.
+test("one gh call per carded PR for files, plus one batched query, and no per-PR commits call", async () => {
+  const f = await fixture({ withTranscript: true });
+  try {
+    await runBackfill(f);
+
+    const calls = (await readFile(f.log, "utf8")).split("\n").filter(Boolean);
+
+    // `pr list`, one `api graphql`, one `/files` for the single carded PR.
+    expect(calls).toHaveLength(3);
+    expect(calls.filter((c) => c.includes("api graphql"))).toHaveLength(1);
+    expect(calls.filter((c) => c.includes("/files"))).toHaveLength(1);
+    expect(calls.filter((c) => c.includes("--jq .commits"))).toHaveLength(0);
   } finally {
     await rm(f.dir, { recursive: true, force: true });
   }

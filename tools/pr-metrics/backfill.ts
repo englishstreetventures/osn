@@ -101,6 +101,113 @@ function readCardBranch(path: string): string | null {
   }
 }
 
+/** `gh`, asynchronously, so several calls can be in flight at once. `sh` stays
+ * for the one call that has to finish before anything else can start. */
+async function ghAsync(command: string[]): Promise<CommandResult> {
+  const proc = Bun.spawn(command, { stdout: "pipe", stderr: "pipe" });
+  const [out] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+
+  return { ok: proc.exitCode === 0, out };
+}
+
+/** How many `gh api` calls are allowed in flight. Enough to hide the round-trip
+ * latency that dominates here, low enough not to look like a burst to the API. */
+const FILE_FETCH_CONCURRENCY = 8;
+
+/** How many pull requests one GraphQL document asks about.
+ *
+ * Not `--limit`: GitHub costs a query by the nodes it could return, and
+ * `gh pr list --json commits` — which fetches every listing field per node —
+ * fails that limit outright at 50. One aliased `commits{totalCount}` per pull
+ * request is far cheaper than that, but the ceiling is real and undocumented,
+ * so the document is chunked rather than assumed to fit.
+ */
+const COMMIT_QUERY_CHUNK = 50;
+
+/**
+ * The commit count of every given pull request, in one GraphQL document per
+ * chunk rather than one REST call each.
+ *
+ * `gh api repos/…/pulls/:n --jq .commits` costs a round trip per pull request —
+ * measured 7.41 s for ten — and the numbers are independent of everything else
+ * the loop does, so there is no reason to fetch them one at a time.
+ */
+async function commitCounts(repo: string, numbers: number[]): Promise<Map<number, number>> {
+  const [owner, name] = repo.split("/");
+  const counts = new Map<number, number>();
+
+  for (let i = 0; i < numbers.length; i += COMMIT_QUERY_CHUNK) {
+    const chunk = numbers.slice(i, i + COMMIT_QUERY_CHUNK);
+    const fields = chunk
+      .map((n) => `p${n}: pullRequest(number: ${n}) { commits { totalCount } }`)
+      .join("\n      ");
+
+    const result = await ghAsync([
+      "gh",
+      "api",
+      "graphql",
+      "-f",
+      `query=query { repository(owner: "${owner}", name: "${name}") { ${fields} } }`,
+    ]);
+
+    if (!result.ok) continue;
+
+    let parsed: { data?: { repository?: Record<string, { commits?: { totalCount?: number } }> } };
+    try {
+      parsed = JSON.parse(result.out) as typeof parsed;
+    } catch {
+      continue;
+    }
+
+    for (const n of chunk) {
+      const total = parsed.data?.repository?.[`p${n}`]?.commits?.totalCount;
+      if (typeof total === "number") counts.set(n, total);
+    }
+  }
+
+  return counts;
+}
+
+/** The changed-file list of every given pull request, a bounded number of
+ * requests at a time. The list has to stay on the paginated REST endpoint:
+ * `gh pr list --json files` silently truncates at 100 files, and this
+ * repository already has a pull request with 289. */
+async function fileLists(repo: string, numbers: number[]): Promise<Map<number, ChangedFile[]>> {
+  const lists = new Map<number, ChangedFile[]>();
+  const queue = [...numbers];
+
+  const worker = async () => {
+    for (let n = queue.shift(); n !== undefined; n = queue.shift()) {
+      const result = await ghAsync([
+        "gh",
+        "api",
+        "--paginate",
+        `repos/${repo}/pulls/${n}/files`,
+        "--jq",
+        ".[] | {filename, additions, deletions}",
+      ]);
+
+      lists.set(
+        n,
+        result.out
+          .split("\n")
+          .filter(Boolean)
+          .flatMap((line) => {
+            try {
+              return [JSON.parse(line) as ChangedFile];
+            } catch {
+              return [];
+            }
+          }),
+      );
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(FILE_FETCH_CONCURRENCY, queue.length) }, worker));
+
+  return lists;
+}
+
 if (import.meta.main) {
   const repo = flag("repo") ?? "xchromo/osn";
   const limit = flag("limit") ?? "100";
@@ -137,49 +244,48 @@ if (import.meta.main) {
   const skipped: number[] = [];
   let written = 0;
 
+  // No transcript means the work happened on another machine, or before this
+  // machine's logs begin. Writing a zero-cost card would put a row in the
+  // datalake that reads exactly like a genuinely cheap pull request — so those
+  // are dropped here, before anything is fetched for them.
+  const carded = pulls.filter((pull) => (byBranch.get(pull.headRefName)?.length ?? 0) > 0);
   for (const pull of pulls) {
-    const records = byBranch.get(pull.headRefName);
+    if (!carded.includes(pull)) skipped.push(pull.number);
+  }
 
-    // No transcript means the work happened on another machine, or before this
-    // machine's logs begin. Writing a zero-cost card would put a row in the
-    // datalake that reads exactly like a genuinely cheap pull request.
-    if (!records || records.length === 0) {
-      skipped.push(pull.number);
-      continue;
-    }
+  // Both fetches happen up front rather than twice per iteration. Neither
+  // depends on the other's result, and the loop's own work is local.
+  const numbers = carded.map((pull) => pull.number);
+  const [counts, files] = await Promise.all([
+    commitCounts(repo, numbers),
+    fileLists(repo, numbers),
+  ]);
 
-    const filesResult = sh([
-      "gh",
-      "api",
-      "--paginate",
-      `repos/${repo}/pulls/${pull.number}/files`,
-      "--jq",
-      ".[] | {filename, additions, deletions}",
-    ]);
-
-    const files = filesResult.out
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as ChangedFile);
+  for (const pull of carded) {
+    const records = byBranch.get(pull.headRefName) ?? [];
 
     const labels = pull.labels.map((label) => label.name);
     const complexity = declaredFromLabels(labels);
-    const commits = sh(["gh", "api", `repos/${repo}/pulls/${pull.number}`, "--jq", ".commits"]);
+    const changed = files.get(pull.number) ?? [];
 
-    const card = buildCard(records, parseNumstat(numstatFromApi(files), Number(commits.out) || 0), {
-      branch: pull.headRefName,
-      prNumber: pull.number,
-      issueNumber: pull.closingIssuesReferences[0]?.number ?? null,
-      issueType: null,
-      issueLabels: labels,
-      declaredComplexity: complexity.declared,
-      complexityMethod: complexity.method,
-      baseSha: pull.baseRefOid,
-      headSha: pull.headRefOid,
-      mergedAt: pull.mergedAt,
-      phase: "at-merge",
-      generatedAt: new Date().toISOString(),
-    });
+    const card = buildCard(
+      records,
+      parseNumstat(numstatFromApi(changed), counts.get(pull.number) ?? 0),
+      {
+        branch: pull.headRefName,
+        prNumber: pull.number,
+        issueNumber: pull.closingIssuesReferences[0]?.number ?? null,
+        issueType: null,
+        issueLabels: labels,
+        declaredComplexity: complexity.declared,
+        complexityMethod: complexity.method,
+        baseSha: pull.baseRefOid,
+        headSha: pull.headRefOid,
+        mergedAt: pull.mergedAt,
+        phase: "at-merge",
+        generatedAt: new Date().toISOString(),
+      },
+    );
 
     // `branchSlug`, not a copy of its first step: the inline version omitted
     // the trailing `^-+|-+$` strip, so a branch name ending in a character
