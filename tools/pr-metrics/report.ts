@@ -19,7 +19,7 @@
  * SQL from TypeScript would cost more than it saves at this size.
  */
 
-import { type Card, compactTokens } from "./index.ts";
+import { type Card, compactTokens, defaultMetricsDir } from "./index.ts";
 
 export interface CardRow {
   pr: number | null;
@@ -353,7 +353,8 @@ const REPORTS = {
 
 if (import.meta.main) {
   const dirIndex = Bun.argv.indexOf("--dir");
-  const dir = dirIndex >= 0 && Bun.argv[dirIndex + 1] ? Bun.argv[dirIndex + 1] : ".claude/metrics";
+  const dir =
+    dirIndex >= 0 && Bun.argv[dirIndex + 1] ? Bun.argv[dirIndex + 1] : defaultMetricsDir();
   const cards = loadCards(dir);
 
   if (cards.length === 0) {

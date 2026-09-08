@@ -310,3 +310,61 @@ test("the CLI still writes a card when no transcript matches", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+// --- default paths resolve against the repository ---------------------------
+
+// The documented invocation is `bun run --cwd tools/pr-metrics <cmd>`, and
+// `--cwd` sets the process working directory. A default of `.claude/metrics`
+// resolved against the cwd therefore pointed at `tools/pr-metrics/.claude/
+// metrics`: `report` exited 1 on the command printed in its own README, and
+// `card` silently created that directory inside the package. The SessionEnd
+// hook ends in `|| true`, so every card it wrote went there unnoticed.
+test("card writes to the repository root even when run with --cwd", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pr-metrics-cwd-"));
+
+  try {
+    const git = async (...args: string[]) => {
+      const proc = Bun.spawn(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" });
+      await proc.exited;
+    };
+
+    await git("init", "-q", "-b", "main");
+    await git("config", "user.email", "test@example.com");
+    await git("config", "user.name", "Test");
+    await git("config", "commit.gpgsign", "false");
+    await writeFile(join(dir, "seed.txt"), "seed\n");
+    await git("add", ".");
+    await git("commit", "-qm", "seed");
+    await git("checkout", "-qb", "feat/cwd-fixture");
+
+    // A package subdirectory, standing in for `tools/pr-metrics`.
+    await mkdir(join(dir, "tools", "pr-metrics"), { recursive: true });
+
+    const proc = Bun.spawn(
+      [
+        "bun",
+        "run",
+        SCRIPT,
+        "--branch",
+        "feat/cwd-fixture",
+        "--base",
+        "main",
+        "--sessions-dir",
+        join(dir, "no-sessions"),
+      ],
+      // The point of the test: run from inside the package, as `--cwd` does.
+      { cwd: join(dir, "tools", "pr-metrics"), stdout: "pipe", stderr: "pipe" },
+    );
+
+    const exitCode = await proc.exited;
+    expect(exitCode).toBe(0);
+
+    // At the repository root, not under the package.
+    expect(await Bun.file(join(dir, ".claude/metrics/feat-cwd-fixture.json")).exists()).toBe(true);
+    expect(
+      await Bun.file(join(dir, "tools/pr-metrics/.claude/metrics/feat-cwd-fixture.json")).exists(),
+    ).toBe(false);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
