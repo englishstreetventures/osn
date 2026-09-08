@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { clientNameSkeleton } from "../../../src/services/auth/oidc";
 
 /**
- * S-L3 (`xchromo/osn-tracker#441`). `clientNameSkeleton` folds each character through
+ * `clientNameSkeleton` folds each character through
  * `CONFUSABLE_FOLD` via `Object.hasOwn`, not the `in` operator — `in` walks
  * the prototype chain, so a name containing a character that only exists as
  * an *inherited* `Object.prototype` property would have folded through that

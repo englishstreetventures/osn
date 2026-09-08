@@ -121,11 +121,13 @@ function trackRowsRead(
  * `sqlHint` does not actually run against the database until `beforeQuery`
  * has resolved.
  *
- * This is the test seam for S-H1 (osn-tracker#589 follow-up): the race it
- * fixes needs a real write to land in the gap between `suggestConnections`'s
- * step 1 (`myEdgeRows`, a snapshot) and step 2 (the FOF fan-out, whose seed
- * subquery reads `connections` live) — a gap with a genuine D1 round trip in
- * it, not something a single in-process call can reproduce by itself.
+ * This is the test seam for S-H1 — the race window opened once the FOF
+ * query's seed subquery started reading `connections` live instead of off a
+ * snapshot: the race it fixes needs a real write to land in the gap between
+ * `suggestConnections`'s step 1 (`myEdgeRows`, a snapshot) and step 2 (the
+ * FOF fan-out, whose seed subquery reads `connections` live) — a gap with a
+ * genuine D1 round trip in it, not something a single in-process call can
+ * reproduce by itself.
  * Racing two real overlapping HTTP requests against the same Miniflare
  * instance would depend on scheduler timing and be flaky by construction;
  * this instead hooks the exact D1 call boundary the race depends on and
@@ -305,13 +307,16 @@ describe("UNIQUE_CONSTRAINT_ERROR over real D1 (Miniflare)", () => {
 // reports or the bound-parameter cap D1 enforces.
 describe("osn/api recommendations co-member fan-out over real D1 (Miniflare)", () => {
   it("stays within the MAX_ORG_COMEMBER_ROWS budget even when one organisation has far more members than its share", async () => {
-    // osn-tracker#574. MAX_ORG_COMEMBER_ROWS (services/recommendations.ts) is
-    // 2 000, split evenly across the caller's organisations. Seeding a single
+    // Each organisation the caller belongs to gets its own even share of the
+    // row budget, rather than one global cap the caller's first (lowest-id)
+    // organisation could fill entirely while every other organisation got
+    // nothing. MAX_ORG_COMEMBER_ROWS (services/recommendations.ts) is 2 000,
+    // split evenly across the caller's organisations. Seeding a single
     // organisation the caller belongs to gives that organisation the *whole*
     // budget as its share, so proving the cap requires seeding upwards of
     // 2 000 members regardless of fixture size — that was the original form
     // of this test, and it cost ~4.8s, nearly all of it seeding 2 500 rows
-    // through three FK-linked tables (osn-tracker#589 / P-W1).
+    // through three FK-linked tables (P-W1).
     //
     // Putting the caller in ORG_COUNT organisations instead shrinks each
     // one's share to `MAX_ORG_COMEMBER_ROWS / ORG_COUNT`, so the same "far
@@ -437,7 +442,8 @@ describe("osn/api recommendations co-member fan-out over real D1 (Miniflare)", (
   });
 
   it("does not throw for a caller in 6 organisations — the exact arm count the removed comment claimed was safe", async () => {
-    // osn-tracker#589 (P-C1). The co-member fan-out used to be one `UNION
+    // This guards against a regression in the compound-SELECT term cap
+    // below (P-C1). The co-member fan-out used to be one `UNION
     // ALL` of one arm per organisation the caller belongs to, and a removed
     // comment claimed that was safe because `MAX_MY_ORGANISATIONS` (50) sits
     // "well under SQLite's 500-term compound-select limit". That figure is
@@ -535,7 +541,9 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
     // parameters per query | 100", applying per statement including within a
     // batch), so 51 accepted connections already produced 102 binds and threw
     // `D1_ERROR: too many SQL variables` — a real production failure for any
-    // caller past 50 accepted connections (osn-tracker#589).
+    // caller past 50 accepted connections, until the query was restructured
+    // (below) to stop scaling its bind count with the caller's connection
+    // count.
     //
     // Fixed by binding `profileId` instead of the id list: the FOF query now
     // reads the caller's own accepted edges through a correlated `IN
@@ -650,8 +658,9 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
   });
 
   it("does not suggest a connection the caller accepted, in a second in-flight request, between step 1 and the FOF fan-out (S-H1)", async () => {
-    // osn-tracker#589 follow-up. `suggestConnections` reads the caller's own
-    // context in two separate, un-transacted D1 round trips: step 1
+    // The FOF query's move to a live, correlated-subquery read (fixed above)
+    // leaves a narrow window open: `suggestConnections` reads the caller's
+    // own context in two separate, un-transacted D1 round trips: step 1
     // (`myEdgeRows`, a snapshot) and step 2 (the FOF fan-out, whose seed
     // subquery re-reads `connections` live). If the caller accepts a new
     // connection in the gap between them — the same account, a second

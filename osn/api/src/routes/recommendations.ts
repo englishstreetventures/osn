@@ -133,7 +133,8 @@ export function createRecommendationRoutes(
       .get(
         "/connections",
         async ({ query, headers, set }) => {
-          // Per-user connection suggestions — never cached or stored (tracker#468).
+          // Per-user connection suggestions: no shared cache should store this,
+          // and no future Cloudflare Cache Rule should override that default.
           set.headers["cache-control"] = "private, no-store";
 
           const caller = await requireAuth(headers.authorization, set);
@@ -150,8 +151,12 @@ export function createRecommendationRoutes(
             // The list itself is never cached or stored (see the header
             // above), but the caller has no other way to tell how fresh it
             // is — this is that timestamp, set at request time, not read
-            // from anywhere stored (osn-tracker#311; the cache half of that
-            // issue, #588, is a separate change pending a staleness call).
+            // from anywhere stored: the FOF pipeline reruns on every call,
+            // so "generated now" is always accurate. Caching the response
+            // itself is a separate, deliberately unstarted change: it turns
+            // on whether a stale suggestion (already-connected, blocked, or
+            // organisation-changed) is acceptable, which is a product call
+            // this route does not make on its own.
             return { suggestions, generatedAt: new Date().toISOString() };
           } catch {
             set.status = 500;
@@ -197,7 +202,7 @@ export function createRecommendationRoutes(
       .get(
         "/search",
         async ({ query, headers, set }) => {
-          // Per-user search results — never cached or stored (tracker#468).
+          // Per-user search results — never cached or stored.
           set.headers["cache-control"] = "private, no-store";
 
           const caller = await requireAuth(headers.authorization, set);

@@ -28,12 +28,10 @@ import type { ConsentCategory } from "./categories";
  *  - `"always"` — loads on every visit regardless of the guest's choice. Used
  *    for first-party necessities (the session cookie, the consent record
  *    itself) and Turnstile, which the claim form cannot function without.
- *    Google Fonts used to be the one third party in this bucket — its `<link>`
- *    lived in the `<head>` of the server-rendered document, so gating it would
- *    have either swapped the typeface mid-visit or left the prerendered legal
- *    pages inconsistent with the SSR'd invite. Self-hosting the two woff2
- *    families (tracker #98) removed the vendor from this table entirely rather
- *    than gating it.
+ *    A third party whose resource sits in the server-rendered `<head>` cannot
+ *    be gated at all: a client-side gate would swap the typeface mid-visit or
+ *    leave the prerendered legal pages inconsistent with the SSR'd invite.
+ *    Self-host it instead of adding it here.
  *
  * The preferences dialog surfaces this distinction rather than hiding it: an
  * `"always"` vendor is listed with a plain "loads on every visit" note instead

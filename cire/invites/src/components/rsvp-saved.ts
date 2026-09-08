@@ -3,35 +3,27 @@
  *
  * ## Why a guest needs this at all
  *
- * A successful RSVP used to be invisible. `handleSubmit` called `onSubmitted`
- * and `onClose` back to back, so the sheet vanished the instant the POST
- * returned and the only evidence anything had happened was a sheet that was
- * no longer there — indistinguishable, to a guest, from a mis-tap that
- * dismissed it. The reply had been recorded and nothing said so.
+ * The sheet must not vanish the instant the POST returns. A sheet that is
+ * simply gone is indistinguishable, to a guest, from a mis-tap that dismissed
+ * it — the reply is recorded and nothing says so.
  *
- * ## Where the confirmation itself lives now
+ * ## Where the confirmation lives
  *
- * The Save button used to carry the confirmation — a gold sweep and a drawn
- * tick — but that button is gone the moment the sheet closes over it, which
- * is exactly when a guest would otherwise have time to register it. The
- * animated confirmation moved to the events section's Respond button, which
- * stays on screen after the sheet closes; see `rsvp-responded.ts` for that
- * choreography. What is left here is just the dwell: the Save button swaps
- * its label to "Saved", locks the sheet's controls, and holds briefly before
+ * The animated confirmation lives on the events section's Respond button, not
+ * on Save — Save is gone the moment the sheet closes over it, which is exactly
+ * when a guest would otherwise have time to register it. The Respond button
+ * stays on screen after the close; see `rsvp-responded.ts` for that
+ * choreography. What is left here is just the dwell: the Save button swaps its
+ * label to "Saved", locks the sheet's controls, and holds briefly before
  * closing itself — long enough that the sheet still doesn't just vanish.
  *
  * ## Why the dwell is a BUDGET, not a fixed hold
  *
- * The dwell used to be a flat 900ms started when the server's 200 landed, so
- * what a guest actually waited through was `round-trip + 900ms`. Those two add
- * up: the POST is five sequential D1 round-trips behind a Worker, so a real
- * save routinely spent half a second on "Saving…" and then another nine tenths
- * of a second on a sheet that had already finished its job. Reported as "quite
- * a delay for the form to close after you click save", and it was.
- *
- * The fix is to stop treating the network wait as free. `savedDwellMs` spends a
- * total time-on-screen budget measured from the CLICK, so a slow reply eats
- * into the dwell rather than stacking on top of it.
+ * The dwell is a budget spent from the CLICK, not a hold started when the reply
+ * lands — do not reintroduce a fixed hold. It stacks on the round-trip, and the
+ * POST is six serialised D1 round-trips behind a Worker: half a second of
+ * "Saving…" before the hold begins, which guests read as "quite a delay for the
+ * form to close after you click save". A slow reply eats the budget instead.
  *
  * Be precise about how far that goes, because the floor below bounds it. Up to
  * the KNEE — a reply of `SAVED_DWELL_MS - SAVED_DWELL_MIN_MS` — the budget is
@@ -70,11 +62,10 @@
  *
  * So this number is an accessibility floor wearing a timing constant's clothes,
  * and the ~100ms it costs a fast save is the price of the announcement being
- * heard. The way to get it back is NOT to lower it: it is to stop the
- * announcement's lifetime depending on the dwell at all, by hoisting the live
- * region to the page root beside the `<Toaster>` (which was relocated there for
- * a structurally identical reason). Filed as C-L1 in `xchromo/osn-tracker`;
- * once that lands the floor answers only to the label swap and can drop.
+ * heard. The way to get it back is NOT to lower it: it is to hoist the live
+ * region to the page root beside the `<Toaster>` (relocated there for a
+ * structurally identical reason), so the announcement's lifetime stops
+ * depending on the dwell.
  *
  * Nothing downstream is timed against these numbers: the Respond-button
  * celebration is measured from the moment the sheet uncovers that button (see

@@ -1,5 +1,5 @@
-// Tracker #635 — the invites SSR size guard had no test anywhere in the repo,
-// and tracker #619's generalisation (scripts/guard-bundle-size.sh) is where
+// The invites SSR size guard had no test anywhere in the repo, and the
+// generalisation in `scripts/guard-bundle-size.sh` is where
 // that test belongs, since writing it against the old
 // cire/invites/scripts/guard-ssr-size.sh would have meant writing it twice.
 //

@@ -19,7 +19,7 @@ export function createProfileSwitchRoutes(ctx: AuthRouteContext) {
       .get(
         "/profiles/list",
         async ({ headers, set, server, request }) => {
-          // Per-user profile list — never cached or stored (tracker#468).
+          // Per-user profile list — never cached or stored.
           set.headers["cache-control"] = "private, no-store";
 
           const rlErr = await rateLimit(

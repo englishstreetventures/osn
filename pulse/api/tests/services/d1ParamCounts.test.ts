@@ -1,13 +1,12 @@
 /**
- * osn-tracker #590, #591, #592, #594, #595 + events.ts:296 — regression
- * guard for the "bound one SQL parameter per array element / per column
- * per row" defect class. D1 caps a query at 100 bound parameters
+ * Regression guard for the "bound one SQL parameter per array element / per
+ * column per row" defect class. D1 caps a query at 100 bound parameters
  * (developers.cloudflare.com/d1/platform/limits/); bun:sqlite enforces no
  * such cap, so these tests can't reproduce the production failure by
  * running past 100 params and watching it throw. What they DO prove,
  * cheaply and on every test run: the real service functions — not a
  * reconstruction of their queries — emit the SQL this fix promises,
- * exercised well past the OLD per-site cliff each site used to break at.
+ * exercised well past each site's own bind-count cliff.
  *
  * The capture mechanism is drizzle's own `logger` hook, which fires with
  * the exact SQL text and bound-parameter array the driver is about to
@@ -18,7 +17,7 @@
  * a plain `inArray(col, ids)` or `.values(rows)`, the captured parameter
  * count jumps from O(1) to O(n) and the relevant assertion below fails.
  *
- * Six sites, in the order the brief lists them:
+ * Six sites:
  *   1. series.ts        materializeInstances  — INSERT, 31 cols/row
  *   2. accountErasure.ts purgeAccount         — 4 hostedEventIds DELETEs
  *   3. closeFriends.ts  getCloseFriendsOfBatch
@@ -87,10 +86,10 @@ function findStatement(captured: Captured[], ...needles: string[]): Captured {
 }
 
 // ---------------------------------------------------------------------------
-// 1. series.ts materializeInstances — osn-tracker#594
+// 1. series.ts materializeInstances
 // ---------------------------------------------------------------------------
 
-describe("series.ts materializeInstances (osn-tracker#594)", () => {
+describe("series.ts materializeInstances", () => {
   it("inserts 200 instances (31 cols/row — 6200 params the old way) with 1 bound param", async () => {
     const { layer, captured } = createCapturingTestLayer();
     const now = new Date();
@@ -147,10 +146,10 @@ describe("series.ts materializeInstances (osn-tracker#594)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. accountErasure.ts purgeAccount — osn-tracker#595 (GDPR)
+// 2. accountErasure.ts purgeAccount (GDPR erasure)
 // ---------------------------------------------------------------------------
 
-describe("accountErasure.ts purgeAccount (osn-tracker#595)", () => {
+describe("accountErasure.ts purgeAccount", () => {
   it("purges an account with 150 hosted events (past the old 100-id cliff) via 1-param deletes", async () => {
     const { layer, captured } = createCapturingTestLayer();
     const HOST = "usr_host";
@@ -190,10 +189,10 @@ describe("accountErasure.ts purgeAccount (osn-tracker#595)", () => {
 
 // ---------------------------------------------------------------------------
 // 3. closeFriends.ts getCloseFriendsOfBatch + pulseUsers.ts
-//    getAttendanceVisibilityBatch — osn-tracker#591
+//    getAttendanceVisibilityBatch
 // ---------------------------------------------------------------------------
 
-describe("closeFriends.ts getCloseFriendsOfBatch (osn-tracker#591)", () => {
+describe("closeFriends.ts getCloseFriendsOfBatch", () => {
   it("looks up 150 attendees (past the old 100-id cliff, and past the old 1000-id truncation risk) with 1 bound param", async () => {
     const { layer, captured } = createCapturingTestLayer();
     const attendeeIds = Array.from({ length: 150 }, (_, i) => `usr_${i}`);
@@ -208,7 +207,7 @@ describe("closeFriends.ts getCloseFriendsOfBatch (osn-tracker#591)", () => {
   });
 });
 
-describe("pulseUsers.ts getAttendanceVisibilityBatch (osn-tracker#591)", () => {
+describe("pulseUsers.ts getAttendanceVisibilityBatch", () => {
   it("looks up 150 attendees with 1 bound param instead of 1-per-id", async () => {
     const { layer, captured } = createCapturingTestLayer();
     const attendeeIds = Array.from({ length: 150 }, (_, i) => `usr_${i}`);
@@ -224,10 +223,10 @@ describe("pulseUsers.ts getAttendanceVisibilityBatch (osn-tracker#591)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. rsvps.ts inviteGuests — osn-tracker#590 (both the SELECT and the INSERT)
+// 4. rsvps.ts inviteGuests (both the SELECT and the INSERT)
 // ---------------------------------------------------------------------------
 
-describe("rsvps.ts inviteGuests (osn-tracker#590)", () => {
+describe("rsvps.ts inviteGuests", () => {
   it("invites 150 guests (past the old ~17-row insert cliff) with 1 bound param each on the SELECT and the INSERT", async () => {
     const { layer, captured } = createCapturingTestLayer();
     const event = await Effect.runPromise(
@@ -254,10 +253,10 @@ describe("rsvps.ts inviteGuests (osn-tracker#590)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. discovery.ts discoverEvents(friendsOnly) — osn-tracker#592
+// 5. discovery.ts discoverEvents(friendsOnly)
 // ---------------------------------------------------------------------------
 
-describe("discovery.ts discoverEvents friendsOnly (osn-tracker#592)", () => {
+describe("discovery.ts discoverEvents friendsOnly", () => {
   it("filters by 150 connections (past the old ~50-connection cliff), the set bound twice at 1 param each", async () => {
     const { layer, captured } = createCapturingTestLayer();
     const connectionIds = Array.from({ length: 150 }, (_, i) => `usr_conn_${i}`);

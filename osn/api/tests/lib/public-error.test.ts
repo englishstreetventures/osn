@@ -5,7 +5,7 @@ import { publicError } from "../../src/lib/public-error";
 import { makeAppRunner } from "../../src/lib/route-runtime";
 
 /**
- * The tag walk (P-I2 / tracker#446) reads each own key through a plain
+ * The tag walk (P-I2) reads each own key through a plain
  * property access now, not `Object.getOwnPropertyDescriptor`. These tests pin
  * the behaviour that read has to preserve.
  *
@@ -105,7 +105,7 @@ describe("publicError", () => {
     expect(publicError(node)).toEqual({ status: 400, body: { error: "invalid_request" } });
   });
 
-  // tracker#473: a wide-but-shallow cause chain (many string fields per hop)
+  // a wide-but-shallow cause chain (many string fields per hop)
   // must not spend the 512-node budget on primitives. Against the unfixed
   // walk — which dequeues (and so charges budget for) every pushed value,
   // primitives included — this chain exhausts the budget before reaching the

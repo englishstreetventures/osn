@@ -213,6 +213,38 @@ the concern to the user and let them decide whether to split. With no user,
 record the observation under `## Decisions` and continue. The wording is in
 `references/workflow-steps.md`.
 
+### Comment-line delta
+
+Print how many comment lines the branch adds and removes:
+
+```bash
+bun run scripts/comment-delta.ts "$BASE"
+```
+
+Report the net figure in the PR body's test-plan table. **This is a number to
+look at, not a gate** — there is no threshold to pass, and no cleanup is
+required to come out negative. `#929` legitimately rewrapped 334 comment lines
+to move 64 misattached doc blocks; a merge-and-rewrap nets near zero and that
+is correct.
+
+It exists because a comment-cleanup branch that *grows* comment volume is worth
+a second look before a human opens the diff, and nobody had been measuring it.
+The failure it catches is real and was measured: a batch instructed to "rewrite
+each reference to the constraint it stood for" turned single-line
+parentheticals into paragraphs and added 66 comment lines net while reporting
+itself as a cleanup.
+
+Two traps in reading the number:
+
+- **Diff it against the branch point, not a moved base.** If the base branch has
+  been force-pushed since the branch was cut, `git merge-base` falls back to an
+  older ancestor and sweeps the base's own commits into the count. That produced
+  a reported `+85` for a branch actually running `-40`. Step 0 resolves `$BASE`;
+  use it, and if the number looks surprising, check `git log "$BASE"..HEAD`
+  contains only your commits.
+- **It is trivially gamed** by joining wrapped lines, which is why it is not a
+  gate. A branch that halves its comment lines by rewrapping has done nothing.
+
 ## Step 6 — Parallel reviews
 
 **Unless the task says these reviews have already run** — then record what it says they found, note it under `## Decisions`, and go to Step 7.

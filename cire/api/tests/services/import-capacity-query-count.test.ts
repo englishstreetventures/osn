@@ -11,10 +11,11 @@ import { applyImport, diffAgainstDb } from "../../src/services/import";
 import { countingDb } from "../test-helpers";
 
 /**
- * Proves osn-tracker#119 (P-I2) and osn-tracker#117 (P-W2): `diffAgainstDb`
- * skips the entitlement query entirely when the import can't possibly breach
- * the floor cap, and `applyImport` skips its OWN entitlement query when the
- * plan already carries a `derivedCap` from the SAME request's preview.
+ * Proves two query-skipping guarantees. (P-I2) `diffAgainstDb` skips the
+ * entitlement query entirely when the import can't possibly breach the floor
+ * cap. (P-W2) `applyImport` skips its OWN entitlement query when the plan
+ * already carries a `derivedCap` from the SAME request's preview, instead of
+ * re-deriving it.
  *
  * `countingDb` counts `.select()` calls, the entry point of every read this
  * codebase issues — there is no query-log to assert on directly, so this is

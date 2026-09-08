@@ -40,21 +40,17 @@ export class DatabaseError extends Data.TaggedError("DatabaseError")<{
 /**
  * Caller's connection list is capped before we expand to friends-of-friends.
  * Prevents a hub user with thousands of connections from producing an
- * unbounded FOF fan-out (P-C1). Tuned for the "enough candidates to produce
+ * unbounded FOF fan-out. Tuned for the "enough candidates to produce
  * a good top-N list" sweet spot.
  *
  * Bounds two things that must stay in lockstep: the size of `myConnectionIds`
  * below (which step 3 uses to tell "one of my connections" from "a
- * candidate") and the seed subquery the FOF query correlates against (see
- * that query for why it no longer binds `myConnectionIds` itself). Until
- * osn-tracker#589 this constant also stood in, unintentionally, as the only
- * thing stopping the FOF query from binding more parameters than D1 allows
- * — 500 ids bound into two `inArray` calls is 1,000 binds, D1's documented
- * cap is 100 per query, and nobody had checked the second number against
- * the first. 51 accepted connections was already over it, so every caller
- * past that point got a 500 in production. The query now binds `profileId`
- * once regardless of how large this constant is, so raising it is a
- * decision about read cost and recall, never one that can reopen that bug.
+ * candidate") and the seed subquery the FOF query filters against — see that
+ * query for the subquery form it uses, which binds `profileId` a fixed number
+ * of times and never binds `myConnectionIds` itself. Raising this constant is
+ * therefore purely a decision about read cost and recall; it cannot overflow
+ * D1's 100-bound-parameter-per-query cap, because the bind count does not
+ * grow with it.
  */
 const MAX_MY_CONNECTIONS_FOR_FOF = 500;
 
@@ -82,22 +78,20 @@ const MAX_FOF_FANOUT_ROWS = 10_000;
  * defence as MAX_FOF_FANOUT_ROWS: membership of one very large organisation
  * must not turn a suggestion request into an unbounded read.
  *
- * This used to be a budget for the whole fan-out, filled by one query ordered
- * `(organisation_id, profile_id)` — so a caller in one large organisation
- * filled the budget from that organisation alone and never saw a co-member
- * from any other, and a caller in fifty organisations of 250 members each saw
- * co-members from about eight of them, every time, because organisation ids
- * are random and the draw is fixed per caller (osn-tracker#574). It is now
- * split evenly across the caller's organisations — see the query that reads
- * it, below — so this constant is the *total* budget and each organisation's
- * actual share is `MAX_ORG_COMEMBER_ROWS / (number of the caller's
- * organisations)`.
+ * This is the *total* budget across all of the caller's organisations, split
+ * evenly — see the query that reads it, below — so each organisation's actual
+ * share is `MAX_ORG_COMEMBER_ROWS / (number of the caller's organisations)`.
+ *
+ * The split is per-organisation on purpose: one global `ORDER BY
+ * (organisation_id, profile_id) LIMIT` spends the whole budget on the
+ * lowest-id organisations the caller belongs to, and organisation ids are
+ * random and fixed per caller, so the same few win every request. Do not
+ * revert it.
  */
 const MAX_ORG_COMEMBER_ROWS = 2_000;
 
 /**
- * Arms per `UNION ALL` batch in the co-member fan-out query, below
- * (osn-tracker#589, P-C1).
+ * Arms per `UNION ALL` batch in the co-member fan-out query, below.
  *
  * D1 does not run on `bun:sqlite`, which is what this repo's local/test
  * engine uses and where a compound `SELECT` may carry up to SQLite's own
@@ -359,8 +353,8 @@ const LEXICAL_SCORE = {
  * signal Facebook's own ranking uses. Nothing in OSN exposes another profile's
  * connection list, so a mutual-connection boost would make result *ordering* an
  * oracle for "is this arbitrary handle a friend-of-a-friend?" — the same
- * disclosure that keeps `mutualCount` out of the search payload (see
- * `S-L4` in `xchromo/osn-tracker`). Ordering leaks as readily as a field does.
+ * disclosure risk that keeps `mutualCount` out of the search payload
+ * entirely. Ordering leaks as readily as a field does.
  *
  * [fb]: https://engineering.fb.com/2010/05/17/web/the-life-of-a-typeahead-query/
  */
@@ -531,8 +525,8 @@ export function createRecommendationService() {
       // runs later than this read, in its own D1 round trip, so it can see
       // a connection accepted for the caller *after* this snapshot was
       // taken — a temporal gap this slice cannot close no matter how it is
-      // capped. See the fresh re-check before hydration, below (S-H1),
-      // which is what actually closes that one.
+      // capped. See the fresh re-check before hydration, below, which is
+      // what actually closes that one.
       const myConnectionIds = myEdgeRows
         .filter((r) => r.status === "accepted")
         .map(counterpartOf)
@@ -543,7 +537,7 @@ export function createRecommendationService() {
       );
       const myOrgIds = myOrgRows.map((r) => r.organisationId);
 
-      // Set for O(1) membership lookup in the aggregation loop (P-W2).
+      // Set for O(1) membership lookup in the aggregation loop.
       const myConnectionIdSet = new Set(myConnectionIds);
       const excludeIds = new Set<string>([
         profileId,
@@ -565,9 +559,9 @@ export function createRecommendationService() {
                   // calls — once per edge direction — so the bind count grew
                   // with the caller's connection count and D1's 100-bound-
                   // parameter cap turned into a production 500 past 50
-                  // accepted connections (osn-tracker#589). This binds only
-                  // `profileId`, a fixed number of times, however large
-                  // `myConnectionIds` is.
+                  // accepted connections. This binds only `profileId`, a
+                  // fixed number of times, however large `myConnectionIds`
+                  // is.
                   //
                   // `IN (<subquery>)` rather than `IN (<literal list>)`: the
                   // subquery re-reads the caller's own accepted edges inside
@@ -577,8 +571,7 @@ export function createRecommendationService() {
                   // MAX_MY_CONNECTIONS_FOR_FOF — not to stay under any bind
                   // cap, since none applies here.
                   //
-                  // A correlated `EXISTS` (the shape osn-tracker#589
-                  // proposed) was measured and rejected: on real
+                  // A correlated `EXISTS` was measured and rejected: on real
                   // (Miniflare/workerd) D1, `EXPLAIN QUERY PLAN` showed it as
                   // `SCAN c` with a `CORRELATED SCALAR SUBQUERY` run once per
                   // row of the outer table — a full scan of every accepted
@@ -643,13 +636,11 @@ export function createRecommendationService() {
                 // Batched `UNION ALL`: one statement per group of up to
                 // MAX_ORG_COMEMBER_ARMS_PER_QUERY (5) of the caller's
                 // organisations, the batches run concurrently and merged here
-                // in application code (osn-tracker#574, reopened as
-                // osn-tracker#589 / P-C1 — see that constant's comment for why
-                // 5, not the 50 this originally unioned in one statement). The
-                // query both versions replaced gave the whole budget to one
-                // global `ORDER BY (organisation_id, profile_id) LIMIT
-                // MAX_ORG_COMEMBER_ROWS` — see the note on that constant for
-                // why that starved every organisation but the lowest-id one.
+                // in application code — see `MAX_ORG_COMEMBER_ARMS_PER_QUERY`'s
+                // comment for why 5, not the 50 this originally unioned in one
+                // statement. The query both versions replaced gave the whole
+                // budget to one global `ORDER BY (organisation_id, profile_id)
+                // LIMIT MAX_ORG_COMEMBER_ROWS`.
                 // Splitting the budget per organisation, with its own `ORDER
                 // BY profile_id LIMIT <share>`, is what fixes it: every
                 // organisation the caller belongs to contributes candidates,
@@ -678,7 +669,7 @@ export function createRecommendationService() {
                 // `LIMIT`.
                 //
                 // Measured on real (Miniflare/workerd) D1, three organisations
-                // of 600/300/100 members, cap 150, share 50: the pre-#574
+                // of 600/300/100 members, cap 150, share 50: the single
                 // global query read 151 rows for 150 results, and the window
                 // function read 2,860 for the same 150. Both the single-
                 // statement `UNION ALL` this batching replaces and the
@@ -830,7 +821,7 @@ export function createRecommendationService() {
         )
         .slice(0, safeLimit);
 
-      // Step 4.5: fresh re-check (osn-tracker#589 follow-up, S-H1).
+      // Step 4.5: fresh re-check.
       //
       // Steps 1 and 2 are two separate, un-transacted D1 round trips — no
       // `db.batch`/`db.transaction` joins them. Step 1 snapshots the
@@ -852,10 +843,10 @@ export function createRecommendationService() {
       //
       // Fixed by re-reading, fresh, immediately before hydration, for just
       // the ids that survived ranking — at most `safeLimit` (≤ 50), so this
-      // cannot reopen #589's 100-bound cap. That safety is measured, not
+      // cannot reopen the 100-bound cap. That safety is measured, not
       // asserted: naively filtering with `or(inArray(requesterId, ids),
       // inArray(addresseeId, ids))` binds the id list TWICE, the same
-      // mistake #589 fixed, and at safeLimit's ceiling of 50 that is 102
+      // mistake this shape exists to avoid, and at safeLimit's ceiling of 50 that is 102
       // params (`bun run` against `.toSQL()` — 2 profileId equality binds +
       // 2 × 50-id `inArray`s — over D1's 100-per-statement cap). Each query
       // below instead runs the id filter once, against a subquery that

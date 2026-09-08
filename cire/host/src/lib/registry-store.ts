@@ -59,7 +59,7 @@ export interface RegistryItem {
  * shows the as-given figure as the headline with the primary line underneath.
  *
  * `note`, `displayName` and `familyName` are GUEST-AUTHORED. Every renderer must
- * put them in a text node (S-L3).
+ * put them in a text node — never `innerHTML`.
  */
 export interface GiftLogEntry {
   kind: "claim" | "contribution";
@@ -141,13 +141,12 @@ export function peekCachedRegistry(weddingId: string): RegistrySnapshot | null {
  *
  * Deleting the map entry would mint a fresh signal on the next `entryFor`, and
  * every view that captured the old accessor at mount would then read a signal
- * nothing writes to again — a dead view with stale content. This was the
- * repo-wide `P-W2` finding; every sibling cache (`vendors-store`,
- * `budget-store`, `tasks-store`, `enquiries-store`, `events-store`,
- * `guests-store`, `households-store`) still notifies the same way. What
- * changed since is the VALUE: nulling it out here used to hide the gift list
- * and log behind a loading flash on every organiser edit, so the snapshot is
- * left in place and the wedding is marked `stale` instead. `hasCachedRegistry`
+ * nothing writes to again — a dead view with stale content. Every sibling
+ * cache (`vendors-store`, `budget-store`, `tasks-store`, `enquiries-store`,
+ * `events-store`, `guests-store`, `households-store`) notifies the same way.
+ * The VALUE is kept as well: nulling it would flash the gift list and log
+ * through a loading state on every organiser edit, so the snapshot stays and
+ * the wedding is marked `stale` instead. `hasCachedRegistry`
  * treats a stale id as a miss, which is what makes the next
  * `ensureRegistryLoaded` actually refetch rather than short-circuiting on the
  * (still-present) cached value.

@@ -174,8 +174,7 @@ describe("<AuthorizePage />", () => {
   });
 
   it("does not resolve a scope that is only an inherited Object property", async () => {
-    // S-L3 (`xchromo/osn-tracker#441`). `isKnownScope` must test OWN
-    // membership: `in` walks the prototype
+    // `isKnownScope` must test OWN membership: `in` walks the prototype
     // chain, so an inherited entry would be read as real consent copy.
     //
     // A scope named after a stock Object.prototype key ("constructor") does not

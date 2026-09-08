@@ -329,16 +329,14 @@ const asScalar = (value: unknown): RedactedValue => {
  * Primitives and non-object values pass through unchanged.
  *
  * Does not follow cycles: a value already on the path down is replaced with
- * {@link CIRCULAR_PLACEHOLDER} rather than walked again. It used to throw
- * instead, on the grounds that a cyclic log entry is a bug — true, but this
- * function runs *inside the logger*, where a throw kills the fiber that was
- * only trying to log. Marking the cycle reports the same bug without the
- * outage.
+ * {@link CIRCULAR_PLACEHOLDER} rather than walked again. It does not throw —
+ * a cyclic log entry is a bug, but this function runs *inside the logger*,
+ * where a throw kills the fiber that was only trying to log. Marking the
+ * cycle reports the same bug without the outage.
  *
- * Fast path (P-I1): primitives return immediately without allocating
- * a new WeakSet or walking anything. Hot log paths (per-request,
- * per-metric) stay allocation-free for the common case of scalar
- * messages and annotations.
+ * Fast path: a primitive returns immediately, allocating no WeakSet and
+ * walking nothing, so the hot per-request and per-metric log paths stay
+ * allocation-free for scalar messages and annotations.
  */
 export const redact = (value: unknown): RedactedValue => {
   // Primitive fast path — no allocation, no walk.

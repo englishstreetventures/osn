@@ -74,14 +74,14 @@ afterEach(() => {
   __resetHouseholdsCache();
 });
 
-// S-L (xchromo/osn-tracker#622). This editor deliberately seeds guests and
-// households as empty, because its save posts `scope: "events"` and the server
-// leaves those slices alone. That is exactly what makes the EVENTS slice
-// dangerous: it is the one the server acts on, so a draft seeded from an empty
-// events list reads as "delete every event". A generation-discarded load — an
-// invalidate landing while the fetch is in flight, which is what a real
-// save-then-refetch does — resolves `false` without filling the cache, and
-// `?? []` used to turn that into exactly that draft.
+// This editor deliberately seeds guests and households as empty, because its
+// save posts `scope: "events"` and the server leaves those slices alone. That
+// is exactly what makes the EVENTS slice dangerous: it is the one the server
+// acts on, so a draft seeded from an empty events list reads as "delete every
+// event". A generation-discarded load — an invalidate landing while the fetch
+// is in flight, which is what a real save-then-refetch does — resolves
+// `false` without filling the cache, and the loader treats that as a load
+// failure rather than letting `?? []` silently seed the draft with it.
 it("shows a load error instead of seeding an empty draft when the events load resolves stale", async () => {
   let resolveEventsFetch!: (res: Response) => void;
   const eventsFetch = new Promise<Response>((resolve) => {

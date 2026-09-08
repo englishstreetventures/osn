@@ -4,8 +4,8 @@
  * The site-wide consent flow is category-based, not vendor-based: a guest
  * toggles "third-party embeds", not "Pinterest" and "Google Maps" separately.
  * Vendors declare which category they belong to (see `vendors.ts`), so adding a
- * third party is a registry entry rather than a new gate, a new storage key and
- * a new prompt — which is exactly what the bespoke Pinterest gate used to be.
+ * third party is a registry entry — never a new gate, a new storage key and a
+ * new prompt of its own.
  *
  * WHY THESE FOUR (and not the usual six-category cookie-banner boilerplate):
  * every category here maps to something the guest site genuinely does. We

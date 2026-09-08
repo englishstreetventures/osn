@@ -69,8 +69,8 @@ export default function ListingEditor(props: ListingEditorProps) {
   // row's `checked()[key]` read re-runs on every toggle, not just the one
   // that changed — this is a single signal, not one per key, and SolidJS has
   // no way to see that only one property moved. That recomputes 14 boolean
-  // lookups per toggle (`SERVICE_CATEGORIES` has 14 entries), which costs
-  // nothing worth a per-key signal split (xchromo/osn-tracker#132).
+  // lookups per toggle (`SERVICE_CATEGORIES` has 14 entries) instead of one —
+  // cheap enough that a per-key signal split isn't worth the complexity.
   const [checked, setChecked] = createSignal<Record<string, boolean>>({});
 
   const [seeded, setSeeded] = createSignal(false);
@@ -245,10 +245,11 @@ export default function ListingEditor(props: ListingEditorProps) {
                 onInput={(e) => setDescription(e.currentTarget.value)}
                 rows={3}
                 maxLength={2000}
-                // This form sits inside `createAutoSize()`'s frame, whose
-                // reflow guard watches width only — dragging this box's own
-                // resize grip at a fixed width reads as a content change on
-                // every delivery (xchromo/osn-tracker#130).
+                // This field sits inside `createAutoSize()`'s frame, whose
+                // reflow guard keys on width only, not height — a `resize-y`
+                // textarea in here would have its height-only drag misread as
+                // a content swap and get forced into continuous relayout. Any
+                // textarea inside an auto-sized panel must stay resize="none".
                 resize="none"
               />
             )}

@@ -6,10 +6,10 @@
  * name (or an ancestor directory's name, anywhere between `src/pages` and the
  * file) starts with `_` — that is the one prefix its router treats as private.
  * A `*.test.ts`/`*.spec.ts` left un-prefixed there is therefore built and
- * deployed as a real route, not skipped as "just a test file". Tracker #287:
+ * deployed as a real route, not skipped as "just a test file". Measured:
  * exactly this happened to cire/invites — three drift-guard tests sat
  * un-prefixed under `src/pages`, got routed, and dragged 119 KB gzip of vitest
- * into the deployed Worker. The general half of that finding (tracker #619) is
+ * into the deployed Worker. The general half of that finding is
  * this: any of the six Astro apps can make the same mistake, and it costs
  * nothing to check for on every commit — no build, no baseline, just a
  * directory walk.
@@ -134,7 +134,7 @@ if (import.meta.main) {
       failed = true;
       const rel = relative(pagesDir, violation);
       console.error(
-        `::error::${app}/src/pages/${rel} is a *.test.*/*.spec.* file with no \`_\` prefix — Astro routes it as a live page and ships it in the deployed bundle (tracker #287 cost cire/invites' Worker 119 KB gzip this way). Prefix the file, or an ancestor directory, with \`_\` to exclude it from routing, or move it out of src/pages entirely.`,
+        `::error::${app}/src/pages/${rel} is a *.test.*/*.spec.* file with no \`_\` prefix — Astro routes it as a live page and ships it in the deployed bundle (this cost cire/invites' Worker 119 KB gzip). Prefix the file, or an ancestor directory, with \`_\` to exclude it from routing, or move it out of src/pages entirely.`,
       );
     }
   }

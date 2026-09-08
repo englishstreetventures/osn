@@ -31,7 +31,7 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
         "/recovery/generate",
         async ({ body, headers, set, server, request }) => {
           // Plaintext recovery codes cross the wire here and only here —
-          // never cached or stored (tracker#467).
+          // never cached or stored.
           set.headers["cache-control"] = "no-store";
 
           const rlErr = await rateLimit(
@@ -103,7 +103,7 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
         async ({ headers, set, server, request }) => {
           // Account-scoped and it changes the moment a code is burnt — never
           // let a shared cache hand one account's counts to another request.
-          // First statement so the 429 and both 401s carry it too (tracker#469).
+          // First statement so the 429 and both 401s carry it too.
           set.headers["cache-control"] = "no-store";
 
           const rlErr = await rateLimit(

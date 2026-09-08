@@ -452,10 +452,11 @@ describe("controls", () => {
   });
 
   it("turns off resize for a textarea sitting inside an auto-sized frame", () => {
-    // xchromo/osn-tracker#130: `createAutoSize()`'s reflow guard watches
-    // width only, so dragging a `resize-y` grip at a fixed width reads as a
-    // content change on every delivery. `resize="none"` is the escape hatch
-    // — and it has to win over the default class, not just add to it.
+    // `createAutoSize()`'s reflow guard watches width only, so a
+    // `resize-y` textarea inside an auto-sized frame reads a height-only
+    // drag as a content change and relayouts continuously. Any textarea
+    // inside an auto-sized frame must stay `resize="none"` — and that has
+    // to win over the default class, not just add to it.
     const { getByRole } = render(() => <Textarea aria-label="Description" resize="none" />);
     const className = getByRole("textbox").className;
     expect(className).toContain("resize-none");

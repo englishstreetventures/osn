@@ -72,12 +72,11 @@ export const getAttendanceVisibility = (
  * into a single SELECT, which matters for popular events where the
  * limit clause can return up to 200 rows per request.
  *
- * osn-tracker#591: `listRsvps`' `filterByAttendeePrivacy` calls this with
- * every distinct attendee on the page (up to 200 — see `rsvps.ts`'s
- * `fetchLimit`), which crossed D1's 100-bound-parameter cap on a plain
- * `inArray`. `jsonEachIn` binds the id list as one JSON parameter instead
- * of one per id, so the same query works whether the page holds 20
- * attendees or 200.
+ * `listRsvps`' `filterByAttendeePrivacy` calls this with every distinct
+ * attendee on the page (up to 200 — see `rsvps.ts`'s `fetchLimit`), which
+ * would cross D1's 100-bound-parameter cap on a plain `inArray`. `jsonEachIn`
+ * binds the id list as one JSON parameter instead of one per id, so the same
+ * query works whether the page holds 20 attendees or 200.
  */
 export const getAttendanceVisibilityBatch = (
   profileIds: string[],

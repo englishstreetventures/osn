@@ -137,7 +137,7 @@ describe("category partitioning", () => {
     expect(ids).toContain("google-maps");
   });
 
-  it("has no ungated embeds — Google Fonts was self-hosted out of the registry (tracker #98)", () => {
+  it("has no ungated embeds — Google Fonts is self-hosted, not in the registry", () => {
     // Honesty check, inverted. Fonts used to load from the document <head>
     // before any consent could apply, so `embeds` carried one "always" vendor.
     // Self-hosting removed the vendor entirely rather than gating it, so

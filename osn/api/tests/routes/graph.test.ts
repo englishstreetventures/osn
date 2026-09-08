@@ -115,7 +115,7 @@ describe("graph routes", () => {
     expect(json.status).toBe("pending_sent");
   });
 
-  // tracker#468: per-user connection status — never cached or stored.
+  // per-user connection status — never cached or stored.
   it("GET /graph/connections/:handle sets cache-control: private, no-store", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
     await registerAndGetToken("bob@example.com", "bob");
@@ -192,7 +192,7 @@ describe("graph routes", () => {
     expect(json.connections[0].handle).toBe("bob");
   });
 
-  // tracker#468: per-user connection list — never cached or stored.
+  // per-user connection list — never cached or stored.
   it("GET /graph/connections sets cache-control: private, no-store", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
     const res = await graphApp.handle(
@@ -226,7 +226,7 @@ describe("graph routes", () => {
     expect(json.pending[0].handle).toBe("alice");
   });
 
-  // tracker#468: per-user pending-request list — never cached or stored.
+  // per-user pending-request list — never cached or stored.
   it("GET /graph/connections/pending sets cache-control: private, no-store", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
     const bob = await registerAndGetToken("bob@example.com", "bob");
@@ -384,7 +384,7 @@ describe("graph routes", () => {
     expect(json.blocks[0].handle).toBe("bob");
   });
 
-  // tracker#468: per-user block list — never cached or stored.
+  // per-user block list — never cached or stored.
   it("GET /graph/blocks sets cache-control: private, no-store", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
     const res = await graphApp.handle(
@@ -458,7 +458,7 @@ describe("graph routes", () => {
     expect(recipientJson.sent).toHaveLength(0);
   });
 
-  // tracker#468: per-user sent-request list — never cached or stored.
+  // per-user sent-request list — never cached or stored.
   it("GET /graph/connections/sent sets cache-control: private, no-store", async () => {
     const alice = await registerAndGetToken("alice3@example.com", "alice3");
     const res = await graphApp.handle(
@@ -488,7 +488,7 @@ describe("graph routes", () => {
     expect(json.blocked).toBe(false);
   });
 
-  // tracker#468: per-user block-status check — never cached or stored.
+  // per-user block-status check — never cached or stored.
   it("GET /graph/is-blocked/:handle sets cache-control: private, no-store", async () => {
     const alice = await registerAndGetToken("alice@example.com", "alice");
     await registerAndGetToken("bob@example.com", "bob");

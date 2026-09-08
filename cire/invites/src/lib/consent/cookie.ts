@@ -39,7 +39,8 @@ export const CONSENT_COOKIE_NAME = "cire_consent";
  * domain cookie and our host-only cookie are both valid matches for the plain
  * name, and which one a browser returns first for `document.cookie` is
  * unspecified — so a guest's stored REFUSAL could be silently overridden back
- * to "allowed" by a cookie this site never set. This is osn-tracker#163.
+ * to "allowed" by a cookie this site never set. Closing off exactly that
+ * silent-downgrade path is why this file writes the prefixed name at all.
  *
  * `serialiseConsentCookie` already writes `Path=/`, no `Domain`, and `Secure`
  * whenever `secure` is true, so the prefixed form is compatible with the
@@ -174,10 +175,11 @@ export function writeConsentToDocument(record: ConsentRecord): void {
  * Expire the bare-named cookie, leaving the `__Host-` one as the only match.
  *
  * Writing the prefixed name does NOT remove a bare `cire_consent` sitting
- * beside it, and while both exist the ambiguity S-L1 (osn-tracker#163) is
- * about is still there — `readConsentCookieValue` prefers the prefixed one, so
- * this origin is safe, but the shadowing cookie is still in the jar and any
- * reader that does not know the precedence rule can still pick the wrong one.
+ * beside it, and while both exist the same shadowing ambiguity the `__Host-`
+ * prefix exists to close is still live — `readConsentCookieValue` prefers the
+ * prefixed one, so this origin is safe, but the shadowing cookie is still in
+ * the jar and any reader that does not know the precedence rule can still
+ * pick the wrong one.
  * Removing the name outright is the only thing that ends the condition rather
  * than out-running it.
  *
@@ -194,8 +196,8 @@ function expireBareConsentCookie(): void {
  * Move an already-decided guest onto the prefixed cookie without asking them
  * anything.
  *
- * The fix for osn-tracker#163 only bites once this origin has written the
- * prefixed name — and for the guests who most need it, that write was never
+ * Writing the prefixed name only closes the shadowing gap once this origin has
+ * actually done it — and for the guests who most need it, that write was never
  * going to happen. `saveConsent` runs only when someone touches the consent UI,
  * and a guest who already decided is precisely the one the banner never shows
  * again: their choice reads back fine through the bare-name fallback, so
@@ -237,11 +239,13 @@ export function migrateBareConsentCookie(): void {
  *
  * `writeConsentToDocument` returns `void` and swallows a blocked write by
  * design (see its doc), so a caller that needs to know whether the write
- * really took — the reload-on-revoke path in `store.ts` (osn-tracker#162) —
- * cannot use "the call returned" as its success signal. A browser that blocks
- * cookies outright, or a Set-Cookie the browser itself rejects (an oversized
- * value, say), leaves `document.cookie` unchanged, and the read-back is the
- * only way to see that from here.
+ * really took — the reload-on-revoke path in `store.ts`, which reloads the
+ * page after a revoke of a category whose embed actually ran this visit, so
+ * that embed's leftover globals, listeners and storage don't outlive the
+ * visit — cannot use "the call returned" as its success signal. A browser
+ * that blocks cookies outright, or a Set-Cookie the browser itself rejects
+ * (an oversized value, say), leaves `document.cookie` unchanged, and the
+ * read-back is the only way to see that from here.
  *
  * Compares the round-tripped record against `record` by RE-encoding both
  * rather than string-matching the raw cookie value, so it does not care which

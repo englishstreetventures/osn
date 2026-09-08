@@ -5,7 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { defineConfig } from "astro/config";
 
 /**
- * Minify the SSR build (tracker #616). The plain config form —
+ * Minify the SSR build. The plain config form —
  * `vite: { build: { minify: true } }` — is a no-op: `createViteBuildConfig`
  * (`astro/dist/core/build/vite-build-config.js:36`) spreads the user's
  * `vite.build` into its own object, but line 100 hard-sets `minify: false`
@@ -59,7 +59,7 @@ function minifySsrBuild() {
 }
 
 /**
- * `zod` (tracker #617) is NOT stubbed like `motion` below, and stays in
+ * `zod` is NOT stubbed like `motion` below, and stays in
  * `dist/server` on purpose — this bundle traced it, unlike `motion`, to a
  * module that genuinely runs on every request.
  *
@@ -76,7 +76,7 @@ function minifySsrBuild() {
  * no `actions: false`-style config to opt out of this path — grepped
  * `astro/dist/core/config` for an actions schema key and found none.
  *
- * Turning off sessions (tracker #618, `session: false` below) does NOT touch
+ * Turning off sessions (`session: false` below) does NOT touch
  * this: the zod import that session config used to pull in
  * (`astro/dist/core/session/config.js:1`, `zod/v4`) is a separate module from
  * the actions one, and the fingerprint grep below still finds
@@ -90,7 +90,7 @@ function minifySsrBuild() {
  * runs at request time, and there's no app-level lever to remove it.
  *
  * `motion` (plus its `motion-dom`/`motion-utils` deps) is ~187 KB raw of dead
- * weight in the SSR Worker build (tracker #287). The three `.motion.ts`
+ * weight in the SSR Worker build. The three `.motion.ts`
  * modules that import it — `components/Modal.motion.ts`,
  * `designs/gala/UnlockReveal.motion.ts`, `designs/classic/UnlockReveal.motion.ts`
  * — are only ever reached from a SolidJS `onMount` prefetch hint or a DOM
@@ -138,7 +138,7 @@ function stubMotionForSsr() {
       // trace and in any caller that does not swallow it.
       const throwStub =
         "() => { throw new Error(" +
-        '"motion is stubbed out of the cire/invites SSR build (tracker #287); ' +
+        '"motion is stubbed out of the cire/invites SSR build; ' +
         'animate()/stagger() must only run client-side"); }';
       return `export const animate = ${throwStub};\nexport const stagger = ${throwStub};\n`;
     },
@@ -178,7 +178,7 @@ export default defineConfig({
   // (`@astrojs/cloudflare/dist/index.js:107`, `if (session !== false && ...)`) —
   // so `false` skips the KV-binding provisioning block entirely, same as it did
   // for the in-memory driver, but also drops the session runtime and `unstorage`
-  // from the SSR module graph (tracker #618), since there is no longer a driver
+  // from the SSR module graph, since there is no longer a driver
   // to load at all.
   session: false,
   integrations: [solidJs(), minifySsrBuild()],

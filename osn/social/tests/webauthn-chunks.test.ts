@@ -7,10 +7,11 @@ import { describe, expect, it } from "vitest";
 import viteConfig, { barrelIsSideEffectFree } from "../vite.config";
 
 /**
- * P-I3 (osn-tracker#447). The security-events banner mounts on every Settings
- * visit; the passkey enrolment ceremony only ever runs from the Security tab.
- * Keeping the two apart is worth about 4 kB of JS to every visitor who never
- * opens that tab.
+ * P-I3: `startRegistration` must stay reachable only from the Security-tab-only
+ * chunk, never from code shared with the always-loaded Settings banner. The
+ * security-events banner mounts on every Settings visit; the passkey
+ * enrolment ceremony only ever runs from the Security tab. Keeping the two
+ * apart is worth about 4 kB of JS to every visitor who never opens that tab.
  *
  * The source split alone does not survive bundling — `@simplewebauthn/browser`
  * exports both ceremonies through one barrel — so the split is held by

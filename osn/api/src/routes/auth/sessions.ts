@@ -22,7 +22,7 @@ export function createSessionRoutes(ctx: AuthRouteContext) {
       .get(
         "/sessions",
         async ({ headers, set, server, request }) => {
-          // Per-user session metadata — never cached or stored (tracker#468).
+          // Per-user session metadata — never cached or stored.
           set.headers["cache-control"] = "private, no-store";
 
           const rlErr = await rateLimit(
