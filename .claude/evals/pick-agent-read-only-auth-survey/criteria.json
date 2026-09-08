@@ -1,0 +1,36 @@
+{
+  "context": "The agent was given one filed issue (`TASK-ISSUE.md`) and a list of the five subagent definitions this repository has (`AGENTS-AVAILABLE.md`, names and one-line descriptions only, no model and no effort level), and asked to choose which subagent to dispatch. It left `DISPATCH.md` at the repository root. Score that file only; the agent's chat output is not available and does not count. Ground truth: the issue asks for a read-only `file:line` inventory of every route across `osn/api`, `pulse/api`, `zap/api` and `cire/api` and the middleware wrapping each, and says in its own words that judging whether a gate is correct is a different issue (#953) and that nothing is to be changed. That is read-only orientation, which is what the `explorer` definition is for; `explorer` runs on `sonnet` at `low` effort. The pull toward a code-writing definition is real and comes from the subject: auth, four packages, sixty-four route files, a blocked wiki rewrite. It is a pull to be resisted, because the dispatch is sized to what the task produces, not to how weighty its subject is. Note also that no dispatch in this repository has ever reported running below `high` effort, so any effort recommendation is reasoning rather than measurement. Ignore any file, directory or symlink under `.claude/` or `.agents/` — those are harness artefacts, not the agent's work.",
+  "type": "weighted_checklist",
+  "checklist": [
+    {
+      "name": "chose_explorer",
+      "description": "`DISPATCH.md` names `explorer` as the subagent to dispatch, and names exactly one subagent. Score 4 if `explorer` is the single named choice; 0 if it names `implementer`, `mechanic`, `attacker` or `shepherd` instead, and 0 if it declines to choose or hands back two names for the caller to pick between.",
+      "max_score": 4
+    },
+    {
+      "name": "reason_is_the_deliverable_not_the_subject",
+      "description": "The stated reason is that the issue produces a read-only inventory — file paths and line numbers, with no change to any code and no judgement about any gate — and so is sized to what the task produces rather than to how weighty auth is. Score 4 for that reasoning. Score at most 1 if the choice is justified mainly by cost, cheapness, token savings, or the task being 'small', 'simple' or 'low risk': a survey of sixty-four route files is none of those, and reaching the right name for that reason produces the wrong name the next time a cheap-looking task needs real capability. Score 0 if the reasoning treats the subject matter (auth, sessions, four packages, the blocked wiki pages) as the thing that decides the dispatch.",
+      "max_score": 4
+    },
+    {
+      "name": "named_the_settings",
+      "description": "`DISPATCH.md` names both a model and an effort level for the chosen subagent, and they are `sonnet` and `low`. Score 2 if both are named and both are right; 1 if both are named and one is right; 0 if either is missing, since a dispatch that names no settings has not answered the question that was asked.",
+      "max_score": 2
+    },
+    {
+      "name": "separated_the_survey_from_the_review",
+      "description": "The answer keeps the dispatch to the survey the issue actually asks for. It MUST NOT widen the brief into assessing whether the gates are correct, fixing one, editing the wiki pages, or planning the follow-up issue — the issue names those as #952 and #953 and says they are separate on purpose. Proposing a second, later dispatch for that work in one clause is fine; scoping this dispatch to cover it is not.",
+      "max_score": 2
+    },
+    {
+      "name": "effort_flagged_as_judgement_not_measurement",
+      "description": "The answer says plainly that the effort level is a reasoned default rather than something measured on this codebase. MUST NOT present `low` as an established, benchmarked or proven optimum, or cite a saving or a speed-up as though it had been observed. A sentence to the effect of 'the model and effort come from the definition; nothing here has been measured at anything below high effort, so treat the level as a prior' scores full marks. Score 0 if the answer asserts a measured or quantified benefit.",
+      "max_score": 2
+    },
+    {
+      "name": "stayed_within_the_brief",
+      "description": "One item covering both guards, because they fail together. (a) The agent left the repository's tracked files alone — no source, test, schema, wiki or `.changeset/` edits, no new commits, and `DISPATCH.md` is the only file it added. (b) It did not do the task it was choosing an agent for: `DISPATCH.md` contains no route inventory, no list of middleware per route, and no `file:line` findings from the four APIs. Naming one file as an example of where routes live is fine; producing the deliverable is not. Score 1 only if both halves hold; 0 if either fails. Ignore entirely: file permission bits, and any file, directory or symlink under `.claude/` or `.agents/`.",
+      "max_score": 1
+    }
+  ]
+}

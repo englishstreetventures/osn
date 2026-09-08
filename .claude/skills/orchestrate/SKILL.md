@@ -1,6 +1,6 @@
 ---
 name: orchestrate
-description: Use when driving one or more tasks end to end from the local bare-repo root — a feature designed with the user first when its scope is open, or a ready list of tasks — ordering them, cutting a worktree per task, handing each to a subagent that runs new-feat, running prep-pr with every finding fixed rather than reported, and shepherding each pull request to a squash merge and worktree teardown. Not for a one-file change, and not outside the bare repo.
+description: Use when driving one or more tasks end to end from the local bare repo's `main` worktree — a feature designed with the user first when its scope is open, or a ready list of tasks — ordering them, cutting a worktree per task, handing each to a subagent that runs new-feat, running prep-pr with every finding fixed rather than reported, and shepherding each pull request to a squash merge and worktree teardown. Not for a one-file change, and not outside the bare repo.
 ---
 
 Orchestrate `$ARGUMENTS` end to end. If it is empty, ask for the task or tasks first.
@@ -11,20 +11,50 @@ You are the orchestrator: you order the work and drive the loop, and you **do no
 
 Every task merged into `main` as its own squash-merged pull request, its worktree removed, and a closing summary: each PR (number and one line), anything deferred as a tracked follow-up, and any deploy-time or human action a subagent surfaced.
 
-## Precondition — the bare-repo root only
+## Precondition — the local bare-repo setup, run from `main/`
 
-This skill creates worktrees, so it runs only in the local bare-repo setup:
+This skill creates worktrees, so it needs the local bare repo. **Run it from the
+`main` worktree, not the bare root:**
 
 ```bash
-git rev-parse --is-bare-repository 2>/dev/null                              # expect: true
+git -C /Users/ac/.work/osn.git rev-parse --is-bare-repository                # expect: true
 [ -d /Users/ac/.work/osn.git ] && [ "$(uname)" = "Darwin" ] && echo OK
+pwd                                                                          # expect: …/osn.git/main
 ```
 
-Anywhere else — the remote environment, a container, or inside a worktree — **stop** and say: "orchestrate needs the local bare repo root so it can create worktrees — run it from `/Users/ac/.work/osn.git`, or use `new-feat` and `prep-pr` in place instead." There is no static equivalent of this run; the deliverable is merged pull requests.
+`git worktree add` resolves against the shared bare repo, so it works just as
+well from `main/` as from the root. The reason to prefer `main/` is what the
+session records look like afterwards. A bare repo has no checked-out branch, so
+Claude Code stamps every record of a session started there with
+`gitBranch: "HEAD"` — an anonymous bucket that no card and no report can name.
+From `main/` the same records read `main`, which is a label you can measure and
+subtract. 64% of this repository's recorded token spend currently sits in that
+anonymous `HEAD` pool, and moving the orchestrator is most of the fix.
+
+Anywhere else — the remote environment, a container, or inside a *task*
+worktree — **stop** and say: "orchestrate needs the local bare repo so it can
+create worktrees — run it from `/Users/ac/.work/osn.git/main`, or use
+`new-feat` and `prep-pr` in place instead." There is no static equivalent of
+this run; the deliverable is merged pull requests.
+
+> [!warning] An orchestrated task is not measured by a session card.
+> `gitBranch` is captured once when a session starts and inherited by every
+> subagent it dispatches — it is a property of the session, not of the work. So
+> a subagent building in a task worktree records the *orchestrator's* branch,
+> and the task's own card reads zero. This is not fixable by arranging branches
+> differently: `isolation: "worktree"` pins a subagent's `cwd` correctly but
+> still reports the parent's `gitBranch`, and the Agent tool has no way to pin
+> an agent to a worktree you chose.
+>
+> The consequence to hold on to: **cards describe work done by a session in its
+> own worktree, and orchestrated work is absent from them.** A coverage number
+> is not a statement about this workflow. Where a task's cost genuinely matters,
+> run it through `new-feat` in its own session instead — that attributes
+> correctly. See `wiki/observability/session-metrics.md`.
 
 ## The blackboard
 
-Write `ORCHESTRATE.md` at the root of the bare repo — outside every worktree, so
+Write `ORCHESTRATE.md` in the `main` worktree — outside every *task* worktree, so
 no `.gitignore` governs it and no worktree can stage it, which is the point: one
 file for a run that spans several branches. Rewrite it at every step
 boundary — a task dispatched, a gate run, a commit made, a PR opened. A long run
@@ -98,7 +128,9 @@ git -C /Users/ac/.work/osn.git worktree add /Users/ac/.work/osn.git/<dir> -b <pr
 
 ### Step 3 — Hand the task off, whole
 
-Dispatch **one** `general-purpose` subagent that owns planning and implementation. Give it the task, the Step 1 pointers, the worktree path and branch, and these instructions.
+Dispatch **one** subagent that owns planning and implementation. Give it the task, the Step 1 pointers, the worktree path and branch, and these instructions.
+
+Which one: run the `pick-agent` skill. It maps the task and its `complexity:` label to a definition in `.claude/agents/`, and so to a model and an effort level — `implementer` for anything that designs something, `mechanic` for work whose answer is fixed before it starts. Default to `implementer` when unsure; defaulting up is recoverable and defaulting down produces a subagent that does a worse job and reports success.
 
 **The dispatch is a contract, not a description.** A subagent inherits no
 conversation, so anything not in the text does not exist, and anything wrong in it
@@ -172,21 +204,25 @@ Two rules for anything you dispatch into a worktree:
   reaches for `git checkout <ref> -- <path>`, and putting it back discards
   whatever you had uncommitted in that tree.
 
-Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the five-section PR body, push, and open the PR.
+Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch `implementer` fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the five-section PR body, push, and open the PR.
 
 ### Step 5 — Watch, merge, tear down
 
-Delegate this to a **PR-shepherd subagent** — the slow CI polling should not sit in your context. It polls to a terminal state, merges, and removes the worktree:
+**Delegate the waiting, not the deciding.** Dispatch a **`shepherd` subagent** (`.claude/agents/shepherd.md`) to poll — slow CI polling should not sit in your context, and waiting does not need an expensive model. It polls to a terminal state and reports. It does not merge, does not rebase, does not push and does not remove a worktree: those are the only irreversible operations in this loop, and `shepherd` pins the cheapest model in the fleet precisely because it is not the thing making that call.
+
+The shepherd's whole job:
 
 ```bash
 gh pr ready <n>                                                       # if opened as a draft; then wait ~10 s before reading state
 gh pr view <n> --json mergeStateStatus,statusCheckRollup,state
 ```
 
-- All checks green and `mergeStateStatus: CLEAN` → `gh pr merge <n> --squash --delete-branch`.
-- `DIRTY` or `BEHIND` → rebase onto the latest `origin/main`, resolve conflicts (sibling PRs that merged first are usually additive — keep both sides; for changeset or version churn from the release workflow, take the regenerated state), re-run the touched package's tests, `git push --force-with-lease`, re-poll.
-- A real check failure → read the failing job, dispatch a fix subagent, push, re-poll. Never merge red.
-- Once `MERGED`, the shepherd runs `git worktree remove --force <dir>`, deletes the local branch, and reports back. Never leave a merged task's worktree behind.
+It reports the terminal state, and for a failure the job name and the decisive line of its output — not the whole log. Then you act on what it reports:
+
+- All checks green and `mergeStateStatus: CLEAN` → **you** run `gh pr merge <n> --squash --delete-branch`.
+- `DIRTY` or `BEHIND` → dispatch an **`implementer`** to rebase onto the latest `origin/main`, resolve conflicts (sibling PRs that merged first are usually additive — keep both sides; for changeset or version churn from the release workflow, take the regenerated state), re-run the touched package's tests and `git push --force-with-lease`. Conflict resolution is a judgement call and a force-push is not recoverable, so neither belongs to the polling agent.
+- A real check failure → dispatch an `implementer` fix subagent, push, re-poll. Never merge red.
+- Once `MERGED`, **you** run `git worktree remove --force <dir>` and delete the local branch. Never leave a merged task's worktree behind.
 
 **Between dependent tasks:** `git fetch origin main` and fast-forward local `main` so the next worktree is cut from the updated tip. If a later task's branch already exists and now conflicts, rebase it before its Step 5.
 
@@ -229,4 +265,4 @@ The full table, with the reason behind each, is `references/gotchas.md`. The one
 
 ## When not to use this
 
-A one-line or single-file change — edit it and open the PR directly. Outside the bare-repo root — `new-feat` then `prep-pr` in place.
+A one-line or single-file change — edit it and open the PR directly. Outside the local bare repo — `new-feat` then `prep-pr` in place. A task whose cost you want measured — `new-feat` in its own session, since orchestrated work is not carded.

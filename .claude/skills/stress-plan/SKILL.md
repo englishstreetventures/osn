@@ -72,10 +72,11 @@ finds missing. Each is cheap to add now and expensive to discover later:
 
 ## Step 2 — Dispatch the attacker
 
-One `general-purpose` agent, **`model: "fable"`** where it is available and
-another model otherwise. A different model reading cold is the point: it does not
-inherit your reasoning and cannot agree with you out of habit. Never continue your
-own session for this, and never dispatch the agent that wrote the plan.
+The **`attacker`** agent (`.claude/agents/attacker.md`), which pins
+`model: fable` for this reason; another model where Fable is unavailable. A
+different model reading cold is the point: it does not inherit your reasoning
+and cannot agree with you out of habit. Never continue your own session for
+this, and never dispatch the agent that wrote the plan.
 
 The prompt, adapted to the plan's path:
 

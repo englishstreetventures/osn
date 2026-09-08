@@ -1,0 +1,11 @@
+{
+  "description": "A task that reads as expensive — every route across four APIs, every auth gate, an epic behind it — and whose deliverable is a file:line inventory and nothing else. The judgement it feeds is a different issue, stated as such. Tests whether pick-agent matches on what the task demands rather than on the weight of the subject, and names the read-only definition with its model and effort instead of defaulting to the one that writes code.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "6ac29559475594b4ab7545f8495af5b95adc2a5b",
+      "installPath": "."
+    }
+  }
+}
