@@ -15,6 +15,7 @@ import {
   parseNumstat,
   readUsage,
   type SessionRecord,
+  skillCommandsIn,
 } from "../index";
 
 function assistant(overrides: Partial<SessionRecord> = {}): SessionRecord {
@@ -542,4 +543,88 @@ test("aggregateInteraction reports null when no edit was ever observed", () => {
 
   expect(interaction.tokens_before_first_edit).toBeNull();
   expect(interaction.sessions_with_observed_edit).toBe(0);
+});
+
+// --- skills invoked as slash commands ---------------------------------------
+
+// A skill invoked as `/name` never produces a `Skill` tool call, so the
+// histogram missed it. The record opens with `<command-name>`, which
+// `humanTurnText` rejects as machinery — correctly, since it is an envelope
+// rather than a typed instruction — so the count has to come from the envelope
+// itself.
+test("skillCommandsIn reads a slash-invoked skill", () => {
+  const record: SessionRecord = {
+    type: "user",
+    message: { content: "<command-name>/prep-pr</command-name>\n<command-args></command-args>" },
+  };
+
+  expect(skillCommandsIn(record)).toEqual(["prep-pr"]);
+});
+
+// `/compact` outnumbers every skill invocation in these transcripts combined.
+// Counting the built-ins as skills would bury the signal under housekeeping —
+// and `/compact` already means something as `window.compactions`.
+test("skillCommandsIn ignores the CLI's own commands", () => {
+  for (const name of ["/compact", "/clear", "/config", "/exit", "/login", "/model"]) {
+    expect(
+      skillCommandsIn({
+        type: "user",
+        message: { content: `<command-name>${name}</command-name>` },
+      }),
+    ).toEqual([]);
+  }
+});
+
+test("skillCommandsIn tolerates a name written without the slash", () => {
+  expect(
+    skillCommandsIn({
+      type: "user",
+      message: { content: "<command-name>review-deps</command-name>" },
+    }),
+  ).toEqual(["review-deps"]);
+});
+
+test("skillCommandsIn returns nothing for an ordinary turn", () => {
+  expect(skillCommandsIn({ type: "user", message: { content: "fix the auth bug" } })).toEqual([]);
+  expect(
+    skillCommandsIn({ type: "user", message: { content: [{ type: "tool_result" }] } }),
+  ).toEqual([]);
+});
+
+// Both routes are real invocations, so a skill used each way ran twice. This is
+// the opposite of the queued-prompt case, where two records are one instruction
+// and get collapsed.
+test("aggregateInteraction counts both invocation routes", () => {
+  const interaction = aggregateInteraction([
+    {
+      type: "user",
+      sessionId: "s1",
+      timestamp: "…01",
+      message: { content: "<command-name>/prep-pr</command-name>" },
+    },
+    assistant({
+      timestamp: "…02",
+      message: {
+        model: "claude-opus-5",
+        content: [toolUse("Skill", { skill: "prep-pr" })],
+        usage: usage({}),
+      },
+    }),
+  ]);
+
+  expect(interaction.skills).toEqual({ "prep-pr": 2 });
+});
+
+test("aggregateInteraction does not count a slash command as a turn", () => {
+  const interaction = aggregateInteraction([
+    {
+      type: "user",
+      sessionId: "s1",
+      timestamp: "…01",
+      message: { content: "<command-name>/review-deps</command-name>" },
+    },
+  ]);
+
+  expect(interaction.user_turns).toBe(0);
+  expect(interaction.skills).toEqual({ "review-deps": 1 });
 });

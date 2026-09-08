@@ -361,6 +361,70 @@ export function isCompactionCommand(record: SessionRecord): boolean {
   return typeof content === "string" && content.includes("<command-name>/compact</command-name>");
 }
 
+/**
+ * Commands built into the CLI rather than skills this repository wrote.
+ *
+ * They dominate the `<command-name>` records — `/compact` alone outnumbers
+ * every skill invocation in the transcripts combined — so counting them as
+ * skills would bury the signal under session housekeeping. `/compact` is
+ * already counted separately as `window.compactions`, where it means something.
+ */
+const BUILTIN_COMMANDS = new Set([
+  "add-dir",
+  "agents",
+  "clear",
+  "compact",
+  "config",
+  "context",
+  "cost",
+  "doctor",
+  "exit",
+  "export",
+  "help",
+  "init",
+  "login",
+  "logout",
+  "mcp",
+  "memory",
+  "model",
+  "plugin",
+  "pr-comments",
+  "release-notes",
+  "resume",
+  "review",
+  "status",
+  "terminal-setup",
+  "vim",
+]);
+
+const COMMAND_NAME = /<command-name>\/?([^<]+)<\/command-name>/g;
+
+/**
+ * Skills invoked as `/name` rather than through the `Skill` tool.
+ *
+ * Both routes are real invocations and both belong in the histogram, so a
+ * skill used once each way counts twice — unlike a queued prompt echoed as a
+ * user record, which is one instruction seen twice and is collapsed.
+ *
+ * Worth knowing before reading the output: this fixes an undercount, not the
+ * headline. Across every transcript in this repository the `<command-name>`
+ * records are overwhelmingly built-ins — `/compact` fifteen times, `/config`
+ * and `/clear` five each — and `/prep-pr` never appears among them at all.
+ * Skill usage really is as low as the cards said it was.
+ */
+export function skillCommandsIn(record: SessionRecord): string[] {
+  const content = record.message?.content;
+  if (typeof content !== "string") return [];
+
+  const found: string[] = [];
+  for (const match of content.matchAll(COMMAND_NAME)) {
+    const name = match[1].trim();
+    if (name && !BUILTIN_COMMANDS.has(name)) found.push(name);
+  }
+
+  return found;
+}
+
 export interface SpendSummary {
   usd_equivalent: number;
   tokens: TokenTotals;
@@ -563,6 +627,13 @@ export function aggregateInteraction(records: SessionRecord[]): InteractionSumma
       // agent mid-flight rather than opening the task.
       if (sessionsWithWork.has(session)) correctiveTurns += 1;
       continue;
+    }
+
+    // A slash-invoked skill lands here rather than above: the record opens with
+    // `<command-name>`, so `humanTurnText` rejects it as machinery. It is both
+    // — an envelope, and evidence that a skill ran.
+    for (const name of skillCommandsIn(record)) {
+      skills[name] = (skills[name] ?? 0) + 1;
     }
 
     if (record.type !== "assistant") continue;
