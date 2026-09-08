@@ -12,8 +12,7 @@ import { describe, expect, it } from "vitest";
  * This is asserted rather than assumed because the failure is silent: a
  * re-added `<link>` still renders correctly in dev, and the only visible
  * symptom is a third-party request that transmits every visitor's IP and
- * user-agent to Google LLC (US) with no consent gate in front of it
- * (tracker #388).
+ * user-agent to Google LLC (US) with no consent gate in front of it.
  */
 const pkgRoot = join(import.meta.dirname, "..");
 const layoutDir = join(pkgRoot, "src", "layouts");

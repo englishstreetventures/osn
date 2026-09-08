@@ -113,12 +113,12 @@ export const CSP_DIRECTIVES = {
   // Astro island hydration inline scripts need 'unsafe-inline'; hosts are
   // still tightly allowlisted (no wildcard).
   "script-src": ["'self'", "'unsafe-inline'", ORIGINS.pinterestScript, ORIGINS.turnstile],
-  // Astro/Tailwind inline styles. Fonts are self-hosted (tracker #98) — the
+  // Astro/Tailwind inline styles. Fonts are self-hosted — the
   // @font-face rules load from 'self', no third-party stylesheet host needed.
   "style-src": ["'self'", "'unsafe-inline'"],
   // Inline element style attributes (the invite theme vars). Low-risk.
   "style-src-attr": ["'unsafe-inline'"],
-  // Self-hosted fontsource woff2 files (tracker #98) — served from 'self'.
+  // Self-hosted fontsource woff2 files — served from 'self'.
   "font-src": ["'self'"],
   // First-party invite/event image bytes (served from cire-api), Pinterest pin
   // thumbnails, Google Maps tiles, plus data:/blob: (inline SVG/blur placeholders).

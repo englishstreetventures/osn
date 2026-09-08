@@ -38,7 +38,7 @@ describe("buildCsp", () => {
     expect(csp).toMatch(/img-src[^;]*https:\/\/maps\.googleapis\.com/);
   });
 
-  it("does NOT allowlist Google Fonts — the two families are self-hosted (tracker #98)", () => {
+  it("does NOT allowlist Google Fonts — the two families are self-hosted", () => {
     expect(csp).not.toMatch(/fonts\.googleapis\.com/);
     expect(csp).not.toMatch(/fonts\.gstatic\.com/);
   });

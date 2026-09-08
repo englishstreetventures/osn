@@ -3,7 +3,7 @@
  * without that prefix this drift guard is BUILT AND DEPLOYED: `/index.test`,
  * `/legal-pages.test` and `/<slug>/registry.test` were all live routes on the
  * guest site, and the vitest the three of them import was a 534 KB (119 KB
- * gzip) chunk in the SSR Worker — 28% of the bundle (tracker #287). A leading
+ * gzip) chunk in the SSR Worker — 28% of the bundle. A leading
  * `_` is what excludes a file from Astro's router; it stays colocated beside
  * the `.astro` it reads, and vitest's default include still picks it up.
  */

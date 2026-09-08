@@ -1,4 +1,4 @@
-// Tracker #454 — the pure-function tests in cire-dev-db-guard.test.ts import
+// The pure-function tests in cire-dev-db-guard.test.ts import
 // `assertCireDevDb` directly, so none of them exercise the `import.meta.main`
 // block that the two destructive callers actually invoke:
 // `bun scripts/cire-dev-db-guard.ts <path>`. That block is where "the

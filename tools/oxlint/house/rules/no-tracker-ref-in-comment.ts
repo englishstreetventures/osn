@@ -24,12 +24,18 @@ type CommentPattern = {
  * hoist to module scope.
  */
 const patterns: readonly CommentPattern[] = [
-  // `tracker#N` without the `osn-` prefix is the same private-issue reference
-  // under a shorter spelling the repo also uses — found live in the wild
-  // (osn/api/src/routes/auth/*.ts, .../graph.ts) after this rule already
-  // shipped, so both spellings are covered rather than only the one the
-  // original audit happened to sample.
-  { messageId: "trackerRef", regex: /\b(?:osn-)?tracker#\d+/gi },
+  // Both the `osn-` prefix and the space before `#` are optional, because the
+  // repo writes this reference all four ways and every one of them is the same
+  // private-issue disclosure. Each variant was found live only after the
+  // narrower pattern had already shipped and been declared clean, so the
+  // pattern covers the shape rather than the spellings one audit sampled.
+  //
+  // A BARE `#N` is deliberately still not matched: that is an ordinary public
+  // cross-reference, and flagging it would fire on healthy comments. Dropping
+  // only the `tracker` from a reference therefore silences the rule while
+  // leaving a number that now resolves to an unrelated public issue — so a
+  // rewrite removes the whole reference, never just its prefix.
+  { messageId: "trackerRef", regex: /\b(?:osn-)?tracker[ \t]*#\d+/gi },
   { messageId: "findingId", regex: /\b[CDPST]-[A-Z]\d+\b/g },
   // The lookbehind rejects a hyphen as well as a word character. A finding tag
   // used as a label ends in a colon too, and without that its own tail would

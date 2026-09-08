@@ -33,6 +33,15 @@ export const width = 500;
 // Per-user connection list — never cached or stored (tracker#468).
 export const cacheHeader = "private, no-store";
 `,
+  // A space before the `#` is the fourth spelling of the same reference, and
+  // the one that survived two passes that had each declared the tree clean.
+  // Both prefixed and bare forms of it, so neither is covered by accident.
+  "tracker-ref-spaced.ts": `
+// Fonts are self-hosted (tracker #98) — no third-party stylesheet to gate.
+export const fontSource = "self";
+// Bundle split measured under osn-tracker #287.
+export const chunkKb = 119;
+`,
   // Three tags in three shapes the pre-review design would each have missed: a
   // parenthesised one mid-line, a two-digit one, and a tier outside the
   // security/perf pair.
@@ -187,6 +196,7 @@ describe("house/no-tracker-ref-in-comment", () => {
       "normative-citation.ts",
       "phase-code.ts",
       "tracker-ref-short-spelling.ts",
+      "tracker-ref-spaced.ts",
       "tracker-ref.ts",
     ]);
   });
@@ -200,6 +210,13 @@ describe("house/no-tracker-ref-in-comment", () => {
 
   it("catches the bare tracker#N spelling, not only osn-tracker#N", () => {
     expect(forFixture(diagnostics, "tracker-ref-short-spelling.ts")).toHaveLength(1);
+  });
+
+  it("catches a space before the #, prefixed or bare", () => {
+    const reported = forFixture(diagnostics, "tracker-ref-spaced.ts");
+    expect(reported).toHaveLength(2);
+    expect(reported.map((d) => d.message).join("\n")).toContain("tracker #98");
+    expect(reported.map((d) => d.message).join("\n")).toContain("osn-tracker #287");
   });
 
   it("leaves a normative standard citation alone but still reports a real plan code", () => {

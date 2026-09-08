@@ -1,4 +1,4 @@
-// Tracker #619 — the general half of the invites bundle-size finding: Astro
+// The general half of the invites bundle-size finding: Astro
 // routes every file under `src/pages`, so an un-prefixed `*.test.ts` there is
 // built and deployed as a live route. This is the guard for that, run as a
 // subprocess against fixture app roots the same way
