@@ -1,5 +1,12 @@
 # @osn/crypto
 
+## 0.11.2
+
+### Patch Changes
+
+- Updated dependencies [b78deb7]
+  - @shared/observability@0.14.2
+
 ## 0.11.1
 
 ### Patch Changes

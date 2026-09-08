@@ -1,5 +1,12 @@
 # @shared/turnstile
 
+## 0.2.18
+
+### Patch Changes
+
+- Updated dependencies [b78deb7]
+  - @shared/observability@0.14.2
+
 ## 0.2.17
 
 ### Patch Changes

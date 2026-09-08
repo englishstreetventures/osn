@@ -1,5 +1,15 @@
 # @osn/pulse
 
+## 0.22.43
+
+### Patch Changes
+
+- Updated dependencies [b78deb7]
+- Updated dependencies [b78deb7]
+- Updated dependencies [b78deb7]
+  - @pulse/api@0.27.2
+  - @osn/ui@1.10.8
+
 ## 0.22.42
 
 ### Patch Changes

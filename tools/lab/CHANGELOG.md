@@ -1,5 +1,12 @@
 # @tools/lab
 
+## 0.1.12
+
+### Patch Changes
+
+- Updated dependencies [b78deb7]
+  - @osn/ui@1.10.8
+
 ## 0.1.11
 
 ### Patch Changes

@@ -1,5 +1,12 @@
 # @shared/feature-flags
 
+## 0.2.14
+
+### Patch Changes
+
+- Updated dependencies [b78deb7]
+  - @shared/observability@0.14.2
+
 ## 0.2.13
 
 ### Patch Changes
