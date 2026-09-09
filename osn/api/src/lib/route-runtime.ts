@@ -1,6 +1,8 @@
 import type { Db } from "@osn/db/service";
 import type { EmailService } from "@shared/email";
-import { Cause, type Effect, Exit, type Layer, ManagedRuntime, Option } from "effect";
+import { Cause, Effect, Exit, type Layer, ManagedRuntime, Option } from "effect";
+
+import { CurrentBackgroundSink, currentBackgroundSink } from "./background";
 
 /**
  * Services any OSN API route handler may require: the Drizzle `Db` and — for
@@ -102,7 +104,17 @@ function runThroughExit<A, E, R>(
   runtime: ManagedRuntime.ManagedRuntime<R, never>,
   eff: Effect.Effect<A, E, R>,
 ): Promise<A> {
-  return runtime.runPromiseExit(eff).then((exit) => {
+  // The one place `AsyncLocalStorage` is read: synchronously, on the plain
+  // promise path Elysia dispatches through, before any fiber exists. Reading
+  // it from inside a fiber is unsound because v4's scheduler batches
+  // continuations — see `lib/background.ts`.
+  //
+  // `CurrentBackgroundSink` is a `Context.Reference`, whose identifier is
+  // `never`, so providing it leaves `R` unchanged and no route factory, test
+  // layer or service signature has to know this happened.
+  const sink = currentBackgroundSink();
+  const prepared = sink ? Effect.provideService(eff, CurrentBackgroundSink, sink) : eff;
+  return runtime.runPromiseExit(prepared).then((exit) => {
     if (Exit.isSuccess(exit)) return exit.value;
     const failure = Cause.findErrorOption(exit.cause);
     if (Option.isSome(failure)) throw failure.value;

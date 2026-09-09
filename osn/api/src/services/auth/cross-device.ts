@@ -13,6 +13,7 @@ import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { EmailService } from "@shared/email";
 import { Effect } from "effect";
 
+import { forkBackground } from "../../lib/background";
 import { metricSecurityEventRecorded, withCrossDeviceOp } from "../../metrics";
 import { CDL_TTL_SECONDS } from "./constants";
 import type { AuthContext } from "./context";
@@ -220,7 +221,7 @@ export function createCrossDeviceModule(
       metricSecurityEventRecorded("cross_device_login");
 
       // Best-effort email notification (forked daemon, 10s timeout).
-      yield* Effect.forkDetach(
+      yield* forkBackground(
         notifyCrossDeviceLoginByAccountId(accountId).pipe(
           Effect.timeout("10 seconds"),
           Effect.catch(() => Effect.void),

@@ -18,6 +18,7 @@ import type { SecurityEventKind } from "@shared/observability/metrics";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
+import { forkBackground } from "../../lib/background";
 import { RECOVERY_LOCKOUT_THRESHOLD } from "../../lib/recovery-lockout-store";
 import {
   metricRecoveryCodeConsumed,
@@ -103,7 +104,7 @@ export function createRecoveryModule(
       // health. Fork onto the scheduler with a hard timeout so a slow
       // provider can't tie up the request handler. Failure is logged via
       // the metric branches inside `notifyRecovery`.
-      yield* Effect.forkDetach(
+      yield* forkBackground(
         notifyRecoveryByAccountId(accountId, "recovery_code_generate").pipe(
           Effect.timeout("10 seconds"),
           Effect.catch(() => Effect.void),
@@ -405,7 +406,7 @@ export function createRecoveryModule(
       // so the login latency is decoupled from mailer health. The profile
       // is already loaded so we pass the email directly — no post-commit
       // accounts round-trip.
-      yield* Effect.forkDetach(
+      yield* forkBackground(
         notifyRecovery(profile.email, "recovery_code_consume").pipe(
           Effect.timeout("10 seconds"),
           Effect.catch(() => Effect.void),

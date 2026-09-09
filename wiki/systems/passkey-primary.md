@@ -163,7 +163,7 @@ binding" vector that the enrollmentToken deletion otherwise opened.
 - Inserts a `security_events{kind: "passkey_register"}` row in the same
   transaction as the passkey insert — the user sees the new-credential
   banner even if an attacker skips the email client.
-- Fires a best-effort `notifyPasskeyRegisteredByAccountId` via `forkDaemon`
+- Fires a best-effort `notifyPasskeyRegisteredByAccountId` via `forkBackground`
   with a 10-second timeout. The body never includes identifying material.
 - Derives the caller's session token from the HttpOnly cookie — H1
   invalidation of every other session cannot be silently skipped by a

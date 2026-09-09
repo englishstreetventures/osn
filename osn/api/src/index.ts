@@ -5,6 +5,7 @@ import { Effect, Layer } from "effect";
 
 import { createApp, type App } from "./app";
 import { buildAppDeps } from "./build-deps";
+import { withBackgroundSink } from "./lib/background";
 import { selectEmailLayer } from "./lib/email-layer";
 import { readOsnRateLimitBindings } from "./lib/native-rate-limiters";
 import { registerOutboundKeysOnce } from "./lib/outbound-arc";
@@ -273,7 +274,11 @@ export const handler: OsnWorkerHandler = {
     const forwarded = new Request(request, { headers: new Headers(request.headers) });
     forwarded.headers.set("x-request-id", requestId);
 
-    const response = await cached.app.fetch(forwarded);
+    // Everything the request forks through `forkBackground` is collected here
+    // and handed to `waitUntil` below, so an outbound send that outlives the
+    // response still runs on workerd. With no `ctx` this is a pass-through.
+    const app = cached.app;
+    const response = await withBackgroundSink(ctx, async () => app.fetch(forwarded));
     // Response from Elysia may have immutable headers; clone to set ours.
     const out = new Response(response.body, response);
     out.headers.set("x-request-id", requestId);

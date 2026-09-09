@@ -30,6 +30,7 @@ import type { StepUpPurpose, TotpVerifyResult } from "@shared/observability/metr
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { Effect } from "effect";
 
+import { forkBackground } from "../../lib/background";
 import {
   decryptTotpSecret,
   encryptTotpSecret,
@@ -341,7 +342,7 @@ export function createTotpModule(
       metricSecurityEventRecorded("totp_enrolled");
       metricTotpVerified("ok");
 
-      yield* Effect.forkDetach(
+      yield* forkBackground(
         securityEventsModule
           .notifySecurityEventByAccountId(accountId, "totp_enrolled", "totp-enrolled")
           .pipe(
@@ -394,7 +395,7 @@ export function createTotpModule(
       // disable and let a half-finished ceremony re-create the credential.
       yield* Effect.promise(() => stores.pendingTotpEnrollments.delete(accountId));
 
-      yield* Effect.forkDetach(
+      yield* forkBackground(
         securityEventsModule
           .notifySecurityEventByAccountId(accountId, "totp_disabled", "totp-disabled")
           .pipe(

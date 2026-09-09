@@ -22,7 +22,7 @@ packages:
   - "@osn/api"
   - "@zap/api"
   - "@cire/api"
-last-reviewed: 2026-09-08
+last-reviewed: 2026-09-09
 ---
 
 # Backend Code Patterns
@@ -284,6 +284,71 @@ Two values, chosen by what the response carries:
 First-statement placement is the rule, not a style choice. A 401, a 429, or a 500 is still a response with the caller's account tied to the request that produced it, and a proxy or browser cache does not know or care that the body was an error — it caches whatever `Cache-Control` allows on whatever status came back. An assignment placed after the auth guard or inside a `try` only reaches the 200 path; every rejection leaves the endpoint uncovered, which is exactly the gap tracker#469 found and fixed by moving the assignment up rather than adding a second one. A test that only checks the 200 case cannot see that gap, because the header still passes on the path it checks — assert the header on a 401 or 429, not only on success.
 
 This pattern started with `GET /account/security-events` (tracker#346) and now covers every authenticated route: tokens.ts, recovery.ts, sessions.ts, passkey-management.ts, profile-switch.ts, account-erasure.ts, graph.ts, recommendations.ts (tracker#466–470).
+
+## Background work must reach `waitUntil`
+
+Anything a handler starts and does not wait for — a security notice, a recovery
+code, any outbound send — must be dispatched with `forkBackground` from
+`osn/api/src/lib/background.ts`, never a bare `Effect.forkDetach`.
+
+> [!warning] A bare `Effect.forkDetach` is dropped on workerd, and only on workerd.
+> Once the `Response` is returned and no `waitUntil` promise is pending, the
+> request context is torn down. Work queued on a macrotask that then opens an
+> outbound subrequest is neither awaited nor cancelled — it is orphaned.
+> On the Bun dev server the same fibre completes, so **no unit test, no local
+> run and no `wrangler deploy --dry-run` can observe the difference.**
+
+```ts
+// Wrong — may never run on the deployed Worker.
+yield* Effect.forkDetach(notifyRecovery(email, kind).pipe(Effect.timeout("10 seconds")));
+
+// Right — same fork, plus a promise the entry hands to ctx.waitUntil.
+yield* forkBackground(notifyRecovery(email, kind).pipe(Effect.timeout("10 seconds")));
+```
+
+### How it fits together
+
+| Where | What happens |
+|---|---|
+| `index.ts` (Worker entry) | `withBackgroundSink(ctx, () => app.fetch(req))` opens a per-request sink, then hands everything it collected to `ctx.waitUntil`. With no `ctx` it is a pass-through, so `local.ts` and two-argument callers keep today's behaviour. |
+| `lib/route-runtime.ts` | `runThroughExit` reads the sink from `AsyncLocalStorage` **once, synchronously, at the `run` boundary** and carries it into the effect. |
+| `lib/background.ts` | `forkBackground` reads the sink from the effect's context, forks detached, and registers the fibre's completion with the sink. |
+
+### Three choices worth not re-litigating
+
+**A `Context.Reference`, not a `Context.Service`.** `Reference<S>` is a
+`Service<never, S>`, so its identifier is `never` and reading it contributes
+nothing to an effect's `R` channel. A plain service would add `BackgroundSink`
+to the requirements of every notification site and every test layer that
+provides them.
+
+**`AsyncLocalStorage` is read at the boundary, never inside a fiber.** Effect
+v4's scheduler batches fiber continuations into one drain, so a continuation
+can run under whichever ALS context scheduled the batch. Reading ALS from
+inside a fiber happens to work under Bun and is not sound.
+
+**Per-request, not a module-level "current `waitUntil`".** Several requests are
+in flight in one isolate, so a single mutable global would attribute one
+request's background work to another's context. `cire/api` uses a
+`WeakMap<Request, ctx>` instead (`cire/api/src/lib/execution-ctx.ts`); that
+works there because its *routes* dispatch background work and hold the
+`Request`. osn's sites are deep in services, which have no `Request` in scope.
+
+### Tests
+
+The two halves are pinned separately, because neither tier can see both:
+
+- `osn/api/tests/d1/waituntil.test.ts` (Miniflare/workerd) — that work handed to
+  `waitUntil` still runs after the response, and that `?mode=bypass` (a bare
+  `Effect.forkDetach`) both reaches `waitUntil` zero times and never completes.
+  The pre-fix behaviour is encoded there permanently.
+- `osn/api/tests/lib/background.test.ts` — that `runThroughExit` performs the
+  ALS-to-reference bridge. The workerd fixture cannot import `makeAppRunner`:
+  it pulls in `@osn/db` and `@shared/email`, whose bundles carry a dynamic
+  `import()` Miniflare refuses with `ERR_MODULE_DYNAMIC_SPEC`.
+- `osn/api/tests/services/background-dispatch.test.ts` — a source guard, since
+  a new detached send at a seventh site would otherwise be invisible at every
+  tier that runs in CI.
 
 ## Source Files
 

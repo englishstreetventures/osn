@@ -12,6 +12,7 @@ import { EmailService } from "@shared/email";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Effect, Schema } from "effect";
 
+import { forkBackground } from "../../lib/background";
 import {
   metricSecurityEventRecorded,
   metricSessionSecurityInvalidation,
@@ -233,7 +234,7 @@ export function createPasskeyManagementModule(
       }
 
       // M-PK1b: fire-and-forget email notification (codes never included).
-      yield* Effect.forkDetach(
+      yield* forkBackground(
         notifyPasskeyDeletedByAccountId(accountId).pipe(
           Effect.timeout("10 seconds"),
           Effect.catch(() => Effect.void),

@@ -31,6 +31,7 @@ import type {
 import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
+import { forkBackground } from "../../lib/background";
 import {
   classifyError,
   metricPasskeyLoginDiscoverable,
@@ -398,7 +399,7 @@ export function createPasskeysModule(
       // Best-effort email notification. Forked daemon — failure
       // logged but never rolls back the enrolment. 10s timeout matches
       // passkey_delete / recovery_code_* paths.
-      yield* Effect.forkDetach(
+      yield* forkBackground(
         notifyPasskeyRegisteredByAccountId(accountId).pipe(
           Effect.timeout("10 seconds"),
           Effect.catch(() => Effect.void),
