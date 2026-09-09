@@ -1,5 +1,12 @@
 # @shared/feature-flags
 
+## 0.2.17
+
+### Patch Changes
+
+- Updated dependencies [5e47301]
+  - @shared/observability@0.16.0
+
 ## 0.2.16
 
 ### Patch Changes
