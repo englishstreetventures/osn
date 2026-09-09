@@ -1,5 +1,11 @@
 # @tools/metrics
 
+## 0.2.3
+
+### Patch Changes
+
+- @osn/ui@1.10.11
+
 ## 0.2.2
 
 ### Patch Changes

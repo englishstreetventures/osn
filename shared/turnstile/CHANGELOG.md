@@ -1,5 +1,12 @@
 # @shared/turnstile
 
+## 0.2.20
+
+### Patch Changes
+
+- Updated dependencies [d287d72]
+  - @shared/observability@0.15.0
+
 ## 0.2.19
 
 ### Patch Changes
