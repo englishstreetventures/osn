@@ -67,6 +67,40 @@ export const RESERVED_HANDLES = new Set([
  * across all their devices, so 50 is conservative.
  */
 export const MAX_SESSIONS_PER_ACCOUNT = 50;
+
+/**
+ * `aud` on an ordinary user access token. Asserted in `verifyAccessToken`, so
+ * an ES256 token signed with the same key but minted for a different audience
+ * — a step-up token, an OIDC access token, a recovery token — cannot
+ * authenticate access-token routes.
+ */
+export const ACCESS_TOKEN_AUDIENCE = "osn-access";
+
+/**
+ * `aud` on the access token of a **restricted recovery session**.
+ *
+ * A distinct audience rather than a claim on an `osn-access` token, because
+ * there is no single guard to add a claim check to: four entry points in this
+ * service verify access tokens, and three services outside this repo verify the
+ * same token over JWKS with no access to our database. Every one of them
+ * already pins `osn-access`, so all seven reject this audience with no change
+ * to any of them — fail-closed by construction, and not dependent on three
+ * other services deploying anything.
+ *
+ * `resolvePasskeyEnrollPrincipal` is the only resolver that accepts it.
+ */
+export const RECOVERY_TOKEN_AUDIENCE = "osn-recovery";
+
+/**
+ * Absolute lifetime of a restricted recovery session, in seconds. It does not
+ * slide: the row is inserted with `expiresAt === restrictedUntil` and rotation
+ * copies that deadline forward rather than extending it.
+ *
+ * A credential that can do exactly one thing must not outlive the window in
+ * which that thing is plausible, and a 30-day session that can do nothing would
+ * still consume a slot against {@link MAX_SESSIONS_PER_ACCOUNT}.
+ */
+export const RECOVERY_SESSION_TTL_SEC = 900; // 15 min
 /**
  * Rotation-reuse grace window (refresh-token concurrency tolerance).
  *
@@ -169,7 +203,11 @@ export const OIDC_MAX_AGE_CEILING_SEC = 315_360_000;
  * write time using {@link isReservedOidcClientId}.
  */
 export const RESERVED_OIDC_CLIENT_IDS: ReadonlySet<string> = new Set([
-  "osn-access",
+  // Referenced, not re-spelt: a literal here could drift from the audience the
+  // signer actually mints, and the deny-list would then guard a name nothing
+  // uses while the real audience stayed claimable.
+  ACCESS_TOKEN_AUDIENCE,
+  RECOVERY_TOKEN_AUDIENCE,
   "osn-step-up",
   "osn-api",
   "pulse-api",

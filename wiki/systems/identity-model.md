@@ -127,6 +127,21 @@ Organisations are independent entities that are **composed of profiles, not acco
 | Enrollment | Account | ES256 JWT (`sub` = accountId) | 5 min | Passkey registration after signup |
 | Recovery code | Account | 16 hex chars `xxxx-xxxx-xxxx-xxxx` (64-bit entropy) | No expiry, single-use | Lost-device account recovery (Copenhagen Book M2) — see [[recovery-codes]] |
 
+### JWT audiences
+
+`aud` is what separates the token kinds, and every verifier pins exactly one. A token is not "an OSN token" — it is a token for one audience, and presenting it anywhere else fails closed.
+
+| `aud` | Minted by | Accepted by |
+|---|---|---|
+| `osn-access` | login, `/token` refresh, `/profiles/switch` | every authenticated route here, plus `pulse/api`, `zap/api` and `cire/api` through `@shared/osn-auth-client` |
+| `osn-recovery` | a restricted recovery session | `resolvePasskeyEnrollPrincipal` **only** — i.e. `/passkey/register/begin` and `/complete`, and nothing else anywhere |
+| `osn-step-up` | `/step-up/*/complete` | the step-up verifiers, purpose-bound — see [[step-up]] |
+| a relying party's `client_id` | the OIDC token endpoint (`typ: at+jwt`) | that relying party. Never a first-party route |
+
+`osn-recovery` is the audience of the **restricted recovery session**: it can enrol a passkey and do nothing else. The restriction lives in the audience rather than in a column precisely because three of the verifiers above are services with no access to OSN's database, and all of them already pin `osn-access` — so they reject it with no change to any of them. The mechanism, its 15-minute absolute expiry and how rotation carries it are in [[sessions#The restricted recovery session]].
+
+Every one of these values is on the reserved OIDC client-id deny-list (`RESERVED_OIDC_CLIENT_IDS`), so no relying party can register under a name whose tokens would collide with an internal verifier's pin.
+
 Access tokens live in `localStorage` and are the only auth secret there after C3. A 5-minute TTL caps the XSS blast radius — the companion change is client `authFetch` silent-refresh on 401 via the HttpOnly refresh cookie. Third-party OAuth clients receive `expires_in: 300` in the `/token` response.
 
 **Issuer pinning (O1).** Access and step-up JWTs are signed with `iss = AuthConfig.issuerUrl` and every verify pins `issuer` with a **30s `clockTolerance`** (`signJwt` / `verifyJwt` in `osn/api/src/services/auth/helpers.ts`). A token minted by a different OSN deployment is rejected. The downstream `@shared/osn-auth-client` verifier carries the same contract (W7) — rollout is **verifier-first**: the tolerant verifier must deploy before the signer enforces `iss`, or every legacy iss-less token would be rejected the instant the signer rolls out.
@@ -147,6 +162,8 @@ Session tokens (formerly "refresh tokens") are **opaque** — not JWTs. The serv
 | `account_id` | `text FK → accounts.id` | The owning account |
 | `expires_at` | `integer` | Unix seconds |
 | `created_at` | `integer` | Unix seconds |
+| `restricted_until` | `integer` nullable | Non-null only on a restricted recovery session, where it equals `expires_at`. Drives **rotation**, not request-time authorisation — see [[sessions#The restricted recovery session]] |
+| `restricted_amr` | `text` nullable | The RFC 8176 factor that minted a restricted recovery session (`otp` / `totp` / `webauthn`). What the passkey-enrolment bypass is checked against, so the step-up it skips is priced at the ceremony actually performed. NULL on every ordinary session |
 
 Two profile management endpoints:
 - `POST /profiles/switch` — present the session token + target `profileId` in the request body; receive a new access token for that profile. Per-account rate limited (20 switches/hr).

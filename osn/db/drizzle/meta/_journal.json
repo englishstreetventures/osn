@@ -57,6 +57,20 @@
       "when": 1788919915049,
       "tag": "0007_tough_frog_thor",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788932380056,
+      "tag": "0008_careless_the_enforcers",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1788934467971,
+      "tag": "0009_recovery_factor_amr",
+      "breakpoints": true
     }
   ]
 }

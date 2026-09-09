@@ -16,6 +16,32 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
     cookieConfig,
     resolvePasskeyEnrollPrincipal,
   } = ctx;
+
+  /**
+   * Names the caller's own live session: the HttpOnly cookie when it names one,
+   * otherwise the access token's `osn_sid` binding. Both inputs are
+   * server-derived — neither is ever read from the request body (S-H1) — and
+   * both routes below need the same answer, `/begin` to decide whether the
+   * recovery bypass is on the table and `/complete` to spare the caller from
+   * the H1 sweep.
+   */
+  const classifyCaller = (
+    principal: {
+      readonly accountId: string;
+      readonly profileId: string;
+      readonly sessionBinding: string | null;
+    },
+    cookieHeader: string | undefined,
+  ) => {
+    const cookieToken = readSessionCookie(cookieHeader, cookieConfig);
+    return run(
+      auth.classifyCallerSession(principal.accountId, principal.profileId, {
+        cookieSessionHash: cookieToken ? auth.hashSessionToken(cookieToken) : null,
+        sessionBinding: principal.sessionBinding,
+      }),
+    );
+  };
+
   return (
     new Elysia()
       // -------------------------------------------------------------------------
@@ -28,6 +54,15 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
       // authenticator. First-passkey enrollment (bootstrap) bypasses the
       // gate because no step-up ceremony is reachable before the account
       // has any credentials.
+      //
+      // These two routes also accept a restricted recovery session's token
+      // (`aud: "osn-recovery"`), which no other route in this service does,
+      // and such a caller can pass the step-up gate as well — losing the
+      // device does not delete its passkey row, so the gate would otherwise
+      // block the common recovery case. See `resolvePasskeyEnrollPrincipal`.
+      // The audience only makes the bypass reachable; whether it is granted
+      // turns on the factor the session row records — see
+      // `recoverySessionAdmitsEnrolment` in the service.
       // -------------------------------------------------------------------------
       .post(
         "/passkey/register/begin",
@@ -50,8 +85,21 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
             }
             const headerToken = headers["x-step-up-token"];
             const stepUpToken = body.step_up_token ?? headerToken;
+            // A recovery-audience caller may enrol past the step-up gate, and
+            // the service grants that on the factor the session row records —
+            // so name the caller's own session here, the same way `/complete`
+            // does. When it cannot be named the bypass is simply unavailable
+            // and the ordinary gate applies; nothing here has to fail loudly.
+            const caller = principal.restricted
+              ? await classifyCaller(principal, headers.cookie)
+              : null;
+            const recoverySessionHash = caller?._tag === "resolved" ? caller.sessionHash : null;
             const result = await run(
-              auth.beginPasskeyRegistration(principal.accountId, stepUpToken),
+              auth.beginPasskeyRegistration(
+                principal.accountId,
+                stepUpToken,
+                recoverySessionHash === null ? undefined : { recoverySessionHash },
+              ),
             );
             return result.options;
           } catch (e) {
@@ -114,13 +162,7 @@ export function createPasskeyEnrollRoutes(ctx: AuthRouteContext) {
             // binding. Without that fallback a cookieless — but fully
             // authenticated — enrolment took the O4 branch and logged the
             // account out of every device.
-            const cookieToken = readSessionCookie(headers.cookie, cookieConfig);
-            const caller = await run(
-              auth.classifyCallerSession(principal.accountId, principal.profileId, {
-                cookieSessionHash: cookieToken ? auth.hashSessionToken(cookieToken) : null,
-                sessionBinding: principal.sessionBinding,
-              }),
-            );
+            const caller = await classifyCaller(principal, headers.cookie);
             // S-M2: a presented-but-stale binding (session rotated out or
             // LRU-evicted) must NOT degrade to the account-wide wipe. Fail
             // closed and ask the caller to re-authenticate so the enrolment's

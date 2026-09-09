@@ -17,7 +17,7 @@ import {
 import type { TurnstileVerifier } from "@shared/turnstile";
 import { Layer } from "effect";
 
-import { resolveAccessTokenPrincipal } from "../../lib/auth-derive";
+import { resolveAccessTokenPrincipal, resolveRecoveryTokenPrincipal } from "../../lib/auth-derive";
 import type { CookieSessionConfig } from "../../lib/cookie-session";
 import { publicError } from "../../lib/public-error";
 import { makeAppRunner, type AppRuntime } from "../../lib/route-runtime";
@@ -232,17 +232,37 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
         profileId: string;
         /** `osn_sid` — lets a cookieless caller still name its own session. */
         sessionBinding: string | null;
+        /**
+         * True when the caller presented a restricted recovery session's token
+         * (`aud: "osn-recovery"`) rather than an ordinary access token. The
+         * enrolment route passes it through to `beginPasskeyRegistration`,
+         * which uses it to skip the step-up gate — the only privilege the
+         * recovery audience buys anywhere.
+         */
+        restricted: boolean;
       };
+  /**
+   * These two routes are the ONLY place the `osn-recovery` audience is accepted
+   * anywhere in this service.
+   *
+   * The ordinary audience is tried first, and the order is load-bearing: an
+   * everyday enrolment must never come back marked `restricted`, or it would
+   * skip its own step-up gate. Two verifications on the recovery path is the
+   * price, and that path runs once per account recovery.
+   */
   async function resolvePasskeyEnrollPrincipal(authHeader: string | undefined): Promise<Principal> {
     const claims = await resolveAccessTokenPrincipal(auth, authHeader);
-    if (!claims) return { unauthorized: true };
-    const profile = await run(auth.findProfileById(claims.profileId));
+    const recoveryClaims = claims ? null : await resolveRecoveryTokenPrincipal(auth, authHeader);
+    const resolved = claims ?? recoveryClaims;
+    if (!resolved) return { unauthorized: true };
+    const profile = await run(auth.findProfileById(resolved.profileId));
     if (!profile) return { unauthorized: true };
     return {
       unauthorized: false,
       accountId: profile.accountId,
-      profileId: claims.profileId,
-      sessionBinding: claims.sessionBinding,
+      profileId: resolved.profileId,
+      sessionBinding: resolved.sessionBinding,
+      restricted: claims === null,
     };
   }
 

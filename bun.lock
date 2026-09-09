@@ -260,6 +260,7 @@
         "@cloudflare/workers-types": "^5.20260903.1",
         "@effect/vitest": "4.0.0-rc.112",
         "@shared/dev-urls": "workspace:*",
+        "@shared/osn-auth-client": "workspace:*",
         "@shared/typescript-config": "workspace:*",
         "miniflare": "^4.20260730.0",
         "vitest": "^4.1.11",

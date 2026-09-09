@@ -13,12 +13,14 @@
 
 import { createHash } from "node:crypto";
 
+import type { Db } from "@osn/db/service";
 import { makeLogEmailLive } from "@shared/email";
-import { Layer } from "effect";
+import { Effect, Layer } from "effect";
 import { describe, it, expect, beforeAll } from "vitest";
 
 import { createDefaultAuthRateLimiters } from "../../src/routes/auth/limiters";
 import { renderAuthorizeErrorPage } from "../../src/routes/auth/oidc";
+import { createAuthService } from "../../src/services/auth";
 import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayerWithSqlite } from "../helpers/db";
 // Wrapped factory (trust XFF under app.handle). See helpers/routes.
@@ -45,6 +47,12 @@ interface Harness {
   seedClient: (overrides?: Partial<SeedClient>) => void;
   /** Raw DB handle — used to age sessions for auth_time / max_age tests. */
   sqlite: ReturnType<typeof createTestLayerWithSqlite>["sqlite"];
+  /**
+   * The harness's own layer, for tests that need to drive the auth service
+   * directly rather than through a route — minting a restricted recovery
+   * session, which no route does.
+   */
+  layer: ReturnType<typeof createTestLayerWithSqlite>["layer"];
 }
 
 interface SeedClient {
@@ -63,6 +71,7 @@ function setup(): Harness {
   return {
     app,
     sqlite,
+    layer,
     code: () => {
       const all = rec.recorded();
       for (let i = all.length - 1; i >= 0; i--) {
@@ -1135,19 +1144,22 @@ describe("token typing (S-M2)", () => {
     expect(header(id_token).typ).toBeUndefined();
   });
 
-  it("treats a client registered under a reserved audience as unknown", async () => {
-    const h = setup();
-    h.seedClient({ clientId: "osn-access" });
+  it.each(["osn-access", "osn-recovery"])(
+    "treats a client registered under the reserved audience %s as unknown",
+    async (clientId) => {
+      const h = setup();
+      h.seedClient({ clientId });
 
-    const res = await h.app.handle(
-      new Request(authorizeUrl({ ...goodParams, client_id: "osn-access" })),
-    );
+      const res = await h.app.handle(
+        new Request(authorizeUrl({ ...goodParams, client_id: clientId })),
+      );
 
-    expect(res.status).toBe(401);
-    expect(res.headers.get("location")).toBeNull();
-    expect(res.headers.get("content-type")).toContain("text/html");
-    expect(await res.text()).toContain("invalid_client");
-  });
+      expect(res.status).toBe(401);
+      expect(res.headers.get("location")).toBeNull();
+      expect(res.headers.get("content-type")).toContain("text/html");
+      expect(await res.text()).toContain("invalid_client");
+    },
+  );
 });
 
 describe("connections (S-M3)", () => {
@@ -1563,5 +1575,89 @@ describe("security-review fixes (prep-pr round)", () => {
     expect(fake.status).toBe(400);
     // Byte-identical bodies: a real-but-unbound id must not be distinguishable.
     expect(await real.json()).toEqual(await fake.json());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A restricted recovery session must not be a signed-in session here.
+//
+// `/authorize` resolves the visitor from the HttpOnly session cookie, not from
+// an access token — so the `osn-recovery` audience, which every access-token
+// verifier rejects, does not reach this decision at all. A restricted session
+// sets that cookie (it has to: the passkey-enrolment sweep resolves the caller
+// from it), and without the guard in `verifyRefreshToken` this endpoint would
+// hand the holder an authorization code and sign them into every relying
+// party — full access at pulse, cire and zap from a session that has none here.
+// ---------------------------------------------------------------------------
+describe("GET /authorize with a restricted recovery session", () => {
+  it("treats the recovery cookie exactly like no cookie at all", async () => {
+    const h = setup();
+    h.seedClient();
+    const ordinaryCookie = await signIn(h, "rs-oidc@example.com", "rs_oidc_user");
+
+    const auth = createAuthService(config);
+    const run = <A>(eff: Effect.Effect<A, unknown, Db>): Promise<A> =>
+      Effect.runPromise(eff.pipe(Effect.provide(h.layer)) as Effect.Effect<A, never, never>);
+    const profile = await run(auth.findProfileByEmail("rs-oidc@example.com"));
+    const restricted = await run(
+      auth.issueRecoverySession(
+        profile!.id,
+        profile!.accountId,
+        profile!.email,
+        profile!.handle,
+        profile!.displayName,
+        "otp",
+      ),
+    );
+    const recoveryCookie = `osn_session=${restricted.refreshToken}`;
+
+    const withRecovery = await h.app.handle(
+      new Request(authorizeUrl(goodParams), { headers: { cookie: recoveryCookie } }),
+    );
+    const withNothing = await h.app.handle(new Request(authorizeUrl(goodParams)));
+    const withOrdinary = await h.app.handle(
+      new Request(authorizeUrl(goodParams), { headers: { cookie: ordinaryCookie } }),
+    );
+
+    // Signed out: off to the interaction UI to log in.
+    expect(new URL(withRecovery.headers.get("location")!).searchParams.get("reason")).toBe("login");
+    expect(new URL(withNothing.headers.get("location")!).searchParams.get("reason")).toBe("login");
+    // The control. The same account's ORDINARY cookie is recognised and gets as
+    // far as consent — so `reason=login` above is the restriction talking, not
+    // a broken cookie or an unseeded client.
+    expect(new URL(withOrdinary.headers.get("location")!).searchParams.get("reason")).toBe(
+      "consent",
+    );
+  });
+
+  it("prompt=none with a recovery cookie answers login_required, never a code", async () => {
+    const h = setup();
+    h.seedClient();
+    await signIn(h, "rs-oidc2@example.com", "rs_oidc_user2");
+
+    const auth = createAuthService(config);
+    const run = <A>(eff: Effect.Effect<A, unknown, Db>): Promise<A> =>
+      Effect.runPromise(eff.pipe(Effect.provide(h.layer)) as Effect.Effect<A, never, never>);
+    const profile = await run(auth.findProfileByEmail("rs-oidc2@example.com"));
+    const restricted = await run(
+      auth.issueRecoverySession(
+        profile!.id,
+        profile!.accountId,
+        profile!.email,
+        profile!.handle,
+        profile!.displayName,
+        "otp",
+      ),
+    );
+
+    const res = await h.app.handle(
+      new Request(authorizeUrl({ ...goodParams, prompt: "none" }), {
+        headers: { cookie: `osn_session=${restricted.refreshToken}` },
+      }),
+    );
+
+    const loc = new URL(res.headers.get("location")!);
+    expect(loc.searchParams.get("error")).toBe("login_required");
+    expect(loc.searchParams.get("code")).toBeNull();
   });
 });

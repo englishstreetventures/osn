@@ -108,9 +108,13 @@ export function createAuthService(config: AuthConfig) {
     completeRegistration: registration.completeRegistration,
     checkHandle: registration.checkHandle,
     issueTokens: tokens.issueTokens,
+    // The restricted-session primitive. No route mints one yet — the recovery
+    // endpoints that will are a separate change; tests are its reader here.
+    issueRecoverySession: tokens.issueRecoverySession,
     refreshTokens: tokens.refreshTokens,
     verifyRefreshToken: tokens.verifyRefreshToken,
     verifyAccessToken: tokens.verifyAccessToken,
+    verifyRecoveryAccessToken: tokens.verifyRecoveryAccessToken,
     switchProfile: profileSwitch.switchProfile,
     listAccountProfiles: profileSwitch.listAccountProfiles,
     beginPasskeyRegistration: passkeys.beginPasskeyRegistration,

@@ -18,6 +18,15 @@ export interface TokenSet {
 }
 
 /**
+ * The RFC 8176 `amr` value of a factor that can precede a restricted recovery
+ * session. `issueRecoverySession` takes one and refuses anything
+ * `passkeyRegisterAllowedAmr` does not admit, because that session enrols a
+ * passkey past the step-up gate: the bypass is only as strong as the ceremony
+ * behind it, and the ceremony is named here rather than assumed.
+ */
+export type RecoveryFactorAmr = "webauthn" | "otp" | "totp";
+
+/**
  * Per-session metadata captured at issuance. `uaLabel` is a coarse
  * "Firefox on macOS"-style string — never the raw User-Agent. `ip` is
  * the caller's IP; it is immediately hashed via HMAC-peppered SHA-256

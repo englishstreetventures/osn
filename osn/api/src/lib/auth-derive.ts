@@ -27,6 +27,31 @@ export async function resolveAccessTokenPrincipal(
 }
 
 /**
+ * The same, for a **restricted recovery session's** access token
+ * (`aud: "osn-recovery"`). Returns null for an ordinary access token, so this
+ * never widens a caller that meant to accept only `osn-access`.
+ *
+ * One caller: `resolvePasskeyEnrollPrincipal`. Passkey enrolment is the only
+ * thing a restricted session may reach.
+ */
+export async function resolveRecoveryTokenPrincipal(
+  auth: AuthService,
+  authHeader: string | undefined,
+): Promise<{
+  profileId: string;
+  email: string;
+  handle: string;
+  displayName: string | null;
+  sessionBinding: string | null;
+} | null> {
+  if (!authHeader || !/^Bearer\s+/i.test(authHeader)) return null;
+  const token = authHeader.replace(/^Bearer\s+/i, "");
+  const result = await Effect.runPromise(Effect.result(auth.verifyRecoveryAccessToken(token)));
+  if (result._tag === "Success") return result.success;
+  return null;
+}
+
+/**
  * Resolves the accountId from a Bearer access token. Returns null if auth
  * fails. Wraps resolveAccessTokenPrincipal + DB lookup.
  */

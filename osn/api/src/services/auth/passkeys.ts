@@ -28,7 +28,7 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from "@simplewebauthn/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import {
@@ -66,9 +66,9 @@ export function createPasskeysModule(
   stepUp: StepUpModule,
   securityEventsModule: SecurityEventsModule,
 ) {
-  const { config, stores, hashIp } = ctx;
+  const { config, stores, hashIp, passkeyRegisterAllowedAmr } = ctx;
   const { resolveIdentifier, findDefaultProfile } = profiles;
-  const { issueTokens } = tokens;
+  const { issueTokens, liftSessionRestriction } = tokens;
   const { invalidateOtherAccountSessions } = sessions_;
   const { verifyStepUpForPasskeyRegister } = stepUp;
   /** See {@link SecurityEventsModule.notifySecurityEventByAccountId}. */
@@ -79,6 +79,42 @@ export function createPasskeysModule(
       "passkey-added",
     );
 
+  /**
+   * Whether a restricted recovery session may enrol past the step-up gate.
+   *
+   * The bypass rests on the ceremony that minted the session — an email OTP or
+   * a TOTP code at a strength `passkeyRegisterAllowedAmr` admits — so it is
+   * decided by the factor recorded on the session row, never by the token's
+   * audience. Four ways to answer no, all of them fail-closed: the row is not
+   * this account's, is not restricted, records no factor, or records one
+   * outside the allow-list. The deadline is checked too, because
+   * `liveSessionIds` (which is how the route names this session) has no expiry
+   * term of its own.
+   */
+  const recoverySessionAdmitsEnrolment = (
+    accountId: string,
+    sessionHash: string,
+  ): Effect.Effect<boolean, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const rows = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({
+              restrictedUntil: sessions.restrictedUntil,
+              restrictedAmr: sessions.restrictedAmr,
+            })
+            .from(sessions)
+            .where(and(eq(sessions.id, sessionHash), eq(sessions.accountId, accountId)))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+      const row = rows[0];
+      if (!row || row.restrictedUntil === null || row.restrictedAmr === null) return false;
+      if (row.restrictedUntil <= Math.floor(Date.now() / 1000)) return false;
+      return passkeyRegisterAllowedAmr.has(row.restrictedAmr);
+    });
+
   const beginPasskeyRegistration = (
     accountId: string,
     /**
@@ -88,6 +124,28 @@ export function createPasskeysModule(
      * Verified below after the existingPasskeys read.
      */
     stepUpToken?: string,
+    /**
+     * The hashed id of the caller's own **restricted recovery session**, set
+     * only when `resolvePasskeyEnrollPrincipal` accepted the `osn-recovery`
+     * audience and the route could name the session behind it (from the cookie
+     * or the token's `osn_sid`). It can take the caller past the step-up gate
+     * below, deliberately: losing a phone does not delete its passkey row, so
+     * the account almost always still has ≥1 credential and the gate would make
+     * recovery impossible in exactly the case recovery is for.
+     *
+     * A hash is a request, not a grant. `recoverySessionAdmitsEnrolment`
+     * decides, on the factor the session row records — so the bypass is worth
+     * exactly what the ceremony behind the session was worth, and an
+     * unresolvable or inadmissible session simply falls back to needing a
+     * step-up token.
+     *
+     * The alternative — letting a restricted session mint step-up tokens —
+     * would open `/recovery/generate`, `DELETE /account`, `GET /account/export`
+     * and `/account/email/complete` along with it.
+     *
+     * The per-account passkey cap is NOT skipped.
+     */
+    caller?: { readonly recoverySessionHash: string },
   ): Effect.Effect<
     { options: PublicKeyCredentialCreationOptionsJSON },
     AuthError | DatabaseError,
@@ -130,12 +188,19 @@ export function createPasskeysModule(
 
       // Once the account has any passkey, adding another requires a
       // fresh step-up token. A stolen access token alone cannot bind a
-      // new authenticator.
+      // new authenticator. A restricted recovery session whose recorded factor
+      // the register allow-list admits is the one exception — see
+      // `caller.recoverySessionHash` above.
       if (existingPasskeys.length > 0) {
-        if (!stepUpToken) {
-          return yield* Effect.fail(new AuthError({ message: "Step-up required" }));
+        const admitted = caller
+          ? yield* recoverySessionAdmitsEnrolment(accountId, caller.recoverySessionHash)
+          : false;
+        if (!admitted) {
+          if (!stepUpToken) {
+            return yield* Effect.fail(new AuthError({ message: "Step-up required" }));
+          }
+          yield* verifyStepUpForPasskeyRegister(accountId, stepUpToken);
         }
-        yield* verifyStepUpForPasskeyRegister(accountId, stepUpToken);
       }
 
       const options = yield* Effect.tryPromise({
@@ -303,6 +368,14 @@ export function createPasskeysModule(
       // row, and otherwise from the access token's `osn_sid` binding — a
       // cross-origin Bearer call, a cookie-stripping proxy or a native client
       // all land on the second path and must NOT be treated as sessionless.
+      // Enrolling a passkey is the one thing a restricted recovery session can
+      // do, and the user has just done it — so the restriction is lifted here
+      // and the caller's session becomes an ordinary one. A no-op on every
+      // other session, and on the branch below where there is no caller session
+      // to keep. From the next `/token` grant onward the access token carries
+      // the ordinary audience again.
+      yield* liftSessionRestriction(accountId, callerSessionHash);
+
       if (callerSessionHash) {
         yield* invalidateOtherAccountSessions(accountId, callerSessionHash);
       } else {

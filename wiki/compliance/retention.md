@@ -26,7 +26,7 @@ already enforces some of them; the rest need a sweeper job.
 | `pulse_deletion_jobs` (C-H2 Flow B) | Created at soft-delete; removed at `hard_delete_at` (= softDeletedAt + 7d). | Sweeper job (`accountErasure.runHardDeleteSweep` — Pulse) | OK | Pulse |
 | Hosted events with `cancelled_at` set + `cancellation_reason = "host_left"` | 14 days from cancellation, then hard-deleted. | Sweeper (`accountErasure.runEventCancellationSweep`) | OK | Pulse |
 | `passkeys` | While account active; deleted on credential revoke or account delete | App code | OK | Identity |
-| `sessions` | 30 d sliding window; family-revoked on rotation reuse | DB `expires_at` + nightly purge job (planned) | Sliding window OK; purge of expired rows missing | Identity |
+| `sessions` | 30 d sliding window; family-revoked on rotation reuse (a **restricted recovery session** is the exception: 15 minutes absolute, never sliding, until enrolment clears `restricted_until` and it becomes an ordinary row — see [[data-map]]) | DB `expires_at` + nightly purge job (planned) | Sliding window OK; purge of expired rows missing | Identity |
 | `rotated_sessions` (Redis or in-memory) | `refreshTokenTtl` = 30 d; native Redis PX TTL OR FIFO eviction | Per-key TTL (Redis) / FIFO sweep (in-mem) | OK | Identity |
 | `security_events` | 12 months from `created_at` | Sweeper job (planned) | **TODO** — define + write. | Identity |
 | `email_changes` audit | 90 days | Sweeper job (planned) | **TODO** | Identity |

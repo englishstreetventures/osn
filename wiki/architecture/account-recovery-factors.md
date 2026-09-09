@@ -84,16 +84,43 @@ The restriction is a **distinct token audience**, not a flag:
 - `/login/recovery/email/complete` sets the session cookie exactly as
   `/login/recovery/complete` does, or `completePasskeyRegistration`'s
   other-session sweep cannot resolve the caller and returns `session_stale`.
+- **The cookie is also a way out, and it is closed.** Setting that cookie is
+  not free: `GET /authorize` resolves the signed-in user from the session
+  cookie, not from an access token, so the audience — which stops every
+  access-token verifier — does not reach that decision at all. A restricted
+  session would have completed an OIDC authorization and signed the user into
+  pulse, cire and zap: full access at another service, from a session that has
+  none at the issuer, and the same laundering the cross-device rule exists to
+  stop. So `verifyRefreshToken` **rejects a restricted session by default**,
+  and token refresh is the only caller that opts in. Found while building
+  issue 3, closed there; a `/authorize` check alone would not have covered the
+  next consumer of that function. See [[oidc-provider]].
+- The per-account passkey cap is **not** bypassed, and an account already at it
+  cannot recover: enrolment refuses before the step-up gate, and a restricted
+  session cannot mint the step-up a deletion needs. Tracked as
+  `xchromo/osn#970`, to be decided with the provenance work in issue 5, since
+  both turn on when a recovery-enrolled credential may remove an older one.
 
 **The enrolment gate.** `beginPasskeyRegistration` refuses without a
 `passkey_register` step-up whenever the account has ≥1 passkey — which is the
 *common* recovery case, since losing a phone does not delete its passkey row.
 A recovery-audience token therefore **bypasses that step-up**: the email OTP or
 TOTP code that minted the session already was a ceremony, at an AMR strength
-`passkeyRegisterAllowedAmr` accepts today. The alternative — letting a
+`passkeyRegisterAllowedAmr` accepts. The alternative — letting a
 restricted session mint step-up tokens — would let it reach
 `/recovery/generate`, `DELETE /account`, `GET /account/export` and
 `/account/email/complete`, i.e. everything the restriction claims to prevent.
+
+**And that strength is enforced, not assumed.** `issueRecoverySession` takes a
+**required** `amr` — `otp`, `totp` or `webauthn` — refuses at mint time anything
+`passkeyRegisterAllowedAmr` does not admit, and writes the value to
+`sessions.restricted_amr`. The gate reads it back off the caller's own session
+row, so the bypass turns on the recorded factor rather than on the audience
+alone: no route can mint a session whose factor the gate would have refused, an
+operator narrowing the allow-list withdraws the bypass from sessions already
+issued, and a restricted row with no recorded factor admits nothing. Whichever
+route ends a recovery therefore has to name the factor it verified — that
+argument is how the endpoints in §B connect to this gate.
 
 ### C. Recovery is loud — most of which already exists
 
