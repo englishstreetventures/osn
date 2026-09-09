@@ -31,6 +31,54 @@ export function probeAccountId(): string {
   return genId("acc_probe_");
 }
 
+/**
+ * The two halves of a disown token, plus the joined form that goes in the mail.
+ * `lookupId` keys the store; `secret` is what is compared, in constant time,
+ * against the stored hash.
+ */
+export interface DisownToken {
+  readonly lookupId: string;
+  readonly secret: string;
+  readonly token: string;
+}
+
+/**
+ * Mint a "this wasn't me" token for the recovery notice: a public lookup id and
+ * a secret half, joined by a dot.
+ *
+ * Two halves rather than one opaque string because the store needs a key it can
+ * look up and a value it can compare in constant time. Hashing the whole token
+ * and keying on the hash would make the lookup itself the comparison, and a
+ * store's key equality is not constant-time.
+ *
+ * The lookup id carries no information about the account, the recovery or the
+ * secret — nothing in the email predicts either half.
+ */
+export function genDisownToken(secretBytes: number): DisownToken {
+  const lookupId = genId("rdt_");
+  const raw = new Uint8Array(secretBytes);
+  crypto.getRandomValues(raw);
+  const secret = Buffer.from(raw).toString("base64url");
+  return { lookupId, secret, token: `${lookupId}.${secret}` };
+}
+
+/**
+ * Split a presented disown token back into its halves.
+ *
+ * Returns `null` on anything that is not exactly one dot-separated pair with
+ * both halves non-empty. A malformed token must reach the store lookup as a
+ * miss rather than as a crash or a wildcard.
+ */
+export function parseDisownToken(
+  token: string,
+): { readonly lookupId: string; readonly secret: string } | null {
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [lookupId, secret] = parts;
+  if (!lookupId || !secret) return null;
+  return { lookupId, secret };
+}
+
 export function now(): Date {
   return new Date();
 }
@@ -72,6 +120,21 @@ export type StepUpTokenClaims = {
   amr: string[];
   jti: string;
   purpose?: string;
+  /**
+   * The provenance of the passkey that was asserted to mint this token, and
+   * that credential's `created_at` in unix seconds. Present together or not at
+   * all, and only when the ceremony was a passkey assertion.
+   *
+   * `amr: ["webauthn"]` says a WebAuthn ceremony happened; it does not say
+   * whether the credential behind it was the user's own or one registered a
+   * minute ago under an emailed code. These two carry that difference to the
+   * gates that turn on it — passkey delete/rename and email change — which is
+   * why `verifyStepUpToken` refuses a `webauthn` token that omits them rather
+   * than reading the omission as "unrestricted".
+   */
+  pk_id?: string;
+  pk_provenance?: string;
+  pk_created_at?: number;
 };
 
 /**
@@ -133,6 +196,9 @@ export type VerifiedJwtClaims = {
   readonly scope?: unknown;
   readonly displayName?: unknown;
   readonly osn_sid?: unknown;
+  readonly pk_id?: unknown;
+  readonly pk_provenance?: unknown;
+  readonly pk_created_at?: unknown;
 };
 
 export async function signJwt(

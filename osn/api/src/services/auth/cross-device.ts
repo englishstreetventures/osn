@@ -41,6 +41,7 @@ export function createCrossDeviceModule(
       accountId,
       "cross_device_login",
       "cross-device-login",
+      {},
     );
 
   /**

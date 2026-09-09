@@ -33,6 +33,31 @@ export const accounts = sqliteTable("accounts", {
    * but data is preserved.
    */
   processingRestrictedAt: integer("processing_restricted_at"),
+  /**
+   * Unix seconds of the most recent account recovery, written by all three
+   * recovery paths — the recovery code, the emailed code and the authenticator
+   * code. NULL on an account that has never been recovered.
+   *
+   * It opens a 72-hour window in which two things are refused: changing the
+   * email on a step-up whose factor was an emailed OTP, and completing a
+   * SECOND email or TOTP recovery. The first is the point — the reason
+   * `emailChangeAllowedAmr` admits `otp` at all is that an emailed code proves
+   * control of the CURRENT mailbox, and after a recovery that mailbox may be
+   * the attacker's. The second stops a mailbox holder simply running recovery
+   * again once the owner has cleaned up.
+   *
+   * The recovery-CODE path writes this column but is never refused by the
+   * window it opens. A recovery code is a 64-bit secret handed to the user
+   * once; capping that path would shut the owner's only unauthenticated door
+   * for three days, and it is the one door a mailbox holder cannot open.
+   *
+   * Cleared by an accepted `POST /recovery/disown`: "this wasn't me" is a
+   * statement that the recovery was illegitimate, which is by definition a
+   * request to be allowed to recover again. Without that, anyone who reads the
+   * mailbox turns one click into a 72-hour lockout of an owner who has just
+   * legitimately recovered.
+   */
+  lastRecoveredAt: integer("last_recovered_at"),
 });
 
 export type Account = typeof accounts.$inferSelect;
@@ -109,6 +134,37 @@ export const passkeys = sqliteTable(
      * cleaner than over-reading the hot last_used_at column.
      */
     updatedAt: integer("updated_at"),
+    /**
+     * How this credential came to exist — the **effective** strength of the
+     * ceremony chain behind it, not the raw AMR of one step. One of
+     * `webauthn`, `otp`, `totp`, `recovery`; NULL on rows written before this
+     * column existed, which read as `webauthn`.
+     *
+     * `recovery` means no ceremony of the account's own stood behind the
+     * enrolment: the restricted-recovery-session bypass, or a registration
+     * challenge parked by a deploy older than this column.
+     *
+     * It exists because a passkey registered a minute ago mints an
+     * `amr: ["webauthn"]` step-up indistinguishable from one the user has held
+     * for a year. Without this column, any factor `passkeyRegisterAllowedAmr`
+     * admits reaches passkey deletion and email change in two hops: step up
+     * with that factor, register a credential of your own, then assert IT.
+     * `verifyStepUpToken` refuses those two purposes to a credential whose
+     * provenance is weaker than the credential it would act on, inside 72
+     * hours of its own registration.
+     *
+     * **Inheritance is effective.** A credential registered under a `webauthn`
+     * step-up takes the asserting credential's provenance, so the pivot is not
+     * laundered by one more hop — but only while the asserting credential is
+     * still inside its own window. Past it the child is stamped `webauthn`,
+     * because a parent free to perform the deletion itself cannot be made
+     * safer by restricting its children. Raw inheritance would restrict every
+     * device in a lineage for the life of the account.
+     *
+     * @see wiki/systems/step-up.md
+     * @see wiki/architecture/account-recovery-factors.md
+     */
+    provenanceAmr: text("provenance_amr"),
   },
   (t) => [index("passkeys_account_id_idx").on(t.accountId)],
 );

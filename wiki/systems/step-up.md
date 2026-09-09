@@ -7,7 +7,7 @@ related:
   - "[[recovery-codes]]"
   - "[[passkey-primary]]"
   - "[[sessions]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-10
 ---
 
 # Step-up (sudo) tokens
@@ -100,7 +100,10 @@ An amr-only check says *how* the user proved themselves, not *what for*. Without
 | `account_delete` | account deletion |
 | `account_export` | account export |
 | `pulse_app_delete`, `zap_app_delete` | downstream app-data deletion, via `verifyStepUpForExternalPurpose` |
-| `passkey_register`, `passkey_delete`, `email_change`, `security_event_ack` | accepted and stamped, not yet required by their gates |
+| `passkey_register` | `POST /passkey/register/{begin,complete}` past the first credential |
+| `passkey_delete` | `DELETE /passkeys/:id` **and** `PATCH /passkeys/:id` — rename shares the claim |
+| `email_change` | `POST /account/email/complete` |
+| `security_event_ack` | both acknowledge paths |
 | `totp_enroll` | `POST /totp/enroll/begin` |
 | `totp_disable` | `DELETE /totp` |
 
@@ -130,9 +133,99 @@ ES256 JWT signed with the same key as access tokens (reuses `/.well-known/jwks.j
 - **sub** — `accountId` (not profileId). The verifier requires a match against the caller's resolved account.
 - **amr** — RFC 8176 authentication-method-reference array. Verifier intersects with a caller-supplied allow-list. `issueStepUpToken` maps the ceremony factor to it through an exhaustive record (`passkey → webauthn`, `otp → otp`, `totp → totp`, `recovery_code → recovery`); a factor added without an entry is a compile error rather than a token no allow-list admits.
 - **purpose** — optional; present only when the caller named a ceremony. See **Purpose binding** above.
+- **pk_id**, **pk_provenance**, **pk_created_at** — the asserted credential's id, its `passkeys.provenance_amr` and its `created_at` in unix seconds. Present together, and only when the ceremony was a passkey assertion. See **Credential provenance** below.
 - **jti** — single-use replay guard. Backed by a `StepUpJtiStore` interface (see `osn/api/src/services/auth/stores.ts`) with two implementations: an in-memory Map for single-process dev/test, and `createRedisJtiStore` (`osn/api/src/lib/step-up-jti-store.ts`) for multi-pod production. The Redis variant fails closed on outage — a replay guard that is unreachable counts as a ceremony no one completed.
 
 TTL: 5 minutes.
+
+## Credential provenance
+
+`amr: ["webauthn"]` says a WebAuthn ceremony happened. It does not say whether
+the credential behind it was one the user has held for a year or one registered
+a minute ago under an emailed code — and for two gates that difference is the
+whole question, because a caller who can register a credential can assert it.
+
+So `passkeys.provenance_amr` records the **effective** strength of the ceremony
+chain behind each credential, and `completeStepUpPasskey` carries it into the
+token:
+
+| How the row was created | Stamp |
+|---|---|
+| Bootstrap — the account had **zero** passkeys | `webauthn` |
+| `passkey_register` step-up with `amr: ["otp"]` | `otp` |
+| `passkey_register` step-up with `amr: ["totp"]` | `totp` |
+| `passkey_register` step-up with `amr: ["webauthn"]` | the asserting credential's own provenance |
+| The restricted recovery session's enrolment bypass | `recovery` |
+| Rows predating the column | `NULL`, read as `webauthn` |
+
+Two rows carry the design and are worth reading twice.
+
+**Inheritance.** Without it the pivot is three requests instead of two: register
+A under `otp`, assert A to register B — a genuine `webauthn` step-up — and B
+would be stamped `webauthn`. Recording the raw AMR of the registering step-up
+closes nothing.
+
+**Inheritance is effective, not raw.** Once the asserting credential is past its
+own 72-hour window it may perform these deletions itself, so a child it
+authorises cannot be made safer by restricting it. Raw inheritance would
+restrict every device in a lineage for the life of the account — and the common
+reason a user adds a device by OTP is that the first one is hard to reach.
+
+**Bootstrap is `webauthn`.** The account's first passkey follows an email-OTP
+registration, so a literal reading would stamp it `otp` — and through
+inheritance that would restrict every credential the account ever derived from
+it. It is the account's root of trust.
+
+### The two windows
+
+`verifyStepUpToken` takes an optional provenance check from the gate and applies
+it **before** the `jti` is consumed, so a refusal does not spend the caller's
+single-use token, and exactly one outcome reaches
+`osn.auth.step_up.verified{result}`.
+
+Either window refuses; both are 72 hours (`RECOVERY_COOLDOWN_MS`).
+
+| Window | Source of truth | Refuses |
+|---|---|---|
+| Registration provenance | `passkeys.provenance_amr` + that row's `created_at` | a credential stamped `otp`, `totp` or `recovery`, inside its own window, acting on a credential **older than or the same age as** itself, or changing the email |
+| Recovery | `accounts.last_recovered_at` | an `otp`-factor step-up changing the email, and any post-recovery credential removing a pre-recovery one |
+
+Four details that are load-bearing rather than incidental:
+
+- **A `webauthn` token carrying no provenance claims is refused.** Only the
+  signing key can mint one, so it is not an attack path — but a rule that reads
+  a missing claim as "unrestricted" is one forgotten mint site away from being
+  no rule at all.
+- **The registration-provenance comparison is `<=` with an id guard, not `<`.**
+  `passkeys.created_at` is unix **seconds**, so two credentials registered back
+  to back tie and a strict comparison lets the second remove the first. The id
+  guard is what still lets a credential delete itself — so the account can never
+  be trapped into keeping the one a recovery enrolled.
+- **The recovery window's comparison is `<`, and the asymmetry is deliberate.**
+  The two windows ask different questions. Registration provenance asks "is the
+  target at least as old as the credential asking" — a same-second tie means
+  their ages cannot be told apart, so the older must win. The recovery window
+  asks "does the target predate the recovery", and a credential stamped in the
+  recovery's own second does not. Widening it to `<=` buys nothing and costs the
+  owner: a target created in that second is at most a second old when the
+  recovery lands, so registration provenance already refuses every
+  weak-provenance credential against it, and the only asserter `<=` could newly
+  refuse is a post-recovery credential carrying `webauthn` — which by the
+  inheritance rule is one the owner derived from a passkey they still hold, and
+  is exactly the credential that has to be able to remove what the recovery
+  enrolled.
+- **Rename is gated on the same comparison as delete.** It shares the
+  `passkey_delete` purpose claim, and a credential the rule stops from deleting
+  an older one could otherwise relabel it, which is how a user is talked into
+  confirming a delete on the wrong row.
+
+What the rule deliberately does **not** cover: `recovery_generate`,
+`security_event_ack` and `totp_disable` sit outside both windows, so an attacker
+holding the mailbox can still burn the owner's recovery codes, dismiss the
+banner and strip TOTP during the cooldown. Gating `recovery_generate` would stop
+an honest user replacing the codes a recovery just spent, which
+[[musubi-identity-migration]] prescribes as the next step. Tracked privately;
+the actions stay audited and notified.
 
 ## Verification
 
@@ -144,6 +237,7 @@ TTL: 5 minutes.
 - `jti` already consumed
 - No intersection between token `amr` and caller's allow-list
 - Token `purpose` ≠ `expectedPurpose`, when the caller names one (including a token with no `purpose` at all)
+- The credential-provenance rule refuses it (`result="provenance_blocked"`) — checked before the `jti` is consumed, so the token survives the refusal
 
 Each outcome increments `osn.auth.step_up.verified{result}` with a distinct bounded label so the observability dashboard can distinguish "your ops team forgot to wire step-up through Settings" from "an attacker is trying to replay captured tokens".
 
@@ -161,3 +255,24 @@ A stolen access token alone cannot:
 - Swap the account email and pivot to a permanent takeover.
 
 The attacker must additionally compromise either a passkey (hardware-bound) or the user's verified email inbox. Combined with [[sessions]] (`Sign out everywhere else`) this gives the user a narrow, survivable window.
+
+A stolen access token **plus** the mailbox, or plus a cloud-synced authenticator
+seed, used to be enough for both: register a credential of your own and assert
+it. That is what credential provenance closes, and the two limits of the closure
+are worth stating rather than leaving to be discovered.
+
+**A pre-recovery credential is the best evidence of ownership available, and it
+is not always the owner's.** A user who loses an unlocked phone and recovers
+cannot remove that phone's credential for 72 hours, while whoever holds the
+phone can remove the newly enrolled one and change the email at once. The
+asymmetry that protects the owner against a mailbox attacker points the other
+way here. User verification is required at assertion, so the standing assumption
+is that an unlocked device is its owner; there is no signal available that
+separates the two cases.
+
+**The "this wasn't me" lever arrives by email.** `POST /recovery/disown` is
+reached from a token in the recovery notice, which goes to `accounts.email` — in
+the headline threat, the attacker's inbox. It is a real lever for a TOTP
+recovery with the mailbox intact, and for an owner who also reads the mail; it is
+not a defence against someone who owns the inbox. What protects that owner is
+the asymmetry itself.

@@ -379,5 +379,58 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
           detail: { operationId: "completeTotpRecovery" },
         },
       )
+      // -------------------------------------------------------------------------
+      // POST /recovery/disown — the "this wasn't me" lever from the recovery
+      // notice email.
+      //
+      // Unauthenticated by design: the person who needs it has just been signed
+      // out of everything, and the token in the email IS the credential. It
+      // revokes the credentials the disowned recovery enrolled, every session on
+      // the account, and the recovery window itself.
+      //
+      // Answers the same 202 on every branch — good token, wrong token, spent,
+      // expired, or an account that would be left with no passkey at all.
+      // -------------------------------------------------------------------------
+      .post(
+        "/recovery/disown",
+        async ({ body, set, headers, server, request }) => {
+          // The token crosses the wire here. Nothing may cache any part of it —
+          // first statement, so the 429 carries it too.
+          set.headers["cache-control"] = "no-store";
+
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "recovery_disown",
+            rl.recoveryDisown,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const result = await run(auth.disownRecovery(body.token));
+            set.status = 202;
+            return result;
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          body: t.Object({ token: t.String() }),
+          response: {
+            // The SAME body whichever way it ends. A caller holding the token
+            // learns nothing from the answer, and a caller guessing learns
+            // nothing either; the outcome counter is where the difference lives.
+            202: t.Object({ status: t.Literal("accepted") }),
+            400: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "disownRecovery" },
+        },
+      )
   );
 }

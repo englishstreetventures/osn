@@ -98,7 +98,12 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
               set.status = 403;
               return { error: "step_up_required" };
             }
-            await run(auth.verifyStepUpForPasskeyDelete(profile.accountId, stepUpToken));
+            // The target is passed because the cooldown compares it against
+            // the credential that minted the token. Rename is gated on the same
+            // comparison as delete: a credential the rule would stop deleting
+            // an older one can otherwise relabel it, which is how a user is
+            // talked into confirming a delete on the wrong row.
+            await run(auth.verifyStepUpForPasskeyDelete(profile.accountId, stepUpToken, params.id));
             await run(auth.renamePasskey(profile.accountId, params.id, body.label));
             return { success: true };
           } catch (e) {
@@ -157,7 +162,7 @@ export function createPasskeyManagementRoutes(ctx: AuthRouteContext) {
             // passkey-only). The caller necessarily has a passkey by
             // construction (last-passkey guard), so requiring one for
             // deletion is the strongest available signal.
-            await run(auth.verifyStepUpForPasskeyDelete(profile.accountId, stepUpToken));
+            await run(auth.verifyStepUpForPasskeyDelete(profile.accountId, stepUpToken, params.id));
             // Identify the caller's own session so the sweep below spares
             // it. The cookie is the cheap path, but only when it names a live
             // row; otherwise (a cross-origin Bearer call, a proxy that strips

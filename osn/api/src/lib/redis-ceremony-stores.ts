@@ -25,6 +25,8 @@ import type {
   PendingRecoveryOtp,
   PendingRegistration,
   PendingTotpEnrollment,
+  RecoveryDisownToken,
+  RegistrationChallengeEntry,
   StepUpOtpEntry,
 } from "../services/auth";
 import {
@@ -78,7 +80,10 @@ export function createRedisCeremonyStores(
     createRedisCeremonyStore<V>(client, namespace, { observer: observerFor(namespace) });
 
   const ceremonyStores: CeremonyStores = {
-    registrationChallenges: make<ChallengeEntry>("reg_challenge"),
+    // Carries the provenance the credential will be stamped with, decided at
+    // `begin` and written at `complete`. The Redis store round-trips its value
+    // through JSON, so the string survives the hop.
+    registrationChallenges: make<RegistrationChallengeEntry>("reg_challenge"),
     loginChallenges: make<ChallengeEntry>("login_challenge"),
     pendingRegistrations: make<PendingRegistration>("pending_registration"),
     stepUpPasskeyChallenges: make<ChallengeEntry>("step_up_challenge"),
@@ -88,6 +93,7 @@ export function createRedisCeremonyStores(
     pendingEmailChanges: make<PendingEmailChange>("pending_email_change"),
     crossDeviceRequests: make<CrossDeviceRequest>("cross_device"),
     authorizeRequests: make<PendingAuthorizeRequest>("oidc_authorize_request"),
+    recoveryDisownTokens: make<RecoveryDisownToken>("recovery_disown"),
   };
 
   const recoveryLockoutStore = createRedisRecoveryLockoutStore(client, {

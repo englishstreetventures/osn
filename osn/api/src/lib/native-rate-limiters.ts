@@ -84,6 +84,7 @@ export const NATIVE_BINDING_FOR_AUTH_LIMITER = {
   recoveryStatus: { tier: "RL_AUTH_IP_30_60", ns: "recovery_status" },
   recoveryEmailComplete: { tier: "RL_AUTH_IP_10_60", ns: "recovery_email_complete" },
   recoveryTotpComplete: { tier: "RL_AUTH_IP_10_60", ns: "recovery_totp_complete" },
+  recoveryDisown: { tier: "RL_AUTH_IP_10_60", ns: "recovery_disown" },
   sessionList: { tier: "RL_AUTH_IP_30_60", ns: "session_list" },
   sessionRevoke: { tier: "RL_AUTH_IP_10_60", ns: "session_revoke" },
   emailChangeComplete: { tier: "RL_AUTH_IP_10_60", ns: "email_change_complete" },

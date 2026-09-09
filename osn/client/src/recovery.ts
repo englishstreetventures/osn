@@ -110,6 +110,19 @@ export interface RecoveryClient {
    * mailbox. `identifier` may be a handle or an email address.
    */
   totpRecoveryComplete(input: { identifier: string; code: string }): Promise<RecoveryLoginResult>;
+  /**
+   * Undo a recovery from the "this wasn't me" token in the notice email.
+   *
+   * Unauthenticated — the person who needs this has just been signed out of
+   * everything, and the token is the credential. It revokes the credentials the
+   * recovery enrolled, every session on the account, and the recovery window,
+   * so the owner can recover again straight away.
+   *
+   * Resolves on every outcome the server is willing to describe: a good token,
+   * a wrong one, a spent one and an expired one all answer 202. Only a refusal
+   * the server owes a reason for — a malformed body, a rate limit — rejects.
+   */
+  disown(input: { token: string }): Promise<void>;
 }
 
 export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClient {
@@ -214,6 +227,20 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
   const totpRecoveryComplete = (input: { identifier: string; code: string }) =>
     completeFactorLogin("/login/recovery/totp/complete", input);
 
+  const disown = async (input: { token: string }) => {
+    // No `credentials: "include"`: this route sets no cookie and reads none.
+    // Every session on the account is about to be revoked anyway.
+    const res = await fetch(`${base}/recovery/disown`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new RecoveryError(json.error ?? `Request failed: ${res.status}`);
+    }
+  };
+
   return {
     generateRecoveryCodes,
     getRecoveryCodesStatus,
@@ -221,5 +248,6 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
     emailRecoveryBegin,
     emailRecoveryComplete,
     totpRecoveryComplete,
+    disown,
   };
 }

@@ -13,7 +13,7 @@ related:
   - "[[social]]"
   - "[[recovery-codes]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-10
 ---
 
 # Migrating OSN identity to musubi.social
@@ -144,6 +144,40 @@ inventory read `0` on both rows two days earlier.
 3. Enroll a fresh passkey under the new RP ID.
 4. `POST /recovery/generate` again — the consumed set is spent.
 
+> [!important] Do not add a fifth step deleting the old passkey rows
+> Re-checked against the credential-provenance cooldown, which ships with
+> `xchromo/osn#952`. This sequence still works exactly as written, and it is
+> worth being explicit about why, because the cooldown changes what the
+> credential from step 3 is allowed to do.
+>
+> The passkey enrolled at step 3 is registered under an **`otp`** step-up, so
+> `passkeys.provenance_amr` stamps it `otp`. For 72 hours it therefore cannot
+> delete a passkey older than itself, and cannot change the account email.
+> Step 1 also stamps `accounts.last_recovered_at`, which blocks the email change
+> independently for the same window. Neither affects steps 1–4.
+>
+> **The dead pre-cutover rows need no deletion.** An RP-ID flip does not migrate
+> a credential — the private half is bound to the old RP ID inside the
+> authenticator — so those rows are inert: no authenticator can assert them, and
+> `excludeCredentials` is the only place they still have an effect. Leaving them
+> costs nothing.
+>
+> If an operator wants them gone anyway, there are two ways and the second is
+> better:
+>
+> - Wait out the 72 hours from step 3, then delete them with a step-up asserting
+>   the new passkey.
+> - Better, when the flip is still ahead: enrol the replacement **before**
+>   changing `OSN_RP_ID`, while the original passkey can still be asserted. The
+>   registration then runs under a `webauthn` step-up, the new credential
+>   inherits the original's standing, and it can remove the old rows the moment
+>   the flip lands. This also removes the recovery-code round trip entirely.
+>
+> What does **not** work is asserting the step-3 passkey to delete the old rows
+> straight away. It fails with a step-up refusal, not a permissions error, and
+> that is the rule working rather than a bug. See
+> [[step-up#Credential provenance]].
+
 > `OSN_PAIRWISE_SALT` must be set on `osn-api-production` for **any** of this
 > to work. The boot check is fail-closed, so without it every route 503s
 > regardless of which domain it answers on. See `[[production-deploy]]`.
@@ -242,7 +276,9 @@ Out-of-band, not in the repo:
    verifiers (cire-api, zap-api) with them. The apex is attached to the
    `osn-social` Pages project and `musubi.social` is on the Turnstile widget,
    both done the same day.
-8. ⬜ Re-enroll passkeys under the new RP ID; regenerate recovery codes.
+8. ⬜ Re-enroll passkeys under the new RP ID; regenerate recovery codes. The
+   dead pre-cutover rows stay — see the callout under **Credential bridge** for
+   why, and for what to do if they must go.
    Unblocked once the merge deploy publishes the app to the apex and
    `https://id.musubi.social/health` answers 200.
 

@@ -6,7 +6,7 @@
 
 import { accounts, securityEvents } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
-import { EmailService } from "@shared/email";
+import { type EmailTemplateData, EmailService, type SendEmailInput } from "@shared/email";
 import type { SecurityEventKind } from "@shared/observability/metrics";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { Effect } from "effect";
@@ -20,6 +20,20 @@ import type { AuthContext } from "./context";
 import { AuthError, DatabaseError } from "./errors";
 import type { StepUpModule } from "./step-up";
 import type { SecurityEventSummary } from "./types";
+
+/**
+ * The templates {@link SecurityEventsModule.notifySecurityEventByAccountId}
+ * will send. A closed list rather than `EmailTemplate`, so this helper can
+ * never be pointed at an OTP template and mail a code to an account it looked
+ * up itself.
+ */
+export type SecurityNoticeTemplate =
+  | "passkey-added"
+  | "passkey-removed"
+  | "totp-enrolled"
+  | "totp-disabled"
+  | "cross-device-login"
+  | "recovery-used";
 
 export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModule) {
   const { recoveryGenerateAllowedAmr } = ctx;
@@ -195,16 +209,17 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
    * material are never included. Callers fork this as a daemon with a
    * timeout so mailer health never gates the user-visible operation.
    */
-  const notifySecurityEventByAccountId = (
+  const notifySecurityEventByAccountId = <T extends SecurityNoticeTemplate>(
     accountId: string,
     kind: SecurityEventKind,
-    template:
-      | "passkey-added"
-      | "passkey-removed"
-      | "totp-enrolled"
-      | "totp-disabled"
-      | "cross-device-login"
-      | "recovery-used",
+    template: T,
+    /**
+     * The template's own data. Every notice but one is boilerplate and passes
+     * `{}`; `recovery-used` carries the "this wasn't me" URL, which is the
+     * whole reason this parameter exists. Typed against the template so a
+     * caller cannot pass the wrong bag or forget a required one.
+     */
+    data: EmailTemplateData<T>,
   ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
       const { db } = yield* Db;
@@ -219,7 +234,13 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
       }
       const email = yield* EmailService;
       const start = Date.now();
-      yield* email.send({ template, to: recipient, data: {} }).pipe(
+      // `SendEmailInput` is a discriminated union over `template`, and TypeScript
+      // will not narrow it from an unresolved generic — the pair is correct by
+      // the signature above (`data: EmailTemplateData<T>`), which is where the
+      // check that matters happens. Narrowed here so the union is reconstructed
+      // rather than widened away.
+      const input = { template, to: recipient, data } as SendEmailInput;
+      yield* email.send(input).pipe(
         Effect.mapError(() => new AuthError({ message: "notify_dispatch_failed" })),
         Effect.tap(() =>
           Effect.sync(() => {

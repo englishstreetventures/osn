@@ -33,6 +33,12 @@ export type AuthRateLimiters = Readonly<{
   recoveryEmailComplete: RateLimiterBackend;
   /** TOTP account-recovery complete (unauthenticated, verifies a 6-digit code). */
   recoveryTotpComplete: RateLimiterBackend;
+  /**
+   * Recovery disown (unauthenticated, presents a token from the notice email).
+   * The 256-bit secret is the real gate; this is the coarse brake that stops
+   * the endpoint being floodable.
+   */
+  recoveryDisown: RateLimiterBackend;
   /** Step-up passkey begin (authenticated, issues a challenge). */
   stepUpPasskeyBegin: RateLimiterBackend;
   /** Step-up passkey complete (authenticated, consumes assertion). */
@@ -154,6 +160,9 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     // can spread across.
     recoveryEmailComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     recoveryTotpComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    // A person clicks the link in the email once, maybe twice. Anything past
+    // that is a script guessing 256 bits, which this will not be what stops.
+    recoveryDisown: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     // Step-up ceremonies: treat like login completers. A misbehaving
     // browser that keeps retrying a bad OTP shouldn't be able to burn
     // through codes faster than a human.

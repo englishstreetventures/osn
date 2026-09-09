@@ -40,6 +40,8 @@ import type {
   ProfileSwitchAction,
   RecoveryCodeConsumeResult,
   RecoveryCodeStep,
+  RecoveryCooldownOutcome,
+  RecoveryDisownResult,
   RegisterStep,
   Result,
   RotatedStoreAction,
@@ -82,6 +84,8 @@ export const OSN_METRICS = {
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
   authRecoveryLockout: "osn.auth.recovery.lockout",
   authRecoveryEmailBegin: "osn.auth.recovery.email_begin",
+  authRecoveryCooldown: "osn.auth.recovery.cooldown",
+  authRecoveryDisown: "osn.auth.recovery.disown",
   authRecoveryCodesGenerated: "osn.auth.recovery.codes_generated",
   authRecoveryCodeConsumed: "osn.auth.recovery.code_consumed",
   authRecoveryDuration: "osn.auth.recovery.duration",
@@ -689,6 +693,38 @@ const authRecoveryEmailBegin = createCounter<RecoveryEmailBeginAttrs>({
 
 export const metricRecoveryEmailBegin = (result: RecoveryEmailBeginAttrs["result"]): void =>
   authRecoveryEmailBegin.inc({ result });
+
+/**
+ * Every refusal by the post-recovery cooldown.
+ *
+ * Needed for the same reason `authRecoveryEmailBegin` is: the caller gets one
+ * generic message on all three branches, so a dashboard is the only place they
+ * are told apart — and "the provenance rule is firing on real users" and "an
+ * attacker is walking the register-then-assert pivot" look identical from a
+ * status code. Counts only; no account, credential or address.
+ */
+const authRecoveryCooldown = createCounter<{ outcome: RecoveryCooldownOutcome }>({
+  name: OSN_METRICS.authRecoveryCooldown,
+  description: "Actions refused by the post-recovery cooldown, by which rule refused them",
+  unit: "{refusal}",
+});
+
+export const metricRecoveryCooldown = (outcome: RecoveryCooldownOutcome): void =>
+  authRecoveryCooldown.inc({ outcome });
+
+/**
+ * Outcome of `POST /recovery/disown`. Every branch answers 202, so this is the
+ * only signal that separates a real revocation from a guessed token — and
+ * `store_error`, which revokes nothing, from either.
+ */
+const authRecoveryDisown = createCounter<{ result: RecoveryDisownResult }>({
+  name: OSN_METRICS.authRecoveryDisown,
+  description: "Recovery disown attempts by outcome (all answer 202)",
+  unit: "{attempt}",
+});
+
+export const metricRecoveryDisown = (result: RecoveryDisownResult): void =>
+  authRecoveryDisown.inc({ result });
 
 // ---------------------------------------------------------------------------
 // Recovery codes (Copenhagen Book M2)

@@ -71,6 +71,13 @@
       "when": 1788934467971,
       "tag": "0009_recovery_factor_amr",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1788954999881,
+      "tag": "0010_passkey_provenance",
+      "breakpoints": true
     }
   ]
 }

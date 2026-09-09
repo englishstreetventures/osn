@@ -80,17 +80,20 @@ export interface AuthConfig {
    * What this narrows is the **direct** path, and only that. A passkey
    * registered a minute ago mints a `webauthn` AMR exactly like one the user
    * has held for a year, so any factor admitted at
-   * {@link passkeyRegisterAllowedAmr} still reaches passkey deletion in two
-   * hops: step up with that factor, register a credential of your own, then
-   * assert **it** to mint the `webauthn` step-up this list accepts. The
-   * last-passkey guard needs only one survivor, and the new credential is one.
-   * The same pivot reaches `email_change`. Both paths are open to `otp` today
-   * and to `totp` with this branch; closing them means recording the AMR a
-   * passkey was registered under and refusing those two purposes to a
-   * credential enrolled under a weaker one inside a cool-down.
+   * {@link passkeyRegisterAllowedAmr} would otherwise reach passkey deletion in
+   * two hops: step up with that factor, register a credential of your own, then
+   * assert **it** to mint the `webauthn` step-up this list accepts.
    *
+   * That second hop is closed by `passkeys.provenance_amr` rather than by this
+   * list. The verifier refuses a `passkey_delete` or `email_change` step-up
+   * asserted by a credential whose own registration ran under a weaker AMR,
+   * against anything older than itself, for 72 hours — so widening this list
+   * still does not buy a caller the deletion of a credential they did not
+   * already control. The rule and both its windows are in `step-up.ts`
+   * (`provenanceRefusal`).
+   *
+   * @see wiki/systems/step-up.md
    * @see wiki/architecture/account-recovery-factors.md
-   * @see wiki/systems/totp.md
    */
   passkeyDeleteAllowedAmr?: readonly ("webauthn" | "otp" | "totp")[];
   /**
@@ -111,8 +114,9 @@ export interface AuthConfig {
   // control of the CURRENT mailbox, which a TOTP seed does not, and email
   // change is the pivot to permanent takeover — so it is a property of the
   // service rather than a knob. Like `passkeyDeleteAllowedAmr` above, it
-  // narrows the direct path only: the register-then-assert pivot described
-  // there produces a `webauthn` AMR this list also accepts.
+  // narrows the direct path only, and the register-then-assert pivot described
+  // there produces a `webauthn` AMR this list also accepts — which is what the
+  // credential-provenance rule in `step-up.ts` refuses, not this list.
   /**
    * Cluster-wide single-use guard for step-up token jtis (S-H1). Inject a
    * Redis-backed store in multi-pod deployments; otherwise the default

@@ -39,6 +39,7 @@ function fallbackBundle(): AuthRateLimiters {
         "recoveryEmailBegin",
         "recoveryEmailComplete",
         "recoveryTotpComplete",
+        "recoveryDisown",
         "stepUpPasskeyBegin",
         "stepUpPasskeyComplete",
         "stepUpOtpBegin",

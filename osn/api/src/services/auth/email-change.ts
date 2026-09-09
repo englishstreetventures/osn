@@ -24,8 +24,8 @@ import { EmailSchema, genId, genOtpCode, hashSessionToken, logDevOtp } from "./h
 import type { StepUpModule } from "./step-up";
 
 export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) {
-  const { stores, otpTtl, emailChangeBeginCap, emailChangeAllowedAmr } = ctx;
-  const { verifyStepUpToken } = stepUp;
+  const { stores, otpTtl, emailChangeBeginCap } = ctx;
+  const { verifyStepUpForEmailChange } = stepUp;
 
   const EMAIL_CHANGE_LIMIT = 2;
   const EMAIL_CHANGE_WINDOW_SECONDS = 7 * 24 * 60 * 60;
@@ -185,8 +185,11 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
   ): Effect.Effect<{ email: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       // Purpose-bound: a token minted for another ceremony (recovery generate,
-      // passkey delete) cannot be replayed to complete an email swap.
-      yield* verifyStepUpToken(stepUpToken, accountId, emailChangeAllowedAmr, "email_change");
+      // passkey delete) cannot be replayed to complete an email swap. The
+      // verifier also applies the post-recovery cooldown — email change is the
+      // pivot to a permanent, mailbox-independent takeover, so it is the gate
+      // the whole rule exists to hold.
+      yield* verifyStepUpForEmailChange(accountId, stepUpToken);
 
       const pending = yield* Effect.promise(() => stores.pendingEmailChanges.get(accountId));
       if (!pending || Date.now() > pending.expiresAt) {

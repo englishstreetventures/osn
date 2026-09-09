@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-10
 ---
 
 # Data Map
@@ -38,6 +38,7 @@ the compliance checklist.
 | `accounts.email` | Login identifier; OTP destination for step-up + email change | Art. 6(1)(b) — contract | While account active + 30 d soft-delete tombstone | `@osn/api` only; **Resend** for outbound mail (processor; Cloudflare Email Service is a legacy fallback) | [[identity-model]], [[email]] |
 | `accounts.passkeyUserId` | WebAuthn `user.id` opaque to prevent cross-profile correlation | Art. 6(1)(b) | While account active | `@osn/api` only | [[identity-model]] |
 | `accounts.maxProfiles` | Per-account profile cap | Art. 6(1)(b) | While account active | `@osn/api` only | [[identity-model]] |
+| `accounts.last_recovered_at` | Security — timestamp of the most recent account recovery, opening a 72-hour window in which an emailed code cannot change the account email and a second factor-recovery is refused | Art. 6(1)(f) — legitimate interest in preventing account takeover | While account active; cleared by an accepted `POST /recovery/disown` of the recovery that wrote it | `@osn/api` only | [[recovery-codes]], [[step-up]] |
 | `users.handle` | Public identifier | Art. 6(1)(b) | While profile active; tombstoned on delete (30 d) | All services + public web | [[identity-model]] |
 | `users.displayName` | Public name | Art. 6(1)(b) | Same | Same | [[identity-model]] |
 | `users.avatarUrl` | Public avatar | Art. 6(1)(b) | Same | Same | [[identity-model]] |
@@ -46,6 +47,7 @@ the compliance checklist.
 | `passkeys.label` | UX — "iPhone 15 Pro" | Art. 6(1)(b) | Same | `@osn/api` only | [[passkey-primary]] |
 | `passkeys.aaguid`, `backup_eligible`, `backup_state` | UX — show "synced" badge | Art. 6(1)(f) — legit interest in helpful UX | Same | `@osn/api` only | [[passkey-primary]] |
 | `passkeys.last_used_at` | UX — "Last used 2 days ago" | Art. 6(1)(f) | Same | `@osn/api` only | [[passkey-primary]] |
+| `passkeys.provenance_amr` | Security — records which kind of ceremony enrolled this credential (`webauthn`/`otp`/`totp`/`recovery`), so a credential registered under a weaker factor cannot immediately remove an older one or change the account email | Art. 6(1)(f) — legitimate interest in preventing account takeover | Same | `@osn/api` only | [[step-up]], [[passkey-primary]] |
 | `totp_credentials.secret_ciphertext` + `.iv` | The RFC 6238 shared secret, AES-256-GCM encrypted — a second authentication factor. Cannot be hashed: verification needs the raw HMAC key | Art. 6(1)(b) — contract | While the credential exists; deleted on disable, soft delete and account delete | `@osn/api` only. **Never exported and never logged** | [[totp]] |
 | `totp_credentials.label` | UX — "Pixel", so the owner can tell one authenticator from another | Art. 6(1)(b) | Same | `@osn/api` only | [[totp]] |
 | `totp_credentials.last_used_at` | UX — "Last used 2 days ago", same footing as `passkeys.last_used_at` | Art. 6(1)(f) | Same | `@osn/api` only | [[totp]] |

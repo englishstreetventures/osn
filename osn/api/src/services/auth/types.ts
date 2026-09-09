@@ -27,6 +27,36 @@ export interface TokenSet {
 export type RecoveryFactorAmr = "webauthn" | "otp" | "totp";
 
 /**
+ * How a passkey came to exist — the **effective** strength of the ceremony
+ * chain behind it, stored on `passkeys.provenance_amr`.
+ *
+ * `recovery` is not "enrolled during a recovery" but the wider "no ceremony of
+ * the account's own stood behind this": the restricted-recovery-session bypass,
+ * and a registration challenge parked by a deploy older than the column.
+ *
+ * A NULL column reads as `webauthn`. Every such row predates this rule and was
+ * created on a path the narrow AMR allow-lists already governed.
+ */
+export type PasskeyProvenance = "webauthn" | "otp" | "totp" | "recovery";
+
+/**
+ * The provenance of the credential that minted a step-up token, carried on the
+ * token itself so the two gates that care can decide without re-reading the
+ * asserted row.
+ *
+ * Present only when the ceremony was a passkey assertion. A direct `otp` or
+ * `totp` step-up has no asserting credential, and the AMR allow-lists are what
+ * govern those — see `verifyStepUpToken`.
+ */
+export interface AssertingCredential {
+  /** `passkeys.id` — what lets a credential still delete itself. */
+  readonly id: string;
+  readonly provenance: PasskeyProvenance;
+  /** Unix seconds — `passkeys.created_at` of the asserted credential. */
+  readonly createdAt: number;
+}
+
+/**
  * Per-session metadata captured at issuance. `uaLabel` is a coarse
  * "Firefox on macOS"-style string — never the raw User-Agent. `ip` is
  * the caller's IP; it is immediately hashed via HMAC-peppered SHA-256
@@ -88,10 +118,21 @@ export interface PasskeySummary {
 }
 
 /**
- * A profile row enriched with the `email` from the linked `accounts` row.
- * Used throughout the auth service since the profiles table no longer carries email.
+ * A profile row enriched with the fields the auth service needs from the linked
+ * `accounts` row. The profiles table carries neither.
+ *
+ * `lastRecoveredAt` rides along rather than being fetched where it is used, and
+ * that is a security property rather than a convenience: the recovery routes pin
+ * a fixed number of store and database round trips on every branch, so a read
+ * placed inside the resolving branch alone would make "did that identifier name
+ * an account" timeable again. The finders already select the whole `accounts`
+ * row, so carrying it costs nothing at all.
  */
-export type ProfileWithEmail = Profile & { email: string };
+export type ProfileWithEmail = Profile & {
+  email: string;
+  /** Unix seconds of the account's most recent recovery; null if never. */
+  lastRecoveredAt: number | null;
+};
 
 /**
  * The publicly-safe subset of a profile returned alongside a fresh session on

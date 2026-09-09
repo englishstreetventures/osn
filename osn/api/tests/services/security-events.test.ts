@@ -328,6 +328,7 @@ describe("notifySecurityEventByAccountId (defensive branches)", () => {
         "acc_doesnotexist00",
         "passkey_register",
         "passkey-added",
+        {},
       );
       expect(email.recorded()).toHaveLength(0);
     }).pipe(Effect.provide(layer));
@@ -343,6 +344,7 @@ describe("notifySecurityEventByAccountId (defensive branches)", () => {
         dana.accountId,
         "cross_device_login",
         "cross-device-login",
+        {},
       );
       const sent = email
         .recorded()

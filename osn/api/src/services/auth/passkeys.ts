@@ -52,7 +52,13 @@ import type { SecurityEventsModule } from "./security-events";
 import type { SessionsModule } from "./sessions";
 import type { StepUpModule } from "./step-up";
 import type { TokensModule } from "./tokens";
-import type { ProfileWithEmail, PublicProfile, SessionMeta, TokenSet } from "./types";
+import type {
+  PasskeyProvenance,
+  ProfileWithEmail,
+  PublicProfile,
+  SessionMeta,
+  TokenSet,
+} from "./types";
 import { toPublicProfile } from "./types";
 
 // Hoisted — a TextEncoder is stateless, so one module-level instance
@@ -78,6 +84,7 @@ export function createPasskeysModule(
       accountId,
       "passkey_register",
       "passkey-added",
+      {},
     );
 
   /**
@@ -192,15 +199,27 @@ export function createPasskeysModule(
       // new authenticator. A restricted recovery session whose recorded factor
       // the register allow-list admits is the one exception — see
       // `caller.recoverySessionHash` above.
+      // What the credential this ceremony produces will be stamped with.
+      //
+      // A bootstrap enrolment is `webauthn`: it is the account's root of trust,
+      // and there is nothing older for it to be weaker than. Stamping it from
+      // the registration OTP would taint every credential the account ever
+      // derives from it, because provenance is inherited — ordinary rotation
+      // would never become possible.
+      let provenanceAmr: PasskeyProvenance = "webauthn";
       if (existingPasskeys.length > 0) {
         const admitted = caller
           ? yield* recoverySessionAdmitsEnrolment(accountId, caller.recoverySessionHash)
           : false;
-        if (!admitted) {
+        if (admitted) {
+          // The restricted-recovery-session bypass: no step-up ran at all, so
+          // no ceremony of the account's own stands behind this credential.
+          provenanceAmr = "recovery";
+        } else {
           if (!stepUpToken) {
             return yield* Effect.fail(new AuthError({ message: "Step-up required" }));
           }
-          yield* verifyStepUpForPasskeyRegister(accountId, stepUpToken);
+          provenanceAmr = yield* verifyStepUpForPasskeyRegister(accountId, stepUpToken);
         }
       }
 
@@ -238,7 +257,14 @@ export function createPasskeysModule(
       yield* Effect.promise(() =>
         stores.registrationChallenges.set(
           accountId,
-          { challenge: options.challenge, expiresAt: Date.now() + CHALLENGE_TTL_MS },
+          {
+            challenge: options.challenge,
+            expiresAt: Date.now() + CHALLENGE_TTL_MS,
+            // Decided here because this is where the step-up is verified and
+            // where the recovery bypass is granted; written at `complete`,
+            // where the row exists. The entry is how it travels.
+            provenanceAmr,
+          },
           CHALLENGE_TTL_MS,
         ),
       );
@@ -348,6 +374,12 @@ export function createPasskeysModule(
                 : null,
               createdAt: ts,
               label: null,
+              // An entry parked before this column existed carries no
+              // provenance. Stamp the most restrictive value rather than
+              // failing a ceremony the user is halfway through: a credential
+              // that waits 72 hours is a nuisance, one that cannot be
+              // registered at all during a rolling deploy is an outage.
+              provenanceAmr: entry.provenanceAmr ?? "recovery",
               lastUsedAt: null,
               aaguid,
               backupEligible: eligible,

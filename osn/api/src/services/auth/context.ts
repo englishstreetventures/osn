@@ -46,6 +46,11 @@ export function createAuthContext(config: AuthConfig) {
   // not, and email change is the pivot to permanent takeover — so it is not a
   // deployment's choice to widen. Fixed here rather than inline at the verifier
   // so all four sets are read in one place.
+  //
+  // Two things this list cannot express, both handled by the provenance rule in
+  // `step-up.ts`: a passkey registered minutes ago under a weaker factor mints
+  // the `webauthn` it admits, and after an account recovery the `otp` arm's
+  // premise — that the mailbox is the owner's — is the very thing in doubt.
   const emailChangeAllowedAmr = new Set<string>(["webauthn", "otp"]);
   const jtiStore = config.stepUpJtiStore ?? createInMemoryJtiStore();
   const rotatedSessionStore = config.rotatedSessionStore ?? createInMemoryRotatedSessionStore();

@@ -180,6 +180,38 @@ export const RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX = 3;
  */
 export const RECOVERY_OTP_TTL_MS = 10 * 60 * 1000;
 
+/**
+ * The post-recovery cooldown, and the window a weak-provenance passkey waits
+ * before it may act on an older credential. One constant for both because they
+ * are one promise to the user: "whatever just happened without your passkey,
+ * you have three days in which it cannot be made permanent."
+ *
+ * Long enough to cross a weekend or a holiday, which is when a notice email
+ * goes unread; short enough that a genuine owner who has lost a device is not
+ * meaningfully worse off than they already are.
+ *
+ * It is a property of the service, not a deployment's choice — there is no
+ * `AuthConfig` field, for the reason `emailChangeAllowedAmr` has none: a window
+ * a deployment can set to zero is not a guarantee.
+ */
+export const RECOVERY_COOLDOWN_MS = 72 * 60 * 60 * 1000;
+
+/**
+ * How long the "this wasn't me" token in the recovery notice stays usable.
+ * Deliberately the same as {@link RECOVERY_COOLDOWN_MS}: the token exists to
+ * make that window survivable, so a token that expired first would leave the
+ * owner warned and unable to act for the remainder.
+ */
+export const RECOVERY_DISOWN_TTL_MS = RECOVERY_COOLDOWN_MS;
+
+/**
+ * Bytes of randomness in the secret half of a disown token. The public half is
+ * a lookup id; this is what is compared, in constant time, against a stored
+ * SHA-256. 32 bytes puts guessing out of reach of the per-IP limiter in front
+ * of the route rather than relying on it.
+ */
+export const RECOVERY_DISOWN_SECRET_BYTES = 32;
+
 // ---------------------------------------------------------------------------
 // OIDC provider
 // ---------------------------------------------------------------------------

@@ -32,7 +32,9 @@
  * Fail-open vs fail-closed posture is documented per call site in `auth.ts`.
  * The Redis backend itself surfaces errors via the `onError` hook and returns
  * a conservative result (`get` → `null`, `set`/`delete` → swallow) so a Redis
- * blip degrades to "challenge not found / re-begin" rather than a 500.
+ * blip degrades to "challenge not found / re-begin" rather than a 500. The one
+ * exception is `consume`, the single-use claim, which rethrows: there is no
+ * conservative answer to "did I win the claim", so the call site decides.
  */
 
 import type { RedisClient, RedisNamespace } from "@shared/redis";
@@ -57,6 +59,24 @@ export interface CeremonyStore<V> {
   get(key: string): Promise<V | null>;
   /** Remove `key`. Idempotent. */
   delete(key: string): Promise<void>;
+  /**
+   * Claim `key` for single use: remove it and report whether THIS call is the
+   * one that removed a live entry. First consumer wins; every other caller
+   * gets `false`, including one racing on another pod.
+   *
+   * The same guarantee `StepUpJtiStore.consume` gives a step-up jti, for the
+   * same reason: a `get` followed by a `delete` leaves a window in which two
+   * concurrent presentations of one single-use secret both pass the check.
+   *
+   * Two ways it differs from {@link delete}, both deliberate:
+   *
+   * - It answers, so the caller can act on having won rather than assuming it.
+   * - A backend error **propagates** rather than being swallowed. `delete` can
+   *   degrade to a no-op because a stale entry expires on its own; a claim
+   *   whose outcome is unknown cannot be reported as either winner or loser,
+   *   and the caller — not the store — owns that posture.
+   */
+  consume(key: string): Promise<boolean>;
 }
 
 /** Hard ceiling on in-memory entries per store — belt to the TTL-sweep braces. */
@@ -144,6 +164,15 @@ export function createInMemoryCeremonyStore<V>(
       observer.onOp?.("delete", namespace);
       if (entries.delete(key)) observer.onEntryDelta?.(-1, namespace);
     },
+    async consume(key) {
+      observer.onOp?.("delete", namespace);
+      const entry = entries.get(key);
+      if (!entry) return false;
+      entries.delete(key);
+      observer.onEntryDelta?.(-1, namespace);
+      // An entry past its TTL is not a live claim, so removing it wins nothing.
+      return entry.expiresAt > Date.now();
+    },
   };
 }
 
@@ -217,6 +246,20 @@ export function createRedisCeremonyStore<V>(
         if (removed > 0) observer.onEntryDelta?.(-1, namespace);
       } catch (cause) {
         safeError("delete", cause);
+      }
+    },
+    async consume(key) {
+      observer.onOp?.("delete", namespace);
+      // Redis DEL is atomic and returns how many keys it actually removed, so
+      // exactly one of two racing callers can see 1. The error is reported and
+      // then rethrown: unlike `delete`, this answer is load-bearing.
+      try {
+        const removed = await client.del(redisKey(prefix, key));
+        if (removed > 0) observer.onEntryDelta?.(-1, namespace);
+        return removed > 0;
+      } catch (cause) {
+        safeError("delete", cause);
+        throw cause;
       }
     },
   };

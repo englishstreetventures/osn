@@ -59,6 +59,7 @@ export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimite
     }),
     recoveryEmailComplete: rl("auth:recovery_email_complete", 10),
     recoveryTotpComplete: rl("auth:recovery_totp_complete", 10),
+    recoveryDisown: rl("auth:recovery_disown", 10),
     stepUpPasskeyBegin: rl("auth:step_up_passkey_begin", 10),
     stepUpPasskeyComplete: rl("auth:step_up_passkey_complete", 10),
     stepUpOtpBegin: rl("auth:step_up_otp_begin", 5),

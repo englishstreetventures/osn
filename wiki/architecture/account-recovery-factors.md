@@ -158,10 +158,15 @@ So the cooldown is asymmetric:
   this the owner has a warning and no lever.
 
 [[musubi-identity-migration]] step 8 walks an operator through
-recovery-login → OTP step-up → enrol passkey → delete the old passkeys. Under a
-global lock that runbook breaks; under the asymmetric rule it still works,
-because the operator's step-up comes from the pre-recovery credential. The
-runbook is re-checked and updated in the same PR as the cooldown.
+recovery-login → OTP step-up → enrol passkey. Under a global lock that runbook
+breaks. Under the asymmetric rule it works — but **not for the reason written
+here originally**, which claimed the operator's step-up comes from a
+pre-recovery credential. It does not: the RP-ID flip killed every existing
+passkey, so the operator's step-up is an emailed OTP and the credential it
+enrols is stamped `otp`. The sequence survives because it never needed to delete
+anything: an RP-ID flip leaves the old rows inert rather than dangerous. The
+runbook now says so, and says what to do when an operator wants them gone
+anyway. Re-checked against the implemented rule, not the proposed one.
 
 ### The same rule closes the register-then-assert pivot
 
@@ -190,6 +195,65 @@ would remove.
 
 This is scoped into `xchromo/osn#952` alongside the recovery cooldown, because
 they are one column and one comparison.
+
+### What shipped, and where it diverges from the above
+
+Four deviations from a literal reading of this section, each deliberate.
+
+**Provenance is inherited, and effectively.** A passkey registered under a
+`webauthn` step-up takes the asserting credential's provenance rather than a
+fresh `webauthn`; without that the pivot is three requests instead of two.
+Inheritance stops once the parent is past its own window — a parent free to
+perform the deletion itself cannot be made safer by restricting its children,
+and raw inheritance would restrict every device in a lineage for the life of the
+account.
+
+**Bootstrap is `webauthn`.** The account's first passkey follows an email-OTP
+registration, so a literal reading stamps it `otp` — and through inheritance
+that restricts every credential the account ever derives from it.
+
+**"One recovery per 72 hours" excludes the recovery-CODE path.** It stamps the
+window and is never refused by it. A recovery code is a 64-bit secret the user
+was handed once; capping that path would shut the owner's only unauthenticated
+door for three days, and it is the one door a mailbox holder cannot open.
+
+**The window is keyed to the credential, not to the recovery.** A credential
+registered under `otp` shortly *before* somebody else's recovery is still
+restricted for its own 72 hours, where this section implies only post-recovery
+credentials wait. The owner's window ends first, so the race is still winnable.
+
+Two limits are worth naming because neither is obvious from the rule:
+
+- **`recovery_generate`, `security_event_ack` and `totp_disable` sit outside
+  both windows.** An attacker holding the mailbox can still replace the owner's
+  unused recovery codes, dismiss the banner and strip TOTP during the cooldown.
+  Gating recovery generation would stop an honest user replacing the codes a
+  recovery has just spent, which [[musubi-identity-migration]] prescribes as the
+  immediate next step. Tracked privately; all three stay audited and notified.
+- **The disown lever arrives by email**, which in the headline threat is the
+  attacker's inbox. It is real for a TOTP recovery with the mailbox intact and
+  for an owner who also reads the mail. What protects an owner whose inbox is
+  lost is the asymmetry itself.
+
+The two exclusions above interact, and the interaction is bounded rather than
+left standing. A disown token freezes `recovered_at` at mint time and lives 72
+hours; the recovery-**code** path is exempt from the cap and re-stamps
+`accounts.last_recovered_at` on every use. So recover by email at `t1`, again by
+code at `t2`, then present the `t1` token: without a bound it would revoke
+credentials the second recovery legitimately produced and clear a window that
+belongs to it, ending `W2` early for a recovery nobody disowned. Both halves are
+scoped in `revokeDisownedRecovery` — the revocation stops at `t2`, and the clear
+is a compare-and-set on the token's own `recovered_at`. Invalidating the whole
+token instead would have been the wrong trade: the owner who recovers by code
+after someone else's email recovery is exactly the person who then wants to
+disown it. See [[recovery-codes]].
+
+And one case the asymmetric rule does not improve on the global lock: a user who
+loses an **unlocked** phone and recovers cannot remove that phone's credential
+for 72 hours, while whoever holds it can remove the newly enrolled one and
+change the email at once. A pre-recovery credential is the best evidence of
+ownership available, and here it is in the wrong hands. Irreducible without a
+signal we do not have.
 
 ## Shape of the change
 

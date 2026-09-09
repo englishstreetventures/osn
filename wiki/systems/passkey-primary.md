@@ -206,6 +206,16 @@ gate because no step-up ceremony is reachable before the account has any
 credentials. This closes the "stolen access token → silent authenticator
 binding" vector that the enrollmentToken deletion otherwise opened.
 
+Since the credential-provenance work, `/passkey/register/begin` also decides
+what the credential it is about to create will be **stamped** with — the
+effective strength of the ceremony chain behind it — and parks that on the
+registration challenge for `complete` to write. A credential registered under an
+emailed code or an authenticator code cannot delete an older passkey, or change
+the account email, for 72 hours; one registered by asserting a passkey the user
+already held inherits that credential's standing and is refused nothing. This is
+what closes the register-then-assert pivot that made `passkeyDeleteAllowedAmr`'s
+narrowness reachable in two hops. See [[step-up#Credential provenance]].
+
 `/passkey/register/complete` additionally:
 - Inserts a `security_events{kind: "passkey_register"}` row in the same
   transaction as the passkey insert — the user sees the new-credential
@@ -245,6 +255,22 @@ to leave 0 passkeys, that state is unreachable in normal operation.
 `POST /login/recovery/email/complete` and `POST /login/recovery/totp/complete`
 mint a **restricted** recovery session instead.
 See [[recovery-codes#The three ways back in]] and [[account-recovery-factors]] §B.
+
+All three stamp `accounts.last_recovered_at`, which opens a 72-hour window in
+which a credential the recovery produced may not remove one that predates it,
+and an emailed OTP may not change the account email. A passkey the user already
+held is refused nothing — the asymmetry is deliberate, because an attacker who
+recovers always moves first and a symmetric lock would hand them the window.
+The notice carries a single-use "this wasn't me" token that revokes what the
+recovery enrolled. See [[recovery-codes#The cooldown, and the one path exempt from it]].
+
+> [!warning] The lost-device case still favours whoever holds the device
+> A user who loses an unlocked phone and recovers cannot delete that phone's
+> credential for 72 hours, while whoever holds the phone can delete the newly
+> enrolled one and change the email at once. A pre-recovery credential is the
+> best evidence of ownership available and here it is in the wrong hands. User
+> verification is required at assertion, so the standing assumption is that an
+> unlocked device is its owner.
 
 ### What the recovery screen does with a restricted session
 

@@ -34,18 +34,21 @@
  *   metric attribute, an error body or the OpenAPI document.
  */
 
-import { securityEvents, sessions } from "@osn/db/schema";
+import { accounts, passkeys, securityEvents, sessions } from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { timingSafeEqualString } from "@shared/crypto/timing-safe";
 import { commitBatch } from "@shared/db-utils";
 import { type EmailError, EmailService } from "@shared/email";
-import { eq } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { Effect } from "effect";
 
 import { forkBackground } from "../../lib/background";
 import { RECOVERY_LOCKOUT_THRESHOLD } from "../../lib/recovery-lockout-store";
 import {
   metricAuthOtpSent,
+  metricRecoveryCooldown,
+  metricRecoveryDisown,
   metricRecoveryEmailBegin,
   metricRecoveryLockout,
   metricSecurityEventRecorded,
@@ -53,16 +56,24 @@ import {
   withAuthLogin,
   withAuthRecovery,
 } from "../../metrics";
-import { MAX_OTP_ATTEMPTS, RECOVERY_OTP_TTL_MS } from "./constants";
+import {
+  MAX_OTP_ATTEMPTS,
+  RECOVERY_COOLDOWN_MS,
+  RECOVERY_DISOWN_SECRET_BYTES,
+  RECOVERY_DISOWN_TTL_MS,
+  RECOVERY_OTP_TTL_MS,
+} from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, DatabaseError } from "./errors";
 import {
+  genDisownToken,
   genId,
   genOtpCode,
   hashSessionToken,
   logDevOtp,
   looksLikeEmail,
   normaliseIdentifier,
+  parseDisownToken,
   probeAccountId,
 } from "./helpers";
 import type { ProfilesModule } from "./profiles";
@@ -99,13 +110,47 @@ export function createRecoveryFactorsModule(
   totp: TotpModule,
   securityEventsModule: SecurityEventsModule,
 ) {
-  const { stores, hashIp, recoveryEmailBeginCap, recoveryOtpLockoutStore } = ctx;
+  const { config, stores, hashIp, recoveryEmailBeginCap, recoveryOtpLockoutStore } = ctx;
   const { resolveIdentifier } = profiles;
   const { issueRecoverySession } = tokens;
   const { checkTotpCode, burnTotpCheckCost } = totp;
 
   const ACCEPTED: RecoveryEmailBeginResult = { status: "accepted" };
   const otpTtlMinutes = RECOVERY_OTP_TTL_MS / 60_000;
+
+  /**
+   * Where the "this wasn't me" link points.
+   *
+   * The origin is DERIVED, not configured: `authorizeUiUrl`'s origin, falling
+   * back to the first configured WebAuthn origin — the same precedence
+   * `buildInteractionRedirect` uses in `oidc.ts`, so the service has one answer
+   * to "where does the frontend live" rather than two that can disagree. A new
+   * `Env` key would have to be set in four wrangler environments and the
+   * dev-urls map before it was correct anywhere, and would be silently wrong
+   * until it was.
+   *
+   * The token rides in the **fragment**. Corporate mail scanners prefetch every
+   * link in a message, and this one is single use — in the query string a
+   * security appliance would spend it before the owner read the mail. A
+   * fragment is never sent to any server, so it also cannot reach a log.
+   *
+   * The page that turns this link into the POST lands with the UI phase of this
+   * epic, xchromo/osn#953.
+   */
+  const disownUrl = (token: string): string => {
+    const configured = config.authorizeUiUrl;
+    const fallback = Array.isArray(config.origin) ? config.origin[0] : config.origin;
+    const base = configured ?? fallback ?? "";
+    let origin = base;
+    try {
+      origin = new URL(base).origin;
+    } catch {
+      // A malformed origin must not fail the recovery that is already
+      // committed. The notice still sends; the link is simply not usable.
+      origin = base;
+    }
+    return `${origin}/recovery/disown#token=${encodeURIComponent(token)}`;
+  };
 
   /**
    * Burn one ceremony-store read without creating anything.
@@ -297,6 +342,32 @@ export function createRecoveryFactorsModule(
       const { db } = yield* Db;
       const nowSec = Math.floor(Date.now() / 1000);
 
+      // One recovery per account per 72 hours, on the two factor paths a
+      // mailbox or a stolen seed re-opens at will. Without it the cooldown is
+      // no cooldown: the holder simply runs recovery again the moment the owner
+      // has cleaned up, and the owner never gets a window in which their
+      // credential is the only one that can act.
+      //
+      // Checked HERE rather than at `begin`, which is the only place both
+      // factor paths meet. Two enforcement points would drift, and TOTP has no
+      // `begin` to check. It costs the caller the code they just proved, which
+      // is the right way round — a refused recovery should not leave a live
+      // code behind — and it costs the branch no store round trips, because by
+      // this point `completeEmailRecovery` has already made all four.
+      //
+      // `lastRecoveredAt` rides in on the profile, so this reads nothing: a
+      // database hop inside the resolving branch alone would separate a real
+      // account from a stranger's guess by latency, which is the oracle the
+      // whole module is written to avoid.
+      const previousRecovery = profile.lastRecoveredAt;
+      if (
+        previousRecovery !== null &&
+        Date.now() - previousRecovery * 1000 < RECOVERY_COOLDOWN_MS
+      ) {
+        metricRecoveryCooldown("second_recovery_refused");
+        return yield* Effect.fail(new AuthError({ message: GENERIC_FAILURE }));
+      }
+
       const securityEventRow: typeof securityEvents.$inferInsert = {
         id: genId("sev_"),
         accountId: profile.accountId,
@@ -312,12 +383,41 @@ export function createRecoveryFactorsModule(
           commitBatch(db, [
             db.delete(sessions).where(eq(sessions.accountId, profile.accountId)),
             db.insert(securityEvents).values(securityEventRow),
+            // Opens both windows: the second-recovery refusal above, and the
+            // email-change gate's reason to stop trusting an emailed OTP.
+            db
+              .update(accounts)
+              .set({ lastRecoveredAt: nowSec })
+              .where(eq(accounts.id, profile.accountId)),
           ]),
         catch: (cause) => new DatabaseError({ cause }),
       });
 
       metricSessionSecurityInvalidation("account_recovered");
       metricSecurityEventRecorded("account_recovered");
+
+      // The "this wasn't me" lever. Parked before the notice is dispatched, so
+      // a token can never reach an inbox before the store can honour it.
+      //
+      // It is worth being plain about the limit: this goes to `accounts.email`,
+      // which in the headline threat — an attacker who holds the mailbox — is
+      // the attacker's inbox. The lever is real for a TOTP recovery with the
+      // mailbox intact, and for an owner who also reads the mail; it is not a
+      // defence against someone who owns the inbox. What protects that owner is
+      // the asymmetry itself: their pre-recovery passkey acts immediately.
+      const disown = genDisownToken(RECOVERY_DISOWN_SECRET_BYTES);
+      yield* Effect.promise(() =>
+        stores.recoveryDisownTokens.set(
+          disown.lookupId,
+          {
+            secretHash: hashSessionToken(disown.secret),
+            accountId: profile.accountId,
+            recoveredAt: nowSec,
+            expiresAt: Date.now() + RECOVERY_DISOWN_TTL_MS,
+          },
+          RECOVERY_DISOWN_TTL_MS,
+        ),
+      );
 
       // The audit row is the primary signal and it is already committed; the
       // email is the confirmation, so user-visible latency must not track
@@ -326,7 +426,9 @@ export function createRecoveryFactorsModule(
       // stays alive for it on workerd.
       yield* forkBackground(
         securityEventsModule
-          .notifySecurityEventByAccountId(profile.accountId, "account_recovered", "recovery-used")
+          .notifySecurityEventByAccountId(profile.accountId, "account_recovered", "recovery-used", {
+            disownUrl: disownUrl(disown.token),
+          })
           .pipe(
             Effect.timeout("10 seconds"),
             Effect.catch(() => Effect.void),
@@ -556,10 +658,280 @@ export function createRecoveryFactorsModule(
       return yield* completeRecoveryFactor(profile, "totp", sessionMeta);
     }).pipe(withAuthRecovery("totp_complete"), withAuthLogin("totp_recovery"));
 
+  /** What `POST /recovery/disown` answers, on every branch. */
+  const DISOWN_ACCEPTED: RecoveryEmailBeginResult = { status: "accepted" };
+
+  /**
+   * `POST /recovery/disown` — the "this wasn't me" lever from the recovery
+   * notice.
+   *
+   * Answers the same 202 whether the token was good, wrong, spent, expired, or
+   * belonged to an account whose only credentials are the ones it would revoke.
+   * The token is a 256-bit secret, so there is nothing to enumerate — but the
+   * uniform answer costs nothing and removes the need to argue about it.
+   *
+   * **Two store round trips on every branch a stranger can reach.** A `get`
+   * and an atomic `consume` when the token is accepted; a `get` and a probe
+   * `get` when it is not. The database work sits behind the secret and is not
+   * reachable by probing, and neither is the third hop that re-parks the token
+   * when the revocation write fails.
+   *
+   * What it does, and why each part is wider or narrower than the obvious:
+   *
+   * - **Revokes the credentials that recovery produced**, filtered on
+   *   provenance as well as time. A bare `created_at >= recoveredAt` would also
+   *   delete a credential the owner enrolled afterwards by asserting a
+   *   pre-recovery passkey — a `webauthn`-provenance row that is exactly the
+   *   thing the owner needs to keep.
+   * - **Never below one passkey.** Guarded inside the statement, so a race
+   *   cannot slip past it. When the revocable credentials are the account's
+   *   only ones the account keeps them and the sessions still go — the
+   *   invariant wins, and the outcome says so.
+   * - **Revokes every session, not just the recovery family.** Every session on
+   *   the account postdates the recovery, because completing one deletes them
+   *   all; and the attacker's ordinary sign-in with their new credential starts
+   *   a DIFFERENT family, which family-scoped revocation would leave alive.
+   * - **Clears `last_recovered_at` — but only the recovery this token names.**
+   *   Otherwise one click on a link in a mailbox turns an honest owner's
+   *   recovery into a 72-hour lockout: their new credential is deleted, their
+   *   sessions are gone, and the second-recovery refusal stops them getting
+   *   back in. "This wasn't me" is by definition a request to be allowed to
+   *   recover again. That argument is about the recovery the token was minted
+   *   for, so a LATER recovery's window is left standing — see
+   *   `revokeDisownedRecovery`.
+   *
+   * **The one branch that does not answer 202** is a database failure after the
+   * token has matched. Reporting "accepted" there would be a lie about the only
+   * lever the account owner has, and the counter that exists to tell a real
+   * revocation from a no-op would say the lever fired. Nothing is enumerable by
+   * then — the writes sit behind a 256-bit secret that has already matched — so
+   * a 5xx costs no privacy, and the token is re-parked so the click can be
+   * repeated.
+   */
+  const disownRecovery = (
+    token: string,
+  ): Effect.Effect<RecoveryEmailBeginResult, DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const parsed = parseDisownToken(token);
+      // A malformed token still pays for both hops, so "that was not even the
+      // right shape" is not measurably cheaper than "that was wrong".
+      const lookupId = parsed?.lookupId ?? genId("rdt_");
+
+      const entry = yield* Effect.tryPromise({
+        try: () => stores.recoveryDisownTokens.get(lookupId),
+        catch: (cause) => cause,
+      }).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("auth.recovery.disown: token store unreadable").pipe(
+            Effect.annotateLogs({ error: String(cause) }),
+            Effect.as(undefined),
+          ),
+        ),
+      );
+
+      const usable =
+        parsed !== null &&
+        entry !== undefined &&
+        entry !== null &&
+        Date.now() <= entry.expiresAt &&
+        timingSafeEqualString(entry.secretHash, hashSessionToken(parsed.secret));
+
+      if (!usable) {
+        yield* burnDisownProbeRead();
+        // An unreadable store and a wrong token are the same to the caller, and
+        // must be: the outage revokes nothing, which is the fail-closed answer,
+        // and only the counter says which happened.
+        metricRecoveryDisown(entry === undefined ? "store_error" : "invalid");
+        return DISOWN_ACCEPTED;
+      }
+
+      // Single use, claimed ATOMICALLY — the guarantee `StepUpJtiStore.consume`
+      // gives a step-up jti, for the same reason. A `get` above followed by a
+      // plain `delete` here lets two concurrent presentations of one token both
+      // pass the check and both revoke; the claim makes the first consumer the
+      // only one. Claimed BEFORE the revocation, so the token cannot be spent
+      // twice even if the writes below fail.
+      const claimed = yield* Effect.tryPromise({
+        try: () => stores.recoveryDisownTokens.consume(lookupId),
+        catch: (cause) => cause,
+      }).pipe(
+        Effect.catch((cause) =>
+          Effect.logWarning("auth.recovery.disown: token claim failed").pipe(
+            Effect.annotateLogs({ error: String(cause) }),
+            Effect.as(null),
+          ),
+        ),
+      );
+      if (claimed !== true) {
+        // `false` is a lost race: another presentation of this token got there
+        // first and is doing the work, so this one is a replay. `null` is a
+        // store outage, which revokes nothing — the same fail-closed posture as
+        // an unreadable store above.
+        metricRecoveryDisown(claimed === false ? "invalid" : "store_error");
+        return DISOWN_ACCEPTED;
+      }
+
+      const outcome = yield* revokeDisownedRecovery(entry.accountId, entry.recoveredAt).pipe(
+        Effect.tapError(() =>
+          Effect.gen(function* () {
+            metricRecoveryDisown("revoke_failed");
+            // Put the token back so the owner's second click works. The writes
+            // are idempotent, so re-parking cannot do harm even where the batch
+            // had in fact landed and only the acknowledgement was lost.
+            yield* Effect.promise(() =>
+              stores.recoveryDisownTokens.set(
+                lookupId,
+                entry,
+                Math.max(0, entry.expiresAt - Date.now()),
+              ),
+            ).pipe(Effect.catch(() => Effect.void));
+          }),
+        ),
+      );
+      metricRecoveryDisown(outcome);
+      return DISOWN_ACCEPTED;
+    }).pipe(withAuthRecovery("disown"));
+
+  /** Burn one disown-store read, so a refusal costs what an acceptance costs. */
+  const burnDisownProbeRead = (): Effect.Effect<void> =>
+    Effect.promise(() => stores.recoveryDisownTokens.get(genId("rdt_"))).pipe(
+      Effect.catch(() => Effect.void),
+      Effect.asVoid,
+    );
+
+  /**
+   * The writes behind an accepted disown. Split out so the branch table above
+   * stays readable and so the last-passkey guard is in one place.
+   *
+   * **Nothing here is swallowed.** Every failure leaves the caller a 5xx and
+   * the `revoke_failed` counter, because the return value is computed from an
+   * in-memory read and would otherwise report a revocation that never
+   * happened — on the one lever the account owner has, with no way to see it
+   * and no way to retry. `completeRecoveryFactor`'s batch fails loudly for the
+   * same reason, and these two writes are the same kind of thing.
+   *
+   * **The token names ONE recovery, and this is scoped to it.** `recoveredAt`
+   * is frozen at mint time and the token lives 72 hours, but the
+   * recovery-CODE path is deliberately exempt from the one-recovery-per-72h
+   * cap and re-stamps `accounts.last_recovered_at` on every use. So a second,
+   * legitimate recovery can land while an earlier token is still live, and an
+   * unscoped run would reach through it: revoking the credentials that second
+   * recovery produced, and clearing a window that has nothing to do with the
+   * recovery being disowned. Both are bounded here — the revocation by an
+   * upper bound at the later recovery, the clear by a compare-and-set on the
+   * value the token was minted against.
+   */
+  const revokeDisownedRecovery = (
+    accountId: string,
+    recoveredAt: number,
+  ): Effect.Effect<"accepted" | "kept_last_passkey", DatabaseError, Db> =>
+    Effect.gen(function* () {
+      const { db } = yield* Db;
+      const nowSec = Math.floor(Date.now() / 1000);
+
+      const accountPasskeys = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({
+              id: passkeys.id,
+              createdAt: passkeys.createdAt,
+              provenanceAmr: passkeys.provenanceAmr,
+            })
+            .from(passkeys)
+            .where(eq(passkeys.accountId, accountId)),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+
+      const [account] = yield* Effect.tryPromise({
+        try: () =>
+          db
+            .select({ lastRecoveredAt: accounts.lastRecoveredAt })
+            .from(accounts)
+            .where(eq(accounts.id, accountId))
+            .limit(1),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+
+      // A recovery later than the one this token names, if there is one. Only
+      // the recovery-code path can produce it inside the window; the two factor
+      // paths are capped. `null` covers "no later recovery" and "already
+      // cleared", which want the same treatment: no upper bound.
+      const current = account?.lastRecoveredAt ?? null;
+      const laterRecovery = current !== null && current > recoveredAt ? current : null;
+
+      // A NULL provenance is a row older than the column, so it is not one this
+      // recovery produced whatever its timestamp says.
+      const revocable = accountPasskeys.filter((row) => {
+        const createdAtSec = Math.floor(row.createdAt.getTime() / 1000);
+        if (createdAtSec < recoveredAt) return false;
+        if (laterRecovery !== null && createdAtSec >= laterRecovery) return false;
+        return (
+          row.provenanceAmr === "recovery" ||
+          row.provenanceAmr === "otp" ||
+          row.provenanceAmr === "totp"
+        );
+      });
+      const keepsOne = accountPasskeys.length > revocable.length;
+
+      const securityEventRow: typeof securityEvents.$inferInsert = {
+        id: genId("sev_"),
+        accountId,
+        kind: "recovery_disowned",
+        createdAt: nowSec,
+        acknowledgedAt: null,
+        ipHash: null,
+        uaLabel: null,
+      };
+
+      const statements: BatchItem<"sqlite">[] = [];
+      if (revocable.length > 0 && keepsOne) {
+        statements.push(
+          db.delete(passkeys).where(
+            and(
+              eq(passkeys.accountId, accountId),
+              inArray(
+                passkeys.id,
+                revocable.map((row) => row.id),
+              ),
+              // Re-assert the survivor count in the same statement. The read
+              // above is not a transaction on D1, so this is what makes the
+              // last-passkey invariant race-safe against a concurrent delete.
+              sql`(select count(*) from ${passkeys} where ${passkeys.accountId} = ${accountId}) > ${revocable.length}`,
+            ),
+          ),
+        );
+      }
+      statements.push(
+        db.delete(sessions).where(eq(sessions.accountId, accountId)),
+        db.insert(securityEvents).values(securityEventRow),
+        db
+          .update(accounts)
+          .set({ lastRecoveredAt: null })
+          // Compare-and-set on the value the token was minted against, so a
+          // recovery that landed AFTER it keeps its own window. Without the
+          // second clause a stale token would end a later recovery's cooldown
+          // early — re-opening the second-recovery cap and the email-change
+          // gate for whoever is holding the mailbox. It is also why this is
+          // safe against a race with a concurrent recovery: the statement
+          // matches nothing once the row has moved on.
+          .where(and(eq(accounts.id, accountId), eq(accounts.lastRecoveredAt, recoveredAt))),
+      );
+
+      yield* Effect.tryPromise({
+        try: () => commitBatch(db, statements),
+        catch: (cause) => new DatabaseError({ cause }),
+      });
+
+      metricSessionSecurityInvalidation("recovery_disowned");
+      metricSecurityEventRecorded("recovery_disowned");
+      return revocable.length > 0 && !keepsOne ? "kept_last_passkey" : "accepted";
+    });
+
   return {
     beginEmailRecovery,
     completeEmailRecovery,
     completeTotpRecovery,
+    disownRecovery,
   };
 }
 

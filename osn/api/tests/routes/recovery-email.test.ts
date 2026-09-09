@@ -862,6 +862,10 @@ function makeCountingApp() {
           hops.pendingRecoveryOtp += 1;
           return pending.delete(key);
         },
+        consume: (key) => {
+          hops.pendingRecoveryOtp += 1;
+          return pending.consume(key);
+        },
       },
     },
     recoveryOtpLockoutStore: countingLockout(() => {

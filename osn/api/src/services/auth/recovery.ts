@@ -389,6 +389,17 @@ export function createRecoveryModule(
           commitBatch(db, [
             db.delete(sessions).where(eq(sessions.accountId, profile.accountId)),
             db.insert(securityEvents).values(securityEventRow),
+            // Stamp the recovery window. This path is never REFUSED by the
+            // window it opens — a recovery code is a 64-bit secret the user was
+            // handed once, and capping it would shut the owner's only
+            // unauthenticated door for three days, which is the one door a
+            // mailbox holder cannot open. But the window still has to start
+            // here, or a recovery-code login would leave the email-change gate
+            // and the passkey-provenance comparison measuring from nothing.
+            db
+              .update(accounts)
+              .set({ lastRecoveredAt: nowSec })
+              .where(eq(accounts.id, profile.accountId)),
           ]),
         catch: (cause) => new DatabaseError({ cause }),
       });

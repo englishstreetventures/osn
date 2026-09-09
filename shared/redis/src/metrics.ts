@@ -45,5 +45,10 @@ export type RedisNamespace =
   // because the two have opposite outage postures — see
   // `osn/api/src/lib/recovery-lockout-store.ts`.
   | "totp_lockout"
+  // The single-use "this wasn't me" token carried by the recovery notice
+  // email, keyed by its public lookup id and holding only the SHA-256 of the
+  // secret half. TTL 72 hours, matching the cooldown it exists to make
+  // survivable. Never in D1 — it is a ceremony, not a credential.
+  | "recovery_disown"
   // OIDC: validated /authorize requests parked while the consent UI runs.
   | "oidc_authorize_request";

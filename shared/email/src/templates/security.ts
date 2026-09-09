@@ -29,18 +29,30 @@ export function renderRecoveryConsumed(): RenderedEmail {
 }
 
 /**
+ * The "this wasn't me" link. Single use, expires in 72 hours, and carries the
+ * token in the URL **fragment** — mail scanners prefetch links, and a token in
+ * the query string would be spent by a security appliance before the recipient
+ * ever read the message. The fragment never leaves the browser.
+ */
+export interface RecoveryUsedData {
+  disownUrl: string;
+}
+
+/**
  * Sent after an email-OTP or TOTP recovery succeeds. The louder of the two
  * recovery notices: every session on the account has just been revoked and
  * somebody who is not holding a passkey is signed in.
  *
  * Carries no code and does not say which factor was used — a recipient who did
  * not do this learns that it happened and what to do, and an attacker reading
- * the mailbox learns nothing about the account's other factors.
+ * the mailbox learns nothing about the account's other factors. The disown link
+ * is the exception it has to make: it is useless to anyone who did not receive
+ * this message, and without it the notice is a warning with nothing behind it.
  */
-export function renderRecoveryUsed(): RenderedEmail {
-  const text = `Somebody recovered access to your OSN account without a passkey, using an emailed code or an authenticator app. Every existing session was signed out, and whoever recovered the account can now add a new passkey to it.\n\nIf that was you, no further action is needed.\n\nIf this wasn't you: sign in now, remove any passkey you do not recognise, and review your active sessions.`;
+export function renderRecoveryUsed({ disownUrl }: RecoveryUsedData): RenderedEmail {
+  const text = `Somebody recovered access to your OSN account without a passkey, using an emailed code or an authenticator app. Every existing session was signed out, and whoever recovered the account can now add a new passkey to it.\n\nIf that was you, no further action is needed.\n\nIf this wasn't you, undo it here — this link works once, and expires in 72 hours:\n${disownUrl}\n\nThat removes the credential the recovery added and signs out every session. Then sign in with a passkey you still hold and review your account.`;
   const html = wrap(
-    `<h2>Your OSN account was recovered</h2><p>Somebody recovered access to your OSN account without a passkey, using an emailed code or an authenticator app. Every existing session was signed out, and whoever recovered the account can now add a new passkey to it.</p><p>If that was you, no further action is needed.</p><p>If this wasn't you: sign in now, remove any passkey you do not recognise, and review your active sessions.</p>`,
+    `<h2>Your OSN account was recovered</h2><p>Somebody recovered access to your OSN account without a passkey, using an emailed code or an authenticator app. Every existing session was signed out, and whoever recovered the account can now add a new passkey to it.</p><p>If that was you, no further action is needed.</p><p>If this wasn't you, undo it now. This link works once and expires in 72 hours:</p><p><a href="${disownUrl}">This wasn't me &mdash; undo this recovery</a></p><p>That removes the credential the recovery added and signs out every session. Then sign in with a passkey you still hold and review your account.</p>`,
   );
   return { subject: "Your OSN account was recovered", text, html };
 }

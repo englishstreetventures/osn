@@ -198,6 +198,61 @@ describe("createRedisCeremonyStore (memory-backed RedisClient)", () => {
   });
 });
 
+/**
+ * The single-use claim. `get`-then-`delete` is not the same guarantee: two
+ * concurrent presentations of one single-use secret can both pass a `get`
+ * before either `delete` lands, and both then do the guarded work. Every store
+ * that guards a one-shot secret goes through `consume` for that reason.
+ */
+describe("CeremonyStore.consume — first consumer wins", () => {
+  it("memory: exactly one of two racing claims wins", async () => {
+    const store = createInMemoryCeremonyStore<Entry>("recovery_disown");
+    await store.set("k", entry("c"), 60_000);
+    const results = await Promise.all([store.consume("k"), store.consume("k")]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await store.get("k")).toBe(null);
+  });
+
+  it("redis: exactly one of two racing claims wins, across store instances", async () => {
+    // Two pods over one client, which is the case the guarantee exists for.
+    const client = createMemoryClient();
+    const podA = createRedisCeremonyStore<Entry>(client, "recovery_disown");
+    const podB = createRedisCeremonyStore<Entry>(client, "recovery_disown");
+    await podA.set("k", entry("c"), 60_000);
+    const results = await Promise.all([podA.consume("k"), podB.consume("k")]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await podA.get("k")).toBe(null);
+  });
+
+  it("an absent key is not a claim", async () => {
+    const store = createInMemoryCeremonyStore<Entry>("recovery_disown");
+    expect(await store.consume("nothing-here")).toBe(false);
+  });
+
+  it("memory: an expired entry is removed but wins nothing", async () => {
+    const store = createInMemoryCeremonyStore<Entry>("recovery_disown");
+    await store.set("k", entry("c"), 1);
+    vi.useFakeTimers();
+    try {
+      vi.advanceTimersByTime(50);
+      expect(await store.consume("k")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("redis: a backend error PROPAGATES, unlike delete", async () => {
+    // The one place the conservative swallow is wrong. "Did I win the claim"
+    // has no safe default, so the call site — not the store — decides.
+    const onError = vi.fn();
+    const store = createRedisCeremonyStore<Entry>(failingClient(), "recovery_disown", {
+      observer: { onError },
+    });
+    await expect(store.consume("k")).rejects.toThrow("redis down");
+    expect(onError).toHaveBeenCalledWith("delete", expect.any(Error));
+  });
+});
+
 const failingClient = (): RedisClient => ({
   eval: async () => {
     throw new Error("redis down");

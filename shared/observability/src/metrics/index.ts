@@ -40,6 +40,8 @@ export {
   type OriginGuardRejectionReason,
   type RecoveryCodeStep,
   type RecoveryCodeConsumeResult,
+  type RecoveryCooldownOutcome,
+  type RecoveryDisownResult,
   type SecurityEventKind,
   type SecurityEventNotifyResult,
   type StepUpFactor,

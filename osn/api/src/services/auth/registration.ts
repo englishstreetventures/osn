@@ -136,6 +136,8 @@ export function createRegistrationModule(
         isDefault: true,
         createdAt: ts,
         updatedAt: ts,
+        // The account was created a statement ago; it has never been recovered.
+        lastRecoveredAt: null,
       };
     });
 

@@ -72,6 +72,7 @@ describe("AuthRateLimitedEndpoint", () => {
       recovery_email_begin: true,
       recovery_email_complete: true,
       recovery_totp_complete: true,
+      recovery_disown: true,
       step_up_passkey_begin: true,
       step_up_passkey_complete: true,
       step_up_otp_begin: true,
@@ -109,7 +110,7 @@ describe("AuthRateLimitedEndpoint", () => {
     } as const satisfies Record<AuthRateLimitedEndpoint, true>;
     // Runtime snapshot — catches a drop that the `satisfies` check would miss
     // (it only complains on missing members, not extras).
-    expect(Object.keys(members)).toHaveLength(52);
+    expect(Object.keys(members)).toHaveLength(53);
     // Negative: primary-login OTP/magic-link endpoints must not reappear.
     expect(Object.keys(members)).not.toContain("otp_begin");
     expect(Object.keys(members)).not.toContain("otp_complete");

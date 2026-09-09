@@ -8,7 +8,7 @@ import type { RedisNamespace } from "@shared/redis";
 
 import { createInMemoryCeremonyStore, type CeremonyStore } from "../../lib/ceremony-store";
 import { metricCeremonyStoreEntryDelta, metricCeremonyStoreOp } from "../../metrics";
-import type { PublicProfile } from "./types";
+import type { PasskeyProvenance, PublicProfile } from "./types";
 
 /**
  * Minimal per-account cap surface — structurally compatible with
@@ -25,7 +25,7 @@ export interface AccountCapLimiter {
  * in a single place, and so tests can override the whole set at once.
  */
 export interface CeremonyStores {
-  registrationChallenges: CeremonyStore<ChallengeEntry>;
+  registrationChallenges: CeremonyStore<RegistrationChallengeEntry>;
   loginChallenges: CeremonyStore<ChallengeEntry>;
   pendingRegistrations: CeremonyStore<PendingRegistration>;
   stepUpPasskeyChallenges: CeremonyStore<ChallengeEntry>;
@@ -35,6 +35,7 @@ export interface CeremonyStores {
   pendingEmailChanges: CeremonyStore<PendingEmailChange>;
   crossDeviceRequests: CeremonyStore<CrossDeviceRequest>;
   authorizeRequests: CeremonyStore<PendingAuthorizeRequest>;
+  recoveryDisownTokens: CeremonyStore<RecoveryDisownToken>;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,6 +44,51 @@ export interface CeremonyStores {
 
 export interface ChallengeEntry {
   challenge: string;
+  expiresAt: number;
+}
+
+/**
+ * A passkey registration challenge, plus what the credential it produces will
+ * be stamped with.
+ *
+ * The provenance is decided at `begin` — that is where the step-up token is
+ * verified and where the recovery-session bypass is granted — and the row is
+ * written at `complete`, so it has to travel. This entry is that journey.
+ *
+ * Keyed by accountId like every other ceremony entry, so a second `begin`
+ * replaces the first: a `complete` can only ever succeed against the challenge
+ * its own `begin` parked, and the provenance parked with it cannot be swapped
+ * by another caller.
+ *
+ * `provenanceAmr` is required, but an entry parked by a deploy older than this
+ * column arrives without it. `completePasskeyRegistration` stamps `recovery` in
+ * that case — the most restrictive value — rather than failing a ceremony the
+ * user is halfway through.
+ */
+export interface RegistrationChallengeEntry extends ChallengeEntry {
+  provenanceAmr: PasskeyProvenance;
+}
+
+/**
+ * The single-use "this wasn't me" token carried by the recovery notice email,
+ * keyed by its public lookup id.
+ *
+ * Only the SHA-256 of the secret half is stored, and it is compared in constant
+ * time — the same shape as {@link CrossDeviceRequest}'s `secretHash`, for the
+ * same reason: the plaintext exists in the user's inbox and nowhere on the
+ * server.
+ *
+ * `recoveredAt` is what makes the revocation precise. It names the instant the
+ * disowned recovery happened, so the route can revoke exactly the credentials
+ * that recovery produced rather than everything, or a fixed guess.
+ */
+export interface RecoveryDisownToken {
+  /** SHA-256 of the secret half; the plaintext never reaches the server twice. */
+  secretHash: string;
+  accountId: string;
+  /** Unix seconds of the recovery this token disowns. */
+  recoveredAt: number;
+  /** Milliseconds. */
   expiresAt: number;
 }
 
@@ -238,7 +284,10 @@ export function createDefaultCeremonyStores(): CeremonyStores {
       metricCeremonyStoreEntryDelta(delta, { namespace, backend: "memory" }),
   };
   return {
-    registrationChallenges: createInMemoryCeremonyStore<ChallengeEntry>("reg_challenge", observer),
+    registrationChallenges: createInMemoryCeremonyStore<RegistrationChallengeEntry>(
+      "reg_challenge",
+      observer,
+    ),
     loginChallenges: createInMemoryCeremonyStore<ChallengeEntry>("login_challenge", observer),
     pendingRegistrations: createInMemoryCeremonyStore<PendingRegistration>(
       "pending_registration",
@@ -264,6 +313,10 @@ export function createDefaultCeremonyStores(): CeremonyStores {
     crossDeviceRequests: createInMemoryCeremonyStore<CrossDeviceRequest>("cross_device", observer),
     authorizeRequests: createInMemoryCeremonyStore<PendingAuthorizeRequest>(
       "oidc_authorize_request",
+      observer,
+    ),
+    recoveryDisownTokens: createInMemoryCeremonyStore<RecoveryDisownToken>(
+      "recovery_disown",
       observer,
     ),
   };

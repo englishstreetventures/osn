@@ -30,7 +30,11 @@ export function createProfilesModule() {
       });
       const row = result[0];
       if (!row) return null;
-      return { ...row.profile, email: row.account.email };
+      return {
+        ...row.profile,
+        email: row.account.email,
+        lastRecoveredAt: row.account.lastRecoveredAt,
+      };
     });
 
   const findProfileByHandle = (
@@ -50,7 +54,11 @@ export function createProfilesModule() {
       });
       const row = result[0];
       if (!row) return null;
-      return { ...row.profile, email: row.account.email };
+      return {
+        ...row.profile,
+        email: row.account.email,
+        lastRecoveredAt: row.account.lastRecoveredAt,
+      };
     });
 
   /**
@@ -77,7 +85,11 @@ export function createProfilesModule() {
       });
       const row = result[0];
       if (!row) return null;
-      return { ...row.profile, email: row.account.email };
+      return {
+        ...row.profile,
+        email: row.account.email,
+        lastRecoveredAt: row.account.lastRecoveredAt,
+      };
     });
 
   /**
@@ -103,7 +115,11 @@ export function createProfilesModule() {
       });
       const row = result[0];
       if (!row) return null;
-      return { ...row.profile, email: row.account.email };
+      return {
+        ...row.profile,
+        email: row.account.email,
+        lastRecoveredAt: row.account.lastRecoveredAt,
+      };
     });
 
   /**
@@ -168,7 +184,11 @@ export function createProfilesModule() {
       });
       const row = result[0];
       if (!row) return null;
-      return { ...row.profile, email: row.account.email };
+      return {
+        ...row.profile,
+        email: row.account.email,
+        lastRecoveredAt: row.account.lastRecoveredAt,
+      };
     });
 
   return {

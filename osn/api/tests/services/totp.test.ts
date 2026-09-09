@@ -542,13 +542,16 @@ describe("which gates a totp-AMR step-up token reaches", () => {
       // What this pins is `passkeyDeleteAllowedAmr` itself: a token carrying
       // `amr: ["totp"]` does not satisfy `verifyStepUpForPasskeyDelete`.
       //
-      // It does NOT establish that a TOTP seed cannot reach passkey deletion,
-      // and must not be read that way. The register-then-assert pivot arrives
-      // at this verifier carrying `amr: ["webauthn"]`, which this list admits,
-      // and nothing here models it. See wiki/systems/totp.md §Threat model.
+      // This is the DIRECT path only. The register-then-assert pivot reaches
+      // the same verifier carrying `amr: ["webauthn"]`, which this list admits,
+      // and is closed by the credential-provenance rule rather than by this
+      // allow-list — see `tests/services/step-up-provenance.test.ts`, which
+      // walks the whole four-request chain.
       const profile = yield* auth.registerProfile("totp-s@example.com", "totps");
       const token = yield* mintTotpToken(profile.accountId, "passkey_delete");
-      const err = yield* Effect.flip(auth.verifyStepUpForPasskeyDelete(profile.accountId, token));
+      const err = yield* Effect.flip(
+        auth.verifyStepUpForPasskeyDelete(profile.accountId, token, "pk_000000000000"),
+      );
       expect(err.message).toBe("Step-up factor not permitted");
     }).pipe(Effect.provide(makeLayer())),
   );

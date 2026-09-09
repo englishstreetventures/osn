@@ -408,7 +408,7 @@ export function createTotpModule(
 
       yield* forkBackground(
         securityEventsModule
-          .notifySecurityEventByAccountId(accountId, "totp_enrolled", "totp-enrolled")
+          .notifySecurityEventByAccountId(accountId, "totp_enrolled", "totp-enrolled", {})
           .pipe(
             Effect.timeout("10 seconds"),
             Effect.catch(() => Effect.void),
@@ -461,7 +461,7 @@ export function createTotpModule(
 
       yield* forkBackground(
         securityEventsModule
-          .notifySecurityEventByAccountId(accountId, "totp_disabled", "totp-disabled")
+          .notifySecurityEventByAccountId(accountId, "totp_disabled", "totp-disabled", {})
           .pipe(
             Effect.timeout("10 seconds"),
             Effect.catch(() => Effect.void),

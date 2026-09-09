@@ -292,11 +292,11 @@ What it cannot do **directly** is delete the victim's existing passkeys or chang
 the account email. Neither `passkeyDeleteAllowedAmr` nor `emailChangeAllowedAmr`
 admits a `totp` AMR.
 
-> [!caution] Both of those are reachable in two hops, and always have been
+> [!warning] Both were reachable in two hops, and the second hop is now closed
 > Those two lists narrow the **direct** path and nothing else. Both admit
 > `webauthn`, and a passkey registered a minute ago mints a `webauthn` AMR
 > exactly like one the user has held for a year — so any factor admitted at
-> `passkeyRegisterAllowedAmr` gets there by registering a credential and
+> `passkeyRegisterAllowedAmr` used to get there by registering a credential and
 > asserting it:
 >
 > 1. `POST /step-up/totp/complete` with `purpose: "passkey_register"` — a token
@@ -309,22 +309,23 @@ admits a `totp` AMR.
 > 4. `DELETE /passkeys/:id` for each real passkey. The last-passkey guard needs
 >    only one survivor, and the attacker's credential is one.
 >
-> Email change falls to the same pivot with `purpose: "email_change"` at step 3.
-> Its second factor is an OTP to the **new** address, and
-> `POST /account/email/begin` is gated on the access token alone — so the
-> current-mailbox proof that list was written for is not what the caller ends up
-> presenting.
+> Email change fell to the same pivot with `purpose: "email_change"` at step 3,
+> and that was the worse end of it: its second factor is an OTP to the **new**
+> address, and `POST /account/email/begin` is gated on the access token alone,
+> so the current-mailbox proof that list was written for is not what the caller
+> ends up presenting. The outcome was a permanent, mailbox-independent takeover.
 >
-> This branch does not create the hole: the identical chain already ran through
-> `otp`, which `passkeyRegisterAllowedAmr` has admitted since that gate was
-> added. Admitting `totp` adds a factor to a path already open.
+> **Step 4 now fails.** `passkeys.provenance_amr` records the effective strength
+> of the ceremony chain behind each credential, and the step-up verifier refuses
+> `passkey_delete` and `email_change` to a credential registered under a weaker
+> AMR, against anything older than itself, for 72 hours. The attacker's
+> credential at step 2 is stamped `totp`, so the token minted at step 3 is
+> refused at step 4 — while a genuine owner, asserting a passkey they already
+> held, is refused nothing. See [[step-up#Credential provenance]].
 >
-> Closing it is credential **provenance**: record the AMR a passkey was
-> registered under, and refuse a `passkey_delete` or `email_change` step-up
-> asserted by a credential enrolled under a non-`webauthn` AMR inside a
-> cool-down. That is issue `xchromo/osn#952`, which already carries
-> `passkeys.enrolledViaRecoveryAt` for the same shape of problem — see
-> [[account-recovery-factors]].
+> The inheritance is what makes it hold rather than move: a passkey registered
+> under a `webauthn` step-up takes the asserting credential's provenance, so the
+> pivot cannot be laundered by inserting one more registration.
 
 The full gate table is in [[step-up]].
 

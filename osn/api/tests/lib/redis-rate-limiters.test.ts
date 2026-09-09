@@ -28,6 +28,7 @@ describe("createRedisAuthRateLimiters", () => {
       "recoveryEmailBegin",
       "recoveryEmailComplete",
       "recoveryTotpComplete",
+      "recoveryDisown",
       "stepUpPasskeyBegin",
       "stepUpPasskeyComplete",
       "stepUpOtpBegin",

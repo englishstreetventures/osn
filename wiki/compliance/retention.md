@@ -7,7 +7,7 @@ related:
   - "[[data-map]]"
   - "[[dsar]]"
   - "[[cire]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-10
 ---
 
 # Retention
@@ -25,12 +25,13 @@ already enforces some of them; the rest need a sweeper job.
 | `deletion_jobs` (C-H2) | Created at soft-delete; row removed by hard-delete sweeper after `hard_delete_at + fan-out completion`. Effective retention: 7-30 days max. | Sweeper job (`account-erasure.runHardDeleteSweep`) | OK | Identity |
 | `pulse_deletion_jobs` (C-H2 Flow B) | Created at soft-delete; removed at `hard_delete_at` (= softDeletedAt + 7d). | Sweeper job (`accountErasure.runHardDeleteSweep` — Pulse) | OK | Pulse |
 | Hosted events with `cancelled_at` set + `cancellation_reason = "host_left"` | 14 days from cancellation, then hard-deleted. | Sweeper (`accountErasure.runEventCancellationSweep`) | OK | Pulse |
-| `passkeys` | While account active; deleted on credential revoke or account delete | App code | OK | Identity |
+| `passkeys` | While account active; deleted on credential revoke or account delete. `provenance_amr` is a column on this row and dies with it — no separate sweep | App code | OK | Identity |
 | `sessions` | 30 d sliding window; family-revoked on rotation reuse (a **restricted recovery session** is the exception: 15 minutes absolute, never sliding, until enrolment clears `restricted_until` and it becomes an ordinary row — see [[data-map]]) | DB `expires_at` + nightly purge job (planned) | Sliding window OK; purge of expired rows missing | Identity |
 | `rotated_sessions` (Redis or in-memory) | `refreshTokenTtl` = 30 d; native Redis PX TTL OR FIFO eviction | Per-key TTL (Redis) / FIFO sweep (in-mem) | OK | Identity |
 | `security_events` | 12 months from `created_at` | Sweeper job (planned) | **TODO** — define + write. | Identity |
 | `email_changes` audit | 90 days | Sweeper job (planned) | **TODO** | Identity |
 | `recovery_codes` | While account active. Used codes retain `used_at` for security-event reasoning. | App code | OK | Identity |
+| `accounts.last_recovered_at` | Until the next recovery overwrites it, an accepted `POST /recovery/disown` of that same recovery clears it (a disown token carrying an older `recovered_at` leaves it alone), or the `accounts` row is hard-deleted. It goes stale rather than wrong — both windows it opens compare it against a 72-hour deadline, so a value older than that is inert — and it is deliberately NOT swept: clearing it early would reopen the email-change gate the recovery closed | App code | OK | Identity |
 | `totp_credentials` | While the credential exists. Deleted on `DELETE /totp`, and with passkeys and recovery codes on BOTH soft delete and hard delete — the FK cascade alone would leave a working second factor through the 7-day grace window. | App code | OK | Identity |
 | `cdl_requests` | 5 min TTL; in-memory expiry on poll | App code | OK; consider lazy eviction P-W1 (cdl) | Identity |
 | `otpStore`, `magicStore`, `pendingRegistrations` | 5 min TTL; current Map has no sweeper (P-W4) | Migrate to Redis with native TTL (Redis Phase 4) | **TODO** — Redis Phase 4 in TODO | Identity |

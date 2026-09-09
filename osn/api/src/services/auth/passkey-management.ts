@@ -38,6 +38,7 @@ export function createPasskeyManagementModule(
       accountId,
       "passkey_delete",
       "passkey-removed",
+      {},
     );
 
   const listPasskeys = (

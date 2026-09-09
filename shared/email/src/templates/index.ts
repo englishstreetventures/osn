@@ -26,6 +26,7 @@ import {
   renderStepUpOtp,
 } from "./otp";
 import {
+  type RecoveryUsedData,
   renderCrossDeviceLogin,
   renderPasskeyAdded,
   renderPasskeyRemoved,
@@ -67,7 +68,7 @@ export interface EmailTemplateDataMap {
   "otp-recovery": { code: string; ttlMinutes: number };
   "recovery-generated": Record<string, never>;
   "recovery-consumed": Record<string, never>;
-  "recovery-used": Record<string, never>;
+  "recovery-used": RecoveryUsedData;
   "passkey-added": Record<string, never>;
   "passkey-removed": Record<string, never>;
   "totp-enrolled": Record<string, never>;
@@ -114,7 +115,7 @@ export function renderTemplate<T extends EmailTemplate>(
     case "recovery-consumed":
       return renderRecoveryConsumed();
     case "recovery-used":
-      return renderRecoveryUsed();
+      return renderRecoveryUsed(data as EmailTemplateData<"recovery-used">);
     case "passkey-added":
       return renderPasskeyAdded();
     case "passkey-removed":
