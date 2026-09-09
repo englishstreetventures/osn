@@ -1,6 +1,6 @@
 {
   "name": "@osn/ui",
-  "version": "1.10.9",
+  "version": "1.10.10",
   "private": true,
   "type": "module",
   "exports": {
