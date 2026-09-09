@@ -40,6 +40,8 @@
 
 import { closeSync, openSync, readdirSync, readFileSync, readSync } from "node:fs";
 
+import { compactTokens, humanDuration } from "./format.ts";
+
 export const SCHEMA_VERSION = 1;
 
 /**
@@ -909,23 +911,7 @@ export function buildCard(records: SessionRecord[], diff: DiffSummary, context: 
 // Rendering
 // ---------------------------------------------------------------------------
 
-/** 66_000_000 → "66.0M". Cards run to tens of millions of tokens and a raw
- * digit string at that size is unreadable in a table. */
-export function compactTokens(value: number): string {
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(1)}K`;
-
-  return String(value);
-}
-
-export function humanDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
-
-  const hours = Math.floor(seconds / 3600);
-
-  return `${hours}h ${Math.round((seconds % 3600) / 60)}m`;
-}
+export { compactTokens, humanDuration } from "./format.ts";
 
 function share(part: number, whole: number): string {
   return whole > 0 ? `${Math.round((part / whole) * 100)}%` : "0%";

@@ -2,7 +2,7 @@ import * as Plot from "@observablehq/plot";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@osn/ui/ui/card";
 import { For, Show, type JSX } from "solid-js";
 
-import { compactTokens } from "../../pr-metrics/index.ts";
+import { compactTokens } from "../../pr-metrics/format.ts";
 import { cards } from "./cards.ts";
 import { Chart, type ChartTheme } from "./Chart.tsx";
 import {

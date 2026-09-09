@@ -19,7 +19,14 @@
  * SQL from TypeScript would cost more than it saves at this size.
  */
 
-import { type Card, compactTokens, defaultMetricsDir } from "./index.ts";
+// Nothing here may statically import a value from `index.ts`: it reads
+// `node:fs` at module scope, and `@tools/metrics` imports this file into a
+// browser, where Vite's stub for that builtin throws on first property access
+// and blanks the page. So `Card` is a type (erased), `compactTokens` comes from
+// the import-free `format.ts`, and the one value the CLI block still needs is
+// required lazily down there — the same way `loadCards` handles `node:fs`.
+import { compactTokens } from "./format.ts";
+import type { Card } from "./index.ts";
 
 export interface CardRow {
   pr: number | null;
@@ -352,6 +359,7 @@ const REPORTS = {
 } as const;
 
 if (import.meta.main) {
+  const { defaultMetricsDir } = require("./index.ts") as typeof import("./index.ts");
   const dirIndex = Bun.argv.indexOf("--dir");
   const dir =
     dirIndex >= 0 && Bun.argv[dirIndex + 1] ? Bun.argv[dirIndex + 1] : defaultMetricsDir();

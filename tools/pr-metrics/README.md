@@ -66,6 +66,8 @@ right-skewed — median 3.6M tokens against a mean of 15.4M and a maximum of
 | Path                           | What                                                                                          |
 | ------------------------------ | --------------------------------------------------------------------------------------------- |
 | `index.ts`                     | Pure aggregation functions, the `<details>` renderer, and the CLI under `import.meta.main`    |
+| `format.ts`                    | `compactTokens` and `humanDuration`. Imports nothing, so a browser can reach it — `index.ts` cannot be imported from one, because its `node:fs` throws under Vite |
+| `report.ts`                    | The `report` subcommand's analyses. Reaches no Node builtin at module scope, so a browser can import it: `node:fs` and the one value it needs from `index.ts` are both `require`d lazily, inside the functions that use them |
 | `backfill.ts`                  | Cards for pull requests that merged before cards existed                                      |
 | `queries.sql`                  | The seven DuckDB queries worth having                                                         |
 | `tests/render.test.ts`         | The `<details>` block — including that it contributes no `##` heading                         |
