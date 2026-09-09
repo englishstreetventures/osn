@@ -12,6 +12,12 @@ import { parseTokenResponse, type Session } from "./tokens";
  *  3. `loginWithRecoveryCode({ identifier, code })` — unauthenticated. Burns
  *     the supplied code and establishes a full session + profile. All other
  *     existing sessions for the account are revoked server-side.
+ *  4. `emailRecoveryBegin` / `emailRecoveryComplete` / `totpRecoveryComplete` —
+ *     unauthenticated account recovery by a factor that is neither a passkey
+ *     nor a recovery code. Unlike (3) these establish a RESTRICTED session that
+ *     can only enrol a passkey and expires in 15 minutes; a UI must send the
+ *     user straight into passkey enrolment. See
+ *     `wiki/architecture/account-recovery-factors.md`.
  *
  * Kept in its own module so UI surfaces (settings panel, sign-in recovery
  * modal) can import the exact shape they need without pulling in the full
@@ -77,6 +83,33 @@ export interface RecoveryClient {
    * (single-use) and revokes all other sessions for the account.
    */
   loginWithRecoveryCode(input: { identifier: string; code: string }): Promise<RecoveryLoginResult>;
+  /**
+   * Ask for an account-recovery code by email. Unauthenticated.
+   *
+   * `identifier` must be the **email address** on the account — a handle is
+   * refused, because this call puts mail in somebody's inbox and a handle is
+   * public. Always resolves when the request was accepted; it deliberately does
+   * NOT say whether the address matched an account, whether a code was sent, or
+   * whether the account has hit its cap, so a caller cannot use it to test
+   * whether somebody has an OSN account.
+   *
+   * Pass `turnstileToken` wherever the sign-in surface renders a widget: once a
+   * Turnstile secret is configured the server requires one and fails closed.
+   */
+  emailRecoveryBegin(input: { identifier: string; turnstileToken?: string }): Promise<void>;
+  /**
+   * Exchange the emailed code for a **restricted recovery session**. The
+   * returned session can do exactly one thing — enrol a passkey — and expires
+   * 15 minutes after it is issued. Every other session on the account is
+   * revoked.
+   */
+  emailRecoveryComplete(input: { identifier: string; code: string }): Promise<RecoveryLoginResult>;
+  /**
+   * The same restricted session, from an authenticator-app code instead. This
+   * is the path for somebody who has lost the device AND cannot reach the
+   * mailbox. `identifier` may be a handle or an email address.
+   */
+  totpRecoveryComplete(input: { identifier: string; code: string }): Promise<RecoveryLoginResult>;
 }
 
 export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClient {
@@ -138,5 +171,55 @@ export function createRecoveryClient(config: RecoveryClientConfig): RecoveryClie
     };
   };
 
-  return { generateRecoveryCodes, getRecoveryCodesStatus, loginWithRecoveryCode };
+  const emailRecoveryBegin = async (input: { identifier: string; turnstileToken?: string }) => {
+    const res = await fetch(`${base}/login/recovery/email/begin`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(input),
+    });
+    // 202 on every outcome the server is willing to describe. Anything else is
+    // a refusal it owes the caller a reason for — a malformed identifier, a
+    // rate limit, a failed bot check.
+    if (!res.ok) {
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new RecoveryError(json.error ?? `Request failed: ${res.status}`);
+    }
+  };
+
+  /** Shared by the two factor completers — both return the same envelope. */
+  const completeFactorLogin = async (path: string, input: { identifier: string; code: string }) => {
+    // `sessionFetch`: these routes set the refresh cookie. See
+    // `./session-fetch.ts`.
+    const res = await sessionFetch(`${base}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(input),
+    });
+    const json = (await res.json()) as {
+      session?: unknown;
+      profile?: RecoveryProfile;
+      error?: string;
+    };
+    if (!res.ok || !json.session || !json.profile) {
+      throw new RecoveryError(json.error ?? `Request failed: ${res.status}`);
+    }
+    return { session: parseTokenResponse(json.session), profile: json.profile };
+  };
+
+  const emailRecoveryComplete = (input: { identifier: string; code: string }) =>
+    completeFactorLogin("/login/recovery/email/complete", input);
+
+  const totpRecoveryComplete = (input: { identifier: string; code: string }) =>
+    completeFactorLogin("/login/recovery/totp/complete", input);
+
+  return {
+    generateRecoveryCodes,
+    getRecoveryCodesStatus,
+    loginWithRecoveryCode,
+    emailRecoveryBegin,
+    emailRecoveryComplete,
+    totpRecoveryComplete,
+  };
 }

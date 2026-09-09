@@ -11,9 +11,11 @@
  * `wrangler.toml` (`simple = { limit, period }`), keyed here by tier.
  *
  * Everything else stays on Redis, untouched, and is built in `build-deps.ts`:
- *   - the three **1-hour-window** per-IP limiters (`recoveryGenerate`,
- *     `recoveryComplete`, `emailChangeBegin`) — the native binding only supports
- *     `period` 10 or 60s, so 1-hour windows CANNOT move;
+ *   - the **1-hour-window** per-IP limiters (`recoveryGenerate`,
+ *     `recoveryComplete`, `recoveryEmailBegin`, `emailChangeBegin`,
+ *     `oidcClientCreate`) — the native binding only supports `period` 10 or 60s,
+ *     so 1-hour windows CANNOT move. {@link HOUR_WINDOW_IP_AUTH_LIMITERS} is the
+ *     list; this sentence is not, so add to the set rather than to this prose;
  *   - every per-user / per-account limiter (graph/org writes, recommendations,
  *     the profile-switch + email-change caps) and every stateful store
  *     (recovery lockout, step-up JTI, rotated-session, ceremony stores).
@@ -80,6 +82,8 @@ export const NATIVE_BINDING_FOR_AUTH_LIMITER = {
   totpDisable: { tier: "RL_AUTH_IP_10_60", ns: "totp_disable" },
   totpStatus: { tier: "RL_AUTH_IP_30_60", ns: "totp_status" },
   recoveryStatus: { tier: "RL_AUTH_IP_30_60", ns: "recovery_status" },
+  recoveryEmailComplete: { tier: "RL_AUTH_IP_10_60", ns: "recovery_email_complete" },
+  recoveryTotpComplete: { tier: "RL_AUTH_IP_10_60", ns: "recovery_totp_complete" },
   sessionList: { tier: "RL_AUTH_IP_30_60", ns: "session_list" },
   sessionRevoke: { tier: "RL_AUTH_IP_10_60", ns: "session_revoke" },
   emailChangeComplete: { tier: "RL_AUTH_IP_10_60", ns: "email_change_complete" },
@@ -113,6 +117,7 @@ export const NATIVE_BINDING_FOR_AUTH_LIMITER = {
 export const HOUR_WINDOW_IP_AUTH_LIMITERS: ReadonlySet<keyof AuthRateLimiters> = new Set([
   "recoveryGenerate",
   "recoveryComplete",
+  "recoveryEmailBegin",
   "emailChangeBegin",
   "oidcClientCreate",
 ]);

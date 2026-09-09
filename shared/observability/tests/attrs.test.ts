@@ -11,15 +11,40 @@ import type { AuthMethod, AuthRateLimitedEndpoint } from "../src/metrics/attrs";
  * Each test uses an exhaustive `satisfies Record<Union, true>` literal to
  * catch compile-time drift, plus a runtime-key snapshot to catch runtime
  * drift in consumers that enumerate the attribute space.
+ *
+ * The point of the pin is that adding a member costs an argument, not a
+ * keystroke. So: **what makes a new `AuthMethod` legitimate.** Not "it is not
+ * called OTP" — `email_recovery` is an emailed six-digit code, which is
+ * precisely the shape that was removed. What separates it is where it lands.
+ * A primary login factor mints an `osn-access` session that reaches every route
+ * and every downstream service. The two recovery factors mint a **restricted**
+ * one: `aud: "osn-recovery"`, a 15-minute absolute lifetime that rotation
+ * carries forward rather than extending, refused by all four verifiers in
+ * osn-api and by the three services that verify over JWKS, and accepted by
+ * exactly one resolver — `resolvePasskeyEnrollPrincipal`. It can enrol a
+ * passkey and do nothing else, and doing so is what lifts the restriction.
+ *
+ * A future member that does not clear that bar does not belong here, whatever
+ * it is called. See `wiki/architecture/account-recovery-factors.md` §B.
  */
 describe("AuthMethod", () => {
-  it("includes exactly the passkey-primary surface", () => {
+  it("includes exactly the passkey-primary surface plus the restricted recovery factors", () => {
     const members = {
       passkey: true,
       recovery_code: true,
+      // Restricted-session recovery only — see the header. Neither of these is
+      // a login factor, and neither mints an `osn-access` audience.
+      email_recovery: true,
+      totp_recovery: true,
       refresh: true,
     } as const satisfies Record<AuthMethod, true>;
-    expect(new Set(Object.keys(members))).toEqual(new Set(["passkey", "recovery_code", "refresh"]));
+    expect(new Set(Object.keys(members))).toEqual(
+      new Set(["passkey", "recovery_code", "email_recovery", "totp_recovery", "refresh"]),
+    );
+    // The negative that still holds: no member names an unrestricted OTP or
+    // magic-link primary login.
+    expect(Object.keys(members)).not.toContain("otp");
+    expect(Object.keys(members)).not.toContain("magic_link");
   });
 });
 
@@ -41,6 +66,12 @@ describe("AuthRateLimitedEndpoint", () => {
       recovery_generate: true,
       recovery_status: true,
       recovery_complete: true,
+      // The three unauthenticated account-recovery routes. `recovery_email_begin`
+      // is the only one of the three that sends mail, which is why it carries a
+      // per-ACCOUNT cap as well as this per-IP one.
+      recovery_email_begin: true,
+      recovery_email_complete: true,
+      recovery_totp_complete: true,
       step_up_passkey_begin: true,
       step_up_passkey_complete: true,
       step_up_otp_begin: true,
@@ -78,7 +109,7 @@ describe("AuthRateLimitedEndpoint", () => {
     } as const satisfies Record<AuthRateLimitedEndpoint, true>;
     // Runtime snapshot — catches a drop that the `satisfies` check would miss
     // (it only complains on missing members, not extras).
-    expect(Object.keys(members)).toHaveLength(49);
+    expect(Object.keys(members)).toHaveLength(52);
     // Negative: primary-login OTP/magic-link endpoints must not reappear.
     expect(Object.keys(members)).not.toContain("otp_begin");
     expect(Object.keys(members)).not.toContain("otp_complete");

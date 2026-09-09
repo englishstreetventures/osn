@@ -14,6 +14,8 @@ import {
   EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
   PROFILE_SWITCH_MAX,
   PROFILE_SWITCH_WINDOW_MS,
+  RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
+  RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
   TOTP_LOCKOUT_MS,
   TOTP_LOCKOUT_THRESHOLD,
 } from "./constants";
@@ -62,8 +64,19 @@ export function createAuthContext(config: AuthConfig) {
       EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX,
       EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
     );
+  const recoveryEmailBeginCap =
+    config.recoveryEmailBeginCap ??
+    createInMemoryAccountCap(
+      RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
+      RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
+    );
   // Per-account recovery-code lockout counter.
   const recoveryLockoutStore = config.recoveryLockoutStore ?? createInMemoryRecoveryLockoutStore();
+  // Per-account lockout for the email-OTP recovery path. Its own counter, and
+  // fail-closed like the TOTP one: both guard a 6-digit code, where failing
+  // open removes the only effective brake rather than a redundant one.
+  const recoveryOtpLockoutStore =
+    config.recoveryOtpLockoutStore ?? createInMemoryRecoveryLockoutStore();
   // Per-account TOTP lockout. The in-memory default cannot fail, so the
   // fail-closed posture only bites on the injected Redis-backed store.
   const totpLockoutStore =
@@ -99,7 +112,9 @@ export function createAuthContext(config: AuthConfig) {
     stores,
     profileSwitchCap,
     emailChangeBeginCap,
+    recoveryEmailBeginCap,
     recoveryLockoutStore,
+    recoveryOtpLockoutStore,
     totpLockoutStore,
     hashIp,
   };

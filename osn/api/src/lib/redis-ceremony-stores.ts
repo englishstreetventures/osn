@@ -22,11 +22,17 @@ import type {
   CrossDeviceRequest,
   PendingAuthorizeRequest,
   PendingEmailChange,
+  PendingRecoveryOtp,
   PendingRegistration,
   PendingTotpEnrollment,
   StepUpOtpEntry,
 } from "../services/auth";
-import { TOTP_LOCKOUT_MS, TOTP_LOCKOUT_THRESHOLD } from "../services/auth/constants";
+import {
+  RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
+  RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
+  TOTP_LOCKOUT_MS,
+  TOTP_LOCKOUT_THRESHOLD,
+} from "../services/auth/constants";
 import {
   createRedisCeremonyStore,
   type CeremonyStore,
@@ -42,7 +48,7 @@ const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 
 /** Caller hook for a caught Redis error inside any of these stores. */
 export type CeremonyStoreErrorHook = (
-  store: RedisNamespace | "recovery_lockout" | "totp_lockout",
+  store: RedisNamespace | "recovery_lockout" | "totp_lockout" | "recovery_otp_lockout",
   op: string,
   cause: unknown,
 ) => void;
@@ -50,9 +56,11 @@ export type CeremonyStoreErrorHook = (
 export interface RedisCeremonyWiring {
   ceremonyStores: CeremonyStores;
   recoveryLockoutStore: RecoveryLockoutStore;
+  recoveryOtpLockoutStore: RecoveryLockoutStore;
   totpLockoutStore: RecoveryLockoutStore;
   profileSwitchCap: AccountCapLimiter;
   emailChangeBeginCap: AccountCapLimiter;
+  recoveryEmailBeginCap: AccountCapLimiter;
 }
 
 export function createRedisCeremonyStores(
@@ -75,6 +83,7 @@ export function createRedisCeremonyStores(
     pendingRegistrations: make<PendingRegistration>("pending_registration"),
     stepUpPasskeyChallenges: make<ChallengeEntry>("step_up_challenge"),
     stepUpOtp: make<StepUpOtpEntry>("step_up_otp"),
+    pendingRecoveryOtp: make<PendingRecoveryOtp>("pending_recovery_otp"),
     pendingTotpEnrollments: make<PendingTotpEnrollment>("pending_totp_enroll"),
     pendingEmailChanges: make<PendingEmailChange>("pending_email_change"),
     crossDeviceRequests: make<CrossDeviceRequest>("cross_device"),
@@ -83,6 +92,17 @@ export function createRedisCeremonyStores(
 
   const recoveryLockoutStore = createRedisRecoveryLockoutStore(client, {
     onError: (op, cause) => onError?.("recovery_lockout", op, cause),
+  });
+
+  // The email-OTP recovery counter. Its own key prefix and fail-CLOSED, for the
+  // reason TOTP's is: there is no wide search space behind a six-digit code, so
+  // failing open removes the only effective defence rather than a redundant one.
+  // Separate from `recoveryLockoutStore` so an attacker grinding 64-bit recovery
+  // codes cannot deny the owner the email path, nor the reverse.
+  const recoveryOtpLockoutStore = createRedisRecoveryLockoutStore(client, {
+    keyPrefix: "osn:recovery-otp-lockout",
+    failClosed: true,
+    onError: (op, cause) => onError?.("recovery_otp_lockout", op, cause),
   });
 
   // The same counter shape, the OPPOSITE outage posture — see the fail-closed
@@ -108,12 +128,21 @@ export function createRedisCeremonyStores(
     maxRequests: 3,
     windowMs: ONE_DAY_MS,
   });
+  // Keyed on the RESOLVED accountId by its one caller — never on the identifier
+  // a stranger submitted. See `beginEmailRecovery`.
+  const recoveryEmailBeginCap: AccountCapLimiter = createRedisRateLimiter(client, {
+    namespace: "auth:recovery_email_begin_cap",
+    maxRequests: RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX,
+    windowMs: RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS,
+  });
 
   return {
     ceremonyStores,
     recoveryLockoutStore,
+    recoveryOtpLockoutStore,
     totpLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
+    recoveryEmailBeginCap,
   };
 }

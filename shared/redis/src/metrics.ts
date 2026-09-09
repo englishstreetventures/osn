@@ -31,8 +31,16 @@ export type RedisNamespace =
   // never reaches D1: an unconfirmed secret is not a credential, and a 10-minute
   // ceremony window is not a reason to write one to the durable store.
   | "pending_totp_enroll"
+  // The 6-digit code emailed by /login/recovery/email/begin, awaiting
+  // /login/recovery/email/complete. Keyed by accountId, TTL 10 minutes, and it
+  // never reaches D1 — a pending recovery code is not a credential.
+  | "pending_recovery_otp"
   // Per-account recovery-code lockout counter.
   | "recovery_lockout"
+  // Per-account lockout for the email-OTP recovery path. Its own key space so a
+  // wrong 6-digit recovery code and a wrong 64-bit recovery code never share a
+  // counter — one attacker grinding either must not deny the owner the other.
+  | "recovery_otp_lockout"
   // Per-account TOTP failed-attempt lockout. Separate from recovery_lockout
   // because the two have opposite outage postures — see
   // `osn/api/src/lib/recovery-lockout-store.ts`.

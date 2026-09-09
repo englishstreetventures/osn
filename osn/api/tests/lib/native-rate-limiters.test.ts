@@ -36,6 +36,9 @@ function fallbackBundle(): AuthRateLimiters {
         "recoveryGenerate",
         "recoveryStatus",
         "recoveryComplete",
+        "recoveryEmailBegin",
+        "recoveryEmailComplete",
+        "recoveryTotpComplete",
         "stepUpPasskeyBegin",
         "stepUpPasskeyComplete",
         "stepUpOtpBegin",
@@ -157,11 +160,12 @@ describe("selectAuthRateLimiters — limiter routing", () => {
     for (const key of HOUR_WINDOW_IP_AUTH_LIMITERS) {
       expect(selected[key]).toBe(fallback[key]);
     }
-    // Sanity: the set is exactly the four 1-hour windows.
+    // Sanity: the set is exactly the five 1-hour windows.
     expect([...HOUR_WINDOW_IP_AUTH_LIMITERS].toSorted((a, b) => a.localeCompare(b))).toEqual([
       "emailChangeBegin",
       "oidcClientCreate",
       "recoveryComplete",
+      "recoveryEmailBegin",
       "recoveryGenerate",
     ]);
   });

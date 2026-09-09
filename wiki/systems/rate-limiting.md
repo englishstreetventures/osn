@@ -22,7 +22,7 @@ packages:
   - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/redis"
-last-reviewed: 2026-08-19
+last-reviewed: 2026-09-09
 ---
 # Rate Limiting
 
@@ -64,8 +64,8 @@ osn-api runs on Cloudflare Workers. The **60-second-window, per-IP auth limiters
 | Limiter group | Backend | Why |
 |---|---|---|
 | 60s-window per-IP auth limiters (register/login/passkey/step-up-complete/session/security-event/passkey-mgmt/cross-device/recovery-status/OIDC — 35 endpoints) | **Native binding** | Brute-force-facing pre-auth throttles; the native binding's global+atomic edge enforcement beats the per-isolate in-memory fallback |
-| 1-hour-window per-IP limiters (`recoveryGenerate`, `recoveryComplete`, `emailChangeBegin`, `oidcClientCreate`) | **Upstash** | The native binding only supports `period` 10 or 60s — 1-hour windows cannot move |
-| Per-user / per-account limiters (graph/org writes, recommendations, `profileSwitchCap`, `emailChangeBeginCap`) | **Upstash** | Keyed by user/account, not IP |
+| 1-hour-window per-IP limiters (`recoveryGenerate`, `recoveryComplete`, `recoveryEmailBegin`, `emailChangeBegin`, `oidcClientCreate`) | **Upstash** | The native binding only supports `period` 10 or 60s — 1-hour windows cannot move |
+| Per-user / per-account limiters (graph/org writes, recommendations, `profileSwitchCap`, `emailChangeBeginCap`, `recoveryEmailBeginCap`) | **Upstash** | Keyed by user/account, not IP |
 | Stateful stores (recovery lockout, step-up JTI, rotated-session, ceremony stores) | **Upstash** | Need durable cross-isolate state |
 
 So the change **reduces but does not remove** the Upstash dependency — `UPSTASH_*` stays required in non-local (S-L1 gate).

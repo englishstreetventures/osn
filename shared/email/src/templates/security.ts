@@ -28,6 +28,23 @@ export function renderRecoveryConsumed(): RenderedEmail {
   return { subject: "An OSN recovery code was used on your account", text, html };
 }
 
+/**
+ * Sent after an email-OTP or TOTP recovery succeeds. The louder of the two
+ * recovery notices: every session on the account has just been revoked and
+ * somebody who is not holding a passkey is signed in.
+ *
+ * Carries no code and does not say which factor was used — a recipient who did
+ * not do this learns that it happened and what to do, and an attacker reading
+ * the mailbox learns nothing about the account's other factors.
+ */
+export function renderRecoveryUsed(): RenderedEmail {
+  const text = `Somebody recovered access to your OSN account without a passkey, using an emailed code or an authenticator app. Every existing session was signed out, and whoever recovered the account can now add a new passkey to it.\n\nIf that was you, no further action is needed.\n\nIf this wasn't you: sign in now, remove any passkey you do not recognise, and review your active sessions.`;
+  const html = wrap(
+    `<h2>Your OSN account was recovered</h2><p>Somebody recovered access to your OSN account without a passkey, using an emailed code or an authenticator app. Every existing session was signed out, and whoever recovered the account can now add a new passkey to it.</p><p>If that was you, no further action is needed.</p><p>If this wasn't you: sign in now, remove any passkey you do not recognise, and review your active sessions.</p>`,
+  );
+  return { subject: "Your OSN account was recovered", text, html };
+}
+
 export function renderPasskeyAdded(): RenderedEmail {
   const text = `A passkey was just added to your OSN account. If that was you, no further action is needed.\n\nIf this wasn't you: sign in, remove the unexpected credential, and rotate your recovery codes.`;
   const html = wrap(

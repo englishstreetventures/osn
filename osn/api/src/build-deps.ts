@@ -378,9 +378,11 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
   const {
     ceremonyStores,
     recoveryLockoutStore,
+    recoveryOtpLockoutStore,
     totpLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
+    recoveryEmailBeginCap,
   } = createRedisCeremonyStores(redisClient, (store, op, cause) => {
     void Effect.runPromise(
       Effect.logWarning("Ceremony/lockout store Redis error").pipe(
@@ -393,9 +395,10 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
   // Part 2: the 60s-window per-IP auth limiters move onto the Cloudflare Workers
   // native Rate Limiting binding when it's present (Workers, non-local), keyed
   // `"<endpoint>:" + ip` so endpoints sharing a budget tier don't share a
-  // bucket. The three 1-hour-window per-IP limiters (recoveryGenerate,
-  // recoveryComplete, emailChangeBegin) stay on Redis because the native binding
-  // only supports period 10 or 60s. `selectAuthRateLimiters` leaves those slots
+  // bucket. The 1-hour-window per-IP limiters stay on Redis because the native
+  // binding only supports period 10 or 60s — HOUR_WINDOW_IP_AUTH_LIMITERS in
+  // `lib/native-rate-limiters.ts` is the list, and adding a slot there is what
+  // keeps it on Redis; this comment is prose, not the gate. `selectAuthRateLimiters` leaves those slots
   // (and a 60s slot whose tier binding is missing) on the Redis fallback, so the
   // stateful stores' Upstash dependency is unchanged. Absent the bindings (Bun /
   // local `wrangler dev`) every limiter stays on Redis.
@@ -470,9 +473,11 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     rotatedSessionStore,
     ceremonyStores,
     recoveryLockoutStore,
+    recoveryOtpLockoutStore,
     totpLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
+    recoveryEmailBeginCap,
     clientIpConfig,
     // Gates the S2S service-registration endpoints. On workerd this is a
     // wrangler secret, surfaced via the `env` binding; on Bun it's process.env.

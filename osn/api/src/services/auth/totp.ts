@@ -42,11 +42,12 @@ import {
   metricTotpLockout,
   metricTotpVerified,
   withTotpOp,
+  type TotpLockoutScope,
 } from "../../metrics";
 import { TOTP_ENROLL_TTL_MS, TOTP_LOCKOUT_THRESHOLD, TOTP_MAX_ENROLL_ATTEMPTS } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, DatabaseError } from "./errors";
-import { genId } from "./helpers";
+import { genId, probeAccountId } from "./helpers";
 import type { SecurityEventsModule } from "./security-events";
 import type { StepUpModule } from "./step-up";
 import type { SessionMeta } from "./types";
@@ -131,26 +132,55 @@ export function createTotpModule(
       return rowsChanged(result) > 0;
     });
 
-  const rejectCode = (accountId: string, result: TotpVerifyResult) =>
+  /**
+   * The lockout counter key for one code check.
+   *
+   * Two surfaces verify TOTP codes and they must NOT share a counter.
+   * `POST /step-up/totp/complete` is authenticated: moving its counter requires
+   * a valid access token for the account. `POST /login/recovery/totp/complete`
+   * is not, and it accepts a handle — which is public. Sharing would let anyone
+   * who knows a handle spend the account's five attempts and lock its step-up
+   * for {@link TOTP_LOCKOUT_MS}, repeatedly and indefinitely, taking
+   * `passkey_register`, `recovery_generate`, `totp_enroll`, `totp_disable`,
+   * `account_delete` and `account_export` with it for any user whose only
+   * non-passkey factor is TOTP. Fail-closed makes that worse, not better: one
+   * Redis error would lock both surfaces at once.
+   *
+   * Splitting costs five extra guesses per window against a space of three
+   * accepted codes in a million — nothing — and each surface keeps its own
+   * threshold intact.
+   */
+  const lockoutKey = (accountId: string, scope: TotpLockoutScope): string =>
+    scope === "step_up" ? accountId : `${scope}:${accountId}`;
+
+  const rejectCode = (accountId: string, scope: TotpLockoutScope, result: TotpVerifyResult) =>
     Effect.gen(function* () {
-      const failures = yield* Effect.promise(() => totpLockoutStore.recordFailure(accountId));
+      const failures = yield* Effect.promise(() =>
+        totpLockoutStore.recordFailure(lockoutKey(accountId, scope)),
+      );
       // "locked" on the attempt that crosses the threshold, so the dashboard
       // separates a fat-fingered code from an account under a grinding attack.
-      metricTotpLockout(failures >= TOTP_LOCKOUT_THRESHOLD ? "locked" : "recorded");
+      metricTotpLockout(failures >= TOTP_LOCKOUT_THRESHOLD ? "locked" : "recorded", scope);
       metricTotpVerified(result);
       return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
     });
 
   /**
    * Verify `code` against the account's confirmed credential and consume the
-   * step it matched. The single entry point for every TOTP check — step-up
-   * today, recovery when that phase lands — so the lockout, the constant-cost
-   * "not enrolled" branch and single-use consumption cannot be forgotten by a
-   * new caller.
+   * step it matched. The single entry point for every TOTP check — the step-up
+   * ceremony and account recovery both come through here — so the lockout, the
+   * constant-cost "not enrolled" branch and single-use consumption cannot be
+   * forgotten by a new caller.
+   *
+   * `scope` names the calling ceremony and selects the lockout counter; see
+   * {@link lockoutKey} for why the two must not share one. It is a required
+   * parameter rather than a defaulted one on purpose: a new caller has to say
+   * which surface it is, and cannot inherit the authenticated one by omission.
    */
   const checkTotpCode = (
     accountId: string,
     code: string,
+    scope: TotpLockoutScope,
   ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       const key = yield* encryptionKey();
@@ -158,9 +188,11 @@ export function createTotpModule(
       // Fail-closed: an unreachable lockout counter for TOTP means no throttle
       // at all behind a six-digit code, so an error here denies. See the
       // posture note in `lib/recovery-lockout-store.ts`.
-      const locked = yield* Effect.promise(() => totpLockoutStore.isLocked(accountId));
+      const locked = yield* Effect.promise(() =>
+        totpLockoutStore.isLocked(lockoutKey(accountId, scope)),
+      );
       if (locked) {
-        metricTotpLockout("locked");
+        metricTotpLockout("locked", scope);
         metricTotpVerified("locked_out");
         return yield* Effect.fail(new AuthError({ message: GENERIC_CODE_FAILURE }));
       }
@@ -180,7 +212,7 @@ export function createTotpModule(
 
       const matched = yield* Effect.promise(() => verifyTotpCode({ secret, code }));
       if (!matched || !credential) {
-        return yield* rejectCode(accountId, credential ? "invalid" : "not_enrolled");
+        return yield* rejectCode(accountId, scope, credential ? "invalid" : "not_enrolled");
       }
 
       const nowSec = Math.floor(Date.now() / 1000);
@@ -188,12 +220,44 @@ export function createTotpModule(
       if (!claimed) {
         // The code was arithmetically correct and already spent — a replay, and
         // the one rejection worth distinguishing on a dashboard.
-        return yield* rejectCode(accountId, "replayed");
+        return yield* rejectCode(accountId, scope, "replayed");
       }
 
-      yield* Effect.promise(() => totpLockoutStore.reset(accountId));
-      metricTotpLockout("reset");
+      yield* Effect.promise(() => totpLockoutStore.reset(lockoutKey(accountId, scope)));
+      metricTotpLockout("reset", scope);
       metricTotpVerified("ok");
+    });
+
+  /**
+   * Pay what {@link checkTotpCode} costs, against nothing.
+   *
+   * `completeTotpRecovery` runs this on the branch where the submitted
+   * identifier resolves to no account, so "nobody has this address" costs what
+   * "wrong code" costs. That route is unauthenticated and takes an EMAIL
+   * ADDRESS as readily as a handle, so a cheaper miss here is a way for a
+   * stranger to learn whether an address has an OSN account at all.
+   *
+   * It runs the same sequence the real check runs — the configuration check,
+   * the lockout lookup, the credential query, a verification against the dummy
+   * key — against a fresh probe id that matches nothing. The two are next to
+   * each other on purpose: a round trip added to one belongs in the other.
+   *
+   * Reads only. `checkTotpCode`'s last hop on a failure is `recordFailure`, a
+   * WRITE, and standing in for it with a second read is deliberate. What a
+   * caller can time is the number of round trips, not what each one did, and a
+   * write against a probe id would leave a counter key with a lockout-length
+   * TTL behind for every probe — unbounded key growth driven by an
+   * unauthenticated route. Same reasoning as {@link probeAccountId}.
+   */
+  const burnTotpCheckCost = (code: string): Effect.Effect<void, AuthError | DatabaseError, Db> =>
+    Effect.gen(function* () {
+      yield* encryptionKey();
+      const probe = probeAccountId();
+      const key = lockoutKey(probe, "recovery");
+      yield* Effect.promise(() => totpLockoutStore.isLocked(key));
+      yield* confirmedCredential(probe);
+      yield* Effect.promise(() => verifyTotpCode({ secret: new Uint8Array(0), code }));
+      yield* Effect.promise(() => totpLockoutStore.isLocked(key));
     });
 
   /**
@@ -439,7 +503,7 @@ export function createTotpModule(
     purpose?: StepUpPurpose,
   ): Effect.Effect<{ stepUpToken: string; expiresIn: number }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      yield* checkTotpCode(accountId, code);
+      yield* checkTotpCode(accountId, code, "step_up");
       const stepUpToken = yield* issueStepUpToken(accountId, "totp", purpose);
       return { stepUpToken, expiresIn: ctx.stepUpTokenTtl };
     }).pipe(withTotpOp("verify"));
@@ -450,6 +514,14 @@ export function createTotpModule(
     disableTotp,
     getTotpStatus,
     completeStepUpTotp,
+    // Exposed for `recovery-factors.ts`, which mints a restricted recovery
+    // session from a TOTP code. Going through this function rather than
+    // re-deriving the check is what gives that route the lockout, the
+    // single-use step consumption and the constant-cost not-enrolled branch.
+    checkTotpCode,
+    // The cost of the above, against a probe id, for the branch that has no
+    // account to check. Exposed for the same reason and to the same caller.
+    burnTotpCheckCost,
   };
 }
 

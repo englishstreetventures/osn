@@ -20,9 +20,9 @@ passkey device, and it works with no network — which is why
 
 **TOTP is not a login factor.** [[passkey-primary]] records that OTP and
 magic-link primary login were removed on purpose, and nothing here reinstates
-them. Today TOTP is a step-up factor at named purposes only. A later phase adds
-`POST /login/recovery/totp/complete`, which mints a *restricted* recovery
-session, never an ordinary one.
+them. TOTP is a step-up factor at named purposes, and a **recovery** factor at
+`POST /login/recovery/totp/complete` — which mints a *restricted* recovery
+session, never an ordinary one. See [[recovery-codes#The three ways back in]].
 
 Primitives live in `@shared/crypto/totp` (`shared/crypto/src/totp.ts`); the
 service is `osn/api/src/services/auth/totp.ts` and the routes are
@@ -143,6 +143,22 @@ parameter, and per-IP limits are not it.
 So every code check is additionally capped **per account** — five failures, then
 fifteen minutes locked — through a second instance of the store in
 `osn/api/src/lib/recovery-lockout-store.ts`, keyed on the resolved `accountId`.
+
+> [!warning] The counter is scoped by ceremony, and it has to be
+> `checkTotpCode` takes a required `scope` (`"step_up"` or `"recovery"`) and
+> keys the counter `accountId` or `recovery:<accountId>`. Both surfaces verify
+> the same credential, but `POST /step-up/totp/complete` is authenticated while
+> `POST /login/recovery/totp/complete` is not — and the latter accepts a
+> **handle**, which is public. On one shared counter, five requests from anyone
+> who knew a handle would lock the owner's step-up for fifteen minutes, and with
+> it `passkey_register`, `recovery_generate`, `totp_enroll`, `totp_disable`,
+> `account_delete` and `account_export`, for any user whose only non-passkey
+> factor is TOTP — repeatedly, and indefinitely. Fail-closed made it worse, not
+> better: one Redis error would have locked both surfaces at once.
+>
+> Splitting costs five extra guesses per window against three accepted codes in
+> a million. The `osn.auth.totp.lockout` counter carries a `scope` attribute so
+> a dashboard can tell which surface is being ground.
 
 > [!important] TOTP's lockout fails closed; the recovery-code one fails open
 > They are the same code with opposite postures, and the difference is

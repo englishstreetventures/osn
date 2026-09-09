@@ -203,7 +203,8 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
       | "passkey-removed"
       | "totp-enrolled"
       | "totp-disabled"
-      | "cross-device-login",
+      | "cross-device-login"
+      | "recovery-used",
   ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
       const { db } = yield* Db;

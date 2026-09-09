@@ -249,7 +249,7 @@ TOTP **enrolment and disable are themselves step-up gated**, for the same
 reason passkey registration is: a stolen access token must not silently bind an
 attacker's seed.
 
-### Enumeration, timing and flood control on `/login/recovery/email/begin`
+### Enumeration, timing and flood control
 
 A uniform 202 is not sufficient here. Every existing OTP send *awaits* the
 provider call, and a Resend round-trip is hundreds of milliseconds against a
@@ -265,6 +265,58 @@ account's own address, so an unthrottled endpoint floods the victim's inbox.
 - Extend the turnstile endpoint literal union and gate `begin`.
 - Complete side: 6-digit code, existing `MAX_OTP_ATTEMPTS` per entry, per-account
   lockout reusing the `recovery-lockout-store.ts` shape.
+
+#### The oracle moves to `complete` unless every branch costs the same
+
+Closing it at `begin` and leaving `complete` alone does not close it. `begin`
+answers 202 for an address that names nobody and *parks a code* for one that
+does, so the attack is two calls: `begin` for a candidate address, then
+`complete` with a wrong code, timed. Every store these routes touch is an HTTP
+hop to Upstash in each tier but `local`, so the number of hops a branch makes is
+readable with a stopwatch — and left to cost what it happens to cost, each of
+these routes ends up with a branch table like this:
+
+| Branch | Hops, unequalised |
+|---|---|
+| identifier resolves to nothing | 2 |
+| account locked out | 3 |
+| no code pending | 3 |
+| wrong code, live pending entry | 5 |
+
+Five hops means a real unlocked account; two means no such account. So each
+route pins a **fixed number of store round trips on every branch**, padded to
+the *costliest* real branch rather than the cheapest — padding down is the same
+oracle upside down. `begin` is two hops on all three branches;
+`/login/recovery/email/complete` is four on all five, split two on the
+pending-code store and two on the lockout counter;
+`/login/recovery/totp/complete` pays what `checkTotpCode` pays — the lockout
+lookup, the `totp_credentials` query and the dummy-key verification.
+
+Two rules the padding follows:
+
+- **The padding is reads, never writes.** A probe write leaves a counter key
+  with a multi-hour TTL behind for every request, which turns a
+  latency-equalising measure into unbounded key growth driven by an
+  unauthenticated endpoint. What a caller can time is the *number* of round
+  trips, not what each one did, so a read standing in for a write is exact
+  enough and free of that hazard. `probeAccountId` mints a fresh random id per
+  call so the read is guaranteed to miss at the same indexed cost as a real one,
+  and can never be seeded under.
+- **The TOTP route's padding lives beside `checkTotpCode`**, as
+  `burnTotpCheckCost`, not at the call site — a hop added to one belongs in the
+  other, and they only stay in step if they are read together.
+
+`/login/recovery/totp/complete` is the sharper of the two, and the reason the
+rule is worth this much text: it resolves through the same `resolveIdentifier`
+and accepts an **email address** as readily as a handle, so a cheap non-resolving
+branch lets an unauthenticated caller ask whether an address has an OSN account
+at all — with no per-account cap in front of it, and only a 10-per-minute per-IP
+limiter that a rotating fleet already defeats here.
+
+Wall-clock assertions would be flaky in CI and would pin nothing against an
+in-memory store, so the guard is a **call-count** test: the stores are wrapped in
+counters and every branch is asserted to invoke the same number of operations.
+See `osn/api/tests/routes/recovery-email.test.ts`.
 
 ## Sequencing — six issues, strictly in order
 

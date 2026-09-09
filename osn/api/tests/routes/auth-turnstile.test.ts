@@ -7,7 +7,8 @@ import { makeTestAuthConfig } from "../helpers/auth-config";
 import { createTestLayer } from "../helpers/db";
 
 /**
- * Turnstile bot-protection gate on `/register/begin` + `/login/passkey/begin`.
+ * Turnstile bot-protection gate on `/register/begin`, `/login/passkey/begin`
+ * and `/login/recovery/email/begin`.
  *
  * These tests drive the RAW `createAuthRoutes` factory (not the XFF test
  * wrapper) so they can inject the 8th `turnstileVerifier` argument directly.
@@ -85,6 +86,19 @@ describe("Turnstile gate — UNCONFIGURED (verifier null) is a clean no-op", () 
     );
     // 200 (challenge issued) — never 400 from a Turnstile gate that's off.
     expect(res.status).toBe(200);
+  });
+
+  it("/login/recovery/email/begin proceeds with no token when Turnstile is unconfigured", async () => {
+    const app = buildApp(null);
+    const res = await app.handle(
+      new Request("http://localhost/login/recovery/email/begin", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ identifier: "ghost@example.com" }),
+      }),
+    );
+    // 202 (the uniform accepted answer) — never 400 from a gate that's off.
+    expect(res.status).toBe(202);
   });
 });
 
@@ -210,5 +224,66 @@ describe("Turnstile gate — CONFIGURED enforces siteverify (fail-closed)", () =
     );
     expect(res.status).toBe(200);
     expect(verifier.calls).toHaveLength(1);
+  });
+
+  // `/login/recovery/email/begin` is the endpoint this gate exists for more
+  // than either of the two above: unauthenticated, and it puts mail in a third
+  // party's inbox on the strength of a submitted address. Same five cases.
+
+  it("/login/recovery/email/begin passes when the token verifies", async () => {
+    const app = buildApp(verifier);
+    const res = await app.handle(
+      new Request("http://localhost/login/recovery/email/begin", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ identifier: "user@example.com", turnstileToken: "good" }),
+      }),
+    );
+    expect(res.status).toBe(202);
+    expect(verifier.calls).toHaveLength(1);
+    expect(verifier.calls[0]!.token).toBe("good");
+    expect(verifier.calls[0]!.remoteip).toBeNull();
+  });
+
+  it("/login/recovery/email/begin rejects when the token is missing", async () => {
+    // Fail-closed, and BEFORE the service runs: no mail, and no database read
+    // that could be timed.
+    // Goes red on: dropping the `turnstileGate` call from the route (the
+    // request then answers the uniform 202).
+    const app = buildApp(verifier);
+    const res = await app.handle(
+      new Request("http://localhost/login/recovery/email/begin", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ identifier: "user@example.com" }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("turnstile_failed");
+  });
+
+  it("/login/recovery/email/begin rejects when the token is invalid", async () => {
+    const app = buildApp(stubVerifier(false));
+    const res = await app.handle(
+      new Request("http://localhost/login/recovery/email/begin", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ identifier: "user@example.com", turnstileToken: "nope" }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("turnstile_failed");
+  });
+
+  it("/login/recovery/email/begin passes cf-connecting-ip to siteverify as remoteip", async () => {
+    const app = buildApp(verifier);
+    await app.handle(
+      new Request("http://localhost/login/recovery/email/begin", {
+        method: "POST",
+        headers: { ...headers, "cf-connecting-ip": "198.51.100.4" },
+        body: JSON.stringify({ identifier: "user@example.com", turnstileToken: "good" }),
+      }),
+    );
+    expect(verifier.calls[0]!.remoteip).toBe("198.51.100.4");
   });
 });

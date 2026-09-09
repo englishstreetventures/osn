@@ -7,7 +7,18 @@ import { toTokenResponseCookieOnly } from "./context";
 import { errorResponse, publicProfile, tokenResponse } from "./response-schemas";
 
 export function createRecoveryRoutes(ctx: AuthRouteContext) {
-  const { auth, run, handleError, rateLimit, socketIpOf, sessionMetaFrom, rl, cookieConfig } = ctx;
+  const {
+    auth,
+    run,
+    handleError,
+    rateLimit,
+    turnstileGate,
+    socketIpOf,
+    sessionMetaFrom,
+    rl,
+    cookieConfig,
+  } = ctx;
+
   return (
     new Elysia()
       // -------------------------------------------------------------------------
@@ -199,6 +210,173 @@ export function createRecoveryRoutes(ctx: AuthRouteContext) {
           },
           // Unauthenticated — the recovery code IS the credential.
           detail: { operationId: "completeRecoveryLogin" },
+        },
+      )
+      // -------------------------------------------------------------------------
+      // Email + TOTP account recovery — the way back in for a user who has lost
+      // the device AND never printed the codes.
+      //
+      // All three are unauthenticated, and all three end in a RESTRICTED
+      // recovery session (`aud: "osn-recovery"`, 15-minute absolute lifetime)
+      // whose only privilege is enrolling a passkey. Nothing here is a login
+      // factor; see `[[wiki/architecture/account-recovery-factors]]` §B.
+      // -------------------------------------------------------------------------
+      .post(
+        "/login/recovery/email/begin",
+        async ({ body, set, headers, server, request }) => {
+          // A recovery code is minted here. Nothing may cache any part of this
+          // exchange — first statement, so the 400s and the 429 carry it too.
+          set.headers["cache-control"] = "no-store";
+
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "recovery_email_begin",
+            rl.recoveryEmailBegin,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          // Bot gate (key-optional, no-op until a secret is set). This endpoint
+          // sends mail to a third party on an unauthenticated request, which is
+          // exactly the shape Turnstile exists to slow down.
+          const tsErr = await turnstileGate("recovery_email_begin", body.turnstileToken, headers);
+          if (tsErr) {
+            set.status = 400;
+            return tsErr;
+          }
+          try {
+            const result = await run(auth.beginEmailRecovery(body.identifier));
+            set.status = 202;
+            return result;
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          body: t.Object({
+            // An email address, NOT a handle. A handle is public and this
+            // endpoint puts mail in somebody's inbox; the service refuses one
+            // on a syntactic check that never touches the database.
+            identifier: t.String(),
+            turnstileToken: t.Optional(t.String()),
+          }),
+          response: {
+            // The SAME body whether the address resolves, does not resolve, or
+            // belongs to an account that has hit its 3-per-24h cap. Telling
+            // them apart is what a dashboard is for.
+            202: t.Object({ status: t.Literal("accepted") }),
+            400: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "beginEmailRecovery" },
+        },
+      )
+      .post(
+        "/login/recovery/email/complete",
+        async ({ body, set, headers, server, request }) => {
+          set.headers["cache-control"] = "no-store";
+
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "recovery_email_complete",
+            rl.recoveryEmailComplete,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const result = await run(
+              auth.completeEmailRecovery(
+                body.identifier,
+                body.code,
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
+              ),
+            );
+            // Exactly as `/login/recovery/complete` above. Without it
+            // `completePasskeyRegistration` cannot resolve the caller's own
+            // session and answers 409 `session_stale` — at the one step this
+            // session exists to perform.
+            set.headers["set-cookie"] = buildSessionCookies(
+              result.session.refreshToken,
+              cookieConfig,
+            );
+            return {
+              session: toTokenResponseCookieOnly(result.session),
+              profile: result.profile,
+            };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          // An email or a handle: the email-only rule belongs to `begin`, which
+          // sends mail. This route sends nothing and answers one generic failure
+          // to anyone not holding the code.
+          body: t.Object({ identifier: t.String(), code: t.String() }),
+          response: {
+            200: t.Object({ session: tokenResponse, profile: publicProfile }),
+            400: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "completeEmailRecovery" },
+        },
+      )
+      .post(
+        "/login/recovery/totp/complete",
+        async ({ body, set, headers, server, request }) => {
+          set.headers["cache-control"] = "no-store";
+
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "recovery_totp_complete",
+            rl.recoveryTotpComplete,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const result = await run(
+              auth.completeTotpRecovery(
+                body.identifier,
+                body.code,
+                sessionMetaFrom(headers, socketIpOf({ server, request })),
+              ),
+            );
+            set.headers["set-cookie"] = buildSessionCookies(
+              result.session.refreshToken,
+              cookieConfig,
+            );
+            return {
+              session: toTokenResponseCookieOnly(result.session),
+              profile: result.profile,
+            };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          body: t.Object({ identifier: t.String(), code: t.String() }),
+          response: {
+            200: t.Object({ session: tokenResponse, profile: publicProfile }),
+            400: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "completeTotpRecovery" },
         },
       )
   );

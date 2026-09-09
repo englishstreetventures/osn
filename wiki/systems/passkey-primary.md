@@ -185,13 +185,40 @@ binding" vector that the enrollmentToken deletion otherwise opened.
 
 ## Recovery flow
 
-Unchanged contract: `POST /login/recovery/complete` returns a session
-directly. The user can immediately add a new passkey from the authenticated
+Three paths, and only the first mints an ordinary session.
+
+`POST /login/recovery/complete` is unchanged: a recovery code returns a session
+directly, and the user can immediately add a new passkey from the authenticated
 state. This is the one place the account-level invariant sees a "temporary"
 relaxation. A user who deleted their old passkey on another device before
 the recovery would technically hold an account backed by recovery codes
 alone. Because `deletePasskey` refuses
 to leave 0 passkeys, that state is unreachable in normal operation.
+
+`POST /login/recovery/email/complete` and `POST /login/recovery/totp/complete`
+mint a **restricted** recovery session instead.
+See [[recovery-codes#The three ways back in]] and [[account-recovery-factors]] §B.
+
+> [!important] An emailed code that yields a session is not the OTP login this page removed
+> The resemblance is real and worth stating plainly, because "we deleted OTP
+> login" and "we added an emailed six-digit code that signs you in" sound like a
+> contradiction. What separates them is not the ceremony but what it buys.
+>
+> OTP **primary login** minted an `osn-access` session: every route in osn-api
+> and every downstream service that verifies over JWKS. Its removal is why the
+> phishing-resistance claim on this page holds. The recovery factors mint
+> `aud: "osn-recovery"` — refused by all four verifiers in osn-api and by the
+> three services outside this repo, accepted by exactly one resolver
+> (`resolvePasskeyEnrollPrincipal`), absolutely expiring in fifteen minutes with
+> no sliding extension, and refused by `verifyRefreshToken` unless the caller
+> opts in, so it cannot complete an OIDC authorization either. It can enrol a
+> passkey and nothing else, and enrolling one is what lifts the restriction.
+>
+> So the sign-in path's phishing resistance is unchanged: there is still no
+> ceremony that turns an emailed code into an ordinary session. The bounded
+> union `AuthMethod` in `@shared/observability` is pinned by a test that exists
+> to keep it that way, and the pin now carries this argument rather than a bare
+> list of members.
 
 ## The one bypass, and where it can exist
 

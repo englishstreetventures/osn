@@ -137,8 +137,20 @@ export interface AuthConfig {
    * Per-account TOTP failed-code lockout. Same shape as the recovery counter
    * and the OPPOSITE outage posture — it fails closed. See
    * `lib/recovery-lockout-store.ts`.
+   *
+   * Its keys are scoped by ceremony: `checkTotpCode` takes a `scope` and keys
+   * `recovery:<accountId>` for `POST /login/recovery/totp/complete`, so failures
+   * at that unauthenticated route cannot lock the authenticated step-up.
    */
   totpLockoutStore?: RecoveryLockoutStore;
+  /**
+   * Per-account lockout for the email-OTP recovery path. Its own instance
+   * rather than a share of {@link recoveryLockoutStore}: an attacker grinding
+   * 64-bit recovery codes must not deny the owner the email path, nor the
+   * reverse — the whole point of a second recovery factor is that it is
+   * independent of the first. Fails CLOSED, like {@link totpLockoutStore}.
+   */
+  recoveryOtpLockoutStore?: RecoveryLockoutStore;
   /**
    * AES-GCM key that TOTP shared secrets are encrypted under at rest, imported
    * once at boot from `OSN_TOTP_ENCRYPTION_KEY`. `buildAppDeps` always supplies
@@ -168,6 +180,14 @@ export interface AuthConfig {
    */
   profileSwitchCap?: AccountCapLimiter;
   emailChangeBeginCap?: AccountCapLimiter;
+  /**
+   * Per-account cap on `/login/recovery/email/begin` (3 per 24 h). Keyed on the
+   * resolved accountId — never on the submitted identifier, or an attacker
+   * could exhaust a victim's allowance by naming them, and the cap would double
+   * as an account-existence oracle. See
+   * {@link RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX}.
+   */
+  recoveryEmailBeginCap?: AccountCapLimiter;
   /**
    * HMAC key for pairwise subject identifiers. Every relying party sees a
    * different `sub` for the same profile, derived from this key plus the

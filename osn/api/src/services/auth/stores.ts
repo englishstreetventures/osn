@@ -30,6 +30,7 @@ export interface CeremonyStores {
   pendingRegistrations: CeremonyStore<PendingRegistration>;
   stepUpPasskeyChallenges: CeremonyStore<ChallengeEntry>;
   stepUpOtp: CeremonyStore<StepUpOtpEntry>;
+  pendingRecoveryOtp: CeremonyStore<PendingRecoveryOtp>;
   pendingTotpEnrollments: CeremonyStore<PendingTotpEnrollment>;
   pendingEmailChanges: CeremonyStore<PendingEmailChange>;
   crossDeviceRequests: CeremonyStore<CrossDeviceRequest>;
@@ -83,6 +84,25 @@ export interface CrossDeviceRequest {
 // a login OTP cannot be replayed to authorise a sensitive action, and vice
 // versa. Structure matches OtpEntry but without profileId (accountId is the key).
 export interface StepUpOtpEntry {
+  codeHash: string;
+  attempts: number;
+  expiresAt: number;
+}
+
+/**
+ * The 6-digit code emailed by `POST /login/recovery/email/begin`, keyed by
+ * accountId and awaiting `POST /login/recovery/email/complete`.
+ *
+ * Structurally identical to {@link StepUpOtpEntry} and deliberately a separate
+ * store rather than a share of it: a step-up code authorises an action for
+ * somebody already signed in, while this one hands out a session to somebody who
+ * is not. Sharing the key space would let either be presented where the other
+ * was minted.
+ *
+ * Never in D1. A pending recovery code is not a credential — it is a ten-minute
+ * ceremony — and the durable store is not where ten-minute state belongs.
+ */
+export interface PendingRecoveryOtp {
   codeHash: string;
   attempts: number;
   expiresAt: number;
@@ -229,6 +249,10 @@ export function createDefaultCeremonyStores(): CeremonyStores {
       observer,
     ),
     stepUpOtp: createInMemoryCeremonyStore<StepUpOtpEntry>("step_up_otp", observer),
+    pendingRecoveryOtp: createInMemoryCeremonyStore<PendingRecoveryOtp>(
+      "pending_recovery_otp",
+      observer,
+    ),
     pendingTotpEnrollments: createInMemoryCeremonyStore<PendingTotpEnrollment>(
       "pending_totp_enroll",
       observer,

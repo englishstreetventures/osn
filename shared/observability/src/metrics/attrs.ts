@@ -24,8 +24,24 @@ export const RESULT_VALUES = [
 /** Generic outcome for any operation. Keep the set small. */
 export type Result = (typeof RESULT_VALUES)[number];
 
-/** Auth methods supported by OSN Core. Passkey (incl. security keys) is the only primary login factor; recovery_code is the "lost device" escape hatch; refresh tracks token refresh cycles. */
-export type AuthMethod = "passkey" | "recovery_code" | "refresh";
+/**
+ * Auth methods supported by OSN Core. Passkey (incl. security keys) is the only
+ * primary login factor; refresh tracks token refresh cycles. The other three are
+ * account recovery, and none of them is a login factor.
+ *
+ * `recovery_code` mints an ordinary session. `email_recovery` and
+ * `totp_recovery` mint a **restricted** one — `aud: "osn-recovery"`, 15-minute
+ * absolute lifetime, rejected by every verifier in this service and in the three
+ * downstream services, and able to do exactly one thing: enrol a passkey. So
+ * neither reinstates the OTP primary login `[[passkey-primary]]` removed; see
+ * `wiki/architecture/account-recovery-factors.md` §B.
+ */
+export type AuthMethod =
+  | "passkey"
+  | "recovery_code"
+  | "email_recovery"
+  | "totp_recovery"
+  | "refresh";
 
 /** Registration funnel steps. */
 export type RegisterStep = "begin" | "otp_verify" | "passkey_enroll" | "complete";
@@ -72,6 +88,9 @@ export type SecurityInvalidationTrigger =
   | "email_change"
   | "recovery_code_generate"
   | "recovery_code_consume"
+  // Email-OTP or TOTP recovery completed: every session on the account is
+  // wiped and a restricted recovery session replaces them.
+  | "account_recovered"
   | "session_revoke"
   | "session_revoke_all";
 
@@ -142,8 +161,17 @@ export type RotatedStoreBackend = "memory" | "redis";
 /** Email-change ceremony steps, for funnel counters. */
 export type EmailChangeStep = "begin" | "complete";
 
-/** Recovery code (Copenhagen Book M2) operation steps. */
-export type RecoveryCodeStep = "generate" | "consume";
+/**
+ * Account-recovery operation steps. The first two are the recovery-code
+ * ceremony (Copenhagen Book M2); the other three are the email-OTP and TOTP
+ * factors that mint a restricted recovery session.
+ */
+export type RecoveryCodeStep =
+  | "generate"
+  | "consume"
+  | "email_begin"
+  | "email_complete"
+  | "totp_complete";
 
 /** Recovery code consume outcomes. */
 export type RecoveryCodeConsumeResult = "success" | "invalid" | "used";
@@ -160,6 +188,14 @@ export type SecurityEventKind =
   // Emitted when an account crosses the recovery-code failed-attempt
   // lockout threshold (per-account, keyed on the resolved accountId).
   | "recovery_code_lockout"
+  // A recovery factor (email OTP or TOTP) was accepted and a restricted
+  // recovery session issued. Written in the same batch as the session wipe, so
+  // the banner shows it even when the notice email is never read.
+  | "account_recovered"
+  // Emitted when an account crosses the failed-attempt threshold on the
+  // email-OTP recovery path. Keyed on the resolved accountId, like its
+  // recovery-code sibling.
+  | "recovery_otp_lockout"
   | "passkey_register"
   | "passkey_delete"
   | "totp_enrolled"
@@ -250,6 +286,9 @@ export type AuthRateLimitedEndpoint =
   | "recovery_generate"
   | "recovery_status"
   | "recovery_complete"
+  | "recovery_email_begin"
+  | "recovery_email_complete"
+  | "recovery_totp_complete"
   | "step_up_passkey_begin"
   | "step_up_passkey_complete"
   | "step_up_otp_begin"

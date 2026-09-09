@@ -81,6 +81,7 @@ export const OSN_METRICS = {
   authCeremonyStoreEntries: "osn.auth.ceremony_store.entries",
   authSessionSecurityInvalidation: "osn.auth.session.security_invalidation",
   authRecoveryLockout: "osn.auth.recovery.lockout",
+  authRecoveryEmailBegin: "osn.auth.recovery.email_begin",
   authRecoveryCodesGenerated: "osn.auth.recovery.codes_generated",
   authRecoveryCodeConsumed: "osn.auth.recovery.code_consumed",
   authRecoveryDuration: "osn.auth.recovery.duration",
@@ -134,10 +135,10 @@ type RegisterAttrs = { step: RegisterStep; result: Result };
 type LoginAttrs = { method: AuthMethod; result: Result };
 type TokenRefreshAttrs = { result: Result };
 type HandleCheckAttrs = { result: "available" | "taken" | "invalid" };
-type OtpSentAttrs = { purpose: "registration" | "step_up" | "email_change" };
+type OtpSentAttrs = { purpose: "registration" | "step_up" | "email_change" | "recovery" };
 type AuthRateLimitAttrs = { endpoint: AuthRateLimitedEndpoint };
 /** Turnstile-gated endpoints. Bounded literal union — never a raw path. */
-type AuthTurnstileEndpoint = "register_begin" | "passkey_login_begin";
+type AuthTurnstileEndpoint = "register_begin" | "passkey_login_begin" | "recovery_email_begin";
 type AuthTurnstileRejectedAttrs = { endpoint: AuthTurnstileEndpoint };
 type GraphConnectionAttrs = { action: GraphConnectionAction; result: Result };
 type GraphBlockAttrs = { action: GraphBlockAction; result: Result };
@@ -431,8 +432,9 @@ export const withGraphBlockOp =
 export const metricAuthHandleCheck = (result: "available" | "taken" | "invalid"): void =>
   authHandleCheck.inc({ result });
 
-export const metricAuthOtpSent = (purpose: "registration" | "step_up" | "email_change"): void =>
-  authOtpSent.inc({ purpose });
+export const metricAuthOtpSent = (
+  purpose: "registration" | "step_up" | "email_change" | "recovery",
+): void => authOtpSent.inc({ purpose });
 
 export const withOrgOp =
   (action: OrgAction) =>
@@ -659,6 +661,35 @@ const authRecoveryLockout = createCounter<RecoveryLockoutAttrs>({
 export const metricRecoveryLockout = (result: RecoveryLockoutAttrs["result"]): void =>
   authRecoveryLockout.inc({ result });
 
+/**
+ * Outcome of `POST /login/recovery/email/begin`.
+ *
+ * The endpoint answers an identical 202 on all three, by design — which is
+ * exactly why it needs a counter. Without one the per-account flood cap is
+ * invisible: nothing in a log or a status code distinguishes a capped request
+ * from a delivered one, so an inbox under attack looks the same as an idle
+ * endpoint.
+ *
+ * Aggregate counts only. The submitted identifier, the resolved account and the
+ * code itself appear nowhere near this.
+ *
+ * `capped` also covers a cap backend that could not be reached:
+ * `createRedisRateLimiter.check` returns `false` on a Redis error (fail-closed),
+ * and the limiter contract gives the caller no way to tell that from a real
+ * cap. A sustained `capped` rate with no matching inbox complaint is the tell;
+ * correlate with Redis health rather than reading this alone.
+ */
+type RecoveryEmailBeginAttrs = { result: "sent" | "capped" | "unknown_identifier" };
+
+const authRecoveryEmailBegin = createCounter<RecoveryEmailBeginAttrs>({
+  name: OSN_METRICS.authRecoveryEmailBegin,
+  description: "Email account-recovery begin attempts by outcome (all answer 202)",
+  unit: "{attempt}",
+});
+
+export const metricRecoveryEmailBegin = (result: RecoveryEmailBeginAttrs["result"]): void =>
+  authRecoveryEmailBegin.inc({ result });
+
 // ---------------------------------------------------------------------------
 // Recovery codes (Copenhagen Book M2)
 // ---------------------------------------------------------------------------
@@ -680,7 +711,7 @@ const authRecoveryCodeConsumed = createCounter<RecoveryConsumeAttrs>({
 
 const authRecoveryDuration = createHistogram<RecoveryStepAttrs>({
   name: OSN_METRICS.authRecoveryDuration,
-  description: "Recovery code generate/consume duration by step",
+  description: "Account-recovery duration by step (recovery code, email OTP, TOTP)",
   unit: "s",
   boundaries: LATENCY_BUCKETS_SECONDS,
 });
@@ -962,7 +993,19 @@ export const metricPasskeyLoginDiscoverable = (result: Result): void =>
 
 type TotpOpAttrs = { op: TotpOp; result: Result };
 type TotpVerifiedAttrs = { result: TotpVerifyResult };
-type TotpLockoutAttrs = { result: "recorded" | "locked" | "reset" };
+/**
+ * `scope` separates the two surfaces that check TOTP codes. They keep separate
+ * counters (see `checkTotpCode`), and without this attribute a dashboard cannot
+ * tell a grinding attack on the UNAUTHENTICATED recovery route from one on the
+ * authenticated step-up. Two values, three results — six series.
+ */
+type TotpLockoutAttrs = {
+  result: "recorded" | "locked" | "reset";
+  scope: TotpLockoutScope;
+};
+
+/** Which ceremony a TOTP code check belongs to. */
+export type TotpLockoutScope = "step_up" | "recovery";
 
 const authTotpOps = createCounter<TotpOpAttrs>({
   name: OSN_METRICS.authTotpOps,
@@ -992,8 +1035,10 @@ const authTotpLockout = createCounter<TotpLockoutAttrs>({
 export const metricTotpVerified = (result: TotpVerifyResult): void =>
   authTotpVerified.inc({ result });
 
-export const metricTotpLockout = (result: TotpLockoutAttrs["result"]): void =>
-  authTotpLockout.inc({ result });
+export const metricTotpLockout = (
+  result: TotpLockoutAttrs["result"],
+  scope: TotpLockoutScope,
+): void => authTotpLockout.inc({ result, scope });
 
 export const withTotpOp =
   (op: TotpOp) =>

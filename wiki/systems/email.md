@@ -84,12 +84,25 @@ The template catalogue is the complete list of emails OSN sends:
 | `otp-registration`       | `{ code, ttlMinutes }`              | `beginRegistration` |
 | `otp-step-up`            | `{ code, ttlMinutes }`              | `beginStepUpOtp` |
 | `otp-email-change`       | `{ code, ttlMinutes }`              | `beginEmailChange` |
+| `otp-recovery`           | `{ code, ttlMinutes }`              | `beginEmailRecovery` |
 | `recovery-generated`     | `{}`                                | `notifyRecovery("recovery_code_generate")` |
 | `recovery-consumed`      | `{}`                                | `notifyRecovery("recovery_code_consume")` |
+| `recovery-used`          | `{}`                                | `completeRecoveryFactor` (email + TOTP) |
 | `passkey-added`          | `{}`                                | `notifyPasskeyRegisteredByAccountId` |
 | `passkey-removed`        | `{}`                                | `notifyPasskeyDeletedByAccountId` |
 | `totp-enrolled`          | `{}`                                | `completeTotpEnrollment` |
 | `totp-disabled`          | `{}`                                | `disableTotp` |
+
+`otp-recovery` is the only OTP template sent from an **unauthenticated**
+endpoint, which shapes its copy: anyone who knows the address can cause it to
+arrive (capped at 3 per 24 h per account), so it reads as something a stranger
+may have triggered, says plainly that ignoring it is safe, and names no handle
+or display name — the address is the only thing the sender proved they know.
+
+`recovery-used` is the loudest notice in the catalogue: every session on the
+account has just been revoked and somebody who is not holding a passkey is
+signed in. It deliberately does not say *which* factor was used, so a mailbox an
+attacker is reading discloses nothing about the account's other factors.
 
 Adding a template requires three edits in the same PR:
 `shared/email/src/templates/index.ts` (union + data map + dispatcher),

@@ -52,6 +52,13 @@ export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimite
       maxRequests: 5,
       windowMs: ONE_HOUR_MS,
     }),
+    recoveryEmailBegin: createRedisRateLimiter(client, {
+      namespace: "auth:recovery_email_begin",
+      maxRequests: 5,
+      windowMs: ONE_HOUR_MS,
+    }),
+    recoveryEmailComplete: rl("auth:recovery_email_complete", 10),
+    recoveryTotpComplete: rl("auth:recovery_totp_complete", 10),
     stepUpPasskeyBegin: rl("auth:step_up_passkey_begin", 10),
     stepUpPasskeyComplete: rl("auth:step_up_passkey_complete", 10),
     stepUpOtpBegin: rl("auth:step_up_otp_begin", 5),

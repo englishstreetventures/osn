@@ -19,13 +19,19 @@ import {
   type EnquiryReplyData,
   type EnquiryQuoteData,
 } from "./enquiry";
-import { renderEmailChangeOtp, renderRegistrationOtp, renderStepUpOtp } from "./otp";
+import {
+  renderEmailChangeOtp,
+  renderRecoveryOtp,
+  renderRegistrationOtp,
+  renderStepUpOtp,
+} from "./otp";
 import {
   renderCrossDeviceLogin,
   renderPasskeyAdded,
   renderPasskeyRemoved,
   renderRecoveryConsumed,
   renderRecoveryGenerated,
+  renderRecoveryUsed,
   renderTotpDisabled,
   renderTotpEnrolled,
 } from "./security";
@@ -39,8 +45,10 @@ export type EmailTemplate =
   | "otp-registration"
   | "otp-step-up"
   | "otp-email-change"
+  | "otp-recovery"
   | "recovery-generated"
   | "recovery-consumed"
+  | "recovery-used"
   | "passkey-added"
   | "passkey-removed"
   | "totp-enrolled"
@@ -56,8 +64,10 @@ export interface EmailTemplateDataMap {
   "otp-registration": { code: string; ttlMinutes: number };
   "otp-step-up": { code: string; ttlMinutes: number };
   "otp-email-change": { code: string; ttlMinutes: number };
+  "otp-recovery": { code: string; ttlMinutes: number };
   "recovery-generated": Record<string, never>;
   "recovery-consumed": Record<string, never>;
+  "recovery-used": Record<string, never>;
   "passkey-added": Record<string, never>;
   "passkey-removed": Record<string, never>;
   "totp-enrolled": Record<string, never>;
@@ -97,10 +107,14 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderStepUpOtp(data as EmailTemplateData<"otp-step-up">);
     case "otp-email-change":
       return renderEmailChangeOtp(data as EmailTemplateData<"otp-email-change">);
+    case "otp-recovery":
+      return renderRecoveryOtp(data as EmailTemplateData<"otp-recovery">);
     case "recovery-generated":
       return renderRecoveryGenerated();
     case "recovery-consumed":
       return renderRecoveryConsumed();
+    case "recovery-used":
+      return renderRecoveryUsed();
     case "passkey-added":
       return renderPasskeyAdded();
     case "passkey-removed":
@@ -126,8 +140,10 @@ export {
   renderRegistrationOtp,
   renderStepUpOtp,
   renderEmailChangeOtp,
+  renderRecoveryOtp,
   renderRecoveryGenerated,
   renderRecoveryConsumed,
+  renderRecoveryUsed,
   renderPasskeyAdded,
   renderPasskeyRemoved,
   renderTotpEnrolled,

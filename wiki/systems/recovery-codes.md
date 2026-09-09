@@ -16,7 +16,47 @@ last-reviewed: 2026-09-09
 ---
 # Recovery Codes
 
-Copenhagen Book **M2** — single-use, high-entropy, account-scoped recovery tokens. They're the "my device is gone" escape hatch in the passkey-primary model (`[[passkey-primary]]`). They are **not** a substitute credential: `deletePasskey` refuses to drop the account below 1 passkey regardless of recovery-code state.
+Copenhagen Book **M2** — single-use, high-entropy, account-scoped recovery tokens. They're the original "my device is gone" escape hatch in the passkey-primary model (`[[passkey-primary]]`). They are **not** a substitute credential: `deletePasskey` refuses to drop the account below 1 passkey regardless of recovery-code state.
+
+## The three ways back in
+
+Recovery codes are no longer the only one. This page is still the recovery-code
+page; the other two are designed in [[account-recovery-factors]] and the TOTP
+credential itself is [[totp]].
+
+| Path | Endpoint | Ends in |
+|---|---|---|
+| Recovery code | `POST /login/recovery/complete` | an **ordinary** session |
+| Emailed code | `POST /login/recovery/email/{begin,complete}` | a **restricted** recovery session |
+| Authenticator app | `POST /login/recovery/totp/complete` | a **restricted** recovery session |
+
+The split matters. A recovery code is a 64-bit secret the user was handed once
+and told to keep, so presenting one is strong evidence and it mints a full
+session. The other two rest on the mailbox or on a seed, so they mint a session
+whose access token carries `aud: "osn-recovery"` — refused by every verifier in
+osn-api and by `pulse/api`, `zap/api` and `cire/api` — which expires in fifteen
+minutes and can do exactly one thing: enrol a passkey. Doing so lifts the
+restriction.
+
+All three behave identically once the factor is accepted: every session on the
+account is revoked and an audit row is written **in the same batch**, before the
+new session exists, then a notice is detached. `consumeRecoveryCode` is the
+reference implementation and the other two match it deliberately — a second
+recovery ceremony that revoked less, or recorded less, would be a quieter way
+into the same account. The audit rows differ only in `kind`
+(`recovery_code_consume` vs `account_recovered`).
+
+> [!warning] The email path is the one that sends mail to somebody who did not ask
+> `POST /login/recovery/email/begin` is unauthenticated and takes an **email
+> address, not a handle** — `/login/passkey/begin` may take a handle because it
+> sends nothing. It answers the same `202 {"status":"accepted"}` whether the
+> address resolves, does not resolve, or belongs to an account that has hit its
+> cap, and it **dispatches the send detached** so the branches also cost the
+> same: awaiting a provider round trip is an account-existence oracle that no
+> amount of body uniformity closes. The flood control is per **resolved account**
+> (3 per 24 h) as well as per IP, keyed on the `accountId` and never on the
+> submitted identifier. See [[account-recovery-factors]]
+> §"Enumeration, timing and flood control".
 
 ## Shape
 

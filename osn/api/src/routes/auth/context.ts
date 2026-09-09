@@ -189,7 +189,7 @@ export function createAuthRouteContext(deps: AuthRouteDeps) {
    *    secret is never logged; only the bounded outcome metric is emitted.
    */
   async function turnstileGate(
-    endpoint: "register_begin" | "passkey_login_begin",
+    endpoint: "register_begin" | "passkey_login_begin" | "recovery_email_begin",
     token: string | undefined,
     headers: Record<string, string | undefined>,
   ): Promise<{ error: string } | null> {

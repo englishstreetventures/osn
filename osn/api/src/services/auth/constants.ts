@@ -152,6 +152,35 @@ export const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
 export const EMAIL_CHANGE_BEGIN_PER_ACCOUNT_MAX = 3;
 
 // ---------------------------------------------------------------------------
+// Email account recovery (`POST /login/recovery/email/{begin,complete}`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-account cap on `/login/recovery/email/begin`, keyed on the RESOLVED
+ * accountId and never on the submitted identifier.
+ *
+ * The endpoint is unauthenticated and the recipient is the account holder's own
+ * verified address, so an uncapped one floods a victim's inbox and — worse —
+ * trains them to expect unsolicited recovery mail, which is the state a phishing
+ * message wants them in. A per-IP limit alone does not reach this: a rotating
+ * fleet defeats per-IP keys, which is why the cap exists at all.
+ *
+ * Three in 24 hours is above any honest retry (the code lives ten minutes and a
+ * user who mistypes their address simply sends again) and far below anything
+ * that reads as a flood.
+ */
+export const RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000;
+export const RECOVERY_EMAIL_BEGIN_PER_ACCOUNT_MAX = 3;
+
+/**
+ * How long an emailed recovery code stays valid. Matches the other OTP
+ * ceremonies: long enough to leave the page, find the message and come back;
+ * short enough that a code sitting in a compromised mailbox is not a standing
+ * key to the account.
+ */
+export const RECOVERY_OTP_TTL_MS = 10 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
 // OIDC provider
 // ---------------------------------------------------------------------------
 

@@ -22,6 +22,17 @@ export type AuthRateLimiters = Readonly<{
   recoveryStatus: RateLimiterBackend;
   /** Recovery code login — per-IP quota, stricter than normal login completers. */
   recoveryComplete: RateLimiterBackend;
+  /**
+   * Email account-recovery begin (unauthenticated, SENDS MAIL to the address on
+   * file). Hour window, so it stays on Redis. The per-IP budget is the coarse
+   * brake; the flood defence that matters is the per-ACCOUNT cap
+   * (`recoveryEmailBeginCap`), because a rotating fleet defeats per-IP keys.
+   */
+  recoveryEmailBegin: RateLimiterBackend;
+  /** Email account-recovery complete (unauthenticated, verifies a 6-digit code). */
+  recoveryEmailComplete: RateLimiterBackend;
+  /** TOTP account-recovery complete (unauthenticated, verifies a 6-digit code). */
+  recoveryTotpComplete: RateLimiterBackend;
   /** Step-up passkey begin (authenticated, issues a challenge). */
   stepUpPasskeyBegin: RateLimiterBackend;
   /** Step-up passkey complete (authenticated, consumes assertion). */
@@ -134,6 +145,15 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     // is already constant-time, but per-IP throttling curbs online brute
     // force across different account identifiers.
     recoveryComplete: createRateLimiter({ maxRequests: 5, windowMs: 3_600_000 }),
+    // Mail-sending and unauthenticated: the same posture as emailChangeBegin,
+    // one hour rather than one minute. A locked-out user retrying honestly
+    // needs two or three; anything past that is not a person.
+    recoveryEmailBegin: createRateLimiter({ maxRequests: 5, windowMs: 3_600_000 }),
+    // Code entry. Mirrors the step-up OTP / TOTP completers — the real brake on
+    // guessing six digits is the per-account lockout, which no rotating fleet
+    // can spread across.
+    recoveryEmailComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    recoveryTotpComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     // Step-up ceremonies: treat like login completers. A misbehaving
     // browser that keeps retrying a bad OTP shouldn't be able to burn
     // through codes faster than a human.
