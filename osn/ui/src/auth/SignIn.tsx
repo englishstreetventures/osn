@@ -1,4 +1,4 @@
-import type { LoginClient, RecoveryClient } from "@osn/client";
+import type { LoginClient, RecoveryClient, RegistrationClient } from "@osn/client";
 import { useAuth } from "@osn/client/solid";
 import { toast } from "@shared/toast";
 import { browserSupportsWebAuthn, startAuthentication } from "@simplewebauthn/browser";
@@ -8,6 +8,7 @@ import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { RecoveryLoginForm } from "./RecoveryLoginForm";
+import type { RunPasskeyRegistration } from "./StepUpDialog";
 import { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";
 
 /**
@@ -27,6 +28,16 @@ export interface SignInProps {
   client: LoginClient;
   /** Needed for the "Lost your passkey?" escape hatch. */
   recoveryClient: RecoveryClient;
+  /**
+   * Enables the two recovery factors that end in passkey enrolment (an emailed
+   * code, an authenticator code). Both mint a restricted session whose only
+   * permitted action is enrolling a passkey, so both need a registration
+   * client and a ceremony runner to finish. Omit either and only the
+   * recovery-code path is offered.
+   */
+  registrationClient?: RegistrationClient;
+  /** Executes the browser-side WebAuthn attestation for that enrolment. */
+  runPasskeyRegistration?: RunPasskeyRegistration;
   onSuccess?: () => void;
   onCancel?: () => void;
   /**
@@ -246,6 +257,9 @@ export function SignIn(props: SignInProps) {
       <Show when={!signedIn() && view() === "recovery"}>
         <RecoveryLoginForm
           client={props.recoveryClient}
+          registrationClient={props.registrationClient}
+          runPasskeyRegistration={props.runPasskeyRegistration}
+          turnstileSiteKey={props.turnstileSiteKey}
           onSuccess={() => {
             setSignedIn(true);
             props.onSuccess?.();

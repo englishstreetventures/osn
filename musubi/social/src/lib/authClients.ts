@@ -6,6 +6,7 @@ import {
   createRegistrationClient,
   createSecurityEventsClient,
   createStepUpClient,
+  createTotpClient,
 } from "@osn/client";
 
 import { OSN_ISSUER_URL } from "./auth";
@@ -17,3 +18,4 @@ export const passkeysClient = createPasskeysClient({ issuerUrl: OSN_ISSUER_URL }
 export const stepUpClient = createStepUpClient({ issuerUrl: OSN_ISSUER_URL });
 export const connectionsClient = createConnectionsClient({ issuerUrl: OSN_ISSUER_URL });
 export const securityEventsClient = createSecurityEventsClient({ issuerUrl: OSN_ISSUER_URL });
+export const totpClient = createTotpClient({ issuerUrl: OSN_ISSUER_URL });

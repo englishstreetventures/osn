@@ -1,4 +1,9 @@
-import type { SecurityEventsClient, SecurityEventSummary, StepUpClient } from "@osn/client";
+import type {
+  SecurityEventsClient,
+  SecurityEventSummary,
+  StepUpClient,
+  TotpClient,
+} from "@osn/client";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { Button } from "../components/ui/button";
@@ -38,6 +43,12 @@ export interface SecurityEventsBannerProps {
    * option in the step-up modal (OTP-only fallback).
    */
   runPasskeyCeremony?: RunPasskeyCeremony;
+  /**
+   * TOTP client. Supplied, the step-up dialog offers the authenticator-app
+   * factor — `security_event_ack` admits it. Omitted, it does not.
+   * See `StepUpDialog.totpClient`.
+   */
+  totpClient?: TotpClient;
 }
 
 function formatTs(ts: number): string {
@@ -126,6 +137,7 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
           onToken={onStepUpToken}
           onCancel={() => setStepUpOpen(false)}
           runPasskeyCeremony={props.runPasskeyCeremony}
+          totpClient={props.totpClient}
           purpose="security_event_ack"
         />
       </Show>

@@ -11,8 +11,8 @@ packages:
   - "@osn/api"
   - "@osn/client"
   - "@osn/ui"
-  - "@cire/host"
-last-reviewed: 2026-09-09
+  - "@musubi/social"
+last-reviewed: 2026-09-10
 ---
 
 # Passkey-Primary Login
@@ -80,6 +80,9 @@ UI surface (`@osn/ui/auth`):
   to `<RecoveryLoginForm>`. Feature-detects `browserSupportsWebAuthn()`; when
   false, shows a "passkey or security key required" screen that still lets
   the user enter a recovery code.
+- `<RecoveryLoginForm>` — the factor chooser behind that link: a recovery code,
+  an emailed code, or an authenticator code. Only the first mints an ordinary
+  session; see [[#What the recovery screen does with a restricted session]].
 - `<Register>` — WebAuthn-gated. The flow stops at the start if the
   environment lacks WebAuthn support, and completion stays blocked until
   first-credential enrolment succeeds.
@@ -93,24 +96,68 @@ UI surface (`@osn/ui/auth`):
   help disclosure that points users at the three real ways onto a fresh
   device (backed-up/synced passkey, password-manager cross-device QR,
   recovery code) — see "New-device onboarding" below.
-  - **`passkeyOnly` prop** — when set, the step-up dialog suppresses the OTP
-    ("email me a code") factor and drives the passkey ceremony directly.
-    Required wherever transactional email is degraded, so that an OTP
-    step-up cannot dead-end on a code that never arrives. Every
-    passkey-management gate accepts a passkey step-up (delete defaults to
-    `webauthn`-only AMR; rename/register accept `webauthn`), so the flow
-    stays fully functional without email.
-    The cire organiser portal still sets it, but the reason no longer holds:
-    it was set while osn-api ran with `OSN_EMAIL_OPTIONAL=true`, and osn-api
-    has delivered mail through Resend since 2026-06-18 ([[email]]). Whether
-    to drop the prop there is an open decision — see the open issues in `xchromo/osn`.
+  - **`passkeyOnly` prop** — see [[#What `passkeyOnly` means]] below.
 
 ### Surfaces that mount `<PasskeysView>`
 
 | App | Mount point | Notes |
 |---|---|---|
-| `@musubi/social` | lazy `SecuritySection` (Settings → Security) | OTP factor available. |
-| `@cire/host` | `SecurityPanel.tsx`, reached via the top-level **Security** nav item (`#security`) in `OrganiserApp` | `passkeyOnly` still forced on, from the pre-Resend degraded-email era — open decision, tracked as an issue in `xchromo/osn`. Wires the WebAuthn ceremonies with `@simplewebauthn/browser`; reads `accessToken` + `activeProfileId` from `useAuth()`. |
+| `@musubi/social` | lazy `SecuritySection` (Settings → Security) | All three step-up factors available. Also mounts `<TotpView>` and `<RecoveryCodesView>`, and hands each a `TotpClient`. |
+| `@cire/host` | **none** | `SecurityPanel.tsx` used to render it. It no longer does: a WebAuthn credential only works on an origin same-site with its RP ID, and passkeys are bound to `musubi.social`, so `host.cireweddings.com` cannot run the ceremony — and under the OIDC flow the portal never holds an OSN access token to authenticate a passkey call with. The panel links out to `${OSN_ACCOUNT_URL}/settings#security` instead. |
+
+> [!info] `passkeyOnly` has no callers
+> With the cire mount gone, nothing in this repository sets it. It stays on the
+> component because `@osn/ui` is OSN-the-system rather than Musubi's own code
+> ([[osn-and-musubi]]) and any instance running without deliverable mail needs
+> it. That is also why the decision below settles its *meaning* rather than
+> deleting it.
+
+### What `passkeyOnly` means
+
+**It means the host cannot deliver mail.** It suppresses the emailed-code
+factor and nothing else: the passkey factor is unaffected, and the
+authenticator-app factor stays on offer wherever the ceremony and the account
+allow it. With it set the dialog also auto-starts the passkey ceremony on
+mount, since there is no factor picker to show first.
+
+The reason is the whole reason the prop exists. It is there so an OTP step-up
+cannot dead-end on a code that never arrives — and a TOTP code has no delivery
+step, so it cannot fail that way. Suppressing it too would remove a working
+factor for no benefit, on exactly the hosts with fewest factors left.
+
+> [!note] Why it was not renamed to something like `noEmailFactor`
+> That name is more accurate and the rename was considered. Against it: the
+> prop has no callers, so a breaking change across a package three workspaces
+> consume would benefit nobody; and where no authenticator is enrolled — every
+> account until the TOTP surfaces shipped — the dialog really is passkey-only,
+> which is the state the name was written for. The ambiguity is closed by
+> writing the meaning down here and in the prop's own TSDoc rather than by
+> moving it. Do not re-litigate without a caller to point at.
+
+### Which factors a ceremony offers
+
+`<StepUpDialog>` derives this from its `purpose` rather than offering every
+factor everywhere, because a factor the gated endpoint refuses is not a shorter
+menu — it is a dead end. The ceremony succeeds, a token is minted, and the call
+it was minted for fails.
+
+| Ceremony | Passkey | Emailed code | Authenticator |
+|---|---|---|---|
+| `passkey_register`, `totp_enroll`, `totp_disable` | yes | yes | yes |
+| `recovery_generate`, `security_event_ack`, `account_delete`, `account_export`, `pulse_app_delete`, `zap_app_delete` | yes | yes | yes |
+| `passkey_delete` (gates rename too) | yes | **no** | **no** |
+| `email_change` | yes | yes | **no** |
+
+That table mirrors the **defaults** in `osn/api/src/services/auth/context.ts`;
+three of the four allow-lists are `AuthConfig` fields, so a deployment that
+narrows one reintroduces a dead end the UI cannot see. No deployment sets them.
+
+Fixing this removed a dead end that had been live: the dialog previously
+offered "Email me a code" for passkey rename and delete, whose gate is
+`["webauthn"]`, so the code arrived and the action still failed. The
+authenticator factor additionally requires a confirmed credential — the dialog
+asks `GET /totp/status` itself rather than taking a flag from its host, so the
+two cannot be wired inconsistently.
 
 ## New-device onboarding
 
@@ -198,6 +245,48 @@ to leave 0 passkeys, that state is unreachable in normal operation.
 `POST /login/recovery/email/complete` and `POST /login/recovery/totp/complete`
 mint a **restricted** recovery session instead.
 See [[recovery-codes#The three ways back in]] and [[account-recovery-factors]] §B.
+
+### What the recovery screen does with a restricted session
+
+`<RecoveryLoginForm>` opens on a factor chooser. The recovery-code path is
+unchanged — it mints an ordinary session, adopts it, and hands off. The two new
+paths behave differently in four ways, each forced by the restriction:
+
+- **They are hidden where `browserSupportsWebAuthn()` is false.** A restricted
+  session's one permitted action is a WebAuthn ceremony, so on a browser that
+  cannot run one it can do nothing at all; offering the path would mint a
+  credential the user cannot use and strand them when it expires. The screen
+  shows the same escape routes as the unsupported-browser sign-in screen
+  instead. The same rule hides them when the host wired no registration client
+  or ceremony runner: a path is offered only when everything needed to finish
+  it is present.
+- **They route straight into passkey enrolment**, with one action and copy that
+  says what a recovery session is and what it can do. No menu, nothing else on
+  offer.
+- **They never adopt the session — before or after enrolment.** Adopting early
+  unmounts the flow (`AuthDialogs` hides its dialogs the moment `session()` is
+  truthy, the trap recorded above for registration). Adopting *late* is equally
+  wrong, and this is where the `<Register>` analogy stops: `<Register>` holds an
+  `osn-access` token, whereas these hold `osn-recovery`, and
+  `POST /passkey/register/complete` returns no new token set — it clears
+  `restrictedUntil` on the row but cannot rewrite a JWT already in the browser.
+  Publishing it would announce a signed-in user whose token every ordinary route
+  rejects, and `listProfiles` uses a plain `fetch` with no silent refresh to
+  repair it. So a successful recovery ends by sending the user back to sign in
+  with the passkey they now hold — which also proves the new credential works
+  while they can still recover again if it does not.
+- **Expiry is its own screen**, not a 401 toast. Somebody who has just proved
+  who they are and then meets a generic error concludes the product is broken.
+
+> [!warning] The screen gets five minutes, not fifteen
+> Two deadlines are in play and the shorter one is the one the browser sees.
+> The session row lives `RECOVERY_SESSION_TTL_SEC` (900 s), but the access
+> token in the same response is signed with `accessTokenTtl` — 300 s by default
+> — and this flow holds the token outside `AuthProvider`, so `authFetch`'s
+> silent refresh is unavailable and `@osn/client` exposes no standalone
+> `/token` grant to call instead. The screen therefore arms its timeout on the
+> session's own `expiresAt` and never claims fifteen minutes. Widening it back
+> out is `xchromo/osn#976`.
 
 > [!important] An emailed code that yields a session is not the OTP login this page removed
 > The resemblance is real and worth stating plainly, because "we deleted OTP

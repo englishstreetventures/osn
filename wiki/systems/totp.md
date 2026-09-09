@@ -8,7 +8,7 @@ related:
   - "[[identity-model]]"
   - "[[account-recovery-factors]]"
   - "[[email]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-10
 ---
 
 # TOTP (RFC 6238) second factor
@@ -199,6 +199,48 @@ The two wire fields that carry secret material are named `totpSecret` and
 `otpauthUri` **to match the logger deny-list entries** in
 `shared/observability/src/logger/redact.ts`. Renaming either silently un-redacts
 the shared secret in operator logs.
+
+## Surfaces
+
+`<TotpView>` (`osn/ui/src/auth/TotpView.tsx`) is the only place a user meets
+this system. `@musubi/social` mounts it in Settings → Security, between
+`<PasskeysView>` and `<RecoveryCodesView>`, inside the lazy `SecuritySection`
+chunk that already carries `@simplewebauthn/browser`.
+
+| State | What it shows |
+|---|---|
+| Not enrolled | "Add an authenticator app", which runs a `totp_enroll` step-up, calls `enrollBegin`, and opens the enrolment panel |
+| Enrolling | The QR code, the base32 key as selectable text, an optional device label, and a six-digit confirmation |
+| Enrolled | The label, `createdAt`, `lastUsedAt`, and a `totp_disable`-gated **Remove** |
+
+Three properties of that panel are load-bearing rather than cosmetic:
+
+- **The secret is shown once.** `enrollBegin` is the only source, `GET /totp/status`
+  never returns it, and it lives in one signal cleared on success, on cancel and
+  on unmount. There is no second read to go wrong.
+- **The base32 key is the QR's text alternative**, which is why it is selectable
+  text rather than part of the image. The `aria-label` on the SVG says what the
+  graphic is and points at that key; it never carries the `otpauth://` URI,
+  because an accessible name is read aloud and copied into tooling and that URI
+  *is* the secret.
+- **The QR is generated in-repo** (`osn/ui/src/lib/qr.ts`, rendered by
+  `osn/ui/src/components/ui/qr-code.tsx`) — byte mode, error-correction level M,
+  versions 1 to 15. Nothing in the monorepo could draw one and `bunfig.toml`
+  sets a three-day `minimumReleaseAge`, so this cost no dependency. Its tests
+  pin the parts a rendering assertion cannot see: the specification's
+  Reed-Solomon worked example, the eight level-M format words, the block table
+  against capacity derived from the symbol's own layout, and two golden
+  matrices verified against an independent decoder.
+
+> [!warning] A wrong QR looks completely right
+> Both defects the encoder had in development — a reversed generator polynomial
+> and format bits written least-significant-first — render a plausible symbol
+> that scans as nothing. Anything that changes `qr.ts` must keep those tests
+> green; "it still looks like a QR code" is not evidence.
+
+The authenticator may also authorise **its own removal**: `<TotpView>` passes a
+`TotpClient` to the disable ceremony's `<StepUpDialog>`, so holding the device
+is accepted as proof for unbinding it.
 
 ## Which gates a `totp` token reaches
 

@@ -1,4 +1,10 @@
-import type { PasskeysClient, PasskeySummary, StepUpClient, StepUpToken } from "@osn/client";
+import type {
+  PasskeysClient,
+  PasskeySummary,
+  StepUpClient,
+  StepUpToken,
+  TotpClient,
+} from "@osn/client";
 import { createResource, createSignal, For, Show } from "solid-js";
 
 import { Button } from "../components/ui/button";
@@ -50,6 +56,12 @@ export interface PasskeysViewProps {
    * be delivered. The delete/rename/add gates all accept a passkey step-up,
    * so this stays fully functional.
    */
+  /**
+   * TOTP client. Supplied, the step-up dialog offers the authenticator-app
+   * factor wherever the ceremony and the account allow it. Omitted, it does
+   * not. See `StepUpDialog.totpClient`.
+   */
+  totpClient?: TotpClient;
   passkeyOnly?: boolean;
 }
 
@@ -293,6 +305,7 @@ export function PasskeysView(props: PasskeysViewProps) {
             onCancel={cancelStepUp}
             runPasskeyCeremony={props.runPasskeyCeremony}
             passkeyOnly={props.passkeyOnly}
+            totpClient={props.totpClient}
             // Bind the minted token to the exact ceremony. Enrolment mints
             // `passkey_register`; rename and delete share the delete gate and
             // both mint `passkey_delete`. The server rejects a token minted for

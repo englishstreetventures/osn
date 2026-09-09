@@ -6,6 +6,7 @@ import { createEffect } from "solid-js";
 
 import { TURNSTILE_SITEKEY } from "../lib/auth";
 import { registrationClient, loginClient, recoveryClient } from "../lib/authClients";
+import { runPasskeyRegistrationDeferred } from "../lib/webauthn-registration-deferred";
 import { ResponsiveDialogContent } from "./ResponsiveDialogContent";
 
 /**
@@ -50,6 +51,8 @@ export function AuthDialogs(props: {
           <SignIn
             client={loginClient}
             recoveryClient={recoveryClient}
+            registrationClient={registrationClient}
+            runPasskeyRegistration={runPasskeyRegistrationDeferred}
             turnstileSiteKey={TURNSTILE_SITEKEY}
             onCancel={() => props.onShowSignInChange(false)}
             onSuccess={() => props.onShowSignInChange(false)}

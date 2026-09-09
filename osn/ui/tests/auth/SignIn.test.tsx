@@ -258,6 +258,12 @@ describe("SignIn component", () => {
       });
       expect(screen.getByText(/needs a passkey or security key/i)).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: /Use a recovery code/i }));
+      // The recovery surface opens on a factor chooser. With no WebAuthn it
+      // offers only the recovery code, because the other two mint a session
+      // whose one permitted action is a ceremony this browser cannot run.
+      await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
+      expect(screen.queryByRole("button", { name: /Email me a code/i })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /Use a recovery code/i }));
       await waitFor(() => {
         expect(screen.getByLabelText(/Recovery code/i)).toBeTruthy();
       });
@@ -268,6 +274,8 @@ describe("SignIn component", () => {
     it("surfaces the recovery form when the user clicks it", async () => {
       render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
       fireEvent.click(screen.getByRole("button", { name: /Lost your passkey/i }));
+      await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
+      fireEvent.click(screen.getByRole("button", { name: /Use a recovery code/i }));
       await waitFor(() => {
         expect(screen.getByLabelText(/Recovery code/i)).toBeTruthy();
       });

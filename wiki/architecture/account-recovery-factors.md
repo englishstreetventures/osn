@@ -7,7 +7,7 @@ related:
   - "[[step-up]]"
   - "[[sessions]]"
   - "[[identity-model]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-10
 ---
 
 # Account recovery factors — TOTP and email-verified recovery
@@ -200,7 +200,7 @@ they are one column and one comparison.
 | `@osn/api` | TOTP service + step-up-gated routes; the `osn-recovery` audience and its rotation carry-forward; email + TOTP recovery routes; provenance cooldown; new limiters; new security-event kinds. |
 | `@shared/email` | `totp-enrolled`, `totp-disabled`, `otp-recovery`, `recovery-used`. |
 | `@osn/client` | `TotpClient`; `RecoveryClient.emailRecoveryBegin/Complete`, `totpRecoveryComplete`. Ships **with its API phase**, not in a trailing PR. |
-| `@osn/ui` / `@osn/social` | `<TotpView>` in Settings → Security; TOTP factor in `<StepUpDialog>`; "email me a code" on `<RecoveryLoginForm>`. |
+| `@osn/ui` / `@musubi/social` | `<TotpView>` in Settings → Security; TOTP factor in `<StepUpDialog>`; "email me a code" on `<RecoveryLoginForm>`. |
 
 ### TOTP secrets at rest
 
@@ -347,7 +347,7 @@ reason nothing here runs concurrently:
 | 3 | The `osn-recovery` audience: minting, rotation carry-forward, enrolment acceptance, 15-min absolute TTL. **No public route.** | 5 |
 | 4 | `/login/recovery/{email,totp}/*`, caps, detached send, notices, client methods | 5 |
 | 5 | Provenance-aware cooldown across all three recovery paths, "this wasn't me" revoke, runbook update | 5 |
-| 6 | `@osn/ui` + `@osn/social` surfaces for TOTP and email recovery | 3 |
+| 6 | `@osn/ui` + `@musubi/social` surfaces for TOTP and email recovery | 3 |
 
 Issue 3 exists separately because the audience primitive reaches `tokens.ts`,
 `helpers.ts`, `auth-derive.ts`, `passkeys.ts`, `context.ts` and the refresh

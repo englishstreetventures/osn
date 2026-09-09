@@ -1,4 +1,4 @@
-import type { RecoveryClient, StepUpClient, StepUpToken } from "@osn/client";
+import type { RecoveryClient, StepUpClient, StepUpToken, TotpClient } from "@osn/client";
 import { createResource, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import { Button } from "../components/ui/button";
@@ -55,6 +55,12 @@ export interface RecoveryCodesViewProps {
    * no deliverable transactional email, so the user is never offered a code
    * that won't arrive.
    */
+  /**
+   * TOTP client. Supplied, the step-up dialog offers the authenticator-app
+   * factor wherever the ceremony and the account allow it. Omitted, it does
+   * not. See `StepUpDialog.totpClient`.
+   */
+  totpClient?: TotpClient;
   passkeyOnly?: boolean;
   /** Fires once the user has acknowledged saving the codes. */
   onSaved?: () => void;
@@ -356,6 +362,7 @@ export function RecoveryCodesView(props: RecoveryCodesViewProps) {
           onCancel={cancelStepUp}
           runPasskeyCeremony={props.runPasskeyCeremony}
           passkeyOnly={props.passkeyOnly}
+          totpClient={props.totpClient}
           reason="to generate recovery codes"
           purpose="recovery_generate"
         />

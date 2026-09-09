@@ -30,6 +30,7 @@ describe("@osn/ui/auth public exports", () => {
       "SessionsView",
       "SignIn",
       "StepUpDialog",
+      "TotpView",
     ]) {
       expect(keys.has(expected)).toBe(true);
     }

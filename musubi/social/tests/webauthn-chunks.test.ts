@@ -105,6 +105,29 @@ describe("webauthn chunk split", () => {
     expect(security).toContain("../lib/webauthn-registration");
   });
 
+  it("keeps the sign-in dialog off a static registration import", () => {
+    // `AuthDialogs` is mounted by the desktop rail and the mobile top bar, so
+    // it is shell every anonymous visitor loads. Its recovery path can end in
+    // passkey enrolment, and naming the ceremony statically would put
+    // `startRegistration` in that shell — paid by everyone, used by the few
+    // who lose a passkey. The deferring module is what keeps it out, and it
+    // only works while the import inside it stays dynamic.
+    const deferred = readSource("../src/lib/webauthn-registration-deferred.ts");
+    expect(deferred).toMatch(/await import\(\s*"\.\/webauthn-registration"\s*\)/);
+    expect(ceremonyImports("../src/lib/webauthn-registration.ts")).toContain("startRegistration");
+
+    for (const shell of [
+      "../src/components/AuthDialogs.tsx",
+      "../src/components/AuthorizeSignIn.tsx",
+    ]) {
+      const source = readSource(shell);
+      expect(source).toContain("webauthn-registration-deferred");
+      // The deferred module's own name contains the bare one, so match the
+      // import specifier rather than the substring.
+      expect(source).not.toMatch(/from "\.\.\/lib\/webauthn-registration"/);
+    }
+  });
+
   it("keeps the two ceremony wrappers in separate modules", () => {
     // Re-merging them would put `startRegistration` back in the banner's chunk
     // whatever the bundler config says. Match the import list, not the whole

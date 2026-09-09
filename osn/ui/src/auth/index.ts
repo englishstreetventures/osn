@@ -10,4 +10,5 @@ export { SecurityEventsBanner } from "./SecurityEventsBanner";
 export { SessionsView } from "./SessionsView";
 export { SignIn } from "./SignIn";
 export { StepUpDialog, type RunPasskeyCeremony, type RunPasskeyRegistration } from "./StepUpDialog";
+export { TotpView } from "./TotpView";
 export { TurnstileWidget, turnstileEnabled } from "./TurnstileWidget";

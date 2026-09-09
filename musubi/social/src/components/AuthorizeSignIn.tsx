@@ -5,6 +5,7 @@ import { createSignal, Show } from "solid-js";
 
 import { OSN_ISSUER_URL, TURNSTILE_SITEKEY } from "../lib/auth";
 import { loginClient, recoveryClient, registrationClient } from "../lib/authClients";
+import { runPasskeyRegistrationDeferred } from "../lib/webauthn-registration-deferred";
 
 /**
  * The sign-in half of the consent screen, kept behind a `lazy()` boundary.
@@ -38,6 +39,8 @@ export function AuthorizeSignIn(props: {
         fallback={
           <>
             <SignIn
+              registrationClient={registrationClient}
+              runPasskeyRegistration={runPasskeyRegistrationDeferred}
               client={loginClient}
               recoveryClient={recoveryClient}
               turnstileSiteKey={TURNSTILE_SITEKEY}
