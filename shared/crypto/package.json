@@ -8,7 +8,8 @@
     "./jwk": "./src/jwk.ts",
     "./testing": "./src/testing.ts",
     "./timing-safe": "./src/timing-safe.ts",
-    "./tokens": "./src/tokens.ts"
+    "./tokens": "./src/tokens.ts",
+    "./totp": "./src/totp.ts"
   },
   "scripts": {
     "check": "tsc --noEmit",

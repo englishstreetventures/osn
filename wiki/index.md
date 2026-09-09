@@ -7,7 +7,7 @@ related:
   - "[[deferred-decisions]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
-last-reviewed: 2026-09-08
+last-reviewed: 2026-09-09
 ---
 
 # OSN Wiki
@@ -30,6 +30,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[frontend-patterns]] — SolidJS, shared UI tokens, lazy loading
 - [[component-library]] — Zaidan/shadcn-style components, Kobalte primitives, CVA variants
 - [[drag-and-drop]] — `@shared/sortable` for drag-to-reorder, multi-container lists, and the keyboard + announcement path it owns
+- [[account-recovery-factors]] — TOTP and email-verified recovery: the restricted `osn-recovery` session, the step-up allow-lists, the provenance cooldown, and the six issues they split into
 - [[cire-platform-plan]] — cire's build plan from digital invite to wedding-management platform
 - [[cire-invite-builder]] — organiser-editable invite images + copy (slots, storage, API, guest rendering)
 - [[cire-guest-event-editor]] — the interactive events + guests editor alongside the CSV schema

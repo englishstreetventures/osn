@@ -49,7 +49,7 @@ packages:
   - "@shared/toast"
   - "@shared/turnstile"
   - "@shared/typescript-config"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-09
 ---
 
 # Monorepo Structure
@@ -95,7 +95,7 @@ cire/
   theme/               # @cire/theme — zero-dep shared theming validators (CSS-colour allow-list, IB-S-L1)
   landing/             # @cire/landing — Astro + Solid marketing site for the apex (port 4323; prod cireweddings.com)
 shared/
-  crypto/              # @shared/crypto — ARC tokens (S2S), recovery codes; Signal Protocol pending
+  crypto/              # @shared/crypto — ARC tokens (S2S), recovery codes, RFC 6238 TOTP; Signal Protocol pending
   db-utils/            # @shared/db-utils — createDrizzleClient, makeDbLive, commitBatch, rowsChanged
   email/               # @shared/email — EmailService Tag: Resend / Cloudflare / Log / Noop transports
   feature-flags/       # @shared/feature-flags — key-optional, fail-safe GrowthBook flag client

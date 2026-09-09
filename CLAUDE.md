@@ -77,6 +77,7 @@ One label is orthogonal to all of that: **`needs:decision`**, on both repos. It 
 | Write new Effect service or Elysia route | `[[wiki/architecture/backend-patterns]]`, `[[wiki/architecture/schema-layers]]` |
 | Write Effect code (v4 — the v3 forms that no longer compile, and what to write instead) | `[[wiki/architecture/effect-v4-api]]`, then `[[wiki/architecture/backend-patterns]]`, `[[wiki/architecture/schema-layers]]`, `[[wiki/conventions/testing-patterns]]` |
 | Understand accounts, profiles, orgs | `[[wiki/systems/identity-model]]` |
+| Get a locked-out account back in (TOTP, email-verified recovery, the restricted `osn-recovery` session, the provenance cooldown) | `[[wiki/architecture/account-recovery-factors]]` |
 | Add or verify ARC S2S tokens | `[[wiki/systems/arc-tokens]]` |
 | Let another app sign a user in with their OSN account (OIDC, PKCE, consent, pairwise `sub`) | `[[wiki/systems/oidc-provider]]` |
 | Add a handle/name search (query normalisation, LIKE escaping, index-friendly prefix ranges — use `@shared/db-utils/search`, never a hand-rolled `LIKE 'q%'`) | `[[wiki/systems/social-graph]]` §Search |
