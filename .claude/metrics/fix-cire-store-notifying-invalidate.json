@@ -5,7 +5,7 @@
     "branch": "fix/cire-store-notifying-invalidate",
     "base_sha": "cb345fbec36cce19e5a5cc97d45927cafd69984e",
     "head_sha": "66c9950197ee25bfc25f86664de7ac607504d843",
-    "generated_at": "2026-09-07T07:42:17.114Z",
+    "generated_at": "2026-09-09T06:24:29.033Z",
     "merged_at": "2026-09-06T07:50:35Z",
     "phase": "at-merge"
   },
@@ -27,41 +27,41 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 0.5311485,
+    "usd_equivalent": 0.20187249999999998,
     "tokens": {
-      "input": 38,
-      "output": 2338,
+      "input": 14,
+      "output": 878,
       "thinking": 0,
-      "cache_write_5m": 62186,
+      "cache_write_5m": 21250,
       "cache_write_1h": 0,
-      "cache_read": 167692
+      "cache_read": 94080
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 38,
-          "output": 2338,
+          "input": 14,
+          "output": 878,
           "thinking": 0,
-          "cache_write_5m": 62186,
+          "cache_write_5m": 21250,
           "cache_write_1h": 0,
-          "cache_read": 167692
+          "cache_read": 94080
         },
-        "usd_equivalent": 0.5311485,
-        "messages": 8
+        "usd_equivalent": 0.20187249999999998,
+        "messages": 4
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 38,
-          "output": 2338,
+          "input": 14,
+          "output": 878,
           "thinking": 0,
-          "cache_write_5m": 62186,
+          "cache_write_5m": 21250,
           "cache_write_1h": 0,
-          "cache_read": 167692
+          "cache_read": 94080
         },
-        "usd_equivalent": 0.5311485,
-        "messages": 8
+        "usd_equivalent": 0.20187249999999998,
+        "messages": 4
       },
       "subagent": {
         "tokens": {
@@ -120,9 +120,7 @@
     "corrective_turns": 0,
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
-    "tool_calls": {
-      "StructuredOutput": 2
-    },
+    "tool_calls": {},
     "edit_churn": {
       "files_edited_3plus": 0,
       "max_edits_one_file": 0

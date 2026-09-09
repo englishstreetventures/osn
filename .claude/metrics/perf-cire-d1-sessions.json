@@ -5,7 +5,7 @@
     "branch": "perf/cire-d1-sessions",
     "base_sha": "f3bef1bf425835270c41cc7387c5289086e66018",
     "head_sha": "4deb5734ac742957ceee569a64cd09b0cb5ff86f",
-    "generated_at": "2026-09-07T07:42:20.255Z",
+    "generated_at": "2026-09-09T06:24:29.034Z",
     "merged_at": "2026-09-06T09:35:37Z",
     "phase": "at-merge"
   },
@@ -27,69 +27,69 @@
     "compactions": 11
   },
   "spend": {
-    "usd_equivalent": 52.011302499999964,
+    "usd_equivalent": 27.776247500000014,
     "tokens": {
-      "input": 1044,
-      "output": 236188,
-      "thinking": 69227,
-      "cache_write_5m": 1497766,
-      "cache_write_1h": 1373637,
-      "cache_read": 46007950
+      "input": 596,
+      "output": 116029,
+      "thinking": 31519,
+      "cache_write_5m": 538740,
+      "cache_write_1h": 772866,
+      "cache_read": 27553515
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 72,
-          "output": 40897,
+          "input": 32,
+          "output": 13696,
           "thinking": 0,
-          "cache_write_5m": 332571,
+          "cache_write_5m": 119187,
           "cache_write_1h": 0,
-          "cache_read": 1049798
+          "cache_read": 606240
         },
-        "usd_equivalent": 3.626252749999999,
-        "messages": 32
+        "usd_equivalent": 1.3905987499999999,
+        "messages": 17
       },
       "claude-opus-5": {
         "tokens": {
-          "input": 972,
-          "output": 195291,
-          "thinking": 69227,
-          "cache_write_5m": 1165195,
-          "cache_write_1h": 1373637,
-          "cache_read": 44958152
+          "input": 564,
+          "output": 102333,
+          "thinking": 31519,
+          "cache_write_5m": 419553,
+          "cache_write_1h": 772866,
+          "cache_read": 26947275
         },
-        "usd_equivalent": 48.385049749999986,
-        "messages": 486
+        "usd_equivalent": 26.385648750000023,
+        "messages": 282
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 722,
-          "output": 233493,
-          "thinking": 68336,
-          "cache_write_5m": 332571,
-          "cache_write_1h": 1373637,
-          "cache_read": 33278371
+          "input": 440,
+          "output": 115308,
+          "thinking": 31519,
+          "cache_write_5m": 119187,
+          "cache_write_1h": 772866,
+          "cache_read": 21053607
         },
-        "usd_equivalent": 38.295059249999994,
-        "messages": 357
+        "usd_equivalent": 21.885282249999996,
+        "messages": 221
       },
       "subagent": {
         "tokens": {
-          "input": 322,
-          "output": 2695,
-          "thinking": 891,
-          "cache_write_5m": 1165195,
+          "input": 156,
+          "output": 721,
+          "thinking": 0,
+          "cache_write_5m": 419553,
           "cache_write_1h": 0,
-          "cache_read": 12729579
+          "cache_read": 6499908
         },
-        "usd_equivalent": 13.716243250000005,
-        "messages": 161
+        "usd_equivalent": 5.89096525,
+        "messages": 78
       }
     },
     "effort": {
-      "high": 486
+      "high": 282
     },
     "unpriced_models": []
   },
@@ -132,31 +132,23 @@
   "interaction": {
     "user_turns": 15,
     "corrective_turns": 12,
-    "tokens_before_first_edit": 3113289,
+    "tokens_before_first_edit": 2137073,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 258,
-      "Edit": 24,
-      "Read": 17,
-      "Write": 12,
-      "Agent": 3,
-      "StructuredOutput": 3,
-      "Grep": 2,
+      "Bash": 98,
+      "Edit": 10,
+      "Read": 6,
+      "Write": 5,
       "EnterWorktree": 1,
-      "Skill": 1,
-      "ToolSearch": 1,
+      "Grep": 1,
       "WebFetch": 1,
       "Glob": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 5,
-      "max_edits_one_file": 6
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 5
     },
-    "skills": {
-      "obsidian:obsidian-markdown": 1
-    },
-    "subagents": {
-      "general-purpose": 3
-    }
+    "skills": {},
+    "subagents": {}
   }
 }

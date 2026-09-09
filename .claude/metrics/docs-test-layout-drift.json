@@ -5,7 +5,7 @@
     "branch": "docs/test-layout-drift",
     "base_sha": "804e8d42a9ee3c3571c905cafc61b2fd075523f3",
     "head_sha": "64a02029b5cc54967053669e22a0fadf5fbb4699",
-    "generated_at": "2026-09-07T07:41:49.544Z",
+    "generated_at": "2026-09-09T06:24:29.024Z",
     "merged_at": "2026-09-06T16:11:34Z",
     "phase": "at-merge"
   },
@@ -27,41 +27,41 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 1.52969225,
+    "usd_equivalent": 0.7689817500000001,
     "tokens": {
-      "input": 17,
-      "output": 14682,
+      "input": 9,
+      "output": 6463,
       "thinking": 0,
-      "cache_write_5m": 156555,
+      "cache_write_5m": 79505,
       "cache_write_1h": 0,
-      "cache_read": 368177
+      "cache_read": 220911
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 17,
-          "output": 14682,
+          "input": 9,
+          "output": 6463,
           "thinking": 0,
-          "cache_write_5m": 156555,
+          "cache_write_5m": 79505,
           "cache_write_1h": 0,
-          "cache_read": 368177
+          "cache_read": 220911
         },
-        "usd_equivalent": 1.52969225,
-        "messages": 7
+        "usd_equivalent": 0.7689817500000001,
+        "messages": 4
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 17,
-          "output": 14682,
+          "input": 9,
+          "output": 6463,
           "thinking": 0,
-          "cache_write_5m": 156555,
+          "cache_write_5m": 79505,
           "cache_write_1h": 0,
-          "cache_read": 368177
+          "cache_read": 220911
         },
-        "usd_equivalent": 1.52969225,
-        "messages": 7
+        "usd_equivalent": 0.7689817500000001,
+        "messages": 4
       },
       "subagent": {
         "tokens": {
@@ -121,8 +121,7 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 2,
-      "StructuredOutput": 1
+      "Read": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

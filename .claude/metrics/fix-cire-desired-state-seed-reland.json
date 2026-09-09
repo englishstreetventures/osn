@@ -5,7 +5,7 @@
     "branch": "fix/cire-desired-state-seed-reland",
     "base_sha": "bb5b11a229842de7193e5656dd0ec9349eb457e0",
     "head_sha": "367c7be91f24c9f540042c159c60f1df080ecf2a",
-    "generated_at": "2026-09-07T07:41:44.852Z",
+    "generated_at": "2026-09-09T06:24:29.023Z",
     "merged_at": "2026-09-06T09:10:39Z",
     "phase": "at-merge"
   },
@@ -27,41 +27,41 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 1.4363032500000001,
+    "usd_equivalent": 0.6191525,
     "tokens": {
-      "input": 27,
-      "output": 11867,
+      "input": 11,
+      "output": 4243,
       "thinking": 0,
-      "cache_write_5m": 151413,
+      "cache_write_5m": 64884,
       "cache_write_1h": 0,
-      "cache_read": 386324
+      "cache_read": 214995
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 27,
-          "output": 11867,
+          "input": 11,
+          "output": 4243,
           "thinking": 0,
-          "cache_write_5m": 151413,
+          "cache_write_5m": 64884,
           "cache_write_1h": 0,
-          "cache_read": 386324
+          "cache_read": 214995
         },
-        "usd_equivalent": 1.4363032500000001,
-        "messages": 12
+        "usd_equivalent": 0.6191525,
+        "messages": 6
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 27,
-          "output": 11867,
+          "input": 11,
+          "output": 4243,
           "thinking": 0,
-          "cache_write_5m": 151413,
+          "cache_write_5m": 64884,
           "cache_write_1h": 0,
-          "cache_read": 386324
+          "cache_read": 214995
         },
-        "usd_equivalent": 1.4363032500000001,
-        "messages": 12
+        "usd_equivalent": 0.6191525,
+        "messages": 6
       },
       "subagent": {
         "tokens": {
@@ -121,9 +121,8 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 5,
-      "Glob": 2,
-      "StructuredOutput": 1
+      "Read": 2,
+      "Glob": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

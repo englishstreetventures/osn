@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 833,
+    "branch": "fix/email-change-conflict-branch",
+    "base_sha": "e0f19b6e36296cecb36cf20c7a30eaa0e331ee7f",
+    "head_sha": "7a1ad043fdb635acb8a64deb928a79a1f911ffab",
+    "generated_at": "2026-09-09T06:24:29.040Z",
+    "merged_at": "2026-08-30T14:17:27Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 481,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 2,
+    "first_ts": "2026-08-30T04:21:22.563Z",
+    "last_ts": "2026-08-30T04:33:29.063Z",
+    "span_seconds": 727,
+    "active_seconds": 306,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 2.5746047499999998,
+    "tokens": {
+      "input": 41,
+      "output": 19563,
+      "thinking": 0,
+      "cache_write_5m": 178411,
+      "cache_write_1h": 0,
+      "cache_read": 1940512
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 41,
+          "output": 19563,
+          "thinking": 0,
+          "cache_write_5m": 178411,
+          "cache_write_1h": 0,
+          "cache_read": 1940512
+        },
+        "usd_equivalent": 2.5746047499999998,
+        "messages": 31
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 41,
+          "output": 19563,
+          "thinking": 0,
+          "cache_write_5m": 178411,
+          "cache_write_1h": 0,
+          "cache_read": 1940512
+        },
+        "usd_equivalent": 2.5746047499999998,
+        "messages": 31
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {},
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 2,
+      "docs": 1,
+      "config": 1,
+      "source": 5
+    },
+    "loc": {
+      "generated": {
+        "added": 20,
+        "deleted": 0
+      },
+      "test": {
+        "added": 345,
+        "deleted": 3
+      },
+      "docs": {
+        "added": 29,
+        "deleted": 2
+      },
+      "config": {
+        "added": 2,
+        "deleted": 2
+      },
+      "source": {
+        "added": 92,
+        "deleted": 16
+      }
+    },
+    "packages": [
+      "osn/api",
+      "shared/observability"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Read": 12,
+      "Grep": 4
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

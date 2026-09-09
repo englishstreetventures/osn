@@ -5,7 +5,7 @@
     "branch": "chore/session-discipline",
     "base_sha": "dc7bcaff1340a8d551100cdda8952b2488b9e62c",
     "head_sha": "186da7f067f9772488ba827112314d65cc7c4b25",
-    "generated_at": "2026-09-07T07:41:36.601Z",
+    "generated_at": "2026-09-09T06:24:29.016Z",
     "merged_at": "2026-09-07T03:52:44Z",
     "phase": "at-merge"
   },
@@ -27,41 +27,41 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 0.522848,
+    "usd_equivalent": 0.2533955,
     "tokens": {
-      "input": 20,
-      "output": 4722,
+      "input": 10,
+      "output": 2086,
       "thinking": 0,
-      "cache_write_5m": 50130,
+      "cache_write_5m": 24834,
       "cache_write_1h": 0,
-      "cache_read": 182771
+      "cache_read": 91966
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 20,
-          "output": 4722,
+          "input": 10,
+          "output": 2086,
           "thinking": 0,
-          "cache_write_5m": 50130,
+          "cache_write_5m": 24834,
           "cache_write_1h": 0,
-          "cache_read": 182771
+          "cache_read": 91966
         },
-        "usd_equivalent": 0.522848,
-        "messages": 10
+        "usd_equivalent": 0.2533955,
+        "messages": 5
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 20,
-          "output": 4722,
+          "input": 10,
+          "output": 2086,
           "thinking": 0,
-          "cache_write_5m": 50130,
+          "cache_write_5m": 24834,
           "cache_write_1h": 0,
-          "cache_read": 182771
+          "cache_read": 91966
         },
-        "usd_equivalent": 0.522848,
-        "messages": 10
+        "usd_equivalent": 0.2533955,
+        "messages": 5
       },
       "subagent": {
         "tokens": {
@@ -119,9 +119,7 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 3,
-      "Glob": 1,
-      "StructuredOutput": 1
+      "Read": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

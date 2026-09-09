@@ -5,7 +5,7 @@
     "branch": "fix/cire-consent-cookie-prefix",
     "base_sha": "fcf34fccdf0b4a94f3c8efd2f73dec7fdba0b3b6",
     "head_sha": "2ea7944b2511c5c3d2018d6dcc9f0cbf4580f3db",
-    "generated_at": "2026-09-07T07:42:28.163Z",
+    "generated_at": "2026-09-09T06:24:29.037Z",
     "merged_at": "2026-08-31T06:43:13Z",
     "phase": "at-merge"
   },
@@ -27,41 +27,41 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 4.829325750000001,
+    "usd_equivalent": 2.227305500000001,
     "tokens": {
-      "input": 100,
-      "output": 70704,
+      "input": 49,
+      "output": 26777,
       "thinking": 0,
-      "cache_write_5m": 317955,
+      "cache_write_5m": 159032,
       "cache_write_1h": 0,
-      "cache_read": 2148014
+      "cache_read": 1127371
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 100,
-          "output": 70704,
+          "input": 49,
+          "output": 26777,
           "thinking": 0,
-          "cache_write_5m": 317955,
+          "cache_write_5m": 159032,
           "cache_write_1h": 0,
-          "cache_read": 2148014
+          "cache_read": 1127371
         },
-        "usd_equivalent": 4.829325750000001,
-        "messages": 55
+        "usd_equivalent": 2.227305500000001,
+        "messages": 29
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 100,
-          "output": 70704,
+          "input": 49,
+          "output": 26777,
           "thinking": 0,
-          "cache_write_5m": 317955,
+          "cache_write_5m": 159032,
           "cache_write_1h": 0,
-          "cache_read": 2148014
+          "cache_read": 1127371
         },
-        "usd_equivalent": 4.829325750000001,
-        "messages": 55
+        "usd_equivalent": 2.227305500000001,
+        "messages": 29
       },
       "subagent": {
         "tokens": {
@@ -121,9 +121,8 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 23,
-      "Grep": 5,
-      "StructuredOutput": 3
+      "Read": 9,
+      "Grep": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

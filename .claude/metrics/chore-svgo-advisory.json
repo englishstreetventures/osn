@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 961,
+    "branch": "chore/svgo-advisory",
+    "base_sha": "2eb9393ca64639068c42d5a614e3df8ab68c6e61",
+    "head_sha": "9d19c6885a48edb24aff2e429496fc5d53f97bb2",
+    "generated_at": "2026-09-09T06:29:32.626Z",
+    "merged_at": "2026-09-09T01:40:51Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 960,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-09-09T01:37:24.548Z",
+    "last_ts": "2026-09-09T01:40:45.369Z",
+    "span_seconds": 201,
+    "active_seconds": 201,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 0.1384297,
+    "tokens": {
+      "input": 126,
+      "output": 30,
+      "thinking": 0,
+      "cache_write_5m": 55916,
+      "cache_write_1h": 0,
+      "cache_read": 682587
+    },
+    "by_model": {
+      "claude-haiku-4-5-20251001": {
+        "tokens": {
+          "input": 126,
+          "output": 30,
+          "thinking": 0,
+          "cache_write_5m": 55916,
+          "cache_write_1h": 0,
+          "cache_read": 682587
+        },
+        "usd_equivalent": 0.1384297,
+        "messages": 15
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 126,
+          "output": 30,
+          "thinking": 0,
+          "cache_write_5m": 55916,
+          "cache_write_1h": 0,
+          "cache_read": 682587
+        },
+        "usd_equivalent": 0.1384297,
+        "messages": 15
+      }
+    },
+    "effort": {},
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 0,
+      "docs": 0,
+      "config": 1,
+      "source": 0
+    },
+    "loc": {
+      "generated": {
+        "added": 41,
+        "deleted": 29
+      },
+      "test": {
+        "added": 0,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 1,
+        "deleted": 1
+      },
+      "source": {
+        "added": 0,
+        "deleted": 0
+      }
+    },
+    "packages": [],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {},
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

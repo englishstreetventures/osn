@@ -5,7 +5,7 @@
     "branch": "perf/cire-store-reactive-readers",
     "base_sha": "07e6b0d68307fb03d356f327b276ebea627e3136",
     "head_sha": "ce3e26dd8704b7a23d774f1db4603a2399cc14cd",
-    "generated_at": "2026-09-07T07:42:11.034Z",
+    "generated_at": "2026-09-09T06:24:29.032Z",
     "merged_at": "2026-09-06T07:50:37Z",
     "phase": "at-merge"
   },
@@ -27,41 +27,41 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 3.7209282500000005,
+    "usd_equivalent": 1.48277375,
     "tokens": {
-      "input": 66,
-      "output": 26581,
+      "input": 27,
+      "output": 9715,
       "thinking": 0,
-      "cache_write_5m": 414337,
+      "cache_write_5m": 146143,
       "cache_write_1h": 0,
-      "cache_read": 932934
+      "cache_read": 652740
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 66,
-          "output": 26581,
+          "input": 27,
+          "output": 9715,
           "thinking": 0,
-          "cache_write_5m": 414337,
+          "cache_write_5m": 146143,
           "cache_write_1h": 0,
-          "cache_read": 932934
+          "cache_read": 652740
         },
-        "usd_equivalent": 3.7209282500000005,
-        "messages": 21
+        "usd_equivalent": 1.48277375,
+        "messages": 12
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 66,
-          "output": 26581,
+          "input": 27,
+          "output": 9715,
           "thinking": 0,
-          "cache_write_5m": 414337,
+          "cache_write_5m": 146143,
           "cache_write_1h": 0,
-          "cache_read": 932934
+          "cache_read": 652740
         },
-        "usd_equivalent": 3.7209282500000005,
-        "messages": 21
+        "usd_equivalent": 1.48277375,
+        "messages": 12
       },
       "subagent": {
         "tokens": {
@@ -121,9 +121,8 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "StructuredOutput": 3,
-      "Read": 3,
-      "Bash": 2,
+      "Read": 2,
+      "Bash": 1,
       "Grep": 1
     },
     "edit_churn": {

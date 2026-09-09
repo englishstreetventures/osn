@@ -13,6 +13,7 @@ import {
   isFileWritingCommand,
   isHumanTurn,
   parseNumstat,
+  rateKeyFor,
   readUsage,
   type SessionRecord,
   skillCommandsIn,
@@ -113,6 +114,22 @@ test("costOf does not bill thinking tokens on top of output", () => {
 
 test("costOf rates an unknown model at zero rather than guessing", () => {
   expect(costOf({ ...emptyTokens(), output: 5_000_000 }, "claude-nextgen-9")).toBe(0);
+});
+
+// Transcripts name Haiku with its snapshot date appended and the other models
+// without. Keying the table bare and dropping the suffix is what stops a real
+// session costing $0 — three backfilled cards read that way before this.
+test("costOf prices a dated model id at its bare rates", () => {
+  const tokens = { ...emptyTokens(), output: 1_000_000 };
+
+  expect(costOf(tokens, "claude-haiku-4-5-20251001")).toBe(costOf(tokens, "claude-haiku-4-5"));
+  expect(costOf(tokens, "claude-haiku-4-5-20251001")).toBeCloseTo(5, 6);
+});
+
+test("rateKeyFor keeps an unknown model unpriced, dated or not", () => {
+  expect(rateKeyFor("claude-haiku-4-5-20251001")).toBe("claude-haiku-4-5");
+  expect(rateKeyFor("claude-nextgen-9-20260101")).toBeNull();
+  expect(rateKeyFor("constructor")).toBeNull();
 });
 
 test("aggregateSpend names unpriced models so the gap is visible", () => {

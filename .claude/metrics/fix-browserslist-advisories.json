@@ -5,7 +5,7 @@
     "branch": "fix/browserslist-advisories",
     "base_sha": "a6c9eb6de6ea076c07b228dc21089ce79171cded",
     "head_sha": "5d14ee9f62b8c15a5a33931c8b680af25a27fb59",
-    "generated_at": "2026-09-07T07:42:09.532Z",
+    "generated_at": "2026-09-09T06:24:29.031Z",
     "merged_at": "2026-09-02T02:08:09Z",
     "phase": "at-merge"
   },
@@ -27,39 +27,39 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 27.22232775,
+    "usd_equivalent": 13.141533,
     "tokens": {
-      "input": 490,
-      "output": 127759,
-      "thinking": 50253,
-      "cache_write_5m": 592077,
-      "cache_write_1h": 706755,
-      "cache_read": 26515743
+      "input": 268,
+      "output": 55015,
+      "thinking": 17061,
+      "cache_write_5m": 229902,
+      "cache_write_1h": 275521,
+      "cache_read": 15145441
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 30,
-          "output": 1910,
+          "input": 16,
+          "output": 988,
           "thinking": 0,
-          "cache_write_5m": 108875,
+          "cache_write_5m": 53964,
           "cache_write_1h": 0,
-          "cache_read": 155214
+          "cache_read": 104202
         },
-        "usd_equivalent": 0.80597575,
-        "messages": 10
+        "usd_equivalent": 0.414156,
+        "messages": 6
       },
       "claude-opus-5": {
         "tokens": {
-          "input": 460,
-          "output": 125849,
-          "thinking": 50253,
-          "cache_write_5m": 483202,
-          "cache_write_1h": 706755,
-          "cache_read": 26360529
+          "input": 252,
+          "output": 54027,
+          "thinking": 17061,
+          "cache_write_5m": 175938,
+          "cache_write_1h": 275521,
+          "cache_read": 15041239
         },
-        "usd_equivalent": 26.416351999999993,
-        "messages": 230
+        "usd_equivalent": 12.727377000000002,
+        "messages": 126
       },
       "<synthetic>": {
         "tokens": {
@@ -77,31 +77,31 @@
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 286,
-          "output": 116538,
-          "thinking": 43645,
-          "cache_write_5m": 108875,
-          "cache_write_1h": 706755,
-          "cache_read": 18337815
+          "input": 166,
+          "output": 53788,
+          "thinking": 17061,
+          "cache_write_5m": 53964,
+          "cache_write_1h": 275521,
+          "cache_read": 10905665
         },
-        "usd_equivalent": 19.83180625,
-        "messages": 139
+        "usd_equivalent": 9.8908475,
+        "messages": 82
       },
       "subagent": {
         "tokens": {
-          "input": 204,
-          "output": 11221,
-          "thinking": 6608,
-          "cache_write_5m": 483202,
+          "input": 102,
+          "output": 1227,
+          "thinking": 0,
+          "cache_write_5m": 175938,
           "cache_write_1h": 0,
-          "cache_read": 8177928
+          "cache_read": 4239776
         },
-        "usd_equivalent": 7.390521499999999,
-        "messages": 102
+        "usd_equivalent": 3.250685500000001,
+        "messages": 51
       }
     },
     "effort": {
-      "high": 230
+      "high": 126
     },
     "unpriced_models": []
   },
@@ -149,26 +149,19 @@
   "interaction": {
     "user_turns": 4,
     "corrective_turns": 2,
-    "tokens_before_first_edit": 982586,
+    "tokens_before_first_edit": 2197258,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 125,
-      "Read": 4,
-      "StructuredOutput": 2,
-      "Agent": 2,
-      "Write": 2,
-      "Skill": 1,
-      "Workflow": 1
+      "Bash": 40,
+      "Read": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,
-      "max_edits_one_file": 1
+      "max_edits_one_file": 0
     },
     "skills": {
-      "prep-pr": 1
+      "workflow-authoring": 1
     },
-    "subagents": {
-      "general-purpose": 2
-    }
+    "subagents": {}
   }
 }

@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 822,
+    "branch": "fix/antislop-guard-gitdir",
+    "base_sha": "b84c78188446243df33cd34a38e23fe858489af1",
+    "head_sha": "135fde5408246fff24d969d82746b23172df861f",
+    "generated_at": "2026-09-09T06:24:29.045Z",
+    "merged_at": "2026-08-30T03:29:25Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 820,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-08-28T01:22:42.360Z",
+    "last_ts": "2026-08-28T01:23:40.579Z",
+    "span_seconds": 58,
+    "active_seconds": 58,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 0.2805995,
+    "tokens": {
+      "input": 9,
+      "output": 3804,
+      "thinking": 0,
+      "cache_write_5m": 20864,
+      "cache_write_1h": 0,
+      "cache_read": 110109
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 9,
+          "output": 3804,
+          "thinking": 0,
+          "cache_write_5m": 20864,
+          "cache_write_1h": 0,
+          "cache_read": 110109
+        },
+        "usd_equivalent": 0.2805995,
+        "messages": 4
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 9,
+          "output": 3804,
+          "thinking": 0,
+          "cache_write_5m": 20864,
+          "cache_write_1h": 0,
+          "cache_read": 110109
+        },
+        "usd_equivalent": 0.2805995,
+        "messages": 4
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {},
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 0,
+      "test": 0,
+      "docs": 0,
+      "config": 1,
+      "source": 2
+    },
+    "loc": {
+      "generated": {
+        "added": 0,
+        "deleted": 0
+      },
+      "test": {
+        "added": 0,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 8,
+        "deleted": 0
+      },
+      "source": {
+        "added": 103,
+        "deleted": 0
+      }
+    },
+    "packages": [],
+    "touches_migration": false,
+    "commits": 1
+  },
+  "interaction": {
+    "user_turns": 1,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Read": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

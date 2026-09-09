@@ -4,65 +4,62 @@
     "number": 967,
     "branch": "refactor/separate-osn-from-musubi",
     "base_sha": "10e490c9aa8581cf5b4cf2f739e1f689370a0083",
-    "head_sha": "f471052ba21c4367fa253a9aeb12fc0209c727b6",
-    "generated_at": "2026-09-09T02:03:16.093Z",
-    "merged_at": null,
-    "phase": "at-open"
+    "head_sha": "9b33d22a6e4b7520cf96a450e65a09f4434e9b59",
+    "generated_at": "2026-09-09T06:24:29.003Z",
+    "merged_at": "2026-09-09T02:56:45Z",
+    "phase": "at-merge"
   },
   "issue": {
     "number": 954,
     "type": null,
-    "labels": [
-      "complexity:5",
-      "product:musubi"
-    ]
+    "labels": []
   },
   "complexity": {
-    "declared": 5,
-    "method": "confirmed"
+    "declared": null,
+    "method": "none"
   },
   "window": {
-    "sessions": 4,
+    "sessions": 5,
     "first_ts": "2026-09-08T14:34:45.201Z",
-    "last_ts": "2026-09-09T02:03:14.528Z",
-    "span_seconds": 41309,
-    "active_seconds": 4594,
+    "last_ts": "2026-09-09T02:08:33.027Z",
+    "span_seconds": 41628,
+    "active_seconds": 5079,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 34.36269530000002,
+    "usd_equivalent": 37.491811049999995,
     "tokens": {
-      "input": 1670,
-      "output": 112172,
-      "thinking": 29465,
-      "cache_write_5m": 694352,
-      "cache_write_1h": 323767,
-      "cache_read": 55469479
+      "input": 1716,
+      "output": 127296,
+      "thinking": 30203,
+      "cache_write_5m": 760909,
+      "cache_write_1h": 334125,
+      "cache_read": 59931928
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 22,
-          "output": 4564,
+          "input": 44,
+          "output": 15440,
           "thinking": 0,
-          "cache_write_5m": 69208,
+          "cache_write_5m": 135765,
           "cache_write_1h": 0,
-          "cache_read": 426440
+          "cache_read": 992791
         },
-        "usd_equivalent": 0.7599799999999999,
-        "messages": 12
+        "usd_equivalent": 1.7311467500000002,
+        "messages": 24
       },
       "claude-opus-5": {
         "tokens": {
-          "input": 308,
-          "output": 101895,
-          "thinking": 29448,
+          "input": 332,
+          "output": 106143,
+          "thinking": 30186,
           "cache_write_5m": 0,
-          "cache_write_1h": 323767,
-          "cache_read": 35362987
+          "cache_write_1h": 334125,
+          "cache_read": 39259085
         },
-        "usd_equivalent": 23.468078500000008,
-        "messages": 154
+        "usd_equivalent": 25.626027500000006,
+        "messages": 166
       },
       "<synthetic>": {
         "tokens": {
@@ -104,15 +101,15 @@
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 330,
-          "output": 106459,
-          "thinking": 29448,
-          "cache_write_5m": 69208,
-          "cache_write_1h": 323767,
-          "cache_read": 35789427
+          "input": 376,
+          "output": 121583,
+          "thinking": 30186,
+          "cache_write_5m": 135765,
+          "cache_write_1h": 334125,
+          "cache_read": 40251876
         },
-        "usd_equivalent": 24.228058500000007,
-        "messages": 167
+        "usd_equivalent": 27.357174250000003,
+        "messages": 191
       },
       "subagent": {
         "tokens": {
@@ -128,7 +125,7 @@
       }
     },
     "effort": {
-      "high": 344
+      "high": 356
     },
     "unpriced_models": []
   },
@@ -137,7 +134,7 @@
       "generated": 3,
       "test": 27,
       "docs": 47,
-      "config": 11,
+      "config": 12,
       "source": 87
     },
     "loc": {
@@ -154,7 +151,7 @@
         "deleted": 192
       },
       "config": {
-        "added": 31,
+        "added": 235,
         "deleted": 31
       },
       "source": {
@@ -178,19 +175,20 @@
       "zap/api"
     ],
     "touches_migration": false,
-    "commits": 3
+    "commits": 4
   },
   "interaction": {
-    "user_turns": 7,
-    "corrective_turns": 4,
+    "user_turns": 9,
+    "corrective_turns": 5,
     "tokens_before_first_edit": 259301,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 67,
+      "Bash": 71,
       "Edit": 13,
       "Write": 3,
       "Agent": 2,
-      "Read": 1
+      "Read": 2,
+      "Monitor": 1
     },
     "edit_churn": {
       "files_edited_3plus": 3,

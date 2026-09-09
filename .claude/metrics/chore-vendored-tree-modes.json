@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 840,
+    "branch": "chore/vendored-tree-modes",
+    "base_sha": "273e4ba82e35358c1ef08ab4ae2e38f7692ac855",
+    "head_sha": "268c616841441db40ca129c7affba09371e290f6",
+    "generated_at": "2026-09-09T06:24:29.039Z",
+    "merged_at": "2026-08-30T14:13:29Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 562,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-08-30T13:12:39.308Z",
+    "last_ts": "2026-08-30T13:13:34.999Z",
+    "span_seconds": 56,
+    "active_seconds": 56,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 0.29891474999999995,
+    "tokens": {
+      "input": 11,
+      "output": 3266,
+      "thinking": 0,
+      "cache_write_5m": 20907,
+      "cache_write_1h": 0,
+      "cache_read": 173082
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 11,
+          "output": 3266,
+          "thinking": 0,
+          "cache_write_5m": 20907,
+          "cache_write_1h": 0,
+          "cache_read": 173082
+        },
+        "usd_equivalent": 0.29891474999999995,
+        "messages": 6
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 11,
+          "output": 3266,
+          "thinking": 0,
+          "cache_write_5m": 20907,
+          "cache_write_1h": 0,
+          "cache_read": 173082
+        },
+        "usd_equivalent": 0.29891474999999995,
+        "messages": 6
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {},
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 0,
+      "docs": 2,
+      "config": 0,
+      "source": 2
+    },
+    "loc": {
+      "generated": {
+        "added": 10,
+        "deleted": 1
+      },
+      "test": {
+        "added": 0,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 26,
+        "deleted": 12
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 31,
+        "deleted": 0
+      }
+    },
+    "packages": [
+      "tools/oxlint"
+    ],
+    "touches_migration": false,
+    "commits": 1
+  },
+  "interaction": {
+    "user_turns": 1,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Read": 3
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

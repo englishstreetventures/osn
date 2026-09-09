@@ -1,17 +1,17 @@
 {
   "schema_version": 1,
   "pr": {
-    "number": null,
+    "number": 946,
     "branch": "feat/subagent-branch-attribution",
-    "base_sha": "9d62e4f9acc33d85c033c0b3c848569d8c540299",
-    "head_sha": "253d6e92fdbc9ca778c60a7c1d7126ad361b6308",
-    "generated_at": "2026-09-08T12:51:00.097Z",
-    "merged_at": null,
-    "phase": "at-open"
+    "base_sha": "a020dc6fe429b21c26399470519d79ef8e3793c1",
+    "head_sha": "e93bea3b62fbd34ab573cf2867efbd2dfa7ff25d",
+    "generated_at": "2026-09-09T06:24:29.015Z",
+    "merged_at": "2026-09-08T13:33:50Z",
+    "phase": "at-merge"
   },
   "issue": {
     "number": 942,
-    "type": "Feature",
+    "type": null,
     "labels": []
   },
   "complexity": {
@@ -98,7 +98,7 @@
       "generated": 1,
       "test": 2,
       "docs": 2,
-      "config": 0,
+      "config": 1,
       "source": 2
     },
     "loc": {
@@ -115,7 +115,7 @@
         "deleted": 4
       },
       "config": {
-        "added": 0,
+        "added": 149,
         "deleted": 0
       },
       "source": {
@@ -127,7 +127,7 @@
       "tools/pr-metrics"
     ],
     "touches_migration": false,
-    "commits": 4
+    "commits": 5
   },
   "interaction": {
     "user_turns": 0,

@@ -5,7 +5,7 @@
     "branch": "perf/cire-store-stale-while-revalidate",
     "base_sha": "66c9950197ee25bfc25f86664de7ac607504d843",
     "head_sha": "07e6b0d68307fb03d356f327b276ebea627e3136",
-    "generated_at": "2026-09-07T07:42:12.541Z",
+    "generated_at": "2026-09-09T06:24:29.032Z",
     "merged_at": "2026-09-06T07:50:36Z",
     "phase": "at-merge"
   },
@@ -27,41 +27,41 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 4.038887749999999,
+    "usd_equivalent": 1.4421565000000003,
     "tokens": {
-      "input": 66,
-      "output": 33051,
+      "input": 26,
+      "output": 12192,
       "thinking": 0,
-      "cache_write_5m": 432333,
+      "cache_write_5m": 149664,
       "cache_write_1h": 0,
-      "cache_read": 1020403
+      "cache_read": 403653
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 66,
-          "output": 33051,
+          "input": 26,
+          "output": 12192,
           "thinking": 0,
-          "cache_write_5m": 432333,
+          "cache_write_5m": 149664,
           "cache_write_1h": 0,
-          "cache_read": 1020403
+          "cache_read": 403653
         },
-        "usd_equivalent": 4.038887749999999,
-        "messages": 26
+        "usd_equivalent": 1.4421565000000003,
+        "messages": 11
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 66,
-          "output": 33051,
+          "input": 26,
+          "output": 12192,
           "thinking": 0,
-          "cache_write_5m": 432333,
+          "cache_write_5m": 149664,
           "cache_write_1h": 0,
-          "cache_read": 1020403
+          "cache_read": 403653
         },
-        "usd_equivalent": 4.038887749999999,
-        "messages": 26
+        "usd_equivalent": 1.4421565000000003,
+        "messages": 11
       },
       "subagent": {
         "tokens": {
@@ -121,9 +121,6 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 9,
-      "StructuredOutput": 2,
-      "Grep": 2,
       "Glob": 1
     },
     "edit_churn": {

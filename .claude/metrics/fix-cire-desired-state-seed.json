@@ -5,7 +5,7 @@
     "branch": "fix/cire-desired-state-seed",
     "base_sha": "ce3e26dd8704b7a23d774f1db4603a2399cc14cd",
     "head_sha": "c7c52be571002b14ca4c4bb66b2e6770d9e147e6",
-    "generated_at": "2026-09-07T07:41:47.802Z",
+    "generated_at": "2026-09-09T06:24:29.024Z",
     "merged_at": "2026-09-06T07:51:46Z",
     "phase": "at-merge"
   },
@@ -27,41 +27,41 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 3.3134810000000012,
+    "usd_equivalent": 1.528494,
     "tokens": {
-      "input": 90,
-      "output": 24288,
+      "input": 44,
+      "output": 9478,
       "thinking": 0,
-      "cache_write_5m": 339356,
+      "cache_write_5m": 146794,
       "cache_write_1h": 0,
-      "cache_read": 1169712
+      "cache_read": 747723
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 90,
-          "output": 24288,
+          "input": 44,
+          "output": 9478,
           "thinking": 0,
-          "cache_write_5m": 339356,
+          "cache_write_5m": 146794,
           "cache_write_1h": 0,
-          "cache_read": 1169712
+          "cache_read": 747723
         },
-        "usd_equivalent": 3.3134810000000012,
-        "messages": 40
+        "usd_equivalent": 1.528494,
+        "messages": 24
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 90,
-          "output": 24288,
+          "input": 44,
+          "output": 9478,
           "thinking": 0,
-          "cache_write_5m": 339356,
+          "cache_write_5m": 146794,
           "cache_write_1h": 0,
-          "cache_read": 1169712
+          "cache_read": 747723
         },
-        "usd_equivalent": 3.3134810000000012,
-        "messages": 40
+        "usd_equivalent": 1.528494,
+        "messages": 24
       },
       "subagent": {
         "tokens": {
@@ -121,9 +121,8 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 10,
-      "Bash": 4,
-      "StructuredOutput": 4,
+      "Bash": 3,
+      "Read": 3,
       "Glob": 3
     },
     "edit_churn": {

@@ -1,0 +1,174 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 792,
+    "branch": "perf/jest-dom-setup",
+    "base_sha": "f7880d4c05b7b21978f27cead66ae6c88bf5b3f5",
+    "head_sha": "97e620962708fd9eb9289259cca79275425e1678",
+    "generated_at": "2026-09-09T06:24:29.045Z",
+    "merged_at": "2026-08-30T02:42:19Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 500,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 4,
+    "first_ts": "2026-08-25T04:33:16.256Z",
+    "last_ts": "2026-08-28T01:47:21.296Z",
+    "span_seconds": 249245,
+    "active_seconds": 2391,
+    "compactions": 5
+  },
+  "spend": {
+    "usd_equivalent": 18.396812000000004,
+    "tokens": {
+      "input": 166,
+      "output": 91225,
+      "thinking": 52879,
+      "cache_write_5m": 63320,
+      "cache_write_1h": 588394,
+      "cache_read": 7069795
+    },
+    "by_model": {
+      "claude-fable-5": {
+        "tokens": {
+          "input": 90,
+          "output": 76789,
+          "thinking": 51694,
+          "cache_write_5m": 0,
+          "cache_write_1h": 436841,
+          "cache_read": 3993861
+        },
+        "usd_equivalent": 16.571030999999998,
+        "messages": 45
+      },
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 16,
+          "output": 1796,
+          "thinking": 0,
+          "cache_write_5m": 63320,
+          "cache_write_1h": 0,
+          "cache_read": 123774
+        },
+        "usd_equivalent": 0.502617,
+        "messages": 6
+      },
+      "claude-sonnet-5": {
+        "tokens": {
+          "input": 60,
+          "output": 12640,
+          "thinking": 1185,
+          "cache_write_5m": 0,
+          "cache_write_1h": 151553,
+          "cache_read": 2952160
+        },
+        "usd_equivalent": 1.3231639999999998,
+        "messages": 30
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 166,
+          "output": 91225,
+          "thinking": 52879,
+          "cache_write_5m": 63320,
+          "cache_write_1h": 588394,
+          "cache_read": 7069795
+        },
+        "usd_equivalent": 18.396812000000004,
+        "messages": 81
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {
+      "high": 75
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 0,
+      "docs": 0,
+      "config": 0,
+      "source": 43
+    },
+    "loc": {
+      "generated": {
+        "added": 4,
+        "deleted": 0
+      },
+      "test": {
+        "added": 0,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 55,
+        "deleted": 10
+      }
+    },
+    "packages": [
+      "cire/host",
+      "cire/invites",
+      "cire/landing",
+      "cire/vendor",
+      "osn/client",
+      "osn/landing",
+      "osn/social",
+      "osn/ui",
+      "pulse/landing",
+      "pulse/web",
+      "shared/rp-auth",
+      "shared/sortable",
+      "shared/test-config",
+      "shared/toast"
+    ],
+    "touches_migration": false,
+    "commits": 1
+  },
+  "interaction": {
+    "user_turns": 10,
+    "corrective_turns": 6,
+    "tokens_before_first_edit": 1633466,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 9,
+      "Write": 1,
+      "Read": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 1
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

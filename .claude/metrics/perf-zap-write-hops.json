@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 845,
+    "branch": "perf/zap-write-hops",
+    "base_sha": "a381059a5908272c3c5b024743bccc1fc7fba168",
+    "head_sha": "b5f9c7f45fef921b4e354576e72b91aea72ebe69",
+    "generated_at": "2026-09-09T06:24:29.038Z",
+    "merged_at": "2026-08-31T04:33:24Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 568,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 2,
+    "first_ts": "2026-08-30T15:46:54.111Z",
+    "last_ts": "2026-08-30T15:49:52.234Z",
+    "span_seconds": 178,
+    "active_seconds": 192,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 1.30830925,
+    "tokens": {
+      "input": 25,
+      "output": 13099,
+      "thinking": 0,
+      "cache_write_5m": 99163,
+      "cache_write_1h": 0,
+      "cache_read": 721881
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 25,
+          "output": 13099,
+          "thinking": 0,
+          "cache_write_5m": 99163,
+          "cache_write_1h": 0,
+          "cache_read": 721881
+        },
+        "usd_equivalent": 1.30830925,
+        "messages": 15
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 25,
+          "output": 13099,
+          "thinking": 0,
+          "cache_write_5m": 99163,
+          "cache_write_1h": 0,
+          "cache_read": 721881
+        },
+        "usd_equivalent": 1.30830925,
+        "messages": 15
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {},
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 2,
+      "docs": 0,
+      "config": 1,
+      "source": 4
+    },
+    "loc": {
+      "generated": {
+        "added": 53,
+        "deleted": 1
+      },
+      "test": {
+        "added": 277,
+        "deleted": 1
+      },
+      "docs": {
+        "added": 0,
+        "deleted": 0
+      },
+      "config": {
+        "added": 1,
+        "deleted": 1
+      },
+      "source": {
+        "added": 347,
+        "deleted": 166
+      }
+    },
+    "packages": [
+      "zap/api"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Read": 4,
+      "Bash": 2
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

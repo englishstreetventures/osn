@@ -5,7 +5,7 @@
     "branch": "chore/deps-ioredis-6",
     "base_sha": "19090b4b4e04220bb5a041ff513c6f8e2ff2ad8b",
     "head_sha": "eee06ccf60ec4583b78fb994d13d299572e1b68f",
-    "generated_at": "2026-09-07T07:41:54.235Z",
+    "generated_at": "2026-09-09T06:24:29.026Z",
     "merged_at": "2026-09-06T05:02:16Z",
     "phase": "at-merge"
   },
@@ -27,39 +27,39 @@
     "compactions": 2
   },
   "spend": {
-    "usd_equivalent": 55.42687475000001,
+    "usd_equivalent": 30.32216124999997,
     "tokens": {
-      "input": 1208,
-      "output": 147753,
-      "thinking": 64796,
-      "cache_write_5m": 1314391,
-      "cache_write_1h": 372826,
-      "cache_read": 79567612
+      "input": 657,
+      "output": 64765,
+      "thinking": 22881,
+      "cache_write_5m": 545883,
+      "cache_write_1h": 185976,
+      "cache_read": 46856445
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 98,
-          "output": 12630,
+          "input": 43,
+          "output": 4954,
           "thinking": 0,
-          "cache_write_5m": 238910,
+          "cache_write_5m": 95120,
           "cache_write_1h": 0,
-          "cache_read": 828718
+          "cache_read": 408473
         },
-        "usd_equivalent": 2.2237864999999992,
-        "messages": 38
+        "usd_equivalent": 0.9228014999999999,
+        "messages": 18
       },
       "claude-opus-5": {
         "tokens": {
-          "input": 1110,
-          "output": 135123,
-          "thinking": 64796,
-          "cache_write_5m": 1075481,
-          "cache_write_1h": 372826,
-          "cache_read": 78738894
+          "input": 614,
+          "output": 59811,
+          "thinking": 22881,
+          "cache_write_5m": 450763,
+          "cache_write_1h": 185976,
+          "cache_read": 46447972
         },
-        "usd_equivalent": 53.20308824999997,
-        "messages": 555
+        "usd_equivalent": 29.399359749999963,
+        "messages": 307
       },
       "<synthetic>": {
         "tokens": {
@@ -77,31 +77,31 @@
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 474,
-          "output": 126537,
-          "thinking": 56549,
-          "cache_write_5m": 238910,
-          "cache_write_1h": 372826,
-          "cache_read": 39161242
+          "input": 257,
+          "output": 60185,
+          "thinking": 22881,
+          "cache_write_5m": 95120,
+          "cache_write_1h": 185976,
+          "cache_read": 23988327
         },
-        "usd_equivalent": 27.967863500000007,
-        "messages": 227
+        "usd_equivalent": 15.954333499999988,
+        "messages": 126
       },
       "subagent": {
         "tokens": {
-          "input": 734,
-          "output": 21216,
-          "thinking": 8247,
-          "cache_write_5m": 1075481,
+          "input": 400,
+          "output": 4580,
+          "thinking": 0,
+          "cache_write_5m": 450763,
           "cache_write_1h": 0,
-          "cache_read": 40406370
+          "cache_read": 22868118
         },
-        "usd_equivalent": 27.459011250000014,
-        "messages": 367
+        "usd_equivalent": 14.367827749999996,
+        "messages": 200
       }
     },
     "effort": {
-      "high": 555
+      "high": 307
     },
     "unpriced_models": []
   },
@@ -144,27 +144,20 @@
   "interaction": {
     "user_turns": 5,
     "corrective_turns": 3,
-    "tokens_before_first_edit": 5344836,
+    "tokens_before_first_edit": 3826471,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 299,
-      "Write": 22,
-      "Read": 15,
-      "Edit": 9,
-      "StructuredOutput": 4,
-      "Agent": 3,
-      "Glob": 3,
-      "Skill": 1
+      "Bash": 106,
+      "Write": 8,
+      "Read": 5,
+      "Edit": 1,
+      "Glob": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 2,
-      "max_edits_one_file": 5
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 1
     },
-    "skills": {
-      "review-deps": 1
-    },
-    "subagents": {
-      "general-purpose": 3
-    }
+    "skills": {},
+    "subagents": {}
   }
 }

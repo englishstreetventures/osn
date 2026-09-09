@@ -5,7 +5,7 @@
     "branch": "perf/cire-invites-ssr-bundle",
     "base_sha": "851df71756b28cbe60cc72bac4f82de072179237",
     "head_sha": "0fbe9a2b7098c414b16bbbb8acd5e3302f1016d1",
-    "generated_at": "2026-09-07T07:41:43.205Z",
+    "generated_at": "2026-09-09T06:24:29.022Z",
     "merged_at": "2026-09-06T15:01:51Z",
     "phase": "at-merge"
   },
@@ -27,53 +27,53 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 8.053326199999999,
+    "usd_equivalent": 3.8940299,
     "tokens": {
-      "input": 343,
-      "output": 72984,
-      "thinking": 6001,
-      "cache_write_5m": 342404,
-      "cache_write_1h": 232888,
-      "cache_read": 16673976
+      "input": 179,
+      "output": 34361,
+      "thinking": 2681,
+      "cache_write_5m": 127802,
+      "cache_write_1h": 122562,
+      "cache_read": 9344301
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 91,
-          "output": 35672,
+          "input": 37,
+          "output": 13078,
           "thinking": 0,
-          "cache_write_5m": 342404,
+          "cache_write_5m": 127802,
           "cache_write_1h": 0,
-          "cache_read": 1270250
+          "cache_read": 653034
         },
-        "usd_equivalent": 3.667405000000001,
-        "messages": 46
+        "usd_equivalent": 1.4524145000000002,
+        "messages": 22
       },
       "claude-sonnet-5": {
         "tokens": {
-          "input": 252,
-          "output": 37312,
-          "thinking": 6001,
+          "input": 142,
+          "output": 21283,
+          "thinking": 2681,
           "cache_write_5m": 0,
-          "cache_write_1h": 232888,
-          "cache_read": 15403726
+          "cache_write_1h": 122562,
+          "cache_read": 8691267
         },
-        "usd_equivalent": 4.385921199999999,
-        "messages": 126
+        "usd_equivalent": 2.441615400000001,
+        "messages": 71
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 343,
-          "output": 72984,
-          "thinking": 6001,
-          "cache_write_5m": 342404,
-          "cache_write_1h": 232888,
-          "cache_read": 16673976
+          "input": 179,
+          "output": 34361,
+          "thinking": 2681,
+          "cache_write_5m": 127802,
+          "cache_write_1h": 122562,
+          "cache_read": 9344301
         },
-        "usd_equivalent": 8.053326199999999,
-        "messages": 172
+        "usd_equivalent": 3.8940299,
+        "messages": 93
       },
       "subagent": {
         "tokens": {
@@ -89,7 +89,7 @@
       }
     },
     "effort": {
-      "high": 126
+      "high": 71
     },
     "unpriced_models": []
   },
@@ -132,20 +132,18 @@
   "interaction": {
     "user_turns": 4,
     "corrective_turns": 0,
-    "tokens_before_first_edit": 1465401,
+    "tokens_before_first_edit": 884171,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 53,
-      "Read": 20,
-      "Edit": 12,
-      "Grep": 6,
-      "StructuredOutput": 3,
-      "Glob": 3,
-      "Write": 2
+      "Bash": 12,
+      "Read": 8,
+      "Edit": 6,
+      "Write": 2,
+      "Glob": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 2,
-      "max_edits_one_file": 6
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 3
     },
     "skills": {},
     "subagents": {}

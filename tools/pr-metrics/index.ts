@@ -75,7 +75,14 @@ export const MODEL_RATES = {
 
 export type PricedModel = keyof typeof MODEL_RATES;
 
+/** A transcript names a model either bare (`claude-opus-5`) or with the
+ * snapshot date appended (`claude-haiku-4-5-20251001`). Both are the same model
+ * at the same rates, so the date comes off before the table is consulted. */
+const MODEL_SNAPSHOT_SUFFIX = /-\d{8}$/;
+
 /**
+ * The rate-table key for a model name, or `null` when the table has no entry.
+ *
  * `Object.hasOwn`, never `key in MODEL_RATES` — the house rule in CLAUDE.md,
  * and here it guards a real defect rather than a hypothetical one. Model names
  * arrive from a transcript this script did not write, and `in` walks the
@@ -83,8 +90,14 @@ export type PricedModel = keyof typeof MODEL_RATES;
  * which then destructures to `[undefined, undefined]` and prices the whole card
  * as `NaN`. `hasOwn` sees only the nine real entries.
  */
-export function isPricedModel(model: string): model is PricedModel {
-  return Object.hasOwn(MODEL_RATES, model);
+export function rateKeyFor(model: string): PricedModel | null {
+  const bare = model.replace(MODEL_SNAPSHOT_SUFFIX, "");
+
+  return Object.hasOwn(MODEL_RATES, bare) ? (bare as PricedModel) : null;
+}
+
+export function isPricedModel(model: string): boolean {
+  return rateKeyFor(model) !== null;
 }
 
 const CACHE_WRITE_5M_MULTIPLIER = 1.25;
@@ -229,9 +242,11 @@ export function addTokens(into: TokenTotals, from: TokenTotals): void {
  * one. `unpricedModels` on the card names them so the gap is visible.
  */
 export function costOf(tokens: TokenTotals, model: string): number {
-  if (!isPricedModel(model)) return 0;
+  const key = rateKeyFor(model);
 
-  const [inputRate, outputRate] = MODEL_RATES[model];
+  if (key === null) return 0;
+
+  const [inputRate, outputRate] = MODEL_RATES[key];
 
   return (
     (tokens.input * inputRate +

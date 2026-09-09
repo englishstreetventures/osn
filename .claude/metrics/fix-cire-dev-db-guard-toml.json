@@ -5,7 +5,7 @@
     "branch": "fix/cire-dev-db-guard-toml",
     "base_sha": "cb345fbec36cce19e5a5cc97d45927cafd69984e",
     "head_sha": "f872171fc9896acba792ae38c44fbc8dc91987b8",
-    "generated_at": "2026-09-07T07:42:15.636Z",
+    "generated_at": "2026-09-09T06:24:29.033Z",
     "merged_at": "2026-09-06T07:51:26Z",
     "phase": "at-merge"
   },
@@ -27,41 +27,41 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 1.6148995000000002,
+    "usd_equivalent": 0.8036560000000001,
     "tokens": {
-      "input": 68,
-      "output": 8783,
+      "input": 36,
+      "output": 3909,
       "thinking": 0,
-      "cache_write_5m": 173360,
+      "cache_write_5m": 83326,
       "cache_write_1h": 0,
-      "cache_read": 622969
+      "cache_read": 369927
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 68,
-          "output": 8783,
+          "input": 36,
+          "output": 3909,
           "thinking": 0,
-          "cache_write_5m": 173360,
+          "cache_write_5m": 83326,
           "cache_write_1h": 0,
-          "cache_read": 622969
+          "cache_read": 369927
         },
-        "usd_equivalent": 1.6148995000000002,
-        "messages": 28
+        "usd_equivalent": 0.8036560000000001,
+        "messages": 16
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 68,
-          "output": 8783,
+          "input": 36,
+          "output": 3909,
           "thinking": 0,
-          "cache_write_5m": 173360,
+          "cache_write_5m": 83326,
           "cache_write_1h": 0,
-          "cache_read": 622969
+          "cache_read": 369927
         },
-        "usd_equivalent": 1.6148995000000002,
-        "messages": 28
+        "usd_equivalent": 0.8036560000000001,
+        "messages": 16
       },
       "subagent": {
         "tokens": {
@@ -119,8 +119,7 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 8,
-      "StructuredOutput": 4
+      "Read": 4
     },
     "edit_churn": {
       "files_edited_3plus": 0,

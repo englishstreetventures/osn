@@ -5,7 +5,7 @@
     "branch": "fix/osn-fof-bind-cap",
     "base_sha": "e7c6f0f170f01a937c8e3fa06ff9db2bf4b0cdb9",
     "head_sha": "e189c0eb5e18726ff593766ce4aecfee816d3c43",
-    "generated_at": "2026-09-07T07:42:23.374Z",
+    "generated_at": "2026-09-09T06:24:29.036Z",
     "merged_at": "2026-08-31T15:41:16Z",
     "phase": "at-merge"
   },
@@ -27,41 +27,41 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 5.636750000000005,
+    "usd_equivalent": 2.7609844999999997,
     "tokens": {
-      "input": 99,
-      "output": 57885,
+      "input": 55,
+      "output": 24144,
       "thinking": 0,
-      "cache_write_5m": 460112,
+      "cache_write_5m": 225202,
       "cache_write_1h": 0,
-      "cache_read": 2626860
+      "cache_read": 1499194
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 99,
-          "output": 57885,
+          "input": 55,
+          "output": 24144,
           "thinking": 0,
-          "cache_write_5m": 460112,
+          "cache_write_5m": 225202,
           "cache_write_1h": 0,
-          "cache_read": 2626860
+          "cache_read": 1499194
         },
-        "usd_equivalent": 5.636750000000005,
-        "messages": 59
+        "usd_equivalent": 2.7609844999999997,
+        "messages": 35
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 99,
-          "output": 57885,
+          "input": 55,
+          "output": 24144,
           "thinking": 0,
-          "cache_write_5m": 460112,
+          "cache_write_5m": 225202,
           "cache_write_1h": 0,
-          "cache_read": 2626860
+          "cache_read": 1499194
         },
-        "usd_equivalent": 5.636750000000005,
-        "messages": 59
+        "usd_equivalent": 2.7609844999999997,
+        "messages": 35
       },
       "subagent": {
         "tokens": {
@@ -121,11 +121,10 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 16,
-      "Grep": 6,
-      "StructuredOutput": 4,
+      "Read": 8,
       "Glob": 3,
-      "Bash": 2
+      "Bash": 2,
+      "Grep": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

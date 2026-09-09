@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 835,
+    "branch": "chore/dep-guard-gaps",
+    "base_sha": "8101ce475f5993f0f3523459484d24d8248fc2da",
+    "head_sha": "9ad77b79e4dd4ff9244a29d0bf630ed7c8f602c1",
+    "generated_at": "2026-09-09T06:24:29.040Z",
+    "merged_at": "2026-08-30T12:42:19Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 495,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 2,
+    "first_ts": "2026-08-30T05:15:07.124Z",
+    "last_ts": "2026-08-30T10:45:12.617Z",
+    "span_seconds": 19805,
+    "active_seconds": 112,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 0.6187095000000001,
+    "tokens": {
+      "input": 19,
+      "output": 7077,
+      "thinking": 0,
+      "cache_write_5m": 52570,
+      "cache_write_1h": 0,
+      "cache_read": 226254
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 19,
+          "output": 7077,
+          "thinking": 0,
+          "cache_write_5m": 52570,
+          "cache_write_1h": 0,
+          "cache_read": 226254
+        },
+        "usd_equivalent": 0.6187095000000001,
+        "messages": 9
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 19,
+          "output": 7077,
+          "thinking": 0,
+          "cache_write_5m": 52570,
+          "cache_write_1h": 0,
+          "cache_read": 226254
+        },
+        "usd_equivalent": 0.6187095000000001,
+        "messages": 10
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {},
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 2,
+      "test": 2,
+      "docs": 3,
+      "config": 3,
+      "source": 3
+    },
+    "loc": {
+      "generated": {
+        "added": 12,
+        "deleted": 1
+      },
+      "test": {
+        "added": 96,
+        "deleted": 1
+      },
+      "docs": {
+        "added": 63,
+        "deleted": 5
+      },
+      "config": {
+        "added": 77,
+        "deleted": 11
+      },
+      "source": {
+        "added": 301,
+        "deleted": 28
+      }
+    },
+    "packages": [
+      "tools/oxlint"
+    ],
+    "touches_migration": false,
+    "commits": 3
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Read": 4
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

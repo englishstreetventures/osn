@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 839,
+    "branch": "fix/osn-token-issuer",
+    "base_sha": "273e4ba82e35358c1ef08ab4ae2e38f7692ac855",
+    "head_sha": "20646b9fc881878a0309d94bffab795790cc021d",
+    "generated_at": "2026-09-09T06:24:29.039Z",
+    "merged_at": "2026-08-30T14:12:38Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 177,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 2,
+    "first_ts": "2026-08-30T12:39:48.240Z",
+    "last_ts": "2026-08-30T12:55:39.164Z",
+    "span_seconds": 951,
+    "active_seconds": 316,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 2.66057025,
+    "tokens": {
+      "input": 38,
+      "output": 21349,
+      "thinking": 0,
+      "cache_write_5m": 191637,
+      "cache_write_1h": 0,
+      "cache_read": 1857848
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 38,
+          "output": 21349,
+          "thinking": 0,
+          "cache_write_5m": 191637,
+          "cache_write_1h": 0,
+          "cache_read": 1857848
+        },
+        "usd_equivalent": 2.66057025,
+        "messages": 28
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 38,
+          "output": 21349,
+          "thinking": 0,
+          "cache_write_5m": 191637,
+          "cache_write_1h": 0,
+          "cache_read": 1857848
+        },
+        "usd_equivalent": 2.66057025,
+        "messages": 28
+      },
+      "subagent": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      }
+    },
+    "effort": {},
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 20,
+      "docs": 1,
+      "config": 3,
+      "source": 24
+    },
+    "loc": {
+      "generated": {
+        "added": 17,
+        "deleted": 0
+      },
+      "test": {
+        "added": 359,
+        "deleted": 58
+      },
+      "docs": {
+        "added": 27,
+        "deleted": 2
+      },
+      "config": {
+        "added": 50,
+        "deleted": 11
+      },
+      "source": {
+        "added": 283,
+        "deleted": 65
+      }
+    },
+    "packages": [
+      "cire/api",
+      "osn/api",
+      "pulse/api",
+      "shared/crypto",
+      "shared/dev-urls",
+      "shared/osn-auth-client",
+      "zap/api"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Read": 5
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 0
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

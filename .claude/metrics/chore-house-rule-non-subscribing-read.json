@@ -5,7 +5,7 @@
     "branch": "chore/house-rule-non-subscribing-read",
     "base_sha": "bb5b11a229842de7193e5656dd0ec9349eb457e0",
     "head_sha": "14a3d50a122d0b82bd2246ef87fac70002cd5e58",
-    "generated_at": "2026-09-07T07:41:46.338Z",
+    "generated_at": "2026-09-09T06:24:29.023Z",
     "merged_at": "2026-09-06T09:12:08Z",
     "phase": "at-merge"
   },
@@ -27,41 +27,41 @@
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 1.9787312500000003,
+    "usd_equivalent": 1.1956515,
     "tokens": {
-      "input": 32,
-      "output": 17852,
+      "input": 20,
+      "output": 9501,
       "thinking": 0,
-      "cache_write_5m": 128829,
+      "cache_write_5m": 75100,
       "cache_write_1h": 0,
-      "cache_read": 1454180
+      "cache_read": 977303
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 32,
-          "output": 17852,
+          "input": 20,
+          "output": 9501,
           "thinking": 0,
-          "cache_write_5m": 128829,
+          "cache_write_5m": 75100,
           "cache_write_1h": 0,
-          "cache_read": 1454180
+          "cache_read": 977303
         },
-        "usd_equivalent": 1.9787312500000003,
-        "messages": 22
+        "usd_equivalent": 1.1956515,
+        "messages": 15
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 32,
-          "output": 17852,
+          "input": 20,
+          "output": 9501,
           "thinking": 0,
-          "cache_write_5m": 128829,
+          "cache_write_5m": 75100,
           "cache_write_1h": 0,
-          "cache_read": 1454180
+          "cache_read": 977303
         },
-        "usd_equivalent": 1.9787312500000003,
-        "messages": 22
+        "usd_equivalent": 1.1956515,
+        "messages": 15
       },
       "subagent": {
         "tokens": {
@@ -121,8 +121,8 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 11,
-      "Bash": 3,
+      "Read": 6,
+      "Bash": 1,
       "Grep": 1
     },
     "edit_churn": {
