@@ -1,5 +1,11 @@
 # @tools/lab
 
+## 0.1.18
+
+### Patch Changes
+
+- @osn/ui@1.11.1
+
 ## 0.1.17
 
 ### Patch Changes
