@@ -383,7 +383,7 @@ describe("renderAuthorizeErrorPage", () => {
 
   it("does not resolve a planted Object.prototype member as copy (#492 item 3)", () => {
     // Guard pin matching the house form in
-    // osn/social/tests/components/AuthorizePage.test.tsx. Non-enumerable, so
+    // musubi/social/tests/components/AuthorizePage.test.tsx. Non-enumerable, so
     // no unrelated `for...in` loop across the test run can see it, and
     // removed again in `finally`.
     const proto = Object.prototype as Record<string, unknown>;

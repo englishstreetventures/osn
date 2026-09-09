@@ -6,7 +6,7 @@ related:
   - "[[contributing]]"
   - "[[testing-patterns]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-08-20
+last-reviewed: 2026-09-09
 ---
 
 # CLI Commands Reference
@@ -87,7 +87,7 @@ bun run reset            # clean + reinstall all dependencies
 Use `--cwd` (not `--filter`) for workspace-scoped installs:
 
 ```bash
-bun add solid-js --cwd osn/landing
+bun add solid-js --cwd musubi/landing
 bun add drizzle-orm --cwd pulse/db
 bun add <package> --cwd <workspace-path>
 ```

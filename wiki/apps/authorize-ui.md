@@ -4,7 +4,7 @@ description: Spec for the interaction surface behind /authorize — sign-in hand
 tags: [app, identity, oidc, spec]
 status: active
 packages:
-  - "@osn/social"
+  - "@musubi/social"
 related:
   - "[[oidc-provider]]"
   - "[[social]]"
@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-09-09
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -23,19 +23,19 @@ decision, and navigates to wherever the provider says. Every rule below is
 enforced server-side as well, with test coverage in
 `osn/api/tests/routes/oidc.test.ts`.
 
-**Built 2026-07-26.** The page lives at `osn/social/src/pages/AuthorizePage.tsx`
+**Built 2026-07-26.** The page lives at `musubi/social/src/pages/AuthorizePage.tsx`
 and talks to the provider through `createAuthorizeClient` in
-`osn/client/src/authorize.ts`. Tests: `osn/social/tests/components/AuthorizePage.test.tsx`
+`osn/client/src/authorize.ts`. Tests: `musubi/social/tests/components/AuthorizePage.test.tsx`
 and `osn/client/tests/authorize.test.ts`.
 
 **Deployed 2026-07-26**, on `me.cireweddings.com` at first. **Moved to the
 `musubi.social` apex 2026-07-27** with the rest of identity — see
-[[musubi-identity-migration]]. `@osn/social` has a Pages job in `deploy.yml`;
+[[musubi-identity-migration]]. `@musubi/social` has a Pages job in `deploy.yml`;
 `OSN_AUTHORIZE_UI_URL` points at it.
 
 ## Where it lives
 
-- **Route:** `/authorize` in `@osn/social` (the identity-domain web app),
+- **Route:** `/authorize` in `@musubi/social` (the identity-domain web app),
   served at `https://musubi.social/authorize`.
   In production the app must be served under the same registrable domain as
   osn-api (`musubi.social`) — the session cookie and the per-request binding
@@ -155,7 +155,7 @@ short-circuits consent), so state 4's copy can assume a third party.
 ### What the build settled
 
 - The page is served on a bare layout — no sidebar, nothing to click but
-  the decision itself — via a route allow-list in `osn/social/src/App.tsx`.
+  the decision itself — via a route allow-list in `musubi/social/src/App.tsx`.
 - `invalid_client` arrives from the decision route as **401**, not 400
   (`set.status = oidc.code === "invalid_client" ? 401 : 400`). The client
   branches on the `error` code, never the status.
@@ -205,7 +205,7 @@ short-circuits consent), so state 4's copy can assume a third party.
 - A logo URL from the client record is untrusted input: it is rendered as
   an `<img src>` through `safeAvatarUrl` with `referrerpolicy="no-referrer"`
   and nowhere else.
-- `osn/social/public/_headers` carries `frame-ancestors 'none'`,
+- `musubi/social/public/_headers` carries `frame-ancestors 'none'`,
   `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and
   `Referrer-Policy: strict-origin-when-cross-origin`.
 - **The READ has a deadline; the WRITE deliberately does not** (AZ-P-I2 +
@@ -252,7 +252,7 @@ short-circuits consent), so state 4's copy can assume a third party.
   is a cold cross-origin landing: the browser arrives from the relying party
   with no warm connection, so `GET /authorize/context` paid DNS + TCP + TLS
   before a byte moved. An `issuerPreconnect()` plugin in
-  `osn/social/vite.config.ts` emits `<link rel="preconnect" crossorigin>`
+  `musubi/social/vite.config.ts` emits `<link rel="preconnect" crossorigin>`
   built from the **resolved** config's `VITE_OSN_ISSUER_URL` — resolved, not
   `process.env`, so it sees exactly what the app's `import.meta.env` will,
   `.env` files included. `crossorigin` is required, since the context read is
@@ -262,7 +262,7 @@ short-circuits consent), so state 4's copy can assume a third party.
   preconnect is not the socket the context read reuses: it opens a second
   idle TLS connection and the handshake is paid anyway, which is strictly
   worse than shipping no tag. A missing or malformed URL emits no tag rather
-  than a dead one. Pinned by `osn/social/tests/issuer-preconnect.test.ts`.
+  than a dead one. Pinned by `musubi/social/tests/issuer-preconnect.test.ts`.
 
 ## Open questions (decide at build time, none block starting)
 

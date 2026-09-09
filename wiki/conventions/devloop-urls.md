@@ -7,7 +7,7 @@ related:
   - "[[monorepo-structure]]"
   - "[[contributing]]"
   - "[[passkey-primary]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-09
 ---
 
 # Devloop URLs
@@ -33,9 +33,9 @@ bunx portless clean              # undo it all: state, CA trust entry, hosts blo
 
 | Package | URL |
 | --- | --- |
-| `@osn/social` | `https://musubi.localhost` |
+| `@musubi/social` | `https://musubi.localhost` |
 | `@osn/api` | `https://id.musubi.localhost` |
-| `@osn/landing` | `https://www.musubi.localhost` |
+| `@musubi/landing` | `https://www.musubi.localhost` |
 | `@pulse/web` | `https://pulse.localhost` |
 | `@pulse/api` | `https://api.pulse.localhost` |
 | `@pulse/landing` | `https://www.pulse.localhost` |
@@ -50,7 +50,7 @@ bunx portless clean              # undo it all: state, CA trust entry, hosts blo
 The names mirror production hostnames — `id.musubi` for `id.musubi.social`, `host.cire` for `host.cireweddings.com`. `@tools/lab` is the exception: the component lab has no production host, so it is simply `lab`.
 
 > [!important] The nesting is load-bearing
-> A WebAuthn RP ID must be the origin's host or a registrable suffix of it, and a passkey created under one RP ID is invisible under another. `@osn/social` creates the passkey; `@osn/api` verifies it. Both sit under a shared `musubi` parent so `musubi.localhost` can serve as the RP ID for both. Flat names — `musubi` beside `osn-api` — would put every local passkey out of reach of the API that checks it. See [[passkey-primary]].
+> A WebAuthn RP ID must be the origin's host or a registrable suffix of it, and a passkey created under one RP ID is invisible under another. `@musubi/social` creates the passkey; `@osn/api` verifies it. Both sit under a shared `musubi` parent so `musubi.localhost` can serve as the RP ID for both. Flat names — `musubi` beside `osn-api` — would put every local passkey out of reach of the API that checks it. See [[passkey-primary]].
 
 ## One stack per worktree
 
@@ -93,9 +93,9 @@ Measured 2026-08-21 on this machine, page load timed in headless Chrome from `Pa
 | App | Load | Through the proxy | Direct | Cost |
 | --- | --- | --- | --- | --- |
 | `@pulse/web` | steady state (median of 5) | 186 ms | 148 ms | +38 ms |
-| `@osn/social` | steady state (median of 5) | 274 ms | 259 ms | +15 ms |
+| `@musubi/social` | steady state (median of 5) | 274 ms | 259 ms | +15 ms |
 | `@pulse/web` | first load after a cold start | ~2.9 s | ~0.87 s | **+2 s** |
-| `@osn/social` | first load after a cold start | 569 ms | 262 ms | +307 ms |
+| `@musubi/social` | first load after a cold start | 569 ms | 262 ms | +307 ms |
 
 Steady state costs a small, roughly constant amount — the TLS handshake and the extra hop. Nothing to think about.
 

@@ -21,7 +21,7 @@ related:
 packages:
   - "@pulse/web"
   - "@osn/ui"
-last-reviewed: 2026-08-31
+last-reviewed: 2026-09-09
 ---
 
 # Frontend Patterns
@@ -84,7 +84,7 @@ Route-level components (`EventDetailPage`, `SettingsPage`) are `lazy()`-loaded i
 Every one of these cost a real bug. They were all found in cire, but none of them
 is cire-specific — they are properties of Tailwind's scanner, Solid's reactivity,
 Motion One's finish behaviour and the CSS spec, so they apply to `@pulse/web` and
-`@osn/social` the same way. What unites them is that **the fast test tier cannot
+`@musubi/social` the same way. What unites them is that **the fast test tier cannot
 see any of them**: jsdom and happy-dom compute no styles and no layout, so a
 green unit suite proves nothing here. Pin the class contract in the fast tier and
 measure the real thing in the browser tier ([[browser-tests]]).

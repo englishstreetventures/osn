@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-06
+last-reviewed: 2026-09-09
 ---
 
 # Dev environment (cire + OSN identity)
@@ -82,7 +82,7 @@ Backing resources:
 
 ### WebAuthn on dev
 
-Dev's RP ID is **`dev.musubi.social`** — the origin `@osn/social`'s dev
+Dev's RP ID is **`dev.musubi.social`** — the origin `@musubi/social`'s dev
 deployment is served from, because a ceremony may only run on an origin same-site
 with the RP ID. Deliberately **not** the `musubi.social` apex: an apex RP ID would
 make a dev-enrolled credential usable against production.
@@ -485,7 +485,7 @@ A passkey is the only primary login factor, so a seeded account is unreachable:
 nobody can enrol a WebAuthn credential on behalf of a row a seed script wrote.
 `GET /dev/login` on `osn-api` mints a **real** OSN session for one fixed
 principal instead, so the OIDC chain, the organiser portal, the vendor portal and
-`@osn/social` all run untouched — there is no bypass anywhere else in the stack.
+`@musubi/social` all run untouched — there is no bypass anywhere else in the stack.
 
 The principal is fixed and provisioned on first use (idempotent, so it survives
 `osn-db-dev` never being reset):

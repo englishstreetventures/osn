@@ -1,20 +1,20 @@
 ---
 title: Social — Mobile UX analysis & plan
-description: Why @osn/social is unusable on phones today, and the phased plan to fix it
+description: Why @musubi/social is unusable on phones today, and the phased plan to fix it
 tags: [app, identity, ux, mobile, plan]
 status: shipped
 packages:
-  - "@osn/social"
+  - "@musubi/social"
 related:
   - "[[social]]"
   - "[[authorize-ui]]"
   - "[[component-library]]"
-last-reviewed: 2026-08-06
+last-reviewed: 2026-09-09
 ---
 
 # Social — Mobile UX analysis & plan
 
-`@osn/social` (live on the apex `musubi.social`) was designed as a desktop
+`@musubi/social` (live on the apex `musubi.social`) was designed as a desktop
 left-rail workbench and had **no responsive behaviour at all**. On a phone it
 was effectively broken: the fixed 240 px sidebar always rendered, leaving
 ~135 px of content on a 375 px viewport. This page is the audit of what was
@@ -139,7 +139,7 @@ that won't exist on mobile.
 ## Plan
 
 Five phases, each independently shippable, ordered so foundations land before
-layout. Everything is `@osn/social`-scoped: `App.css`, call-site classes
+layout. Everything is `@musubi/social`-scoped: `App.css`, call-site classes
 (the `base:` zero-specificity variant in `@osn/ui` makes call-site overrides
 win), and new app-local components. **No edits to `@osn/ui` primitives.**
 `DESIGN.md` is the locked system — phases that extend it amend the file in the

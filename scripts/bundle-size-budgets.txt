@@ -29,5 +29,5 @@ cire/invites   worker  175000   # measured 163332
 cire/host      static  224515   # measured 212832
 cire/vendor    static  81644    # measured 69961
 cire/landing   static  189324   # measured 177641
-osn/landing    static  26865    # measured 15182
+musubi/landing static  26865    # measured 15206
 pulse/landing  static  28366    # measured 16683

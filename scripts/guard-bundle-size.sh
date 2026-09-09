@@ -14,7 +14,7 @@
 #
 # Tracker #619 generalised it: cire/invites is the only `output: "server"`
 # Astro app in the repo (it emits `dist/server`, a Worker, plus `dist/client`,
-# its Static Assets). `cire/host`, `cire/landing`, `cire/vendor`, `osn/landing`
+# its Static Assets). `cire/host`, `cire/landing`, `cire/vendor`, `musubi/landing`
 # and `pulse/landing` are all `output: "static"` — no Worker, no `dist/server`,
 # no `dist/client` split; they deploy `dist` wholesale to Cloudflare Pages. The
 # two shapes need different measurements, so this script takes a MODE rather
@@ -215,7 +215,7 @@ run_guard() {
       # unset in all five static apps) writes some `<style>`/`<script>` output
       # inline into each page's HTML instead of into `dist/_astro`, and this
       # allowlist cannot see bytes that never reach that directory. Measured
-      # on osn/landing: 5 inline style blocks + 4 inline script blocks in
+      # on musubi/landing: 5 inline style blocks + 4 inline script blocks in
       # `dist/index.html` alone, ~3116 bytes gzip-equivalent — real budget
       # this guard is blind to. Tracker #636 holds the two ways to
       # close it (parse the HTML too, or force `inlineStylesheets: "never"`);

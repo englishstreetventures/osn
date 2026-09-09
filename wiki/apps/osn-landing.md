@@ -4,21 +4,21 @@ description: Marketing site for OSN — static Astro brochure emphasising user-o
 tags: [app, marketing]
 status: active
 packages:
-  - "@osn/landing"
+  - "@musubi/landing"
 related:
   - "[[osn-core]]"
   - "[[social]]"
   - "[[pulse-landing]]"
   - "[[cire-landing]]"
-last-reviewed: 2026-07-27
+last-reviewed: 2026-09-09
 ---
 
 # OSN Landing
 
-`@osn/landing` (`osn/landing`, dev port **4324**) is the **marketing site** for
+`@musubi/landing` (`musubi/landing`, dev port **4324**) is the **marketing site** for
 OSN — the page that explains the platform thesis (you own your identity and your
 social graph; apps opt in and out around it) and points visitors at the identity
-/ social app (`@osn/social`). It is a pure brochure: no OSN auth, no first-party
+/ social app (`@musubi/social`). It is a pure brochure: no OSN auth, no first-party
 API calls.
 
 ## Stack
@@ -102,7 +102,7 @@ data:`), Google Fonts allowed in `style-src` / `font-src`, immutable cache on
 `ConnectionsHero.test.tsx` renders the hero under jsdom (no canvas context) and
 asserts the headline + CTA targets — the reduced-motion / no-context path, so it
 passes regardless of canvas support. Run with
-`bun run --cwd osn/landing test:run`.
+`bun run --cwd musubi/landing test:run`.
 
 ## Deferred
 

@@ -6,6 +6,20 @@ An open, modular social platform. You own your identity and social graph, and ch
 
 OSN splits the social graph from the apps that use it. You own your identity and relationships, opt into apps one at a time, and your access rules follow you across all of them. Block someone on OSN and the block reaches every app you connect — unless you say otherwise.
 
+## OSN and Musubi
+
+Two names, and they mean different things.
+
+**OSN** is the system: a specification and the headless core that implements it — identity, the social graph, authorisation, and the OpenID Connect issuer. It ships no user interface, and anyone can run it for their own private social graph.
+
+**Musubi** is our implementation and the product built on it: the social app, its marketing site, the brand, and `musubi.social`, the instance we host. Musubi is to OSN as Mastodon is to the fediverse.
+
+The rule that decides which name anything takes: *if an independent implementation must use the same string to interoperate, it is OSN; otherwise it is Musubi.* So the token audiences, well-known paths and claim names stay OSN, while the app, the RP ID and the hosted instance are Musubi. Full detail in `wiki/architecture/osn-and-musubi.md`.
+
+OSN's graph is general — edges carry their own semantics, so `follows` and `reports-to` are one primitive. A corporate directory is a profile of OSN rather than a different system.
+
+There is no separate specification repository yet. OSN today is the reference implementation plus the wire contract it defines; a written specification waits until a second implementer exists.
+
 ## Core Principles
 
 - **Modular**: each capability (events, messaging, weddings, social media) is a standalone app. Use what you want, ignore the rest.
@@ -22,10 +36,10 @@ Phase 1. Three surfaces run in production on Cloudflare; the rest run locally.
 | Identity / auth API | `@osn/api` | Live — Worker on `id.musubi.social` |
 | Wedding invites (Cire) | `@cire/api`, `@cire/invites`, `@cire/host`, `@cire/vendor`, `@cire/db`, `@cire/theme` | Live — `cireweddings.com` zone |
 | Wedding marketing site | `@cire/landing` | Live — apex `cireweddings.com` |
-| Identity & graph UI | `@osn/social` | Live — Pages on the apex `musubi.social` (also serves the OIDC consent screen) |
+| Identity & graph UI | `@musubi/social` | Live — Pages on the apex `musubi.social` (also serves the OIDC consent screen) |
 | Events (Pulse) | `@pulse/web`, `@pulse/api`, `@pulse/db` | Local only |
 | Messaging (Zap) | `@zap/api`, `@zap/db` | Worker on `zap.cireweddings.com` — M1 in flight, client app not started |
-| OSN / Pulse marketing sites | `@osn/landing`, `@pulse/landing` | Built, not yet deployed |
+| OSN / Pulse marketing sites | `@musubi/landing`, `@pulse/landing` | Built, not yet deployed |
 
 CI deploys the `osn-api`, `cire-api` and `zap-api` Workers, the guest site (Worker SSR) and the identity app, organiser, vendor and landing sites (Pages) on merge to `main`. D1 migrations apply automatically. See `wiki/runbooks/production-deploy.md`.
 

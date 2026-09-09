@@ -9,7 +9,7 @@ related:
   - "[[retention]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-08-14
+last-reviewed: 2026-09-09
 ---
 
 # DSAR Runbook
@@ -88,7 +88,7 @@ Auth: bearer access token + step-up token. Rate-limit: 1 export per 24 h per acc
 
 ### Art. 16 — Rectification
 
-Most fields are user-editable in `@osn/social` (handle change, displayName, avatar, email change). For non-editable fields (security_events metadata, sessions ua_label) — these are observed facts, not user-supplied data; rectification right is narrower under GDPR Recital 65 ("inaccuracy" must be the data itself). Document the refusal under "Refusals" if challenged.
+Most fields are user-editable in `@musubi/social` (handle change, displayName, avatar, email change). For non-editable fields (security_events metadata, sessions ua_label) — these are observed facts, not user-supplied data; rectification right is narrower under GDPR Recital 65 ("inaccuracy" must be the data itself). Document the refusal under "Refusals" if challenged.
 
 ### Art. 17 — Right of erasure
 
@@ -239,7 +239,7 @@ Tracked with `C-` IDs, all rolled up under **C-M1** (DSAR runbook):
 
 1. `dsar_requests` table for audit log.
 2. `dsar@osn.example` email alias + automated acknowledgement.
-3. Postal address published on `@osn/landing` legal page.
+3. Postal address published on `@musubi/landing` legal page.
 4. Internal triage doc with the team rotation.
 5. SLA monitoring (alert when a request is >25 d unresponded).
 6. **Cire DSAR reachability + deletion fan-out** — ARC bridge to `@cire/api`

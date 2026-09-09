@@ -11,7 +11,7 @@ related:
   - "[[eaa]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-09-09
 ---
 
 # Compliance Scope Matrix
@@ -60,14 +60,14 @@ What ships in the **first** compliance push. Later rounds harden it.
 
 ### GDPR — first cut
 
-1. Privacy notice page on `@osn/landing` linking from every registration form.
+1. Privacy notice page on `@musubi/landing` linking from every registration form.
 2. `[[data-map]]` published as the Article 30 record of processing.
 3. `[[subprocessors]]` published with current DPAs on file.
 4. DSAR endpoints: `GET /account/export` (machine-readable JSON) and `DELETE /account` (full erasure with cross-service fan-out via ARC).
 5. Retention schedule enforced ([[retention]]) — Grafana Cloud retention already tight (14 d traces, 50 GB logs, 30 d metrics on free tier); production sessions auto-expire; security events retained 12 months; deleted-account tombstone retained 30 days.
 6. Lawful basis declared per processing purpose in `[[data-map]]`.
 7. Breach response runbook ([[breach-response]]) with named DPO contact.
-8. Cookie banner on `@osn/landing` only if/when analytics added.
+8. Cookie banner on `@musubi/landing` only if/when analytics added.
 
 ### SOC 2 — first cut (Type I readiness)
 
@@ -128,8 +128,8 @@ indefinitely — the platform is not designed for under-13 users.
 
 ### EAA — first cut
 
-WCAG 2.1 AA across `@pulse/web`, `@osn/social`, `@zap/app` (when shipped),
-and `@osn/landing`. We audit it with:
+WCAG 2.1 AA across `@pulse/web`, `@musubi/social`, `@zap/app` (when shipped),
+and `@musubi/landing`. We audit it with:
 
 - `@axe-core/playwright` in CI on the four apps.
 - Solid-aware accessibility lint rule in `oxlintrc.json` (`jsx-a11y` already enabled).

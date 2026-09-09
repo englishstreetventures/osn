@@ -7,7 +7,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[commands]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-08-31
+last-reviewed: 2026-09-09
 ---
 
 # Component Lab
@@ -43,7 +43,7 @@ What is left over is exactly what a bench is for: whether a drag tracks the
 pointer, whether the rows between it and the target shift aside to preview the
 drop, whether the grip is findable on hover and visible on focus, and whether a
 toast reads on the surface it lands on. The **light · dark** toggle is part of
-the toast bench, not chrome around it — the lab borrows `@osn/social`'s
+the toast bench, not chrome around it — the lab borrows `@musubi/social`'s
 stylesheet, which is what maps the shadcn ramp onto the `--toast-*` contract, so
 the toggle re-themes toasts exactly as the app does. See [[toast]] and
 [[drag-and-drop]].
@@ -55,7 +55,7 @@ the toggle re-themes toasts exactly as the app does. See [[toast]] and
 > that in a second; no assertion we had could.
 
 App-level components — `pulse/web/src/components`, `cire/invites`,
-`osn/social` — are **not** catalogued. They read from an API client, a router
+`musubi/social` — are **not** catalogued. They read from an API client, a router
 and an auth session; standing those up in a story means fixtures the repo
 deliberately keeps out of app source — see [[component-library]]. The path is
 open where a component needs no such context: `pulse/Icon` is catalogued from
@@ -94,7 +94,7 @@ component under any workspace's `src/` (permanent bench). Both are found.
 
 ## Decisions worth keeping
 
-**The lab imports `osn/social/src/App.css` rather than copying tokens.** That
+**The lab imports `musubi/social/src/App.css` rather than copying tokens.** That
 file is the source of truth for `--background`, the `.dark` block and the `base:`
 variant every `@osn/ui` class is written against. A second copy drifts. The cost
 is that the OSN look is the lab's default; a story with its own design language

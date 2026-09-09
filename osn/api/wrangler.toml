@@ -143,7 +143,7 @@ crons = ["0 */6 * * *"]
 # account, and a dev passkey is a different credential. See
 # `[[wiki/runbooks/dev-environment]]`.
 #
-# RP ID is `dev.musubi.social`, the origin `@osn/social`'s dev deployment is
+# RP ID is `dev.musubi.social`, the origin `@musubi/social`'s dev deployment is
 # served from — a WebAuthn ceremony may only run on an origin same-site with the
 # RP ID, and the ceremonies (plus the OIDC consent screen) live on that app, not
 # on this API host. Deliberately NOT the `musubi.social` apex: an apex RP ID would
@@ -307,7 +307,7 @@ crons = ["0 */6 * * *"]
 #
 # The RP ID is the registrable apex `musubi.social`, not `id.musubi.social`. A WebAuthn
 # ceremony may only run on an origin same-site with the RP ID, and the consent
-# screen (`@osn/social`) is served from the apex — under `id.musubi.social` the apex
+# screen (`@musubi/social`) is served from the apex — under `id.musubi.social` the apex
 # could never run one. The apex also covers every future *.musubi.social surface.
 #
 # Changing the RP ID invalidates every passkey enrolled under `cireweddings.com`:
@@ -342,7 +342,7 @@ OSN_COOKIE_DOMAIN = "musubi.social"
 # and OTP step-up is exactly the route back in after a recovery-code login. Move
 # this only after verifying musubi.social in Resend.
 OSN_EMAIL_FROM = "hello@cireweddings.com"
-# Where a parked OIDC request sends the browser. `@osn/social` serves the consent
+# Where a parked OIDC request sends the browser. `@musubi/social` serves the consent
 # screen from the musubi.social apex — same registrable domain as this Worker, so
 # the session cookie and the per-request binding cookie both flow on its
 # credentialed fetches back here. Unset, the provider would fall back to

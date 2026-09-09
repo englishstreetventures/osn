@@ -22,7 +22,7 @@ related:
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-08-24
+last-reviewed: 2026-09-09
 ---
 
 # Cire
@@ -121,7 +121,7 @@ Free tier throughout — see [[free-tier-limits]]). Domains (#149):
 | `vendor.cireweddings.com` | vendor portal (`cire/vendor` Pages) |
 | `api.cireweddings.com` | `cire-api` Worker |
 | `id.musubi.social` | `osn-api` Worker — the OSN issuer, on a **zone of its own** since 2026-07-27 (was `id.cireweddings.com`) |
-| `musubi.social` (apex) | `@osn/social` — the identity app and the OIDC consent screen |
+| `musubi.social` (apex) | `@musubi/social` — the identity app and the OIDC consent screen |
 
 **Passkey RP ID is `musubi.social`, not `cireweddings.com`.** The identity move
 ([[musubi-identity-migration]]) took the RP ID with it, and a WebAuthn ceremony

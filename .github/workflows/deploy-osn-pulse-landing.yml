@@ -1,6 +1,6 @@
-name: Preview — osn/landing + pulse/landing
+name: Preview — musubi/landing + pulse/landing
 
-# Deploys the two marketing sites (osn/landing, pulse/landing) to their own
+# Deploys the two marketing sites (musubi/landing, pulse/landing) to their own
 # NON-APEX Cloudflare Pages preview projects (osn-landing → osn-landing.pages.dev,
 # pulse-landing → pulse-landing.pages.dev), so they can be reviewed on a real URL.
 # Runs on every push to the landing feature branch and can be triggered manually
@@ -41,7 +41,7 @@ jobs:
           # across all Cloudflare accounts — `pulse-landing` was already taken by
           # an unrelated account, so the Pulse project carries an `osn-` prefix to
           # claim a clean, owned subdomain.
-          - { dir: osn/landing, project: osn-landing }
+          - { dir: musubi/landing, project: osn-landing }
           - { dir: pulse/landing, project: osn-pulse-landing }
     steps:
       - uses: actions/checkout@v4

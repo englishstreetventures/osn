@@ -15,7 +15,7 @@
  */
 export const LOCAL_DEV_CORS_ORIGINS = [
   "http://localhost:1420", // @pulse/web
-  "http://localhost:1422", // @osn/social
+  "http://localhost:1422", // @musubi/social
   "http://localhost:4321", // @cire/invites (guest "Link my Pulse account" island)
   "http://localhost:4322", // @cire/host (OSN passkey sign-in)
 ] as const;

@@ -1,16 +1,16 @@
-/* Same arrangement as tools/lab: borrow @osn/social's stylesheet rather than
+/* Same arrangement as tools/lab: borrow @musubi/social's stylesheet rather than
  * keep a copy of the tokens. It defines `--background`, `--foreground`, the
  * type scale and the `base:` variant every @osn/ui component is written
  * against, so importing it is what makes those components render here as they
  * render in the app. */
-@import "../../../osn/social/src/App.css";
+@import "../../../musubi/social/src/App.css";
 
 /* Tailwind only generates classes it can see. App.css already scans osn/ui;
  * this adds the dashboard's own files. */
 @source "../";
 
 /* Dark only. `index.html` puts `.dark` on the root, which is what selects
- * App.css's dark token block — the same values @osn/social uses at night, so
+ * App.css's dark token block — the same values @musubi/social uses at night, so
  * nothing here invents a hex. `color-scheme` makes native controls and the
  * scrollbar agree, and painting the ground on `html` means no white flash
  * before the stylesheet's body rule applies. */

@@ -163,7 +163,7 @@ export function Register(props: RegisterProps) {
    * directly, so nothing in the flow needs a published session, and
    * publishing one early would announce a signed-in user whose account
    * still has zero passkeys. Consumers act on that announcement:
-   * `@osn/social` hides its auth dialogs the moment `session()` is
+   * `@musubi/social` hides its auth dialogs the moment `session()` is
    * truthy, which unmounted this component mid-flow and skipped
    * enrollment altogether. `enrollPasskey` adopts it once the credential
    * exists — that, plus the server-side last-passkey guard on

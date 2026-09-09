@@ -6,20 +6,20 @@ AI coding assistant ref. Full spec in README.md. Work tracked in GitHub Issues �
 
 OSN: Modular social platform. Users own identity + social graph. Apps opt-in/out independently.
 
-**Deployed:** the cire stack is **live on the `cireweddings.com` zone** (all Cloudflare Free tier). Domain reshuffle 2026-07-16: apex `cireweddings.com` = marketing landing, `invite.cireweddings.com` = guest site, `host.cireweddings.com` = organiser portal; `vendor.cireweddings.com` joined them with the vendor portal (`cire/vendor`, its own Pages project and deploy job). **Identity moved to its own zone 2026-07-27:** `osn-api` is a deployed **Cloudflare Worker** on `id.musubi.social`, `@osn/social` (identity app + the OIDC consent screen) is on the apex `musubi.social`, and the WebAuthn RP ID is `musubi.social` — so the cireweddings.com origins can no longer run passkey ceremonies and sign in through the OIDC redirect flow instead (see `[[wiki/runbooks/musubi-identity-migration]]`). osn-api has Upstash prod secrets set; email is live over Resend from `hello@cireweddings.com` (`OSN_EMAIL_OPTIONAL` still exists as the degraded-boot opt-in — `selectEmailLayer` in `osn/api/src/lib/email-layer.ts` — and is unneeded once `RESEND_API_KEY` is set). `cire-api` on `api.cireweddings.com`; guest + organiser sites on Pages with custom domains. **Two tiers since 2026-08-13:** a merge to `main` auto-deploys the isolated **dev** tier (`*.dev.cireweddings.com`, `id.dev`/`dev.musubi.social`), and the production jobs in the same run wait on a human approving the `production` GitHub Environment — no more unattended deploys to live weddings. Path filters mean only changed surfaces deploy. See `[[wiki/runbooks/dev-environment]]`. Architectural decision: **osn-api stays a single Worker** (split deferred). See `[[wiki/runbooks/production-deploy]]`, `[[wiki/runbooks/free-tier-limits]]`.
+**Deployed:** the cire stack is **live on the `cireweddings.com` zone** (all Cloudflare Free tier). Domain reshuffle 2026-07-16: apex `cireweddings.com` = marketing landing, `invite.cireweddings.com` = guest site, `host.cireweddings.com` = organiser portal; `vendor.cireweddings.com` joined them with the vendor portal (`cire/vendor`, its own Pages project and deploy job). **Identity moved to its own zone 2026-07-27:** `osn-api` is a deployed **Cloudflare Worker** on `id.musubi.social`, `@musubi/social` (identity app + the OIDC consent screen) is on the apex `musubi.social`, and the WebAuthn RP ID is `musubi.social` — so the cireweddings.com origins can no longer run passkey ceremonies and sign in through the OIDC redirect flow instead (see `[[wiki/runbooks/musubi-identity-migration]]`). osn-api has Upstash prod secrets set; email is live over Resend from `hello@cireweddings.com` (`OSN_EMAIL_OPTIONAL` still exists as the degraded-boot opt-in — `selectEmailLayer` in `osn/api/src/lib/email-layer.ts` — and is unneeded once `RESEND_API_KEY` is set). `cire-api` on `api.cireweddings.com`; guest + organiser sites on Pages with custom domains. **Two tiers since 2026-08-13:** a merge to `main` auto-deploys the isolated **dev** tier (`*.dev.cireweddings.com`, `id.dev`/`dev.musubi.social`), and the production jobs in the same run wait on a human approving the `production` GitHub Environment — no more unattended deploys to live weddings. Path filters mean only changed surfaces deploy. See `[[wiki/runbooks/dev-environment]]`. Architectural decision: **osn-api stays a single Worker** (split deferred). See `[[wiki/runbooks/production-deploy]]`, `[[wiki/runbooks/free-tier-limits]]`.
 
 Phase 1 surfaces:
 
 | Surface | Package(s) | Status |
 |---|---|---|
 | Identity / auth API | `@osn/api` (port 4000; prod Worker `id.musubi.social`) | Active — **deployed (Worker)** |
-| Identity & graph UI | `@osn/social` (port 1422; prod Pages `musubi.social`) | Active — **deployed (Pages)** |
+| Identity & graph UI | `@musubi/social` (port 1422; prod Pages `musubi.social`) | Active — **deployed (Pages)** |
 | Events | `@pulse/web` + `@pulse/api` (port 3001) + `@pulse/db` | Active |
 | Messaging | `@zap/api` (port 3002) + `@zap/db` | Backend only — per-package milestone status is on `[[wiki/apps/zap]]` |
 | Wedding invites | @cire/api (:8787, prod `api.cireweddings.com`) + @cire/invites (:4321, prod `invite.cireweddings.com`) + @cire/host (:4322, prod `host.cireweddings.com`) + @cire/db + @cire/theme | Active — **deployed** (domain reshuffle 2026-07-16: guest→`invite.`, organiser→`host.`; package rename 2026-08-07: `@cire/web`→`@cire/invites`, `@cire/organiser`→`@cire/host`) |
 | Wedding vendor portal | `@cire/vendor` (:4326, prod `vendor.cireweddings.com`) | Active — **deployed (Pages)**. The vendor self-service portal: claim flow and directory listing. See `[[wiki/systems/cire-vendors]]` |
 | Wedding marketing site | `@cire/landing` (:4323) | Active — serves the **apex `cireweddings.com`** (reshuffle 2026-07-16). See `[[wiki/apps/cire-landing]]` |
-| OSN marketing site | `@osn/landing` (:4324) | Active — built (dark/dotted, connections-led). See `[[wiki/apps/osn-landing]]` |
+| Musubi marketing site | `@musubi/landing` (:4324) | Active — built (dark/dotted, connections-led). See `[[wiki/apps/osn-landing]]` |
 | Pulse marketing site | `@pulse/landing` (:4325) | Active — built (colourful + fun). See `[[wiki/apps/pulse-landing]]` |
 
 ## File Responsibilities
@@ -45,7 +45,7 @@ GitHub Issues, not the wiki. Two repos:
 
 Route by *kind*, never by severity: an `S-`, `P-` or `C-` ID goes to the tracker however minor it looks. `xchromo/osn` is public, and a finding names an unpatched route.
 
-Every issue carries exactly one `product:` label — `osn-core`, `pulse`, `cire`, `zap`, `shared`, `landing` — and an org issue type: `Feature`, `Bug` or `Task`. An `area:` label is optional and only ever `security`, `performance`, `compliance`, `ops`, `docs` or `schema`; an issue with none is ordinary product work, which is what `Feature` already says. Findings also carry a `severity:`, taken from the tier letter in the ID. Every issue also carries a `complexity:` rating — `1`, `2`, `3`, `5` or `8` — declared **before** work starts, plus `complexity:unconfirmed` when no human signed off on it. It is the denominator every session-metrics query divides spend by, so a rating made after the cost is known is worthless; `/new-feat` sets it through the `rate-complexity` skill. See `[[wiki/observability/session-metrics]]`. Epics are parents with sub-issues, so a phased piece of work is one issue plus its parts.
+Every issue carries exactly one `product:` label — `osn-core`, `musubi`, `pulse`, `cire`, `zap`, `shared`, `landing` — and an org issue type: `Feature`, `Bug` or `Task`. An `area:` label is optional and only ever `security`, `performance`, `compliance`, `ops`, `docs` or `schema`; an issue with none is ordinary product work, which is what `Feature` already says. Findings also carry a `severity:`, taken from the tier letter in the ID. Every issue also carries a `complexity:` rating — `1`, `2`, `3`, `5` or `8` — declared **before** work starts, plus `complexity:unconfirmed` when no human signed off on it. It is the denominator every session-metrics query divides spend by, so a rating made after the cost is known is worthless; `/new-feat` sets it through the `rate-complexity` skill. See `[[wiki/observability/session-metrics]]`. Epics are parents with sub-issues, so a phased piece of work is one issue plus its parts.
 
 ```bash
 gh issue list --repo xchromo/osn --state open --label product:pulse
@@ -71,6 +71,7 @@ One label is orthogonal to all of that: **`needs:decision`**, on both repos. It 
 
 | If you need to... | Read |
 |---|---|
+| Tell OSN (the system) from Musubi (our implementation) — which name a new package, label or identifier takes | `[[wiki/architecture/osn-and-musubi]]` |
 | Understand monorepo layout | `[[wiki/architecture/monorepo-structure]]` |
 | Understand DB environments (local bun:sqlite vs dev/staging/prod D1) | `[[wiki/systems/database-environments]]` |
 | Cut D1 latency with read replicas (the Sessions API, `first-primary`, one session per invocation, turning replication on) | `[[wiki/systems/d1-read-replication]]` |
@@ -176,11 +177,12 @@ So: tables and mermaid for anything a reader might hit through GitHub; the Obsid
 
 ## Current State (summary)
 
-Monorepo by domain. Five dirs, five prefixes — see `[[wiki/architecture/monorepo-structure]]` for full tree.
+Monorepo by domain. Six dirs, six prefixes — see `[[wiki/architecture/monorepo-structure]]` for full tree.
 
 | Dir | Prefix | What lives here |
 |-----|--------|-----------------|
-| `osn/` | `@osn/*` | Identity stack (auth, graph, orgs, recommendations, SDK, landing, social app) — crypto moved to `@shared/crypto` |
+| `osn/` | `@osn/*` | **OSN, the system**: the headless identity core (auth, graph, orgs, recommendations, SDK, shared auth UI). No user interface of its own — crypto moved to `@shared/crypto` |
+| `musubi/` | `@musubi/*` | **Musubi, our implementation**: the identity/social app and its marketing site, built on OSN |
 | `pulse/` | `@pulse/*` | Events stack (app, API, DB) |
 | `zap/` | `@zap/*` | Messaging stack (API on port 3002, DB) |
 | `cire/` | `@cire/*` | Wedding-invite stack (guest site, organiser portal, API, DB) |
@@ -205,7 +207,7 @@ One-line summaries — open wiki page for full contract, API surface, finding hi
 | Step-up (sudo) tokens | Short-lived `aud: "osn-step-up"` JWTs from fresh passkey/OTP ceremony. Required by `/recovery/generate`, `/account/email/complete`, security-event ack, passkey rename/delete. Single-use via `StepUpJtiStore`. **Purpose-bound at every gate** (`passkey_register`/`passkey_delete`/`email_change`/`security_event_ack`/`recovery_generate`): a verifier requires its own `purpose` claim, so a token minted for one ceremony can't be replayed at another before its jti is consumed. | `[[wiki/systems/step-up]]` |
 | Recovery Codes | Copenhagen Book M2 — 10 × 64-bit single-use codes, hashed at rest. Generate/consume both in `security_events` and surfaced via in-app banner. | `[[wiki/systems/recovery-codes]]` |
 | Session Introspection | `GET/DELETE /sessions[/:id]`, `POST /sessions/revoke-all-other`. Coarse UA labels + HMAC-peppered IP hashes. | `[[wiki/systems/sessions]]` |
-| OIDC Provider | `@osn/api` is an OpenID Connect provider, so other apps recognise an OSN account without holding a passkey. Authorization code + PKCE (S256 only), pairwise `sub` per client sector, consent stored per (account, client). Invalid client / redirect URI **renders** an error, never redirects (open-redirect guard). Codes hashed, single use, 60s TTL. No refresh tokens, never an `osn-access` audience. Hardened 2026-07-24: real `auth_time` + `max_age`/`prompt=login` enforcement, per-request browser-binding cookie, reserved client-id deny-list + `typ: at+jwt`, `GET/DELETE /oidc/connections` (revoke kills in-flight codes). Hardened 2026-07-29: self-serve client sector = its own `client_id` (colluding clients can't share a sector); `auth_time` survives silent rotation via `sessions.authenticated_at`; consent-screen anti-impersonation (name confusable-skeleton block + verified-app/third-party-host signal); RFC 9207 `iss`; required browser-binding on every parked request; consent revocation is now a live Settings surface (`@osn/social` "Connected apps"). | `[[wiki/systems/oidc-provider]]` |
+| OIDC Provider | `@osn/api` is an OpenID Connect provider, so other apps recognise an OSN account without holding a passkey. Authorization code + PKCE (S256 only), pairwise `sub` per client sector, consent stored per (account, client). Invalid client / redirect URI **renders** an error, never redirects (open-redirect guard). Codes hashed, single use, 60s TTL. No refresh tokens, never an `osn-access` audience. Hardened 2026-07-24: real `auth_time` + `max_age`/`prompt=login` enforcement, per-request browser-binding cookie, reserved client-id deny-list + `typ: at+jwt`, `GET/DELETE /oidc/connections` (revoke kills in-flight codes). Hardened 2026-07-29: self-serve client sector = its own `client_id` (colluding clients can't share a sector); `auth_time` survives silent rotation via `sessions.authenticated_at`; consent-screen anti-impersonation (name confusable-skeleton block + verified-app/third-party-host signal); RFC 9207 `iss`; required browser-binding on every parked request; consent revocation is now a live Settings surface (`@musubi/social` "Connected apps"). | `[[wiki/systems/oidc-provider]]` |
 | Cross-Device Login | QR-code mediated session transfer. Device B begins + polls; device A scans QR, approves. 256-bit secret, SHA-256 hashed at rest, one-time consumption, 5-min TTL. Stored in the shared ceremony-store bundle — Redis-backed where a client is configured (`osn/api/src/lib/redis-ceremony-stores.ts`), in-memory otherwise. | `[[wiki/systems/sessions]]` |
 | Email Change | Step-up gated; OTP to NEW address; atomically swaps email + revokes other sessions. Cap 2 changes / 7 days. | `[[wiki/systems/identity-model]]` |
 | Email Transport | Transactional-only (OTPs + security notices). `EmailService` Effect Tag in `@shared/email`; `ResendEmailLive` POSTs to Resend's HTTP API (`api.resend.com/emails`, bearer-authed) — **preferred live transport** (works on workerd); `CloudflareEmailLive` is a legacy fallback; `LogEmailLive` captures in-memory for dev + tests. Selection precedence Resend → Cloudflare → Log (local) → Noop (`OSN_EMAIL_OPTIONAL`) → throw. With `RESEND_API_KEY` set the opt-in is unneeded. | `[[wiki/systems/email]]` |
@@ -257,11 +259,11 @@ bun run dev              # Start all dev servers (turbo)
 bun run dev:pulse        # @pulse/api + @pulse/web + @osn/api + @zap/api
 bun run dev:zap          # @zap/api + @osn/api
 bun run dev:osn          # @osn/api alone
-bun run dev:social       # @osn/social + @osn/api
+bun run dev:social       # @musubi/social + @osn/api
 bun run dev:apis         # backends only: @osn/api + @pulse/api + @zap/api
 bun run dev:cire         # @cire/api + @cire/invites + @cire/host + @osn/api
                          # (NOT @cire/vendor — run that one on its own)
-bun run dev:landing      # @osn/landing        (dev:cire-landing, dev:pulse-landing for the others)
+bun run dev:landing      # @musubi/landing        (dev:cire-landing, dev:pulse-landing for the others)
 bun run dev:lab          # @tools/lab — component/three.js prototyping
 bun run build            # Build all packages (turbo)
 bun run check            # Type-check all packages (turbo)
@@ -297,9 +299,9 @@ That CA is a TLS-interception primitive for every host the machine talks to, so 
 
 | App | URL |
 | --- | --- |
-| `@osn/social` | `https://musubi.localhost` |
+| `@musubi/social` | `https://musubi.localhost` |
 | `@osn/api` | `https://id.musubi.localhost` |
-| `@osn/landing` | `https://www.musubi.localhost` |
+| `@musubi/landing` | `https://www.musubi.localhost` |
 | `@pulse/web` | `https://pulse.localhost` |
 | `@pulse/api` | `https://api.pulse.localhost` |
 | `@pulse/landing` | `https://www.pulse.localhost` |
@@ -310,7 +312,7 @@ That CA is a TLS-interception primitive for every host the machine talks to, so 
 | `@cire/api` | `https://api.cire.localhost` |
 | `@zap/api` | `https://zap.cire.localhost` |
 
-The names mirror production hostnames, and the nesting is load-bearing: a WebAuthn RP ID has to be the origin's host or a registrable suffix of it, so `@osn/social` (`musubi.*`) and `@osn/api` (`id.musubi.*`) sit under a shared `musubi` parent that can serve as the RP ID for both. Flat names would put every passkey out of reach of the API that verifies it.
+The names mirror production hostnames, and the nesting is load-bearing: a WebAuthn RP ID has to be the origin's host or a registrable suffix of it, so `@musubi/social` (`musubi.*`) and `@osn/api` (`id.musubi.*`) sit under a shared `musubi` parent that can serve as the RP ID for both. Flat names would put every passkey out of reach of the API that verifies it.
 
 **Worktrees get their own stack.** In a linked worktree portless prepends the branch, so the same `bun run dev` gives `https://my-branch.host.cire.localhost` and friends. Two worktrees can run the full devloop at once without colliding. The `main` worktree keeps the bare names.
 

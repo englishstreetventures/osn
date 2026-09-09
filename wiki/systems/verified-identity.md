@@ -15,9 +15,9 @@ packages:
   - "@osn/db"
   - "@osn/client"
   - "@osn/ui"
-  - "@osn/social"
+  - "@musubi/social"
   - "@shared/crypto"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-09-09
 status: design — not yet implemented
 ---
 
@@ -68,7 +68,7 @@ SD-JWT VC on the wire:
 | Role | Who | What |
 |---|---|---|
 | **Issuer** | `@osn/api` + a verification provider (Persona, idvPacific, MATTR, …) | Runs the user through a verification flow once, mints SD-JWT VCs claiming the verified attributes, signs them with the existing OSN ES256 key. |
-| **Holder** | The user, via `@osn/social` (and later mobile wallets) | Stores verified attributes account-side. On a presentation request, releases only the disclosures matching the requested claim set. |
+| **Holder** | The user, via `@musubi/social` (and later mobile wallets) | Stores verified attributes account-side. On a presentation request, releases only the disclosures matching the requested claim set. |
 | **Verifier / Relying party** | Pulse, Zap, third-party apps | Asks for a specific predicate ("`age >= 18`", "`country == AU`", "`given_name` verified"), receives an SD-JWT VC presentation, validates the OSN issuer signature against `/.well-known/jwks.json`. |
 
 **OSN never re-shares the source document.** The licence
@@ -204,7 +204,7 @@ inventing our own protocol.
 
 ## UI surface
 
-In `@osn/social` Settings → Identity (new tab next to Security):
+In `@musubi/social` Settings → Identity (new tab next to Security):
 
 - **"Verify your identity"** — entry point listing available kinds
   (Age estimate / Australian licence or passport / mDL / myID), with

@@ -39,11 +39,11 @@ semantics against stubbed geometry, because happy-dom computes no layout. Neithe
 can tell you whether a drag tracks the pointer, whether the rows shift aside to
 preview the drop, or whether a toast is legible on the surface it lands on. The
 lab's **light · dark** toggle matters for the toast in particular — it borrows
-`@osn/social`'s stylesheet, which is what maps the shadcn ramp onto the
+`@musubi/social`'s stylesheet, which is what maps the shadcn ramp onto the
 `--toast-*` contract, so the toggle re-themes toasts exactly as the app does.
 
 App-level components (`pulse/web/src/components`, `cire/invites`,
-`osn/social`) are not catalogued: they read from an API client, a router and an
+`musubi/social`) are not catalogued: they read from an API client, a router and an
 auth session, and standing those up means fixtures the repo deliberately keeps
 out of app source. A story for one of them belongs next to it, supplying real
 context — `pulse/web/src/components/Icon.story.tsx` is the pattern, and it is
@@ -203,7 +203,7 @@ not copy the pattern into app code.
 
 ## Styling
 
-`src/lab.css` imports `osn/social/src/App.css` wholesale rather than keeping its
+`src/lab.css` imports `musubi/social/src/App.css` wholesale rather than keeping its
 own copy of the design tokens. That file defines `--background`, the `.dark`
 block and the `base:` variant that every `@osn/ui` class is written against, so
 importing it is what makes those components render here exactly as they render

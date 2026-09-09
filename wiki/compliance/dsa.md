@@ -7,7 +7,7 @@ related:
   - "[[event-access]]"
   - "[[social-graph]]"
   - "[[connection-recommender]]"
-last-reviewed: 2026-08-31
+last-reviewed: 2026-09-09
 ---
 
 # Digital Services Act
@@ -32,10 +32,10 @@ language is narrower than most summaries suggest.
 
 | Article | Obligation | Status | Action |
 |---|---|---|---|
-| Art. 11 | Single point of contact for authorities | **Gap** | Designate; publish on `@osn/landing/legal/dsa-contact`. |
-| Art. 12 | Single point of contact for recipients (users) | **Gap** | Email alias `dsa@osn.example` + `@osn/social` Settings link. |
+| Art. 11 | Single point of contact for authorities | **Gap** | Designate; publish on `@musubi/landing/legal/dsa-contact`. |
+| Art. 12 | Single point of contact for recipients (users) | **Gap** | Email alias `dsa@osn.example` + `@musubi/social` Settings link. |
 | Art. 13 | Designated EU legal representative if not established in EU | **Conditional** | Required if we end up incorporated outside the EU. Decision deferred. |
-| Art. 14 | ToS in clear, plain language; explain content moderation rules, recourse, algorithmic recommendation criteria | **Gap** | Draft ToS lives at `wiki/compliance/legal-drafts/tos.md`; published copy at `osn/landing/src/pages/legal/tos.astro`. |
+| Art. 14 | ToS in clear, plain language; explain content moderation rules, recourse, algorithmic recommendation criteria | **Gap** | Draft ToS lives at `wiki/compliance/legal-drafts/tos.md`; published copy at `musubi/landing/src/pages/legal/tos.astro`. |
 | Art. 15 | Annual transparency report (content moderation actions, response times, resources) | **SME-exempt scope to confirm** — Art. 19 exempts Section 3 (Arts. 20–28) but the Art. 15 hosting-services report is in Section 2 and may still apply. | Confirm with counsel pre-launch. Collect the data either way (see C-L10). |
 | Art. 16 | Notice-and-action mechanism — anyone can report illegal content with the prescribed minimum information; we must process timely + diligently | **Gap** | Build `POST /reports` (Pulse + Zap) with the Art. 16 schema. |
 | Art. 17 | Statement of reasons — for every restriction (post removal, account suspension, demotion, RSVP rejection by host, etc.), we provide a structured explanation to the affected user | **Gap** | Build `moderation_actions` table + email template. |
@@ -59,7 +59,7 @@ Tracked with `C-` IDs:
 
 1. **Notice-and-action endpoint** — `POST /reports` accepting the Art. 16 minimum schema (sufficiently substantiated explanation, exact electronic location of the content, name + email of the notifier unless trafficking / abuse exception, statement of good-faith belief). Lands in both `@pulse/api` and `@zap/api` with a shared `@shared/moderation` package. ID: **C-H6**.
 2. **Statement of reasons system** — `moderation_actions` table + email template + `GET /account/moderation-actions` for the affected user. ID: **C-H7**.
-3. **DSA points of contact + ToS draft** — public pages on `@osn/landing`. ID: **C-M10**.
+3. **DSA points of contact + ToS draft** — public pages on `@musubi/landing`. ID: **C-M10**.
 4. **Internal complaint / appeal endpoint** — `POST /moderation/appeals`. ID: **C-M11**.
 5. **Trader-traceability flow** in Zap M3 verification. ID: **C-M12** (built as part of Zap M3 spec).
 6. **Recommender-transparency disclosure** in ToS — documented in plain language, covering all three recommenders. ID: **C-L8**. Current parameters, kept current so the ToS text is drafted from a live inventory rather than a stale one:

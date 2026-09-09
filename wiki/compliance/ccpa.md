@@ -7,7 +7,7 @@ related:
   - "[[dsar]]"
   - "[[data-map]]"
   - "[[scope-matrix]]"
-last-reviewed: 2026-08-19
+last-reviewed: 2026-09-09
 ---
 
 # CCPA / CPRA
@@ -27,7 +27,7 @@ build the surface now to avoid retrofit.
 |---|---|---|
 | 30-day DSAR response | 45 days (extendable +45) | Single endpoint, conservative 30-day target satisfies both. |
 | Right of erasure | Right to delete (similar; consumer cannot demand erasure of data needed for transactions) | Same `DELETE /account` covers it; document the legitimate-business retention exception. |
-| No "do not sell" concept | Mandatory "Do Not Sell or Share My Personal Information" link if processing covered consumers | Add link in `@osn/landing` footer + every app's privacy menu. We don't sell, but the link is mandatory. |
+| No "do not sell" concept | Mandatory "Do Not Sell or Share My Personal Information" link if processing covered consumers | Add link in `@musubi/landing` footer + every app's privacy menu. We don't sell, but the link is mandatory. |
 | Special-category data | "Sensitive Personal Information" — geolocation precise (<1850m), genetic, biometric (used to identify), health, sexual orientation, race, religion, account credentials, contents of mail / messages | Surface "Limit the Use of My Sensitive Personal Information" link. **Note:** passkey *public keys* are NOT biometric SPI under §1798.140(ae) — biometrics never leave the authenticator (see [[passkey-primary]]). Re-evaluate only if we ever store server-side biometric templates (we do not). |
 | Children — explicit consent for special-category | Opt-in (not opt-out) for sale/share if user known to be 13–16; parental consent under 13 | COPPA gate (no under-13) handles it; add 13–15 opt-in if we ever sell/share (we won't). |
 | Authorised representative | Authorised agent with notarised authority can submit on user's behalf | Build into [[dsar]] runbook; verify via signed power-of-attorney before action. |
@@ -59,7 +59,7 @@ share. Implementation: `@osn/api` middleware reads `Sec-GPC: 1` and sets a
 
 Tracked with `C-` IDs:
 
-1. **"Do Not Sell or Share" + "Limit Use of SPI" footer links** on `@osn/landing`. Stub pages explain we do not sell/share. ID: **C-M9**.
+1. **"Do Not Sell or Share" + "Limit Use of SPI" footer links** on `@musubi/landing`. Stub pages explain we do not sell/share. ID: **C-M9**.
 2. **Authorised-agent verification** in DSAR runbook. ID: rolled into **C-M1**.
 3. **Global Privacy Control header recognition** middleware. ID: **C-L7**.
 4. **CCPA-shaped DSAR audit log** persisted for 24 months. ID: rolled into **C-M1**.

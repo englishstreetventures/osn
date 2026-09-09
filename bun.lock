@@ -186,9 +186,58 @@
         "vitest": "^4.1.11",
       },
     },
+    "musubi/landing": {
+      "name": "@musubi/landing",
+      "version": "0.1.13",
+      "dependencies": {
+        "@astrojs/solid-js": "^7.0.2",
+        "@shared/legal": "workspace:*",
+        "@tailwindcss/vite": "^4.3.3",
+        "astro": "^7.2.10",
+        "motion": "^13.1.1",
+        "solid-js": "^1.9.15",
+        "tailwindcss": "^4.3.3",
+      },
+      "devDependencies": {
+        "@astrojs/check": "0.9.10",
+        "@shared/dev-urls": "workspace:*",
+        "@shared/typescript-config": "workspace:*",
+        "@solidjs/testing-library": "^0.8.10",
+        "jsdom": "^30.0.1",
+        "typescript": "^6.0.3",
+        "vite-plugin-solid": "^2.11.14",
+        "vitest": "^4.1.11",
+      },
+    },
+    "musubi/social": {
+      "name": "@musubi/social",
+      "version": "0.12.26",
+      "dependencies": {
+        "@osn/client": "workspace:*",
+        "@osn/ui": "workspace:*",
+        "@shared/legal": "workspace:*",
+        "@shared/toast": "workspace:*",
+        "@simplewebauthn/browser": "^13.3.0",
+        "@solidjs/router": "^1.0.0",
+        "@tailwindcss/vite": "^4.3.3",
+        "solid-js": "^1.9.15",
+        "tailwindcss": "^4.3.3",
+      },
+      "devDependencies": {
+        "@shared/dev-urls": "workspace:*",
+        "@shared/typescript-config": "workspace:*",
+        "@solidjs/testing-library": "^0.8.10",
+        "@vitest/coverage-istanbul": "^4.1.11",
+        "happy-dom": "^20.12.2",
+        "typescript": "^6.0.3",
+        "vite": "^8.2.2",
+        "vite-plugin-solid": "^2.11.14",
+        "vitest": "^4.1.11",
+      },
+    },
     "osn/api": {
       "name": "@osn/api",
-      "version": "3.21.3",
+      "version": "3.21.4",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/openapi": "1.4.15",
@@ -253,55 +302,6 @@
         "wrangler": "^4.127.1",
       },
     },
-    "osn/landing": {
-      "name": "@osn/landing",
-      "version": "0.1.12",
-      "dependencies": {
-        "@astrojs/solid-js": "^7.0.2",
-        "@shared/legal": "workspace:*",
-        "@tailwindcss/vite": "^4.3.3",
-        "astro": "^7.2.10",
-        "motion": "^13.1.1",
-        "solid-js": "^1.9.15",
-        "tailwindcss": "^4.3.3",
-      },
-      "devDependencies": {
-        "@astrojs/check": "0.9.10",
-        "@shared/dev-urls": "workspace:*",
-        "@shared/typescript-config": "workspace:*",
-        "@solidjs/testing-library": "^0.8.10",
-        "jsdom": "^30.0.1",
-        "typescript": "^6.0.3",
-        "vite-plugin-solid": "^2.11.14",
-        "vitest": "^4.1.11",
-      },
-    },
-    "osn/social": {
-      "name": "@osn/social",
-      "version": "0.12.26",
-      "dependencies": {
-        "@osn/client": "workspace:*",
-        "@osn/ui": "workspace:*",
-        "@shared/legal": "workspace:*",
-        "@shared/toast": "workspace:*",
-        "@simplewebauthn/browser": "^13.3.0",
-        "@solidjs/router": "^1.0.0",
-        "@tailwindcss/vite": "^4.3.3",
-        "solid-js": "^1.9.15",
-        "tailwindcss": "^4.3.3",
-      },
-      "devDependencies": {
-        "@shared/dev-urls": "workspace:*",
-        "@shared/typescript-config": "workspace:*",
-        "@solidjs/testing-library": "^0.8.10",
-        "@vitest/coverage-istanbul": "^4.1.11",
-        "happy-dom": "^20.12.2",
-        "typescript": "^6.0.3",
-        "vite": "^8.2.2",
-        "vite-plugin-solid": "^2.11.14",
-        "vitest": "^4.1.11",
-      },
-    },
     "osn/ui": {
       "name": "@osn/ui",
       "version": "1.10.9",
@@ -329,7 +329,7 @@
     },
     "pulse/api": {
       "name": "@pulse/api",
-      "version": "0.27.3",
+      "version": "0.27.4",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -379,7 +379,7 @@
     },
     "pulse/landing": {
       "name": "@pulse/landing",
-      "version": "0.1.12",
+      "version": "0.1.13",
       "dependencies": {
         "@astrojs/solid-js": "^7.0.2",
         "@shared/legal": "workspace:*",
@@ -402,7 +402,7 @@
     },
     "pulse/web": {
       "name": "@pulse/web",
-      "version": "0.22.44",
+      "version": "0.22.45",
       "dependencies": {
         "@fontsource/geist-mono": "^5.3.0",
         "@fontsource/geist-sans": "^5.3.0",
@@ -437,7 +437,7 @@
     },
     "shared/crypto": {
       "name": "@shared/crypto",
-      "version": "0.11.3",
+      "version": "0.12.0",
       "dependencies": {
         "@osn/db": "workspace:*",
         "@shared/observability": "workspace:*",
@@ -542,7 +542,7 @@
     },
     "shared/osn-auth-client": {
       "name": "@shared/osn-auth-client",
-      "version": "0.4.23",
+      "version": "0.4.24",
       "dependencies": {
         "@shared/crypto": "workspace:*",
         "jose": "^6.2.10",
@@ -702,7 +702,7 @@
     },
     "zap/api": {
       "name": "@zap/api",
-      "version": "0.9.3",
+      "version": "0.9.4",
       "dependencies": {
         "@elysiajs/cors": "^1.4.2",
         "@elysiajs/eden": "^1.4.9",
@@ -1196,6 +1196,10 @@
 
     "@msgpackr-extract/msgpackr-extract-win32-x64": ["@msgpackr-extract/msgpackr-extract-win32-x64@3.0.4", "", { "os": "win32", "cpu": "x64" }, "sha512-CmCXPQrkbwExx3j946/PtHWHbYJiCRBRDl4BlkRQcJB/YOwQxJRTpoo7aTsortjgoJ1x7opzTSxn7C+ASSLVjQ=="],
 
+    "@musubi/landing": ["@musubi/landing@workspace:musubi/landing"],
+
+    "@musubi/social": ["@musubi/social@workspace:musubi/social"],
+
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.1.6", "", { "dependencies": { "@tybys/wasm-util": "^0.10.3" }, "peerDependencies": { "@emnapi/core": "^1.7.1", "@emnapi/runtime": "^1.7.1" } }, "sha512-ZLv/JdUfkvOy9eCnnBaGfiO+XimbjebAeO+MRQqD/B+FR1tnRN0tpKSJHRbE8sFfS6aqsXZ67TQjfwfsxULVbg=="],
 
     "@nodelib/fs.scandir": ["@nodelib/fs.scandir@2.1.5", "", { "dependencies": { "@nodelib/fs.stat": "2.0.5", "run-parallel": "^1.1.9" } }, "sha512-vq24Bq3ym5HEQm2NKCr3yXDwjc7vTsEThRDnkp2DK9p1uqLR+DHurm/NOTo0KG7HYHU7eppKZj3MyqYuMBf62g=="],
@@ -1245,10 +1249,6 @@
     "@osn/client": ["@osn/client@workspace:osn/client"],
 
     "@osn/db": ["@osn/db@workspace:osn/db"],
-
-    "@osn/landing": ["@osn/landing@workspace:osn/landing"],
-
-    "@osn/social": ["@osn/social@workspace:osn/social"],
 
     "@osn/ui": ["@osn/ui@workspace:osn/ui"],
 

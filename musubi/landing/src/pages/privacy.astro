@@ -1,0 +1,76 @@
+---
+import LegalLayout from '../layouts/LegalLayout.astro'
+import { LEGAL_ENTITY, draftPending, isPlaceholder } from '@shared/legal'
+
+// Highlight a detail only while THAT detail is still a placeholder. A page-wide
+// flag would mark a filled field as pending the moment any other one wasn't.
+const ph = (value: string) => (isPlaceholder(value) ? 'placeholder' : undefined)
+
+// Name every field this page publishes that the shared identity check does
+// not already cover. Leave one out and the banner can go while that field
+// is still a token.
+const draft = draftPending(LEGAL_ENTITY.regulator)
+---
+<LegalLayout title="Privacy Notice">
+  {draft && (
+    <div class="draft-banner">
+      <strong>Draft</strong> — this notice is not final. Some details of the operator are
+      still to be confirmed, and this banner disappears once they are.
+    </div>
+  )}
+
+  <h1>Privacy Notice</h1>
+  <p class="meta">Last updated: 2026-08-20</p>
+
+  <p>
+    This notice explains how <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span> (&ldquo;Musubi&rdquo;,
+    &ldquo;we&rdquo;) handles personal information collected through this marketing site. It covers
+    visitors to this site only. The Musubi identity service and each connected app publish their own,
+    separate privacy notices governing the data they process.
+  </p>
+
+  <h2>What we collect here</h2>
+  <ul>
+    <li>Nothing by default. This is a static marketing site with no sign-up form and no first-party API calls — visiting it does not create an account or a profile.</li>
+    <li>Anything you choose to send us if you contact us through a channel we list — for example your email in a support enquiry.</li>
+    <li>Standard server request logs kept by our static host for security and reliability.</li>
+  </ul>
+
+  <h2>Why we collect it</h2>
+  <ul>
+    <li>To respond to any enquiry you send us.</li>
+    <li>To keep the site secure and working well.</li>
+  </ul>
+  <p>We do not sell your information, and we do not use it for third-party advertising.</p>
+
+  <h2>Fonts and external resources</h2>
+  <p>
+    This site loads web fonts from Google Fonts; your browser requests them directly from Google,
+    which may receive your IP address as part of that request. No other third-party content is
+    embedded.
+  </p>
+
+  <h2>How long we keep it</h2>
+  <p>
+    Only as long as we need it for the purpose above, then we delete or anonymise it.
+    Server request logs are kept by our static host for a short period for security and
+    reliability and are not used for anything else; nothing on this site is retained beyond
+    that unless you contacted us, in which case we keep the correspondence for as long as it
+    takes to deal with it.
+  </p>
+
+  <h2>Your rights</h2>
+  <p>
+    Depending on where you live, you may have rights to access, correct, delete or port your
+    information, and to object to certain uses. To exercise them, contact us at
+    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>. You may also complain to your local data
+    protection regulator (<span class={ph(LEGAL_ENTITY.regulator)}>{LEGAL_ENTITY.regulator}</span>).
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    <span class={ph(LEGAL_ENTITY.name)}>{LEGAL_ENTITY.name}</span>,
+    <span class={ph(LEGAL_ENTITY.postalAddress)}>{LEGAL_ENTITY.postalAddress}</span> —
+    <span class={ph(LEGAL_ENTITY.contactEmail)}>{LEGAL_ENTITY.contactEmail}</span>.
+  </p>
+</LegalLayout>

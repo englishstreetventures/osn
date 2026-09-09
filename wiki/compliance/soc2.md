@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[observability/overview]]"
   - "[[cire]]"
-last-reviewed: 2026-08-30
+last-reviewed: 2026-09-09
 ---
 
 # SOC 2
@@ -58,7 +58,7 @@ The full inventory lives in [[access-control]] (CC6 specifically) and
 | Control | Evidence | Gaps |
 |---|---|---|
 | Internal: this wiki, CLAUDE.md, README.md | ✓ | — |
-| External: a public security.txt at `/.well-known/security.txt` | — | Add to `@osn/landing`. |
+| External: a public security.txt at `/.well-known/security.txt` | — | Add to `@musubi/landing`. |
 | Vulnerability disclosure policy | — | Add to `wiki/compliance/vdp.md`; reference from security.txt. |
 
 ### CC3 — Risk Assessment

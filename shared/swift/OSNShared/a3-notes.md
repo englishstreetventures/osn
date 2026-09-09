@@ -86,7 +86,7 @@
 - `osn/ios/` mirrors `pulse/ios/` (`project.yml`, `Sources/App.swift`):
   bundle id `social.musubi.app`, same team/App-Group/associated-domain
   entitlements. AASA
-  (`osn/social/public/.well-known/apple-app-site-association`) now lists
+  (`musubi/social/public/.well-known/apple-app-site-association`) now lists
   both `FV59Y8RSUH.social.musubi.pulse` and `FV59Y8RSUH.social.musubi.app`.
   `ci-swift.yml`'s path filter and `swift` job now also generate/build the
   `Musubi` scheme; the job's `name:` string is untouched (may be pinned by a
@@ -177,7 +177,7 @@ target no longer fails on a missing capability, and
 build.
 
 The portal never takes the domain string itself. `webcredentials:musubi.social`
-is matched against `osn/social/public/.well-known/apple-app-site-association`,
+is matched against `musubi/social/public/.well-known/apple-app-site-association`,
 which now names `FV59Y8RSUH.social.musubi.pulse`. iOS reads that file through
 Apple's CDN and caches it up to ~24h; during development append
 `?mode=developer` to the entitlement and turn on Settings → Developer →

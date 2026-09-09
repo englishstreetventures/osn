@@ -7,7 +7,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[testing-patterns]]"
   - "[[review-findings]]"
-last-reviewed: 2026-09-07
+last-reviewed: 2026-09-09
 ---
 
 # Astro bundle-size guards
@@ -85,7 +85,7 @@ touching a threshold. In short:
   served publicly as Static Assets. See [[cire-development]] for why
   cire/invites' bundle is shaped the way it is (sessions off, SSR-only
   minification, server-only source maps, why `zod` stays).
-- **`static`** — `cire/host`, `cire/landing`, `cire/vendor`, `osn/landing`,
+- **`static`** — `cire/host`, `cire/landing`, `cire/vendor`, `musubi/landing`,
   `pulse/landing`. All five are `output: "static"`: no Worker, no `dist/server`,
   no `dist/client` split — they deploy `dist` wholesale to Cloudflare Pages.
   Measures `dist/_astro/*.js` and `dist/_astro/*.css` **only** — an allowlist,
@@ -100,7 +100,7 @@ touching a threshold. In short:
 > five static apps, which writes some generated CSS/JS inline into each
 > page's HTML instead of into `dist/_astro`. `static` mode's allowlist cannot
 > see bytes that never land in the directory it reads. Measured on
-> osn/landing: 5 inline style blocks + 4 inline script blocks in
+> musubi/landing: 5 inline style blocks + 4 inline script blocks in
 > `dist/index.html` alone, about 3116 bytes gzip-equivalent — real budget the
 > guard cannot see. Tracker issue `xchromo/osn-tracker#636` holds the two ways to close this
 > (parse the HTML too, or force `inlineStylesheets: "never"` so everything
@@ -121,7 +121,7 @@ the script, so the chained invocation never runs on a cache hit — the explicit
 workflow step is what still checks the artifact that IS on disk in that case.
 Both invocations matter; neither one alone covers both paths.
 
-`osn/landing` and `pulse/landing` also deploy from
+`musubi/landing` and `pulse/landing` also deploy from
 `.github/workflows/deploy-osn-pulse-landing.yml` (a feature-branch preview,
 `bun run --cwd <dir> build`) — that already runs each app's own chained `build`
 script, so the guard applies there too with no separate step needed.
@@ -147,7 +147,7 @@ the guard regardless of how large or small the app's own baseline is:
 | cire/host | static | 212832 B | 224515 B |
 | cire/vendor | static | 69961 B | 81644 B |
 | cire/landing | static | 177641 B | 189324 B |
-| osn/landing | static | 15182 B | 26865 B |
+| musubi/landing | static | 15182 B | 26865 B |
 | pulse/landing | static | 16683 B | 28366 B |
 
 `cire/landing` ships a Three.js scene by design (the wax-seal hero) — its

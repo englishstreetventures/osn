@@ -17,7 +17,7 @@ related:
 packages:
   - "@osn/api"
   - "@osn/db"
-last-reviewed: 2026-09-01
+last-reviewed: 2026-09-09
 ---
 
 # Social Graph
@@ -44,13 +44,13 @@ A connection is a mutual relationship between two users. It requires both partie
 caller (`addresseeId = caller`); it never includes ones the caller sent.
 `listConnections` / `GET /graph/connections` returns only `status: "accepted"`
 rows. Until 2026-08-07 this meant a sender had no page anywhere in
-`@osn/social` that showed their own outstanding requests — reported as "I
+`@musubi/social` that showed their own outstanding requests — reported as "I
 connected with someone and it didn't work, don't see it in pending or
 accepted," even though the request was persisted and visible on the
 recipient's side the whole time. Fixed by adding the symmetric
 `listOutgoingRequests` / `GET /graph/connections/sent` (filters
 `requesterId = caller AND status = "pending"`) and a "Sent" tab on
-`ConnectionsPage` in `@osn/social`, whose Cancel action reuses
+`ConnectionsPage` in `@musubi/social`, whose Cancel action reuses
 `removeConnection` (it already cancels a pending request in either
 direction — no new endpoint needed for cancel).
 
@@ -102,7 +102,7 @@ Apps that own a close-friends-style list (e.g. Pulse — see [[pulse-close-frien
 
 Graph routes use `safeError` (built via `makeSafeError` in `osn/api/src/lib/safe-error.ts`) so that only `GraphError` and `NotFoundError` messages reach clients (S-M17). Raw DB/Effect errors never leave the server. Error objects logged via `Effect.logError` go through `safeErrorSummary()` which extracts only `_tag` + `message` (S-L9).
 
-`makeSafeError` is `FiberFailure`-aware: handlers run service effects through `ManagedRuntime.runPromise` (see `makeAppRunner`), which rejects with a `FiberFailure` wrapping the typed failure — never the tagged error itself. The earlier per-route `safeError` copies checked `_tag` on the caught value directly, so the check never matched and every business-rule failure ("Connection already exists", "Cannot connect to yourself", …) reached clients as the generic "Request failed" — surfacing in `@osn/social` as an unexplained "Request failed" toast on Connect. The helper unwraps the cause first (`Runtime.isFiberFailure` → `Cause.failureOption`), then applies the tag allowlist. The organisation routes share the same helper with `OrgError`/`NotFoundError`. Regression tests: `tests/lib/safe-error.test.ts`, `tests/routes/graph-error-messages.test.ts`, `tests/routes/organisation-error-messages.test.ts`.
+`makeSafeError` is `FiberFailure`-aware: handlers run service effects through `ManagedRuntime.runPromise` (see `makeAppRunner`), which rejects with a `FiberFailure` wrapping the typed failure — never the tagged error itself. The earlier per-route `safeError` copies checked `_tag` on the caught value directly, so the check never matched and every business-rule failure ("Connection already exists", "Cannot connect to yourself", …) reached clients as the generic "Request failed" — surfacing in `@musubi/social` as an unexplained "Request failed" toast on Connect. The helper unwraps the cause first (`Runtime.isFiberFailure` → `Cause.failureOption`), then applies the tag allowlist. The organisation routes share the same helper with `OrgError`/`NotFoundError`. Regression tests: `tests/lib/safe-error.test.ts`, `tests/routes/graph-error-messages.test.ts`, `tests/routes/organisation-error-messages.test.ts`.
 
 Two properties of the allowlist are deliberate:
 
@@ -122,7 +122,7 @@ The `:handle` route parameter uses TypeBox `HandleParam` with regex + length bou
 
 ## Recommendations (contact suggestions)
 
-`createRecommendationService().suggestConnections()` powers the "Suggested for you" surface on the `@osn/social` Discover page. Two signals feed it — mutual connections (the stronger one) and shared organisations (the one a brand-new account actually has):
+`createRecommendationService().suggestConnections()` powers the "Suggested for you" surface on the `@musubi/social` Discover page. Two signals feed it — mutual connections (the stronger one) and shared organisations (the one a brand-new account actually has):
 
 1. Read the caller's own edges (**any** status, capped at 1 000 rows), blocks in both directions, and organisation memberships (capped at 50) — concurrently.
 2. Build the exclusion set: self, every counterpart on an existing edge, and everyone blocked either way. Pending edges count, so a request already in flight never resurfaces as a suggestion whose Connect button would fail with "Connection already exists".
@@ -167,7 +167,7 @@ Any query in this file — or elsewhere in `@osn/api` — that binds a list whos
 
 ## Search (autocomplete)
 
-`GET /recommendations/search?q=&limit=&orgLimit=` backs every search surface in `@osn/social`. It answers with **both** sections in one round trip — `people` from `searchProfiles()` and `organisations` from `searchOrganisations()`. One endpoint rather than two because this is typeahead: one request per keystroke means one abort to cancel, one rate-limit budget to reason about, and no torn state where the people half of a result set is newer than the organisation half.
+`GET /recommendations/search?q=&limit=&orgLimit=` backs every search surface in `@musubi/social`. It answers with **both** sections in one round trip — `people` from `searchProfiles()` and `organisations` from `searchOrganisations()`. One endpoint rather than two because this is typeahead: one request per keystroke means one abort to cancel, one rate-limit budget to reason about, and no torn state where the people half of a result set is newer than the organisation half.
 
 Both halves follow the same shape, and it is [Facebook's typeahead tiering][fb-typeahead]: retrieve the caller's own graph first, then the global index, then score the whole candidate set on **text match + social proximity** before slicing the page.
 
@@ -245,9 +245,9 @@ Query count per people search is 3-6 (two edge-direction seeks, the handle range
 - [osn/api/src/services/recommendations.ts](../../osn/api/src/services/recommendations.ts) -- contact suggestions + people/organisation search (retrieval passes, `lexicalScore`, `PROXIMITY_SCORE`)
 - [osn/api/src/routes/graph.ts](../../osn/api/src/routes/graph.ts) -- graph routes
 - [osn/api/src/routes/recommendations.ts](../../osn/api/src/routes/recommendations.ts) -- `/recommendations/connections` + `/recommendations/search`
-- [osn/social/src/lib/search.ts](../../osn/social/src/lib/search.ts) -- shared client search controller (debounce, abort, optimistic status)
-- [osn/social/src/components/GlobalSearch.tsx](../../osn/social/src/components/GlobalSearch.tsx) -- desktop rail search combobox
-- [osn/social/src/pages/SearchPage.tsx](../../osn/social/src/pages/SearchPage.tsx) -- `/search`, the mobile Search tab
+- [musubi/social/src/lib/search.ts](../../musubi/social/src/lib/search.ts) -- shared client search controller (debounce, abort, optimistic status)
+- [musubi/social/src/components/GlobalSearch.tsx](../../musubi/social/src/components/GlobalSearch.tsx) -- desktop rail search combobox
+- [musubi/social/src/pages/SearchPage.tsx](../../musubi/social/src/pages/SearchPage.tsx) -- `/search`, the mobile Search tab
 - [shared/db-utils/src/search.ts](../../shared/db-utils/src/search.ts) -- shared query primitives (normalisation, LIKE escaping, prefix ranges, tokenisers)
 - [osn/db/src/schema.ts](../../osn/db/src/schema.ts) -- schema (connections, blocks)
 - [osn/api/tests/services/graph.test.ts](../../osn/api/tests/services/graph.test.ts) -- service tests

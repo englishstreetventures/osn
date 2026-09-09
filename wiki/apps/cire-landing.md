@@ -11,7 +11,7 @@ related:
   - "[[production-deploy]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-07
+last-reviewed: 2026-09-09
 ---
 
 # Cire Landing
@@ -245,7 +245,7 @@ platform is a product decision, not a migration — see [[cire]].
   `bun run dev:cire-landing` at `https://cire.localhost`
   (`--headless=new --screenshot --virtual-time-budget`) when tuning `bumpScale` /
   lights / pour parameters. The recipe is in [[browser-tests]] § Driving the
-  whole app by hand. (`dev:landing` is `@osn/landing`, a different site.)
+  whole app by hand. (`dev:landing` is `@musubi/landing`, a different site.)
 - **Real photography** — imagery is still hotlinked Unsplash placeholders
   (`lib/site.ts` `IMAGES`); swap for the brand's own art when it exists.
 

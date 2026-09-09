@@ -138,7 +138,7 @@ jobs:
           emit cire_vendor  '^(cire/vendor/|cire/theme/)'
           emit cire_landing '^cire/landing/'
           emit osn_api      '^(osn/api/|osn/db/)'
-          emit osn_social   '^(osn/social/|osn/client/|osn/ui/)'
+          emit osn_social   '^(musubi/social/|osn/client/|osn/ui/)'
           emit zap_api      '^zap/'
 
   # ── Gate ─────────────────────────────────────────────────────────────────
@@ -1156,7 +1156,7 @@ jobs:
         run: bunx wrangler deploy --env production
         working-directory: osn/api
 
-  # ═══ osn/social (Vite SPA → Cloudflare Pages) ══════════════════════════════
+  # ═══ musubi/social (Vite SPA → Cloudflare Pages) ══════════════════════════════
   # The identity web app: profile, connections, organisations, settings — and
   # `/authorize`, the OIDC consent screen osn-api redirects to. It must be
   # served under the SAME registrable domain as its osn-api, because the session
@@ -1167,7 +1167,7 @@ jobs:
   # The app's host is also the WebAuthn RP ID, so this is the one surface that
   # can run a passkey ceremony — per tier.
   #
-  # `osn/social/public/_redirects` rewrites every path to index.html (200) so
+  # `musubi/social/public/_redirects` rewrites every path to index.html (200) so
   # client-side routes deep-link; `_headers` ships the framing denial the
   # consent screen needs. Both are static files Pages serves as-is.
   #
@@ -1179,7 +1179,7 @@ jobs:
   #
   # ── dev ────────────────────────────────────────────────────────────────────
   deploy-osn-social-dev:
-    name: Deploy osn/social — dev
+    name: Deploy musubi/social — dev
     needs: [build, changes]
     if: needs.changes.outputs.osn_social == 'true'
     runs-on: ubuntu-latest
@@ -1221,26 +1221,26 @@ jobs:
       # depends on osn-api-dev holding TURNSTILE_SECRET_KEY, which is a
       # per-tier choice (key-optional, fail-closed only when the secret is set).
       # The prod job's gate is what protects the pairing that actually matters.
-      - name: Build osn/social (dev)
-        run: bun run build --filter=@osn/social
+      - name: Build musubi/social (dev)
+        run: bun run build --filter=@musubi/social
         env:
           VITE_OSN_ISSUER_URL: https://id.dev.musubi.social
           VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
 
       - name: Ensure the osn-social-dev Pages project exists
         run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" osn-social-dev main
-        working-directory: osn/social
+        working-directory: musubi/social
 
-      - name: Deploy osn/social to Cloudflare Pages (dev)
+      - name: Deploy musubi/social to Cloudflare Pages (dev)
         run: bunx wrangler pages deploy dist --project-name osn-social-dev --branch main --commit-dirty=true
-        working-directory: osn/social
+        working-directory: musubi/social
 
   # ── production ─────────────────────────────────────────────────────────────
   # The `osn-social` Pages project must exist in the account before first run,
   # and musubi.social is attached to it in the dashboard (a Pages custom domain,
   # not a wrangler route) — see the runbook.
   deploy-osn-social:
-    name: Deploy osn/social — production
+    name: Deploy musubi/social — production
     needs: [build, changes, deploy-osn-social-dev]
     if: needs.changes.outputs.osn_social == 'true'
     runs-on: ubuntu-latest
@@ -1310,8 +1310,8 @@ jobs:
         env:
           VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
 
-      - name: Build osn/social
-        run: bun run build --filter=@osn/social
+      - name: Build musubi/social
+        run: bun run build --filter=@musubi/social
         env:
           VITE_OSN_ISSUER_URL: https://id.musubi.social
           VITE_TURNSTILE_SITEKEY: ${{ vars.PUBLIC_TURNSTILE_SITEKEY }}
@@ -1324,11 +1324,11 @@ jobs:
       # dashboard step — wrangler cannot attach one.
       - name: Ensure the osn-social Pages project exists
         run: bash "$GITHUB_WORKSPACE/scripts/ensure-pages-project.sh" osn-social main
-        working-directory: osn/social
+        working-directory: musubi/social
 
-      - name: Deploy osn/social to Cloudflare Pages
+      - name: Deploy musubi/social to Cloudflare Pages
         run: bunx wrangler pages deploy dist --project-name osn-social --branch main --commit-dirty=true
-        working-directory: osn/social
+        working-directory: musubi/social
 
   # ═══ zap/api (Worker + D1) ═════════════════════════════════════════════════
   # DORMANT: zap-api is not yet provisioned in prod (the D1 database doesn't

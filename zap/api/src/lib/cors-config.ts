@@ -15,7 +15,7 @@
  */
 export const LOCAL_DEV_CORS_ORIGINS = [
   "http://localhost:1420", // @pulse/web (event chats)
-  "http://localhost:1422", // @osn/social
+  "http://localhost:1422", // @musubi/social
 ] as const;
 
 export type CorsEnv = Readonly<Record<string, string | undefined>>;

@@ -4,7 +4,7 @@ description: OSN Social app — identity and social-graph management UI
 tags: [app, identity, social-graph]
 status: active
 packages:
-  - "@osn/social"
+  - "@musubi/social"
 related:
   - "[[osn-core]]"
   - "[[authorize-ui]]"
@@ -16,17 +16,17 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-08-24
+last-reviewed: 2026-09-09
 ---
 
 # Social
 
-`@osn/social` is a SolidJS web app for managing your OSN identity and social graph. It is the first app dedicated to the cross-app identity layer — separate from Pulse (events) and Zap (messaging), which keep their own domain UI.
+`@musubi/social` is a SolidJS web app for managing your OSN identity and social graph. It is the first app dedicated to the cross-app identity layer — separate from Pulse (events) and Zap (messaging), which keep their own domain UI.
 
 ## Architecture
 
 ```
-@osn/social (SolidJS + Vite, port 1422)
+@musubi/social (SolidJS + Vite, port 1422)
   ├── SolidJS frontend (src/)
   ├── Consumes @osn/client and @osn/ui
   └── Talks to @osn/api (port 4000) directly over REST
@@ -75,15 +75,15 @@ Pages talk to `@osn/api` via three plain-fetch clients factored out of `@osn/cli
 
 All three share the same hardening: `authGet/authPost/authPatch/authDelete` with `safeJson` wrapping (no `SyntaxError` leakage), capped error strings, and per-module typed error classes. The helpers now live once in `osn/client/src/auth-fetch.ts`; each module calls `createAuthFetchers(ErrorCtor)` and gets back the set bound to its own error class. The module is internal — `index.ts` does not export it, so the package's public surface is unchanged. It uses plain `fetch`, not `sessionFetch`: these clients send a bearer token in the `Authorization` header, so there is no session cookie for the native transport seam to supply.
 
-Each client calls `createAuthFetchers` **inside** its `create*Client` factory, not at module scope. This is load-bearing for bundle size, not style. A top-level call is a statement a bundler cannot drop, so it pinned all three modules into the entry chunk of every app importing the barrel — `osn/social` paid about 0.9 KB gzipped on first paint. A `/* @__PURE__ */` annotation does **not** rescue it: neither esbuild nor rolldown will remove a declarator whose binding is a destructuring pattern. Keep the call inside the factory.
+Each client calls `createAuthFetchers` **inside** its `create*Client` factory, not at module scope. This is load-bearing for bundle size, not style. A top-level call is a statement a bundler cannot drop, so it pinned all three modules into the entry chunk of every app importing the barrel — `musubi/social` paid about 0.9 KB gzipped on first paint. A `/* @__PURE__ */` annotation does **not** rescue it: neither esbuild nor rolldown will remove a declarator whose binding is a destructuring pattern. Keep the call inside the factory.
 
 The two delete shapes are deliberately different and must not be merged. `graph.ts` uses `authDelete`, which parses and returns the JSON body; `organisations.ts` uses `authDeleteVoid`, which reads the body only on the error path. Both sets of routes answer `200` with `{ ok: true }` — the difference is that `OrgClient` declares `deleteOrg` and `removeMember` as `Promise<void>`, so that client discards the body rather than there being no body to read.
 
 ## Dev
 
 ```bash
-bun run dev:social             # starts @osn/social + @osn/api together
-bun run --cwd osn/social dev   # social only (:1422)
+bun run dev:social             # starts @musubi/social + @osn/api together
+bun run --cwd musubi/social dev   # social only (:1422)
 ```
 
 Environment variables (all prefixed `VITE_`):
@@ -100,7 +100,7 @@ Cloudflare Pages, project **`osn-social`**, served at the apex
 
 The host is not cosmetic, on two counts.
 
-**Cookies.** `@osn/social` serves `/authorize`, the OIDC consent screen, and
+**Cookies.** `@musubi/social` serves `/authorize`, the OIDC consent screen, and
 that page only works under the **same registrable domain as osn-api**: the
 `__Host-osn_session` cookie and the per-request binding cookie
 `__Host-osn_oar_<12hex>` are host-bound to `id.musubi.social` and `SameSite=Lax`,
@@ -156,7 +156,7 @@ single module would drag the enrolment code into the banner's chunk.
 The source split alone does not hold through the bundler. `@simplewebauthn/browser`
 exports both methods through one barrel (`esm/index.js`) and ships no
 `"sideEffects": false`, so Rollup keeps that barrel — and therefore both methods
-— alive in any chunk naming either one. `osn/social/vite.config.ts` fixes both
+— alive in any chunk naming either one. `musubi/social/vite.config.ts` fixes both
 halves: a build-only plugin marks the barrel `moduleSideEffects: false` (its body
 is nothing but `export *` lines), and `manualChunks` puts each method file in its
 own named chunk. A production build then emits `webauthn-authentication` and
@@ -165,7 +165,7 @@ set.
 
 ## Response headers
 
-`osn/social/public/_headers` is served by Pages on every path: `frame-ancestors 'none'`
+`musubi/social/public/_headers` is served by Pages on every path: `frame-ancestors 'none'`
 plus `X-Frame-Options: DENY` (a consent screen must never be framed),
 `X-Content-Type-Options: nosniff`, and `Referrer-Policy: strict-origin-when-cross-origin`.
 
@@ -175,7 +175,7 @@ Per-user Redis-backed limiters on the two recommendations endpoints, both fail-c
 
 ## Testing
 
-`osn/social/tests/` covers the sidebar mount path under `AuthContext` + `MemoryRouter` using `@solidjs/testing-library` + `happy-dom`. The tests do not assert the full open-and-click interaction for the Kobalte dropdown: Kobalte's trigger relies on pointer-capture behaviour that happy-dom does not reproduce.
+`musubi/social/tests/` covers the sidebar mount path under `AuthContext` + `MemoryRouter` using `@solidjs/testing-library` + `happy-dom`. The tests do not assert the full open-and-click interaction for the Kobalte dropdown: Kobalte's trigger relies on pointer-capture behaviour that happy-dom does not reproduce.
 
 `tests/lib/search.test.ts` drives `createSearchController` directly, covering three properties no component test can reach: the token accessor is re-read per request (so one controller survives a silent refresh — a captured token would 401 every user after five minutes), the previous page stays on screen while the next loads, and disposal aborts the in-flight request.
 

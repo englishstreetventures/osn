@@ -12,12 +12,12 @@ related:
 packages:
   - "@shared/turnstile"
   - "@osn/api"
-  - "@osn/social"
+  - "@musubi/social"
   - "@osn/ui"
   - "@cire/api"
   - "@cire/invites"
   - "@cire/host"
-last-reviewed: 2026-08-07
+last-reviewed: 2026-09-09
 ---
 # Turnstile bot protection
 
@@ -45,7 +45,7 @@ verifier** and `RsvpModal` renders no widget. The `rsvp.ts` route keeps the
 key-optional gate parameter (defaults to a no-op) so it can be re-armed if abuse
 ever appears. Removed in the RSVP-friction fix (2026-06-19).
 
-Frontends: cire/invites guest claim form, and **`@osn/social`'s SignIn + Register**
+Frontends: cire/invites guest claim form, and **`@musubi/social`'s SignIn + Register**
 (via `@osn/ui`) — the sidebar auth dialogs and the `/authorize` consent screen's
 sign-in island. Since the 2026-07-27 OIDC swap, `musubi.social` is the **only**
 origin that runs the OSN ceremonies (the RP ID lives on the apex and cire signs
@@ -92,7 +92,7 @@ limiter keys on — see [[rate-limiting]].
 |---|---|---|---|
 | `TURNSTILE_SECRET_KEY` | osn-api + cire-api Worker secret (`wrangler secret put`) | Secret, key-optional | Server half. Set ⇒ gates require + verify a token (fail-closed). Unset ⇒ gates skipped. **Set on osn-api-production** since #160; unset on cire-api-production. |
 | `PUBLIC_TURNSTILE_SITEKEY` | cire/invites + cire/host + cire/vendor build var (`import.meta.env`, statically inlined) | Public sitekey, key-optional | Client half for the cire surfaces. |
-| `VITE_TURNSTILE_SITEKEY` | `@osn/social` build var (Vite, statically inlined; `src/lib/auth.ts` normalises blank → `undefined`) | Public sitekey, **required in practice** | Client half for the OSN register/login ceremonies. Fed from the same repo Variable `PUBLIC_TURNSTILE_SITEKEY` — one widget, one sitekey; the name differs only because Vite exposes `VITE_*` while Astro exposes `PUBLIC_*`. osn-api's secret **is** set, so leaving this blank breaks sign-in outright. |
+| `VITE_TURNSTILE_SITEKEY` | `@musubi/social` build var (Vite, statically inlined; `src/lib/auth.ts` normalises blank → `undefined`) | Public sitekey, **required in practice** | Client half for the OSN register/login ceremonies. Fed from the same repo Variable `PUBLIC_TURNSTILE_SITEKEY` — one widget, one sitekey; the name differs only because Vite exposes `VITE_*` while Astro exposes `PUBLIC_*`. osn-api's secret **is** set, so leaving this blank breaks sign-in outright. |
 
 **Same widget for both backends.** One sitekey + one secret; the widget's
 domains cover `invite.cireweddings.com` (guest), `host.cireweddings.com`
@@ -165,7 +165,7 @@ from under it.
 > the ceremony. Before the migration the only surface calling `/register/begin`
 > and the identifier-bound `/login/passkey/begin` was **cire/host**, whose
 > Astro build read `PUBLIC_TURNSTILE_SITEKEY` — so a token always rode along.
-> The musubi.social move (#321) relocated the ceremonies to `@osn/social`, and
+> The musubi.social move (#321) relocated the ceremonies to `@musubi/social`, and
 > the organiser's OIDC swap (#322) removed its ceremony forms entirely. But the
 > `deploy-osn-social` job passed only `VITE_OSN_ISSUER_URL`, and `Sidebar` /
 > `AuthorizeSignIn` passed no `turnstileSiteKey` — so no widget rendered, no
@@ -174,7 +174,7 @@ from under it.
 >
 > Fixed by threading `VITE_TURNSTILE_SITEKEY` through the `deploy-osn-social`
 > build into all three call sites. Guarded by
-> `osn/social/tests/components/turnstile-wiring.test.tsx`, which fails if any
+> `musubi/social/tests/components/turnstile-wiring.test.tsx`, which fails if any
 > ceremony call site drops the prop, and by a non-empty check on the variable in
 > the deploy job — the test proves the prop is threaded, only the deploy check
 > can prove a real value reached it. (The osn-social preview workflow was deleted

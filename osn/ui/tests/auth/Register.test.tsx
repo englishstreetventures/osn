@@ -360,7 +360,7 @@ describe("Register component", () => {
     // The passkey step is the whole reason this component holds `accessToken`
     // in a signal: enrollment is authenticated by that explicit bearer token,
     // not by an adopted session. Adopting early published a session to the
-    // app while the account still had zero passkeys — and in `@osn/social`
+    // app while the account still had zero passkeys — and in `@musubi/social`
     // that unmounted the dialog mid-flow, skipping enrollment entirely.
     it("does not adopt the session after OTP verify — enrollment carries its own token", async () => {
       await reachPasskey();
@@ -489,7 +489,7 @@ describe("Register component", () => {
     });
 
     // onSuccess is optional — consumers that react to session()
-    // directly (osn/social) omit it. Omission must not break completion.
+    // directly (musubi/social) omit it. Omission must not break completion.
     it("completes to the done step when onSuccess is omitted", async () => {
       await reachPasskey();
       stub.passkeyRegisterBegin.mockResolvedValue({ challenge: "ch" });

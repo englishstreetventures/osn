@@ -12,7 +12,7 @@ related:
   - "[[observability-setup]]"
   - "[[cire-auth]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-09-09
 ---
 
 # Free-Tier Limits & Unavailability Runbook
@@ -36,7 +36,7 @@ last-reviewed: 2026-08-17
 | **Upstash Redis** | `@osn/api` (rate limiters + the stateful auth stores: step-up JTI, rotated-session, recovery lockout, ceremonies) when `REDIS_URL` / `UPSTASH_*` is set | **cire-api** (no Redis at all — see below), Pulse/Zap client apps |
 | **Cloudflare Workers** | `osn-api`, **cire-api** (both are Workers) | static Pages sites |
 | **Cloudflare D1** | `osn-db-prod` (osn-api), `cire-db` (cire-api) | — |
-| **Cloudflare Pages** | `cire/invites` (guest), `cire/host`, `@osn/social`, `@osn/landing` | the Worker APIs |
+| **Cloudflare Pages** | `cire/invites` (guest), `cire/host`, `@musubi/social`, `@musubi/landing` | the Worker APIs |
 | **Cloudflare Rate Limiting binding** (Workers, not WAF) | **cire-api** `CLAIM_RATE_LIMITER` (the pre-auth `/api/claim` edge limiter) | osn-api (uses Upstash) |
 | **Turnstile** (widget live; the cire gate is inert — see the 2026-07-20 incident below) | osn-api register + passkey-login, cire-api guest claim + RSVP — gated only while the Worker secret is set | — |
 
@@ -217,7 +217,7 @@ storage; overage is cheap ($0.001/M read, $1/M written, $0.75/GB-mo). Re-verify.
 
 ## Cloudflare Pages (Free)
 
-**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts `cire/invites`, `cire/host`, `@osn/social`, `@osn/landing`.
+**Source:** [pages limits](https://developers.cloudflare.com/pages/platform/limits/) — re-verify. Hosts `cire/invites`, `cire/host`, `@musubi/social`, `@musubi/landing`.
 
 | Limit | Free value (re-verify) |
 |---|---|

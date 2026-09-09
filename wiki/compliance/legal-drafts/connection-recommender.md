@@ -6,7 +6,7 @@ related:
   - "[[dsa]]"
   - "[[social-graph]]"
   - "[[index]]"
-last-reviewed: 2026-08-31
+last-reviewed: 2026-09-09
 ---
 
 # Connection Recommender — Main Parameters
@@ -14,7 +14,7 @@ last-reviewed: 2026-08-31
 DSA Art. 27 requires the main parameters of a recommender system to be set
 out for recipients "in plain and intelligible language." This page is that
 disclosure, for the one recommender in scope here: `suggestConnections()`,
-which powers the "Suggested for you" surface on the `@osn/social` Discover
+which powers the "Suggested for you" surface on the `@musubi/social` Discover
 page. It is source material for a future ToS — see **Scope** below — not a
 ToS itself.
 

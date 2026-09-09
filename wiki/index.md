@@ -5,6 +5,7 @@ tags: [index]
 related:
   - "[[TODO]]"
   - "[[deferred-decisions]]"
+  - "[[osn-and-musubi]]"
   - "[[monorepo-structure]]"
   - "[[compliance/index]]"
 last-reviewed: 2026-09-09
@@ -22,6 +23,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 
 ## Architecture
 
+- [[osn-and-musubi]] — OSN the system vs Musubi our implementation; the rule that decides which name anything takes
 - [[monorepo-structure]] — workspace layout, domain prefixes, directory tree
 - [[backend-patterns]] — Elysia route factories, Effect pipelines, service layer
 - [[schema-layers]] — Elysia TypeBox (HTTP) vs Effect Schema (domain)
@@ -84,15 +86,15 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 ## Apps
 
 - [[osn-core]] — identity / auth stack (`@osn/api` + SDK + UI)
-- [[social]] — identity & social-graph management UI (`@osn/social`)
-- [[social-mobile-ux]] — mobile UX audit + phased responsive-shell plan for `@osn/social`
-- [[authorize-ui]] — the OIDC consent screen (`/authorize` in `@osn/social`)
+- [[social]] — identity & social-graph management UI (`@musubi/social`)
+- [[social-mobile-ux]] — mobile UX audit + phased responsive-shell plan for `@musubi/social`
+- [[authorize-ui]] — the OIDC consent screen (`/authorize` in `@musubi/social`)
 - [[pulse]] — events app (`@pulse/web` + `@pulse/api` + `@pulse/db`)
 - [[zap]] — messaging app (`@zap/api` + `@zap/db` scaffolded; client app planned)
 - [[cire]] — wedding-invite stack (`@cire/invites` + `@cire/host` + `@cire/api` + `@cire/db`)
 - [[cire-development]] — cire's own build conventions: backend patterns, the two test tiers, its commands
 - [[cire-landing]] — marketing site for the apex `cireweddings.com` (`@cire/landing`) + domain-migration / platform roadmap
-- [[osn-landing]] — marketing site for OSN (`@osn/landing`) — dark/dotted, connections-led
+- [[osn-landing]] — marketing site for OSN (`@musubi/landing`) — dark/dotted, connections-led
 - [[pulse-landing]] — marketing site for Pulse events (`@pulse/landing`) — colourful + fun
 
 ## Conventions

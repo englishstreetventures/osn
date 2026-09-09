@@ -1,7 +1,7 @@
 import type { PublicProfile } from "./tokens";
 
 /**
- * Plain-fetch client for the OIDC consent screen (`/authorize` in @osn/social).
+ * Plain-fetch client for the OIDC consent screen (`/authorize` in @musubi/social).
  *
  * The screen is handed nothing but an opaque request id — every OAuth
  * parameter stays parked server-side. These two calls read the request back

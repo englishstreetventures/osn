@@ -11,7 +11,7 @@ related:
   - "[[subprocessors]]"
   - "[[identity-model]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-09-01
+last-reviewed: 2026-09-09
 ---
 
 # GDPR + UK GDPR
@@ -29,7 +29,7 @@ becomes the controller; we process on its instruction).
 | Art. 5(1)(a) — Lawfulness, fairness, transparency | Tell users what we collect and why, before collecting | **Partial** — cire guest site ships `/privacy` + `/terms` with a site-wide footer (PR #124, C-H4); OSN landing-side notice still not built | [[data-map]] is the source; cire notice published, landing-side notice pending |
 | Art. 5(1)(b) — Purpose limitation | Use data only for the declared purpose | OK in code; not documented | [[data-map]] |
 | Art. 5(1)(c) — Data minimisation | Collect only what is needed | OK — no email duplication, accountId never leaves auth boundary, IPs are HMAC-peppered hashes, metric attrs bounded | [[identity-model]], [[sessions]], [[observability/overview]] |
-| Art. 5(1)(d) — Accuracy | Let users correct their data | Profile rename + handle update in `@osn/social`; email change ceremony in `@osn/api`. **Gap** — no rectification API for non-self-service fields | [[identity-model]] |
+| Art. 5(1)(d) — Accuracy | Let users correct their data | Profile rename + handle update in `@musubi/social`; email change ceremony in `@osn/api`. **Gap** — no rectification API for non-self-service fields | [[identity-model]] |
 | Art. 5(1)(e) — Storage limitation | Don't keep data forever | **Gap** — no documented retention schedule | [[retention]] |
 | Art. 5(1)(f) — Integrity + confidentiality | Encryption, access control, hashing, redaction | Strong: passkey-primary, ES256 access tokens, SHA-256 hashed sessions / OTP / recovery codes / CDL secrets, Argon2 not in scope (no passwords), TLS at edge, log redaction deny-list, CSP, CORS, Origin guard | Most `wiki/systems/` pages |
 | Art. 6 — Lawful basis | Document the basis for each purpose | **Gap** — not documented per purpose | [[data-map]] |
@@ -64,7 +64,7 @@ high-impact ones, in priority order:
 
 3. **Photon geocoder keystroke leak (S-M13)** — proxy through `@pulse/api` so Photon never sees the user IP, debounce server-side, and add a one-time consent dialog on first use ("Location lookups are sent to Photon, an open-source geocoder, to convert what you type into coordinates"). ID: **C-H3**.
 
-4. **Privacy notice + ToS** — public, plain-language, version-stamped, backlinked from every collection point. **RESOLVED for cire (PR #124, C-H4):** the guest site publishes `/privacy` + `/terms` with a site-wide footer — Australia/APP framing, the controller and DSAR contact both taken from `@shared/legal` rather than written into the page, 1-year retention basis, processors (Cloudflare), guest rights, and dietary/access free-text flagged as Art. 9 special-category collected under explicit consent. The parallel `@osn/landing` notice now ships too, and so do Pulse's and the two app frontends' — thirteen pages across `<app>/src/pages/{privacy,terms}.astro`, `osn/social/src/pages/` and `pulse/web/src/routes/`. There is no drafts directory: the operator's identity comes from `@shared/legal`, and every page gates a draft banner on `draftPending()` so it cannot publish an unfilled detail silently. What is left of C-H4 is filling the remaining fields (legal entity, postal address, merchant of record, retention sentence), not writing more copy. ID: **C-H4**.
+4. **Privacy notice + ToS** — public, plain-language, version-stamped, backlinked from every collection point. **RESOLVED for cire (PR #124, C-H4):** the guest site publishes `/privacy` + `/terms` with a site-wide footer — Australia/APP framing, the controller and DSAR contact both taken from `@shared/legal` rather than written into the page, 1-year retention basis, processors (Cloudflare), guest rights, and dietary/access free-text flagged as Art. 9 special-category collected under explicit consent. The parallel `@musubi/landing` notice now ships too, and so do Pulse's and the two app frontends' — thirteen pages across `<app>/src/pages/{privacy,terms}.astro`, `musubi/social/src/pages/` and `pulse/web/src/routes/`. There is no drafts directory: the operator's identity comes from `@shared/legal`, and every page gates a draft banner on `draftPending()` so it cannot publish an unfilled detail silently. What is left of C-H4 is filling the remaining fields (legal entity, postal address, merchant of record, retention sentence), not writing more copy. ID: **C-H4**.
 
 5. **DPA + SCC pack for processors** — sign the Cloudflare DPA template, the Grafana Labs DPA + SCCs, the chosen Redis provider's DPA, and Photon's DPA-equivalent (Komoot). File under `wiki/compliance/dpa/<vendor>.md` with execution date + scope. ID: **C-H5**.
 

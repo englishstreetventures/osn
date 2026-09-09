@@ -7,7 +7,7 @@ related:
   - "[[soc2]]"
   - "[[subprocessors]]"
   - "[[auth-failure]]"
-last-reviewed: 2026-07-22
+last-reviewed: 2026-09-09
 ---
 
 # Breach Response
@@ -103,7 +103,7 @@ opened-at: 2026-04-26T10:30Z
 closed-at:
 ic:
 scribe:
-last-reviewed: 2026-04-26
+last-reviewed: 2026-09-09
 ---
 
 ## Summary
@@ -153,7 +153,7 @@ last-reviewed: 2026-04-26
 
 Tracked with `C-` IDs:
 
-1. **DPO designation** + named on `@osn/landing/legal/contact`. ID: **C-L2** (also in [[gdpr]]).
+1. **DPO designation** + named on `@musubi/landing/legal/contact`. ID: **C-L2** (also in [[gdpr]]).
 2. **`security.txt` + VDP** for researcher disclosure. ID: **C-M8** (also in [[soc2]]).
 3. **Lead supervisory authority decision** — determined by where we are established. Document on this page once known.
 4. **Cyber insurance** — claim contact must be listed in this runbook. ID: **C-L6**.

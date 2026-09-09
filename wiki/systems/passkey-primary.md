@@ -12,7 +12,7 @@ packages:
   - "@osn/client"
   - "@osn/ui"
   - "@cire/host"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-09-09
 ---
 
 # Passkey-Primary Login
@@ -35,7 +35,7 @@ holds from registration to deletion:
   access token, passed explicitly as a bearer token, so nothing before the
   ceremony needs a published session. It adopts only once the credential
   exists. Adopting earlier announces a signed-in user whose account has zero
-  passkeys, and consumers act on that announcement: `@osn/social`'s
+  passkeys, and consumers act on that announcement: `@musubi/social`'s
   `AuthDialogs` hides its auth dialogs the moment `session()` is truthy,
   which unmounted the flow mid-registration and skipped enrolment entirely
   (fixed 2026-08-15). Anything that publishes a session before the first
@@ -87,7 +87,7 @@ UI surface (`@osn/ui/auth`):
   surface. Lists the account's credentials; supports rename (step-up
   gated, S-M2), delete (last-passkey guarded), and **Add passkey** (step-up
   gated via the same `/passkey/register/*` endpoints the registration
-  flow uses). `@osn/social` mounts it behind a lazy-loaded
+  flow uses). `@musubi/social` mounts it behind a lazy-loaded
   `SecuritySection` so `@simplewebauthn/browser` only ships when the tab
   is opened. It also renders a collapsible **"Signing in somewhere new?"**
   help disclosure that points users at the three real ways onto a fresh
@@ -109,7 +109,7 @@ UI surface (`@osn/ui/auth`):
 
 | App | Mount point | Notes |
 |---|---|---|
-| `@osn/social` | lazy `SecuritySection` (Settings → Security) | OTP factor available. |
+| `@musubi/social` | lazy `SecuritySection` (Settings → Security) | OTP factor available. |
 | `@cire/host` | `SecurityPanel.tsx`, reached via the top-level **Security** nav item (`#security`) in `OrganiserApp` | `passkeyOnly` still forced on, from the pre-Resend degraded-email era — open decision, tracked as an issue in `xchromo/osn`. Wires the WebAuthn ceremonies with `@simplewebauthn/browser`; reads `accessToken` + `activeProfileId` from `useAuth()`. |
 
 ## New-device onboarding

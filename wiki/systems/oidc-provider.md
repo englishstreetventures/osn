@@ -9,7 +9,7 @@ related:
   - "[[rate-limiting]]"
   - "[[cire-auth]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-07-28
+last-reviewed: 2026-09-09
 ---
 
 # OIDC provider
@@ -193,6 +193,6 @@ The issuer string is an identifier, not branding. The provider moved to `id.musu
 
 - **`/userinfo`** — the ID token carries what clients need for now.
 - **`offline_access`** — third parties get no refresh token, so a long-lived integration must send the user through `/authorize` again.
-- **The apex well-knowns** — `/.well-known/webauthn`, `apple-app-site-association` and `assetlinks.json`. The identity domain now exists (`musubi.social`), so this is unblocked; it needs `@osn/social` to serve those paths, or a Worker in front of the apex. That is layers 2 and 3; layer 0 works without it.
+- **The apex well-knowns** — `/.well-known/webauthn`, `apple-app-site-association` and `assetlinks.json`. The identity domain now exists (`musubi.social`), so this is unblocked; it needs `@musubi/social` to serve those paths, or a Worker in front of the apex. That is layers 2 and 3; layer 0 works without it.
 
-The consent screen is built (2026-07-26): `/authorize` in `@osn/social` — see [[authorize-ui]]. `@osn/social` deploys to the `osn-social` Pages project and is served from the apex `https://musubi.social`, the same registrable domain as the provider, so `OSN_AUTHORIZE_UI_URL = https://musubi.social/authorize`. The apex is also the WebAuthn RP ID, so it is the one surface that can run a ceremony — see [[musubi-identity-migration]].
+The consent screen is built (2026-07-26): `/authorize` in `@musubi/social` — see [[authorize-ui]]. `@musubi/social` deploys to the `osn-social` Pages project and is served from the apex `https://musubi.social`, the same registrable domain as the provider, so `OSN_AUTHORIZE_UI_URL = https://musubi.social/authorize`. The apex is also the WebAuthn RP ID, so it is the one surface that can run a ceremony — see [[musubi-identity-migration]].

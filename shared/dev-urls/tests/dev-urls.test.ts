@@ -21,12 +21,12 @@ describe("devUrls", () => {
   it("carries the worktree prefix onto every sibling", () => {
     const urls = devUrls("@cire/host", portless("https://my-branch.host.cire.localhost"));
     expect(urls["@cire/api"]).toBe("https://my-branch.api.cire.localhost");
-    expect(urls["@osn/social"]).toBe("https://my-branch.musubi.localhost");
+    expect(urls["@musubi/social"]).toBe("https://my-branch.musubi.localhost");
   });
 
   it("keeps a multi-label custom TLD", () => {
     const urls = devUrls("@osn/api", portless("https://id.musubi.local.test"));
-    expect(urls["@osn/social"]).toBe("https://musubi.local.test");
+    expect(urls["@musubi/social"]).toBe("https://musubi.local.test");
     expect(urls["@pulse/web"]).toBe("https://pulse.local.test");
   });
 
@@ -84,7 +84,9 @@ describe("devRpId", () => {
     // Must be a suffix of both the app that creates the passkey
     // (musubi.localhost) and the API that verifies it (id.musubi.localhost).
     expect(devRpId("@osn/api", portless("https://id.musubi.localhost"))).toBe("musubi.localhost");
-    expect(devRpId("@osn/social", portless("https://musubi.localhost"))).toBe("musubi.localhost");
+    expect(devRpId("@musubi/social", portless("https://musubi.localhost"))).toBe(
+      "musubi.localhost",
+    );
   });
 
   it("drops the worktree prefix so one rpId covers every worktree", () => {
@@ -132,7 +134,7 @@ describe("devOriginList", () => {
   it("joins origins the way the *_ORIGIN vars expect", () => {
     expect(
       devOriginList(
-        ["@osn/social", "@cire/host"],
+        ["@musubi/social", "@cire/host"],
         "@osn/api",
         portless("https://id.musubi.localhost"),
       ),

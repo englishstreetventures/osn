@@ -17,7 +17,7 @@ import type { ToastPosition, ToastTone } from "./types";
  * at once. `shared/toast/tests` asserts the queue and the DOM contract; this is
  * where you look at the result.
  *
- * The lab borrows `@osn/social`'s stylesheet, which maps the shadcn ramp onto
+ * The lab borrows `@musubi/social`'s stylesheet, which maps the shadcn ramp onto
  * the `--toast-*` contract — so the lab's **light · dark** toggle re-themes
  * these toasts exactly as it re-themes the app. Use it: the accent colours are
  * per-ramp, and dark is where a too-dark accent hides.

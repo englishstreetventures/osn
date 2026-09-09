@@ -55,7 +55,7 @@ export async function findTestRoutes(pagesDir: string): Promise<readonly string[
 }
 
 // The six Astro apps in the repo (grep -n 'output:' */*/astro.config.mjs).
-// osn/social also has a src/pages directory, but it holds plain component
+// musubi/social also has a src/pages directory, but it holds plain component
 // files read by a client-side router, not an Astro app — there is no
 // astro.config.mjs there, and Astro's src/pages routing rule does not apply.
 const DEFAULT_ASTRO_APPS = [
@@ -63,7 +63,7 @@ const DEFAULT_ASTRO_APPS = [
   "cire/host",
   "cire/vendor",
   "cire/landing",
-  "osn/landing",
+  "musubi/landing",
   "pulse/landing",
 ] as const;
 

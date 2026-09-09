@@ -29,7 +29,7 @@ cd "${CHANGESET_ROOT:-$(dirname "$0")/..}"
 # workspace (`@tools/lab`), and a changeset naming it has to validate like any
 # other. Skip node_modules.
 mapfile -t names < <(
-  find cire osn pulse zap shared tools -name package.json -not -path '*/node_modules/*' 2>/dev/null \
+  find cire musubi osn pulse zap shared tools -name package.json -not -path '*/node_modules/*' 2>/dev/null \
     | xargs -r jq -r '.name // empty' \
     | sort -u
 )
@@ -38,7 +38,7 @@ mapfile -t names < <(
 # version bump or changelog. A changeset may not mix these with versioned
 # packages (see header). Collect the ignored set so we can flag such mixes.
 mapfile -t ignored_names < <(
-  find cire osn pulse zap shared tools -name package.json -not -path '*/node_modules/*' 2>/dev/null \
+  find cire musubi osn pulse zap shared tools -name package.json -not -path '*/node_modules/*' 2>/dev/null \
     | xargs -r jq -r 'select(.name != null and (has("version") | not)) | .name' \
     | sort -u
 )

@@ -9,7 +9,7 @@ related:
   - "[[dev-environment]]"
   - "[[devloop-urls]]"
   - "[[commands]]"
-last-reviewed: 2026-08-24
+last-reviewed: 2026-09-09
 ---
 
 # Bun 1.4 migration
@@ -30,7 +30,7 @@ Every deployed package runs on **workerd**, not Bun:
 | Runtime | Packages |
 | --- | --- |
 | workerd (Workers) | `osn/api`, `pulse/api`, `zap/api`, `cire/api`, `cire/invites` |
-| Pages / static build | `*/landing`, `pulse/web`, `cire/host`, `osn/social`, `cire/vendor` |
+| Pages / static build | `*/landing`, `pulse/web`, `cire/host`, `musubi/social`, `cire/vendor` |
 | Bun | scripts, seeds, `bun test` suites, `shared/dev-urls`, CI, local dev |
 
 So none of Bun 1.4's headline runtime APIs — `Bun.serve` static routes, HTTP/3,

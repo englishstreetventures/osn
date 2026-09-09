@@ -15,7 +15,7 @@ import { createTestLayerWithSqlite } from "./helpers/db";
  * makes a seeded fixture account unreachable: nobody can enrol a WebAuthn
  * credential for a row a seed script wrote. `GET|POST /dev/login` mints a real
  * OSN session for that fixture so the whole OIDC chain downstream (organiser
- * portal, vendor portal, `@osn/social`) runs untouched.
+ * portal, vendor portal, `@musubi/social`) runs untouched.
  *
  * It is gated twice and both gates must hold:
  *  - tier — `local` or `dev` only, derived from the request-scoped env record

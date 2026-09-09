@@ -5,7 +5,7 @@
  * account unreachable: nobody can enrol a WebAuthn credential on behalf of a
  * row a seed script wrote. This route mints a real OSN session for one fixed
  * principal, so everything downstream — the OIDC authorize/token chain, the
- * organiser portal, the vendor portal, `@osn/social` — runs completely
+ * organiser portal, the vendor portal, `@musubi/social` — runs completely
  * untouched. There is no bypass anywhere else in the stack.
  *
  * Two gates, both enforced in `build-deps.ts`, both fail-closed:

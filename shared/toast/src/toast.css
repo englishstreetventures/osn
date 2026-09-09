@@ -2,7 +2,7 @@
  * @shared/toast — the whole visual surface, in plain CSS.
  *
  * Deliberately NOT Tailwind. Consumers span two token vocabularies (shadcn
- * names in `@osn/social`/`@pulse/web`, cire's own in `@cire/*`) and only two of
+ * names in `@musubi/social`/`@pulse/web`, cire's own in `@cire/*`) and only two of
  * the five apps declare the `base:` variant or `@source` a workspace package,
  * so utilities here would mean threading Tailwind config changes through every
  * consumer. A stylesheet keyed off custom properties needs none of that, and

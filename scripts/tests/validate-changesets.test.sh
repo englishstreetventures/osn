@@ -18,6 +18,17 @@ make_fixture() {
   printf '{ "name": "@osn/api" }\n' > "$root/osn/api/package.json"
 }
 
+# Fixture under musubi/, the newest top-level workspace directory. The
+# validator finds workspace names by walking a hardcoded list of directories,
+# so a directory missing from that list makes every package under it look
+# unknown. Nothing else in this file would notice: each other fixture lives
+# under a directory that has been in the list since before it was written.
+make_musubi_fixture() {
+  local root="$1"
+  mkdir -p "$root/musubi/social" "$root/.changeset"
+  printf '{ "name": "@musubi/social", "version": "1.0.0" }\n' > "$root/musubi/social/package.json"
+}
+
 # Fixture with both a versioned package (@shared/crypto, not ignored) and a
 # version-less package (@cire/api, ignored by changesets) — to exercise the
 # mixed-changeset rule.
@@ -96,6 +107,14 @@ g="$tmp/ignoredonly"
 make_mixed_fixture "$g"
 printf -- '---\n"@cire/api": minor\n---\nsummary\n' > "$g/.changeset/change.md"
 run_case "all-ignored changeset passes" "$g" 0
+
+# A package under musubi/ is recognised. This is the regression guard for the
+# directory list itself: drop `musubi` from the validator's `find` and this is
+# the only case in the file that fails.
+mu="$tmp/musubi"
+make_musubi_fixture "$mu"
+printf -- '---\n"@musubi/social": minor\n---\nsummary\n' > "$mu/.changeset/change.md"
+run_case "a package under musubi/ is a known workspace name" "$mu" 0
 
 echo
 echo "passed: $pass, failed: $fail"
