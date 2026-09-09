@@ -73,7 +73,18 @@ export function createStepUpModule(ctx: AuthContext) {
   const issueStepUpToken = (accountId: string, factor: StepUpFactor, purpose?: StepUpPurpose) =>
     Effect.gen(function* () {
       // Map the ceremony factor onto RFC 8176 "amr" values the verifier reads.
-      const amr = factor === "passkey" ? "webauthn" : factor === "otp" ? "otp" : "recovery";
+      // An exhaustive record rather than a chain of ternaries: the chain's
+      // else-arm silently mapped every unlisted factor to "recovery", which no
+      // allow-list admits, so adding a factor produced tokens that verified
+      // nowhere and failed with the same generic message as a forgery. A
+      // missing key here is a compile error instead.
+      const AMR_FOR_FACTOR = {
+        passkey: "webauthn",
+        otp: "otp",
+        totp: "totp",
+        recovery_code: "recovery",
+      } satisfies Record<StepUpFactor, string>;
+      const amr = AMR_FOR_FACTOR[factor];
       const token = yield* Effect.tryPromise({
         try: () => {
           const claims: StepUpTokenClaims = {
@@ -429,6 +440,42 @@ export function createStepUpModule(ctx: AuthContext) {
     });
 
   /**
+   * Step-up verifier for `POST /totp/enroll/begin`.
+   *
+   * Gated for the reason `/passkey/register/begin` is, and on the same
+   * allow-list: without it a stolen access token silently binds an attacker's
+   * authenticator seed to the victim's account, and every later gate that
+   * accepts a `totp` AMR would then accept the attacker.
+   *
+   * Purpose-bound, so a token minted to add a passkey cannot enrol a second
+   * factor instead.
+   */
+  const verifyStepUpForTotpEnroll = (
+    accountId: string,
+    stepUpToken: string,
+  ): Effect.Effect<void, AuthError> =>
+    Effect.gen(function* () {
+      yield* verifyStepUpToken(stepUpToken, accountId, passkeyRegisterAllowedAmr, "totp_enroll");
+    });
+
+  /**
+   * Step-up verifier for `DELETE /totp`.
+   *
+   * A `totp` AMR is admitted here, which is deliberate: the holder of the seed
+   * can already mint codes, so removing the credential is a downgrade rather
+   * than an escalation, it writes a `totp_disabled` security event and sends a
+   * notice, and demanding `webauthn` would strand a user whose passkey device
+   * is gone with a second factor they cannot remove.
+   */
+  const verifyStepUpForTotpDisable = (
+    accountId: string,
+    stepUpToken: string,
+  ): Effect.Effect<void, AuthError> =>
+    Effect.gen(function* () {
+      yield* verifyStepUpToken(stepUpToken, accountId, passkeyRegisterAllowedAmr, "totp_disable");
+    });
+
+  /**
    * Step-up verifier for `POST /recovery/generate`.
    *
    * S-M1: requires the token's `purpose` claim to be `"recovery_generate"`.
@@ -530,6 +577,8 @@ export function createStepUpModule(ctx: AuthContext) {
     completeStepUpOtp,
     verifyStepUpForPasskeyDelete,
     verifyStepUpForPasskeyRegister,
+    verifyStepUpForTotpEnroll,
+    verifyStepUpForTotpDisable,
     verifyStepUpForRecoveryGenerate,
     verifyStepUpForAccountDelete,
     verifyStepUpForAccountExport,

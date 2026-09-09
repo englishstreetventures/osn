@@ -414,6 +414,14 @@ crons = ["0 */6 * * *"]
 #   OSN_JWT_PRIVATE_KEY        base64 JWK (ES256 private)  — REQUIRED non-local
 #   OSN_JWT_PUBLIC_KEY         base64 JWK (ES256 public)   — REQUIRED non-local
 #   OSN_SESSION_IP_PEPPER      ≥32-byte HMAC key           — REQUIRED non-local
+#   OSN_TOTP_ENCRYPTION_KEY    EXACTLY 32 random bytes, base64 — REQUIRED non-local.
+#                              AES-256-GCM key for TOTP shared secrets at rest.
+#                              `openssl rand -base64 32`, or the
+#                              `set-osn-api-secret` workflow. Boot fails closed
+#                              without it, so set it BEFORE the deploy that first
+#                              needs it. NEVER rotate: it decrypts every enrolled
+#                              secret, so a new key invalidates every second
+#                              factor at once.
 #   UPSTASH_REDIS_REST_URL     Upstash REST URL            — REQUIRED non-local (S-L1; region TBD C-M18)
 #   UPSTASH_REDIS_REST_TOKEN   Upstash REST token          — REQUIRED non-local (S-L1; region TBD C-M18)
 #   RESEND_API_KEY             Resend bearer key — REQUIRED non-local (preferred

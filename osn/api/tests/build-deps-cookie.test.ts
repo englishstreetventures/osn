@@ -38,6 +38,7 @@ function nonLocalEnv(over: Partial<Record<string, string>> = {}): EnvVars {
     OSN_JWT_PUBLIC_KEY: pubB64,
     OSN_SESSION_IP_PEPPER: "x".repeat(32),
     OSN_PAIRWISE_SALT: "p".repeat(32),
+    OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
     ...over,
   };
 }

@@ -14,5 +14,6 @@ export * from "./service";
 export * from "./session-fetch";
 export * from "./sessions";
 export * from "./step-up";
+export * from "./totp";
 export * from "./storage";
 export * from "./tokens";

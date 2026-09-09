@@ -30,6 +30,19 @@ export type AuthRateLimiters = Readonly<{
   stepUpOtpBegin: RateLimiterBackend;
   /** Step-up OTP complete (authenticated, verifies code). */
   stepUpOtpComplete: RateLimiterBackend;
+  /**
+   * Step-up TOTP complete (authenticated, verifies a code). There is no
+   * `begin` — TOTP is challenge-free, so the ceremony is one call.
+   */
+  stepUpTotpComplete: RateLimiterBackend;
+  /** TOTP enrolment begin (authenticated, step-up gated, mints a secret). */
+  totpEnrollBegin: RateLimiterBackend;
+  /** TOTP enrolment complete (authenticated, verifies the first code). */
+  totpEnrollComplete: RateLimiterBackend;
+  /** TOTP disable (authenticated, step-up gated). */
+  totpDisable: RateLimiterBackend;
+  /** TOTP status (authenticated, settings read — mirrors recoveryStatus). */
+  totpStatus: RateLimiterBackend;
   /** Session list (authenticated, per-user). */
   sessionList: RateLimiterBackend;
   /** Session revoke (authenticated, per-user). */
@@ -128,6 +141,14 @@ export function createDefaultAuthRateLimiters(): AuthRateLimiters {
     stepUpPasskeyComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     stepUpOtpBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
     stepUpOtpComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    // TOTP. The per-IP budgets mirror the step-up OTP pair; the real brake on
+    // guessing a six-digit code is the per-account lockout, which no rotating
+    // fleet can spread across (`lib/recovery-lockout-store.ts`).
+    stepUpTotpComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    totpEnrollBegin: createRateLimiter({ maxRequests: 5, windowMs: 60_000 }),
+    totpEnrollComplete: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    totpDisable: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
+    totpStatus: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
     sessionList: createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
     sessionRevoke: createRateLimiter({ maxRequests: 10, windowMs: 60_000 }),
     // Email change begin is tightly capped because each call sends mail

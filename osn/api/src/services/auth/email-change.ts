@@ -24,7 +24,7 @@ import { EmailSchema, genId, genOtpCode, hashSessionToken, logDevOtp } from "./h
 import type { StepUpModule } from "./step-up";
 
 export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) {
-  const { stores, otpTtl, emailChangeBeginCap } = ctx;
+  const { stores, otpTtl, emailChangeBeginCap, emailChangeAllowedAmr } = ctx;
   const { verifyStepUpToken } = stepUp;
 
   const EMAIL_CHANGE_LIMIT = 2;
@@ -186,12 +186,7 @@ export function createEmailChangeModule(ctx: AuthContext, stepUp: StepUpModule) 
     Effect.gen(function* () {
       // Purpose-bound: a token minted for another ceremony (recovery generate,
       // passkey delete) cannot be replayed to complete an email swap.
-      yield* verifyStepUpToken(
-        stepUpToken,
-        accountId,
-        new Set(["webauthn", "otp"]),
-        "email_change",
-      );
+      yield* verifyStepUpToken(stepUpToken, accountId, emailChangeAllowedAmr, "email_change");
 
       const pending = yield* Effect.promise(() => stores.pendingEmailChanges.get(accountId));
       if (!pending || Date.now() > pending.expiresAt) {

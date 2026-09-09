@@ -77,6 +77,11 @@ export interface Env {
   OSN_JWT_PRIVATE_KEY?: string;
   OSN_JWT_PUBLIC_KEY?: string;
   OSN_SESSION_IP_PEPPER?: string;
+  // AES-GCM key (32 random bytes, base64) that TOTP shared secrets are
+  // encrypted under at rest. REQUIRED in every non-local tier — osn-api refuses
+  // to boot without it rather than storing a second factor in plain text.
+  // `wrangler secret put OSN_TOTP_ENCRYPTION_KEY --env <tier>`.
+  OSN_TOTP_ENCRYPTION_KEY?: string;
   // HMAC key behind every pairwise OIDC `sub`. Permanent: rotating it changes
   // every subject a relying party has on file. `wrangler secret put
   // OSN_PAIRWISE_SALT`.

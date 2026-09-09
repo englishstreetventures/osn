@@ -56,6 +56,11 @@ export function createRedisAuthRateLimiters(client: RedisClient): AuthRateLimite
     stepUpPasskeyComplete: rl("auth:step_up_passkey_complete", 10),
     stepUpOtpBegin: rl("auth:step_up_otp_begin", 5),
     stepUpOtpComplete: rl("auth:step_up_otp_complete", 10),
+    stepUpTotpComplete: rl("auth:step_up_totp_complete", 10),
+    totpEnrollBegin: rl("auth:totp_enroll_begin", 5),
+    totpEnrollComplete: rl("auth:totp_enroll_complete", 10),
+    totpDisable: rl("auth:totp_disable", 10),
+    totpStatus: rl("auth:totp_status", 30),
     sessionList: rl("auth:session_list", 30),
     sessionRevoke: rl("auth:session_revoke", 10),
     emailChangeBegin: createRedisRateLimiter(client, {

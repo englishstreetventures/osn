@@ -26,6 +26,8 @@ import {
   renderPasskeyRemoved,
   renderRecoveryConsumed,
   renderRecoveryGenerated,
+  renderTotpDisabled,
+  renderTotpEnrolled,
 } from "./security";
 import { renderVendorClaimInvite, type VendorClaimInviteData } from "./vendor-claim";
 
@@ -41,6 +43,8 @@ export type EmailTemplate =
   | "recovery-consumed"
   | "passkey-added"
   | "passkey-removed"
+  | "totp-enrolled"
+  | "totp-disabled"
   | "cross-device-login"
   | "vendor-claim-invite";
 
@@ -56,6 +60,8 @@ export interface EmailTemplateDataMap {
   "recovery-consumed": Record<string, never>;
   "passkey-added": Record<string, never>;
   "passkey-removed": Record<string, never>;
+  "totp-enrolled": Record<string, never>;
+  "totp-disabled": Record<string, never>;
   "cross-device-login": Record<string, never>;
   "vendor-claim-invite": { claimUrl: string; vendorName: string };
 }
@@ -99,6 +105,10 @@ export function renderTemplate<T extends EmailTemplate>(
       return renderPasskeyAdded();
     case "passkey-removed":
       return renderPasskeyRemoved();
+    case "totp-enrolled":
+      return renderTotpEnrolled();
+    case "totp-disabled":
+      return renderTotpDisabled();
     case "cross-device-login":
       return renderCrossDeviceLogin();
     case "vendor-claim-invite":
@@ -120,6 +130,8 @@ export {
   renderRecoveryConsumed,
   renderPasskeyAdded,
   renderPasskeyRemoved,
+  renderTotpEnrolled,
+  renderTotpDisabled,
   renderCrossDeviceLogin,
   renderVendorClaimInvite,
 };

@@ -198,7 +198,12 @@ export function createSecurityEventsModule(ctx: AuthContext, stepUp: StepUpModul
   const notifySecurityEventByAccountId = (
     accountId: string,
     kind: SecurityEventKind,
-    template: "passkey-added" | "passkey-removed" | "cross-device-login",
+    template:
+      | "passkey-added"
+      | "passkey-removed"
+      | "totp-enrolled"
+      | "totp-disabled"
+      | "cross-device-login",
   ): Effect.Effect<void, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
       const { db } = yield* Db;

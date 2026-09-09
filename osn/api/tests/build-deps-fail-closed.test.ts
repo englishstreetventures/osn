@@ -87,10 +87,68 @@ describe("buildAppDeps OSN_ORIGIN non-local guard (S-L5)", () => {
           OSN_JWT_PUBLIC_KEY: pubB64,
           OSN_SESSION_IP_PEPPER: "x".repeat(32),
           OSN_PAIRWISE_SALT: "p".repeat(32),
+          OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
         },
         nonLocalParts(),
       ),
     ).rejects.toThrow(/OSN_ORIGIN must be set in non-local environments/);
+  });
+});
+
+describe("buildAppDeps TOTP-encryption-key non-local guard", () => {
+  // Deliberately declared AFTER the OSN_ORIGIN and pairwise-salt guards, and
+  // the boot check is ordered to match: those tests supply no TOTP key, so a
+  // check placed earlier would make them assert the wrong error.
+  // A function, not a const: `privB64` / `pubB64` are filled in by `beforeAll`,
+  // which runs after the describe body is evaluated.
+  const nonLocalEnv = () => ({
+    OSN_ENV: "production",
+    OSN_ISSUER_URL: "https://api.osn.test",
+    OSN_CORS_ORIGIN: "https://app.osn.test",
+    OSN_ORIGIN: "https://app.osn.test",
+    OSN_RP_ID: "osn.test",
+    OSN_JWT_PRIVATE_KEY: privB64,
+    OSN_JWT_PUBLIC_KEY: pubB64,
+    OSN_SESSION_IP_PEPPER: "x".repeat(32),
+    OSN_PAIRWISE_SALT: "p".repeat(32),
+  });
+
+  it("throws in non-local when OSN_TOTP_ENCRYPTION_KEY is absent", async () => {
+    // Storing a second factor in plain text is not an option, so a deployed
+    // tier without the key refuses to boot rather than degrading.
+    await expect(buildAppDeps(nonLocalEnv(), nonLocalParts())).rejects.toThrow(
+      /OSN_TOTP_ENCRYPTION_KEY must be set to 32 base64-encoded random bytes/,
+    );
+  });
+
+  it("throws in EVERY tier when the key is the wrong length", async () => {
+    // Not just deployed ones: a mistyped key must be loud where it is set,
+    // rather than quiet until somebody tries to enrol.
+    await expect(
+      buildAppDeps(
+        { OSN_TOTP_ENCRYPTION_KEY: Buffer.from("short").toString("base64") },
+        nonLocalParts(),
+      ),
+    ).rejects.toThrow(/must decode to exactly 32 bytes/);
+  });
+
+  it("boots in non-local with a valid key", async () => {
+    const built = await buildAppDeps(
+      {
+        ...nonLocalEnv(),
+        OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
+      },
+      nonLocalParts(),
+    );
+    expect(built.deps.authConfig.totpEncryptionKey).toBeDefined();
+  });
+
+  it("boots in LOCAL with no key at all, using an ephemeral one", async () => {
+    // Same bargain the ephemeral JWT pair already makes: the devloop needs no
+    // provisioned secret, and credentials enrolled locally stop decrypting
+    // after a restart.
+    const built = await buildAppDeps({}, nonLocalParts());
+    expect(built.deps.authConfig.totpEncryptionKey).toBeDefined();
   });
 });
 
@@ -143,6 +201,7 @@ describe("buildAll Upstash gate non-local (S-L1)", () => {
       OSN_JWT_PUBLIC_KEY: pubB64,
       OSN_SESSION_IP_PEPPER: "x".repeat(32),
       OSN_PAIRWISE_SALT: "p".repeat(32),
+      OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
       // CF email present so the Upstash gate (which runs first) is the guard
       // that fires.
       CLOUDFLARE_ACCOUNT_ID: "acct",
@@ -174,6 +233,7 @@ describe("buildAll email fail-closed + degraded opt-in (non-local)", () => {
       OSN_JWT_PUBLIC_KEY: pubB64,
       OSN_SESSION_IP_PEPPER: "x".repeat(32),
       OSN_PAIRWISE_SALT: "p".repeat(32),
+      OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
       UPSTASH_REDIS_REST_URL: "https://upstash.test",
       UPSTASH_REDIS_REST_TOKEN: "tok",
       ...over,

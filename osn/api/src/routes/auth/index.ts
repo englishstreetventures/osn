@@ -36,6 +36,7 @@ import { createSecurityEventRoutes } from "./security-events";
 import { createSessionRoutes } from "./sessions";
 import { createStepUpRoutes } from "./step-up";
 import { createTokenRoutes } from "./tokens";
+import { createTotpRoutes } from "./totp";
 import { createWellKnownRoutes } from "./well-known";
 
 export { createDefaultAuthRateLimiters, type AuthRateLimiters } from "./limiters";
@@ -142,6 +143,7 @@ export function createAuthRoutes(
     .use(createProfileSwitchRoutes(ctx))
     .use(createRecoveryRoutes(ctx))
     .use(createStepUpRoutes(ctx))
+    .use(createTotpRoutes(ctx))
     .use(createSessionRoutes(ctx))
     .use(createEmailChangeRoutes(ctx))
     .use(createSecurityEventRoutes(ctx))

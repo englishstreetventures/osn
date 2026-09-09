@@ -223,3 +223,25 @@ export const RESERVED_OIDC_CLIENT_NAMES: readonly string[] = [
   "cire",
   "cireweddings",
 ];
+
+// ---------------------------------------------------------------------------
+// TOTP (RFC 6238)
+// ---------------------------------------------------------------------------
+
+/**
+ * How long an unconfirmed enrolment secret stays in the ceremony store. Long
+ * enough to scan a QR code and read the next code off the app; short enough
+ * that an abandoned enrolment is not a secret sitting around.
+ */
+export const TOTP_ENROLL_TTL_MS = 10 * 60 * 1000;
+
+/** Wrong codes at `/totp/enroll/complete` before the pending secret is burnt. */
+export const TOTP_MAX_ENROLL_ATTEMPTS = 5;
+
+/**
+ * Per-account failed-code ceiling, and how long the lockout lasts. RFC 4226
+ * §7.3 requires a throttling parameter for exactly this: a per-IP limit alone
+ * does not stop a rotating fleet grinding a six-digit space.
+ */
+export const TOTP_LOCKOUT_THRESHOLD = 5;
+export const TOTP_LOCKOUT_MS = 15 * 60 * 1000;

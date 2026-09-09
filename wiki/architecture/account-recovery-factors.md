@@ -136,6 +136,34 @@ global lock that runbook breaks; under the asymmetric rule it still works,
 because the operator's step-up comes from the pre-recovery credential. The
 runbook is re-checked and updated in the same PR as the cooldown.
 
+### The same rule closes the register-then-assert pivot
+
+Provenance is not only about recovery. The identical weakness exists with no
+recovery in sight, and predates it: `passkeyDeleteAllowedAmr` and
+`emailChangeAllowedAmr` are narrow because they exclude `otp` and `totp`, but
+both admit `webauthn` — and a passkey **registered a minute ago under an `otp`
+or `totp` step-up** mints a `webauthn` AMR indistinguishable from one the user
+has held for a year. Register a credential of your own, assert it, and you hold
+a token either gate accepts. [[totp#Threat model]] walks the four requests.
+
+So the record the cooldown needs is not "was this passkey enrolled during a
+recovery" but **the AMR the passkey was registered under**, whatever ceremony
+produced it. Widen `passkeys.enrolledViaRecoveryAt` to carry that, and the
+asymmetric rule above covers both cases with one mechanism:
+
+- A `passkey_delete` or `email_change` step-up asserted by a credential
+  registered under a `webauthn` AMR is the owner acting — unrestricted.
+- One asserted by a credential registered under `otp` or `totp` may not delete a
+  passkey that predates it, nor change the email, until the cool-down elapses.
+
+The user's own second device is registered under a `webauthn` step-up in the
+ordinary case, so the common path is unaffected; the restriction lands only
+where the new credential's own provenance is weaker than the credential it
+would remove.
+
+This is scoped into `xchromo/osn#952` alongside the recovery cooldown, because
+they are one column and one comparison.
+
 ## Shape of the change
 
 | Area | Change |

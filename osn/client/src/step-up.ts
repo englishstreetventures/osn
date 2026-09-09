@@ -46,6 +46,8 @@ export type StepUpPurpose =
   | "security_event_ack"
   | "account_delete"
   | "account_export"
+  | "totp_enroll"
+  | "totp_disable"
   | "pulse_app_delete"
   | "zap_app_delete";
 
@@ -72,6 +74,18 @@ export interface StepUpClient {
   /** Sends an OTP to the authenticated account's verified email. */
   otpBegin(input: { accessToken: string }): Promise<{ sent: true }>;
   otpComplete(input: {
+    accessToken: string;
+    code: string;
+    purpose?: StepUpPurpose;
+  }): Promise<StepUpToken>;
+  /**
+   * Exchange a code from the account's authenticator app for a step-up token.
+   *
+   * There is no `totpBegin`: TOTP is challenge-free, so there is nothing for
+   * the server to mint or park. Whether this factor is available at all is what
+   * `TotpClient.status` answers.
+   */
+  totpComplete(input: {
     accessToken: string;
     code: string;
     purpose?: StepUpPurpose;
@@ -128,6 +142,14 @@ export function createStepUpClient(config: StepUpClientConfig): StepUpClient {
       toToken(
         await postJson<{ step_up_token: string; expires_in: number }>(
           `${base}/step-up/otp/complete`,
+          input.accessToken,
+          { code: input.code, purpose: input.purpose },
+        ),
+      ),
+    totpComplete: async (input) =>
+      toToken(
+        await postJson<{ step_up_token: string; expires_in: number }>(
+          `${base}/step-up/totp/complete`,
           input.accessToken,
           { code: input.code, purpose: input.purpose },
         ),

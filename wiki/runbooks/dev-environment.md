@@ -295,6 +295,7 @@ dashboard-only.
    bunx wrangler secret put OSN_JWT_PRIVATE_KEY      --env dev   # own keypair
    bunx wrangler secret put OSN_JWT_PUBLIC_KEY       --env dev
    bunx wrangler secret put OSN_SESSION_IP_PEPPER    --env dev
+   bunx wrangler secret put OSN_TOTP_ENCRYPTION_KEY  --env dev   # openssl rand -base64 32
    bunx wrangler secret put UPSTASH_REDIS_REST_URL   --env dev
    bunx wrangler secret put UPSTASH_REDIS_REST_TOKEN --env dev
    bunx wrangler secret put RESEND_API_KEY           --env dev

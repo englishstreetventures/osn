@@ -48,6 +48,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[passkey-primary]] — passkey-only login contract (the only primary factor)
 - [[recovery-codes]] — single-use account-recovery tokens (Copenhagen Book M2)
 - [[step-up]] — short-lived sudo tokens gating sensitive endpoints (M-PK1)
+- [[totp]] — RFC 6238 authenticator-app second factor: the encrypted secret, single use, the per-account lockout
 - [[sessions]] — session introspection, per-device revocation, "sign out everywhere else", device/passkey management UI
 - [[oidc-provider]] — OpenID Connect provider: how other apps recognise an OSN account without holding a passkey
 - [[turnstile]] — Cloudflare Turnstile bot protection (key-optional, fail-closed; shipped inert)

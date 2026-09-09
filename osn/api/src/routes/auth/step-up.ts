@@ -115,6 +115,8 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
                 t.Literal("passkey_delete"),
                 t.Literal("email_change"),
                 t.Literal("security_event_ack"),
+                t.Literal("totp_enroll"),
+                t.Literal("totp_disable"),
               ]),
             ),
           }),
@@ -225,6 +227,8 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
                 t.Literal("passkey_delete"),
                 t.Literal("email_change"),
                 t.Literal("security_event_ack"),
+                t.Literal("totp_enroll"),
+                t.Literal("totp_disable"),
               ]),
             ),
           }),
@@ -236,6 +240,77 @@ export function createStepUpRoutes(ctx: AuthRouteContext) {
             500: errorResponse,
           },
           detail: { operationId: "completeStepUpOtp", security: [{ bearerAuth: [] }] },
+        },
+      )
+      // No `/step-up/totp/begin` counterpart, and that is not an omission: TOTP
+      // is challenge-free, so a `begin` would have nothing to mint, park or
+      // send. Whether this route is usable at all is what `GET /totp/status`
+      // answers.
+      .post(
+        "/step-up/totp/complete",
+        async ({ body, headers, set, server, request }) => {
+          const rlErr = await rateLimit(
+            headers,
+            socketIpOf({ server, request }),
+            "step_up_totp_complete",
+            rl.stepUpTotpComplete,
+          );
+          if (rlErr) {
+            set.status = 429;
+            return rlErr;
+          }
+          try {
+            const claims = await resolveAccessTokenPrincipal(auth, headers.authorization);
+            if (!claims) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const profile = await run(auth.findProfileById(claims.profileId));
+            if (!profile) {
+              set.status = 401;
+              return { error: "unauthorized" };
+            }
+            const result = await run(
+              auth.completeStepUpTotp(profile.accountId, body.code, body.purpose),
+            );
+            return {
+              step_up_token: result.stepUpToken,
+              expires_in: result.expiresIn,
+            };
+          } catch (e) {
+            const { status, body: errBody } = handleError(e);
+            set.status = status;
+            return errBody;
+          }
+        },
+        {
+          // See /step-up/passkey/complete for the purpose-claim rationale.
+          body: t.Object({
+            code: t.String(),
+            purpose: t.Optional(
+              t.Union([
+                t.Literal("account_delete"),
+                t.Literal("account_export"),
+                t.Literal("pulse_app_delete"),
+                t.Literal("zap_app_delete"),
+                t.Literal("recovery_generate"),
+                t.Literal("passkey_register"),
+                t.Literal("passkey_delete"),
+                t.Literal("email_change"),
+                t.Literal("security_event_ack"),
+                t.Literal("totp_enroll"),
+                t.Literal("totp_disable"),
+              ]),
+            ),
+          }),
+          response: {
+            200: stepUpTokenResponse,
+            400: errorResponse,
+            401: errorResponse,
+            429: errorResponse,
+            500: errorResponse,
+          },
+          detail: { operationId: "completeStepUpTotp", security: [{ bearerAuth: [] }] },
         },
       )
   );

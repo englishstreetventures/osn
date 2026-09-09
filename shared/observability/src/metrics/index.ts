@@ -43,6 +43,8 @@ export {
   type SecurityEventKind,
   type SecurityEventNotifyResult,
   type StepUpFactor,
+  type TotpOp,
+  type TotpVerifyResult,
   type StepUpPurpose,
   type StepUpStep,
   type StepUpVerifyResult,

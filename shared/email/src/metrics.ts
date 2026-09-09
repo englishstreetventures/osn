@@ -4,7 +4,7 @@
  * Single source of truth for email metric names and typed recorders.
  * Every attribute is a bounded string-literal union; recipient address,
  * account ID, request ID are intentionally absent. Cardinality ceiling:
- * 7 templates × 4 outcomes = 28 series on the main counter.
+ * 14 templates × 4 outcomes = 56 series on the main counter.
  */
 
 import {

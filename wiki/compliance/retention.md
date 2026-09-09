@@ -7,7 +7,7 @@ related:
   - "[[data-map]]"
   - "[[dsar]]"
   - "[[cire]]"
-last-reviewed: 2026-08-19
+last-reviewed: 2026-09-09
 ---
 
 # Retention
@@ -31,6 +31,7 @@ already enforces some of them; the rest need a sweeper job.
 | `security_events` | 12 months from `created_at` | Sweeper job (planned) | **TODO** — define + write. | Identity |
 | `email_changes` audit | 90 days | Sweeper job (planned) | **TODO** | Identity |
 | `recovery_codes` | While account active. Used codes retain `used_at` for security-event reasoning. | App code | OK | Identity |
+| `totp_credentials` | While the credential exists. Deleted on `DELETE /totp`, and with passkeys and recovery codes on BOTH soft delete and hard delete — the FK cascade alone would leave a working second factor through the 7-day grace window. | App code | OK | Identity |
 | `cdl_requests` | 5 min TTL; in-memory expiry on poll | App code | OK; consider lazy eviction P-W1 (cdl) | Identity |
 | `otpStore`, `magicStore`, `pendingRegistrations` | 5 min TTL; current Map has no sweeper (P-W4) | Migrate to Redis with native TTL (Redis Phase 4) | **TODO** — Redis Phase 4 in TODO | Identity |
 | `oauth_authorization_codes` (OIDC) | 60 s TTL. Deleted on redemption (`DELETE … RETURNING`), on consent revoke (in-flight purge), and on account erasure; abandoned rows reaped by `runExpiredAuthCodeSweep` on the Worker `scheduled` cron. | App code + scheduled sweep | OK | Identity |

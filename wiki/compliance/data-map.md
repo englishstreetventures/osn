@@ -9,7 +9,7 @@ related:
   - "[[cire]]"
   - "[[cire-auth]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-08-20
+last-reviewed: 2026-09-09
 ---
 
 # Data Map
@@ -46,6 +46,9 @@ the compliance checklist.
 | `passkeys.label` | UX — "iPhone 15 Pro" | Art. 6(1)(b) | Same | `@osn/api` only | [[passkey-primary]] |
 | `passkeys.aaguid`, `backup_eligible`, `backup_state` | UX — show "synced" badge | Art. 6(1)(f) — legit interest in helpful UX | Same | `@osn/api` only | [[passkey-primary]] |
 | `passkeys.last_used_at` | UX — "Last used 2 days ago" | Art. 6(1)(f) | Same | `@osn/api` only | [[passkey-primary]] |
+| `totp_credentials.secret_ciphertext` + `.iv` | The RFC 6238 shared secret, AES-256-GCM encrypted — a second authentication factor. Cannot be hashed: verification needs the raw HMAC key | Art. 6(1)(b) — contract | While the credential exists; deleted on disable, soft delete and account delete | `@osn/api` only. **Never exported and never logged** | [[totp]] |
+| `totp_credentials.label` | UX — "Pixel", so the owner can tell one authenticator from another | Art. 6(1)(b) | Same | `@osn/api` only | [[totp]] |
+| `totp_credentials.last_used_at` | UX — "Last used 2 days ago", same footing as `passkeys.last_used_at` | Art. 6(1)(f) | Same | `@osn/api` only | [[totp]] |
 | `sessions.id` (= SHA-256 of token) | Session validation | Art. 6(1)(b) | 30 d sliding | `@osn/api` only | [[sessions]] |
 | `sessions.ua_label` | Coarse "Firefox on macOS" for the user-facing sessions list | Art. 6(1)(b) | 30 d sliding | `@osn/api` only | [[sessions]] |
 | `sessions.ip_hash` (HMAC-SHA256 with pepper) | Anomaly detection; user-facing sessions list | Art. 6(1)(f) — legit interest in fraud detection | 30 d sliding | `@osn/api` only | [[sessions]] |

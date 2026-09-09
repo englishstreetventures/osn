@@ -14,6 +14,8 @@ import {
   EMAIL_CHANGE_BEGIN_PER_ACCOUNT_WINDOW_MS,
   PROFILE_SWITCH_MAX,
   PROFILE_SWITCH_WINDOW_MS,
+  TOTP_LOCKOUT_MS,
+  TOTP_LOCKOUT_THRESHOLD,
 } from "./constants";
 import {
   createDefaultCeremonyStores,
@@ -26,13 +28,23 @@ export function createAuthContext(config: AuthConfig) {
   const refreshTokenTtl = config.refreshTokenTtl ?? 2592000;
   const otpTtl = config.otpTtl ?? 600;
   const stepUpTokenTtl = config.stepUpTokenTtl ?? 300;
+  // The four step-up AMR allow-lists, in one place. TOTP joins the two sets
+  // that already accept an emailed OTP; it joins neither
+  // `passkeyDeleteAllowedAmr` nor `emailChangeAllowedAmr` — see
+  // `[[wiki/systems/step-up]]` for the whole table and the reasoning.
   const recoveryGenerateAllowedAmr = new Set<string>(
-    config.recoveryGenerateAllowedAmr ?? ["webauthn", "otp"],
+    config.recoveryGenerateAllowedAmr ?? ["webauthn", "otp", "totp"],
   );
   const passkeyDeleteAllowedAmr = new Set<string>(config.passkeyDeleteAllowedAmr ?? ["webauthn"]);
   const passkeyRegisterAllowedAmr = new Set<string>(
-    config.passkeyRegisterAllowedAmr ?? ["webauthn", "otp"],
+    config.passkeyRegisterAllowedAmr ?? ["webauthn", "otp", "totp"],
   );
+  // `/account/email/complete`. The one allow-list with no `AuthConfig` field:
+  // its `otp` arm proves control of the CURRENT mailbox, which a TOTP seed does
+  // not, and email change is the pivot to permanent takeover — so it is not a
+  // deployment's choice to widen. Fixed here rather than inline at the verifier
+  // so all four sets are read in one place.
+  const emailChangeAllowedAmr = new Set<string>(["webauthn", "otp"]);
   const jtiStore = config.stepUpJtiStore ?? createInMemoryJtiStore();
   const rotatedSessionStore = config.rotatedSessionStore ?? createInMemoryRotatedSessionStore();
   const rotatedSessionStoreBackend = rotatedSessionStore.backend;
@@ -52,6 +64,14 @@ export function createAuthContext(config: AuthConfig) {
     );
   // Per-account recovery-code lockout counter.
   const recoveryLockoutStore = config.recoveryLockoutStore ?? createInMemoryRecoveryLockoutStore();
+  // Per-account TOTP lockout. The in-memory default cannot fail, so the
+  // fail-closed posture only bites on the injected Redis-backed store.
+  const totpLockoutStore =
+    config.totpLockoutStore ??
+    createInMemoryRecoveryLockoutStore({
+      threshold: TOTP_LOCKOUT_THRESHOLD,
+      lockoutMs: TOTP_LOCKOUT_MS,
+    });
   /**
    * HMAC-SHA256 pepper for IP hashing. Only applied when the caller has
    * configured one — in dev we leave ip_hash NULL so local Docker IPs
@@ -72,6 +92,7 @@ export function createAuthContext(config: AuthConfig) {
     recoveryGenerateAllowedAmr,
     passkeyDeleteAllowedAmr,
     passkeyRegisterAllowedAmr,
+    emailChangeAllowedAmr,
     jtiStore,
     rotatedSessionStore,
     rotatedSessionStoreBackend,
@@ -79,6 +100,7 @@ export function createAuthContext(config: AuthConfig) {
     profileSwitchCap,
     emailChangeBeginCap,
     recoveryLockoutStore,
+    totpLockoutStore,
     hashIp,
   };
 }

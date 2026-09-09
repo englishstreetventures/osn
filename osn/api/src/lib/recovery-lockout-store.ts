@@ -22,11 +22,24 @@
  * The store follows the injectable triple-pattern used elsewhere in the auth
  * service. The Redis backend uses an atomic INCR + PEXPIRE Lua script (the same
  * primitive as the rate-limiter family) so the count and the window are
- * consistent across pods. Fail-open posture: a Redis outage must not lock every
+ * consistent across pods.
+ *
+ * # Two consumers, opposite outage postures
+ *
+ * Recovery codes get the default, fail-OPEN: a Redis outage must not lock every
  * account out (that would be a self-inflicted DoS), so `isLocked` returns
- * `false` and `recordFailure` returns 0 on error. The trade-off is that the
- * lockout is temporarily ineffective during an outage — acceptable, because the
- * per-IP limiter and the 64-bit search space remain in force.
+ * `false` and `recordFailure` returns 0 on error. The lockout is temporarily
+ * ineffective, which is acceptable because the per-IP limiter and a 64-bit
+ * search space remain in force.
+ *
+ * TOTP passes `failClosed: true`, because that second sentence is not true of
+ * it. Six digits over a ±1-step window is three acceptable codes in a million —
+ * even odds inside a few hundred thousand attempts, which a rotating fleet
+ * reaches in under an hour against a per-IP limit alone. There is no wide
+ * search space behind the counter, so failing open removes the only effective
+ * defence rather than a redundant one. What failing closed costs is a TOTP
+ * ceremony during a Redis command error; passkey and OTP step-up are
+ * unaffected, so no account becomes unreachable.
  */
 
 import { type RedisClient, registerMemoryCounterScript } from "@shared/redis";
@@ -53,6 +66,15 @@ export interface RecoveryLockoutStore {
 export interface RecoveryLockoutConfig {
   threshold?: number;
   lockoutMs?: number;
+  /**
+   * What a caught Redis error means. `false` (the default) is fail-open: the
+   * account is reported unlocked and the failure is not counted. `true` is
+   * fail-closed: the account is reported locked and a failure is counted as
+   * having reached the threshold. See the module docstring for which consumer
+   * takes which and why. In-memory backends cannot fail, so this is inert
+   * there.
+   */
+  failClosed?: boolean;
   /** Redis backend only — caught command error. */
   onError?: (op: "is_locked" | "record" | "reset", cause: unknown) => void;
 }
@@ -131,6 +153,7 @@ export function createRedisRecoveryLockoutStore(
   const threshold = config.threshold ?? RECOVERY_LOCKOUT_THRESHOLD;
   const lockoutMs = config.lockoutMs ?? RECOVERY_LOCKOUT_MS;
   const prefix = config.keyPrefix ?? "osn:recovery-lockout";
+  const failClosed = config.failClosed ?? false;
   const onError = config.onError;
 
   const key = (accountId: string): string => `${prefix}:${accountId}`;
@@ -150,9 +173,11 @@ export function createRedisRecoveryLockoutStore(
         if (raw === null) return false;
         return Number(raw) >= threshold;
       } catch (cause) {
-        // Fail-open: an outage must not lock everyone out.
         safeError("is_locked", cause);
-        return false;
+        // Fail-open by default (an outage must not lock everyone out);
+        // fail-closed for TOTP, whose 20-bit code space leaves nothing behind
+        // this counter. See the module docstring.
+        return failClosed;
       }
     },
     async recordFailure(accountId) {
@@ -161,7 +186,10 @@ export function createRedisRecoveryLockoutStore(
         return Number(result);
       } catch (cause) {
         safeError("record", cause);
-        return 0;
+        // A fail-closed consumer must not read an unrecordable failure as "no
+        // failures yet" — report the threshold so the caller's own
+        // threshold-crossing branch fires.
+        return failClosed ? threshold : 0;
       }
     },
     async reset(accountId) {

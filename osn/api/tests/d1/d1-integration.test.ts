@@ -12,6 +12,7 @@ import {
   recoveryCodes,
   securityEvents,
   sessions,
+  totpCredentials,
   users,
 } from "@osn/db/schema";
 import * as schema from "@osn/db/schema";
@@ -221,6 +222,7 @@ beforeEach(async () => {
     sessions,
     passkeys,
     recoveryCodes,
+    totpCredentials,
     appEnrollments,
     connections,
     organisationMembers,
@@ -254,6 +256,103 @@ describe("osn/api account erasure over real D1 (Miniflare)", () => {
     const acct = await rawDb.select().from(accounts).where(eq(accounts.id, ACCOUNT_ID));
     expect(acct[0]!.deletedAt).toBeNull();
     expect((await run(getDeletionStatus(ACCOUNT_ID))).scheduled).toBe(false);
+  });
+});
+
+describe("TOTP blob columns over real D1 (Miniflare)", () => {
+  // The ONLY blob columns in this schema, and the unit suite runs on
+  // bun:sqlite. drizzle normalises the READ side for both drivers
+  // (`SQLiteBlobBuffer.mapFromDriverValue` wraps whatever comes back in
+  // `Buffer.from`), so the untested half is the WRITE: what D1's `bind()` does
+  // with a Node Buffer. Hence insert-then-select-then-compare rather than
+  // reading a seeded row — a seeded row would prove nothing about the path
+  // production actually takes.
+  it("round-trips a ciphertext and IV through a real D1 write and read", async () => {
+    const ciphertext = new Uint8Array(36);
+    const iv = new Uint8Array(12);
+    crypto.getRandomValues(ciphertext);
+    crypto.getRandomValues(iv);
+
+    const nowSec = Math.floor(Date.now() / 1000);
+    await rawDb.insert(totpCredentials).values({
+      id: "totp_d1round1",
+      accountId: ACCOUNT_ID,
+      secretCiphertext: Buffer.from(ciphertext),
+      iv: Buffer.from(iv),
+      keyVersion: 1,
+      label: "D1 round trip",
+      confirmedAt: nowSec,
+      lastUsedAt: nowSec,
+      lastUsedStep: 12345,
+      createdAt: nowSec,
+    });
+
+    const rows = await rawDb
+      .select()
+      .from(totpCredentials)
+      .where(eq(totpCredentials.id, "totp_d1round1"));
+    const row = rows[0]!;
+
+    // Byte-for-byte, not just "truthy": a driver that stringified the buffer
+    // would still return something non-empty here.
+    expect(Buffer.from(row.secretCiphertext).equals(Buffer.from(ciphertext))).toBe(true);
+    expect(Buffer.from(row.iv).equals(Buffer.from(iv))).toBe(true);
+    expect(row.keyVersion).toBe(1);
+    expect(row.lastUsedStep).toBe(12345);
+  });
+
+  it("enforces one CONFIRMED credential per account through the partial unique index", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const base = {
+      accountId: ACCOUNT_ID,
+      secretCiphertext: Buffer.from(new Uint8Array(36)),
+      iv: Buffer.from(new Uint8Array(12)),
+      keyVersion: 1,
+      createdAt: nowSec,
+    };
+
+    await rawDb
+      .insert(totpCredentials)
+      .values({ ...base, id: "totp_d1uniq1", confirmedAt: nowSec });
+
+    let threw = false;
+    try {
+      await rawDb
+        .insert(totpCredentials)
+        .values({ ...base, id: "totp_d1uniq2", confirmedAt: nowSec });
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+
+    // Unconfirmed rows are NOT covered by the index — an abandoned enrolment
+    // must never block a retry.
+    await rawDb.insert(totpCredentials).values({ ...base, id: "totp_d1uniq3", confirmedAt: null });
+    const all = await rawDb
+      .select()
+      .from(totpCredentials)
+      .where(eq(totpCredentials.accountId, ACCOUNT_ID));
+    expect(all).toHaveLength(2);
+  });
+
+  it("cascades the credential away when the account row goes", async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    await rawDb.insert(totpCredentials).values({
+      id: "totp_d1cascade",
+      accountId: ACCOUNT_ID,
+      secretCiphertext: Buffer.from(new Uint8Array(36)),
+      iv: Buffer.from(new Uint8Array(12)),
+      keyVersion: 1,
+      confirmedAt: nowSec,
+      createdAt: nowSec,
+    });
+
+    // D1 enforces foreign keys, so this exercises the real ON DELETE CASCADE.
+    await rawDb.delete(sessions).where(eq(sessions.accountId, ACCOUNT_ID));
+    await rawDb.delete(users).where(eq(users.accountId, ACCOUNT_ID));
+    await rawDb.delete(accounts).where(eq(accounts.id, ACCOUNT_ID));
+
+    expect(await rawDb.select().from(totpCredentials)).toHaveLength(0);
   });
 });
 

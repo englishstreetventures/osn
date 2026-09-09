@@ -143,6 +143,24 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     "stepUpToken",
     "step_up_token",
 
+    // --- TOTP shared secrets (RFC 6238) ---
+    // Unlike recovery codes and session tokens, a TOTP secret cannot be stored
+    // as a hash — verification needs the raw HMAC key — so the plaintext exists
+    // in the process on every enrolment and every verify. `totpSecret` and
+    // `otpauthUri` are the wire fields of POST /totp/enroll/begin, which is the
+    // one response that carries either; the URI is the worse of the two,
+    // because it embeds the whole secret in the shape most likely to be logged.
+    // `secretCiphertext` is the column, redacted with them: it is useless
+    // without OSN_TOTP_ENCRYPTION_KEY, but the point of encrypting at rest is
+    // that the Worker's secrets and its database stay separate trust domains,
+    // and a log sink holding both collapses them.
+    "totpSecret",
+    "totp_secret",
+    "otpauthUri",
+    "otpauth_uri",
+    "secretCiphertext",
+    "secret_ciphertext",
+
     // --- Session metadata ---
     // `ipHash` is HMAC-peppered but still a privacy signal — operators
     // shouldn't routinely see which IP issued which session. `uaLabel` is

@@ -23,8 +23,10 @@ import type {
   PendingAuthorizeRequest,
   PendingEmailChange,
   PendingRegistration,
+  PendingTotpEnrollment,
   StepUpOtpEntry,
 } from "../services/auth";
+import { TOTP_LOCKOUT_MS, TOTP_LOCKOUT_THRESHOLD } from "../services/auth/constants";
 import {
   createRedisCeremonyStore,
   type CeremonyStore,
@@ -40,7 +42,7 @@ const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 
 /** Caller hook for a caught Redis error inside any of these stores. */
 export type CeremonyStoreErrorHook = (
-  store: RedisNamespace | "recovery_lockout",
+  store: RedisNamespace | "recovery_lockout" | "totp_lockout",
   op: string,
   cause: unknown,
 ) => void;
@@ -48,6 +50,7 @@ export type CeremonyStoreErrorHook = (
 export interface RedisCeremonyWiring {
   ceremonyStores: CeremonyStores;
   recoveryLockoutStore: RecoveryLockoutStore;
+  totpLockoutStore: RecoveryLockoutStore;
   profileSwitchCap: AccountCapLimiter;
   emailChangeBeginCap: AccountCapLimiter;
 }
@@ -72,6 +75,7 @@ export function createRedisCeremonyStores(
     pendingRegistrations: make<PendingRegistration>("pending_registration"),
     stepUpPasskeyChallenges: make<ChallengeEntry>("step_up_challenge"),
     stepUpOtp: make<StepUpOtpEntry>("step_up_otp"),
+    pendingTotpEnrollments: make<PendingTotpEnrollment>("pending_totp_enroll"),
     pendingEmailChanges: make<PendingEmailChange>("pending_email_change"),
     crossDeviceRequests: make<CrossDeviceRequest>("cross_device"),
     authorizeRequests: make<PendingAuthorizeRequest>("oidc_authorize_request"),
@@ -79,6 +83,17 @@ export function createRedisCeremonyStores(
 
   const recoveryLockoutStore = createRedisRecoveryLockoutStore(client, {
     onError: (op, cause) => onError?.("recovery_lockout", op, cause),
+  });
+
+  // The same counter shape, the OPPOSITE outage posture — see the fail-closed
+  // rationale in `recovery-lockout-store.ts`. Its own key prefix, so a TOTP
+  // failure never counts against a recovery-code attempt or vice versa.
+  const totpLockoutStore = createRedisRecoveryLockoutStore(client, {
+    keyPrefix: "osn:totp-lockout",
+    threshold: TOTP_LOCKOUT_THRESHOLD,
+    lockoutMs: TOTP_LOCKOUT_MS,
+    failClosed: true,
+    onError: (op, cause) => onError?.("totp_lockout", op, cause),
   });
 
   // The two per-account caps routed through the rate-limiter family. The
@@ -94,5 +109,11 @@ export function createRedisCeremonyStores(
     windowMs: ONE_DAY_MS,
   });
 
-  return { ceremonyStores, recoveryLockoutStore, profileSwitchCap, emailChangeBeginCap };
+  return {
+    ceremonyStores,
+    recoveryLockoutStore,
+    totpLockoutStore,
+    profileSwitchCap,
+    emailChangeBeginCap,
+  };
 }

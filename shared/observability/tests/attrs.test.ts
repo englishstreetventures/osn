@@ -70,10 +70,15 @@ describe("AuthRateLimitedEndpoint", () => {
       oidc_client_create: true,
       oidc_client_list: true,
       oidc_client_disable: true,
+      step_up_totp_complete: true,
+      totp_enroll_begin: true,
+      totp_enroll_complete: true,
+      totp_disable: true,
+      totp_status: true,
     } as const satisfies Record<AuthRateLimitedEndpoint, true>;
     // Runtime snapshot — catches a drop that the `satisfies` check would miss
     // (it only complains on missing members, not extras).
-    expect(Object.keys(members)).toHaveLength(44);
+    expect(Object.keys(members)).toHaveLength(49);
     // Negative: primary-login OTP/magic-link endpoints must not reappear.
     expect(Object.keys(members)).not.toContain("otp_begin");
     expect(Object.keys(members)).not.toContain("otp_complete");

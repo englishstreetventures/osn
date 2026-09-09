@@ -253,20 +253,27 @@ export async function deriveTotpCode(secret: Uint8Array, counter: number): Promi
 }
 
 /**
- * Whether `code` is valid for `secret` at `at`, allowing `window` steps of
- * clock drift either side.
+ * The step `code` matched for `secret` at `at`, or `null` when it matched none,
+ * allowing `window` steps of clock drift either side.
  *
  * Never throws and never returns early on a match: every candidate in the
  * window is derived and every one is compared, so a valid code and an invalid
  * code of the same shape do the same work. A malformed code, an unusable
- * secret or an unusable date is `false`, not an exception — this runs behind
+ * secret or an unusable date is `null`, not an exception — this runs behind
  * routes that take the code from an untrusted request body.
  *
- * `false` does not say which of "wrong code" and "no TOTP on this account" it
+ * `null` does not say which of "wrong code" and "no TOTP on this account" it
  * means, and it costs the same either way: a secret below the 128-bit floor —
  * the shape an absent credential row takes — is run against a dummy secret so
  * the answer is not faster. A code that is not six ASCII digits is rejected
  * before any of that, which reveals nothing: the caller wrote the code.
+ *
+ * # Why a `{ step }` object rather than the bare number
+ *
+ * Counter 0 is a legal step (it is 1970, but the type cannot say so), so a
+ * `number | null` return would make `if (!matched)` reject a valid match — a
+ * bug that no type-checker catches and no ordinary test reaches. An object is
+ * always truthy, so the wrong call site cannot be written.
  *
  * # Caller obligations
  *
@@ -274,10 +281,14 @@ export async function deriveTotpCode(secret: Uint8Array, counter: number): Promi
  * do, so the entry point above it must:
  *
  * - **Single use.** RFC 6238 §5.2: a code accepted once must be refused for the
- *   rest of its step, per account. Record the accepted step and reject a
- *   repeat. A code that mints a session — recovery, rather than step-up —
- *   makes a replay worth an account takeover rather than a repeated ceremony,
- *   and one code is valid for a minute and a half at the default window.
+ *   rest of its step, per account. That is what `step` is returned for —
+ *   persist it against the credential and refuse any later code whose step is
+ *   at or below the stored one. A code that mints a session — recovery, rather
+ *   than step-up — makes a replay worth an account takeover rather than a
+ *   repeated ceremony, and one code is valid for a minute and a half at the
+ *   default window. Note that an enrolment ceremony verifies a code too: the
+ *   step it matched has to be recorded on the row at creation, or the very
+ *   first code is replayable for the rest of its window.
  * - **Attempt throttling.** RFC 4226 §7.3 requires a throttling parameter, and
  *   the arithmetic is why: six digits over ±1 step is three acceptable codes in
  *   a million, which is even odds inside a few hundred thousand attempts and
@@ -293,13 +304,13 @@ export async function verifyTotpCode(opts: {
   code: string;
   at?: Date;
   window?: number;
-}): Promise<boolean> {
+}): Promise<{ step: number } | null> {
   const { secret, code, at = new Date(), window = TOTP_DEFAULT_WINDOW } = opts;
 
-  if (!SIX_ASCII_DIGITS.test(code)) return false;
+  if (!SIX_ASCII_DIGITS.test(code)) return null;
 
   const counter = Math.floor(at.getTime() / 1000 / TOTP_STEP_SECONDS);
-  if (!Number.isSafeInteger(counter) || counter < 0) return false;
+  if (!Number.isSafeInteger(counter) || counter < 0) return null;
 
   // Clamped at both ends. The lower bound keeps a nonsensical window from
   // disabling verification silently; the upper bound keeps `window` from
@@ -321,9 +332,20 @@ export async function verifyTotpCode(opts: {
 
   // Bitwise `|`, not `||=` or `.some`: both short-circuit, which would make
   // the number of comparisons depend on whether — and where — the code matched.
-  const matched = candidates.reduce(
-    (accumulated, candidate) => accumulated | (timingSafeEqualString(candidate, code) ? 1 : 0),
-    0,
-  );
-  return usable && matched === 1;
+  // The step is selected the same way, by arithmetic rather than by an `if`:
+  // `eq` is 1 or 0, so the expression is `counters[index]` on a match and
+  // `step` on a miss, and both arms cost one multiply and one add. A ternary
+  // here would reintroduce a branch on the comparison result, which is the one
+  // thing the reduce above exists to avoid. Every value involved is a safe
+  // integer, so the arithmetic is exact.
+  let matched = 0;
+  let step = -1;
+  for (const [index, candidate] of candidates.entries()) {
+    const eq = timingSafeEqualString(candidate, code) ? 1 : 0;
+    matched |= eq;
+    step += eq * (counters[index] - step);
+  }
+  // Two candidates can only collide when `Math.max(0, …)` clamped them onto the
+  // same counter near the epoch, in which case they are the same step anyway.
+  return usable && matched === 1 ? { step } : null;
 }

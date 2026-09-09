@@ -12,6 +12,7 @@ import {
   recoveryCodes,
   securityEvents,
   sessions,
+  totpCredentials,
   users,
 } from "@osn/db/schema";
 import type { DeletionJob } from "@osn/db/schema";
@@ -203,8 +204,13 @@ export const requestErasure = (
 
           // 3. Nuke credentials immediately. A stolen session/access/recovery
           //    cannot be used to re-authenticate during the grace window.
+          //    TOTP belongs here with the rest: the foreign key cascades only
+          //    when the `accounts` row itself goes, which is 7 days away, so
+          //    without this a tombstoned account keeps a working second factor
+          //    for the whole grace window.
           db.delete(passkeys).where(eq(passkeys.accountId, accountId)),
           db.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
+          db.delete(totpCredentials).where(eq(totpCredentials.accountId, accountId)),
 
           // 4. Revoke all sessions EXCEPT the cancellation handle. The
           //    requesting session stays alive as the only path to cancel
@@ -568,6 +574,7 @@ const hardDeleteAccount = (accountId: string): Effect.Effect<void, AccountErasur
           db.delete(sessions).where(eq(sessions.accountId, accountId)),
           db.delete(passkeys).where(eq(passkeys.accountId, accountId)),
           db.delete(recoveryCodes).where(eq(recoveryCodes.accountId, accountId)),
+          db.delete(totpCredentials).where(eq(totpCredentials.accountId, accountId)),
           db.delete(deletionJobs).where(eq(deletionJobs.accountId, accountId)),
           // Clients the account REGISTERED (owner side): disable them and
           // sever the ownership link. The rows themselves stay — other users'

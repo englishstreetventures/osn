@@ -1,5 +1,13 @@
 import { sql } from "drizzle-orm";
-import { sqliteTable, text, integer, index, unique } from "drizzle-orm/sqlite-core";
+import {
+  sqliteTable,
+  text,
+  integer,
+  index,
+  unique,
+  uniqueIndex,
+  blob,
+} from "drizzle-orm/sqlite-core";
 
 // ---------------------------------------------------------------------------
 // Accounts (authentication principal — invisible externally)
@@ -307,6 +315,79 @@ export const recoveryCodes = sqliteTable(
 
 export type RecoveryCode = typeof recoveryCodes.$inferSelect;
 export type NewRecoveryCode = typeof recoveryCodes.$inferInsert;
+
+// ---------------------------------------------------------------------------
+// TOTP credentials (RFC 6238)
+//
+// The one credential in this schema stored as recoverable ciphertext rather
+// than a hash. HMAC verification needs the raw key back, so "store only the
+// hash" — what `recovery_codes`, `sessions` and the OIDC codes all do — is not
+// available. The secret is therefore AES-GCM encrypted under
+// OSN_TOTP_ENCRYPTION_KEY, a Worker secret: the Worker's secrets and its
+// database are separate trust domains, so a database dump alone yields no
+// working second factor.
+//
+// See `[[wiki/systems/totp]]`.
+// ---------------------------------------------------------------------------
+
+export const totpCredentials = sqliteTable(
+  "totp_credentials",
+  {
+    id: text("id").primaryKey(), // "totp_" prefix
+    accountId: text("account_id")
+      .notNull()
+      .references(() => accounts.id, { onDelete: "cascade" }),
+    /**
+     * AES-GCM ciphertext of the raw 20-byte shared secret, with the accountId
+     * as additional authenticated data — so a row moved to another account
+     * fails to decrypt rather than authenticating the wrong person.
+     */
+    secretCiphertext: blob("secret_ciphertext", { mode: "buffer" }).notNull(),
+    /** The 96-bit nonce for the ciphertext above. Fresh per encryption. */
+    iv: blob("iv", { mode: "buffer" }).notNull(),
+    /**
+     * Which encryption key the ciphertext is under. Always 1: key rotation is
+     * not implemented, one key exists, and a row stamped with any other version
+     * is refused rather than decrypted. The column is here so that adding
+     * rotation later is a code change rather than a migration — xchromo/osn#968.
+     */
+    keyVersion: integer("key_version").notNull().default(1),
+    /** User-supplied name for the authenticator. Never used as a secret. */
+    label: text("label"),
+    /**
+     * Unix seconds. NULL until the user proves possession with a first code —
+     * an unconfirmed row is not a credential and every read filters on this.
+     */
+    confirmedAt: integer("confirmed_at"),
+    /** Unix seconds. */
+    lastUsedAt: integer("last_used_at"),
+    /**
+     * The RFC 6238 step counter of the last accepted code. §5.2 requires a code
+     * to be single use, and a stateless verifier cannot enforce that, so the
+     * step lives here: a code is accepted only when its step is strictly
+     * greater than this value, and the check and the write are one conditional
+     * UPDATE so two concurrent submissions of the same code cannot both pass.
+     * Set at enrolment too — the code typed into the enrolment form is a real
+     * code and would otherwise stay replayable for the rest of its window.
+     */
+    lastUsedStep: integer("last_used_step"),
+    /** Unix seconds. */
+    createdAt: integer("created_at").notNull(),
+  },
+  (t) => [
+    index("totp_credentials_account_idx").on(t.accountId),
+    // One CONFIRMED credential per account, at the dialect level. Unconfirmed
+    // rows are not covered: an abandoned enrolment must not block a retry.
+    // The service checks first so the user meets a 409 rather than a
+    // constraint violation; this is what holds when two requests race.
+    uniqueIndex("totp_credentials_account_confirmed_idx")
+      .on(t.accountId)
+      .where(sql`${t.confirmedAt} is not null`),
+  ],
+);
+
+export type TotpCredential = typeof totpCredentials.$inferSelect;
+export type NewTotpCredential = typeof totpCredentials.$inferInsert;
 
 // ---------------------------------------------------------------------------
 // Email change audit log

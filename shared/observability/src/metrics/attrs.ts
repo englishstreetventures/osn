@@ -76,7 +76,22 @@ export type SecurityInvalidationTrigger =
   | "session_revoke_all";
 
 /** Step-up (sudo mode) factor presented by the caller. */
-export type StepUpFactor = "passkey" | "otp" | "recovery_code";
+export type StepUpFactor = "passkey" | "otp" | "totp" | "recovery_code";
+
+/**
+ * TOTP (RFC 6238) operations, for the operation counter and the span name.
+ * `verify` covers every code check — step-up today, recovery once that lands —
+ * so the funnel does not have to grow a value per entry point.
+ */
+export type TotpOp = "enroll_begin" | "enroll_complete" | "disable" | "status" | "verify";
+
+/**
+ * Outcome of a TOTP code check. The route answers the same generic error for
+ * every failure — which one it was must be visible on a dashboard and nowhere
+ * on the wire, or the response becomes an oracle for whether an account has a
+ * second factor.
+ */
+export type TotpVerifyResult = "ok" | "invalid" | "replayed" | "not_enrolled" | "locked_out";
 
 /** Step-up ceremony steps, for attempt funnel counters. */
 export type StepUpStep = "begin" | "complete";
@@ -95,6 +110,8 @@ export type StepUpPurpose =
   | "security_event_ack"
   | "account_delete"
   | "account_export"
+  | "totp_enroll"
+  | "totp_disable"
   | "pulse_app_delete"
   | "zap_app_delete";
 
@@ -145,6 +162,8 @@ export type SecurityEventKind =
   | "recovery_code_lockout"
   | "passkey_register"
   | "passkey_delete"
+  | "totp_enrolled"
+  | "totp_disabled"
   | "cross_device_login"
   | "account_deletion_scheduled"
   | "account_deletion_cancelled"
@@ -235,6 +254,11 @@ export type AuthRateLimitedEndpoint =
   | "step_up_passkey_complete"
   | "step_up_otp_begin"
   | "step_up_otp_complete"
+  | "step_up_totp_complete"
+  | "totp_enroll_begin"
+  | "totp_enroll_complete"
+  | "totp_disable"
+  | "totp_status"
   | "session_list"
   | "session_revoke"
   | "email_change_begin"

@@ -22,6 +22,10 @@ import {
 } from "./lib/redis-rate-limiters";
 import { createRedisRotatedSessionStore } from "./lib/rotated-session-store";
 import { createRedisJtiStore } from "./lib/step-up-jti-store";
+import {
+  generateEphemeralTotpEncryptionKey,
+  importTotpEncryptionKey,
+} from "./lib/totp-secret-crypto";
 
 export const SERVICE_NAME = "osn-api";
 
@@ -54,6 +58,7 @@ export type EnvVars = {
   readonly OSN_JWT_PRIVATE_KEY?: string;
   readonly OSN_JWT_PUBLIC_KEY?: string;
   readonly OSN_SESSION_IP_PEPPER?: string;
+  readonly OSN_TOTP_ENCRYPTION_KEY?: string;
   readonly OSN_PAIRWISE_SALT?: string;
   readonly INTERNAL_SERVICE_SECRET?: string;
   readonly TURNSTILE_SECRET_KEY?: string;
@@ -302,6 +307,34 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     throw new Error("OSN_PAIRWISE_SALT must be set to at least 32 bytes in non-local environments");
   }
 
+  // The AES-GCM key TOTP shared secrets are encrypted under at rest. Same
+  // posture as the JWT signing pair: required in a deployed tier, ephemeral in
+  // local dev so the devloop needs no provisioned secret. An ephemeral key
+  // means credentials enrolled locally stop decrypting after a restart, which
+  // is the bargain local dev already makes with its ephemeral signing key.
+  //
+  // A malformed value throws in EVERY tier — `importTotpEncryptionKey` checks
+  // the decoded length — so a mistyped key is loud where it is set rather than
+  // quiet until somebody enrols.
+  if (envNonLocal && !env.OSN_TOTP_ENCRYPTION_KEY) {
+    throw new Error(
+      "OSN_TOTP_ENCRYPTION_KEY must be set to 32 base64-encoded random bytes in non-local environments",
+    );
+  }
+  // The decoded length goes to the operator's log rather than into the thrown
+  // message: that message becomes the body of an unauthenticated 503, and the
+  // length is a property of the secret's value.
+  const totpEncryptionKey = env.OSN_TOTP_ENCRYPTION_KEY
+    ? await importTotpEncryptionKey(env.OSN_TOTP_ENCRYPTION_KEY, (decodedBytes) => {
+        void Effect.runPromise(
+          Effect.logError("OSN_TOTP_ENCRYPTION_KEY decodes to the wrong length").pipe(
+            Effect.annotateLogs({ decodedBytes }),
+            Effect.provide(observabilityLayer),
+          ),
+        );
+      })
+    : await generateEphemeralTotpEncryptionKey();
+
   const authConfig = {
     rpId: env.OSN_RP_ID || "localhost",
     rpName: env.OSN_RP_NAME || "OSN",
@@ -317,6 +350,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     accessTokenTtl: Number(env.OSN_ACCESS_TOKEN_TTL) || 300,
     refreshTokenTtl: Number(env.OSN_REFRESH_TOKEN_TTL) || 2592000,
     sessionIpPepper,
+    totpEncryptionKey,
     pairwiseSalt,
     // Where a `/authorize` request that needs the user is sent. Unset falls
     // back to `/authorize` on the first configured origin, which is right for
@@ -341,15 +375,20 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     },
   });
 
-  const { ceremonyStores, recoveryLockoutStore, profileSwitchCap, emailChangeBeginCap } =
-    createRedisCeremonyStores(redisClient, (store, op, cause) => {
-      void Effect.runPromise(
-        Effect.logWarning("Ceremony/lockout store Redis error").pipe(
-          Effect.annotateLogs({ store, op, error: sanitizeCause(cause) }),
-          Effect.provide(observabilityLayer),
-        ),
-      );
-    });
+  const {
+    ceremonyStores,
+    recoveryLockoutStore,
+    totpLockoutStore,
+    profileSwitchCap,
+    emailChangeBeginCap,
+  } = createRedisCeremonyStores(redisClient, (store, op, cause) => {
+    void Effect.runPromise(
+      Effect.logWarning("Ceremony/lockout store Redis error").pipe(
+        Effect.annotateLogs({ store, op, error: sanitizeCause(cause) }),
+        Effect.provide(observabilityLayer),
+      ),
+    );
+  });
 
   // Part 2: the 60s-window per-IP auth limiters move onto the Cloudflare Workers
   // native Rate Limiting binding when it's present (Workers, non-local), keyed
@@ -431,6 +470,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     rotatedSessionStore,
     ceremonyStores,
     recoveryLockoutStore,
+    totpLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
     clientIpConfig,

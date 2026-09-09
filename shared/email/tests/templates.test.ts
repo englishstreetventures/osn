@@ -75,6 +75,8 @@ describe("renderTemplate", () => {
       "recovery-consumed",
       "passkey-added",
       "passkey-removed",
+      "totp-enrolled",
+      "totp-disabled",
       "cross-device-login",
     ];
     for (const t of templates) {

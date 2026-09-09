@@ -104,6 +104,7 @@ export interface AppDeps {
    */
   ceremonyStores: RedisCeremonyWiring["ceremonyStores"];
   recoveryLockoutStore: RedisCeremonyWiring["recoveryLockoutStore"];
+  totpLockoutStore: RedisCeremonyWiring["totpLockoutStore"];
   profileSwitchCap: RedisCeremonyWiring["profileSwitchCap"];
   emailChangeBeginCap: RedisCeremonyWiring["emailChangeBeginCap"];
   /**
@@ -168,6 +169,7 @@ export function createApp(deps: AppDeps) {
     rotatedSessionStore,
     ceremonyStores,
     recoveryLockoutStore,
+    totpLockoutStore,
     profileSwitchCap,
     emailChangeBeginCap,
     clientIpConfig,
@@ -240,6 +242,7 @@ export function createApp(deps: AppDeps) {
           rotatedSessionStore,
           ceremonyStores,
           recoveryLockoutStore,
+          totpLockoutStore,
           profileSwitchCap,
           emailChangeBeginCap,
         },

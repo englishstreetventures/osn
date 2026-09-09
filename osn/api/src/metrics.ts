@@ -51,6 +51,8 @@ import type {
   SessionAction,
   StepUpFactor,
   StepUpStep,
+  TotpOp,
+  TotpVerifyResult,
   StepUpVerifyResult,
 } from "@shared/observability/metrics";
 import type { RedisNamespace } from "@shared/redis";
@@ -83,6 +85,10 @@ export const OSN_METRICS = {
   authRecoveryCodeConsumed: "osn.auth.recovery.code_consumed",
   authRecoveryDuration: "osn.auth.recovery.duration",
   authStepUpIssued: "osn.auth.step_up.issued",
+  authTotpOps: "osn.auth.totp.operations",
+  authTotpDuration: "osn.auth.totp.duration",
+  authTotpVerified: "osn.auth.totp.verified",
+  authTotpLockout: "osn.auth.totp.lockout",
   authStepUpVerified: "osn.auth.step_up.verified",
   authSessionOps: "osn.auth.session.operations",
   authEmailChangeAttempts: "osn.auth.account.email_change.attempts",
@@ -943,6 +949,68 @@ export const withPasskeyOp =
 
 export const metricPasskeyLoginDiscoverable = (result: Result): void =>
   authPasskeyLoginDiscoverable.inc({ result });
+
+// ---------------------------------------------------------------------------
+// TOTP (RFC 6238)
+//
+// Nothing here is dimensioned by account, credential id, step counter or code.
+// `authTotpVerified` is the only place the reason for a rejection is recorded
+// at all: every failing path answers one generic error on the wire, so a
+// response that distinguished them would say whether an account has a second
+// factor. The dashboard gets the distinction; the caller does not.
+// ---------------------------------------------------------------------------
+
+type TotpOpAttrs = { op: TotpOp; result: Result };
+type TotpVerifiedAttrs = { result: TotpVerifyResult };
+type TotpLockoutAttrs = { result: "recorded" | "locked" | "reset" };
+
+const authTotpOps = createCounter<TotpOpAttrs>({
+  name: OSN_METRICS.authTotpOps,
+  description: "TOTP enrolment / disable / status / verify operations by outcome",
+  unit: "{operation}",
+});
+
+const authTotpDuration = createHistogram<TotpOpAttrs>({
+  name: OSN_METRICS.authTotpDuration,
+  description: "TOTP operation duration by op",
+  unit: "s",
+  boundaries: LATENCY_BUCKETS_SECONDS,
+});
+
+const authTotpVerified = createCounter<TotpVerifiedAttrs>({
+  name: OSN_METRICS.authTotpVerified,
+  description: "TOTP code verification outcomes, including replay and lockout rejections",
+  unit: "{verification}",
+});
+
+const authTotpLockout = createCounter<TotpLockoutAttrs>({
+  name: OSN_METRICS.authTotpLockout,
+  description: "TOTP per-account failed-code lockout events by outcome",
+  unit: "{event}",
+});
+
+export const metricTotpVerified = (result: TotpVerifyResult): void =>
+  authTotpVerified.inc({ result });
+
+export const metricTotpLockout = (result: TotpLockoutAttrs["result"]): void =>
+  authTotpLockout.inc({ result });
+
+export const withTotpOp =
+  (op: TotpOp) =>
+  <A, E, Ctx>(effect: Effect.Effect<A, E, Ctx>): Effect.Effect<A, E, Ctx> =>
+    effect.pipe(
+      measureSeconds((seconds, outcome) => {
+        authTotpDuration.record(seconds, { op, result: outcome === "ok" ? "ok" : "error" });
+      }),
+      Effect.withSpan(`auth.totp.${op}`),
+      Effect.tap(() => Effect.sync(() => authTotpOps.inc({ op, result: "ok" }))),
+      Effect.tapError((e) =>
+        Effect.all([
+          Effect.sync(() => authTotpOps.inc({ op, result: classifyError(e) })),
+          Effect.logError("auth.totp operation failed", { op, ...safeErrorSummary(e) }),
+        ]),
+      ),
+    );
 
 // ---------------------------------------------------------------------------
 // Cross-device login

@@ -285,7 +285,7 @@ describe("verifyTotpCode — RFC 6238 Appendix B", () => {
       code: vector.eightDigit.slice(-6),
       at: new Date(vector.seconds * 1000),
     });
-    expect(accepted).toBe(true);
+    expect(accepted).not.toBeNull();
   });
 });
 
@@ -296,29 +296,56 @@ describe("verifyTotpCode — drift window", () => {
   it("accepts the previous, current and next step at window 1", async () => {
     for (const offset of [-1, 0, 1]) {
       const code = await deriveTotpCode(RFC_SEED, counter + offset);
-      expect(await verifyTotpCode({ secret: RFC_SEED, code, at })).toBe(true);
+      expect(await verifyTotpCode({ secret: RFC_SEED, code, at })).not.toBeNull();
     }
+  });
+
+  // The whole reason the return type is a step rather than a boolean: a caller
+  // enforcing RFC 6238 §5.2 single use has to persist WHICH step was accepted,
+  // and a code from the far edge of the drift window must report that edge
+  // rather than the current step — otherwise storing it would refuse the two
+  // legitimate codes that follow.
+  it("reports the step it matched, not the step it was asked at", async () => {
+    for (const offset of [-1, 0, 1]) {
+      const code = await deriveTotpCode(RFC_SEED, counter + offset);
+      expect(await verifyTotpCode({ secret: RFC_SEED, code, at })).toEqual({
+        step: counter + offset,
+      });
+    }
+  });
+
+  it("reports a step of 0 as a match rather than as a falsy miss", async () => {
+    // Counter 0 is a legal step. A `number | null` return would make the
+    // idiomatic `if (!matched)` reject this, which is why the return is an
+    // object — this pins the property rather than the implementation.
+    const at0 = new Date(0);
+    const code = await deriveTotpCode(RFC_SEED, 0);
+    const matched = await verifyTotpCode({ secret: RFC_SEED, code, at: at0, window: 0 });
+    expect(matched).toEqual({ step: 0 });
+    expect(Boolean(matched)).toBe(true);
   });
 
   it("rejects the steps either side of that window", async () => {
     for (const offset of [-2, 2]) {
       const code = await deriveTotpCode(RFC_SEED, counter + offset);
-      expect(await verifyTotpCode({ secret: RFC_SEED, code, at })).toBe(false);
+      expect(await verifyTotpCode({ secret: RFC_SEED, code, at })).toBeNull();
     }
   });
 
   it("accepts only the current step at window 0", async () => {
     const current = await deriveTotpCode(RFC_SEED, counter);
     const next = await deriveTotpCode(RFC_SEED, counter + 1);
-    expect(await verifyTotpCode({ secret: RFC_SEED, code: current, at, window: 0 })).toBe(true);
-    expect(await verifyTotpCode({ secret: RFC_SEED, code: next, at, window: 0 })).toBe(false);
+    expect(await verifyTotpCode({ secret: RFC_SEED, code: current, at, window: 0 })).not.toBeNull();
+    expect(await verifyTotpCode({ secret: RFC_SEED, code: next, at, window: 0 })).toBeNull();
   });
 
   it("clamps a large window rather than deriving unbounded candidates", async () => {
     const inside = await deriveTotpCode(RFC_SEED, counter + 10);
     const outside = await deriveTotpCode(RFC_SEED, counter + 11);
-    expect(await verifyTotpCode({ secret: RFC_SEED, code: inside, at, window: 100 })).toBe(true);
-    expect(await verifyTotpCode({ secret: RFC_SEED, code: outside, at, window: 100 })).toBe(false);
+    expect(
+      await verifyTotpCode({ secret: RFC_SEED, code: inside, at, window: 100 }),
+    ).not.toBeNull();
+    expect(await verifyTotpCode({ secret: RFC_SEED, code: outside, at, window: 100 })).toBeNull();
   });
 
   it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, 0.4])(
@@ -326,8 +353,8 @@ describe("verifyTotpCode — drift window", () => {
     async (window) => {
       const current = await deriveTotpCode(RFC_SEED, counter);
       const next = await deriveTotpCode(RFC_SEED, counter + 1);
-      expect(await verifyTotpCode({ secret: RFC_SEED, code: current, at, window })).toBe(true);
-      expect(await verifyTotpCode({ secret: RFC_SEED, code: next, at, window })).toBe(false);
+      expect(await verifyTotpCode({ secret: RFC_SEED, code: current, at, window })).not.toBeNull();
+      expect(await verifyTotpCode({ secret: RFC_SEED, code: next, at, window })).toBeNull();
     },
   );
 });
@@ -357,7 +384,7 @@ describe("verifyTotpCode — the same work wherever the match is", () => {
     comparisons.mockClear();
     signatures.mockClear();
 
-    expect(await verifyTotpCode({ secret: RFC_SEED, code, at, window: WINDOW })).toBe(true);
+    expect(await verifyTotpCode({ secret: RFC_SEED, code, at, window: WINDOW })).not.toBeNull();
 
     expect(comparisons).toHaveBeenCalledTimes(CANDIDATES);
     expect(signatures).toHaveBeenCalledTimes(CANDIDATES);
@@ -368,7 +395,7 @@ describe("verifyTotpCode — the same work wherever the match is", () => {
     comparisons.mockClear();
     signatures.mockClear();
 
-    expect(await verifyTotpCode({ secret: RFC_SEED, code, at, window: WINDOW })).toBe(false);
+    expect(await verifyTotpCode({ secret: RFC_SEED, code, at, window: WINDOW })).toBeNull();
 
     expect(comparisons).toHaveBeenCalledTimes(CANDIDATES);
     expect(signatures).toHaveBeenCalledTimes(CANDIDATES);
@@ -387,7 +414,7 @@ describe("verifyTotpCode — the same work wherever the match is", () => {
           at,
           window: WINDOW,
         }),
-      ).toBe(false);
+      ).toBeNull();
 
       expect(comparisons).toHaveBeenCalledTimes(CANDIDATES);
       expect(signatures).toHaveBeenCalledTimes(CANDIDATES);
@@ -409,7 +436,7 @@ describe("verifyTotpCode — the code guard runs before any HMAC", () => {
   });
 
   it.each(["1234567", "12345", "12a456", ""])("derives nothing for %j", async (code) => {
-    expect(await verifyTotpCode({ secret: RFC_SEED, code, at })).toBe(false);
+    expect(await verifyTotpCode({ secret: RFC_SEED, code, at })).toBeNull();
     expect(signatures).not.toHaveBeenCalled();
   });
 });
@@ -420,37 +447,35 @@ describe("verifyTotpCode — malformed input", () => {
   it.each(["12345", "1234567", "12a456", "", "12 456", "12345 ", "123456\n", "１２３４５６"])(
     "rejects %j without throwing",
     async (code) => {
-      expect(await verifyTotpCode({ secret: RFC_SEED, code, at })).toBe(false);
+      expect(await verifyTotpCode({ secret: RFC_SEED, code, at })).toBeNull();
     },
   );
 
-  it("returns false for an invalid date rather than throwing", async () => {
+  it("returns null for an invalid date rather than throwing", async () => {
     const code = await deriveTotpCode(RFC_SEED, counterAt(1_111_111_111));
-    expect(await verifyTotpCode({ secret: RFC_SEED, code, at: new Date("not a date") })).toBe(
-      false,
-    );
+    expect(await verifyTotpCode({ secret: RFC_SEED, code, at: new Date("not a date") })).toBeNull();
   });
 
-  it("returns false for a pre-1970 date, whose step counter is negative", async () => {
+  it("returns null for a pre-1970 date, whose step counter is negative", async () => {
     // The code for counter 0 — what a negative counter clamps to if it is not
     // refused first, and so the code such a date would wrongly accept.
     expect(
       await verifyTotpCode({ secret: RFC_SEED, code: HOTP_VECTORS[0], at: new Date(-1000) }),
-    ).toBe(false);
+    ).toBeNull();
   });
 
-  it("returns false for a secret below the 128-bit floor rather than throwing", async () => {
-    expect(await verifyTotpCode({ secret: new Uint8Array(15), code: "123456", at })).toBe(false);
+  it("returns null for a secret below the 128-bit floor rather than throwing", async () => {
+    expect(await verifyTotpCode({ secret: new Uint8Array(15), code: "123456", at })).toBeNull();
   });
 
-  it("returns false for an empty secret rather than throwing", async () => {
-    expect(await verifyTotpCode({ secret: new Uint8Array(0), code: "123456", at })).toBe(false);
+  it("returns null for an empty secret rather than throwing", async () => {
+    expect(await verifyTotpCode({ secret: new Uint8Array(0), code: "123456", at })).toBeNull();
   });
 
   it("verifies against a secret of exactly the 128-bit floor", async () => {
     const secret = RFC_SEED.slice(0, 16);
     const code = await deriveTotpCode(secret, counterAt(1_111_111_111));
-    expect(await verifyTotpCode({ secret, code, at })).toBe(true);
+    expect(await verifyTotpCode({ secret, code, at })).not.toBeNull();
   });
 });
 

@@ -42,6 +42,7 @@ const {
   recoveryCodes,
   securityEvents,
   sessions,
+  totpCredentials,
   users,
 } = schema;
 
@@ -250,6 +251,31 @@ export async function* exportLines(opts: {
     const { _cursor, ...record } = row;
     void _cursor;
     yield jsonLine({ section: "passkeys", record });
+  }
+
+  // totp — metadata only. The shared secret and its ciphertext are never
+  // exported: a DSAR response is a document the subject may forward anywhere,
+  // and the secret is a live credential, not a record about them. `lastUsedAt`
+  // sits on the same footing as `passkeys.last_used_at`, and `lastUsedStep` is
+  // replay state rather than personal data, so it stays out too.
+  for await (const row of keyset(async (cursor) =>
+    db
+      .select({
+        _cursor: totpCredentials.id,
+        id: totpCredentials.id,
+        label: totpCredentials.label,
+        confirmedAt: totpCredentials.confirmedAt,
+        lastUsedAt: totpCredentials.lastUsedAt,
+        createdAt: totpCredentials.createdAt,
+      })
+      .from(totpCredentials)
+      .where(and(eq(totpCredentials.accountId, accountId), gt(totpCredentials.id, cursor)))
+      .orderBy(asc(totpCredentials.id))
+      .limit(PAGE_SIZE),
+  )) {
+    const { _cursor, ...record } = row;
+    void _cursor;
+    yield jsonLine({ section: "totp", record });
   }
 
   // sessions — coarse device metadata; ip_hash is HMAC-peppered (irreversible).

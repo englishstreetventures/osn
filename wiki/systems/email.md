@@ -22,7 +22,7 @@ related:
 packages:
   - "@shared/email"
   - "@osn/api"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-09-09
 ---
 
 # Email Transport
@@ -88,6 +88,8 @@ The template catalogue is the complete list of emails OSN sends:
 | `recovery-consumed`      | `{}`                                | `notifyRecovery("recovery_code_consume")` |
 | `passkey-added`          | `{}`                                | `notifyPasskeyRegisteredByAccountId` |
 | `passkey-removed`        | `{}`                                | `notifyPasskeyDeletedByAccountId` |
+| `totp-enrolled`          | `{}`                                | `completeTotpEnrollment` |
+| `totp-disabled`          | `{}`                                | `disableTotp` |
 
 Adding a template requires three edits in the same PR:
 `shared/email/src/templates/index.ts` (union + data map + dispatcher),

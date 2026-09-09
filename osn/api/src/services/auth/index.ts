@@ -31,10 +31,12 @@ import { createSecurityEventsModule } from "./security-events";
 import { createSessionsModule } from "./sessions";
 import { createStepUpModule } from "./step-up";
 import { createTokensModule } from "./tokens";
+import { createTotpModule } from "./totp";
 
 export { AuthError, DatabaseError, OidcError, ValidationError } from "./errors";
 export type { OidcErrorCode } from "./errors";
 export type { AuthConfig } from "./config";
+export type { TotpStatus } from "./totp";
 export type {
   AuthorizeOutcome,
   AuthorizeParams,
@@ -60,6 +62,7 @@ export type {
   PendingAuthorizeRequest,
   PendingEmailChange,
   PendingRegistration,
+  PendingTotpEnrollment,
   StepUpJtiStore,
   StepUpOtpEntry,
 } from "./stores";
@@ -90,6 +93,7 @@ export function createAuthService(config: AuthConfig) {
   const emailChange = createEmailChangeModule(ctx, stepUp);
   const crossDevice = createCrossDeviceModule(ctx, profiles, tokens, securityEvents);
   const oidc = createOidcModule(ctx, profiles);
+  const totp = createTotpModule(ctx, securityEvents, stepUp);
 
   return {
     findProfileByEmail: profiles.findProfileByEmail,
@@ -146,6 +150,13 @@ export function createAuthService(config: AuthConfig) {
     verifyStepUpForRecoveryGenerate: stepUp.verifyStepUpForRecoveryGenerate,
     verifyStepUpForPasskeyDelete: stepUp.verifyStepUpForPasskeyDelete,
     verifyStepUpForPasskeyRegister: stepUp.verifyStepUpForPasskeyRegister,
+    verifyStepUpForTotpEnroll: stepUp.verifyStepUpForTotpEnroll,
+    verifyStepUpForTotpDisable: stepUp.verifyStepUpForTotpDisable,
+    beginTotpEnrollment: totp.beginTotpEnrollment,
+    completeTotpEnrollment: totp.completeTotpEnrollment,
+    disableTotp: totp.disableTotp,
+    getTotpStatus: totp.getTotpStatus,
+    completeStepUpTotp: totp.completeStepUpTotp,
     verifyStepUpForAccountDelete: stepUp.verifyStepUpForAccountDelete,
     verifyStepUpForAccountExport: stepUp.verifyStepUpForAccountExport,
     verifyStepUpForExternalPurpose: stepUp.verifyStepUpForExternalPurpose,

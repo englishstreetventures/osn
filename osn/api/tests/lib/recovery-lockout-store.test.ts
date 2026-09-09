@@ -125,3 +125,40 @@ describe("createRedisRecoveryLockoutStore fail-open behaviour", () => {
     await expect(store.reset("acc_a")).resolves.toBeUndefined();
   });
 });
+
+/**
+ * The mirror of the block above, and the posture TOTP is built on. Recovery
+ * codes keep a 64-bit search space during a Redis outage, so failing open loses
+ * a redundant defence; a six-digit code has nothing behind the counter, so
+ * failing open removes the only one. These two branches are the whole
+ * difference between the two consumers, and without them a future edit that
+ * dropped `failClosed` from the TOTP store's construction would leave every
+ * test in this repository green.
+ */
+describe("createRedisRecoveryLockoutStore fail-CLOSED behaviour (the TOTP consumer)", () => {
+  it("isLocked returns true on Redis error", async () => {
+    const onError = vi.fn();
+    const store = createRedisRecoveryLockoutStore(failingClient(), { failClosed: true, onError });
+    expect(await store.isLocked("acc_a")).toBe(true);
+    expect(onError).toHaveBeenCalledWith("is_locked", expect.any(Error));
+  });
+
+  it("recordFailure reports the threshold, so the caller's locked branch fires", async () => {
+    // Not 0: a fail-closed consumer must not read an unrecordable failure as
+    // "no failures yet", or the metric that separates a fat-fingered code from
+    // an account under attack never fires during the outage.
+    const onError = vi.fn();
+    const store = createRedisRecoveryLockoutStore(failingClient(), {
+      failClosed: true,
+      threshold: 7,
+      onError,
+    });
+    expect(await store.recordFailure("acc_a")).toBe(7);
+    expect(onError).toHaveBeenCalledWith("record", expect.any(Error));
+  });
+
+  it("reset still swallows — failing closed must not turn an outage into a defect", async () => {
+    const store = createRedisRecoveryLockoutStore(failingClient(), { failClosed: true });
+    await expect(store.reset("acc_a")).resolves.toBeUndefined();
+  });
+});
