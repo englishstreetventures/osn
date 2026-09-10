@@ -90,7 +90,9 @@ Confirm with `git config --global --list | grep -E 'rerere|push.auto|pull.rebase
 bash scripts/setup.sh
 ```
 
-It runs `bun install`, `bunx --bun lefthook install`, and then `bun run check`, `bun run lint` and `bun run fmt:check`. Read `lefthook.yml` for what the hooks do — as of this writing pre-commit runs oxlint and oxfmt in write mode with `stage_fixed`, and pre-push runs the type check, `bun audit --audit-level=high` and the release-age check — and tell the user, because a pre-push that refuses on an advisory reads like a broken hook to someone who was not told.
+It runs `bun install`, `bunx --bun lefthook install`, `bun run scripts/bootstrap-bare-root.ts`, and then `bun run check`, `bun run lint` and `bun run fmt:check`.
+
+The bootstrap step is the one that changes something outside the checkout. Where the worktrees are subdirectories of the repository — `~/.work/osn.git`, with `main/` inside it — that parent is not a worktree and holds none of this repository's agent configuration, so a session started there runs with no hooks, no skills and no `CLAUDE.md`, and nothing says so. The script writes a `SessionStart` hook there telling such a session to stop, and links that directory's `.claude/skills` to `main`'s. It never overwrites a `settings.json` or a `settings.local.json` already there — it reports instead — and in an ordinary clone it does nothing. Tell the user what it wrote, or why it wrote nothing. Read `lefthook.yml` for what the hooks do — as of this writing pre-commit runs oxlint and oxfmt in write mode with `stage_fixed`, and pre-push runs the type check, `bun audit --audit-level=high` and the release-age check — and tell the user, because a pre-push that refuses on an advisory reads like a broken hook to someone who was not told.
 
 `bunfig.toml` sets a three-day `minimumReleaseAge`, so a package published yesterday will not install; that is the gate working, not a network fault.
 
@@ -109,4 +111,4 @@ That CA can intercept TLS for every host the machine talks to, which is why `por
 
 ## Step 9 — Report
 
-The table, then one line: ready, or what is still blocked. Homebrew dependencies for reference: `bun` (everything), `gh` (`prep-pr`, `new-feat`), Xcode CLT (Swift and iOS only).
+The table, then one line: ready, or what is still blocked. One row is not about this machine's toolchain: **bare-root guard** — created, merged, unchanged, refused or nothing to do, in the words `bootstrap-bare-root` printed. Homebrew dependencies for reference: `bun` (everything), `gh` (`prep-pr`, `new-feat`), Xcode CLT (Swift and iOS only).
