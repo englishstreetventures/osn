@@ -33,6 +33,20 @@ export interface Session {
   scopes: string[];
 }
 
+/**
+ * The result of a refresh that must not be adopted — a `Session` wrapped
+ * rather than returned bare. `adoptSession` and `setSession` take a plain
+ * `Session` by name; a `HeldSession` has no `accessToken`/`idToken`/
+ * `expiresAt`/`scopes` at its own top level, so passing one where a `Session`
+ * is expected is a compile error, not a runtime bug that publishes a
+ * restricted token as an ordinary session. A caller unwraps `.session` once
+ * it has decided holding, not adopting, is still the right call.
+ */
+export interface HeldSession {
+  readonly held: true;
+  readonly session: Session;
+}
+
 export function parseTokenResponse(raw: unknown): Session {
   const t = decodeTokenResponse(raw);
   return {

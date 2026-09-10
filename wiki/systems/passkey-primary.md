@@ -317,15 +317,23 @@ paths behave differently in four ways, each forced by the restriction:
 - **Expiry is its own screen**, not a 401 toast. Somebody who has just proved
   who they are and then meets a generic error concludes the product is broken.
 
-> [!warning] The screen gets five minutes, not fifteen
-> Two deadlines are in play and the shorter one is the one the browser sees.
-> The session row lives `RECOVERY_SESSION_TTL_SEC` (900 s), but the access
-> token in the same response is signed with `accessTokenTtl` — 300 s by default
-> — and this flow holds the token outside `AuthProvider`, so `authFetch`'s
-> silent refresh is unavailable and `@osn/client` exposes no standalone
-> `/token` grant to call instead. The screen therefore arms its timeout on the
-> session's own `expiresAt` and never claims fifteen minutes. Widening it back
-> out is `xchromo/osn#976`.
+> [!note] The screen gets the whole fifteen minutes, and refreshes to hold them
+> Two deadlines are in play. The session row lives `RECOVERY_SESSION_TTL_SEC`
+> (900 s); the access token in the same response is signed with
+> `accessTokenTtl` — 300 s by default. Holding the token outside
+> `AuthProvider` means `authFetch`'s silent refresh never runs, so the screen
+> redeems the refresh cookie itself through `refreshHeldSession`
+> (`osn/client/src/service.ts`), a `/token` grant that returns a fresh token
+> set **without adopting it**. It refreshes 30 s before each token expires.
+>
+> Two things bound it, and neither is a copy of the 900 on the client. The
+> server caps a restricted session's token at the life its own row has left
+> (`sessionBoundTtl`, `osn/api/src/services/auth/tokens.ts`), so the last token
+> of the window expires exactly when the row does. And rotation carries
+> `restricted_until` forward rather than extending it, so refreshing renews the
+> token but can never buy the session more time than it was granted. Once a
+> token arrives with less than the refresh lead on it, the screen stops
+> granting and waits it out — the timed-out screen and the row's death coincide.
 
 > [!important] An emailed code that yields a session is not the OTP login this page removed
 > The resemblance is real and worth stating plainly, because "we deleted OTP

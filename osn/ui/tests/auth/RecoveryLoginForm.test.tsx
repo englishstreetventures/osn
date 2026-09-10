@@ -17,12 +17,14 @@ import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 const hoisted = vi.hoisted(() => ({
   adoptSession: vi.fn(),
+  refreshHeldSession: vi.fn(),
   webauthnSupported: true,
 }));
 
 vi.mock("@osn/client/solid", () => ({
   useAuth: () => ({
     adoptSession: hoisted.adoptSession,
+    refreshHeldSession: hoisted.refreshHeldSession,
   }),
 }));
 
@@ -133,6 +135,7 @@ beforeEach(() => {
   stub = makeClientStub();
   registration = makeRegistrationStub();
   hoisted.adoptSession.mockReset();
+  hoisted.refreshHeldSession.mockReset();
   hoisted.webauthnSupported = true;
 });
 
@@ -443,5 +446,287 @@ describe("RecoveryLoginForm — the restricted session", () => {
     expect(alert.textContent).toMatch(/NotAllowedError/);
     expect(screen.getByRole("button", { name: /Try again/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Start again/i })).toBeTruthy();
+  });
+});
+
+/**
+ * Keeping the held session alive.
+ *
+ * The session row lives fifteen minutes; the access token in the same response
+ * is signed with the ordinary five-minute TTL, and holding the session puts
+ * this flow outside `authFetch`, where the silent refresh lives. So the screen
+ * redeems the refresh cookie itself.
+ *
+ * Every case here drives `setTimeout`, so they all run on fake timers and use
+ * `vi.waitFor` rather than the testing-library one — RTL's polls on the faked
+ * `setTimeout` and never advances.
+ */
+describe("RecoveryLoginForm — keeping the restricted session alive", () => {
+  const TTL_MS = 300_000;
+  const LEAD_MS = 30_000;
+
+  /** A session `ms` from expiry, measured from the current (faked) clock. */
+  function sessionExpiringIn(ms: number, token = ACCESS_TOKEN) {
+    return { accessToken: token, idToken: null, expiresAt: Date.now() + ms, scopes: [] };
+  }
+
+  /**
+   * What `refreshHeldSession` actually resolves to — the session wrapped in
+   * `HeldSession`, never bare. Mirrors the real `@osn/client` contract, so a
+   * test that drives this mock exercises the same `{ session } = await …`
+   * destructuring shape the component reads.
+   */
+  function heldSessionExpiringIn(ms: number, token = ACCESS_TOKEN) {
+    return { held: true as const, session: sessionExpiringIn(ms, token) };
+  }
+
+  /**
+   * A grant that mints its token when it is called, not when it is set up.
+   * `mockResolvedValue` would freeze `expiresAt` at test-setup time, so after
+   * the clock advanced the "fresh" token would arrive already stale — the
+   * opposite of what the issuer does.
+   */
+  function grantsTokenExpiringIn(ms: number, token: string) {
+    return () => Promise.resolve(heldSessionExpiringIn(ms, token));
+  }
+
+  /** A promise the test resolves by hand, for asserting on an in-flight grant. */
+  function deferred<T>() {
+    let settle!: (value: T) => void;
+    let fail!: (reason?: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      settle = res;
+      fail = rej;
+    });
+    return { promise, settle, fail };
+  }
+
+  /** Drives the TOTP factor through to the enrolment screen holding `session`. */
+  async function reachEnrolmentHolding(session: ReturnType<typeof sessionExpiringIn>) {
+    stub.totpRecoveryComplete.mockResolvedValue({ session, profile: sampleProfile });
+    mountFull();
+    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
+    fill(/Handle or email/i, "alice");
+    typeCode("654321");
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    await vi.waitFor(() => screen.getByRole("button", { name: /Add a passkey/i }));
+  }
+
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("refreshes before the token expires and enrols with the token it got back", async () => {
+    // The whole point of the change: at ten minutes the old build had been dead
+    // for five, and the button sent a bearer the issuer had stopped honouring.
+    hoisted.refreshHeldSession.mockImplementation(grantsTokenExpiringIn(TTL_MS, "acc_refreshed"));
+    await reachEnrolmentHolding(sessionExpiringIn(TTL_MS));
+
+    await vi.advanceTimersByTimeAsync(TTL_MS - LEAD_MS);
+    expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1);
+
+    // Well past the original five minutes, and still usable.
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(screen.getByRole("button", { name: /Add a passkey/i })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
+    await vi.waitFor(() => expect(registration.passkeyRegisterBegin).toHaveBeenCalled());
+    expect(registration.passkeyRegisterBegin.mock.calls[0]![0].accessToken).toBe("acc_refreshed");
+  });
+
+  it("stops granting once the issuer caps a token inside the refresh lead", async () => {
+    // The issuer caps a restricted session's token at the life its row has
+    // left, so a token arriving with less than the lead on it IS the deadline.
+    // Asking again would return the same instant; waiting it out is the end of
+    // the window, and it needs no copy of the server's fifteen minutes here.
+    await reachEnrolmentHolding(sessionExpiringIn(20_000));
+
+    await vi.advanceTimersByTimeAsync(19_000);
+    expect(screen.getByRole("button", { name: /Add a passkey/i })).toBeTruthy();
+
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(hoisted.refreshHeldSession).not.toHaveBeenCalled();
+    expect(screen.getByText(/timed out/i)).toBeTruthy();
+  });
+
+  it("survives a transient refusal instead of ending the session ten minutes early", async () => {
+    // `@osn/client` gives up after ~0.6s of retries and reports a cold isolate
+    // exactly like a dead cookie. Treating the first refusal as final would
+    // hand back the window this change exists to give.
+    hoisted.refreshHeldSession
+      .mockRejectedValueOnce(new Error("503"))
+      .mockImplementation(grantsTokenExpiringIn(TTL_MS, "acc_second_try"));
+    await reachEnrolmentHolding(sessionExpiringIn(TTL_MS));
+
+    await vi.advanceTimersByTimeAsync(TTL_MS - LEAD_MS);
+    expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(LEAD_MS);
+    expect(hoisted.refreshHeldSession.mock.calls.length).toBeGreaterThan(1);
+    expect(screen.getByRole("button", { name: /Add a passkey/i })).toBeTruthy();
+  });
+
+  it("shows the timed-out screen once the grant is refused for good", async () => {
+    hoisted.refreshHeldSession.mockRejectedValue(new Error("invalid_grant"));
+    await reachEnrolmentHolding(sessionExpiringIn(TTL_MS));
+
+    await vi.advanceTimersByTimeAsync(TTL_MS + 60_000);
+    expect(screen.getByText(/timed out/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add a passkey/i })).toBeNull();
+  });
+
+  it("refreshes before completing a ceremony that outlived its token", async () => {
+    // A WebAuthn challenge lives two minutes; the refresh lead is thirty
+    // seconds. So a prompt begun just before a scheduled grant routinely
+    // outlives the token it started with, and `/complete` would send a dead
+    // bearer — the failure in this issue's title, reached by a different road.
+    const ceremony = deferred<never>();
+    hoisted.refreshHeldSession.mockImplementation(
+      grantsTokenExpiringIn(TTL_MS, "acc_mid_ceremony"),
+    );
+    stub.totpRecoveryComplete.mockResolvedValue({
+      session: sessionExpiringIn(TTL_MS),
+      profile: sampleProfile,
+    });
+    render(() => (
+      <RecoveryLoginForm
+        client={asClient(stub)}
+        registrationClient={asRegistration(registration)}
+        runPasskeyRegistration={() => ceremony.promise}
+      />
+    ));
+    fireEvent.click(screen.getByRole("button", { name: /Use my authenticator app/i }));
+    fill(/Handle or email/i, "alice");
+    typeCode("654321");
+    fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
+    await vi.waitFor(() => screen.getByRole("button", { name: /Add a passkey/i }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
+    await vi.waitFor(() => expect(registration.passkeyRegisterBegin).toHaveBeenCalled());
+    expect(registration.passkeyRegisterBegin.mock.calls[0]![0].accessToken).toBe(ACCESS_TOKEN);
+
+    // The user is still at their authenticator while the token dies.
+    await vi.advanceTimersByTimeAsync(TTL_MS);
+    ceremony.settle(attestation as never);
+
+    await vi.waitFor(() => expect(registration.passkeyRegisterComplete).toHaveBeenCalled());
+    expect(registration.passkeyRegisterComplete.mock.calls[0]![0].accessToken).toBe(
+      "acc_mid_ceremony",
+    );
+  });
+
+  it("abandons a grant that resolves after Start again", async () => {
+    // Clearing the timer does not stop a grant already on the wire, and its
+    // continuation arms the next one. Without a generation guard this re-holds
+    // a token from a family the new factor has already deleted, and rotates the
+    // session for as long as the page is open.
+    const grant = deferred<ReturnType<typeof heldSessionExpiringIn>>();
+    hoisted.refreshHeldSession.mockReturnValue(grant.promise);
+    // A failed ceremony is what puts "Start again" on the enrolment screen.
+    registration.passkeyRegisterBegin.mockRejectedValue(new Error("NotAllowedError"));
+    await reachEnrolmentHolding(sessionExpiringIn(TTL_MS));
+
+    // Fails on the token it already holds, so no grant is spent getting here.
+    fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
+    await vi.waitFor(() => screen.getByRole("button", { name: /Start again/i }));
+    expect(hoisted.refreshHeldSession).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(TTL_MS - LEAD_MS);
+    expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /Start again/i }));
+    grant.settle(heldSessionExpiringIn(TTL_MS, "acc_stale"));
+    await vi.advanceTimersByTimeAsync(TTL_MS * 3);
+
+    expect(screen.getByRole("button", { name: /Use a recovery code/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add a passkey/i })).toBeNull();
+    // Still the one grant: nothing re-armed.
+    expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("abandons a grant that resolves after enrolment succeeds", async () => {
+    // The highest-consequence transition: after a successful recovery the
+    // user holds an ORDINARY session, which the issuer never refuses — so a
+    // background grant that resolves after this epoch bump and is applied
+    // rather than discarded would re-arm a refresh loop with no stop
+    // condition at all.
+    //
+    // `passkeyRegisterComplete` is held open so a background refresh can
+    // queue up (and be genuinely dispatched) behind it: both of
+    // `enrolPasskey`'s own token reads are comfortably inside the lead here,
+    // so it never spends a grant of its own — the one call below is the
+    // background timer's, and it lands only once `/complete` has already
+    // resolved and epoch has already moved on.
+    const grant = deferred<ReturnType<typeof heldSessionExpiringIn>>();
+    hoisted.refreshHeldSession.mockReturnValue(grant.promise);
+    const complete = deferred<{ passkeyId: string }>();
+    registration.passkeyRegisterComplete.mockReturnValue(complete.promise);
+    await reachEnrolmentHolding(sessionExpiringIn(TTL_MS));
+
+    fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
+    await vi.waitFor(() => expect(registration.passkeyRegisterComplete).toHaveBeenCalled());
+
+    // The background timer fires while `/complete` is still on the wire. Its
+    // grant takes a place in the queue but isn't dispatched yet.
+    await vi.advanceTimersByTimeAsync(TTL_MS - LEAD_MS);
+    expect(hoisted.refreshHeldSession).not.toHaveBeenCalled();
+
+    // `/complete` resolves: enrolPasskey bumps epoch and clears `held`.
+    // Only then does the queued grant get dispatched — genuinely in flight
+    // against a session that, by the time it lands, no longer exists.
+    complete.settle({ passkeyId: "pk_new" });
+    await vi.waitFor(() => expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(/You're back in/i)).toBeTruthy();
+
+    // Settling it now must be a no-op.
+    grant.settle(heldSessionExpiringIn(TTL_MS, "acc_late"));
+    await vi.advanceTimersByTimeAsync(TTL_MS * 3);
+
+    expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/You're back in/i)).toBeTruthy();
+  });
+
+  it("abandons a grant that resolves after the screen unmounts", async () => {
+    // The worst version: after enrolment the user signs in, so the cookie names
+    // an ORDINARY session, which the issuer never refuses. A loop re-armed here
+    // has no stop condition at all.
+    const grant = deferred<ReturnType<typeof heldSessionExpiringIn>>();
+    hoisted.refreshHeldSession.mockReturnValue(grant.promise);
+    await reachEnrolmentHolding(sessionExpiringIn(TTL_MS));
+
+    await vi.advanceTimersByTimeAsync(TTL_MS - LEAD_MS);
+    expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1);
+
+    cleanup();
+    grant.settle(heldSessionExpiringIn(TTL_MS, "acc_orphan"));
+    await vi.advanceTimersByTimeAsync(TTL_MS * 3);
+
+    expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("abandons a grant that resolves after unmount mid-ceremony", async () => {
+    // `freshToken()` has its own `if (mine !== epoch) return null;`, separate
+    // from `refreshHeld`'s — triggered on demand from the ceremony rather
+    // than the background timer, so it needs its own proof. Minting already
+    // inside the lead means `beginRestricted` arms an expiry timer, not a
+    // refresh one, so the one grant possible here is the one `freshToken()`
+    // requests when `enrolPasskey` clicks — isolating it from the background
+    // path the other two tests in this block cover.
+    const grant = deferred<ReturnType<typeof heldSessionExpiringIn>>();
+    hoisted.refreshHeldSession.mockReturnValue(grant.promise);
+    await reachEnrolmentHolding(sessionExpiringIn(LEAD_MS - 5_000));
+
+    fireEvent.click(screen.getByRole("button", { name: /Add a passkey/i }));
+    await vi.waitFor(() => expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1));
+    // Still waiting on the grant — the ceremony itself never started.
+    expect(registration.passkeyRegisterBegin).not.toHaveBeenCalled();
+
+    cleanup();
+    grant.settle(heldSessionExpiringIn(TTL_MS, "acc_orphan_ceremony"));
+    await vi.advanceTimersByTimeAsync(TTL_MS * 3);
+
+    // Discarded: `freshToken()` returns null, `enrolPasskey` never asks for
+    // a ceremony, and nothing re-requests a grant.
+    expect(registration.passkeyRegisterBegin).not.toHaveBeenCalled();
+    expect(hoisted.refreshHeldSession).toHaveBeenCalledTimes(1);
   });
 });

@@ -188,8 +188,11 @@ That `UPDATE` is the one write that turns a restricted session into a full one, 
 | `restricted_until IS NOT NULL` | An everyday passkey add quietly resetting the caller's session clock |
 | `expires_at > now` | Reviving a session past its 15-minute deadline. `liveSessionIds` has no expiry term, so an expired restricted row still classifies as the caller's own, and expiry is otherwise enforced only in `verifyRefreshToken` — which this path never calls. Without it the real bound was the deadline plus one access-token TTL |
 
-> [!note] No route mints one yet
-> The primitive ships ahead of the endpoints that use it. `POST /login/recovery/email/complete` and `POST /login/recovery/totp/complete` are separate work — see `wiki/architecture/account-recovery-factors.md` §B.
+**The access token is capped to the row, not just to `accessTokenTtl`.** `sessionBoundTtl` gives a restricted session `min(accessTokenTtl, restricted_until − now)`, at both issuance sites. Without it a grant late in the window mints a full-length token that outlives the row authorising it: harmless server-side, because the enrolment bypass reads the row, but it tells the browser a deadline the server will not honour — and the post-recovery enrolment screen counts on that value to know when the window ends. An ordinary session (`restricted_until` null) is untouched. This bounds the token, not the session: `verifyJwt` allows 30 s of clock skew, so a capped token still verifies for a moment after its row is gone, granting nothing.
+
+**Refreshing one from the browser.** `@osn/client` exposes `refreshHeldSession` alongside `refreshSession`, and the difference is the whole reason it exists: it redeems the refresh cookie and returns the token set **without adopting it** — no storage write, no cached account, no session resource refetched. It is for a flow that deliberately holds a session rather than publishing one, which is every flow whose token the rest of the app would reject. Post-recovery passkey enrolment is the caller; holding the session is what puts it outside `authFetch`, so this is its only refresh path. Both share one single-flight `/token` grant, so a component refreshing while the provider bootstraps produces one request — two would replay a rotated cookie, which is what reuse detection revokes a family for.
+
+**Two routes mint one:** `POST /login/recovery/email/complete` and `POST /login/recovery/totp/complete` — see `wiki/architecture/account-recovery-factors.md` §B.
 
 ## Rotation grace window (concurrency tolerance)
 

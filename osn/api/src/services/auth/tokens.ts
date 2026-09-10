@@ -65,6 +65,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
    * `audience` decides what the token can reach. It defaults to
    * {@link ACCESS_TOKEN_AUDIENCE}; the only other value it is ever given is
    * {@link RECOVERY_TOKEN_AUDIENCE}, for a restricted recovery session.
+   *
+   * `ttlSec` shortens the configured lifetime — see {@link sessionBoundTtl},
+   * which is the only thing that ever passes it.
    */
   const issueAccessToken = (
     profileId: string,
@@ -73,6 +76,7 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
     displayName: string | null,
     sessionBinding?: string | null,
     audience: string = ACCESS_TOKEN_AUDIENCE,
+    ttlSec: number = accessTokenTtl,
   ) =>
     Effect.tryPromise({
       try: () => {
@@ -96,16 +100,35 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         // its own session row without a cookie and without leaking either
         // the session id or the account behind the profile.
         if (sessionBinding) payload["osn_sid"] = sessionBinding;
-        return signJwt(
-          payload,
-          config.jwtPrivateKey,
-          config.jwtKid,
-          accessTokenTtl,
-          config.issuerUrl,
-        );
+        return signJwt(payload, config.jwtPrivateKey, config.jwtKid, ttlSec, config.issuerUrl);
       },
       catch: (cause) => new AuthError({ message: String(cause) }),
     });
+
+  /**
+   * The access-token lifetime a session of this kind may hand out.
+   *
+   * For an ordinary session (`restrictedUntil === null`) that is the configured
+   * `accessTokenTtl` and nothing else. For a **restricted recovery session** it
+   * is whatever is smaller: the configured lifetime, or the time the session row
+   * itself has left. A restricted row's deadline is absolute — rotation copies
+   * it forward rather than extending it — so without this cap the last token of
+   * the window outlives the row that authorises it, and the browser is told a
+   * later deadline than the one the server will honour. The screen holding it
+   * then shows a live button that every request refuses.
+   *
+   * The floor of 1 covers the sub-second case where this clock read lands a
+   * second after the one `verifyRefreshToken` admitted the row on.
+   *
+   * This bounds the token, not the session: `verifyJwt` allows 30 s of clock
+   * skew, so a capped token still verifies for a little after its row is gone.
+   * Nothing is granted in that window — the enrolment bypass tests the row's own
+   * deadline (`recoverySessionAdmitsEnrolment`), never the token's.
+   */
+  const sessionBoundTtl = (restrictedUntil: number | null, nowSec: number): number =>
+    restrictedUntil === null
+      ? accessTokenTtl
+      : Math.max(1, Math.min(accessTokenTtl, restrictedUntil - nowSec));
 
   /**
    * Full token issuance: creates a server-side session row and returns an
@@ -140,6 +163,15 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       // session it was minted from (`osn_sid`).
       const sessionToken = generateSessionToken();
       const sessionId = hashSessionToken(sessionToken);
+      // One clock read, taken before the mint so the token's lifetime and the
+      // row's deadline are computed against the same instant. Every field below
+      // (`createdAt`, `authenticatedAt`, `lastUsedAt`, `expiresAt`) reads it
+      // too, so they move together.
+      const nowSec = Math.floor(Date.now() / 1000);
+      // A restricted session's deadline is absolute: the row's `expiresAt` IS
+      // its `restrictedUntil`, and neither the sliding window in
+      // `verifyRefreshToken` nor rotation in `refreshTokens` moves it.
+      const restrictedUntil = restricted ? nowSec + RECOVERY_SESSION_TTL_SEC : null;
       const accessToken = yield* issueAccessToken(
         profileId,
         email,
@@ -147,13 +179,9 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         displayName,
         deriveSessionBinding(sessionId, profileId),
         restricted ? RECOVERY_TOKEN_AUDIENCE : ACCESS_TOKEN_AUDIENCE,
+        sessionBoundTtl(restrictedUntil, nowSec),
       );
-      const nowSec = Math.floor(Date.now() / 1000);
       const fam = familyId ?? genId("sfam_");
-      // A restricted session's deadline is absolute: the row's `expiresAt` IS
-      // its `restrictedUntil`, and neither the sliding window in
-      // `verifyRefreshToken` nor rotation in `refreshTokens` moves it.
-      const restrictedUntil = restricted ? nowSec + RECOVERY_SESSION_TTL_SEC : null;
 
       const { db } = yield* Db;
 
@@ -198,7 +226,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      return { accessToken, refreshToken: sessionToken, expiresIn: accessTokenTtl };
+      return {
+        accessToken,
+        refreshToken: sessionToken,
+        expiresIn: sessionBoundTtl(restrictedUntil, nowSec),
+      };
     });
 
   /** Ordinary, unrestricted session issuance. See {@link issueSession}. */
@@ -609,8 +641,16 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       const newSessionToken = generateSessionToken();
       const newSessionId = hashSessionToken(newSessionToken);
 
+      // One clock read, taken before the mint so the token's lifetime is
+      // measured against the same instant as the row fields below.
+      const nowSec = Math.floor(Date.now() / 1000);
+
       // The restriction rides the SESSION ROW, not the token, so it survives
       // the silent refresh that would otherwise retire it five minutes in.
+      // The row's deadline also caps the token: a restricted session does not
+      // extend on rotation, so a full-length token here would outlive the row
+      // that authorises it and tell the browser a deadline the server will not
+      // honour.
       const accessToken = yield* issueAccessToken(
         profile.id,
         profile.email,
@@ -618,8 +658,8 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
         profile.displayName,
         deriveSessionBinding(newSessionId, profile.id),
         restrictedUntil === null ? ACCESS_TOKEN_AUDIENCE : RECOVERY_TOKEN_AUDIENCE,
+        sessionBoundTtl(restrictedUntil, nowSec),
       );
-      const nowSec = Math.floor(Date.now() / 1000);
 
       const { db } = yield* Db;
       // The old session's metadata (UA label + IP hash + `authenticatedAt`)
@@ -705,7 +745,11 @@ export function createTokensModule(ctx: AuthContext, profiles: ProfilesModule) {
       // Track the rotated-out hash for reuse detection
       yield* trackRotatedSession(oldSessionId, familyId);
 
-      return { accessToken, refreshToken: newSessionToken, expiresIn: accessTokenTtl };
+      return {
+        accessToken,
+        refreshToken: newSessionToken,
+        expiresIn: sessionBoundTtl(restrictedUntil, nowSec),
+      };
     }).pipe(withSessionRotation, withAuthTokenRefresh);
 
   // -------------------------------------------------------------------------

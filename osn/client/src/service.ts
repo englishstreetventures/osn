@@ -16,7 +16,7 @@ import {
   extractJwtSub,
   parseTokenResponse,
 } from "./tokens";
-import type { AccountSession, PublicProfile, Session } from "./tokens";
+import type { AccountSession, HeldSession, PublicProfile, Session } from "./tokens";
 
 const ACCOUNT_SESSION_KEY = "@osn/client:account_session";
 
@@ -124,6 +124,32 @@ export interface OsnAuthService {
   readonly loadSession: () => Effect.Effect<Session | null, StorageError>;
 
   readonly refreshSession: () => Effect.Effect<Session, TokenRefreshError | StorageError>;
+
+  /**
+   * Redeems the refresh cookie for a fresh token set and hands it back
+   * **without adopting it** — nothing is written to storage, nothing is
+   * cached, and no session resource is refetched.
+   *
+   * For a flow that HOLDS a session rather than publishing one. Post-recovery
+   * passkey enrolment is the case that needs it: its token carries
+   * `aud: "osn-recovery"`, which every ordinary route rejects, and adopting it
+   * would announce a signed-in user the rest of the app cannot serve. Holding
+   * it also puts the flow outside `authFetch`, so the silent refresh that keeps
+   * every other screen alive is unavailable — this is the replacement.
+   *
+   * Shares the single-flight `/token` grant with `refreshSession` and the
+   * cold-start bootstrap, so a component calling this while the provider is
+   * bootstrapping produces one request, not two. That matters: each grant
+   * rotates the session server-side, and a second grant replaying the
+   * rotated-out cookie is what reuse detection revokes a family for.
+   *
+   * Returns a {@link HeldSession}, not a `Session` — `adoptSession`/
+   * `setSession` don't accept one, so the caller must unwrap `.session`
+   * explicitly rather than being able to hand the result straight to either.
+   *
+   * @see wiki/architecture/account-recovery-factors.md — the restricted session.
+   */
+  readonly refreshHeldSession: () => Effect.Effect<HeldSession, TokenRefreshError>;
 
   readonly logout: () => Effect.Effect<void, StorageError>;
 
@@ -463,6 +489,29 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
           }
           return result.success;
         });
+
+      // -----------------------------------------------------------------------
+      // Held-session refresh.
+      //
+      // The whole implementation: take the shared grant and return what it
+      // gives back. What makes this a distinct method is everything it does
+      // NOT do — no `saveAccountSession`, no `cache` write, no account
+      // reshaping. A held session is one the caller has deliberately kept out
+      // of the app's session state, and refreshing it must not be the thing
+      // that publishes it.
+      //
+      // A restricted recovery session is the caller. On the server the grant
+      // re-mints on the recovery audience for as long as the row's
+      // `restricted_until` is set, and carries that deadline forward rather
+      // than extending it — so this can renew the token but can never buy the
+      // session more life than it was granted.
+      //
+      // Wrapped as a `HeldSession` rather than returned as a bare `Session`
+      // so `adoptSession`/`setSession` refuse it at compile time — see
+      // `HeldSession` in `./tokens`.
+      // -----------------------------------------------------------------------
+      const refreshHeldSession = (): Effect.Effect<HeldSession, TokenRefreshError> =>
+        Effect.map(sharedTokenGrant(), (session): HeldSession => ({ held: true, session }));
 
       // -----------------------------------------------------------------------
       // Cold-start bootstrap (production login-loop fix).
@@ -832,6 +881,7 @@ export function createOsnAuthLive(config: OsnAuthConfig): Layer.Layer<OsnAuth, n
         getSession,
         loadSession,
         refreshSession,
+        refreshHeldSession,
         logout,
         setSession,
         listProfiles,

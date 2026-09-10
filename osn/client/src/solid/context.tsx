@@ -12,7 +12,7 @@ import {
 
 import { OsnAuth, createOsnAuthLive, type OsnAuthConfig } from "../service";
 import { Storage, StorageLive } from "../storage";
-import type { PublicProfile, Session } from "../tokens";
+import type { HeldSession, PublicProfile, Session } from "../tokens";
 
 interface AuthContextValue {
   session: Resource<Session | null>;
@@ -24,6 +24,22 @@ interface AuthContextValue {
    * out-of-band source) and refetches the session resource so the UI updates.
    */
   adoptSession: (session: Session) => Promise<void>;
+  /**
+   * Redeems the refresh cookie for a fresh token set and returns it **without**
+   * adopting it — the session resource is not refetched and nothing is stored.
+   *
+   * The counterpart to {@link AuthContextValue.adoptSession} for a flow that
+   * holds a session rather than publishing one, and the only refresh path such
+   * a flow has: holding the token keeps it outside `authFetch`, so the silent
+   * refresh every other screen relies on never runs. Post-recovery passkey
+   * enrolment is the caller. Rejects when the issuer refuses the grant, which
+   * for a restricted session means its absolute deadline has passed.
+   *
+   * Resolves to a `HeldSession`, not a `Session` — `adoptSession` doesn't
+   * accept one, so `adoptSession(await refreshHeldSession())` is a compile
+   * error rather than a way to publish a restricted `osn-recovery` token.
+   */
+  refreshHeldSession: () => Promise<HeldSession>;
   switchProfile: (profileId: string) => Promise<{ session: Session; profile: PublicProfile }>;
   createProfile: (handle: string, displayName?: string) => Promise<PublicProfile>;
   deleteProfile: (profileId: string) => Promise<void>;
@@ -107,6 +123,11 @@ export function AuthProvider(props: AuthProviderProps) {
     await refetchProfiles();
   };
 
+  // No `refetchSession`, deliberately: adopting is the caller's decision and
+  // this is the path for the flows that have decided not to.
+  const refreshHeldSession = () =>
+    run(Effect.flatMap(OsnAuth, (auth) => auth.refreshHeldSession()));
+
   const switchProfile = async (profileId: string) => {
     const result = await run(Effect.flatMap(OsnAuth, (auth) => auth.switchProfile(profileId)));
     await refetchSession();
@@ -139,6 +160,7 @@ export function AuthProvider(props: AuthProviderProps) {
         activeProfileId,
         logout,
         adoptSession,
+        refreshHeldSession,
         switchProfile,
         createProfile,
         deleteProfile,
