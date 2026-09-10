@@ -1,0 +1,94 @@
+# Watch the Cloudflare free-tier counters and file one issue when a day gets
+# near a ceiling.
+#
+# `wiki/runbooks/free-tier-limits.md` listed the ceilings and said to watch
+# them, which meant a person opening a dashboard. Nobody did, so the D1
+# rows-written ceiling was crossed on 2026-08-30 and again on 2026-09-09 and was
+# only found by hand on 2026-09-10 (#979). Three other days in between ran at
+# 56-64% of the ceiling and looked like ordinary days.
+#
+# All the logic is in `scripts/check-free-tier-ceilings.ts`, tested in
+# `scripts/tests/check-free-tier-ceilings.test.ts`. This job is the caller.
+#
+# Read-only against Cloudflare. It runs two GET/POST analytics queries and
+# writes nothing to any account resource.
+name: Free-tier ceiling alert
+
+on:
+  schedule:
+    # 22:00 UTC. The daily counters reset at UTC midnight, so this reads the day
+    # with two hours left in it — late enough that the figure is close to final,
+    # early enough to still be a warning. It is also 08:00 in Australia/Sydney,
+    # so the result is waiting at the start of the day rather than overnight.
+    - cron: "0 22 * * *"
+  workflow_dispatch:
+    inputs:
+      end:
+        description: "Last UTC day to check (YYYY-MM-DD). Defaults to today."
+        required: false
+        type: string
+      days:
+        description: "How many UTC days back to check, ending with that day."
+        required: false
+        default: "2"
+        type: string
+
+permissions:
+  contents: read
+  # The job opens, reopens and edits one issue in this repository.
+  issues: write
+
+# One run at a time, so a hand-started run and the nightly one cannot both
+# decide whether the issue exists and both create it.
+concurrency:
+  group: free-tier-ceiling-alert
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check the daily counters
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # No `bun install`. The script imports only Bun built-ins and `fetch`,
+      # the same rule every other file under scripts/ follows.
+      #
+      # The script exits non-zero on any bad response — a non-2xx, a GraphQL
+      # error, an account the token cannot read, a total that is not a number.
+      # That fails this job, which is the point: a watcher that reports
+      # all-clear while it is broken is worse than no watcher.
+      # This job declares no `environment:`, so both Cloudflare secrets resolve
+      # at REPOSITORY scope. That is where `CLOUDFLARE_API_TOKEN` lives today —
+      # `gh secret list --env production` is empty, so every deploy job reads
+      # the repository copy too.
+      #
+      # `wiki/runbooks/dev-environment.md` §"Two Environments, two tokens" wants
+      # that scope emptied: put the token on the `production` Environment and
+      # `gh secret delete CLOUDFLARE_API_TOKEN` at repo scope. The day that
+      # happens this job loses its credential, and it cannot simply take
+      # `environment: production` in exchange — that Environment gates on a human
+      # approving, and a watcher nobody approves at 22:00 UTC watches nothing.
+      # It needs a token at a scope an unattended job can read. Read-only is
+      # enough: `d1 (read)` and `account (read)`, no write rights of any kind.
+      #
+      # The break would be loud — a 401 exits the script non-zero and fails this
+      # job, which is the behaviour to keep. Do not paper over it with a
+      # `continue-on-error` or an empty-token skip; a watcher that goes quiet
+      # when its credential is gone is worse than no watcher.
+      - name: Read the counters and file or update the issue
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GH_TOKEN: ${{ github.token }}
+          END: ${{ inputs.end }}
+          DAYS: ${{ inputs.days || '2' }}
+        run: |
+          ARGS=(--repo "$GITHUB_REPOSITORY" --days "$DAYS")
+          if [ -n "$END" ]; then ARGS+=(--end "$END"); fi
+          bun run scripts/check-free-tier-ceilings.ts "${ARGS[@]}"

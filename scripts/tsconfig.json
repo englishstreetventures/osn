@@ -1,6 +1,10 @@
 {
-  "//": "scripts/ is not a workspace, so `turbo check` never reaches it. Without this, a type error here ships: `skill-evals.ts` read an optional `scenario.path` unguarded, which crashed `ready`, `compare` and `record` on a payload the API really returns, and no gate saw it. The `script-tests` CI job runs `tsc -p scripts/tsconfig.json`, which needs no install because everything under scripts/ imports only bun:test, Bun and Node built-ins, and each other.",
+  "//": "scripts/ is not a workspace, so `turbo check` never reaches it. Without this, a type error here ships: `skill-evals.ts` read an optional `scenario.path` unguarded, which crashed `ready`, `compare` and `record` on a payload the API really returns, and no gate saw it. The `typecheck` CI job runs `tsc -p scripts/tsconfig.json`, which needs no install because everything under scripts/ imports only bun:test, Bun and Node built-ins, and each other.",
   "extends": "../tsconfig.json",
+  "//lib": "The root sets ES2022 because its packages build for workerd and for browsers. Nothing under scripts/ does — every file here runs under the repo's pinned Bun and nowhere else — so the library is raised one year to cover the copying array methods (`toSorted`), which `unicorn/no-array-sort` asks for in place of the mutating `sort`.",
+  "compilerOptions": {
+    "lib": ["ES2023"]
+  },
   "include": ["**/*.ts"],
   "exclude": ["node_modules", "**/node_modules"]
 }
