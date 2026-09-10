@@ -129,6 +129,31 @@ export const ROTATION_GRACE_MS = 10_000;
  * passkey per device for a typical user.
  */
 export const MAX_PASSKEYS_PER_ACCOUNT = 10;
+
+/**
+ * The count above which an enrolment from a restricted recovery session starts
+ * reclaiming, one credential above {@link MAX_PASSKEYS_PER_ACCOUNT}.
+ *
+ * The headroom exists because without it an account at the cap that has lost
+ * every device is permanently unreachable: it cannot enrol past the cap, and it
+ * cannot delete to make room, since `passkeyDeleteAllowedAmr` is WebAuthn-only
+ * and a restricted session cannot mint a step-up at all.
+ *
+ * **This is a threshold, not a limit.** It decides when the reclaim runs, never
+ * whether the enrolment is admitted — a recovery enrolment is admitted at any
+ * count. What it may reclaim is only what its own recovery episode lent, and
+ * that set is usually empty by the time a second recovery is permitted, so the
+ * threshold gives way rather than the credential. An account that recovers and
+ * never prunes therefore gains one credential per recovery, and recoveries are
+ * {@link RECOVERY_COOLDOWN_MS} apart.
+ *
+ * `MAX_PASSKEYS_PER_ACCOUNT` alone still governs every ordinary enrolment, which
+ * is still refused at the cap.
+ *
+ * @see wiki/architecture/account-recovery-factors.md
+ */
+export const RECOVERY_ENROLMENT_PASSKEY_CEILING = MAX_PASSKEYS_PER_ACCOUNT + 1;
+
 /**
  * Coalesce window for `passkeys.last_used_at` writes (mirrors
  * LAST_USED_AT_COALESCE_MS for sessions). Sub-minute accuracy on the

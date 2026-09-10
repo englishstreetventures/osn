@@ -28,13 +28,15 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from "@simplewebauthn/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { Effect } from "effect";
 
 import { forkBackground } from "../../lib/background";
 import {
   classifyError,
   metricPasskeyLoginDiscoverable,
+  metricRecoveryPasskeyReclaim,
   metricSecurityEventRecorded,
   metricSessionSecurityInvalidation,
   withAuthLogin,
@@ -43,6 +45,7 @@ import {
   CHALLENGE_TTL_MS,
   MAX_PASSKEYS_PER_ACCOUNT,
   PASSKEY_LAST_USED_COALESCE_MS,
+  RECOVERY_ENROLMENT_PASSKEY_CEILING,
 } from "./constants";
 import type { AuthContext } from "./context";
 import { AuthError, DatabaseError } from "./errors";
@@ -151,7 +154,11 @@ export function createPasskeysModule(
      * would open `/recovery/generate`, `DELETE /account`, `GET /account/export`
      * and `/account/email/complete` along with it.
      *
-     * The per-account passkey cap is NOT skipped.
+     * The per-account passkey cap does NOT refuse this enrolment — a refusal
+     * here is an account nobody can reach again. `complete` reclaims what this
+     * recovery episode itself lent instead, which is what keeps the count from
+     * ratcheting; see `RECOVERY_ENROLMENT_PASSKEY_CEILING`. Every other caller
+     * is refused at the cap unchanged.
      */
     caller?: { readonly recoverySessionHash: string },
   ): Effect.Effect<
@@ -185,10 +192,31 @@ export function createPasskeysModule(
         return yield* Effect.fail(new AuthError({ message: "Account not found" }));
       }
 
+      // Whether the restricted-recovery-session bypass applies. Resolved BEFORE
+      // the cap check, because whether the cap applies at all depends on it —
+      // and resolving it costs one indexed read of the caller's own session row,
+      // never a single-use token, so hoisting it above the cap preserves the
+      // property the ordering exists for: a capped user must not burn a step-up
+      // for nothing.
+      const recoveryEnrolment =
+        caller && existingPasskeys.length > 0
+          ? yield* recoverySessionAdmitsEnrolment(accountId, caller.recoverySessionHash)
+          : false;
+
       // Refuse to mint options past the per-account cap. Checked
       // BEFORE the step-up gate so a user who's already at the cap
       // doesn't burn a single-use step-up token for nothing.
-      if (existingPasskeys.length >= MAX_PASSKEYS_PER_ACCOUNT) {
+      //
+      // A recovery-session enrolment is not held to the cap at all, and is not
+      // refused at any count. An account that has lost every device cannot enrol
+      // past the cap and cannot delete to make room — `passkeyDeleteAllowedAmr`
+      // is WebAuthn-only and a restricted session cannot mint a step-up — so a
+      // count-based refusal here is an account nobody can reach again. What
+      // bounds the count instead is the reclaim in `complete`, which takes back
+      // the slots THIS recovery episode lent; and what bounds the growth when
+      // there is nothing of its own to take back is the recovery cooldown, one
+      // episode per RECOVERY_COOLDOWN_MS.
+      if (!recoveryEnrolment && existingPasskeys.length >= MAX_PASSKEYS_PER_ACCOUNT) {
         return yield* Effect.fail(
           new AuthError({ message: "Passkey limit reached for this account" }),
         );
@@ -208,10 +236,7 @@ export function createPasskeysModule(
       // would never become possible.
       let provenanceAmr: PasskeyProvenance = "webauthn";
       if (existingPasskeys.length > 0) {
-        const admitted = caller
-          ? yield* recoverySessionAdmitsEnrolment(accountId, caller.recoverySessionHash)
-          : false;
-        if (admitted) {
+        if (recoveryEnrolment) {
           // The restricted-recovery-session bypass: no step-up ran at all, so
           // no ceremony of the account's own stands behind this credential.
           provenanceAmr = "recovery";
@@ -264,6 +289,11 @@ export function createPasskeysModule(
             // where the recovery bypass is granted; written at `complete`,
             // where the row exists. The entry is how it travels.
             provenanceAmr,
+            // Which cap `complete` holds the ceremony to. Trusted there without
+            // re-reading the session row, and bounded by the two deadlines that
+            // already bracket this ceremony: the challenge's own CHALLENGE_TTL_MS
+            // and the restricted session's 15-minute absolute expiry.
+            recoveryEnrolment,
           },
           CHALLENGE_TTL_MS,
         ),
@@ -344,6 +374,10 @@ export function createPasskeysModule(
         uaLabel: eventMeta?.uaLabel ?? null,
       };
 
+      // An entry parked by a deploy older than the flag carries no answer.
+      // Read it as `false` — the ordinary cap, which is the restrictive one.
+      const recoveryEnrolment = entry.recoveryEnrolment ?? false;
+
       // Cap enforcement. `beginPasskeyRegistration` already refuses
       // past the limit; this is the belt-and-braces check. D1 has no interactive
       // transaction, so the count read runs first and the passkey + audit insert
@@ -352,17 +386,130 @@ export function createPasskeysModule(
       // begin-side check is the primary guard).
       const passkeyCount = yield* Effect.tryPromise({
         try: () =>
-          db.select({ id: passkeys.id }).from(passkeys).where(eq(passkeys.accountId, accountId)),
+          db
+            .select({
+              id: passkeys.id,
+              createdAt: passkeys.createdAt,
+              provenanceAmr: passkeys.provenanceAmr,
+            })
+            .from(passkeys)
+            .where(eq(passkeys.accountId, accountId)),
         catch: (cause) => new DatabaseError({ cause }),
       });
-      if (passkeyCount.length >= MAX_PASSKEYS_PER_ACCOUNT) {
+
+      // Which credentials, if any, this enrolment pays for its slot with.
+      //
+      // Decided HERE rather than replayed from `begin`: the two reads are up to
+      // CHALLENGE_TTL_MS apart, and in between the account can gain or lose
+      // credentials on paths this ceremony knows nothing about. The counter is
+      // emitted from this decision alone, so one ceremony counts once.
+      //
+      // A candidate is a credential THIS RECOVERY EPISODE lent: `recovery`
+      // provenance AND created at or after `accounts.last_recovered_at`, which
+      // the recovery that minted this session stamped. Nothing that predates the
+      // recovery is ever taken, and that is the whole rule.
+      //
+      // Provenance alone is not enough, and the difference is the security
+      // property. `provenance_amr` is stamped at insert and never updated, so a
+      // `recovery` row keeps that value for the life of the account — long after
+      // the restriction it names has expired and the credential has become the
+      // owner's real, daily device. Worse, the cooldown puts the earliest second
+      // recovery at the moment the first lent credential matures, so a
+      // provenance-only filter meets exactly one candidate in the case that
+      // actually occurs: the matured one. Deleting it hands a mailbox-only
+      // attacker the owner's last working credential, with no step-up presented
+      // anywhere. The episode bound is what refuses that, and it mirrors W2 in
+      // `step-up.ts`: a recovery may act on what it produced, not on what it
+      // found.
+      //
+      // A NULL `last_recovered_at` yields no candidates at all. That is the
+      // fail-closed answer: with no recorded recovery there is nothing this
+      // episode can prove it lent.
+      let reclaimIds: readonly string[] = [];
+      if (recoveryEnrolment) {
+        const surplus = passkeyCount.length + 1 - RECOVERY_ENROLMENT_PASSKEY_CEILING;
+        if (surplus > 0) {
+          const [account] = yield* Effect.tryPromise({
+            try: () =>
+              db
+                .select({ lastRecoveredAt: accounts.lastRecoveredAt })
+                .from(accounts)
+                .where(eq(accounts.id, accountId))
+                .limit(1),
+            catch: (cause) => new DatabaseError({ cause }),
+          });
+          const recoveredAt = account?.lastRecoveredAt ?? null;
+          const candidates =
+            recoveredAt === null
+              ? []
+              : passkeyCount
+                  .filter(
+                    (pk) =>
+                      pk.provenanceAmr === "recovery" &&
+                      Math.floor(pk.createdAt.getTime() / 1000) >= recoveredAt,
+                  )
+                  // `created_at` is unix seconds, so rows written in the same
+                  // second tie. `id` breaks the tie deterministically — it is
+                  // random, not monotonic, so it orders nothing by time; two tied
+                  // rows are from the same instant and either is equally safe to
+                  // take. Newest first among what is left, which are all rows
+                  // this one episode lent.
+                  .toSorted(
+                    (a, b) =>
+                      b.createdAt.getTime() - a.createdAt.getTime() ||
+                      (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
+                  );
+          reclaimIds = candidates.slice(0, surplus).map((pk) => pk.id);
+        }
+        // Never a refusal. Where the surplus cannot be paid for, the threshold
+        // gives way and the account ends above it — because the alternative is
+        // taking a credential that may be the only one the owner can still use,
+        // and the alternative to THAT is an account nobody can reach, which is
+        // the failure this whole path exists to remove. What bounds the growth
+        // is the cooldown: one episode, and so at most one unpaid credential,
+        // per RECOVERY_COOLDOWN_MS.
+        metricRecoveryPasskeyReclaim(
+          surplus <= 0
+            ? "headroom_used"
+            : reclaimIds.length === surplus
+              ? "reclaimed"
+              : "ceiling_yielded",
+        );
+      } else if (passkeyCount.length >= MAX_PASSKEYS_PER_ACCOUNT) {
         return yield* Effect.fail(
           new AuthError({ message: "Passkey limit reached for this account" }),
         );
       }
+
+      // The reclaim rides in the SAME batch as the insert that pays for it, so
+      // no interleaving leaves the account one credential down. No survivor-count
+      // guard is needed the way `revokeDisownedRecovery` needs one: this deletes
+      // n and inserts 1 together, n never exceeds the surplus over the ceiling,
+      // and it fires only when there IS a surplus — so the account lands on the
+      // ceiling at worst, and the "≥1 passkey" invariant holds by construction
+      // rather than by check.
+      const reclaimStatements: BatchItem<"sqlite">[] =
+        reclaimIds.length > 0
+          ? [
+              db
+                .delete(passkeys)
+                .where(and(eq(passkeys.accountId, accountId), inArray(passkeys.id, reclaimIds))),
+              db.insert(securityEvents).values({
+                id: genId("sev_"),
+                accountId,
+                kind: "passkey_reclaimed",
+                createdAt: nowSec,
+                acknowledgedAt: null,
+                ipHash: eventMeta?.ip ? hashIp(eventMeta.ip) : null,
+                uaLabel: eventMeta?.uaLabel ?? null,
+              }),
+            ]
+          : [];
+
       yield* Effect.tryPromise({
         try: () =>
           commitBatch(db, [
+            ...reclaimStatements,
             db.insert(passkeys).values({
               id,
               accountId,
@@ -392,6 +539,9 @@ export function createPasskeysModule(
       });
 
       metricSecurityEventRecorded("passkey_register");
+      if (reclaimIds.length > 0) {
+        metricSecurityEventRecorded("passkey_reclaimed");
+      }
 
       // Invalidate all other sessions on passkey registration.
       // An attacker who stole a session token cannot persist after the
@@ -437,6 +587,23 @@ export function createPasskeysModule(
           Effect.catch(() => Effect.void),
         ),
       );
+
+      // A credential vanished that the account holder never asked to lose, so
+      // they are told separately from the one that was added. The
+      // `passkey-removed` copy — "it was you, or investigate" — is the right
+      // words here rather than a reuse of convenience: whoever reads this did
+      // not perform the removal, and investigating is exactly what they should
+      // do if the recovery behind it was not theirs.
+      if (reclaimIds.length > 0) {
+        yield* forkBackground(
+          securityEventsModule
+            .notifySecurityEventByAccountId(accountId, "passkey_reclaimed", "passkey-removed", {})
+            .pipe(
+              Effect.timeout("10 seconds"),
+              Effect.catch(() => Effect.void),
+            ),
+        );
+      }
 
       return { passkeyId: id };
     });

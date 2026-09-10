@@ -95,11 +95,11 @@ The restriction is a **distinct token audience**, not a flag:
   and token refresh is the only caller that opts in. Found while building
   issue 3, closed there; a `/authorize` check alone would not have covered the
   next consumer of that function. See [[oidc-provider]].
-- The per-account passkey cap is **not** bypassed, and an account already at it
-  cannot recover: enrolment refuses before the step-up gate, and a restricted
-  session cannot mint the step-up a deletion needs. Tracked as
-  `xchromo/osn#970`, to be decided with the provenance work in issue 5, since
-  both turn on when a recovery-enrolled credential may remove an older one.
+- The per-account passkey cap **does not refuse this enrolment** — see §E. A
+  count-based refusal here is an account nobody can reach again: enrolment
+  refuses before the step-up gate, and a restricted session cannot mint the
+  step-up a deletion would need. What bounds the count instead is a reclaim of
+  the slots this same recovery lent, and the 72-hour cooldown between recoveries.
 
 **The enrolment gate.** `beginPasskeyRegistration` refuses without a
 `passkey_register` step-up whenever the account has ≥1 passkey — which is the
@@ -254,6 +254,97 @@ for 72 hours, while whoever holds it can remove the newly enrolled one and
 change the email at once. A pre-recovery credential is the best evidence of
 ownership available, and here it is in the wrong hands. Irreducible without a
 signal we do not have.
+
+### E. The passkey ceiling, and the slot it lends
+
+Ten passkeys is uncommon, so an account at the cap is a rare case — but the
+outcome was a permanently unreachable account, which is the exact failure this
+whole design exists to remove. `xchromo/osn#970`.
+
+An enrolment from a restricted recovery session is **not refused at
+`MAX_PASSKEYS_PER_ACCOUNT`, and not refused at any count**. Every other enrolment
+is refused at the cap exactly as before: the exemption turns on the bypass having
+been granted, never on the token's audience and never on the credential's
+provenance. A count-based refusal on this path is an account nobody can reach
+again, which is the whole of `xchromo/osn#970`.
+
+What keeps the count from ratcheting instead is a reclaim, and
+`RECOVERY_ENROLMENT_PASSKEY_CEILING` — one credential above the cap — is the
+threshold at which it runs. Above that threshold the enrolment deletes, in the
+same batch as its own insert, the credentials **this recovery episode itself
+lent**.
+
+**Only what this episode lent, and that bound is the security property.** A
+candidate is a row with `recovery` provenance *and* `created_at >=`
+`accounts.last_recovered_at`. Provenance alone is not enough, and the reason is a
+column that never changes:
+
+- `passkeys.provenance_amr` is stamped at insert and **never updated**. A
+  `recovery` row keeps that value for the life of the account, long after the
+  restriction it names has expired and the credential has become the owner's
+  real, daily device.
+- The cooldown stamps `last_recovered_at` at session-mint time, essentially the
+  instant the lent credential is created. So the **earliest** moment a second
+  recovery is permitted is the moment the first lent credential matures.
+- Put together: the realistic second recovery meets exactly one
+  `recovery`-provenance row, already matured. Selecting on provenance alone
+  deletes it — handing a mailbox-only attacker the owner's last working
+  credential, with no step-up presented anywhere, and sending the one notice that
+  would reveal it to the mailbox the attacker holds.
+
+The episode bound refuses that, and it is the same shape as W2 in §D: a recovery
+may act on what it produced, never on what it found.
+
+| Bound | Value |
+|---|---|
+| Reclaimable provenance | `recovery` only — never `webauthn`, `otp`, `totp` or a NULL column |
+| Reclaimable age | Created at or after `accounts.last_recovered_at`. Nothing that predates this recovery, matured or not |
+| No recovery on record | `last_recovered_at` NULL reclaims nothing — there is no episode to measure against |
+| Ordering | `created_at` descending; `id` breaks a same-second tie deterministically and orders nothing by time |
+| Fires when | Only above the ceiling. At or below it nothing is destroyed |
+| With no candidate | **The ceiling gives way, and the enrolment still happens.** Never a refusal |
+
+`otp` and `totp` rows are deliberately out of scope, which makes this strictly
+narrower than `revokeDisownedRecovery`: those were enrolled by somebody already
+signed in who passed a step-up, a stronger act than a recovery bypass.
+
+**What the user is left holding.** After a first recovery at the cap the account
+sits at eleven credentials for up to 72 hours: the new credential is stamped
+`recovery`, so W1 refuses it deleting anything older than itself until its own
+window elapses. That is accepted rather than worked around — the user is signed
+in, which is the point, and an ordinary enrolment is still refused at eleven so
+the excess cannot be built on. Past those 72 hours the credential is out of its
+own W1 window and can prune the account back down; whether it does is the user's
+choice, not the server's.
+
+**The count is bounded by the cooldown, not by a number.** Where the surplus
+cannot be paid for out of this episode's own loans, the account ends one
+credential above the ceiling. That is a deliberate trade and worth stating
+plainly: the alternative is deleting a credential that may be the only one the
+owner can still use, and the alternative to *that* is an unreachable account.
+Growth costs a full recovery ceremony per credential — every session revoked, an
+`account_recovered` row written, a notice and a disown link sent — and the
+cooldown allows one per 72 hours. The `ceiling_yielded` counter is what makes an
+account that keeps climbing visible.
+
+Two credentials of one episode still collapse to one: a pair of racing
+`complete` calls overshoots by one, which `completePasskeyRegistration`
+documents as a benign over-count, and the next `complete` in the same episode
+reclaims it — its own loan is a candidate where an earlier recovery's is not.
+
+> [!warning] A matured loan is never taken back
+> The credential a recovery lends is the same credential the user then comes to
+> rely on, and once it has matured there is no signal that separates "the owner's
+> only working device" from "a slot going spare". So the server does not choose:
+> it keeps the credential and lets the count rise. Nothing on this path deletes
+> anything that predates the recovery running it.
+
+> [!warning] The recovery-code path is not covered
+> `POST /login/recovery/complete` issues an **ordinary** session, not a
+> restricted one, so the ceiling does not apply to it and an account at the cap
+> that recovers with a code is still unable to enrol. Raising the cap for an
+> ordinary session would drop the guarantee that a non-recovery enrolment at the
+> cap is refused, so it needs its own decision. Tracked as `xchromo/osn#983`.
 
 ## Shape of the change
 

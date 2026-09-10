@@ -60,13 +60,26 @@ export interface ChallengeEntry {
  * its own `begin` parked, and the provenance parked with it cannot be swapped
  * by another caller.
  *
- * `provenanceAmr` is required, but an entry parked by a deploy older than this
- * column arrives without it. `completePasskeyRegistration` stamps `recovery` in
- * that case — the most restrictive value — rather than failing a ceremony the
- * user is halfway through.
+ * `provenanceAmr` and `recoveryEnrolment` are both required, but an entry parked
+ * by a deploy older than either field arrives without it. `complete` reads each
+ * through the most restrictive default rather than failing a ceremony the user
+ * is halfway through — `recovery` for the provenance, `false` for the flag.
  */
 export interface RegistrationChallengeEntry extends ChallengeEntry {
   provenanceAmr: PasskeyProvenance;
+  /**
+   * Whether `begin` granted the restricted-recovery-session bypass, and so
+   * whether `complete` exempts this ceremony from `MAX_PASSKEYS_PER_ACCOUNT`
+   * and runs the reclaim in its place.
+   *
+   * A separate field rather than `provenanceAmr === "recovery"`, because that
+   * value is NOT unique to the bypass: `verifyStepUpForPasskeyRegister` also
+   * returns it for a `webauthn` step-up carrying no provenance claim and for an
+   * AMR its map does not name. Reading the exemption off the provenance would
+   * hand it to an ordinary step-up enrolment, which is the one thing the cap has
+   * to keep refusing.
+   */
+  recoveryEnrolment: boolean;
 }
 
 /**

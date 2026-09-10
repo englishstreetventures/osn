@@ -882,3 +882,92 @@ describe("osn/api recommendations FOF fan-out over real D1 (Miniflare)", () => {
     expect(suggestedHandles).not.toContain("racetest_late");
   });
 });
+
+describe("recovery passkey reclaim over real D1 (Miniflare)", () => {
+  // `xchromo/osn#970`. The reclaim deletes a credential and inserts its
+  // replacement in ONE `commitBatch`, and that is the only thing standing
+  // between a recovering user and an account left a credential down.
+  //
+  // No test on the ordinary tier can see it. `commitBatch` falls back to running
+  // statements sequentially on `bun:sqlite` (there is no batch), so the whole
+  // vitest suite would stay green on a delete that committed while its insert
+  // failed. Only this tier reaches `db.batch`, so this is where atomicity is
+  // asserted rather than assumed.
+
+  const seedPasskey = (
+    id: string,
+    provenanceAmr: string | null,
+    createdAt: Date,
+    credentialId = `d1-${id}`,
+  ) =>
+    rawDb.insert(passkeys).values({
+      id,
+      accountId: ACCOUNT_ID,
+      credentialId,
+      publicKey: "AQIDBA==",
+      counter: 0,
+      transports: null,
+      createdAt,
+      label: null,
+      provenanceAmr,
+      lastUsedAt: null,
+      aaguid: null,
+      backupEligible: false,
+      backupState: false,
+      updatedAt: Math.floor(Date.now() / 1000),
+    });
+
+  it("commits the delete and its replacement insert as one batch", async () => {
+    await seedPasskey("pk_d1_keep", "webauthn", new Date());
+    await seedPasskey("pk_d1_lent", "recovery", new Date());
+
+    await commitBatch(rawDb, [
+      rawDb.delete(passkeys).where(eq(passkeys.id, "pk_d1_lent")),
+      seedPasskey("pk_d1_new", "recovery", new Date()),
+      rawDb.insert(securityEvents).values({
+        id: "sev_d1_reclaim",
+        accountId: ACCOUNT_ID,
+        kind: "passkey_reclaimed",
+        createdAt: Math.floor(Date.now() / 1000),
+        acknowledgedAt: null,
+        ipHash: null,
+        uaLabel: null,
+      }),
+    ]);
+
+    const rows = await rawDb.select().from(passkeys).where(eq(passkeys.accountId, ACCOUNT_ID));
+    const ids = rows.map((r) => r.id);
+    expect(ids).not.toContain("pk_d1_lent");
+    expect(ids).toContain("pk_d1_new");
+    // The count is unchanged: one out, one in. That is what keeps the ceiling a
+    // ceiling rather than a ratchet.
+    expect(rows).toHaveLength(2);
+
+    const events = await rawDb
+      .select()
+      .from(securityEvents)
+      .where(eq(securityEvents.accountId, ACCOUNT_ID));
+    expect(events.filter((e) => e.kind === "passkey_reclaimed")).toHaveLength(1);
+  });
+
+  it("rolls the delete back when a statement beside it fails", async () => {
+    await seedPasskey("pk_d1_solo", "recovery", new Date());
+
+    // The replacement insert collides on the `credential_id` UNIQUE index, which
+    // is the realistic way this batch fails: an attestation the account already
+    // holds. Both inserts claim the same credential id, so the second one throws.
+    // D1 batches are atomic, so the delete must not survive it.
+    await expect(
+      commitBatch(rawDb, [
+        rawDb.delete(passkeys).where(eq(passkeys.id, "pk_d1_solo")),
+        seedPasskey("pk_d1_dupe", "recovery", new Date(), "d1-collides"),
+        seedPasskey("pk_d1_dupe2", "recovery", new Date(), "d1-collides"),
+      ]),
+    ).rejects.toThrow();
+
+    const rows = await rawDb.select().from(passkeys).where(eq(passkeys.accountId, ACCOUNT_ID));
+    // The credential is still there. Without atomicity the account would be one
+    // credential down with nothing to show for it.
+    expect(rows.map((r) => r.id)).toContain("pk_d1_solo");
+  });
+});

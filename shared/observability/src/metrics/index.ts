@@ -42,6 +42,7 @@ export {
   type RecoveryCodeConsumeResult,
   type RecoveryCooldownOutcome,
   type RecoveryDisownResult,
+  type RecoveryPasskeyReclaimResult,
   type SecurityEventKind,
   type SecurityEventNotifyResult,
   type StepUpFactor,

@@ -219,6 +219,45 @@ Four details that are load-bearing rather than incidental:
   an older one could otherwise relabel it, which is how a user is talked into
   confirming a delete on the wrong row.
 
+### The passkey ceiling's reclaim is not a way around W1
+
+An enrolment from a restricted recovery session above
+`RECOVERY_ENROLMENT_PASSKEY_CEILING` deletes a credential to pay for its slot,
+and that credential is inside its own W1 window. That is not a hole in the rule,
+because the two govern different things: W1 decides what a caller may do *with a
+step-up token it holds*, and the reclaim mints and presents no token at all. It
+is a server-side consequence of an enrolment the account is entitled to make, on
+the narrowest possible set of rows.
+
+Three bounds keep it there, and all three are what stop it becoming a deletion
+primitive:
+
+- **Only `recovery` provenance is reclaimable.** Not `otp`, not `totp`, not
+  `webauthn`, not a NULL column. Nothing the account established for itself can
+  be taken.
+- **Only what this recovery episode lent** — `created_at >=`
+  `accounts.last_recovered_at`. Nothing that predates the recovery, whatever its
+  provenance says.
+- **Only above the ceiling.** At or below it nothing is destroyed.
+
+**The matured lone row is the case the second bound exists for**, and it deserves
+spelling out because it is the one that actually occurs. `provenance_amr` is
+stamped at insert and never updated, so a credential the last recovery lent still
+reads `recovery` a year later, when its W1 window is long gone and it is the
+owner's daily phone. The cooldown then guarantees the worst pairing: it stamps
+`last_recovered_at` at the instant that credential is created, so the earliest
+permitted second recovery is the moment that credential matures. A rule that
+selected on provenance and recency alone would therefore meet exactly one
+candidate in the ordinary case — the matured one — and take it, on a path where
+no step-up was presented anywhere and the notice goes to the mailbox.
+
+So a matured row is never a candidate, and when it is the only one there is
+**nothing to take**. The threshold gives way instead: the enrolment happens and
+the account ends a credential above the ceiling. Refusing would put the account
+back where `xchromo/osn#970` found it.
+
+See [[account-recovery-factors#E. The passkey ceiling, and the slot it lends]].
+
 What the rule deliberately does **not** cover: `recovery_generate`,
 `security_event_ack` and `totp_disable` sit outside both windows, so an attacker
 holding the mailbox can still burn the owner's recovery codes, dismiss the

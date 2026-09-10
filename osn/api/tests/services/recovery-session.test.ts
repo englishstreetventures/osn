@@ -19,7 +19,7 @@
  */
 
 import { it, expect, describe } from "@effect/vitest";
-import { passkeys, sessions } from "@osn/db/schema";
+import { accounts, passkeys, securityEvents, sessions } from "@osn/db/schema";
 import type { Db } from "@osn/db/service";
 import { extractClaims } from "@shared/osn-auth-client/verify";
 import { eq } from "drizzle-orm";
@@ -32,10 +32,39 @@ import {
   ACCESS_TOKEN_AUDIENCE,
   MAX_PASSKEYS_PER_ACCOUNT,
   MAX_SESSIONS_PER_ACCOUNT,
+  RECOVERY_COOLDOWN_MS,
+  RECOVERY_ENROLMENT_PASSKEY_CEILING,
   RECOVERY_SESSION_TTL_SEC,
   RECOVERY_TOKEN_AUDIENCE,
   isReservedOidcClientId,
 } from "../../src/services/auth/constants";
+import type { PasskeyProvenance } from "../../src/services/auth/types";
+
+/**
+ * Every `metricRecoveryPasskeyReclaim` call, in order.
+ *
+ * The three values are the only thing that separates "the headroom was spent",
+ * "a loan was called in" and "the ceiling gave way" from the outside: all three
+ * answer the caller identically, and two of them leave the same row count. A
+ * swapped label would go undetected on the database assertions alone, which is
+ * what this spy exists to stop. It calls through, so nothing else changes.
+ *
+ * Mirrors `tests/routes/recovery-cooldown.test.ts`, which does the same for
+ * `metricRecoveryDisown` and for the same reason.
+ */
+const reclaimOutcomes = vi.hoisted(() => [] as string[]);
+vi.mock("../../src/metrics", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/metrics")>();
+  return {
+    ...actual,
+    metricRecoveryPasskeyReclaim: (result: string) => {
+      reclaimOutcomes.push(result);
+      actual.metricRecoveryPasskeyReclaim(
+        result as Parameters<typeof actual.metricRecoveryPasskeyReclaim>[0],
+      );
+    },
+  };
+});
 
 // `completePasskeyRegistration` runs a real WebAuthn attestation through
 // `@simplewebauthn/server`, which no unit test can produce. Only the verifier is
@@ -103,6 +132,17 @@ const seedPasskey = (
   accountId: string,
   id: string,
   credentialId: string,
+  /**
+   * Provenance and creation instant, for the ceiling tests. Left at the
+   * defaults a NULL provenance reads as `webauthn`, which is what every caller
+   * that only needs "the account holds a credential" wants.
+   *
+   * `createdAt` is passed explicitly rather than defaulted per row wherever a
+   * test turns on ordering: the column is unix SECONDS, so two `new Date()`
+   * calls land in the same second most of the time but not always, and a tie
+   * test built on that would go green by luck.
+   */
+  options?: { provenanceAmr?: PasskeyProvenance; createdAt?: Date },
 ) =>
   Effect.promise(() =>
     db.insert(passkeys).values({
@@ -112,8 +152,9 @@ const seedPasskey = (
       publicKey: "AQIDBA==",
       counter: 0,
       transports: null,
-      createdAt: new Date(),
+      createdAt: options?.createdAt ?? new Date(),
       label: null,
+      provenanceAmr: options?.provenanceAmr ?? null,
       lastUsedAt: null,
       aaguid: null,
       backupEligible: false,
@@ -917,36 +958,8 @@ describe("restricted recovery session — what the lift refuses to do", () => {
 });
 
 describe("restricted recovery session — the caps it does not lift", () => {
-  // Both properties are documented in `[[wiki/systems/sessions]]`, and a
-  // documented property with no test quietly stops being true. The passkey one
-  // is the subject of `xchromo/osn#970`, so the behaviour that issue is about
-  // has to be the behaviour a test names.
-
-  it.effect("an account at the passkey cap still cannot enrol through recovery", () => {
-    const { layer, db } = makeHarness();
-    return Effect.gen(function* () {
-      const user = yield* auth.registerProfile("rs-cap@example.com", "rscap");
-      for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT; i++) {
-        yield* seedPasskey(db, user.accountId, `pk_cap${i}`, `cap-credential-${i}`);
-      }
-      const restricted = yield* auth.issueRecoverySession(
-        user.id,
-        user.accountId,
-        user.email,
-        user.handle,
-        user.displayName,
-        "otp",
-      );
-
-      const refused = yield* Effect.flip(
-        auth.beginPasskeyRegistration(user.accountId, undefined, {
-          recoverySessionHash: auth.hashSessionToken(restricted.refreshToken),
-        }),
-      );
-      expect(refused._tag).toBe("AuthError");
-      expect((refused as { message: string }).message).toContain("Passkey limit reached");
-    }).pipe(Effect.provide(layer));
-  });
+  // Documented in `[[wiki/systems/sessions]]`, and a documented property with no
+  // test quietly stops being true.
 
   it.effect("a recovery session counts against the per-account session cap", () => {
     const { layer, db } = makeHarness();
@@ -992,6 +1005,438 @@ describe("restricted recovery session — the caps it does not lift", () => {
       const ids = rows.map((r) => r.id);
       expect(ids).toContain(auth.hashSessionToken(restricted.refreshToken));
       expect(ids).not.toContain("seeded-session-0");
+    }).pipe(Effect.provide(layer));
+  });
+});
+
+describe("restricted recovery session — the passkey ceiling", () => {
+  // An enrolment from a restricted recovery session is exempt from
+  // `MAX_PASSKEYS_PER_ACCOUNT` and is never refused for want of a slot. What
+  // keeps the count from ratcheting instead is a reclaim, and the reclaim can
+  // only take back what THIS recovery episode lent —
+  // `recovery`-provenance rows created at or after `accounts.last_recovered_at`.
+  //
+  // Both halves are load-bearing, and the second one is a security property
+  // rather than housekeeping.
+  //
+  // The exemption is what keeps an account that holds the cap and has lost every
+  // device reachable at all: it cannot enrol past the cap, and it cannot delete
+  // to make room, because `passkeyDeleteAllowedAmr` is WebAuthn-only and a
+  // restricted session cannot mint a step-up.
+  //
+  // The episode bound is what stops the reclaim becoming a deletion primitive
+  // for whoever holds the mailbox. `provenance_amr` is stamped at insert and
+  // never updated, so a `recovery` row keeps that value for the life of the
+  // account — including long after it has matured into the account's real,
+  // daily device. And the cooldown puts the earliest second recovery at the
+  // moment the first lent credential matures, so a provenance-only filter meets
+  // exactly one candidate in the case that actually occurs: the matured one.
+  // The tests below name that case directly.
+
+  const attestation = () =>
+    ({
+      id: "x",
+      rawId: "x",
+      response: {},
+      type: "public-key",
+      clientExtensionResults: {},
+    }) as never;
+
+  /**
+   * The instant this test's recovery episode landed, and the instants either
+   * side of it that the seeds are placed against.
+   *
+   * Everything is pinned to explicit `Date`s rather than to `new Date()` at seed
+   * time. `passkeys.created_at` and `accounts.last_recovered_at` are both unix
+   * SECONDS, so rows written by real time land in the same second more often
+   * than not, and a test that turns on which side of the recovery a credential
+   * falls would go green by luck.
+   */
+  const NOW = Date.now();
+  /** The current episode: `accounts.last_recovered_at`. */
+  const RECOVERED_AT_SEC = Math.floor(NOW / 1000) - 60;
+  /** A credential this episode lent — created after the recovery stamped. */
+  const LENT_BY_THIS = new Date((RECOVERED_AT_SEC + 5) * 1000);
+  /**
+   * A credential an EARLIER recovery lent, since matured — past its own W1
+   * window, and so indistinguishable from a credential the owner uses daily.
+   */
+  const MATURED = new Date(NOW - RECOVERY_COOLDOWN_MS - 60 * 60 * 1000);
+
+  /** Stamps the account's recovery window, as `completeRecoveryFactor` does. */
+  const stampRecovery = (
+    db: ReturnType<typeof makeHarness>["db"],
+    accountId: string,
+    atSec = RECOVERED_AT_SEC,
+  ) =>
+    Effect.promise(() =>
+      db.update(accounts).set({ lastRecoveredAt: atSec }).where(eq(accounts.id, accountId)),
+    );
+
+  /** Mints a restricted recovery session and returns its hashed id. */
+  const recoverySessionFor = (user: {
+    id: string;
+    accountId: string;
+    email: string;
+    handle: string;
+    displayName: string | null;
+  }) =>
+    Effect.gen(function* () {
+      const restricted = yield* auth.issueRecoverySession(
+        user.id,
+        user.accountId,
+        user.email,
+        user.handle,
+        user.displayName,
+        "otp",
+      );
+      return auth.hashSessionToken(restricted.refreshToken);
+    });
+
+  const passkeyRows = (db: ReturnType<typeof makeHarness>["db"], accountId: string) =>
+    Effect.promise(() => db.select().from(passkeys).where(eq(passkeys.accountId, accountId)));
+
+  /** Runs one whole recovery enrolment ceremony against the given session. */
+  const enrol = (accountId: string, sessionHash: string) =>
+    Effect.gen(function* () {
+      yield* auth.beginPasskeyRegistration(accountId, undefined, {
+        recoverySessionHash: sessionHash,
+      });
+      yield* auth.completePasskeyRegistration(accountId, attestation(), sessionHash);
+    });
+
+  /** The label the ceremony just emitted. See `reclaimOutcomes`. */
+  const lastOutcome = () => reclaimOutcomes.at(-1);
+
+  it.effect("an account at the cap can recover, and ends up one credential above it", () => {
+    const { layer, db } = makeHarness();
+    return Effect.gen(function* () {
+      const user = yield* auth.registerProfile("rs-cap@example.com", "rscap");
+      for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT; i++) {
+        yield* seedPasskey(db, user.accountId, `pk_cap${i}`, `cap-credential-${i}`);
+      }
+      yield* stampRecovery(db, user.accountId);
+      const sessionHash = yield* recoverySessionFor(user);
+
+      const begun = yield* auth.beginPasskeyRegistration(user.accountId, undefined, {
+        recoverySessionHash: sessionHash,
+      });
+      expect(begun.options.challenge).toBeTruthy();
+      yield* auth.completePasskeyRegistration(user.accountId, attestation(), sessionHash);
+
+      const rows = yield* passkeyRows(db, user.accountId);
+      // The headroom was spent, nothing was reclaimed, and every credential the
+      // account already held survived.
+      expect(rows).toHaveLength(RECOVERY_ENROLMENT_PASSKEY_CEILING);
+      expect(rows.filter((r) => r.provenanceAmr === "recovery")).toHaveLength(1);
+      for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT; i++) {
+        expect(rows.map((r) => r.id)).toContain(`pk_cap${i}`);
+      }
+      expect(lastOutcome()).toBe("headroom_used");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("never reclaims a credential an EARLIER recovery lent, once it has matured", () => {
+    const { layer, db } = makeHarness();
+    return Effect.gen(function* () {
+      // The boundary that matters, and the one a real second recovery always
+      // meets. `xchromo/osn#970`'s fix put the account at the ceiling with one
+      // `recovery` row on it; `accounts.last_recovered_at` is stamped when that
+      // session is minted, so the cooldown makes the EARLIEST permitted second
+      // recovery the moment that credential matures. The sole candidate is
+      // therefore matured, every time — and `provenance_amr` is never updated
+      // after insert, so it still says `recovery` however long the owner has
+      // been using the device.
+      //
+      // Selecting on provenance alone deletes it here, which hands a
+      // mailbox-only attacker the owner's last working credential with no
+      // step-up presented anywhere. The episode bound is what refuses that: the
+      // credential predates this recovery, so this recovery may not have it.
+      //
+      // The red for this test is restoring the unfiltered candidate selection —
+      // `.filter((pk) => pk.provenanceAmr === "recovery")` with no bound on
+      // `created_at`.
+      const user = yield* auth.registerProfile("rs-matured@example.com", "rsmatured");
+      for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT; i++) {
+        yield* seedPasskey(db, user.accountId, `pk_m${i}`, `matured-credential-${i}`);
+      }
+      // The slot the previous recovery lent, now the account's real device: a
+      // full cooldown plus an hour old, so its own W1 window has elapsed and it
+      // can already delete anything. That is precisely what makes it the owner
+      // acting rather than a loan outstanding.
+      yield* seedPasskey(db, user.accountId, "pk_matured", "matured-loan", {
+        provenanceAmr: "recovery",
+        createdAt: MATURED,
+      });
+      yield* stampRecovery(db, user.accountId);
+      const sessionHash = yield* recoverySessionFor(user);
+
+      yield* enrol(user.accountId, sessionHash);
+
+      const rows = yield* passkeyRows(db, user.accountId);
+      // Kept. This is the assertion the finding is about.
+      expect(rows.map((r) => r.id)).toContain("pk_matured");
+      // And the enrolment still happened — the threshold gave way, not the
+      // credential. A refusal here would be the original lockout returning.
+      expect(rows).toHaveLength(RECOVERY_ENROLMENT_PASSKEY_CEILING + 1);
+      expect(lastOutcome()).toBe("ceiling_yielded");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("reclaims a credential THIS episode lent, so one episode adds one credential", () => {
+    const { layer, db } = makeHarness();
+    return Effect.gen(function* () {
+      // The other half. A single episode can land two completes — the
+      // over-count `completePasskeyRegistration` documents — and the second one
+      // takes back the first one's slot rather than stacking on it. Nothing here
+      // predates the recovery, so nothing here is out of reach.
+      const user = yield* auth.registerProfile("rs-ratchet@example.com", "rsratchet");
+      for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT; i++) {
+        yield* seedPasskey(db, user.accountId, `pk_r${i}`, `ratchet-credential-${i}`);
+      }
+      yield* seedPasskey(db, user.accountId, "pk_lent", "lent-credential", {
+        provenanceAmr: "recovery",
+        createdAt: LENT_BY_THIS,
+      });
+      yield* stampRecovery(db, user.accountId);
+      const sessionHash = yield* recoverySessionFor(user);
+
+      yield* enrol(user.accountId, sessionHash);
+
+      const rows = yield* passkeyRows(db, user.accountId);
+      // Back on the ceiling: the slot was reclaimed and re-lent.
+      expect(rows).toHaveLength(RECOVERY_ENROLMENT_PASSKEY_CEILING);
+      expect(rows.map((r) => r.id)).not.toContain("pk_lent");
+      expect(rows.filter((r) => r.provenanceAmr === "recovery")).toHaveLength(1);
+      expect(lastOutcome()).toBe("reclaimed");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("takes this episode's loan and leaves an earlier, matured one standing", () => {
+    const { layer, db } = makeHarness();
+    return Effect.gen(function* () {
+      // Both kinds of `recovery` row on one account, which is the state the
+      // double-complete over-count produces on an account that recovered before.
+      // The choice between them is the whole rule in one assertion.
+      const user = yield* auth.registerProfile("rs-newest@example.com", "rsnewest");
+      for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT - 1; i++) {
+        yield* seedPasskey(db, user.accountId, `pk_n${i}`, `newest-credential-${i}`);
+      }
+      // The owner recovered long ago and has used this credential ever since.
+      yield* seedPasskey(db, user.accountId, "pk_matured", "matured-credential", {
+        provenanceAmr: "recovery",
+        createdAt: MATURED,
+      });
+      // Minted by the recovery now in progress. This is the slot to take.
+      yield* seedPasskey(db, user.accountId, "pk_fresh", "fresh-credential", {
+        provenanceAmr: "recovery",
+        createdAt: LENT_BY_THIS,
+      });
+      yield* stampRecovery(db, user.accountId);
+      const sessionHash = yield* recoverySessionFor(user);
+
+      yield* enrol(user.accountId, sessionHash);
+
+      const ids = (yield* passkeyRows(db, user.accountId)).map((r) => r.id);
+      expect(ids).not.toContain("pk_fresh");
+      expect(ids).toContain("pk_matured");
+      expect(lastOutcome()).toBe("reclaimed");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("never reclaims a pre-recovery credential, whatever the ordering", () => {
+    const { layer, db } = makeHarness();
+    return Effect.gen(function* () {
+      // The hard constraint on provenance, alongside the one on time: a
+      // restricted session must not be able to remove a credential the account
+      // established for itself. Only `recovery` provenance is reclaimable —
+      // `webauthn`, `otp`, `totp` and a NULL column (which reads as `webauthn`)
+      // are all out of reach, even when they were created after the recovery.
+      const user = yield* auth.registerProfile("rs-pre@example.com", "rspre");
+      for (const [id, credential, provenanceAmr] of [
+        ["pk_p_webauthn", "pre-webauthn", "webauthn"],
+        ["pk_p_otp", "pre-otp", "otp"],
+        ["pk_p_totp", "pre-totp", "totp"],
+      ] as const) {
+        yield* seedPasskey(db, user.accountId, id, credential, {
+          provenanceAmr,
+          // After the recovery, so only the provenance keeps them safe.
+          createdAt: LENT_BY_THIS,
+        });
+      }
+      yield* seedPasskey(db, user.accountId, "pk_p_null", "pre-null", {
+        createdAt: LENT_BY_THIS,
+      });
+      // The lent slot, so the account sits above the ceiling and the reclaim
+      // actually fires — otherwise this test would pass on the headroom branch
+      // without ever exercising the choice it is named for.
+      yield* seedPasskey(db, user.accountId, "pk_p_lent", "pre-lent", {
+        provenanceAmr: "recovery",
+        createdAt: LENT_BY_THIS,
+      });
+      for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT - 4; i++) {
+        yield* seedPasskey(db, user.accountId, `pk_p${i}`, `pre-credential-${i}`);
+      }
+      yield* stampRecovery(db, user.accountId);
+      const sessionHash = yield* recoverySessionFor(user);
+
+      yield* enrol(user.accountId, sessionHash);
+
+      const ids = (yield* passkeyRows(db, user.accountId)).map((r) => r.id);
+      // The `recovery` row paid for the slot; every other provenance survived.
+      expect(ids).not.toContain("pk_p_lent");
+      for (const kept of ["pk_p_webauthn", "pk_p_otp", "pk_p_totp", "pk_p_null"]) {
+        expect(ids).toContain(kept);
+      }
+      expect(lastOutcome()).toBe("reclaimed");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("breaks a same-second tie deterministically, and safely", () => {
+    const { layer, db } = makeHarness();
+    return Effect.gen(function* () {
+      // `passkeys.created_at` is unix SECONDS, so two credentials written in the
+      // same second are indistinguishable by time. The tie is CONSTRUCTED here —
+      // one explicit Date passed to both seeds — rather than hoped for from two
+      // `new Date()` calls, which land in the same second most of the time but
+      // not always.
+      //
+      // Either tied row is equally safe to take: both are rows this same episode
+      // lent. What must hold is that exactly one goes, the account lands back on
+      // the ceiling, and the pre-recovery credentials are untouched.
+      const user = yield* auth.registerProfile("rs-tie@example.com", "rstie");
+      for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT - 1; i++) {
+        yield* seedPasskey(db, user.accountId, `pk_t${i}`, `tie-credential-${i}`);
+      }
+      for (const [id, credential] of [
+        ["pk_tie_a", "tie-a"],
+        ["pk_tie_b", "tie-b"],
+      ] as const) {
+        yield* seedPasskey(db, user.accountId, id, credential, {
+          provenanceAmr: "recovery",
+          createdAt: LENT_BY_THIS,
+        });
+      }
+      yield* stampRecovery(db, user.accountId);
+      const sessionHash = yield* recoverySessionFor(user);
+
+      yield* enrol(user.accountId, sessionHash);
+
+      const rows = yield* passkeyRows(db, user.accountId);
+      expect(rows).toHaveLength(RECOVERY_ENROLMENT_PASSKEY_CEILING);
+      const survivors = rows.map((r) => r.id);
+      // Exactly one of the tied pair went.
+      expect(survivors.filter((id) => id === "pk_tie_a" || id === "pk_tie_b")).toHaveLength(1);
+      for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT - 1; i++) {
+        expect(survivors).toContain(`pk_t${i}`);
+      }
+      expect(lastOutcome()).toBe("reclaimed");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("is admitted above the ceiling with nothing of its own to reclaim", () => {
+    const { layer, db } = makeHarness();
+    return Effect.gen(function* () {
+      // Nothing on the account is reclaimable and the account is over the
+      // threshold anyway. The enrolment is still admitted: a refusal here is an
+      // account nobody can reach again, which is the failure this path exists to
+      // remove. The threshold gives way and the counter says so.
+      const user = yield* auth.registerProfile("rs-none@example.com", "rsnone");
+      for (let i = 0; i < RECOVERY_ENROLMENT_PASSKEY_CEILING; i++) {
+        yield* seedPasskey(db, user.accountId, `pk_none${i}`, `none-credential-${i}`, {
+          provenanceAmr: "webauthn",
+        });
+      }
+      yield* stampRecovery(db, user.accountId);
+      const sessionHash = yield* recoverySessionFor(user);
+
+      yield* enrol(user.accountId, sessionHash);
+
+      const rows = yield* passkeyRows(db, user.accountId);
+      expect(rows).toHaveLength(RECOVERY_ENROLMENT_PASSKEY_CEILING + 1);
+      for (let i = 0; i < RECOVERY_ENROLMENT_PASSKEY_CEILING; i++) {
+        expect(rows.map((r) => r.id)).toContain(`pk_none${i}`);
+      }
+      expect(lastOutcome()).toBe("ceiling_yielded");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("reclaims nothing when the account has no recovery on record", () => {
+    const { layer, db } = makeHarness();
+    return Effect.gen(function* () {
+      // Fail-closed on the bound itself. With `last_recovered_at` NULL there is
+      // no episode to measure against, so nothing can be shown to be this
+      // episode's own and nothing is taken — not even a `recovery`-provenance
+      // row sitting right there.
+      const user = yield* auth.registerProfile("rs-nowindow@example.com", "rsnowindow");
+      for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT; i++) {
+        yield* seedPasskey(db, user.accountId, `pk_w${i}`, `window-credential-${i}`);
+      }
+      yield* seedPasskey(db, user.accountId, "pk_w_lent", "window-lent", {
+        provenanceAmr: "recovery",
+        createdAt: LENT_BY_THIS,
+      });
+      const sessionHash = yield* recoverySessionFor(user);
+
+      yield* enrol(user.accountId, sessionHash);
+
+      const rows = yield* passkeyRows(db, user.accountId);
+      expect(rows.map((r) => r.id)).toContain("pk_w_lent");
+      expect(rows).toHaveLength(RECOVERY_ENROLMENT_PASSKEY_CEILING + 1);
+      expect(lastOutcome()).toBe("ceiling_yielded");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("an ordinary enrolment at the cap is still refused, ceiling or no ceiling", () => {
+    const { layer, db } = makeHarness();
+    return Effect.gen(function* () {
+      // The exemption belongs to the recovery bypass alone. A caller holding a
+      // real step-up token gets `MAX_PASSKEYS_PER_ACCOUNT` and nothing more —
+      // otherwise the cap would have been raised for everyone by accident.
+      const user = yield* auth.registerProfile("rs-ord@example.com", "rsord");
+      for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT; i++) {
+        yield* seedPasskey(db, user.accountId, `pk_o${i}`, `ordinary-credential-${i}`);
+      }
+      yield* stampRecovery(db, user.accountId);
+
+      const refused = yield* Effect.flip(
+        auth.beginPasskeyRegistration(user.accountId, "any-token"),
+      );
+      expect(refused._tag).toBe("AuthError");
+      expect((refused as { message: string }).message).toContain("Passkey limit reached");
+    }).pipe(Effect.provide(layer));
+  });
+
+  it.effect("writes a passkey_reclaimed security event only when something was reclaimed", () => {
+    const { layer, db } = makeHarness();
+    return Effect.gen(function* () {
+      const user = yield* auth.registerProfile("rs-sev@example.com", "rssev");
+      for (let i = 0; i < MAX_PASSKEYS_PER_ACCOUNT; i++) {
+        yield* seedPasskey(db, user.accountId, `pk_s${i}`, `sev-credential-${i}`);
+      }
+      yield* stampRecovery(db, user.accountId);
+      yield* enrol(user.accountId, yield* recoverySessionFor(user));
+
+      const events = () =>
+        Effect.promise(() =>
+          db.select().from(securityEvents).where(eq(securityEvents.accountId, user.accountId)),
+        );
+      // Headroom only — a credential was added, none was taken.
+      expect((yield* events()).filter((r) => r.kind === "passkey_reclaimed")).toHaveLength(0);
+      expect(lastOutcome()).toBe("headroom_used");
+
+      // Put a loan from this same episode on the account, so the next ceremony
+      // has something of its own to call in.
+      yield* seedPasskey(db, user.accountId, "pk_s_lent", "sev-lent", {
+        provenanceAmr: "recovery",
+        createdAt: LENT_BY_THIS,
+      });
+      yield* enrol(user.accountId, yield* recoverySessionFor(user));
+
+      // The audit row is the only record that a credential vanished on a path
+      // nobody drove, so it is not optional.
+      expect((yield* events()).filter((r) => r.kind === "passkey_reclaimed")).toHaveLength(1);
+      expect(lastOutcome()).toBe("reclaimed");
     }).pipe(Effect.provide(layer));
   });
 });

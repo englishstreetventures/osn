@@ -7,7 +7,7 @@ related:
   - "[[passkey-primary]]"
   - "[[oidc-provider]]"
   - "[[account-recovery-factors]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-10
 ---
 
 # Session introspection + revocation
@@ -173,7 +173,7 @@ The argument for skipping it is that the OTP or TOTP code which minted the sessi
 - The gate reads that column back off the caller's own session row — named from the cookie or the token's `osn_sid`, exactly as `/complete` names it — and admits the bypass only for a row that is this account's, still restricted, inside its deadline, and recording an admitted factor. Four fail-closed answers; an unresolvable session simply needs a step-up token like anyone else.
 - Narrowing `passkeyRegisterAllowedAmr` therefore withdraws the bypass from sessions **already issued**, not just from future ones.
 
-The per-account passkey cap is *not* bypassed, and an account already at the cap is currently unrecoverable (`xchromo/osn#970`).
+The per-account passkey cap does not refuse this enrolment, at any count — an account at the cap that had lost every device could not otherwise recover at all, and that was `xchromo/osn#970`. What bounds the count instead is a reclaim above `RECOVERY_ENROLMENT_PASSKEY_CEILING`, one credential over the cap, and it can only take back the slots **this same recovery episode lent**: `recovery` provenance *and* created at or after `accounts.last_recovered_at`. Nothing that predates the recovery is ever taken, because `provenance_amr` is never updated after insert and a `recovery` row that has matured into the owner's daily device still carries that value. Where there is nothing of its own to reclaim the threshold gives way, and the account ends a credential above it rather than a credential down. Every other enrolment is refused at the cap unchanged. The rule, its argument and the recovery-code path it does not cover are in [[account-recovery-factors#E. The passkey ceiling, and the slot it lends]] (`wiki/architecture/account-recovery-factors.md`).
 
 **Whatever issues one must set the session cookie**, exactly as `POST /login/recovery/complete` does. `completePasskeyRegistration`'s other-session sweep derives the caller from that cookie (or from the token's `osn_sid`) and answers `session_stale` (409) when it can do neither — so a recovery route that forgets `buildSessionCookies` produces a session that cannot finish the one thing it exists for.
 
