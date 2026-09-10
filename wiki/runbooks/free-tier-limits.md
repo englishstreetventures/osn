@@ -28,6 +28,11 @@ last-reviewed: 2026-09-10
 > **All numbers below are the documented limits as of `last-reviewed` and
 > WILL drift — re-verify against the provider's own pricing page before
 > acting on a quota decision.** Each section links its source page.
+>
+> That covers the ceilings. A figure of **ours** — one only a command here can
+> produce — carries that command and the date it was run, in italics under it.
+> Re-run it rather than trusting `last-reviewed`, which says someone read the
+> page and nothing about whether its numbers are still true.
 
 ## Dependency → service map (who depends on what)
 
@@ -205,6 +210,10 @@ about 22,630 read per deploy** — so 13 merges on 2026-09-09 spent 104,091 rows
 written and went over the 100K/day ceiling, as did 2026-08-30. Production wrote
 between 3 and 116 rows a day over the same window.
 
+*Measured 2026-09-10 — per-day, per-database totals from the Cloudflare GraphQL
+`d1AnalyticsAdaptiveGroups` dataset, dimensions `databaseId` and `date`, summing
+`rowsRead` and `rowsWritten`.*
+
 An earlier version of this page said a seed was "on the order of tens of rows".
 That was wrong by three orders of magnitude, and it blamed the wrong step. The
 seed is about 2,060 rows; the cost is the **migration replay**. SQLite rebuilds
@@ -213,6 +222,8 @@ schema churn even when the table is empty — one such statement on
 `wedding_invite_customisations` costs 54 rows written and 421 read against no
 data at all. Of the 200 heaviest queries on `cire-db-dev` in the week to
 2026-09-10, DDL was 89% of rows written and 99.7% of rows read.
+
+*Measured 2026-09-10 — `bunx wrangler d1 insights cire-db-dev --time-period=7d --sort-by=writes`, and the same with `--sort-by=reads`.*
 
 Fixed in xchromo/osn#979 and #980: the per-merge dev deploy now applies
 migrations forward like production, the full rebuild runs nightly in

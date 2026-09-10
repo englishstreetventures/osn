@@ -7,7 +7,7 @@ related:
   - "[[frontend-patterns]]"
   - "[[testing-patterns]]"
   - "[[review-findings]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-10
 ---
 
 # Astro bundle-size guards
@@ -44,6 +44,11 @@ the minified build the same library costs 21261 bytes, so a fresh dependency of
 exactly the class the guard was written for would have landed under the line
 and deployed. The fix was to re-measure against the build as it is now and set
 the headroom to ~11.7 KB, roughly half the mistake.
+
+*Unverified — the method is on record, the date is not. Gzip
+`cire/invites/dist/client/_astro/animate.*.js` from a clean build, or rebuild
+with `stubMotionForSsr()` removed and diff the total. Written into this page
+2026-09-07.*
 
 The corollary is a check, not a rule: **you have not verified a guard until you
 have seen it fail.** Break the input, watch the non-zero exit. A guard that
@@ -106,6 +111,10 @@ touching a threshold. In short:
 > (parse the HTML too, or force `inlineStylesheets: "never"` so everything
 > lands in `dist/_astro` where the guard already looks); this is a product
 > decision, not something fixed in this script.
+>
+> *Unverified — no command on record. Written into this page 2026-09-07;
+> recount the inline `<style>`/`<script>` blocks in
+> `musubi/landing/dist/index.html` before acting on the 3116.*
 
 ### Where it runs, and why twice
 
@@ -149,6 +158,11 @@ the guard regardless of how large or small the app's own baseline is:
 | cire/landing | static | 177641 B | 189324 B |
 | musubi/landing | static | 15182 B | 26865 B |
 | pulse/landing | static | 16683 B | 28366 B |
+
+*Measured 2026-09-06 — clean `bun run build` at the worktree root with no
+`PUBLIC_*` vars set, then `scripts/guard-bundle-size.sh --all`, which prints
+each app's gzip total. `scripts/bundle-size-budgets.txt` is still the file the
+guard reads; this table only mirrors it.*
 
 `cire/landing` ships a Three.js scene by design (the wax-seal hero) — its
 JS number is dominated by one intentional dependency, which is exactly why

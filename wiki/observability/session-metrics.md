@@ -14,7 +14,7 @@ related:
   - "[[observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-09-08
+last-reviewed: 2026-09-10
 ---
 
 # Session Metrics
@@ -111,6 +111,11 @@ Three traps the collector handles and any reimplementation must:
   are never collapsed, because a person who types "continue" twice steered
   twice.
 
+*Measured 2026-09-08 — a one-off scan of `~/.claude/projects/**/*.jsonl` on the
+machine that did the work. No script was kept, and that directory is local and
+unversioned, so the counts describe one machine on one day and nobody else can
+reproduce them. They size the traps; they are not a repository statistic.*
+
 ## Attributing subagent spend
 
 `gitBranch` is a property of the **session**, captured once when it starts and
@@ -129,6 +134,10 @@ The scale, measured over 904 transcript files and 9.03e9 tokens:
 Subagent transcripts are 27.0% of all spend, and **85.8% of that is stamped
 `HEAD`** against 7.4% on a real branch. A branch whose work was delegated saw
 almost none of its own cost.
+
+*Measured 2026-09-08 — the same one-off scan of `~/.claude/projects` as above,
+904 transcript files, and the depth-2 counts below come from it too. One
+machine, one day, no script kept.*
 
 So `orchestrate` puts a marker on its own line at the top of every dispatch
 prompt:
@@ -323,6 +332,10 @@ one area means that area has no usable map.
 > early. And a session that never shows an edit banks **nothing**: the card
 > reports `null`, and every ranking drops it. "We did not see the boundary" and
 > "all of it was exploration" are different claims, and only one is true.
+>
+> *Measured 2026-09-07 over the 34 cards that existed then. Re-derive the
+> per-package share over today's corpus with
+> `bun run --cwd tools/pr-metrics report -- --exploration`.*
 
 **`corrective_turns` → an unclear brief.** Human turns that arrive after the
 agent has already picked up tools: course corrections rather than the task. One
@@ -409,6 +422,10 @@ mean**. These are severely right-skewed: across the first 34 cards the median
 was 3.6M tokens, the mean 15.4M and the maximum 92.7M. The mean described the
 three largest pull requests and showed 8.5× month-over-month growth where the
 median showed about 2×.
+
+*Measured 2026-09-07 over the 34 cards that existed then. The mean and maximum
+came from an ad-hoc pass, not a committed query; the median re-derives over
+today's corpus with `bun run --cwd tools/pr-metrics report -- --context`.*
 
 The raw view, if you want to start from nothing:
 

@@ -174,6 +174,28 @@ So: tables and mermaid for anything a reader might hit through GitHub; the Obsid
 - **Use `[[wiki links]]`** between wiki pages; never relative markdown links. `wiki/` is the only vault — the second one at `cire/wiki/` folded into it on 2026-08-21, and every cire page is now a plain wikilink (`[[cire-vendors]]`, `[[cire-platform-plan]]`, `[[cire-invite-builder]]`). Cire pages carry a `cire-` prefix where a bare name would collide.
 - **Security/performance findings** are issues in `xchromo/osn-tracker`, and the body names the affected wiki page by path (e.g. `wiki/systems/rate-limiting.md`) — a wikilink does not resolve on GitHub.
 - **Update `last-reviewed`** in frontmatter of any wiki page you touch.
+- **Two kinds of number, written differently.** A **documented ceiling** is a provider's
+  published limit: leave it in prose and name the pricing page — the page's own drift
+  warning covers it. A **measured figure is ours**, and nobody can check it without
+  running something, so it carries the command and the date on the line under it:
+
+  ```markdown
+  A full dev rebuild costs **8,007 D1 rows written**.
+
+  *Measured 2026-09-10 — `bunx wrangler d1 insights cire-db-dev --time-period=7d --sort-by=writes`*
+  ```
+
+  The marker is **visible, not an HTML comment**: pages render in Obsidian and on GitHub,
+  a comment shows in neither, and the reader it is written for would never see it. Where
+  no one command produces the figure, name the method instead (*Measured 2026-08-31 —
+  latency probe from a Sydney client, n=25*). Where either the method or the date is
+  missing, mark it `*Unverified — …*`, say what you do know, and leave the figure
+  itself alone. An invented command is worse than none — that is the mistake this rule
+  exists to stop.
+- **`last-reviewed` is not a warranty on the numbers.** It says someone read the page.
+  `free-tier-limits.md` was read the day before its D1 write ceiling was crossed and
+  still said a seed cost "tens of rows" against a real 8,007 — reading a number cannot
+  tell you it is false. The measured marker is what a reader re-runs instead.
 
 ## Current State (summary)
 

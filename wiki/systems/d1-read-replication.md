@@ -19,7 +19,7 @@ related:
   - "[[free-tier-limits]]"
 packages:
   - "@cire/api"
-last-reviewed: 2026-09-01
+last-reviewed: 2026-09-10
 ---
 
 # D1 Read Replication and the Sessions API
@@ -33,14 +33,17 @@ is how a Worker actually uses them without giving up read-your-writes.
 
 ## The cost being paid
 
-Measured 2026-08-31 from a Sydney client against the OC-primary `cire-db`, by
-diffing a route that runs one extra `SELECT` against a route that runs none:
+What one query costs against the OC-primary `cire-db`:
 
 | Measure | Value |
 |---|---|
 | Control (no D1 query) | 15.0 ms |
 | One extra `SELECT` | 50.7 ms |
 | **Cost of one query** | **35.7 ms** (p10 33.0, p90 39.3, n=25) |
+
+*Measured 2026-08-31 — a hand-run latency probe from a Sydney client, timing a
+route with one extra `SELECT` against one with none, n=25. No script was kept,
+so re-running it means writing the probe again.*
 
 That is the *near* case. The same query from Europe or North America pays the
 transoceanic round trip on top, and a request that reads four tables pays it
@@ -150,6 +153,8 @@ before, inside the noise. That is the expected result and worth keeping: a query
 made outside a session goes to the primary whatever the database is configured
 to do, so enabling replication on its own buys nothing and costs nothing. The
 saving only appears once a Worker that opens sessions is deployed.
+
+*Measured 2026-08-31 — the same hand-run probe as §The cost being paid, n=29.*
 
 A second thing that measurement cannot show from here: the client and the
 primary are both in Oceania, so even with sessions live, a Sydney reader has
