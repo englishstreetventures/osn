@@ -1,5 +1,11 @@
 # @osn/pulse
 
+## 0.22.52
+
+### Patch Changes
+
+- @pulse/api@0.27.9
+
 ## 0.22.51
 
 ### Patch Changes
