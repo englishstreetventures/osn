@@ -5,9 +5,14 @@
 #
 #   bun run --cwd cire/db db:reset:dev      # scripts/cire-db-reset.sh --dev
 #
-# This is what makes the dev tier's data disposable: the deploy pipeline runs
-# reset -> migrate -> seed on every merge to main, so dev never accumulates state
-# and every deploy re-tests the migrations from 0001.
+# This is what makes the dev tier's data disposable: .github/workflows/
+# cire-dev-db-rebuild.yml runs reset -> migrate -> seed nightly (and on
+# workflow_dispatch), so dev never accumulates state for long and the migration
+# chain is re-tested from 0001 against real D1 once a day.
+#
+# It ran on every merge until 2026-09-10. At 8,007 D1 rows written a time
+# against a 100,000/day free-tier ceiling shared by every database on the
+# account, a 13-merge day went over it. See xchromo/osn#979.
 #
 # DESTRUCTIVE, and unattended in CI. The only accepted target is `cire-db-dev`;
 # the shared guard re-checks that against cire/api/wrangler.toml rather than

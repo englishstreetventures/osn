@@ -38,9 +38,9 @@ Run from the repo root with `bun run --cwd cire/db <script>`. Wrangler reads
 | `db:migrate:dev`   | Apply pending migrations to the **dev** D1 (`cire-db-dev`, `--env dev`). CI runs this every merge |
 | `db:migrate:prod`  | Apply pending migrations to the **production** D1 (`--env production`). Coordinate with deploys.  |
 | `db:seed`          | Apply `seed/dev-seed.sql` to the local D1 (idempotent — uses `INSERT OR IGNORE`)                  |
-| `db:seed:dev`      | Same seed against `cire-db-dev`. Guarded — refuses any other remote database.                     |
+| `db:seed:dev`      | Same seed against `cire-db-dev`. Guarded — refuses any other remote database. Nightly, with the reset above |
 | `db:reset`         | Wipe local D1 state, re-run migrations + seed. Destructive — local only.                          |
-| `db:reset:dev`     | Drop every table in `cire-db-dev` incl. `d1_migrations`. Destructive — dev only, no prod flag.    |
+| `db:reset:dev`     | Drop every table in `cire-db-dev` incl. `d1_migrations`. Destructive — dev only, no prod flag. Run nightly by `cire-dev-db-rebuild.yml`, not on merge |
 | `db:studio`        | Launch Drizzle Studio for browsing the schema / writing one-off queries                           |
 | `seed:generate`    | Regenerate `seed/dev-seed.sql` and `seed/dev-reset.sql` from `seed/data/` + `src/schema.ts`       |
 | `test`             | Run the seed sync tests (`bun test`) — fail if either generated `.sql` is out of sync             |

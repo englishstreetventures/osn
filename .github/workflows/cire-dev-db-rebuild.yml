@@ -1,0 +1,91 @@
+# Rebuild the DEV cire D1 from zero: reset (drop every table incl. the migration
+# ledger) -> replay all migrations from 0001 -> seed.
+#
+# This used to run on every merge, inside deploy-cire-api-dev. At 8,007 D1 rows
+# written and ~22,630 read per run against a free-tier ceiling of 100,000
+# written per day account-wide, 13 merges in a day went over it (#979). The
+# per-merge job now applies migrations incrementally, exactly as production
+# does, and the from-zero replay lives here instead — once a night, plus
+# on demand.
+#
+# What the replay is FOR: proving the migration chain still builds a working
+# database from nothing, so a migration that only works as an increment fails
+# on dev rather than in production months later. Most of that proof is already
+# free — cire/api/tests/db/ddl-lockstep.test.ts (T-S1) applies the full chain to
+# an in-memory SQLite on every `bun test`, so on every PR. What only a REMOTE
+# replay catches is DDL that bun:sqlite accepts and D1 rejects. That is what
+# this job is here for.
+#
+# DESTRUCTIVE, and unattended. Both destructive steps route through scripts/
+# guards that re-derive the target from cire/api/wrangler.toml and refuse
+# anything but `cire-db-dev`. There is no flag anywhere in this path that
+# points at production.
+name: Rebuild cire dev D1
+
+on:
+  schedule:
+    # 14:00 UTC — 01:00 in Australia/Sydney, when nobody is merging. The D1
+    # daily counters reset at UTC midnight, so this lands mid-day with plenty
+    # of headroom either side.
+    - cron: "0 14 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rebuild:
+    name: Reset, replay and seed cire-db-dev
+    runs-on: ubuntu-latest
+    environment: dev
+    # Shares the dev deploy's group so a rebuild and a deploy never touch
+    # cire-db-dev at once. `cancel-in-progress: false` means a rebuild queued
+    # behind a deploy waits for it. The reverse — a merge landing mid-rebuild —
+    # cancels this job, because the deploy side sets `cancel-in-progress: true`;
+    # that leaves dev with its tables dropped and its ledger gone, so the next
+    # `migrations apply` replays the whole chain and puts it right. Dev is 503
+    # in between. Disposable tier, self-healing, and one merge's worth of rows.
+    concurrency:
+      group: deploy-dev-cire-api
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Guard against placeholder D1 database_id
+        run: bun run scripts/check-d1-database-id.ts
+
+      - name: Reset the dev D1 (drops every table)
+        run: bun run --cwd cire/db db:reset:dev
+
+      - name: Replay cire D1 migrations from zero (dev)
+        run: bun run --cwd cire/db db:migrate:dev
+
+      # CIRE_DEV_OWNER_PROFILE_ID repoints the seeded wedding at a real dev
+      # account. The seed owns it as `usr_dev_bootstrap_owner`, an id no account
+      # holds, so without this the sample wedding — its guests, its events and
+      # its comped entitlements (registry, vendors, AI) — is invisible to
+      # everyone signing in to test. It is a VARIABLE, not a secret: an OSN
+      # profile id is not a credential, and a masked value would only make the
+      # seed log unreadable. Unset, the seed says so and carries on.
+      - name: Seed the dev D1
+        run: bun run --cwd cire/db db:seed:dev
+        env:
+          CIRE_DEV_OWNER_PROFILE_ID: ${{ vars.CIRE_DEV_OWNER_PROFILE_ID }}

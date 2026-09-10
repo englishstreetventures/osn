@@ -159,16 +159,46 @@ deploy would queue behind that click. Each job takes a group named for its own
 surface **and** tier (`deploy-dev-cire-api`, `deploy-production-cire-api`), so two
 runs never deploy the same thing at once while unrelated surfaces stay parallel.
 
-### The dev database is rebuilt every deploy
+The dev cire job also sets **`cancel-in-progress: true`**. A burst of merges
+otherwise queues one dev deploy per merge, and each one only brings dev to the
+shape the last one would; superseding them is free. Cancelling mid-flight can
+leave dev's database one migration ahead of its Worker, which the next merge
+puts right — the tier is disposable, and the alternative was multiplying the D1
+bill by the size of the burst (xchromo/osn#980). **Production stays
+`cancel-in-progress: false`**: a half-deployed live wedding is not a trade worth
+making.
 
-`deploy-cire-api-dev` runs **reset → migrate → seed → deploy**:
+### The dev database is rebuilt nightly, not every deploy
+
+`deploy-cire-api-dev` runs **migrate → deploy**, applying migrations forward
+exactly as production does:
+
+```
+bun run --cwd cire/db db:migrate:dev  # apply anything not in d1_migrations yet
+bunx wrangler deploy --env dev        # from cire/api
+```
+
+The full rebuild — **reset → migrate → seed** — moved to its own workflow,
+`.github/workflows/cire-dev-db-rebuild.yml`, on a nightly schedule (14:00 UTC,
+01:00 in Sydney) and `workflow_dispatch`:
 
 ```
 bun run --cwd cire/db db:reset:dev    # drop every table INCLUDING d1_migrations
 bun run --cwd cire/db db:migrate:dev  # replay 0001.. against an empty database
 bun run --cwd cire/db db:seed:dev     # the sample wedding, at production scale
-bunx wrangler deploy --env dev        # from cire/api
 ```
+
+**Why it moved.** A rebuild costs **8,007 D1 rows written and about 22,630
+read**, and the free tier allows 100,000 written a day across every database on
+the account. Thirteen merges on 2026-09-09 spent 104,091 and went over the
+ceiling. Almost none of that is the seed: SQLite rebuilds the whole table for
+every `ALTER TABLE ... DROP COLUMN`, and D1 bills the schema churn even against
+empty tables. Of the 200 heaviest queries on `cire-db-dev` in a week, DDL
+accounted for 89% of rows written and 99.7% of rows read; the seed's `INSERT`s
+were 11% and 0.3%. See xchromo/osn#979.
+
+The rebuild also shares the deploy's `deploy-dev-cire-api` concurrency group, so
+a rebuild and a deploy never touch `cire-db-dev` at once.
 
 The seeded wedding matches a real live one in shape and size — 5 events, 199
 households, 494 guests, 1131 invitations, 168 replies, 3 co-hosts, all 4
@@ -194,10 +224,17 @@ are generated gradients, not photographs: the bucket is `cire-assets-dev`, pinne
 in `seed/assets.ts`, and no couple's photo is ever copied onto a tier this many
 people can reach. Re-run only after recreating the bucket.
 
-Two things fall out of that order. Dev data never drifts from the seed, and
-**every merge re-tests the whole migration chain** — a migration that only works
-as an increment from the current prod shape fails here, on a disposable database,
-instead of in production months later.
+**What still re-tests the migration chain.** The nightly rebuild replays it from
+zero against real D1, and that is the only place DDL which `bun:sqlite` accepts
+but D1 rejects gets caught. Most of the proof is cheaper and more frequent than
+that: `cire/api/tests/db/ddl-lockstep.test.ts` (T-S1) applies the whole chain to
+an in-memory database on every `bun test`, so on every pull request, and diffs a
+normalised snapshot of it against the DDL mirror in `cire/api/src/db/setup.ts`
+and the Drizzle schema. A migration that only works as an increment fails there
+first.
+
+Dev data now gets its clean floor once a night rather than once a merge, so a
+wedding a tester made by hand survives the working day.
 
 Both destructive steps route through `scripts/cire-dev-db-guard.ts`, which
 re-derives the target from `cire/api/wrangler.toml` at run time and aborts unless
@@ -621,7 +658,8 @@ ceremony spans two requests, so it is what catches Redis being misconfigured.
    `id.dev.musubi.social/.well-known/openid-configuration` still returns **200**.
    A 302 on either API host means Access was put on the wrong destination — pull
    it off before anything else.
-7. Re-run the dev deploy and confirm the reset replayed migrations from zero.
+7. Run the **Rebuild cire dev D1** workflow by hand (`workflow_dispatch`) and
+   confirm the reset replayed migrations from zero.
 
 ---
 

@@ -59,10 +59,10 @@ fi
 # profile id is committed here).
 #
 # It is not a nicety on dev. The seed owns the wedding as usr_dev_bootstrap_owner,
-# an id no account holds, and every cire_api deploy resets and reseeds the tier —
+# an id no account holds, and the nightly rebuild resets and reseeds the tier —
 # so without the override the seeded wedding, its 494 guests and its comped
 # entitlements (registry, vendors, AI) are invisible to whoever signs in to test
-# them, and any wedding a tester makes by hand is wiped on the next deploy.
+# them, and any wedding a tester makes by hand is wiped on the next rebuild.
 if [ -n "${CIRE_DEV_OWNER_PROFILE_ID:-}" ]; then
   # The value is interpolated into a SQL string literal below. It comes from
   # cire/db/.env, the workflow, or the ambient environment — trusted-ish, but a
