@@ -582,13 +582,20 @@ The row's shape — the columns that carry a trust decision are listed in
 
 ### 4.1 Apply cire D1 migrations (remote)
 
-Migrations live in `cire/db/migrations/` (`0001` up to `0044_invite_palette.sql` at the
-time of writing). The `database_id` is already wired
+Migrations live in `cire/db/migrations/`. Since the 2026-09-10 squash
+(xchromo/osn#981) that is one baseline file, `0001_initial.sql`, holding the
+whole schema, plus anything numbered `0058` and up. Production has all 57 old
+names in its `d1_migrations` ledger, including `0001_initial.sql`, so wrangler
+skips the baseline and applies nothing — `d1 migrations list --env production`
+says "No migrations to apply!". The originals are in
+`cire/db/migrations-archive/`, which nothing applies. The `database_id` is
+already wired
 (`6e835474-e0a7-4db9-8883-3247c3c891cd`, §2.1). **CI applies them** — the
 `deploy-cire-api` job runs `wrangler d1 migrations apply cire-db --remote` before the new
 Worker serves, so the commands below are the manual equivalent.
 
-> ⚠️ Migration `0015_drop_bootstrap_wedding.sql` DELETEs the orphaned demo wedding
+> ⚠️ Migration `0015_drop_bootstrap_wedding.sql` (now in
+> `cire/db/migrations-archive/`; it ran on production long ago) DELETEs the orphaned demo wedding
 > row `wed_bootstrap` (seeded by `0006`, owned by the inert sentinel
 > `usr_unclaimed_bootstrap`). Its children cascade-delete. Pre-launch there is no
 > real data on it. This runs on its own in the CI deploy pipeline's migration
@@ -1004,7 +1011,7 @@ Run these in order. Each one maps to a startup requirement listed above.
 | cire D1 / R2 bindings + prod vars | `cire/api/wrangler.toml:12-43` |
 | cire edge fail-closed + WEB_ORIGIN parse | `cire/api/src/index.ts:44-101` |
 | cire ARC bridge (account-linking) | `cire/api/src/services/osn-bridge.ts`, env `cire/api/src/index.ts:25-27,80-85` |
-| Drop orphaned demo wedding (`wed_bootstrap`) | `cire/db/migrations/0015_drop_bootstrap_wedding.sql` |
+| Drop orphaned demo wedding (`wed_bootstrap`) | `cire/db/migrations-archive/0015_drop_bootstrap_wedding.sql` (applied; squashed out of the live set 2026-09-10) |
 | Organiser open access (any OSN user; no boot gate) | list/create `cire/api/src/routes/organiser-weddings.ts`; per-wedding authz `cire/api/src/middleware/wedding-owner.ts`, `wedding-member.ts` |
 | cire migrate scripts | `cire/db/package.json` (`db:migrate:local|dev|prod`) |
 | cire dev seed / reset + their guard | `cire/db/seed/dev-seed.sql`, `dev-reset.sql`; `scripts/cire-db-seed.sh`, `cire-db-reset.sh`, `cire-dev-db-guard.ts` |

@@ -9,10 +9,11 @@ cire/db/
 ├── src/schema.ts         # Drizzle schema — single source of truth
 ├── drizzle.config.ts     # Drizzle Kit pointer to schema + migrations dir
 ├── migrations/           # Forward-only D1 migrations (committed)
-│   ├── 0001_initial.sql
-│   ├── …                 # one file per change; wrangler applies in NAME order
-│   ├── 0054_event_timestamps.sql
-│   └── meta/             # drizzle-kit journal + latest snapshot (see below)
+│   ├── 0001_initial.sql  # THE BASELINE — the whole schema in one file
+│   ├── …                 # 0058 onwards; wrangler applies in NAME order
+│   └── meta/             # drizzle-kit journal + 0057_snapshot.json (see below)
+├── migrations-archive/   # 0001–0057 as they were, squashed 2026-09-10.
+│                         # Wrangler never reads this; four tests do.
 └── seed/
     ├── data/             # Canonical seed data (single source of truth)
     │   ├── events.ts     # keyed-by-slug sample events
@@ -67,12 +68,32 @@ bun run --cwd cire/api dev
 **After editing `schema.ts`**
 
 ```bash
-bun run --cwd cire/db db:generate   # emits cire/db/migrations/00NN_<desc>.sql
+bun run --cwd cire/db db:generate   # emits cire/db/migrations/00NN_<desc>.sql (0058+)
 # rename to a descriptive suffix, add a rationale header comment, review the SQL
 bun run --cwd cire/db db:push       # applies it locally
 # mirror the change in cire/api/src/db/setup.ts's DDL string — the
 # ddl-lockstep test fails until all three surfaces agree
 ```
+
+### The baseline, and why its filename matters
+
+`migrations/0001_initial.sql` is not the first migration any more — it is the
+**whole schema**, squashed out of the original 57 files on 2026-09-10
+(xchromo/osn#981). Building a database from the chain cost 8,007 D1 rows written
+and about 22,630 read, against a free-tier ceiling of 100,000 written a day
+across the account; almost all of it was SQLite rebuilding whole tables for
+`ALTER TABLE ... DROP COLUMN`, which D1 bills even when the table is empty.
+
+**Do not rename it.** `wrangler d1 migrations apply` skips any file already
+named in the target database's `d1_migrations` ledger. Production's ledger holds
+`0001_initial.sql`, so wrangler skips the baseline and runs nothing. Under any
+other name it would run the whole schema against the live wedding database and
+fail on the first `CREATE TABLE`. `ddl-lockstep.test.ts` pins the name.
+
+The originals live in `migrations-archive/`, outside `migrations_dir`, because
+four tests replay them to prove what they did to real rows (`migration-0033`,
+`-0041`, `-0044`, `-0052`, plus the `0031` and `0037` blocks in
+`ddl-lockstep.test.ts`). Nothing applies them. New migrations start at `0058`.
 
 ### How `meta/` relates to the hand-authored migrations
 
@@ -80,9 +101,15 @@ bun run --cwd cire/db db:push       # applies it locally
 them in D1's own `d1_migrations` table — it never reads `meta/_journal.json`.
 The journal + latest snapshot exist for **drizzle-kit only**, so `db:generate`
 can diff `schema.ts` against the current shape and number the next file
-correctly. Migrations `0009`–`0050` were hand-authored while the journal was
-frozen at `0008`; it was repaired (backfilled entries + a regenerated snapshot)
-in the 2026-07-30 data-layer review. Keep it working: `db:generate` refreshes
+correctly. The 2026-09-10 squash trimmed the journal to a single entry and replaced the six
+stale snapshots with one that actually matches `schema.ts`. That entry reads
+**`idx: 57`, `tag: 0001_initial`** — the tag names the baseline file, and the
+index says 57 migrations have happened, so `db:generate` numbers the next one
+`0058` rather than reusing a number the archive already spent. Its snapshot is
+`meta/0057_snapshot.json`, named for the index. Change one and you must change
+the other. `bunx drizzle-kit generate` on a clean tree prints "No schema
+changes, nothing to migrate", which is the check that the baseline and
+`schema.ts` still agree. Keep it working: `db:generate` refreshes
 the journal + snapshot itself, but a **hand-written** migration must be
 accompanied by re-syncing `meta/` — easiest is to make the matching `schema.ts`
 edit first and let `db:generate` produce the SQL skeleton, then edit the SQL

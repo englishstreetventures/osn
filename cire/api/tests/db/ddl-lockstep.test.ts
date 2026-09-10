@@ -39,6 +39,12 @@ import { DDL } from "../../src/db/setup";
 //   but every insert path supplies an id.)
 
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+// The 57 files that built this schema between 2026-05 and 2026-08 were squashed
+// into `migrations/0001_initial.sql` on 2026-09-10 (xchromo/osn#981) and moved
+// to `migrations-archive/`. Wrangler never reads that directory. The two DATA
+// migration replays at the bottom of this file do, because their whole subject
+// is what those migrations did to rows that already existed.
+const ARCHIVE_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 type ColumnShape = {
   type: string;
@@ -193,10 +199,13 @@ function snapshotSchema(db: Database): SchemaSnapshot {
   return { tables: snapshot, nonTableObjects };
 }
 
-const migrationFiles = (): string[] =>
-  readdirSync(MIGRATIONS_DIR)
+const sqlFilesIn = (dir: string): string[] =>
+  readdirSync(dir)
     .filter((f) => f.endsWith(".sql"))
     .toSorted();
+
+const migrationFiles = (): string[] => sqlFilesIn(MIGRATIONS_DIR);
+const archiveFiles = (): string[] => sqlFilesIn(ARCHIVE_DIR);
 
 // `wrangler d1 migrations apply` runs the files in NAME order — that (not the
 // drizzle-kit journal, which stopped being written when migrations went
@@ -330,8 +339,52 @@ describe("T-S1 lockstep: migrations chain", () => {
     expect(migrationFiles().slice(0, tags.length)).toEqual(tags);
   });
 
+  // drizzle-kit picks the snapshot named for the journal's highest idx, and
+  // diffs schema.ts against it to number and fill the next migration. With the
+  // pair broken it silently treats the database as empty and emits the WHOLE
+  // schema as the next migration, numbered from 1. That is how the squash left
+  // it before this test existed.
+  it("keeps the drizzle journal and its snapshot in step", () => {
+    const journal = JSON.parse(
+      readFileSync(join(MIGRATIONS_DIR, "meta", "_journal.json"), "utf8"),
+    ) as { entries: Array<{ idx: number; tag: string }> };
+    const latest = journal.entries.toSorted((a, b) => b.idx - a.idx)[0];
+    expect(latest).toBeDefined();
+    const snapshot = `${String(latest!.idx).padStart(4, "0")}_snapshot.json`;
+    expect(readdirSync(join(MIGRATIONS_DIR, "meta"))).toContain(snapshot);
+  });
+
   it("leaves no __keep_* snapshot tables behind (rebuild recovery cleanup)", () => {
     expect(Object.keys(migrated.tables).filter((t) => t.startsWith("__keep_"))).toEqual([]);
+  });
+
+  // The baseline's FILENAME is load-bearing. `wrangler d1 migrations apply`
+  // skips a file already named in the target's `d1_migrations` ledger, and
+  // production's ledger holds `0001_initial.sql`. Rename the baseline to
+  // anything else and wrangler runs the whole schema against the live wedding
+  // database, where every CREATE TABLE fails. xchromo/osn#981.
+  it("keeps the squash baseline named 0001_initial.sql", () => {
+    expect(migrationFiles()[0]).toBe("0001_initial.sql");
+  });
+
+  // Nothing numbered 0002–0057 may come back into the live directory: those
+  // numbers are in production's ledger already, so wrangler would skip a file
+  // reusing one and the change would never reach production. New work starts
+  // at 0058.
+  it("reuses no migration number the archive already spent", () => {
+    const spent = new Set(archiveFiles().map((f) => f.slice(0, 4)));
+    const reused = migrationFiles()
+      .slice(1)
+      .filter((f) => spent.has(f.slice(0, 4)));
+    expect(reused).toEqual([]);
+  });
+
+  // The archive is history, not a migration source. wrangler reads
+  // `migrations_dir` (cire/db/migrations) and never recurses, so this only
+  // catches someone moving the directory back under it.
+  it("keeps the archive out of the applied set", () => {
+    expect(migrationFiles()).not.toContain("0057_registry.sql");
+    expect(archiveFiles()).toHaveLength(57);
   });
 });
 
@@ -386,7 +439,7 @@ describe("migration 0037: rsvps gains consent_source", () => {
   });
 
   it("back-fills legacy rsvps rows as 'guest' (the guest form was the only pre-0037 writer)", () => {
-    const files = migrationFiles();
+    const files = archiveFiles();
     const cut = files.indexOf("0037_rsvp_consent_source.sql");
     expect(cut).toBeGreaterThan(0);
 
@@ -394,7 +447,7 @@ describe("migration 0037: rsvps gains consent_source", () => {
     db.exec("PRAGMA foreign_keys = ON;");
     // Apply everything up to (but not including) 0037.
     for (const file of files.slice(0, cut)) {
-      db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
+      db.exec(readFileSync(join(ARCHIVE_DIR, file), "utf8"));
     }
     // Seed a pre-0037 RSVP (the column doesn't exist yet), tied to a real
     // guest+event so the FKs hold under `foreign_keys = ON`.
@@ -420,7 +473,7 @@ describe("migration 0037: rsvps gains consent_source", () => {
     );
 
     // Now apply 0037 (the ADD COLUMN with the back-filling default).
-    db.exec(readFileSync(join(MIGRATIONS_DIR, "0037_rsvp_consent_source.sql"), "utf8"));
+    db.exec(readFileSync(join(ARCHIVE_DIR, "0037_rsvp_consent_source.sql"), "utf8"));
 
     const row = db.query("SELECT consent_source FROM rsvps WHERE id = 'r_legacy'").get() as {
       consent_source: string;
@@ -434,12 +487,12 @@ describe("data migration 0031: wedding_hosts role 'host' → 'editor'", () => {
   it("rewrites pre-0031 seats to editor and leaves editor/viewer untouched", () => {
     const db = new Database(":memory:");
     db.exec("PRAGMA foreign_keys = ON;");
-    const files = migrationFiles();
+    const files = archiveFiles();
     const cut = files.indexOf("0031_wedding_host_roles.sql");
     expect(cut).toBeGreaterThan(0);
 
     for (const file of files.slice(0, cut)) {
-      db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
+      db.exec(readFileSync(join(ARCHIVE_DIR, file), "utf8"));
     }
     // A pre-0031 world: one legacy seat on the column's DDL DEFAULT 'host',
     // plus explicit rows proving the WHERE clause doesn't over-rewrite.
@@ -457,7 +510,7 @@ describe("data migration 0031: wedding_hosts role 'host' → 'editor'", () => {
     );
 
     for (const file of files.slice(cut)) {
-      db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
+      db.exec(readFileSync(join(ARCHIVE_DIR, file), "utf8"));
     }
     const roles = db.query("SELECT id, role FROM wedding_hosts ORDER BY id").all() as Array<{
       id: string;

@@ -11,7 +11,12 @@ import { join } from "node:path";
 // Mirrors the seeding idiom of migration-0033.test.ts (bun:sqlite Database,
 // apply full chain via readFileSync + db.exec, insert via raw SQL).
 
-const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations");
+// Reads cire/db/migrations-archive/, NOT cire/db/migrations/. The 57 files this
+// replays were squashed into a single baseline on 2026-09-10 (xchromo/osn#981)
+// and moved there; the live directory now holds only that baseline, and
+// wrangler applies nothing else. Replaying history is the whole point here, so
+// this test follows the history.
+const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "..", "db", "migrations-archive");
 
 const migrationFiles = (): string[] =>
   readdirSync(MIGRATIONS_DIR)
