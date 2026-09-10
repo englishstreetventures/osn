@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 975,
+    "branch": "feat/osn-recovery-routes",
+    "base_sha": "0d468b94d48e80e66b707a0318b02a41e01faad5",
+    "head_sha": "f33518077f260307123eaa5397d6c1241b756039",
+    "generated_at": "2026-09-10T04:14:09.026Z",
+    "merged_at": "2026-09-09T11:25:29Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 951,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-09-09T05:57:45.341Z",
+    "last_ts": "2026-09-09T11:17:44.047Z",
+    "span_seconds": 19199,
+    "active_seconds": 5142,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 50.49439150000001,
+    "tokens": {
+      "input": 1028,
+      "output": 24000,
+      "thinking": 0,
+      "cache_write_5m": 1569286,
+      "cache_write_1h": 0,
+      "cache_read": 85594087
+    },
+    "by_model": {
+      "claude-opus-5": {
+        "tokens": {
+          "input": 478,
+          "output": 22906,
+          "thinking": 0,
+          "cache_write_5m": 1010602,
+          "cache_write_1h": 0,
+          "cache_read": 68262924
+        },
+        "usd_equivalent": 41.0227645,
+        "messages": 239
+      },
+      "claude-sonnet-5": {
+        "tokens": {
+          "input": 164,
+          "output": 1042,
+          "thinking": 0,
+          "cache_write_5m": 275739,
+          "cache_write_1h": 0,
+          "cache_read": 15128630
+        },
+        "usd_equivalent": 3.7258215,
+        "messages": 82
+      },
+      "claude-fable-5-1": {
+        "tokens": {
+          "input": 386,
+          "output": 52,
+          "thinking": 0,
+          "cache_write_5m": 282945,
+          "cache_write_1h": 0,
+          "cache_read": 2202533
+        },
+        "usd_equivalent": 5.7458054999999995,
+        "messages": 13
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1028,
+          "output": 24000,
+          "thinking": 0,
+          "cache_write_5m": 1569286,
+          "cache_write_1h": 0,
+          "cache_read": 85594087
+        },
+        "usd_equivalent": 50.49439150000001,
+        "messages": 334
+      }
+    },
+    "effort": {
+      "xhigh": 321,
+      "high": 13
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 8,
+      "docs": 6,
+      "config": 1,
+      "source": 24
+    },
+    "loc": {
+      "generated": {
+        "added": 90,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1394,
+        "deleted": 12
+      },
+      "docs": {
+        "added": 158,
+        "deleted": 10
+      },
+      "config": {
+        "added": 540,
+        "deleted": 0
+      },
+      "source": {
+        "added": 1266,
+        "deleted": 44
+      }
+    },
+    "packages": [
+      "osn/api",
+      "osn/client",
+      "shared/email",
+      "shared/observability",
+      "shared/openapi",
+      "shared/redis"
+    ],
+    "touches_migration": false,
+    "commits": 4
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 58,
+      "Edit": 36,
+      "Read": 8
+    },
+    "edit_churn": {
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 9
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

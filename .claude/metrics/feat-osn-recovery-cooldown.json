@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 978,
+    "branch": "feat/osn-recovery-cooldown",
+    "base_sha": "57fd79685c25dea10bfad65cdb5b0f99354fa0ec",
+    "head_sha": "414ca7a96521ab9d148ee6c2e2b5d30e2d711355",
+    "generated_at": "2026-09-10T04:14:09.021Z",
+    "merged_at": "2026-09-09T17:03:07Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 952,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-09-09T11:27:02.347Z",
+    "last_ts": "2026-09-09T16:52:06.851Z",
+    "span_seconds": 19505,
+    "active_seconds": 6618,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 75.33712744999993,
+    "tokens": {
+      "input": 1140,
+      "output": 38858,
+      "thinking": 1220,
+      "cache_write_5m": 2025507,
+      "cache_write_1h": 0,
+      "cache_read": 125339828
+    },
+    "by_model": {
+      "claude-opus-5": {
+        "tokens": {
+          "input": 748,
+          "output": 36456,
+          "thinking": 0,
+          "cache_write_5m": 1476021,
+          "cache_write_1h": 0,
+          "cache_read": 114530064
+        },
+        "usd_equivalent": 67.40530324999997,
+        "messages": 374
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      },
+      "claude-fable-5-1": {
+        "tokens": {
+          "input": 290,
+          "output": 873,
+          "thinking": 0,
+          "cache_write_5m": 290507,
+          "cache_write_1h": 0,
+          "cache_read": 1786303
+        },
+        "usd_equivalent": 5.4641905,
+        "messages": 10
+      },
+      "claude-sonnet-5": {
+        "tokens": {
+          "input": 102,
+          "output": 1529,
+          "thinking": 1220,
+          "cache_write_5m": 258979,
+          "cache_write_1h": 0,
+          "cache_read": 9023461
+        },
+        "usd_equivalent": 2.4676337,
+        "messages": 51
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 0
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1140,
+          "output": 38858,
+          "thinking": 1220,
+          "cache_write_5m": 2025507,
+          "cache_write_1h": 0,
+          "cache_read": 125339828
+        },
+        "usd_equivalent": 75.33712744999993,
+        "messages": 436
+      }
+    },
+    "effort": {
+      "xhigh": 425,
+      "high": 10
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 4,
+      "test": 10,
+      "docs": 8,
+      "config": 1,
+      "source": 33
+    },
+    "loc": {
+      "generated": {
+        "added": 1829,
+        "deleted": 1
+      },
+      "test": {
+        "added": 1938,
+        "deleted": 107
+      },
+      "docs": {
+        "added": 358,
+        "deleted": 34
+      },
+      "config": {
+        "added": 133,
+        "deleted": 0
+      },
+      "source": {
+        "added": 1415,
+        "deleted": 73
+      }
+    },
+    "packages": [
+      "osn/api",
+      "osn/client",
+      "osn/db",
+      "shared/email",
+      "shared/observability",
+      "shared/openapi",
+      "shared/redis"
+    ],
+    "touches_migration": true,
+    "commits": 10
+  },
+  "interaction": {
+    "user_turns": 0,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 121,
+      "Edit": 30,
+      "Read": 9
+    },
+    "edit_churn": {
+      "files_edited_3plus": 4,
+      "max_edits_one_file": 5
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

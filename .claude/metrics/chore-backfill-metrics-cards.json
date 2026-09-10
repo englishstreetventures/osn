@@ -4,10 +4,10 @@
     "number": 973,
     "branch": "chore/backfill-metrics-cards",
     "base_sha": "495ac60d479588f0aca2c38612c7880d45ae3f2f",
-    "head_sha": "2537ddc6f915b3a5d8f447bc16924b31a5c21760",
-    "generated_at": "2026-09-09T06:31:54.591Z",
-    "merged_at": null,
-    "phase": "at-open"
+    "head_sha": "f89331e80741ec70642d9f05a86bdfb07bb0e64a",
+    "generated_at": "2026-09-10T04:14:09.027Z",
+    "merged_at": "2026-09-09T06:37:16Z",
+    "phase": "at-merge"
   },
   "issue": {
     "number": null,
@@ -19,49 +19,49 @@
     "method": "none"
   },
   "window": {
-    "sessions": 4,
+    "sessions": 5,
     "first_ts": "2026-09-09T06:25:11.310Z",
-    "last_ts": "2026-09-09T06:31:49.691Z",
-    "span_seconds": 398,
-    "active_seconds": 154,
+    "last_ts": "2026-09-09T06:32:28.406Z",
+    "span_seconds": 437,
+    "active_seconds": 188,
     "compactions": 0
   },
   "spend": {
-    "usd_equivalent": 1.6090574999999998,
+    "usd_equivalent": 1.7845034999999998,
     "tokens": {
-      "input": 36,
-      "output": 8408,
+      "input": 45,
+      "output": 9894,
       "thinking": 0,
-      "cache_write_5m": 179434,
+      "cache_write_5m": 187702,
       "cache_write_1h": 0,
-      "cache_read": 554430
+      "cache_read": 727582
     },
     "by_model": {
       "claude-opus-4-7": {
         "tokens": {
-          "input": 36,
-          "output": 8408,
+          "input": 45,
+          "output": 9894,
           "thinking": 0,
-          "cache_write_5m": 179434,
+          "cache_write_5m": 187702,
           "cache_write_1h": 0,
-          "cache_read": 554430
+          "cache_read": 727582
         },
-        "usd_equivalent": 1.6090574999999998,
-        "messages": 16
+        "usd_equivalent": 1.7845034999999998,
+        "messages": 20
       }
     },
     "by_actor": {
       "main": {
         "tokens": {
-          "input": 36,
-          "output": 8408,
+          "input": 45,
+          "output": 9894,
           "thinking": 0,
-          "cache_write_5m": 179434,
+          "cache_write_5m": 187702,
           "cache_write_1h": 0,
-          "cache_read": 554430
+          "cache_read": 727582
         },
-        "usd_equivalent": 1.6090574999999998,
-        "messages": 16
+        "usd_equivalent": 1.7845034999999998,
+        "messages": 20
       },
       "subagent": {
         "tokens": {
@@ -84,7 +84,7 @@
       "generated": 1,
       "test": 1,
       "docs": 0,
-      "config": 73,
+      "config": 74,
       "source": 1
     },
     "loc": {
@@ -101,7 +101,7 @@
         "deleted": 0
       },
       "config": {
-        "added": 6076,
+        "added": 6210,
         "deleted": 1157
       },
       "source": {
@@ -113,10 +113,10 @@
       "tools/pr-metrics"
     ],
     "touches_migration": false,
-    "commits": 2
+    "commits": 3
   },
   "interaction": {
-    "user_turns": 4,
+    "user_turns": 5,
     "corrective_turns": 0,
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
