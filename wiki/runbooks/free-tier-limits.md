@@ -234,7 +234,18 @@ runs. Budget after: one rebuild a day, 8% of the write ceiling.
 **The number to watch is per-deploy, not per-day.** Any job that rebuilds a
 database from zero costs rows in proportion to the *number of migrations*, not
 the amount of data, and that number only grows. Before adding one, work out its
-cost against 100K/day.
+cost against 100K/day. `scripts/guard-d1-migration-cost.ts` works the cire chain
+out on every pull request — replaying it offline into an in-memory SQLite and
+failing when the estimate passes the budget in
+`scripts/d1-migration-cost-budgets.txt`. The chain is **68 schema writes**
+against a line at 137; priced at 27 rows each that is about 1,800 written and
+roughly 54 replays a day, but the price per schema write is only pinned to
+about 22–27, so read the row figure as indicative and the schema-write count as
+exact. Method, calibration and how to re-baseline: [[bundle-size-guards]], which
+also sets out why the "89% / 11%" split above cannot be read as a share of one
+rebuild.
+*Measured 2026-09-10 — `bun run scripts/guard-d1-migration-cost.ts --all`.*
+
 
 **User-visible symptom:** 503 / "service unavailable" across the app until the
 daily counter resets at **UTC midnight**, or storage is freed.

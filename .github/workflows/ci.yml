@@ -406,6 +406,28 @@ jobs:
       - name: Check release-age excludes are marked and bounded
         run: bun run check:release-age-excludes
 
+      # The same split as the step above, for the same reason. The tests in the
+      # step further up feed the guard synthetic migration chains and prove it
+      # measures and fails correctly; this runs it against the chain the repo
+      # really ships, which is the thing a pull request changes.
+      #
+      # What it guards: a from-zero rebuild of the cire D1 costs rows in
+      # proportion to the number of schema statements in the chain, not to the
+      # amount of data, and that number only grows. Thirteen merges spent
+      # 104,091 rows written on 2026-09-09 against a free-tier ceiling of
+      # 100,000 a day account-wide, with no commit doing anything wrong
+      # (xchromo/osn#979). The budget is a row in
+      # scripts/d1-migration-cost-budgets.txt, not an argument here.
+      #
+      # It needs no install: the script imports bun:sqlite and Node built-ins
+      # and nothing else, which is why it belongs in this job rather than in
+      # build-test. Invoked by path, like guard-bundle-size.sh, rather than
+      # through a root package.json script — root package.json is off the
+      # changeset allowlist on purpose, and this change ships nothing any
+      # versioned package would name.
+      - name: Guard the D1 cost of the migration chains
+        run: bun run scripts/guard-d1-migration-cost.ts --all
+
   openapi-freshness:
     name: OpenAPI Freshness
     runs-on: ubuntu-latest
