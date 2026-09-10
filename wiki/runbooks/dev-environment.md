@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-10
 ---
 
 # Dev environment (cire + OSN identity)
@@ -129,18 +129,48 @@ See [[musubi-identity-migration]] for why RP IDs behave this way.
 | `dev` | `CLOUDFLARE_API_TOKEN_DEV` | none |
 | `production` | `CLOUDFLARE_API_TOKEN` | required |
 
-The two secrets are deliberately named differently. A job that lands in the wrong
-Environment then fails on an empty token instead of quietly deploying with the
-other tier's rights. This is what closed the tracked finding **S-M
+The two secrets are deliberately named differently, so that a job landing in the
+wrong Environment fails on an empty token instead of quietly deploying with the
+other tier's rights. That is what closed the tracked finding **S-M
 (preview-ci-prod-token)**: no push-triggered job can reach a prod-scoped
 credential any more.
 
-Store both **only** on their Environment. A repository-level `CLOUDFLARE_API_TOKEN`
-is visible to every job in every workflow, gate or no gate — which hands the
-unattended dev job the production credential and undoes the split. Check with
-`gh secret list` (repo scope) and `gh secret list --env production`; if the token
-appears at repo scope, delete it there (`gh secret delete CLOUDFLARE_API_TOKEN`)
-after confirming the `production` Environment holds it.
+**That protection is worth exactly as much as the secrets' placement, so read
+the placement before trusting it.** Every dev job in `deploy.yml` reads
+
+```yaml
+CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
+```
+
+and a `||` cannot tell a missing secret from a deliberate one. With
+`CLOUDFLARE_API_TOKEN_DEV` unset the fallback is taken silently, and a dev job
+runs on whatever `CLOUDFLARE_API_TOKEN` resolves to — including a
+repository-scope copy, which is visible to every job in every workflow, gate or
+no gate. The `Cloudflare credential scope` job in `deploy.yml` prints which of
+the two each run got; read its line rather than assuming.
+
+**Moving the token to its Environment is an ordered operation, and the order is
+the whole of it.** Do not start at step 3.
+
+1. `gh secret list --env production` and `gh secret list --env dev`. Note what
+   is actually there. An Environment with no rows is the state to fix, not a
+   formatting quirk.
+2. Put `CLOUDFLARE_API_TOKEN` on `production` and a real `CLOUDFLARE_API_TOKEN_DEV`
+   on `dev`. Both must exist before anything is removed.
+3. Re-run step 1 and confirm both. Then deploy once to each tier and confirm the
+   `Cloudflare credential scope` line names the Environment, not the fallback.
+4. Only now `gh secret delete CLOUDFLARE_API_TOKEN` at repository scope.
+5. Before you do, find every workflow that reads a `CLOUDFLARE_*` secret without
+   declaring an `environment:` — `grep -l CLOUDFLARE .github/workflows/*.yml` and
+   check each one. `free-tier-ceiling-alert.yml` is one by design: it is a
+   scheduled watcher, it cannot take `environment: production` because that gate
+   waits on a human and nobody approves a cron at 22:00 UTC, and it needs only
+   `d1 (read)` and `account (read)`. Give it a read-only credential of its own at
+   that point rather than a share of a deploy token.
+
+Deleting the repository-scope secret before step 3 breaks **every** deploy in the
+repository, dev and production alike, because that is the value the `||` has been
+resolving to.
 
 **What the split does not buy.** `Workers Scripts:Edit` and `D1:Edit` are
 account-level permissions — Cloudflare offers no per-script or per-database

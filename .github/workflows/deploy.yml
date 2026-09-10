@@ -39,7 +39,8 @@ name: Deploy
 # a separate Cloudflare account; tracked as `S-M` in xchromo/osn-tracker (#190).
 #
 # The dev tier is fully isolated — own Workers, own D1, own R2, own OSN identity
-# origin — and its database is wiped and re-seeded on every deploy. See
+# origin. Its database takes migrations forward on each deploy and is wiped and
+# re-seeded once a night by cire-dev-db-rebuild.yml, not on every merge. See
 # [[wiki/runbooks/dev-environment]].
 on:
   push:
@@ -207,6 +208,37 @@ jobs:
       # Serial: concurrent Miniflare workerd instances contend.
       - name: D1 integration tests
         run: bun run test:d1
+
+  # ═══ Which credential the dev jobs got ═════════════════════════════════════
+  #
+  # Every dev job resolves its Cloudflare token as
+  # `secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN`, and a
+  # `||` cannot tell a missing secret from a deliberate one. Unset, the fallback
+  # is taken in silence and a dev job runs on whatever the second name resolves
+  # to. This job prints which of the two the run got, so the placement is a line
+  # in the log rather than something to infer.
+  #
+  # It prints a NAME, never a value: `secrets.X && 'a' || 'b'` yields a literal,
+  # and the secret itself never reaches the step. Nothing depends on this job —
+  # no `needs:` edge — so it cannot delay or fail a deploy. It exists to be read
+  # on the day the dev credential appears, or the day it goes missing again.
+  # See [[wiki/runbooks/dev-environment]] §Two Environments, two tokens for the
+  # ordered move and why deleting the repository-scope secret early breaks
+  # every deploy in the repository.
+  credential-scope:
+    name: Cloudflare credential scope
+    needs: [changes]
+    # Only when a job that actually holds the credential is going to run. A
+    # docs-only push deploys nothing, so there is nothing to report on.
+    if: needs.changes.outputs.cire_api == 'true' || needs.changes.outputs.osn_api == 'true'
+    runs-on: ubuntu-latest
+    environment: dev
+    timeout-minutes: 2
+    steps:
+      - name: Report which Cloudflare credential the dev jobs hold
+        env:
+          SOURCE: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV && 'CLOUDFLARE_API_TOKEN_DEV (dev Environment)' || 'CLOUDFLARE_API_TOKEN (fallback — the dev-only credential is unset)' }}
+        run: echo "Dev jobs in this run hold $SOURCE"
 
   # ═══ cire API + D1 ═════════════════════════════════════════════════════════
   #
