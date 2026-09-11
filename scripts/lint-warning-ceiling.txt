@@ -1,0 +1,22 @@
+# Lint-warning ceiling for scripts/guard-lint-warnings.sh.
+#
+# The single source of truth for how many warning-severity diagnostics
+# `bun run lint` (oxlintrc.json's categories) may report across the whole
+# monorepo. Nothing else names this number — not `.github/workflows/ci.yml`,
+# not a script argument.
+#
+# @see wiki/conventions/bundle-size-guards.md — why the headroom here is
+# zero in both directions: an INCREASE fails (a new warning was added), and
+# a DECREASE also fails, with a message to lower this file to match, so a
+# cleanup's slack can't let the count drift back up before anything notices.
+#
+# Re-baselining, in either direction: run `bun run lint` (or
+# scripts/guard-lint-warnings.sh, which prints the new count on a failing
+# run), and replace the number below with it. One value, alone on the first
+# non-comment, non-blank line — nothing else in this file is read. Keep the
+# trailing comment's branch and date current on every re-baseline: two
+# branches editing this line at once should collide as a real merge
+# conflict rather than silently agreeing on the same leading number while
+# disagreeing on what it was measured from.
+
+1061   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/lint-warning-ceiling @ 2026-09-11

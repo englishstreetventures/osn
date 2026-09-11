@@ -52,6 +52,29 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      # The step above exits 0 whatever the warning count is — oxlintrc.json
+      # puts every non-correctness category at `warn`, so it only proves no
+      # error-level rule fired. This is its own step, after Lint rather than
+      # folded into it, so "a rule errored" and "the warning count moved"
+      # read as two different failures rather than one step failing for
+      # either reason. scripts/lint-warning-ceiling.txt is the single source
+      # of truth for the number; see that file and
+      # scripts/guard-lint-warnings.sh's own comment for the ratchet this
+      # enforces in both directions.
+      - name: Guard the lint-warning ceiling
+        run: bash scripts/guard-lint-warnings.sh
+
+      # The guard's own test, run against a small fixture project with a
+      # fixture ceiling file (LINT_WARNING_ROOT / LINT_WARNING_CEILING_FILE)
+      # rather than this repo's real tree, so it neither depends on nor
+      # perturbs the real warning count. It still runs the REAL oxlint
+      # binary from this checkout's own node_modules (LINT_WARNING_OXLINT_BIN),
+      # which is why it lives here — after Install dependencies — rather
+      # than in the script-tests job, which does no `bun install` on
+      # purpose.
+      - name: Test the lint-warning ceiling guard
+        run: bash scripts/tests/guard-lint-warnings.test.sh
+
       - name: Format check
         run: bun run fmt:check
 

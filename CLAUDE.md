@@ -365,7 +365,7 @@ bun run test                          # run all tests (turbo, skips packages wit
 bun run test:d1                       # the Miniflare/workerd D1 tier (excluded from `test`)
 bun run test:browser                  # the real-Chromium tier
 bun run test:scripts                  # bun tests under scripts/ — TypeScript only. `bun test`
-                                      # never collects a *.test.sh, so the three shell tests
+                                      # never collects a *.test.sh, so the four shell tests
                                       # get their own CI steps (changeset-check.yml, ci.yml);
                                       # a new one needs a step or it runs nowhere
 bun run --cwd <pkg> test:run          # one package, once   (vitest packages)

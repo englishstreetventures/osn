@@ -1,7 +1,7 @@
 ---
 title: Guards that gate on a number
-description: The two rules any committed threshold obeys, and the guards that hold them — scripts/guard-bundle-size.sh over each Astro app's deployed bundle, the src/pages test-route check beside it, and scripts/guard-d1-migration-cost.ts over what a from-zero D1 rebuild spends against the free-tier ceiling
-tags: [convention, build, astro, performance, ops, d1]
+description: The two rules any committed threshold obeys, and the guards that hold them — scripts/guard-bundle-size.sh over each Astro app's deployed bundle, the src/pages test-route check beside it, scripts/guard-d1-migration-cost.ts over what a from-zero D1 rebuild spends against the free-tier ceiling, and scripts/guard-lint-warnings.sh over how many warning-severity oxlint diagnostics the whole monorepo may carry
+tags: [convention, build, astro, performance, ops, d1, lint]
 related:
   - "[[cire-development]]"
   - "[[frontend-patterns]]"
@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-10
+last-reviewed: 2026-09-11
 ---
 
 # Guards that gate on a number
@@ -27,6 +27,10 @@ A third guard on this page measures nothing to do with bundles. `scripts/guard-d
 gates what a from-zero D1 rebuild spends against a free-tier quota, and it is
 here because it obeys the same two rules and was built from this page. The page
 name still says bundles because the file has not moved.
+
+A fourth guard, `scripts/guard-lint-warnings.sh` (xchromo/osn#1008), gates how
+many warning-severity `oxlint` diagnostics the whole monorepo may carry —
+again nothing to do with bundles, again built from this page's two rules.
 
 ## Two rules for any guard that gates on a number
 
@@ -324,6 +328,115 @@ else, so it belongs there rather than in `build-test`. Its own tests
 `bun run test:scripts`, and one of them re-asserts the committed budget against
 the committed chain — so a migration that busts it fails the tests as well as
 the guard step.
+
+## `scripts/guard-lint-warnings.sh` — the lint-warning-count guard
+
+Same shape again, a fourth time: `oxlintrc.json`'s categories put every
+non-`correctness` finding at `warn`, so `bun run lint` exits 0 whatever the
+warning count is — the CI step at `ci.yml`'s `lint` job proved only that no
+error-level rule fired. Over one recent epic the count drifted 1020 → 1035 →
+1037 → 1061 with no CI step noticing, and the only way to know was to read
+the number by hand on every branch (xchromo/osn#1008). Some of the rules
+sitting at `warn` are repo-specific and exist because the mistake they catch
+actually happened — `house/no-tracker-ref-in-comment`,
+`house/no-non-subscribing-store-read` — and with nothing enforcing the total
+they are advisory notes nobody reads.
+
+```
+scripts/guard-lint-warnings.sh          # what ci.yml's `lint` job calls,
+                                         # as its own step after `bun run lint`
+```
+
+**The ceiling** lives in `scripts/lint-warning-ceiling.txt` — one integer,
+alone on the first non-comment line, nothing else names it. **The headroom is
+zero in both directions.** The smallest mistake this guard exists to catch is
+one new warning, so anything above the ceiling fails. That makes it a
+ratchet, not a one-way cap: a count *below* the ceiling fails too, with a
+message naming the new, lower number to write into the file. Skipping that
+half would leave slack — a cleanup that fixes ten warnings but leaves the old
+ceiling in place lets the count silently climb back to where it started,
+which is the exact failure this page's second rule warns against.
+
+### Counting method
+
+oxlint's human-readable output (what `bun run lint` prints) has no summary
+line in the version this repo pins — a clean run ends on the last diagnostic,
+nothing after it. `bun run lint`'s own line count is not safe to use as a
+proxy either: `bun run <script>` prints its own `$ oxlint -c oxlintrc.json .`
+echo line, on **stderr**, so `wc -l` over it counts the diagnostics when the
+streams are separate and one more than that whenever anything merges them
+(`2>&1`, a CI log, a terminal). A line count that changes with redirection is
+not a measurement.
+
+The guard instead runs oxlint directly (bypassing the package.json script
+and its echo line) with `--format=json`, which gives one object per
+diagnostic with an explicit `"severity": "warning" | "error"` field stamped
+by oxlint itself. Filtering on that field is exact regardless of message
+wording, file paths, or how the human-readable format is laid out — unlike
+`grep -c " warning "`, which the field also protects against a rule's own
+message text or a file path containing that word. `scripts/lint-warning-count.ts`
+does the counting and the per-rule breakdown; `scripts/guard-lint-warnings.sh`
+owns running the real oxlint, reading the ceiling file, and the pass/fail
+decision.
+
+*Measured 2026-09-11 — `bun run lint | tail` ends on the last diagnostic line
+with nothing after it, and `bun run lint | grep -c "Found \|Finished in "`
+returns 0: this pinned oxlint prints no summary line to grep for at all. The
+JSON count and the human-readable line count were cross-checked against each
+other, not just asserted: `oxlint -c oxlintrc.json . --format=json` filtered
+to `severity: "warning"` reports 1061, `bun run lint 2>/dev/null | wc -l`
+reports the same 1061, and `bun run lint 2>&1 | wc -l` reports 1062 — the
+diagnostic count plus the one `$ oxlint ...` echo line `bun run` writes to
+stderr.*
+
+### Where it runs
+
+Its own step in `ci.yml`'s `lint` job, after the existing `bun run lint`
+step and before `Format check` — deliberately separate from that step so "a
+rule errored" (Lint fails) and "the warning count moved" (this guard fails)
+read as two different failures rather than one step failing for either
+reason.
+
+Two test files, for the two things that can go wrong independently:
+
+- `scripts/tests/lint-warning-count.test.ts` (+ `.cli.test.ts`) — pure
+  counting logic, run in `script-tests` like everything else under
+  `scripts/tests/` (no `bun install`, since counting from a fixture JSON
+  report needs no oxlint invocation at all).
+- `scripts/tests/guard-lint-warnings.test.sh` — the shell script end to end,
+  against small fixture projects with their own `oxlintrc.json`, but run
+  with the REAL oxlint binary from this checkout's `node_modules`
+  (`LINT_WARNING_OXLINT_BIN`). That real binary is why this one runs as its
+  own step in the `lint` job instead, after `bun install` — `script-tests`
+  does none, on purpose (see that job's own comment in `ci.yml`).
+
+### Re-baselining, in either direction
+
+Run `bun run lint` or `scripts/guard-lint-warnings.sh` (the second prints the
+new count on a failing run), then edit **only**
+`scripts/lint-warning-ceiling.txt` to that number, including a fresh trailing
+comment naming the branch and date it was measured from. **If the file and
+this page ever disagree, the file is right** — the same rule the bundle table
+above states for itself. An `oxlint` version bump is expected to move the
+count (a rule can be added, removed or have its default severity change) and
+trip this guard until the file is re-baselined; that is not a defect, it is
+the same zero-headroom trade this page's second rule always makes.
+
+> [!warning] Zero headroom means two concurrent PRs can still leave `main` red
+> `main`'s branch protection does not require a PR to be up to date with
+> `main` before merging. Two PRs that each add one warning, cut from the same
+> base, each write their own correct edit to
+> `scripts/lint-warning-ceiling.txt` and each pass in isolation. If both land,
+> the ceiling on `main` reflects only whichever merged last, not the sum of
+> both — unless the merge itself conflicts. The one thing standing between
+> that and a silently wrong ceiling is the trailing comment convention above:
+> two PRs' ceiling lines differ in branch name and date even when they
+> coincidentally agree on the leading number, so git treats concurrent edits
+> to this file as a real merge conflict a human has to resolve, rather than
+> auto-merging two edits to the same line. This is the same shape of gap
+> zero-headroom accepts everywhere on this page — the fix, if `main` does go
+> red this way, is the same as any other regression: re-measure and
+> re-baseline.
 
 ## Related
 
