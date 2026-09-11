@@ -5,7 +5,7 @@
     "branch": "chore/deps-workers-types-5",
     "base_sha": "650bb8b8dc6015c443f513a16c43981126a3ecfb",
     "head_sha": "fca74814cbbdf0fe9646250dcfbef3fcb003bf5c",
-    "generated_at": "2026-09-09T06:24:29.029Z",
+    "generated_at": "2026-09-11T07:19:12.043Z",
     "merged_at": "2026-09-06T05:02:12Z",
     "phase": "at-merge"
   },
@@ -21,9 +21,9 @@
   "window": {
     "sessions": 3,
     "first_ts": "2026-09-02T06:46:48.386Z",
-    "last_ts": "2026-09-02T06:49:43.395Z",
-    "span_seconds": 175,
-    "active_seconds": 231,
+    "last_ts": "2026-09-02T06:49:45.244Z",
+    "span_seconds": 177,
+    "active_seconds": 233,
     "compactions": 0
   },
   "spend": {
@@ -139,17 +139,18 @@
   "interaction": {
     "user_turns": 1,
     "corrective_turns": 0,
-    "tokens_before_first_edit": 1590099,
+    "tokens_before_first_edit": 1322836,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 12,
-      "Read": 2,
-      "Write": 2,
-      "Edit": 1
+      "Bash": 16,
+      "Read": 6,
+      "Edit": 3,
+      "Write": 3,
+      "StructuredOutput": 2
     },
     "edit_churn": {
-      "files_edited_3plus": 0,
-      "max_edits_one_file": 1
+      "files_edited_3plus": 1,
+      "max_edits_one_file": 3
     },
     "skills": {},
     "subagents": {}

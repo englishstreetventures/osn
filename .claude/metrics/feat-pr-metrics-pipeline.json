@@ -5,7 +5,7 @@
     "branch": "feat/pr-metrics-pipeline",
     "base_sha": "3e722e57dd0d8b3ad660d9fd5dc9b3719fe90440",
     "head_sha": "d0f6c37428d32ebb46450b78fa74ac1c93b2c651",
-    "generated_at": "2026-09-09T06:24:29.016Z",
+    "generated_at": "2026-09-11T07:19:12.032Z",
     "merged_at": "2026-09-07T07:51:48Z",
     "phase": "at-merge"
   },
@@ -23,7 +23,7 @@
     "first_ts": "2026-09-07T03:10:01.388Z",
     "last_ts": "2026-09-07T11:32:45.585Z",
     "span_seconds": 30164,
-    "active_seconds": 6786,
+    "active_seconds": 6809,
     "compactions": 0
   },
   "spend": {
@@ -144,21 +144,28 @@
   "interaction": {
     "user_turns": 18,
     "corrective_turns": 12,
-    "tokens_before_first_edit": 2009541,
+    "tokens_before_first_edit": 1429576,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 64,
-      "Edit": 11,
-      "Read": 11,
-      "Write": 4,
+      "Bash": 168,
+      "Read": 27,
+      "Write": 17,
+      "Edit": 16,
+      "StructuredOutput": 4,
+      "Grep": 4,
       "EnterWorktree": 3,
-      "ToolSearch": 1
+      "Agent": 2,
+      "AskUserQuestion": 1,
+      "ToolSearch": 1,
+      "ExitPlanMode": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 1,
-      "max_edits_one_file": 7
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 8
     },
     "skills": {},
-    "subagents": {}
+    "subagents": {
+      "Explore": 2
+    }
   }
 }

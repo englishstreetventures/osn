@@ -5,7 +5,7 @@
     "branch": "chore/house-rule-non-subscribing-read",
     "base_sha": "bb5b11a229842de7193e5656dd0ec9349eb457e0",
     "head_sha": "14a3d50a122d0b82bd2246ef87fac70002cd5e58",
-    "generated_at": "2026-09-11T06:24:24.044Z",
+    "generated_at": "2026-09-11T07:19:12.038Z",
     "merged_at": "2026-09-06T09:12:08Z",
     "phase": "at-merge"
   },
@@ -121,8 +121,8 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 6,
-      "Bash": 1,
+      "Read": 11,
+      "Bash": 3,
       "Grep": 1
     },
     "edit_churn": {

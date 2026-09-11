@@ -5,7 +5,7 @@
     "branch": "fix/recovery-token-refresh",
     "base_sha": "b366dfe5cc96a99ea00ed1e86fb6f2bbd914cc1b",
     "head_sha": "ff1426b92fb114d305668cc452cafb3728deabb0",
-    "generated_at": "2026-09-11T06:24:24.016Z",
+    "generated_at": "2026-09-11T07:19:11.998Z",
     "merged_at": "2026-09-10T14:08:43Z",
     "phase": "at-merge"
   },
@@ -178,17 +178,29 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 86,
-      "Edit": 42,
-      "Read": 24,
+      "Bash": 355,
+      "Edit": 75,
+      "Read": 55,
+      "Grep": 7,
+      "Write": 6,
+      "Skill": 5,
+      "Agent": 2,
       "ToolSearch": 1,
-      "Grep": 1
+      "StructuredOutput": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 6,
-      "max_edits_one_file": 10
+      "files_edited_3plus": 9,
+      "max_edits_one_file": 17
     },
-    "skills": {},
-    "subagents": {}
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "obsidian:obsidian-markdown": 1,
+      "review-security": 1,
+      "review-tests": 1
+    },
+    "subagents": {
+      "attacker": 2
+    }
   }
 }

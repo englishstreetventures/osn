@@ -5,7 +5,7 @@
     "branch": "fix/cire-store-notifying-invalidate",
     "base_sha": "cb345fbec36cce19e5a5cc97d45927cafd69984e",
     "head_sha": "66c9950197ee25bfc25f86664de7ac607504d843",
-    "generated_at": "2026-09-11T06:24:24.050Z",
+    "generated_at": "2026-09-11T07:19:12.047Z",
     "merged_at": "2026-09-06T07:50:35Z",
     "phase": "at-merge"
   },
@@ -120,7 +120,9 @@
     "corrective_turns": 0,
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
-    "tool_calls": {},
+    "tool_calls": {
+      "StructuredOutput": 2
+    },
     "edit_churn": {
       "files_edited_3plus": 0,
       "max_edits_one_file": 0

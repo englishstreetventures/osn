@@ -5,7 +5,7 @@
     "branch": "chore/svgo-advisory",
     "base_sha": "2eb9393ca64639068c42d5a614e3df8ab68c6e61",
     "head_sha": "9d19c6885a48edb24aff2e429496fc5d53f97bb2",
-    "generated_at": "2026-09-11T06:24:24.037Z",
+    "generated_at": "2026-09-11T07:19:12.029Z",
     "merged_at": "2026-09-09T01:40:51Z",
     "phase": "at-merge"
   },
@@ -26,7 +26,7 @@
   "window": {
     "sessions": 1,
     "first_ts": "2026-09-09T01:37:24.548Z",
-    "last_ts": "2026-09-09T01:40:45.369Z",
+    "last_ts": "2026-09-09T01:40:45.931Z",
     "span_seconds": 201,
     "active_seconds": 201,
     "compactions": 0
@@ -123,7 +123,12 @@
     "corrective_turns": 0,
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
-    "tool_calls": {},
+    "tool_calls": {
+      "Bash": 8,
+      "Monitor": 2,
+      "Read": 2,
+      "ToolSearch": 1
+    },
     "edit_churn": {
       "files_edited_3plus": 0,
       "max_edits_one_file": 0

@@ -5,7 +5,7 @@
     "branch": "feat/osn-recovery-ui",
     "base_sha": "91f5b5dd1b5e6c4bfe87857eaf2507087cb06ecc",
     "head_sha": "32ca41046a71a5770b2886e82d13d1b571bc78ac",
-    "generated_at": "2026-09-11T06:24:24.024Z",
+    "generated_at": "2026-09-11T07:19:12.011Z",
     "merged_at": "2026-09-09T16:53:34Z",
     "phase": "at-merge"
   },
@@ -164,19 +164,27 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 76,
-      "Edit": 24,
-      "Write": 5,
-      "Read": 3,
-      "Skill": 1
+      "Bash": 358,
+      "Edit": 47,
+      "Read": 29,
+      "Write": 12,
+      "Skill": 5,
+      "Agent": 1,
+      "ToolSearch": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 4,
-      "max_edits_one_file": 5
+      "files_edited_3plus": 6,
+      "max_edits_one_file": 12
     },
     "skills": {
-      "review-security": 1
+      "new-feat": 1,
+      "stress-plan": 1,
+      "obsidian:obsidian-markdown": 1,
+      "review-security": 1,
+      "review-tests": 1
     },
-    "subagents": {}
+    "subagents": {
+      "attacker": 1
+    }
   }
 }

@@ -5,7 +5,7 @@
     "branch": "feat/pr-session-metrics",
     "base_sha": "8aa5cdc8463d7c156628902cfe414176dbd9a7a0",
     "head_sha": "f73db88583845b1ada743c0283079fd0ba15079c",
-    "generated_at": "2026-09-09T06:24:29.019Z",
+    "generated_at": "2026-09-11T07:19:12.034Z",
     "merged_at": "2026-09-07T07:51:46Z",
     "phase": "at-merge"
   },
@@ -132,21 +132,23 @@
   "interaction": {
     "user_turns": 8,
     "corrective_turns": 2,
-    "tokens_before_first_edit": 1974421,
+    "tokens_before_first_edit": 764066,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 28,
-      "Edit": 7,
-      "Read": 7,
-      "Grep": 3,
-      "EnterWorktree": 2,
-      "Write": 2,
+      "Bash": 57,
+      "Read": 13,
+      "Edit": 12,
+      "Write": 8,
+      "Grep": 6,
+      "EnterWorktree": 3,
+      "StructuredOutput": 3,
+      "ToolSearch": 1,
       "ExitWorktree": 1,
       "Glob": 1
     },
     "edit_churn": {
       "files_edited_3plus": 2,
-      "max_edits_one_file": 4
+      "max_edits_one_file": 6
     },
     "skills": {},
     "subagents": {}

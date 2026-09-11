@@ -5,7 +5,7 @@
     "branch": "fix/osn-email-change-hardening",
     "base_sha": "a381059a5908272c3c5b024743bccc1fc7fba168",
     "head_sha": "eef98274e29c36bf658c2316542f56c5238e2788",
-    "generated_at": "2026-09-11T06:24:24.055Z",
+    "generated_at": "2026-09-11T07:19:12.052Z",
     "merged_at": "2026-08-31T04:33:06Z",
     "phase": "at-merge"
   },
@@ -122,8 +122,9 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 3,
-      "Grep": 2
+      "Read": 5,
+      "Grep": 4,
+      "StructuredOutput": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

@@ -5,7 +5,7 @@
     "branch": "fix/cf-token-scope-visibility",
     "base_sha": "b5e6d72ea20c27fb71e825d93deec6e6300d8d49",
     "head_sha": "fa91561dcb54dc057d62889b2af707311b5494f0",
-    "generated_at": "2026-09-11T02:01:21.097Z",
+    "generated_at": "2026-09-11T07:19:12.005Z",
     "merged_at": "2026-09-10T12:56:57Z",
     "phase": "at-merge"
   },
@@ -119,8 +119,9 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
+      "Read": 2,
       "Bash": 1,
-      "Read": 1
+      "StructuredOutput": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

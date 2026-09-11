@@ -5,7 +5,7 @@
     "branch": "chore/deps-advisory-refresh",
     "base_sha": "eee06ccf60ec4583b78fb994d13d299572e1b68f",
     "head_sha": "e9eec1c47da2f4ac48e986baece70fa99e8011e0",
-    "generated_at": "2026-09-09T06:24:29.025Z",
+    "generated_at": "2026-09-11T07:19:12.039Z",
     "merged_at": "2026-09-06T05:02:17Z",
     "phase": "at-merge"
   },
@@ -152,12 +152,14 @@
   "interaction": {
     "user_turns": 6,
     "corrective_turns": 1,
-    "tokens_before_first_edit": 9516686,
+    "tokens_before_first_edit": 408775,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 67,
-      "Write": 9,
-      "Read": 5
+      "Bash": 123,
+      "Write": 20,
+      "Read": 12,
+      "StructuredOutput": 6,
+      "Grep": 4
     },
     "edit_churn": {
       "files_edited_3plus": 0,

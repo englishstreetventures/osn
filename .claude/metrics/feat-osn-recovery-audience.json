@@ -5,7 +5,7 @@
     "branch": "feat/osn-recovery-audience",
     "base_sha": "495ac60d479588f0aca2c38612c7880d45ae3f2f",
     "head_sha": "74cbaeafb02877661099270548b6bcee53631254",
-    "generated_at": "2026-09-11T06:24:24.028Z",
+    "generated_at": "2026-09-11T07:19:12.018Z",
     "merged_at": "2026-09-09T06:34:17Z",
     "phase": "at-merge"
   },
@@ -26,9 +26,9 @@
   "window": {
     "sessions": 1,
     "first_ts": "2026-09-09T05:08:39.534Z",
-    "last_ts": "2026-09-09T06:28:56.914Z",
-    "span_seconds": 4817,
-    "active_seconds": 4794,
+    "last_ts": "2026-09-09T06:29:36.257Z",
+    "span_seconds": 4857,
+    "active_seconds": 4833,
     "compactions": 0
   },
   "spend": {
@@ -142,16 +142,24 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 66,
-      "Edit": 50,
-      "Read": 3,
-      "Write": 3
+      "Bash": 252,
+      "Edit": 93,
+      "Read": 25,
+      "Write": 11,
+      "Skill": 4,
+      "Agent": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 8,
-      "max_edits_one_file": 14
+      "files_edited_3plus": 9,
+      "max_edits_one_file": 26
     },
-    "skills": {},
-    "subagents": {}
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "obsidian:obsidian-markdown": 2
+    },
+    "subagents": {
+      "attacker": 1
+    }
   }
 }

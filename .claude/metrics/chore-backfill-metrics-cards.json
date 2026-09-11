@@ -5,7 +5,7 @@
     "branch": "chore/backfill-metrics-cards",
     "base_sha": "495ac60d479588f0aca2c38612c7880d45ae3f2f",
     "head_sha": "f89331e80741ec70642d9f05a86bdfb07bb0e64a",
-    "generated_at": "2026-09-10T04:14:09.027Z",
+    "generated_at": "2026-09-11T07:19:12.018Z",
     "merged_at": "2026-09-09T06:37:16Z",
     "phase": "at-merge"
   },
@@ -121,7 +121,10 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 3,
+      "Read": 9,
+      "StructuredOutput": 5,
+      "Grep": 2,
+      "Glob": 1,
       "Bash": 1
     },
     "edit_churn": {

@@ -5,7 +5,7 @@
     "branch": "fix/zap-class-guard",
     "base_sha": "273e4ba82e35358c1ef08ab4ae2e38f7692ac855",
     "head_sha": "50b30905dc82292d0e3478b6b394e9eabc0bafea",
-    "generated_at": "2026-09-11T06:24:24.055Z",
+    "generated_at": "2026-09-11T07:19:12.053Z",
     "merged_at": "2026-08-30T14:14:43Z",
     "phase": "at-merge"
   },
@@ -122,8 +122,9 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 11,
-      "StructuredOutput": 1,
+      "Read": 22,
+      "Grep": 5,
+      "StructuredOutput": 4,
       "Bash": 1
     },
     "edit_churn": {

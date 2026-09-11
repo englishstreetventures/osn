@@ -5,7 +5,7 @@
     "branch": "fix/cire-desired-state-seed",
     "base_sha": "ce3e26dd8704b7a23d774f1db4603a2399cc14cd",
     "head_sha": "c7c52be571002b14ca4c4bb66b2e6770d9e147e6",
-    "generated_at": "2026-09-09T06:24:29.024Z",
+    "generated_at": "2026-09-11T07:19:12.039Z",
     "merged_at": "2026-09-06T07:51:46Z",
     "phase": "at-merge"
   },
@@ -121,8 +121,9 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 3,
-      "Read": 3,
+      "Read": 10,
+      "Bash": 4,
+      "StructuredOutput": 4,
       "Glob": 3
     },
     "edit_churn": {

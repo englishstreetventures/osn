@@ -5,7 +5,7 @@
     "branch": "perf/cire-events-editor-scope",
     "base_sha": "cb345fbec36cce19e5a5cc97d45927cafd69984e",
     "head_sha": "a9dfce45a733bd60ae28ccfdf758584fe029f8b3",
-    "generated_at": "2026-09-11T06:24:24.050Z",
+    "generated_at": "2026-09-11T07:19:12.047Z",
     "merged_at": "2026-09-06T07:49:41Z",
     "phase": "at-merge"
   },
@@ -122,8 +122,10 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 11,
-      "Bash": 4,
+      "Read": 21,
+      "Bash": 6,
+      "StructuredOutput": 5,
+      "Grep": 2,
       "Glob": 1
     },
     "edit_churn": {

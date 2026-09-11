@@ -5,7 +5,7 @@
     "branch": "fix/changeset-stdin-guard",
     "base_sha": "0adac539d2fae93b58d639c7e68514aeef95eb7a",
     "head_sha": "fedbc34710f6f6a9bf064b76ebce0f4b49bfd020",
-    "generated_at": "2026-09-11T06:24:24.011Z",
+    "generated_at": "2026-09-11T07:19:11.991Z",
     "merged_at": "2026-09-11T04:40:43Z",
     "phase": "at-merge"
   },
@@ -151,15 +151,27 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Edit": 4,
-      "Read": 3,
-      "Monitor": 1
+      "Bash": 65,
+      "Read": 18,
+      "Edit": 10,
+      "Skill": 2,
+      "Write": 2,
+      "Agent": 1,
+      "ToolSearch": 1,
+      "Monitor": 1,
+      "Grep": 1,
+      "StructuredOutput": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 0,
-      "max_edits_one_file": 2
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 4
     },
-    "skills": {},
-    "subagents": {}
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1
+    },
+    "subagents": {
+      "attacker": 1
+    }
   }
 }

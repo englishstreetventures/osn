@@ -5,7 +5,7 @@
     "branch": "perf/cire-d1-sessions",
     "base_sha": "f3bef1bf425835270c41cc7387c5289086e66018",
     "head_sha": "4deb5734ac742957ceee569a64cd09b0cb5ff86f",
-    "generated_at": "2026-09-09T06:24:29.034Z",
+    "generated_at": "2026-09-11T07:19:12.047Z",
     "merged_at": "2026-09-06T09:35:37Z",
     "phase": "at-merge"
   },
@@ -132,23 +132,31 @@
   "interaction": {
     "user_turns": 15,
     "corrective_turns": 12,
-    "tokens_before_first_edit": 2137073,
+    "tokens_before_first_edit": 2026657,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 98,
-      "Edit": 10,
-      "Read": 6,
-      "Write": 5,
+      "Bash": 258,
+      "Edit": 24,
+      "Read": 17,
+      "Write": 12,
+      "Agent": 3,
+      "StructuredOutput": 3,
+      "Grep": 2,
       "EnterWorktree": 1,
-      "Grep": 1,
+      "Skill": 1,
+      "ToolSearch": 1,
       "WebFetch": 1,
       "Glob": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 2,
-      "max_edits_one_file": 5
+      "files_edited_3plus": 5,
+      "max_edits_one_file": 6
     },
-    "skills": {},
-    "subagents": {}
+    "skills": {
+      "obsidian:obsidian-markdown": 1
+    },
+    "subagents": {
+      "general-purpose": 3
+    }
   }
 }

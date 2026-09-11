@@ -5,7 +5,7 @@
     "branch": "feat/totp-key-rotation",
     "base_sha": "89b10ce9e3cb3e3d12c4bd6dd2cf723c0569ba3a",
     "head_sha": "9180d8c61e6e52a165758f5947d3f2bfdebe518e",
-    "generated_at": "2026-09-11T06:24:24.014Z",
+    "generated_at": "2026-09-11T07:19:11.995Z",
     "merged_at": "2026-09-11T00:25:59Z",
     "phase": "at-merge"
   },
@@ -167,18 +167,29 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 63,
-      "Edit": 39,
-      "Read": 18,
-      "Write": 3,
-      "ToolSearch": 1,
+      "Bash": 296,
+      "Edit": 70,
+      "Read": 36,
+      "Write": 6,
+      "Skill": 5,
+      "Agent": 2,
+      "ToolSearch": 2,
+      "StructuredOutput": 2,
       "Glob": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 5,
-      "max_edits_one_file": 9
+      "files_edited_3plus": 9,
+      "max_edits_one_file": 16
     },
-    "skills": {},
-    "subagents": {}
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "obsidian:obsidian-markdown": 1,
+      "review-security": 1,
+      "review-tests": 1
+    },
+    "subagents": {
+      "attacker": 2
+    }
   }
 }

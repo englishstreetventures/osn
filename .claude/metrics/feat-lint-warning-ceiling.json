@@ -5,7 +5,7 @@
     "branch": "feat/lint-warning-ceiling",
     "base_sha": "d3cf2f97a1b51c801b60f601017b41967c0309df",
     "head_sha": "686c33e6cde289833012854a3d75ccd92c13f886",
-    "generated_at": "2026-09-11T06:24:24.001Z",
+    "generated_at": "2026-09-11T07:19:11.987Z",
     "merged_at": "2026-09-11T06:15:30Z",
     "phase": "at-merge"
   },
@@ -151,15 +151,26 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 25,
-      "Edit": 14,
-      "Read": 8
+      "Bash": 154,
+      "Read": 33,
+      "Edit": 26,
+      "Write": 9,
+      "Skill": 3,
+      "StructuredOutput": 2,
+      "Grep": 1,
+      "Agent": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 1,
-      "max_edits_one_file": 5
+      "files_edited_3plus": 7,
+      "max_edits_one_file": 8
     },
-    "skills": {},
-    "subagents": {}
+    "skills": {
+      "new-feat": 1,
+      "obsidian:obsidian-markdown": 1,
+      "stress-plan": 1
+    },
+    "subagents": {
+      "attacker": 1
+    }
   }
 }

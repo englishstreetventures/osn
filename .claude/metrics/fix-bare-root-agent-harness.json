@@ -5,7 +5,7 @@
     "branch": "fix/bare-root-agent-harness",
     "base_sha": "09ce0e2daf10c89df6bef57fe63bc31ebb16534f",
     "head_sha": "9ebc63777192470e18443eecec7815269a320cc5",
-    "generated_at": "2026-09-11T06:24:24.020Z",
+    "generated_at": "2026-09-11T07:19:12.005Z",
     "merged_at": "2026-09-10T08:45:10Z",
     "phase": "at-merge"
   },
@@ -124,9 +124,11 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
+      "Read": 8,
       "Bash": 4,
-      "Read": 3,
-      "Glob": 1
+      "StructuredOutput": 4,
+      "Glob": 1,
+      "Grep": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

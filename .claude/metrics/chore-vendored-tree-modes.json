@@ -5,7 +5,7 @@
     "branch": "chore/vendored-tree-modes",
     "base_sha": "273e4ba82e35358c1ef08ab4ae2e38f7692ac855",
     "head_sha": "268c616841441db40ca129c7affba09371e290f6",
-    "generated_at": "2026-09-11T06:24:24.055Z",
+    "generated_at": "2026-09-11T07:19:12.053Z",
     "merged_at": "2026-08-30T14:13:29Z",
     "phase": "at-merge"
   },
@@ -121,7 +121,8 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 3
+      "Read": 4,
+      "StructuredOutput": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

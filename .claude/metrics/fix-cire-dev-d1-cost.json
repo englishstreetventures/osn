@@ -5,7 +5,7 @@
     "branch": "fix/cire-dev-d1-cost",
     "base_sha": "0e16137099a315501b2b9b902ba1aafb89640729",
     "head_sha": "c1e1493d9a6af0f660e0dd054e3fbc48549f1acd",
-    "generated_at": "2026-09-11T06:24:24.022Z",
+    "generated_at": "2026-09-11T07:19:12.007Z",
     "merged_at": "2026-09-10T04:10:24Z",
     "phase": "at-merge"
   },
@@ -126,8 +126,9 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 5,
-      "Bash": 1
+      "Read": 13,
+      "Bash": 2,
+      "StructuredOutput": 2
     },
     "edit_churn": {
       "files_edited_3plus": 0,

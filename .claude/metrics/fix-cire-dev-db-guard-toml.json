@@ -5,7 +5,7 @@
     "branch": "fix/cire-dev-db-guard-toml",
     "base_sha": "cb345fbec36cce19e5a5cc97d45927cafd69984e",
     "head_sha": "f872171fc9896acba792ae38c44fbc8dc91987b8",
-    "generated_at": "2026-09-11T06:24:24.050Z",
+    "generated_at": "2026-09-11T07:19:12.046Z",
     "merged_at": "2026-09-06T07:51:26Z",
     "phase": "at-merge"
   },
@@ -119,7 +119,8 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 4
+      "Read": 8,
+      "StructuredOutput": 4
     },
     "edit_churn": {
       "files_edited_3plus": 0,

@@ -5,7 +5,7 @@
     "branch": "chore/deps-jsdom-30",
     "base_sha": "71b25c1ddf796a4bb42f43bc5cfc1ec6e1f4b655",
     "head_sha": "72aaf7458bd38fcd1de04d51639936aa6d5779e9",
-    "generated_at": "2026-09-09T06:24:29.028Z",
+    "generated_at": "2026-09-11T07:19:12.043Z",
     "merged_at": "2026-09-06T05:02:14Z",
     "phase": "at-merge"
   },
@@ -21,9 +21,9 @@
   "window": {
     "sessions": 2,
     "first_ts": "2026-09-02T06:52:26.288Z",
-    "last_ts": "2026-09-02T06:53:55.565Z",
-    "span_seconds": 89,
-    "active_seconds": 101,
+    "last_ts": "2026-09-02T06:53:56.770Z",
+    "span_seconds": 90,
+    "active_seconds": 103,
     "compactions": 0
   },
   "spend": {
@@ -138,8 +138,9 @@
     "tokens_before_first_edit": 881873,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 3,
-      "Write": 3
+      "Bash": 5,
+      "Write": 3,
+      "StructuredOutput": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

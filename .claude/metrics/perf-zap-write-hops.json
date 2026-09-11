@@ -5,7 +5,7 @@
     "branch": "perf/zap-write-hops",
     "base_sha": "a381059a5908272c3c5b024743bccc1fc7fba168",
     "head_sha": "b5f9c7f45fef921b4e354576e72b91aea72ebe69",
-    "generated_at": "2026-09-11T06:24:24.054Z",
+    "generated_at": "2026-09-11T07:19:12.052Z",
     "merged_at": "2026-08-31T04:33:24Z",
     "phase": "at-merge"
   },
@@ -121,8 +121,9 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 4,
-      "Bash": 2
+      "Read": 8,
+      "Bash": 3,
+      "StructuredOutput": 2
     },
     "edit_churn": {
       "files_edited_3plus": 0,

@@ -5,7 +5,7 @@
     "branch": "feat/osn-recovery-cooldown",
     "base_sha": "57fd79685c25dea10bfad65cdb5b0f99354fa0ec",
     "head_sha": "414ca7a96521ab9d148ee6c2e2b5d30e2d711355",
-    "generated_at": "2026-09-11T06:24:24.022Z",
+    "generated_at": "2026-09-11T07:19:12.007Z",
     "merged_at": "2026-09-09T17:03:07Z",
     "phase": "at-merge"
   },
@@ -171,15 +171,28 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 121,
-      "Edit": 30,
-      "Read": 9
+      "Bash": 416,
+      "Edit": 49,
+      "Read": 46,
+      "Skill": 5,
+      "Write": 5,
+      "Agent": 1,
+      "ToolSearch": 1,
+      "Monitor": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 4,
-      "max_edits_one_file": 5
+      "files_edited_3plus": 5,
+      "max_edits_one_file": 9
     },
-    "skills": {},
-    "subagents": {}
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "obsidian:obsidian-markdown": 1,
+      "review-security": 1,
+      "review-tests": 1
+    },
+    "subagents": {
+      "attacker": 1
+    }
   }
 }

@@ -5,7 +5,7 @@
     "branch": "refactor/separate-osn-from-musubi",
     "base_sha": "10e490c9aa8581cf5b4cf2f739e1f689370a0083",
     "head_sha": "9b33d22a6e4b7520cf96a450e65a09f4434e9b59",
-    "generated_at": "2026-09-11T06:24:24.031Z",
+    "generated_at": "2026-09-11T07:19:12.023Z",
     "merged_at": "2026-09-09T02:56:45Z",
     "phase": "at-merge"
   },
@@ -26,7 +26,7 @@
     "first_ts": "2026-09-08T14:34:45.201Z",
     "last_ts": "2026-09-09T02:08:33.027Z",
     "span_seconds": 41628,
-    "active_seconds": 5079,
+    "active_seconds": 5092,
     "compactions": 0
   },
   "spend": {
@@ -186,20 +186,35 @@
     "tokens_before_first_edit": 259301,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 71,
-      "Edit": 13,
-      "Write": 3,
-      "Agent": 2,
-      "Read": 2,
+      "Bash": 290,
+      "Edit": 24,
+      "Read": 19,
+      "Write": 10,
+      "Skill": 6,
+      "Agent": 5,
+      "Grep": 4,
+      "StructuredOutput": 4,
+      "EnterWorktree": 1,
+      "AskUserQuestion": 1,
+      "Glob": 1,
+      "ToolSearch": 1,
       "Monitor": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 3,
-      "max_edits_one_file": 4
+      "files_edited_3plus": 5,
+      "max_edits_one_file": 8
     },
-    "skills": {},
+    "skills": {
+      "stress-plan": 1,
+      "obsidian:obsidian-markdown": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "review-performance": 1
+    },
     "subagents": {
-      "general-purpose": 2
+      "attacker": 2,
+      "general-purpose": 3
     }
   }
 }

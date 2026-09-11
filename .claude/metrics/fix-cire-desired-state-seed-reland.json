@@ -5,7 +5,7 @@
     "branch": "fix/cire-desired-state-seed-reland",
     "base_sha": "bb5b11a229842de7193e5656dd0ec9349eb457e0",
     "head_sha": "367c7be91f24c9f540042c159c60f1df080ecf2a",
-    "generated_at": "2026-09-11T06:24:24.043Z",
+    "generated_at": "2026-09-11T07:19:12.038Z",
     "merged_at": "2026-09-06T09:10:39Z",
     "phase": "at-merge"
   },
@@ -121,8 +121,9 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 2,
-      "Glob": 1
+      "Read": 5,
+      "Glob": 2,
+      "StructuredOutput": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

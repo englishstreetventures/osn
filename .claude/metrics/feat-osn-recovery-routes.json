@@ -5,7 +5,7 @@
     "branch": "feat/osn-recovery-routes",
     "base_sha": "0d468b94d48e80e66b707a0318b02a41e01faad5",
     "head_sha": "f33518077f260307123eaa5397d6c1241b756039",
-    "generated_at": "2026-09-11T06:24:24.026Z",
+    "generated_at": "2026-09-11T07:19:12.014Z",
     "merged_at": "2026-09-09T11:25:29Z",
     "phase": "at-merge"
   },
@@ -158,15 +158,26 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 58,
-      "Edit": 36,
-      "Read": 8
+      "Bash": 294,
+      "Edit": 85,
+      "Read": 53,
+      "Write": 7,
+      "Skill": 6,
+      "Agent": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 2,
-      "max_edits_one_file": 9
+      "files_edited_3plus": 10,
+      "max_edits_one_file": 16
     },
-    "skills": {},
-    "subagents": {}
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "obsidian:obsidian-markdown": 2,
+      "review-security": 1,
+      "review-tests": 1
+    },
+    "subagents": {
+      "attacker": 1
+    }
   }
 }

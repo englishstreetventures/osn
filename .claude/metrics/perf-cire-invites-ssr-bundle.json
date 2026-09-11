@@ -5,7 +5,7 @@
     "branch": "perf/cire-invites-ssr-bundle",
     "base_sha": "851df71756b28cbe60cc72bac4f82de072179237",
     "head_sha": "0fbe9a2b7098c414b16bbbb8acd5e3302f1016d1",
-    "generated_at": "2026-09-11T06:24:24.043Z",
+    "generated_at": "2026-09-11T07:19:12.037Z",
     "merged_at": "2026-09-06T15:01:51Z",
     "phase": "at-merge"
   },
@@ -132,18 +132,20 @@
   "interaction": {
     "user_turns": 4,
     "corrective_turns": 0,
-    "tokens_before_first_edit": 884171,
+    "tokens_before_first_edit": 781854,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 12,
-      "Read": 8,
-      "Edit": 6,
-      "Write": 2,
-      "Glob": 1
+      "Bash": 53,
+      "Read": 20,
+      "Edit": 12,
+      "Grep": 6,
+      "StructuredOutput": 3,
+      "Glob": 3,
+      "Write": 2
     },
     "edit_churn": {
-      "files_edited_3plus": 1,
-      "max_edits_one_file": 3
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 6
     },
     "skills": {},
     "subagents": {}

@@ -5,7 +5,7 @@
     "branch": "chore/deps-motion-13",
     "base_sha": "044f902c0402e536b7401d246ddfe2b35b2d7afe",
     "head_sha": "650bb8b8dc6015c443f513a16c43981126a3ecfb",
-    "generated_at": "2026-09-09T06:24:29.029Z",
+    "generated_at": "2026-09-11T07:19:12.044Z",
     "merged_at": "2026-09-06T05:02:12Z",
     "phase": "at-merge"
   },
@@ -23,7 +23,7 @@
     "first_ts": "2026-09-02T06:44:28.972Z",
     "last_ts": "2026-09-02T06:46:50.457Z",
     "span_seconds": 141,
-    "active_seconds": 172,
+    "active_seconds": 173,
     "compactions": 0
   },
   "spend": {
@@ -135,11 +135,12 @@
   "interaction": {
     "user_turns": 1,
     "corrective_turns": 0,
-    "tokens_before_first_edit": 2043787,
+    "tokens_before_first_edit": 1786273,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 6,
-      "Write": 2
+      "Bash": 10,
+      "Read": 4,
+      "Write": 3
     },
     "edit_churn": {
       "files_edited_3plus": 0,

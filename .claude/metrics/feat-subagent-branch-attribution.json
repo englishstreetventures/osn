@@ -5,7 +5,7 @@
     "branch": "feat/subagent-branch-attribution",
     "base_sha": "a020dc6fe429b21c26399470519d79ef8e3793c1",
     "head_sha": "e93bea3b62fbd34ab573cf2867efbd2dfa7ff25d",
-    "generated_at": "2026-09-11T06:24:24.038Z",
+    "generated_at": "2026-09-11T07:19:12.031Z",
     "merged_at": "2026-09-08T13:33:50Z",
     "phase": "at-merge"
   },
@@ -24,9 +24,9 @@
   "window": {
     "sessions": 1,
     "first_ts": "2026-09-08T11:41:46.779Z",
-    "last_ts": "2026-09-08T12:44:09.509Z",
-    "span_seconds": 3743,
-    "active_seconds": 1583,
+    "last_ts": "2026-09-08T12:44:13.704Z",
+    "span_seconds": 3747,
+    "active_seconds": 1587,
     "compactions": 0
   },
   "spend": {
@@ -138,15 +138,19 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Edit": 19,
-      "Bash": 18,
-      "Read": 1
+      "Bash": 101,
+      "Edit": 26,
+      "Read": 10,
+      "Write": 4,
+      "Skill": 1
     },
     "edit_churn": {
       "files_edited_3plus": 3,
-      "max_edits_one_file": 11
+      "max_edits_one_file": 16
     },
-    "skills": {},
+    "skills": {
+      "review-security": 1
+    },
     "subagents": {}
   }
 }

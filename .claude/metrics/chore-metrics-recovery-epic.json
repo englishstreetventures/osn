@@ -5,7 +5,7 @@
     "branch": "chore/metrics-recovery-epic",
     "base_sha": "4df6b5ffb84f9ee64a71ccb792b7906b9c7bfc49",
     "head_sha": "a336e6c4fa4e00f63b74afbb44293afd927517a3",
-    "generated_at": "2026-09-11T06:24:24.013Z",
+    "generated_at": "2026-09-11T07:19:11.994Z",
     "merged_at": "2026-09-11T02:05:47Z",
     "phase": "at-merge"
   },
@@ -119,8 +119,10 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
+      "Grep": 1,
       "Read": 1,
-      "Bash": 1
+      "Bash": 1,
+      "StructuredOutput": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

@@ -5,7 +5,7 @@
     "branch": "fix/osn-waituntil-sink",
     "base_sha": "ca2887eedd58e3537da77121fa07993718584433",
     "head_sha": "8d84638db7b106a05158d73b0f670b08cbf46eb5",
-    "generated_at": "2026-09-11T06:24:24.027Z",
+    "generated_at": "2026-09-11T07:19:12.017Z",
     "merged_at": "2026-09-09T10:38:51Z",
     "phase": "at-merge"
   },
@@ -166,14 +166,23 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 8,
-      "Read": 1
+      "Bash": 84,
+      "Read": 8,
+      "Skill": 2,
+      "Agent": 2,
+      "Write": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,
-      "max_edits_one_file": 0
+      "max_edits_one_file": 1
     },
-    "skills": {},
-    "subagents": {}
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1
+    },
+    "subagents": {
+      "explorer": 1,
+      "attacker": 1
+    }
   }
 }

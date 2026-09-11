@@ -5,7 +5,7 @@
     "branch": "feat/pr-metrics-complexity",
     "base_sha": "f73db88583845b1ada743c0283079fd0ba15079c",
     "head_sha": "3e722e57dd0d8b3ad660d9fd5dc9b3719fe90440",
-    "generated_at": "2026-09-09T06:24:29.018Z",
+    "generated_at": "2026-09-11T07:19:12.034Z",
     "merged_at": "2026-09-07T07:51:47Z",
     "phase": "at-merge"
   },
@@ -132,19 +132,21 @@
   "interaction": {
     "user_turns": 5,
     "corrective_turns": 0,
-    "tokens_before_first_edit": 3807031,
+    "tokens_before_first_edit": 1240795,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 25,
-      "Read": 7,
+      "Bash": 36,
+      "Read": 20,
+      "Edit": 7,
+      "Grep": 5,
+      "StructuredOutput": 4,
       "EnterWorktree": 3,
-      "Edit": 3,
-      "Grep": 3,
+      "Write": 2,
       "Glob": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,
-      "max_edits_one_file": 1
+      "max_edits_one_file": 2
     },
     "skills": {},
     "subagents": {}

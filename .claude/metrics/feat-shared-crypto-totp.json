@@ -5,7 +5,7 @@
     "branch": "feat/shared-crypto-totp",
     "base_sha": "be06e53fb322237baf274b4091a777d7a1cad08f",
     "head_sha": "da51b21a83f31123722841649f4ef193118a0a4c",
-    "generated_at": "2026-09-11T06:24:24.036Z",
+    "generated_at": "2026-09-11T07:19:12.028Z",
     "merged_at": "2026-09-09T01:46:00Z",
     "phase": "at-merge"
   },
@@ -25,9 +25,9 @@
   "window": {
     "sessions": 1,
     "first_ts": "2026-09-08T14:21:42.291Z",
-    "last_ts": "2026-09-09T01:45:50.305Z",
-    "span_seconds": 41048,
-    "active_seconds": 4403,
+    "last_ts": "2026-09-09T01:45:52.827Z",
+    "span_seconds": 41051,
+    "active_seconds": 4406,
     "compactions": 0
   },
   "spend": {
@@ -152,15 +152,27 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 43,
-      "Edit": 34,
-      "Read": 2
+      "Bash": 156,
+      "Edit": 51,
+      "Read": 20,
+      "Write": 12,
+      "Skill": 5,
+      "Agent": 1,
+      "ToolSearch": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 6,
-      "max_edits_one_file": 7
+      "files_edited_3plus": 7,
+      "max_edits_one_file": 13
     },
-    "skills": {},
-    "subagents": {}
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "review-security": 1,
+      "review-tests": 1,
+      "obsidian:obsidian-markdown": 1
+    },
+    "subagents": {
+      "attacker": 1
+    }
   }
 }

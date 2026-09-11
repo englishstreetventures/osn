@@ -5,7 +5,7 @@
     "branch": "fix/browserslist-advisories",
     "base_sha": "a6c9eb6de6ea076c07b228dc21089ce79171cded",
     "head_sha": "5d14ee9f62b8c15a5a33931c8b680af25a27fb59",
-    "generated_at": "2026-09-11T06:24:24.048Z",
+    "generated_at": "2026-09-11T07:19:12.045Z",
     "merged_at": "2026-09-02T02:08:09Z",
     "phase": "at-merge"
   },
@@ -149,19 +149,27 @@
   "interaction": {
     "user_turns": 4,
     "corrective_turns": 2,
-    "tokens_before_first_edit": 2197258,
+    "tokens_before_first_edit": 589184,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 40,
-      "Read": 1
+      "Bash": 125,
+      "Read": 4,
+      "StructuredOutput": 2,
+      "Agent": 2,
+      "Write": 2,
+      "Skill": 1,
+      "Workflow": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,
-      "max_edits_one_file": 0
+      "max_edits_one_file": 1
     },
     "skills": {
+      "prep-pr": 1,
       "workflow-authoring": 1
     },
-    "subagents": {}
+    "subagents": {
+      "general-purpose": 2
+    }
   }
 }

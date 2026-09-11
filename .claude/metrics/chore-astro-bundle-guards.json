@@ -5,7 +5,7 @@
     "branch": "chore/astro-bundle-guards",
     "base_sha": "0fbe9a2b7098c414b16bbbb8acd5e3302f1016d1",
     "head_sha": "40126c22a89a4383441130552bf38c70fc900a56",
-    "generated_at": "2026-09-11T06:24:24.042Z",
+    "generated_at": "2026-09-11T07:19:12.036Z",
     "merged_at": "2026-09-06T15:01:52Z",
     "phase": "at-merge"
   },
@@ -140,15 +140,16 @@
     "tokens_before_first_edit": 2623796,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Edit": 38,
-      "Read": 25,
-      "Bash": 14,
-      "Write": 3,
-      "Grep": 1
+      "Bash": 112,
+      "Edit": 53,
+      "Read": 48,
+      "Write": 11,
+      "Grep": 5,
+      "StructuredOutput": 4
     },
     "edit_churn": {
-      "files_edited_3plus": 4,
-      "max_edits_one_file": 8
+      "files_edited_3plus": 8,
+      "max_edits_one_file": 10
     },
     "skills": {},
     "subagents": {}

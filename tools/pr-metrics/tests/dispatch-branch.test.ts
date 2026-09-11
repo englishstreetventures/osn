@@ -206,6 +206,7 @@ test("readRecordsForBranch counts a record present in two session files once", a
       gitBranch: "feat/x",
       isSidechain: false,
       requestId: "req-dup",
+      uuid: "u-dup",
       timestamp: "2026-09-08T10:02:00.000Z",
       message: { model: "claude-opus-5", usage: { output_tokens: 500 } },
     })}\n`;
@@ -418,16 +419,18 @@ test("resolveDispatchBranch terminates when two siblings dispatch each other", a
   }
 });
 
-// T-U1. `requestId` is the assistant side; `uuid` is the fallback for the
-// records `user_turns` and `corrective_turns` are counted from. If it never
-// fires those numbers double on a duplicated conversation.
-test("the uuid fallback dedupes records that carry no requestId", async () => {
+// T-U1. `uuid` is what a cross-file duplicate repeats, on the assistant side
+// and on the `user` records `user_turns` and `corrective_turns` are counted
+// from alike. If the dedupe never fires those numbers double on a duplicated
+// conversation.
+test("a record present in two files is dropped on its uuid, assistant or user", async () => {
   const dir = await tree();
   try {
     const assistant = JSON.stringify({
       type: "assistant",
       gitBranch: "feat/x",
       requestId: "req-dup",
+      uuid: "u-assistant",
       message: { model: "claude-opus-5", usage: { output_tokens: 5 } },
     });
     const user = JSON.stringify({ type: "user", gitBranch: "feat/x", uuid: "u-dup" });
@@ -444,6 +447,37 @@ test("the uuid fallback dedupes records that carry no requestId", async () => {
   }
 });
 
+// One API response reaches the transcript as several records — a thinking
+// block, a text block, one per `tool_use` — sharing a `requestId` and each
+// carrying its own `uuid`. Keying the dedupe on `requestId` kept the first and
+// threw the rest away, which is every tool call the response made bar one.
+test("the blocks of one split response all survive the dedupe", async () => {
+  const dir = await tree();
+  try {
+    const block = (uuid: string, name: string) =>
+      JSON.stringify({
+        type: "assistant",
+        gitBranch: "feat/x",
+        requestId: "req-split",
+        uuid,
+        message: {
+          model: "claude-opus-5",
+          content: [{ type: "tool_use", name, input: {} }],
+          usage: { output_tokens: 9 },
+        },
+      });
+
+    await writeFile(
+      join(dir, "proj/sess-1.jsonl"),
+      [block("u-1", "Bash"), block("u-2", "Bash"), block("u-3", "Agent")].join("\n"),
+    );
+
+    expect(readRecordsForBranch(dir, "feat/x")).toHaveLength(3);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 // T-S1. `backfill` reads through `recordsByBranch`, so an un-deduped pass here
 // is the live-card/backfilled-card disagreement the shared reader exists to end.
 test("recordsByBranch dedupes a record present in two session files", async () => {
@@ -453,6 +487,7 @@ test("recordsByBranch dedupes a record present in two session files", async () =
       type: "assistant",
       gitBranch: "feat/x",
       requestId: "req-dup",
+      uuid: "u-dup",
       message: { model: "claude-opus-5", usage: { output_tokens: 7 } },
     });
     await writeFile(join(dir, "proj/sess-1.jsonl"), `${line}\n`);

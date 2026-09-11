@@ -5,7 +5,7 @@
     "branch": "fix/sqlite-foreign-keys",
     "base_sha": "1789a19df627206d8bcbff0ff2d02a54f667370b",
     "head_sha": "7dd2a0d7c529ed55edcf40f587313f29cca541bf",
-    "generated_at": "2026-09-11T06:24:24.055Z",
+    "generated_at": "2026-09-11T07:19:12.052Z",
     "merged_at": "2026-08-30T14:20:51Z",
     "phase": "at-merge"
   },
@@ -125,8 +125,9 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 5,
-      "Grep": 4
+      "Grep": 9,
+      "Read": 8,
+      "Bash": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

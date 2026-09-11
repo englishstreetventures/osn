@@ -5,7 +5,7 @@
     "branch": "perf/cire-store-stale-while-revalidate",
     "base_sha": "66c9950197ee25bfc25f86664de7ac607504d843",
     "head_sha": "07e6b0d68307fb03d356f327b276ebea627e3136",
-    "generated_at": "2026-09-11T06:24:24.049Z",
+    "generated_at": "2026-09-11T07:19:12.046Z",
     "merged_at": "2026-09-06T07:50:36Z",
     "phase": "at-merge"
   },
@@ -121,6 +121,9 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
+      "Read": 9,
+      "StructuredOutput": 2,
+      "Grep": 2,
       "Glob": 1
     },
     "edit_churn": {

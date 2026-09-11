@@ -5,7 +5,7 @@
     "branch": "chore/needs-decision-label",
     "base_sha": "a381059a5908272c3c5b024743bccc1fc7fba168",
     "head_sha": "cd521e65d3355f56a558b835c8fa2a55e02a6d81",
-    "generated_at": "2026-09-09T06:24:29.037Z",
+    "generated_at": "2026-09-11T07:19:12.051Z",
     "merged_at": "2026-08-31T04:33:47Z",
     "phase": "at-merge"
   },
@@ -119,7 +119,8 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 1
+      "Read": 2,
+      "StructuredOutput": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

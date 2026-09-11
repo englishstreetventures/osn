@@ -5,7 +5,7 @@
     "branch": "feat/osn-totp-api",
     "base_sha": "a621c6c6059ae34bff3a8b92c1086d34249b6153",
     "head_sha": "c536459c6ec92b740740b16a30d496fc50024dfc",
-    "generated_at": "2026-09-11T06:24:24.030Z",
+    "generated_at": "2026-09-11T07:19:12.020Z",
     "merged_at": "2026-09-09T05:15:20Z",
     "phase": "at-merge"
   },
@@ -147,16 +147,26 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 73,
-      "Edit": 25,
-      "Read": 4,
-      "Write": 3
+      "Bash": 331,
+      "Read": 55,
+      "Edit": 54,
+      "Write": 14,
+      "Skill": 5,
+      "Agent": 1,
+      "ToolSearch": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 2,
-      "max_edits_one_file": 5
+      "files_edited_3plus": 5,
+      "max_edits_one_file": 15
     },
-    "skills": {},
-    "subagents": {}
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "obsidian:obsidian-markdown": 2,
+      "review-security": 1
+    },
+    "subagents": {
+      "attacker": 1
+    }
   }
 }

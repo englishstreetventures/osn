@@ -5,7 +5,7 @@
     "branch": "chore/deps-better-sqlite3-13",
     "base_sha": "fca74814cbbdf0fe9646250dcfbef3fcb003bf5c",
     "head_sha": "71b25c1ddf796a4bb42f43bc5cfc1ec6e1f4b655",
-    "generated_at": "2026-09-09T06:24:29.029Z",
+    "generated_at": "2026-09-11T07:19:12.043Z",
     "merged_at": "2026-09-06T05:02:13Z",
     "phase": "at-merge"
   },
@@ -137,9 +137,11 @@
     "tokens_before_first_edit": 3417998,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 8,
+      "Bash": 15,
+      "Read": 5,
+      "Grep": 3,
       "Write": 2,
-      "Read": 1
+      "StructuredOutput": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

@@ -5,7 +5,7 @@
     "branch": "fix/metrics-complexity-source",
     "base_sha": "0adac539d2fae93b58d639c7e68514aeef95eb7a",
     "head_sha": "d3fdc566691f3cf29c09f3d342d76c5c7a68cf5b",
-    "generated_at": "2026-09-11T06:24:24.012Z",
+    "generated_at": "2026-09-11T07:19:11.992Z",
     "merged_at": "2026-09-11T04:40:29Z",
     "phase": "at-merge"
   },
@@ -148,16 +148,26 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 13,
-      "Read": 4,
-      "Edit": 3,
-      "Write": 2
+      "Bash": 157,
+      "Read": 27,
+      "Edit": 14,
+      "Write": 5,
+      "Skill": 4,
+      "Agent": 2,
+      "StructuredOutput": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 0,
-      "max_edits_one_file": 2
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 6
     },
-    "skills": {},
-    "subagents": {}
+    "skills": {
+      "new-feat": 1,
+      "rate-complexity": 1,
+      "stress-plan": 1,
+      "obsidian:obsidian-markdown": 1
+    },
+    "subagents": {
+      "attacker": 2
+    }
   }
 }

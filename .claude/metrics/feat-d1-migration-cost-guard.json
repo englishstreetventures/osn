@@ -5,7 +5,7 @@
     "branch": "feat/d1-migration-cost-guard",
     "base_sha": "09ce0e2daf10c89df6bef57fe63bc31ebb16534f",
     "head_sha": "f83f722101ecdf0b84458f5af44405d11ea77288",
-    "generated_at": "2026-09-11T06:24:24.020Z",
+    "generated_at": "2026-09-11T07:19:12.005Z",
     "merged_at": "2026-09-10T08:44:44Z",
     "phase": "at-merge"
   },
@@ -124,8 +124,10 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 7,
-      "Bash": 4
+      "Read": 13,
+      "Bash": 4,
+      "StructuredOutput": 4,
+      "Grep": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

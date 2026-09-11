@@ -5,7 +5,7 @@
     "branch": "perf/osn-recommender-fanout",
     "base_sha": "8b55084abdc82867cb1aeaacb4102ecb1213b146",
     "head_sha": "e7c6f0f170f01a937c8e3fa06ff9db2bf4b0cdb9",
-    "generated_at": "2026-09-11T06:24:24.053Z",
+    "generated_at": "2026-09-11T07:19:12.050Z",
     "merged_at": "2026-08-31T15:41:14Z",
     "phase": "at-merge"
   },
@@ -123,7 +123,9 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 2
+      "Read": 3,
+      "Grep": 1,
+      "StructuredOutput": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

@@ -5,7 +5,7 @@
     "branch": "test/pr-metrics-backfill",
     "base_sha": "5667074a2ffd3b62aae424c5c3fd33fc162f32d4",
     "head_sha": "39d45644798c7bdd2df95301e66689e234cc92ea",
-    "generated_at": "2026-09-11T06:24:24.037Z",
+    "generated_at": "2026-09-11T07:19:12.030Z",
     "merged_at": "2026-09-08T14:48:06Z",
     "phase": "at-merge"
   },
@@ -139,15 +139,19 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 19,
-      "Edit": 17,
-      "Read": 1
+      "Bash": 139,
+      "Edit": 29,
+      "Read": 6,
+      "Write": 1,
+      "Skill": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 2,
-      "max_edits_one_file": 12
+      "files_edited_3plus": 3,
+      "max_edits_one_file": 20
     },
-    "skills": {},
+    "skills": {
+      "review-performance": 1
+    },
     "subagents": {}
   }
 }

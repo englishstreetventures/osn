@@ -87,15 +87,24 @@ join: this repository runs one worktree and one branch per task, so a branch
 name maps to exactly one pull request. For delegated work it is not enough —
 see [[#Attributing subagent spend]].
 
-Three traps the collector handles and any reimplementation must:
+Five traps the collector handles and any reimplementation must:
 
 - **Subagent spend is in a sibling directory**, `<session-id>/subagents/*.jsonl`,
   not in the main transcript. Missing it under-reports every delegated task, and
   on orchestrated work that is most of the cost.
 - **One conversation is sometimes written into two session files.** 615 assistant
   records on this machine — 5.2% of session spend — appear in both, and reading
-  them twice doubles the branch's cost. `readRecordsForBranch` keys on
-  `requestId` and returns each once.
+  them twice doubles the branch's cost. A duplicate repeats the record's `uuid`,
+  so that is what `readRecordsForBranch` keys on, returning each once.
+- **One API response is several records.** A thinking block, a text block and one
+  per `tool_use` all reach the transcript separately, sharing a `requestId` and
+  repeating that response's `message.usage` verbatim. The two phenomena pull
+  opposite ways and must not share a key: keying the record dedupe on `requestId`
+  keeps the first block of every response and throws the rest away, which is
+  every tool call the response made bar one. So records dedupe on `uuid`, and
+  every reader of `message.usage` — `aggregateSpend`, and the exploration sum in
+  `aggregateInteraction` — counts a `requestId` once instead, or a response's
+  cost is multiplied by the number of blocks it was split across.
 - **Most `role: "user"` records are machinery** — tool results, hook output,
   system reminders, slash-command envelopes. Counting them destroys `user_turns`
   as a measure of steering.

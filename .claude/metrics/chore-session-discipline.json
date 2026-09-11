@@ -5,7 +5,7 @@
     "branch": "chore/session-discipline",
     "base_sha": "dc7bcaff1340a8d551100cdda8952b2488b9e62c",
     "head_sha": "186da7f067f9772488ba827112314d65cc7c4b25",
-    "generated_at": "2026-09-09T06:24:29.016Z",
+    "generated_at": "2026-09-11T07:19:12.031Z",
     "merged_at": "2026-09-07T03:52:44Z",
     "phase": "at-merge"
   },
@@ -119,7 +119,9 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 1
+      "Read": 3,
+      "Glob": 1,
+      "StructuredOutput": 1
     },
     "edit_churn": {
       "files_edited_3plus": 0,

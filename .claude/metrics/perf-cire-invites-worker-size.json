@@ -5,7 +5,7 @@
     "branch": "perf/cire-invites-worker-size",
     "base_sha": "7094065879b85fc107c0778a176d3d8002a9cf85",
     "head_sha": "6379aad47887720961d148bc96d0d90a5d2f1b0f",
-    "generated_at": "2026-09-11T06:24:24.050Z",
+    "generated_at": "2026-09-11T07:19:12.046Z",
     "merged_at": "2026-09-02T01:17:53Z",
     "phase": "at-merge"
   },
@@ -121,8 +121,10 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 7,
-      "Glob": 2
+      "Read": 18,
+      "Glob": 3,
+      "StructuredOutput": 3,
+      "Bash": 2
     },
     "edit_churn": {
       "files_edited_3plus": 0,

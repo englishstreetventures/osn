@@ -5,7 +5,7 @@
     "branch": "fix/metrics-node-fs-import",
     "base_sha": "10e490c9aa8581cf5b4cf2f739e1f689370a0083",
     "head_sha": "c05ea4e4123ab69028dd1efb3347c506b5027105",
-    "generated_at": "2026-09-11T06:24:24.033Z",
+    "generated_at": "2026-09-11T07:19:12.026Z",
     "merged_at": "2026-09-09T02:54:03Z",
     "phase": "at-merge"
   },
@@ -188,28 +188,37 @@
     "tokens_before_first_edit": 231096,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 100,
-      "Edit": 28,
-      "Read": 8,
-      "Write": 6,
-      "mcp__claude-in-chrome__read_console_messages": 6,
-      "mcp__claude-in-chrome__navigate": 4,
-      "mcp__claude-in-chrome__read_network_requests": 2,
-      "Agent": 2,
+      "Bash": 272,
+      "Edit": 51,
+      "Read": 36,
+      "Write": 16,
+      "mcp__claude-in-chrome__read_console_messages": 8,
+      "Agent": 7,
+      "mcp__claude-in-chrome__navigate": 7,
+      "Skill": 5,
+      "StructuredOutput": 4,
+      "mcp__claude-in-chrome__read_network_requests": 3,
+      "mcp__claude-in-chrome__read_page": 3,
+      "ToolSearch": 2,
       "EnterWorktree": 1,
-      "Skill": 1,
       "TaskStop": 1,
-      "mcp__claude-in-chrome__read_page": 1
+      "mcp__claude-in-chrome__tabs_create_mcp": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 4,
-      "max_edits_one_file": 9
+      "files_edited_3plus": 9,
+      "max_edits_one_file": 13
     },
     "skills": {
-      "stress-plan": 1
+      "stress-plan": 1,
+      "prep-pr": 1,
+      "review-tests": 1,
+      "review-security": 1,
+      "review-performance": 1
     },
     "subagents": {
-      "general-purpose": 2
+      "attacker": 3,
+      "general-purpose": 3,
+      "shepherd": 1
     }
   }
 }

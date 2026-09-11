@@ -6,6 +6,7 @@ import {
   aggregateWindow,
   branchSlug,
   classifyPath,
+  type ContentBlock,
   costOf,
   declaredFromLabels,
   emptyTokens,
@@ -644,4 +645,59 @@ test("aggregateInteraction does not count a slash command as a turn", () => {
 
   expect(interaction.user_turns).toBe(0);
   expect(interaction.skills).toEqual({ "review-deps": 1 });
+});
+
+// --- split responses --------------------------------------------------------
+
+// Claude Code writes one API response as several records — a thinking block, a
+// text block, one per `tool_use` — all carrying the same `requestId` and the
+// same `usage`. The usage belongs to the response, so summing it per record
+// multiplies a response's cost by the number of blocks it was split across.
+test("aggregateSpend prices a split response once, not once per block", () => {
+  const split = (content: ContentBlock[]) =>
+    assistant({
+      requestId: "req-split",
+      message: {
+        model: "claude-opus-5",
+        content,
+        usage: usage({ input_tokens: 1000, output_tokens: 200 }),
+      },
+    });
+
+  const spend = aggregateSpend([split([toolUse("Bash")]), split([toolUse("Agent")])]);
+
+  expect(spend.tokens.output).toBe(200);
+  expect(spend.tokens.input).toBe(1000);
+  expect(spend.by_actor.main.messages).toBe(1);
+});
+
+// The blocks the old record dedupe threw away: every `tool_use` after the
+// first one of a response. On one branch here that lost all three `Agent`
+// dispatches, and the card then said the session used no subagents at all.
+test("aggregateInteraction counts every block of a split response", () => {
+  const split = (content: ContentBlock[]) =>
+    assistant({
+      requestId: "req-split",
+      message: { model: "claude-opus-5", content, usage: usage({ output_tokens: 300 }) },
+    });
+
+  const interaction = aggregateInteraction([
+    split([toolUse("Bash")]),
+    split([toolUse("Bash")]),
+    split([toolUse("Agent", { subagent_type: "implementer" })]),
+    assistant({
+      requestId: "req-split",
+      message: {
+        model: "claude-opus-5",
+        content: [toolUse("Edit", { file_path: "a.ts" })],
+        usage: usage({ output_tokens: 300 }),
+      },
+    }),
+  ]);
+
+  expect(interaction.tool_calls.Bash).toBe(2);
+  expect(interaction.subagents.implementer).toBe(1);
+  // One response, so the exploration that led to the edit is 300 tokens — not
+  // 1200, which is what reading `usage` off each of the four blocks would give.
+  expect(interaction.tokens_before_first_edit).toBe(300);
 });

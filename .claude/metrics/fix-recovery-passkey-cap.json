@@ -5,7 +5,7 @@
     "branch": "fix/recovery-passkey-cap",
     "base_sha": "b5e6d72ea20c27fb71e825d93deec6e6300d8d49",
     "head_sha": "de55412c8ba35fbb7221b125bf4f59bac1a84ed4",
-    "generated_at": "2026-09-11T06:24:24.018Z",
+    "generated_at": "2026-09-11T07:19:12.002Z",
     "merged_at": "2026-09-10T12:59:21Z",
     "phase": "at-merge"
   },
@@ -177,17 +177,29 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Bash": 63,
-      "Edit": 46,
-      "Read": 28,
-      "Write": 4,
-      "Grep": 3
+      "Bash": 261,
+      "Edit": 65,
+      "Read": 63,
+      "Grep": 12,
+      "Write": 9,
+      "Skill": 5,
+      "Agent": 1,
+      "ToolSearch": 1,
+      "Monitor": 1
     },
     "edit_churn": {
-      "files_edited_3plus": 6,
-      "max_edits_one_file": 11
+      "files_edited_3plus": 10,
+      "max_edits_one_file": 16
     },
-    "skills": {},
-    "subagents": {}
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "obsidian:obsidian-markdown": 1,
+      "review-security": 1,
+      "review-tests": 1
+    },
+    "subagents": {
+      "attacker": 1
+    }
   }
 }

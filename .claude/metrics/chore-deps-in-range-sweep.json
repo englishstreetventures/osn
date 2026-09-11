@@ -5,7 +5,7 @@
     "branch": "chore/deps-in-range-sweep",
     "base_sha": "b485f54e96e6d30fde9c442e1ffc0ec666a0fa07",
     "head_sha": "5de432275d22a9731ab36a6b2d6aa644125464ac",
-    "generated_at": "2026-09-09T06:24:29.030Z",
+    "generated_at": "2026-09-11T07:19:12.044Z",
     "merged_at": "2026-09-06T05:02:10Z",
     "phase": "at-merge"
   },
@@ -23,7 +23,7 @@
     "first_ts": "2026-09-02T06:36:49.185Z",
     "last_ts": "2026-09-06T03:37:21.888Z",
     "span_seconds": 334833,
-    "active_seconds": 894,
+    "active_seconds": 896,
     "compactions": 0
   },
   "spend": {
@@ -169,8 +169,9 @@
     "tokens_before_first_edit": 218270,
     "sessions_with_observed_edit": 1,
     "tool_calls": {
-      "Bash": 13,
-      "Write": 3
+      "Bash": 19,
+      "Write": 4,
+      "StructuredOutput": 2
     },
     "edit_churn": {
       "files_edited_3plus": 0,

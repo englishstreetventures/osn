@@ -5,7 +5,7 @@
     "branch": "fix/cire-consent-cookie-prefix",
     "base_sha": "fcf34fccdf0b4a94f3c8efd2f73dec7fdba0b3b6",
     "head_sha": "2ea7944b2511c5c3d2018d6dcc9f0cbf4580f3db",
-    "generated_at": "2026-09-11T06:24:24.053Z",
+    "generated_at": "2026-09-11T07:19:12.051Z",
     "merged_at": "2026-08-31T06:43:13Z",
     "phase": "at-merge"
   },
@@ -121,8 +121,9 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 9,
-      "Grep": 1
+      "Read": 23,
+      "Grep": 5,
+      "StructuredOutput": 3
     },
     "edit_churn": {
       "files_edited_3plus": 0,

@@ -5,7 +5,7 @@
     "branch": "feat/free-tier-ceiling-alerts",
     "base_sha": "a1840dd0773d6902fcb12efaf8f68e6d4a299c9f",
     "head_sha": "c20d4959e8d74162426f8f645668f45da3ade65d",
-    "generated_at": "2026-09-11T06:24:24.021Z",
+    "generated_at": "2026-09-11T07:19:12.006Z",
     "merged_at": "2026-09-10T08:44:57Z",
     "phase": "at-merge"
   },
@@ -124,8 +124,9 @@
     "tokens_before_first_edit": null,
     "sessions_with_observed_edit": 0,
     "tool_calls": {
-      "Read": 6,
-      "Bash": 4
+      "Read": 14,
+      "Bash": 4,
+      "StructuredOutput": 4
     },
     "edit_churn": {
       "files_edited_3plus": 0,
