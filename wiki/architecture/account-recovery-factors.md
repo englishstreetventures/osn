@@ -383,9 +383,12 @@ are hashed and IPs are HMAC-peppered, and a dump would yield a working step-up
 factor for every enrolled account.
 
 So: a new Worker secret `OSN_TOTP_ENCRYPTION_KEY` (32 random bytes, base64),
-per environment, imported once in `build-deps.ts` as an AES-GCM `CryptoKey` and
-carried on `AuthConfig` — exactly the shape `OSN_SESSION_IP_PEPPER` already
-uses, including **failing closed at boot** in non-local tiers when absent. The
+per environment, imported in `build-deps.ts` and carried on `AuthConfig` —
+exactly the shape `OSN_SESSION_IP_PEPPER` already uses, including **failing
+closed at boot** in non-local tiers when absent. It is carried as a version-to-key
+**ring** rather than a lone `CryptoKey`, so the key can be rotated without every
+enrolled user re-enrolling; the optional `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS`
+holds the outgoing key while a rotation drains. See [[totp#Rotating the encryption key]]. The
 Worker's secrets and its database are separate trust domains. The pending,
 not-yet-confirmed secret during enrolment lives in a `CeremonyStores` entry
 with a Redis variant, never in D1.

@@ -436,10 +436,16 @@ export const totpCredentials = sqliteTable(
     /** The 96-bit nonce for the ciphertext above. Fresh per encryption. */
     iv: blob("iv", { mode: "buffer" }).notNull(),
     /**
-     * Which encryption key the ciphertext is under. Always 1: key rotation is
-     * not implemented, one key exists, and a row stamped with any other version
-     * is refused rather than decrypted. The column is here so that adding
-     * rotation later is a code change rather than a migration — xchromo/osn#968.
+     * Which of osn-api's configured encryption keys the ciphertext was written
+     * under, as a slot number: 1 when one key is configured, and 1 (previous) /
+     * 2 (current) while a rotation is draining.
+     *
+     * A HINT, not a lookup key. Decryption tries every configured key and takes
+     * whichever opens the row, because a rotation stages its two Worker secrets
+     * some time apart and in that window a row's stamp and the key it is really
+     * under disagree. Nothing reads this column to make a decision, so a stale
+     * value costs nothing — and the slot numbers are reused by the next
+     * rotation, so it cannot measure a drain either. `last_used_at` does that.
      */
     keyVersion: integer("key_version").notNull().default(1),
     /** User-supplied name for the authenticator. Never used as a secret. */

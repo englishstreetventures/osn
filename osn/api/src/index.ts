@@ -83,6 +83,11 @@ export interface Env {
   // to boot without it rather than storing a second factor in plain text.
   // `wrangler secret put OSN_TOTP_ENCRYPTION_KEY --env <tier>`.
   OSN_TOTP_ENCRYPTION_KEY?: string;
+  // The OUTGOING key while a rotation drains. OPTIONAL in every tier: set it to
+  // the old key BEFORE installing a new OSN_TOTP_ENCRYPTION_KEY, and delete it
+  // once every credential has re-encrypted. Rows written under either key
+  // verify while both are set. A malformed value still fails the boot.
+  OSN_TOTP_ENCRYPTION_KEY_PREVIOUS?: string;
   // HMAC key behind every pairwise OIDC `sub`. Permanent: rotating it changes
   // every subject a relying party has on file. `wrangler secret put
   // OSN_PAIRWISE_SALT`.

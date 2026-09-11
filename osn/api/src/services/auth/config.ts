@@ -2,6 +2,7 @@ import type { JWK } from "jose";
 
 import type { RecoveryLockoutStore } from "../../lib/recovery-lockout-store";
 import type { RotatedSessionStore } from "../../lib/rotated-session-store";
+import type { TotpKeyRing } from "../../lib/totp-secret-crypto";
 import type { AccountCapLimiter, CeremonyStores, StepUpJtiStore } from "./stores";
 
 export interface AuthConfig {
@@ -156,15 +157,22 @@ export interface AuthConfig {
    */
   recoveryOtpLockoutStore?: RecoveryLockoutStore;
   /**
-   * AES-GCM key that TOTP shared secrets are encrypted under at rest, imported
-   * once at boot from `OSN_TOTP_ENCRYPTION_KEY`. `buildAppDeps` always supplies
-   * one — the real secret in a deployed tier, an ephemeral key in local dev.
+   * The AES-GCM keys TOTP shared secrets are encrypted under at rest, by the
+   * version stamped on a row. `buildAppDeps` builds it at boot from
+   * `OSN_TOTP_ENCRYPTION_KEY` and the optional `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS`
+   * — the real secrets in a deployed tier, one ephemeral key in local dev.
    *
-   * Optional here so every existing `AuthConfig` literal still type-checks.
-   * Absent does NOT mean "store the secret in plain text": the TOTP service has
-   * no plaintext path and fails closed when this is unset.
+   * A ring rather than a lone key is what makes the secret rotatable: new
+   * ciphertext goes under the highest version, a row written under the outgoing
+   * key still verifies, and each verify re-encrypts its own row so the old key
+   * drains. See `lib/totp-secret-crypto.ts`.
+   *
+   * Optional here so every existing `AuthConfig` literal still type-checks, and
+   * an EMPTY ring counts the same as an absent one. Neither means "store the
+   * secret in plain text": the TOTP service has no plaintext path and fails
+   * closed when it cannot resolve a key.
    */
-  totpEncryptionKey?: CryptoKey;
+  totpEncryptionKeys?: TotpKeyRing;
   /**
    * O3: injectable Redis-backed ceremony / pending-state stores. When omitted
    * each falls back to an in-memory `Map` (single-process only). Multi-pod

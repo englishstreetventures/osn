@@ -32,14 +32,18 @@ import { Effect } from "effect";
 
 import { forkBackground } from "../../lib/background";
 import {
+  currentTotpKeyVersion,
   decryptTotpSecret,
   encryptTotpSecret,
   fromJsonSafe,
   toJsonSafe,
+  type EncryptedTotpSecret,
+  type TotpKeyRing,
 } from "../../lib/totp-secret-crypto";
 import {
   metricSecurityEventRecorded,
   metricTotpLockout,
+  metricTotpRekeyed,
   metricTotpVerified,
   withTotpOp,
   type TotpLockoutScope,
@@ -75,14 +79,18 @@ export function createTotpModule(
   const { issueStepUpToken, verifyStepUpForTotpEnroll, verifyStepUpForTotpDisable } = stepUp;
 
   /**
-   * The encryption key, or a failure. Every path that touches a secret goes
+   * The encryption keys, or a failure. Every path that touches a secret goes
    * through here, so "no key configured" can only ever mean the feature is
    * unavailable — there is no branch anywhere that falls back to storing or
    * comparing a plaintext secret.
+   *
+   * An EMPTY ring counts as no ring. A `Map` is always truthy, so without the
+   * size check an empty one would pass as a configured key and reach
+   * `encryptTotpSecret`, which then has no version to write under.
    */
-  const encryptionKey = (): Effect.Effect<CryptoKey, AuthError> =>
-    config.totpEncryptionKey
-      ? Effect.succeed(config.totpEncryptionKey)
+  const keyRing = (): Effect.Effect<TotpKeyRing, AuthError> =>
+    config.totpEncryptionKeys && config.totpEncryptionKeys.size > 0
+      ? Effect.succeed(config.totpEncryptionKeys)
       : Effect.fail(new AuthError({ message: "TOTP is not configured" }));
 
   const confirmedCredential = (accountId: string) =>
@@ -103,7 +111,9 @@ export function createTotpModule(
     });
 
   /**
-   * Claim `step` for a credential, or report that it is already spent.
+   * Claim `step` for a credential, or report that it is already spent — and, if
+   * `rekey` is given, move the row onto the current encryption key in the same
+   * breath.
    *
    * One conditional UPDATE, deliberately: a SELECT-then-UPDATE would let two
    * concurrent submissions of the same code both read a lower stored step and
@@ -111,15 +121,45 @@ export function createTotpModule(
    * apply a single statement atomically, so the loser of the race changes zero
    * rows and is rejected. It is NOT run inside `commitBatch`, which returns
    * `void` and would leave nothing to count.
+   *
+   * The re-encryption rides THIS statement rather than a second one, and that
+   * is the whole design: `rekey` is ciphertext computed in memory from a secret
+   * already decrypted, so nothing is read here that was not read before, the
+   * `WHERE` is untouched, and the row is still claimed exactly once. Splitting
+   * it into a read plus a write — or into two writes — would put the replay
+   * back. The loser of a race changes zero rows, so it also writes no
+   * ciphertext: a row can never end up with a version stamp that disagrees with
+   * the key its ciphertext is under, because both move under the same
+   * condition.
    */
-  const consumeStep = (credentialId: string, step: number, nowSec: number) =>
+  const consumeStep = (
+    credentialId: string,
+    step: number,
+    nowSec: number,
+    rekey: EncryptedTotpSecret | null,
+  ) =>
     Effect.gen(function* () {
       const { db } = yield* Db;
+
+      const changes: Partial<typeof totpCredentials.$inferInsert> = {
+        lastUsedStep: step,
+        lastUsedAt: nowSec,
+      };
+      if (rekey) {
+        // `Buffer.from`, matching the insert in `completeTotpEnrollment`: the
+        // columns are drizzle `blob({ mode: "buffer" })`, and what D1 does with
+        // a bare `Uint8Array` on the WRITE side is the half the in-memory
+        // driver cannot tell us about.
+        changes.secretCiphertext = Buffer.from(rekey.ciphertext);
+        changes.iv = Buffer.from(rekey.iv);
+        changes.keyVersion = rekey.keyVersion;
+      }
+
       const result = yield* Effect.tryPromise({
         try: () =>
           db
             .update(totpCredentials)
-            .set({ lastUsedStep: step, lastUsedAt: nowSec })
+            .set(changes)
             .where(
               and(
                 eq(totpCredentials.id, credentialId),
@@ -183,7 +223,7 @@ export function createTotpModule(
     scope: TotpLockoutScope,
   ): Effect.Effect<void, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      const key = yield* encryptionKey();
+      const ring = yield* keyRing();
 
       // Fail-closed: an unreachable lockout counter for TOTP means no throttle
       // at all behind a six-digit code, so an error here denies. See the
@@ -199,29 +239,84 @@ export function createTotpModule(
 
       const credential = yield* confirmedCredential(accountId);
 
-      // An absent credential still pays for a verification. `verifyTotpCode`
-      // runs an empty secret against its dummy key, deriving and comparing the
-      // same number of candidates, so "no TOTP on this account" does not answer
-      // faster than "wrong code" to anyone who can reach the route.
-      const secret = credential
-        ? yield* Effect.tryPromise({
-            try: () => decryptTotpSecret(key, accountId, credential),
-            catch: (cause) => new DatabaseError({ cause }),
-          })
-        : new Uint8Array(0);
+      // `null` for an absent credential, and also for a row no configured key
+      // opens — a stamp naming a key nobody installed, a wrong key installed as
+      // the previous one, a tampered row. Unreadable is NOT a server fault
+      // here: it used to raise a DatabaseError and answer 500, which told an
+      // unauthenticated caller at `POST /login/recovery/totp/complete` that the
+      // account has a credential at all. It now joins every other rejection.
+      const opened = credential
+        ? yield* Effect.promise(() =>
+            decryptTotpSecret(ring, accountId, credential).catch(() => null),
+          )
+        : null;
+      if (credential && !opened) {
+        // The operator's only signal that a rotation is mis-staged. The version
+        // is a small integer and is not on the redact deny-list; the ciphertext,
+        // the IV and the account are not here at all.
+        yield* Effect.logError("auth.totp credential is unreadable under every configured key", {
+          keyVersion: credential.keyVersion,
+        });
+      }
 
-      const matched = yield* Effect.promise(() => verifyTotpCode({ secret, code }));
-      if (!matched || !credential) {
-        return yield* rejectCode(accountId, scope, credential ? "invalid" : "not_enrolled");
+      // An absent or unreadable credential still pays for a verification.
+      // `verifyTotpCode` runs an empty secret against its dummy key, deriving
+      // and comparing the same number of candidates, so neither "no TOTP on
+      // this account" nor "this row will not open" answers faster than "wrong
+      // code" to anyone who can reach the route.
+      const matched = yield* Effect.promise(() =>
+        verifyTotpCode({ secret: opened?.secret ?? new Uint8Array(0), code }),
+      );
+      if (!matched || !credential || !opened) {
+        return yield* rejectCode(
+          accountId,
+          scope,
+          credential ? (opened ? "invalid" : "unreadable") : "not_enrolled",
+        );
+      }
+
+      // Move the row onto the current key when it is not already under it. The
+      // test is what OPENED the row, never what the row claims: during a
+      // rotation the two disagree, and trusting the claim is how a row ends up
+      // carrying a stamp whose key cannot read it.
+      //
+      // A stale stamp on a row already under the current key is deliberately
+      // left alone. Repairing it would rewrite the entire population once after
+      // the outgoing key is deleted — every row re-encrypted under the key it
+      // already uses — and would make rows ping-pong between two isolates that
+      // are still running different rings, since a secret change does not cycle
+      // warm ones. Nothing reads the stamp for a decision, so a stale one costs
+      // nothing.
+      const currentVersion = currentTotpKeyVersion(ring);
+      const needsRekey = opened.keyVersion !== currentVersion;
+
+      // A correct code has already authenticated its owner. Failing the verify
+      // because a housekeeping re-encryption failed would be a self-inflicted
+      // lockout during the very incident this drain exists to serve, so on any
+      // failure the row stays where it is and the next verify tries again.
+      const rekey = needsRekey
+        ? yield* Effect.promise(() =>
+            encryptTotpSecret(ring, accountId, opened.secret).catch(() => null),
+          )
+        : null;
+      if (needsRekey && !rekey) {
+        yield* Effect.logError("auth.totp re-encryption failed; leaving the row on its old key", {
+          keyVersion: credential.keyVersion,
+        });
+        metricTotpRekeyed("failed");
       }
 
       const nowSec = Math.floor(Date.now() / 1000);
-      const claimed = yield* consumeStep(credential.id, matched.step, nowSec);
+      const claimed = yield* consumeStep(credential.id, matched.step, nowSec, rekey);
       if (!claimed) {
         // The code was arithmetically correct and already spent — a replay, and
         // the one rejection worth distinguishing on a dashboard.
         return yield* rejectCode(accountId, scope, "replayed");
       }
+      // Counted only once the UPDATE actually changed the row: the loser of a
+      // race writes no ciphertext, and a drain gauge that counted intents would
+      // read high exactly when it matters.
+      if (rekey) metricTotpRekeyed("ok");
 
       yield* Effect.promise(() => totpLockoutStore.reset(lockoutKey(accountId, scope)));
       metricTotpLockout("reset", scope);
@@ -251,7 +346,7 @@ export function createTotpModule(
    */
   const burnTotpCheckCost = (code: string): Effect.Effect<void, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
-      yield* encryptionKey();
+      yield* keyRing();
       const probe = probeAccountId();
       const key = lockoutKey(probe, "recovery");
       yield* Effect.promise(() => totpLockoutStore.isLocked(key));
@@ -274,7 +369,7 @@ export function createTotpModule(
   ): Effect.Effect<{ otpauthUri: string; totpSecret: string }, AuthError | DatabaseError, Db> =>
     Effect.gen(function* () {
       yield* verifyStepUpForTotpEnroll(accountId, stepUpToken);
-      const key = yield* encryptionKey();
+      const ring = yield* keyRing();
 
       const existing = yield* confirmedCredential(accountId);
       if (existing) {
@@ -295,7 +390,7 @@ export function createTotpModule(
 
       const secret = generateTotpSecret();
       const encrypted = yield* Effect.tryPromise({
-        try: () => encryptTotpSecret(key, accountId, secret),
+        try: () => encryptTotpSecret(ring, accountId, secret),
         catch: (cause) => new DatabaseError({ cause }),
       });
 
@@ -332,7 +427,7 @@ export function createTotpModule(
     eventMeta?: SessionMeta,
   ): Effect.Effect<{ enrolled: true }, AuthError | DatabaseError, Db | EmailService> =>
     Effect.gen(function* () {
-      const key = yield* encryptionKey();
+      const ring = yield* keyRing();
 
       const pending = yield* Effect.promise(() => stores.pendingTotpEnrollments.get(accountId));
       if (!pending || Date.now() > pending.expiresAt) {
@@ -346,12 +441,12 @@ export function createTotpModule(
         );
       }
 
-      const secret = yield* Effect.tryPromise({
-        try: () => decryptTotpSecret(key, accountId, fromJsonSafe(pending)),
+      const opened = yield* Effect.tryPromise({
+        try: () => decryptTotpSecret(ring, accountId, fromJsonSafe(pending)),
         catch: (cause) => new DatabaseError({ cause }),
       });
 
-      const matched = yield* Effect.promise(() => verifyTotpCode({ secret, code }));
+      const matched = yield* Effect.promise(() => verifyTotpCode({ secret: opened.secret, code }));
       if (!matched) {
         const attempts = pending.attempts + 1;
         if (attempts >= TOTP_MAX_ENROLL_ATTEMPTS) {
@@ -382,7 +477,14 @@ export function createTotpModule(
               accountId,
               secretCiphertext: Buffer.from(stored.secretCiphertext),
               iv: Buffer.from(stored.iv),
-              keyVersion: stored.keyVersion,
+              // The version that actually OPENED the parked secret, not the one
+              // parked alongside it. An enrolment begun before a rotation and
+              // finished after it — the store's TTL is ten minutes, and it is
+              // Redis-backed, so it survives a secret write — was encrypted
+              // under a key the ring may now number differently. Writing the
+              // parked number would mint a row mis-stamped on the day it is
+              // born.
+              keyVersion: opened.keyVersion,
               label,
               confirmedAt: nowSec,
               lastUsedAt: nowSec,

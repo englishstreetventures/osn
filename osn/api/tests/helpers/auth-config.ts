@@ -1,7 +1,10 @@
 import { generateArcKeyPair, thumbprintKid } from "@shared/crypto";
 import { exportJWK } from "jose";
 
-import { generateEphemeralTotpEncryptionKey } from "../../src/lib/totp-secret-crypto";
+import {
+  createTotpKeyRing,
+  generateEphemeralTotpEncryptionKey,
+} from "../../src/lib/totp-secret-crypto";
 import type { AuthConfig } from "../../src/services/auth";
 
 const BASE_CONFIG = {
@@ -29,7 +32,8 @@ export async function makeTestAuthConfig(): Promise<AuthConfig> {
     jwtKid: kid,
     jwtPublicKeyJwk,
     // A per-run key, like the signing pair above. Without one the TOTP service
-    // fails closed, which is correct in production and useless in a test.
-    totpEncryptionKey: await generateEphemeralTotpEncryptionKey(),
+    // fails closed, which is correct in production and useless in a test. One
+    // key, no previous — the shape every tier has when no rotation is running.
+    totpEncryptionKeys: createTotpKeyRing(await generateEphemeralTotpEncryptionKey()),
   };
 }

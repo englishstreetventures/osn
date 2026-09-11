@@ -56,6 +56,7 @@ import type {
   StepUpStep,
   TotpOp,
   TotpVerifyResult,
+  TotpRekeyResult,
   StepUpVerifyResult,
 } from "@shared/observability/metrics";
 import type { RedisNamespace } from "@shared/redis";
@@ -96,6 +97,7 @@ export const OSN_METRICS = {
   authTotpDuration: "osn.auth.totp.duration",
   authTotpVerified: "osn.auth.totp.verified",
   authTotpLockout: "osn.auth.totp.lockout",
+  authTotpRekeyed: "osn.auth.totp.rekeyed",
   authStepUpVerified: "osn.auth.step_up.verified",
   authSessionOps: "osn.auth.session.operations",
   authEmailChangeAttempts: "osn.auth.account.email_change.attempts",
@@ -1048,6 +1050,14 @@ export const metricPasskeyLoginDiscoverable = (result: Result): void =>
 type TotpOpAttrs = { op: TotpOp; result: Result };
 type TotpVerifiedAttrs = { result: TotpVerifyResult };
 /**
+ * How a key rotation is watched. `ok` is a credential moved off the outgoing
+ * key; when it stops climbing while `osn.auth.totp.verified{result=ok}` keeps
+ * going, the drain is done and `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` can be
+ * deleted. Two values, no version and no account: the row count is the signal,
+ * and a version attribute would grow a series per rotation forever.
+ */
+type TotpRekeyedAttrs = { result: TotpRekeyResult };
+/**
  * `scope` separates the two surfaces that check TOTP codes. They keep separate
  * counters (see `checkTotpCode`), and without this attribute a dashboard cannot
  * tell a grinding attack on the UNAUTHENTICATED recovery route from one on the
@@ -1086,8 +1096,16 @@ const authTotpLockout = createCounter<TotpLockoutAttrs>({
   unit: "{event}",
 });
 
+const authTotpRekeyed = createCounter<TotpRekeyedAttrs>({
+  name: OSN_METRICS.authTotpRekeyed,
+  description: "TOTP credentials re-encrypted onto the current key, by outcome",
+  unit: "{credential}",
+});
+
 export const metricTotpVerified = (result: TotpVerifyResult): void =>
   authTotpVerified.inc({ result });
+
+export const metricTotpRekeyed = (result: TotpRekeyResult): void => authTotpRekeyed.inc({ result });
 
 export const metricTotpLockout = (
   result: TotpLockoutAttrs["result"],

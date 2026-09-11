@@ -23,6 +23,7 @@ import {
 import { createRedisRotatedSessionStore } from "./lib/rotated-session-store";
 import { createRedisJtiStore } from "./lib/step-up-jti-store";
 import {
+  createTotpKeyRing,
   generateEphemeralTotpEncryptionKey,
   importTotpEncryptionKey,
 } from "./lib/totp-secret-crypto";
@@ -59,6 +60,8 @@ export type EnvVars = {
   readonly OSN_JWT_PUBLIC_KEY?: string;
   readonly OSN_SESSION_IP_PEPPER?: string;
   readonly OSN_TOTP_ENCRYPTION_KEY?: string;
+  // The OUTGOING key during a rotation. Optional in every tier.
+  readonly OSN_TOTP_ENCRYPTION_KEY_PREVIOUS?: string;
   readonly OSN_PAIRWISE_SALT?: string;
   readonly INTERNAL_SERVICE_SECRET?: string;
   readonly TURNSTILE_SECRET_KEY?: string;
@@ -324,16 +327,35 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
   // The decoded length goes to the operator's log rather than into the thrown
   // message: that message becomes the body of an unauthenticated 503, and the
   // length is a property of the secret's value.
+  const reportTotpKeyLength = (envName: string) => (decodedBytes: number) => {
+    void Effect.runPromise(
+      Effect.logError(`${envName} decodes to the wrong length`).pipe(
+        Effect.annotateLogs({ decodedBytes }),
+        Effect.provide(observabilityLayer),
+      ),
+    );
+  };
   const totpEncryptionKey = env.OSN_TOTP_ENCRYPTION_KEY
-    ? await importTotpEncryptionKey(env.OSN_TOTP_ENCRYPTION_KEY, (decodedBytes) => {
-        void Effect.runPromise(
-          Effect.logError("OSN_TOTP_ENCRYPTION_KEY decodes to the wrong length").pipe(
-            Effect.annotateLogs({ decodedBytes }),
-            Effect.provide(observabilityLayer),
-          ),
-        );
+    ? await importTotpEncryptionKey(env.OSN_TOTP_ENCRYPTION_KEY, {
+        onInvalidLength: reportTotpKeyLength("OSN_TOTP_ENCRYPTION_KEY"),
       })
     : await generateEphemeralTotpEncryptionKey();
+
+  // The outgoing key during a rotation: OPTIONAL in every tier, including
+  // deployed ones, because most of the time no rotation is in flight. What it
+  // is not is lenient — a malformed value throws here exactly as the current
+  // key does. Ignoring it instead would let a rotation look staged while every
+  // credential not yet re-encrypted quietly stopped verifying; a boot failure
+  // is loud, is seen on the deploy that caused it, and is undone by removing
+  // the secret. See `lib/totp-secret-crypto.ts` for how the two are ordered.
+  const totpPreviousEncryptionKey = env.OSN_TOTP_ENCRYPTION_KEY_PREVIOUS
+    ? await importTotpEncryptionKey(env.OSN_TOTP_ENCRYPTION_KEY_PREVIOUS, {
+        envName: "OSN_TOTP_ENCRYPTION_KEY_PREVIOUS",
+        onInvalidLength: reportTotpKeyLength("OSN_TOTP_ENCRYPTION_KEY_PREVIOUS"),
+      })
+    : undefined;
+
+  const totpEncryptionKeys = createTotpKeyRing(totpEncryptionKey, totpPreviousEncryptionKey);
 
   const authConfig = {
     rpId: env.OSN_RP_ID || "localhost",
@@ -350,7 +372,7 @@ export async function buildAppDeps(env: EnvVars, parts: BuildParts): Promise<Bui
     accessTokenTtl: Number(env.OSN_ACCESS_TOKEN_TTL) || 300,
     refreshTokenTtl: Number(env.OSN_REFRESH_TOKEN_TTL) || 2592000,
     sessionIpPepper,
-    totpEncryptionKey,
+    totpEncryptionKeys,
     pairwiseSalt,
     // Where a `/authorize` request that needs the user is sent. Unset falls
     // back to `/authorize` on the first configured origin, which is right for

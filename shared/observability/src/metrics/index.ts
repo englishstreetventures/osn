@@ -48,6 +48,7 @@ export {
   type StepUpFactor,
   type TotpOp,
   type TotpVerifyResult,
+  type TotpRekeyResult,
   type StepUpPurpose,
   type StepUpStep,
   type StepUpVerifyResult,

@@ -12,7 +12,7 @@ related:
   - "[[cire-vendors]]"
   - "[[musubi-identity-migration]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-11
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -75,7 +75,8 @@ marked **TBD** blocks the deploy.
 |---|---|---|
 | `OSN_JWT_PRIVATE_KEY` / `OSN_JWT_PUBLIC_KEY` (ES256 JWK, base64) | osn-api | **generate** (section 1) |
 | `OSN_SESSION_IP_PEPPER` (≥32 bytes) | osn-api | **generate** (section 1) |
-| `OSN_TOTP_ENCRYPTION_KEY` (exactly 32 bytes, base64) | osn-api | **generate** — `openssl rand -base64 32`, or run the `set-osn-api-secret` workflow, which generates it in-job. Fail-closed: without it osn-api returns 503 on **every** route in a deployed tier, so it must exist BEFORE the deploy that first needs it. **Never rotate** — it decrypts every enrolled TOTP secret, so a new key turns every second factor into an unverifiable ciphertext. See [[totp]]. |
+| `OSN_TOTP_ENCRYPTION_KEY` (exactly 32 bytes, base64) | osn-api | **generate** — `openssl rand -base64 32`, then **keep your copy** (see below) and set it as a GitHub Environment secret before running the `set-osn-api-secret` workflow. Fail-closed: without it osn-api returns 503 on **every** route in a deployed tier, so it must exist BEFORE the deploy that first needs it. Rotatable, in the fixed order in §10. See [[totp]]. |
+| `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` (exactly 32 bytes, base64) | osn-api | **optional** — set only while a rotation drains (§10), and deleted afterwards. Present-but-malformed fails the boot exactly as the current key does. |
 | `OSN_RP_ID` (WebAuthn RP ID — registrable domain) | osn-api WebAuthn | **DONE — `musubi.social`** (identity's own registrable apex, as of the 2026-07-27 move — §5.4, [[musubi-identity-migration]]). It covers the apex itself plus every future `*.musubi.social` surface. **This invalidated every passkey enrolled under `cireweddings.com`** — the private half is bound to the RP ID inside the authenticator, so nothing in D1 re-points it. |
 | `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://musubi.social`** (the identity app — the one surface that can legally run a ceremony under the new RP ID). The cire origins were **removed** on 2026-07-27: a different registrable domain cannot run a ceremony for RP ID `musubi.social`, so listing them would only have hidden the failure. Picked up on merge — **osn-api auto-deploys via CI** (`deploy-osn-api` in `deploy.yml`); no manual `wrangler deploy` needed. |
 | `OSN_ISSUER_URL` (public https base of osn-api) | osn-api + cire | **DONE — `https://id.musubi.social`** (custom-domain route in `osn/api/wrangler.toml` `[env.production]`; moved off `id.cireweddings.com` 2026-07-27) |
@@ -1207,3 +1208,143 @@ After the first `deploy-zap-api` run completes:
 2. **D1 row count.** `bunx wrangler d1 execute zap-db-prod --remote --command "SELECT count(*) FROM chats;"` → `0` (empty schema, migrations applied).
 3. **ARC registration (smoke).** After §9.3, a test `POST /internal/chats` from cire-api should return 201 (not 401/403/503). Confirm the `class` column on the returned row is `'c2b'`.
 
+
+---
+
+## 10. Rotating `OSN_TOTP_ENCRYPTION_KEY`
+
+This key decrypts **every enrolled second factor on every account**. A rotation
+is two secret writes and two deploys, with an unattended wait between them; it
+costs no downtime and no re-enrolment, provided the order below is kept. The
+mechanism — the two-key ring, the lazy re-encryption — is in
+[[totp#Rotating the encryption key]]. This section is the procedure.
+
+> [!warning] You cannot rotate a key you do not have a copy of
+> Cloudflare never returns a secret's value; `wrangler secret list` shows names
+> only. Step 1 hands the **outgoing** value back to the Worker, so a key nobody
+> escrowed cannot be rotated at all — only replaced, which makes every enrolled
+> user re-enrol. Tiers whose key was generated in-job by an older version of
+> `set-osn-api-secret.yml` are in that position. If you must replace such a key,
+> do it by hand with `wrangler secret put` and tell users to re-enrol; the
+> workflow deliberately will not do it for you.
+
+### 10.0 Before you start
+
+- The tier is running a build that includes the two-key ring. A Worker on an
+  older bundle refuses any row stamped with a version it does not know, so
+  staging a previous key while old isolates survive answers 500 on the recovery
+  route for the length of the overlap. Wait for the deploy to complete.
+- The current drain is finished — that is, **you are not already mid-rotation**.
+  There are two key slots and no third: starting a second rotation while rows
+  remain on the first outgoing key strands them, and the only recovery is to
+  choose which group of users to lock out. §10.3 is how you know.
+- You have the value currently live, and a way to keep the new one.
+
+### 10.1 Step 1 — stage the outgoing key
+
+Set `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` to the value **currently live** in
+`OSN_TOTP_ENCRYPTION_KEY`, then redeploy.
+
+> [!warning] The by-hand line below skips every guard the workflow gives you
+> Run straight from a laptop, `wrangler secret put` checks nothing: not the
+> required 32-byte length, not the `production` GitHub Environment's reviewer
+> (there is no Actions run here for one to gate), and it never lands on dev
+> first. A bad value still goes in clean — osn-api only checks length at boot —
+> so the tier looks fine until the next cold start, then every route on it
+> 503s, with no canary to have caught it first. Use the workflow. Keep the
+> by-hand line for when GitHub Actions itself will not run, and check the
+> length yourself before you paste the value in:
+> `printf '%s' "$OLD_KEY" | base64 -d | wc -c` must print `32`.
+
+```bash
+gh secret set OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --repo xchromo/osn --env production
+# then run the `set-osn-api-secret` workflow: secret=OSN_TOTP_ENCRYPTION_KEY_PREVIOUS, tier=production
+# or, by hand — read the warning above first:
+cd osn/api && printf '%s' "$OLD_KEY" | bunx wrangler secret put OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --env production
+bunx --bun wrangler deploy --env production
+```
+
+Nothing changes for users: both slots hold the same key, so every credential
+still verifies and none is rewritten.
+
+> [!important] Redeploy, every time
+> `wrangler secret put` does not cycle warm isolates. Until osn-api is
+> redeployed, some requests are served by isolates that have never seen the new
+> secret. This applies to every step below, including the deletion in §10.4.
+
+### 10.2 Step 2 — install the new key
+
+Generate the new key, **keep a copy**, set it, redeploy.
+
+```bash
+openssl rand -base64 32          # keep this value; you will need it to rotate again
+gh secret set OSN_TOTP_ENCRYPTION_KEY --repo xchromo/osn --env production
+# then run the `set-osn-api-secret` workflow: secret=OSN_TOTP_ENCRYPTION_KEY, tier=production
+```
+
+The workflow **refuses** this step if `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` is not
+already set on that tier, because doing it first strands every enrolled
+credential until step 1 lands. That check is on presence, not value: it cannot
+tell whether the previous slot holds the outgoing key, a stale one from the last
+rotation, or a typo. Getting that right is this procedure's job. The workflow
+also refuses a value that does not decode to exactly 32 bytes — its `base64 -d`
+is stricter than the Worker's own decoder, so a rejection there is the job being
+fussy rather than a Worker bug.
+
+From here, every successful TOTP check re-encrypts its own row under the new key.
+
+### 10.3 Wait for the drain, and measure it
+
+A credential moves onto the new key the next time its owner enters a code, so
+the drain takes as long as your least active user takes to use their second
+factor. **Do not guess, and do not use `key_version`** — slot numbers are reused
+by the next rotation, so a stamp cannot tell a drained row from a stale one.
+`last_used_at` can, because the statement that re-encrypts a row is the one that
+sets it:
+
+```bash
+# Rows that have NOT been used since the rotation began, and so may still be
+# under the outgoing key. Zero means the drain is complete.
+# <started> is the unix time you completed §10.2.
+cd osn/api && bunx wrangler d1 execute osn-db-prod --remote --env production --command \
+  "SELECT count(*) FROM totp_credentials WHERE confirmed_at IS NOT NULL AND (last_used_at IS NULL OR last_used_at < <started>);"
+```
+
+Watch two dashboard signals alongside it:
+
+- `osn.auth.totp.rekeyed{result="ok"}` climbing — rows are draining.
+- `osn.auth.totp.rekeyed{result="failed"}` non-zero — those rows still verify
+  but are **not** draining, and the count above will never reach zero while it
+  persists. Investigate before continuing.
+
+Users are unaffected throughout. If some accounts never drain, they are accounts
+nobody is using; deleting the previous key costs those users their second factor
+and nothing else, and they can re-enrol.
+
+### 10.4 Step 3 — remove the outgoing key
+
+Once the count is zero (or you have accepted the remainder):
+
+```bash
+cd osn/api && bunx wrangler secret delete OSN_TOTP_ENCRYPTION_KEY_PREVIOUS --env production
+bunx --bun wrangler deploy --env production
+```
+
+Rows still stamped with the old slot number keep working — the stamp is a hint,
+and the remaining key opens them by trial. Do not "tidy" those stamps.
+
+### 10.5 When it goes wrong
+
+| Symptom | What happened | What to do |
+|---|---|---|
+| `osn.auth.totp.verified{result="unreadable"}` climbing, TOTP step-up failing | No configured key opens those rows — the previous key is missing, or the wrong value | Set `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` to the correct outgoing value and redeploy. Nothing was written; the rows are intact |
+| Every route on the tier 503s after a secret change | A key is present but malformed. Both keys fail the boot on a bad value | Fix the **value** and redeploy. Deleting the secret alone leaves crashed warm isolates crashed |
+| You want to undo the new key | A rollback is a rotation **back**, not a revert | Put the value you are rolling back **from** into `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS`, the old value into `OSN_TOTP_ENCRYPTION_KEY`, redeploy, and drain again. Simply restoring the old key strands every row already re-encrypted under the new one |
+| Users report being locked out after you fixed the key | Failed checks during the outage spent their per-account lockout budget | Wait. The lockout expires on its own; do not reset counters by hand |
+
+> [!note] Rotating because the key leaked
+> Lazy re-encryption keeps the compromised key **live** until the drain
+> finishes, because that is what lets un-drained users keep verifying. That is
+> the trade this design makes. If the exposure will not tolerate it, delete
+> `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` early and accept that everyone not yet
+> drained must re-enrol — the credential rows survive, they simply stop opening.

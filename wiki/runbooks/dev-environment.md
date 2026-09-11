@@ -362,7 +362,7 @@ dashboard-only.
    bunx wrangler secret put OSN_JWT_PRIVATE_KEY      --env dev   # own keypair
    bunx wrangler secret put OSN_JWT_PUBLIC_KEY       --env dev
    bunx wrangler secret put OSN_SESSION_IP_PEPPER    --env dev
-   bunx wrangler secret put OSN_TOTP_ENCRYPTION_KEY  --env dev   # openssl rand -base64 32
+   bunx wrangler secret put OSN_TOTP_ENCRYPTION_KEY  --env dev   # openssl rand -base64 32 — KEEP YOUR COPY, rotating it needs the old value ([[production-deploy#10. Rotating OSN_TOTP_ENCRYPTION_KEY]])
    bunx wrangler secret put UPSTASH_REDIS_REST_URL   --env dev
    bunx wrangler secret put UPSTASH_REDIS_REST_TOKEN --env dev
    bunx wrangler secret put RESEND_API_KEY           --env dev

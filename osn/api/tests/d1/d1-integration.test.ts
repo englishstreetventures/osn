@@ -18,8 +18,8 @@ import {
 import * as schema from "@osn/db/schema";
 import { Db } from "@osn/db/service";
 import { createSchemaSql } from "@osn/db/testing";
-import { commitBatch, createD1Db } from "@shared/db-utils";
-import { eq } from "drizzle-orm";
+import { commitBatch, createD1Db, rowsChanged } from "@shared/db-utils";
+import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { Effect, Layer } from "effect";
 import { Miniflare } from "miniflare";
 
@@ -299,6 +299,112 @@ describe("TOTP blob columns over real D1 (Miniflare)", () => {
     expect(Buffer.from(row.iv).equals(Buffer.from(iv))).toBe(true);
     expect(row.keyVersion).toBe(1);
     expect(row.lastUsedStep).toBe(12345);
+  });
+
+  it("round-trips a re-encrypted ciphertext through a real D1 conditional UPDATE", async () => {
+    // The key rotation re-encrypts a credential inside the same conditional
+    // UPDATE that consumes the TOTP step, so the blob columns are now written
+    // by an UPDATE and not only by an INSERT. That is a second write path
+    // through `bind()`, and the insert test above says nothing about it: a
+    // driver could take a Buffer in an INSERT and mangle it in an UPDATE's SET
+    // list, and the bun:sqlite unit suite would never see the difference.
+    const nowSec = Math.floor(Date.now() / 1000);
+    await rawDb.insert(totpCredentials).values({
+      id: "totp_d1rekey",
+      accountId: ACCOUNT_ID,
+      secretCiphertext: Buffer.from(new Uint8Array(36).fill(1)),
+      iv: Buffer.from(new Uint8Array(12).fill(2)),
+      keyVersion: 1,
+      confirmedAt: nowSec,
+      lastUsedAt: nowSec,
+      lastUsedStep: 100,
+      createdAt: nowSec,
+    });
+
+    const rekeyed = new Uint8Array(36);
+    const rekeyedIv = new Uint8Array(12);
+    crypto.getRandomValues(rekeyed);
+    crypto.getRandomValues(rekeyedIv);
+
+    // The real statement's shape, guard included: the step, the timestamp and
+    // all three rotation columns move together or not at all.
+    await rawDb
+      .update(totpCredentials)
+      .set({
+        lastUsedStep: 101,
+        lastUsedAt: nowSec + 30,
+        secretCiphertext: Buffer.from(rekeyed),
+        iv: Buffer.from(rekeyedIv),
+        keyVersion: 2,
+      })
+      .where(
+        and(
+          eq(totpCredentials.id, "totp_d1rekey"),
+          isNotNull(totpCredentials.confirmedAt),
+          sql`(${totpCredentials.lastUsedStep} is null or ${totpCredentials.lastUsedStep} < 101)`,
+        ),
+      );
+
+    const rows = await rawDb
+      .select()
+      .from(totpCredentials)
+      .where(eq(totpCredentials.id, "totp_d1rekey"));
+    const row = rows[0]!;
+
+    // Byte-for-byte: a ciphertext that came back as a stringified buffer would
+    // decrypt to nothing, and the owner would lose their second factor while
+    // the row looked perfectly healthy.
+    expect(Buffer.from(row.secretCiphertext).equals(Buffer.from(rekeyed))).toBe(true);
+    expect(Buffer.from(row.iv).equals(Buffer.from(rekeyedIv))).toBe(true);
+    expect(row.keyVersion).toBe(2);
+    expect(row.lastUsedStep).toBe(101);
+  });
+
+  it("writes no ciphertext when the single-use guard rejects", async () => {
+    // One statement carries both the replay guard and the re-encryption. If a
+    // losing racer could still write its ciphertext, a row would end up holding
+    // one key's bytes under another key's version stamp.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const original = new Uint8Array(36).fill(7);
+    await rawDb.insert(totpCredentials).values({
+      id: "totp_d1guard",
+      accountId: ACCOUNT_ID,
+      secretCiphertext: Buffer.from(original),
+      iv: Buffer.from(new Uint8Array(12).fill(8)),
+      keyVersion: 1,
+      confirmedAt: nowSec,
+      lastUsedAt: nowSec,
+      lastUsedStep: 500,
+      createdAt: nowSec,
+    });
+
+    const result = await rawDb
+      .update(totpCredentials)
+      .set({
+        lastUsedStep: 500,
+        lastUsedAt: nowSec + 30,
+        secretCiphertext: Buffer.from(new Uint8Array(36).fill(9)),
+        iv: Buffer.from(new Uint8Array(12).fill(10)),
+        keyVersion: 2,
+      })
+      .where(
+        and(
+          eq(totpCredentials.id, "totp_d1guard"),
+          isNotNull(totpCredentials.confirmedAt),
+          // 500 is not < 500: the step is already spent.
+          sql`(${totpCredentials.lastUsedStep} is null or ${totpCredentials.lastUsedStep} < 500)`,
+        ),
+      );
+
+    expect(rowsChanged(result)).toBe(0);
+
+    const rows = await rawDb
+      .select()
+      .from(totpCredentials)
+      .where(eq(totpCredentials.id, "totp_d1guard"));
+    const row = rows[0]!;
+    expect(Buffer.from(row.secretCiphertext).equals(Buffer.from(original))).toBe(true);
+    expect(row.keyVersion).toBe(1);
   });
 
   it("enforces one CONFIRMED credential per account through the partial unique index", async () => {

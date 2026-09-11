@@ -5,6 +5,14 @@ import { describe, it, expect, beforeAll } from "vitest";
 
 import { buildAppDeps, loadJwtKeyPair, parseTrustedProxyCount } from "../src/build-deps";
 import { handler, type Env } from "../src/index";
+import {
+  createTotpKeyRing,
+  decryptTotpSecret,
+  encryptTotpSecret,
+  importTotpEncryptionKey,
+  TotpSecretUnreadableError,
+  TOTP_KEY_VERSION,
+} from "../src/lib/totp-secret-crypto";
 import { osnLoggerLayer } from "../src/observability";
 import { createTestLayer } from "./helpers/db";
 
@@ -140,7 +148,12 @@ describe("buildAppDeps TOTP-encryption-key non-local guard", () => {
       },
       nonLocalParts(),
     );
-    expect(built.deps.authConfig.totpEncryptionKey).toBeDefined();
+    // Exactly as before rotation existed: one key, at the version the column
+    // defaults to. "Behaves exactly as today" is a `done when` clause of #968.
+    expect(built.deps.authConfig.totpEncryptionKeys?.size).toBe(1);
+    expect([...(built.deps.authConfig.totpEncryptionKeys?.keys() ?? [])]).toEqual([
+      TOTP_KEY_VERSION,
+    ]);
   });
 
   it("boots in LOCAL with no key at all, using an ephemeral one", async () => {
@@ -148,7 +161,68 @@ describe("buildAppDeps TOTP-encryption-key non-local guard", () => {
     // provisioned secret, and credentials enrolled locally stop decrypting
     // after a restart.
     const built = await buildAppDeps({}, nonLocalParts());
-    expect(built.deps.authConfig.totpEncryptionKey).toBeDefined();
+    expect(built.deps.authConfig.totpEncryptionKeys?.size).toBe(1);
+  });
+
+  it("carries BOTH keys when the previous one is set, current above previous", async () => {
+    // The argument order of `createTotpKeyRing(current, previous)` cannot be
+    // checked by the compiler — both parameters are `CryptoKey` — and swapping
+    // them is silently catastrophic: every new credential would be written
+    // under the OUTGOING key, the drain would appear to complete, and deleting
+    // the old secret would then destroy the lot. So this asserts which key
+    // ended up current by using it, not by trusting the slot numbers.
+    const current = Buffer.from("c".repeat(32)).toString("base64");
+    const previous = Buffer.from("p".repeat(32)).toString("base64");
+    const built = await buildAppDeps(
+      {
+        ...nonLocalEnv(),
+        OSN_TOTP_ENCRYPTION_KEY: current,
+        OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: previous,
+      },
+      nonLocalParts(),
+    );
+
+    const ring = built.deps.authConfig.totpEncryptionKeys;
+    expect(ring?.size).toBe(2);
+    expect([...(ring?.keys() ?? [])].toSorted((a, b) => a - b)).toEqual([
+      TOTP_KEY_VERSION,
+      TOTP_KEY_VERSION + 1,
+    ]);
+
+    const row = await encryptTotpSecret(ring ?? new Map(), "acc_ring", new Uint8Array(20).fill(3));
+    // A ring holding only OSN_TOTP_ENCRYPTION_KEY must open it...
+    await expect(
+      decryptTotpSecret(createTotpKeyRing(await importTotpEncryptionKey(current)), "acc_ring", {
+        secretCiphertext: row.ciphertext,
+        iv: row.iv,
+        keyVersion: row.keyVersion,
+      }),
+    ).resolves.toBeDefined();
+    // ...and one holding only the PREVIOUS key must not.
+    await expect(
+      decryptTotpSecret(createTotpKeyRing(await importTotpEncryptionKey(previous)), "acc_ring", {
+        secretCiphertext: row.ciphertext,
+        iv: row.iv,
+        keyVersion: row.keyVersion,
+      }),
+    ).rejects.toBeInstanceOf(TotpSecretUnreadableError);
+  });
+
+  it("throws when the PREVIOUS key is present but malformed, naming that variable", async () => {
+    // Optional, not lenient. Booting on past a bad previous key would leave
+    // every credential not yet re-encrypted silently unverifiable while the
+    // rotation looked staged. The message must name `_PREVIOUS`, or the
+    // operator checks the wrong secret during a rotation.
+    await expect(
+      buildAppDeps(
+        {
+          ...nonLocalEnv(),
+          OSN_TOTP_ENCRYPTION_KEY: Buffer.from("t".repeat(32)).toString("base64"),
+          OSN_TOTP_ENCRYPTION_KEY_PREVIOUS: Buffer.from("short").toString("base64"),
+        },
+        nonLocalParts(),
+      ),
+    ).rejects.toThrow(/^OSN_TOTP_ENCRYPTION_KEY_PREVIOUS must decode to exactly 32 bytes$/);
   });
 });
 

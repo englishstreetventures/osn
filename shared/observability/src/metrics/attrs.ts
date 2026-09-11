@@ -113,7 +113,33 @@ export type TotpOp = "enroll_begin" | "enroll_complete" | "disable" | "status" |
  * on the wire, or the response becomes an oracle for whether an account has a
  * second factor.
  */
-export type TotpVerifyResult = "ok" | "invalid" | "replayed" | "not_enrolled" | "locked_out";
+export type TotpVerifyResult =
+  | "ok"
+  | "invalid"
+  | "replayed"
+  | "not_enrolled"
+  | "locked_out"
+  /**
+   * The stored credential could not be decrypted by any configured key, so the
+   * code was never checked. Named for what is observed rather than for a cause,
+   * because there are two and this cannot tell them apart: a key rotation with
+   * the previous key missing or wrong, and a credential row that has been
+   * tampered with or copied onto another account — the account is bound in as
+   * additional authenticated data, so a copied row opens under nothing.
+   *
+   * Which means the rate is read against a rotation window: expected while one
+   * is draining, and an INTEGRITY alarm outside one. On the wire it is the same
+   * generic failure as every value above.
+   */
+  | "unreadable";
+
+/**
+ * Outcome of moving one TOTP credential onto the current encryption key, which
+ * happens lazily on a successful verify. `ok` counts a row drained off the
+ * outgoing key — the number an operator watches to know a rotation is finished;
+ * `failed` means the row kept verifying but stayed where it was.
+ */
+export type TotpRekeyResult = "ok" | "failed";
 
 /** Step-up ceremony steps, for attempt funnel counters. */
 export type StepUpStep = "begin" | "complete";

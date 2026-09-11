@@ -419,9 +419,19 @@ crons = ["0 */6 * * *"]
 #                              `openssl rand -base64 32`, or the
 #                              `set-osn-api-secret` workflow. Boot fails closed
 #                              without it, so set it BEFORE the deploy that first
-#                              needs it. NEVER rotate: it decrypts every enrolled
-#                              secret, so a new key invalidates every second
-#                              factor at once.
+#                              needs it. KEEP YOUR COPY: rotating it requires
+#                              handing the outgoing value back (below), and
+#                              Cloudflare never returns a secret's value.
+#   OSN_TOTP_ENCRYPTION_KEY_PREVIOUS
+#                              The OUTGOING TOTP key, same 32-byte rule.
+#                              OPTIONAL, and set only while a rotation drains:
+#                              osn-api holds both keys, writes new ciphertext
+#                              under the current one, and re-encrypts each
+#                              credential the next time its owner enters a code.
+#                              Set it BEFORE replacing OSN_TOTP_ENCRYPTION_KEY,
+#                              and delete it once the drain is done. Present but
+#                              malformed fails the boot, like the current key.
+#                              Procedure: wiki/runbooks/production-deploy.md.
 #   UPSTASH_REDIS_REST_URL     Upstash REST URL            — REQUIRED non-local (S-L1; region TBD C-M18)
 #   UPSTASH_REDIS_REST_TOKEN   Upstash REST token          — REQUIRED non-local (S-L1; region TBD C-M18)
 #   RESEND_API_KEY             Resend bearer key — REQUIRED non-local (preferred

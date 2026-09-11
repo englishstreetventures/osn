@@ -35,7 +35,7 @@ service is `osn/api/src/services/auth/totp.ts` and the routes are
 | Column | Why it exists |
 |---|---|
 | `secret_ciphertext`, `iv` | The shared secret, AES-256-GCM encrypted. See below. |
-| `key_version` | Which key the ciphertext is under. Always 1 — see [[#Rotation is not implemented]]. |
+| `key_version` | Which configured key the ciphertext was written under, as a slot number. A hint, not a lookup key — see [[#Rotating the encryption key]]. |
 | `confirmed_at` | NULL until a code proves the user holds the secret. A row with NULL here is not a credential and every read filters on it. |
 | `last_used_step` | The RFC 6238 step counter of the last accepted code — the single-use guard. |
 | `last_used_at`, `label` | Settings display only. |
@@ -64,33 +64,73 @@ Three details that are load-bearing:
 - A **fresh 96-bit IV per encryption**, stored beside the ciphertext.
 - The **accountId is the additional authenticated data**, so a row copied onto
   another account fails to decrypt rather than authenticating the wrong person.
-- `key_version` is checked on the way back, so a ciphertext written under one
-  key is refused rather than fed to another.
+- `key_version` records which configured key wrote the ciphertext, so a
+  rotation can tell a drained row from one still on the outgoing key.
 
-### Rotation is not implemented
+### Rotating the encryption key
 
-`key_version` is a column, not a rotation path. `osn/api/src/lib/totp-secret-crypto.ts`
-holds a single key and a single module constant, and `decryptTotpSecret` throws
-on any other version. There is no map from version to key, so two keys cannot
-coexist and no staged rotation is expressible.
+osn-api holds **two** TOTP keys at once: `OSN_TOTP_ENCRYPTION_KEY` and, while a
+rotation is draining, the outgoing key as the optional
+`OSN_TOTP_ENCRYPTION_KEY_PREVIOUS`. `createTotpKeyRing`
+(`osn/api/src/lib/totp-secret-crypto.ts`) turns the pair into a version-to-key
+map — the previous key at version 1, where every pre-rotation row is stamped,
+and the current key one above it.
 
-The column exists so that adding rotation later is a code change rather than a
-migration. Until that lands, **the only remedy for an exposed encryption key is
-re-enrolment by every enrolled user.**
+Three rules, and between them there is no bulk job and no downtime:
 
-> [!warning] Installing a new key today breaks every enrolled account
-> It decrypts every enrolled secret. A new key turns every second factor into an
-> unverifiable ciphertext at once. `.github/workflows/set-osn-api-secret.yml`
-> records the same policy — `rotate="never"` — and refuses to overwrite an
-> existing value.
+- **New ciphertext always goes under the highest version present.** Enrolments
+  and re-encryptions alike, so the outgoing key never gains new rows.
+- **Decryption tries every configured key** and takes whichever opens the row,
+  reporting which one did.
+- **Each successful verify re-encrypts its own row** under the current key,
+  inside the same statement that consumes the TOTP step. The old key drains as
+  people use their second factor.
 
-The two-key map that would fix it — `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS`, new rows
-encrypted under the highest version, each successful verify lazily re-encrypting
-its row so the old key drains — is issue `xchromo/osn#968`.
+> [!important] `key_version` is a hint, not a lookup key
+> A rotation stages its two Worker secrets some time apart, and in that window a
+> row's stamp and the key it is really under disagree. Selecting the key by the
+> stamp would refuse every row in that window — and a row rewritten while the
+> two disagreed would carry a stamp whose key can never open it again, which is
+> permanent. So the stamp steers nothing: decryption is by trial, which is sound
+> because AES-GCM authenticates. A wrong key fails; it never returns plausible
+> bytes.
+>
+> The corollary is that the stamp cannot measure a drain either — the slot
+> numbers are reused by the next rotation. `last_used_at` is the gauge, because
+> the statement that re-encrypts a row is the one that sets it. The query is in
+> [[production-deploy#Rotating OSN_TOTP_ENCRYPTION_KEY]].
+
+A row that **no** configured key opens — the previous key missing or wrong, a
+tampered ciphertext, a row copied onto another account — is refused as the same
+generic failure as a wrong code, and counted as
+`osn.auth.totp.verified{result="unreadable"}`. It is deliberately not a 500:
+answering differently would tell an unauthenticated caller at
+`POST /login/recovery/totp/complete` that the account has a second factor at all.
+
+> [!warning] Outside a rotation window, `unreadable` is an integrity alarm
+> During a drain it means the previous key is missing or wrong. At any other
+> time no configured key should fail to open a row, so a non-zero rate means a
+> `totp_credentials` row has been altered — including one copied onto another
+> account, which the accountId AAD refuses.
+
+Re-encryption is **best-effort and never fails a verify**: a user who typed a
+correct code has authenticated, and turning that into a rejection because a
+housekeeping step failed would be a self-inflicted lockout during exactly the
+incident this feature exists for. The row stays where it is, the failure is
+counted as `osn.auth.totp.rekeyed{result="failed"}`, and the next verify tries
+again.
+
+The operator-facing procedure — the order the secrets go in, how to know the
+drain is finished, and what a rollback costs — is
+[[production-deploy#Rotating OSN_TOTP_ENCRYPTION_KEY]].
 
 **Fail-closed at boot.** A non-local tier without the key throws in
 `build-deps.ts`, which `index.ts` turns into a 503 on every route — the same
-posture as `OSN_SESSION_IP_PEPPER` and `OSN_PAIRWISE_SALT`. Local dev generates
+posture as `OSN_SESSION_IP_PEPPER` and `OSN_PAIRWISE_SALT`. The **previous** key
+is optional in every tier, since most of the time no rotation is in flight, but
+it is not lenient: present-and-malformed throws too, because the alternative is
+a rotation that looks staged while every un-drained credential quietly stops
+verifying. Local dev generates
 an ephemeral key instead, exactly as `loadJwtKeyPair` does for the signing pair;
 credentials enrolled locally stop decrypting after a restart. There is **no
 plaintext path**: with no key resolvable, the service refuses to act.
@@ -269,14 +309,26 @@ a TOTP seed does not.
 |---|---|
 | `osn.auth.totp.operations` | `op` (`enroll_begin`, `enroll_complete`, `disable`, `status`, `verify`), `result` |
 | `osn.auth.totp.duration` | same, as a histogram |
-| `osn.auth.totp.verified` | `result` — `ok`, `invalid`, `replayed`, `not_enrolled`, `locked_out` |
+| `osn.auth.totp.verified` | `result` — `ok`, `invalid`, `replayed`, `not_enrolled`, `locked_out`, `unreadable` |
 | `osn.auth.totp.lockout` | `result` — `recorded`, `locked`, `reset` |
+| `osn.auth.totp.rekeyed` | `result` — `ok`, `failed` |
 | `osn.auth.step_up.issued` | gains `factor="totp"` |
 | `osn.auth.security_event.recorded` | gains `totp_enrolled`, `totp_disabled` |
 
-Spans: `auth.totp.<op>`. No accountId, credential id, step counter or code
-appears in any attribute. `replayed` climbing on a real account is the signal
-worth an alert — it means correct codes are arriving twice.
+Spans: `auth.totp.<op>`. No accountId, credential id, step counter, code or key
+version appears in any attribute — `rekeyed` deliberately carries no version,
+which would grow a series per rotation for ever. Note that `auth.totp.verify`
+wraps the step-up path only; a re-key during account recovery lands under that
+route's own span.
+
+Three signals worth an alert:
+
+- **`replayed`** climbing on a real account — correct codes are arriving twice.
+- **`unreadable` outside a rotation window** — a credential row has been altered
+  or copied between accounts. During a drain it means the previous key is
+  missing or wrong instead.
+- **`rekeyed{result="failed"}`** at all — those rows keep verifying but are not
+  draining, so the rotation will never finish while it persists.
 
 ## Threat model
 
