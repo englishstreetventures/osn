@@ -37,20 +37,30 @@ create worktrees — run it from `/Users/ac/.work/osn.git/main`, or use
 `new-feat` and `prep-pr` in place instead." There is no static equivalent of
 this run; the deliverable is merged pull requests.
 
-> [!warning] An orchestrated task is not measured by a session card.
+> [!warning] An orchestrated task is carded only if every dispatch carries the branch.
 > `gitBranch` is captured once when a session starts and inherited by every
-> subagent it dispatches — it is a property of the session, not of the work. So
-> a subagent building in a task worktree records the *orchestrator's* branch,
-> and the task's own card reads zero. This is not fixable by arranging branches
-> differently: `isolation: "worktree"` pins a subagent's `cwd` correctly but
-> still reports the parent's `gitBranch`, and the Agent tool has no way to pin
-> an agent to a worktree you chose.
+> subagent it dispatches — it is a property of the session, not of the work, and
+> `isolation: "worktree"` does not change it: that pins a subagent's `cwd`
+> correctly and still reports the parent's `gitBranch`. So a subagent building in
+> a task worktree would record the *orchestrator's* branch, and the task's own
+> card would read zero.
 >
-> The consequence to hold on to: **cards describe work done by a session in its
-> own worktree, and orchestrated work is absent from them.** A coverage number
-> is not a statement about this workflow. Where a task's cost genuinely matters,
-> run it through `new-feat` in its own session instead — that attributes
-> correctly. See `wiki/observability/session-metrics.md`.
+> What closes that is the `TASK-BRANCH:` marker in Step 3 — the collector reads
+> it back out of the dispatch prompt. **It is the whole of the attribution, and
+> it fails silently**: a dispatch that omits the line does not warn, it just
+> banks that subagent's spend against the orchestrator's own branch, where
+> nothing will look for it.
+>
+> So put it in every prompt this skill sends — hand-offs, fix subagents,
+> reviewers, shepherds, re-dispatches — and check the run afterwards rather than
+> assuming. Every task branch should appear in:
+>
+> ```bash
+> bun run --cwd tools/pr-metrics backfill -- --dry-run
+> ```
+>
+> A branch missing from that list was not attributed. See
+> `wiki/observability/session-metrics.md`.
 
 ## The blackboard
 
@@ -265,4 +275,4 @@ The full table, with the reason behind each, is `references/gotchas.md`. The one
 
 ## When not to use this
 
-A one-line or single-file change — edit it and open the PR directly. Outside the local bare repo — `new-feat` then `prep-pr` in place. A task whose cost you want measured — `new-feat` in its own session, since orchestrated work is not carded.
+A one-line or single-file change — edit it and open the PR directly. Outside the local bare repo — `new-feat` then `prep-pr` in place.
