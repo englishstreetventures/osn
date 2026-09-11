@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 999,
+    "branch": "fix/recovery-token-refresh",
+    "base_sha": "b366dfe5cc96a99ea00ed1e86fb6f2bbd914cc1b",
+    "head_sha": "ff1426b92fb114d305668cc452cafb3728deabb0",
+    "generated_at": "2026-09-11T02:01:21.092Z",
+    "merged_at": "2026-09-10T14:08:43Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 976,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 3,
+    "first_ts": "2026-09-10T03:30:20.231Z",
+    "last_ts": "2026-09-10T13:06:45.235Z",
+    "span_seconds": 34585,
+    "active_seconds": 7330,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 51.22246085000001,
+    "tokens": {
+      "input": 1486,
+      "output": 48504,
+      "thinking": 0,
+      "cache_write_5m": 2612166,
+      "cache_write_1h": 0,
+      "cache_read": 101299715
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 32,
+          "output": 13522,
+          "thinking": 0,
+          "cache_write_5m": 165284,
+          "cache_write_1h": 0,
+          "cache_read": 1276350
+        },
+        "usd_equivalent": 2.00941,
+        "messages": 22
+      },
+      "claude-fable-5-1": {
+        "tokens": {
+          "input": 676,
+          "output": 749,
+          "thinking": 0,
+          "cache_write_5m": 321699,
+          "cache_write_1h": 0,
+          "cache_read": 2862131
+        },
+        "usd_equivalent": 6.9275785,
+        "messages": 23
+      },
+      "claude-sonnet-5": {
+        "tokens": {
+          "input": 384,
+          "output": 19849,
+          "thinking": 0,
+          "cache_write_5m": 1544336,
+          "cache_write_1h": 0,
+          "cache_read": 47823688
+        },
+        "usd_equivalent": 13.624835599999995,
+        "messages": 192
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 2
+      },
+      "claude-opus-5": {
+        "tokens": {
+          "input": 394,
+          "output": 14384,
+          "thinking": 0,
+          "cache_write_5m": 580847,
+          "cache_write_1h": 0,
+          "cache_read": 49337546
+        },
+        "usd_equivalent": 28.66063675,
+        "messages": 197
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 32,
+          "output": 13522,
+          "thinking": 0,
+          "cache_write_5m": 165284,
+          "cache_write_1h": 0,
+          "cache_read": 1276350
+        },
+        "usd_equivalent": 2.00941,
+        "messages": 22
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1454,
+          "output": 34982,
+          "thinking": 0,
+          "cache_write_5m": 2446882,
+          "cache_write_1h": 0,
+          "cache_read": 100023365
+        },
+        "usd_equivalent": 49.21305085000001,
+        "messages": 414
+      }
+    },
+    "effort": {
+      "high": 23,
+      "xhigh": 389
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 3,
+      "docs": 3,
+      "config": 0,
+      "source": 5
+    },
+    "loc": {
+      "generated": {
+        "added": 51,
+        "deleted": 0
+      },
+      "test": {
+        "added": 595,
+        "deleted": 0
+      },
+      "docs": {
+        "added": 39,
+        "deleted": 11
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 348,
+        "deleted": 46
+      }
+    },
+    "packages": [
+      "osn/api",
+      "osn/client",
+      "osn/ui"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 86,
+      "Edit": 42,
+      "Read": 24,
+      "ToolSearch": 1,
+      "Grep": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 6,
+      "max_edits_one_file": 10
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}

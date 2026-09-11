@@ -1,0 +1,179 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1000,
+    "branch": "feat/totp-key-rotation",
+    "base_sha": "89b10ce9e3cb3e3d12c4bd6dd2cf723c0569ba3a",
+    "head_sha": "9180d8c61e6e52a165758f5947d3f2bfdebe518e",
+    "generated_at": "2026-09-11T02:01:21.083Z",
+    "merged_at": "2026-09-11T00:25:59Z",
+    "phase": "at-merge"
+  },
+  "issue": {
+    "number": 968,
+    "type": null,
+    "labels": []
+  },
+  "complexity": {
+    "declared": null,
+    "method": "none"
+  },
+  "window": {
+    "sessions": 3,
+    "first_ts": "2026-09-10T13:09:31.640Z",
+    "last_ts": "2026-09-10T14:48:41.099Z",
+    "span_seconds": 5949,
+    "active_seconds": 5987,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 48.442343750000006,
+    "tokens": {
+      "input": 1649,
+      "output": 53949,
+      "thinking": 0,
+      "cache_write_5m": 1398399,
+      "cache_write_1h": 0,
+      "cache_read": 89243859
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 17,
+          "output": 1653,
+          "thinking": 0,
+          "cache_write_5m": 16120,
+          "cache_write_1h": 0,
+          "cache_read": 169540
+        },
+        "usd_equivalent": 0.22692999999999997,
+        "messages": 7
+      },
+      "claude-fable-5-1": {
+        "tokens": {
+          "input": 900,
+          "output": 8773,
+          "thinking": 0,
+          "cache_write_5m": 314351,
+          "cache_write_1h": 0,
+          "cache_read": 3110381
+        },
+        "usd_equivalent": 7.487418500000001,
+        "messages": 30
+      },
+      "claude-sonnet-5": {
+        "tokens": {
+          "input": 314,
+          "output": 6868,
+          "thinking": 0,
+          "cache_write_5m": 460601,
+          "cache_write_1h": 0,
+          "cache_read": 27296810
+        },
+        "usd_equivalent": 6.6801725,
+        "messages": 157
+      },
+      "claude-opus-5": {
+        "tokens": {
+          "input": 418,
+          "output": 36655,
+          "thinking": 0,
+          "cache_write_5m": 607327,
+          "cache_write_1h": 0,
+          "cache_read": 58667128
+        },
+        "usd_equivalent": 34.04782275000001,
+        "messages": 209
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 17,
+          "output": 1653,
+          "thinking": 0,
+          "cache_write_5m": 16120,
+          "cache_write_1h": 0,
+          "cache_read": 169540
+        },
+        "usd_equivalent": 0.22692999999999997,
+        "messages": 7
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1632,
+          "output": 52296,
+          "thinking": 0,
+          "cache_write_5m": 1382279,
+          "cache_write_1h": 0,
+          "cache_read": 89074319
+        },
+        "usd_equivalent": 48.21541375000002,
+        "messages": 396
+      }
+    },
+    "effort": {
+      "high": 30,
+      "xhigh": 366
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 5,
+      "docs": 5,
+      "config": 2,
+      "source": 9
+    },
+    "loc": {
+      "generated": {
+        "added": 36,
+        "deleted": 0
+      },
+      "test": {
+        "added": 893,
+        "deleted": 82
+      },
+      "docs": {
+        "added": 232,
+        "deleted": 36
+      },
+      "config": {
+        "added": 101,
+        "deleted": 16
+      },
+      "source": {
+        "added": 425,
+        "deleted": 91
+      }
+    },
+    "packages": [
+      "osn/api",
+      "osn/db",
+      "shared/observability"
+    ],
+    "touches_migration": false,
+    "commits": 2
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 63,
+      "Edit": 39,
+      "Read": 18,
+      "Write": 3,
+      "ToolSearch": 1,
+      "Glob": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 5,
+      "max_edits_one_file": 9
+    },
+    "skills": {},
+    "subagents": {}
+  }
+}
