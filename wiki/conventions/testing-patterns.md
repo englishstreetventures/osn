@@ -6,7 +6,8 @@ related:
   - "[[backend-patterns]]"
   - "[[schema-layers]]"
   - "[[commands]]"
-last-reviewed: 2026-09-06
+  - "[[bundle-size-guards]]"
+last-reviewed: 2026-09-11
 ---
 
 # Testing Patterns
@@ -159,11 +160,89 @@ describe("events routes", () => {
 
 - **Never hand-write a DDL mirror.** Test databases are built from the live Drizzle schema via `applySchema()` (`@osn/db/testing`, `@pulse/db/testing`, `@zap/db/testing`) — never a `CREATE TABLE` string in a helper or a test file. A hand-written mirror makes constraint tests tautological: they assert the `UNIQUE` the author typed a few lines above, not the one the schema declares, so dropping `.unique()` from `src/schema` leaves them green. See [[#Schema-derived test databases]].
 
-- **A test must fail for the reason it is named.** Before landing a test that asserts a side effect (a row written, a notice sent), break the code path and confirm the test goes red. `expect(true).toBe(true)` after an action asserts nothing.
+- **A test must fail for the reason it is named.** Before landing a test that asserts a side effect (a row written, a notice sent), break the code path and confirm the test goes red. `expect(true).toBe(true)` after an action asserts nothing. Three ways that check is passed by a test which still cannot fail — a timestamp tie, a `waitFor`ed absence, and a red-proof that ate its own fix — are in [[#Assertions that cannot fail]].
 
 - **Every Solid Vitest config names `shared/test-config/no-jest-dom.ts` in `setupFiles`.** `vite-plugin-solid` prepends `@testing-library/jest-dom/vitest` to `setupFiles` for every run, and only two things stop it — one of your own `setupFiles` paths matching the regex `/jest-dom/` (`getJestDomExport` in the plugin's `dist/esm/index.mjs`), or a browser-mode project, which it skips because Vitest's browser assertions carry the matchers already. That file is a marker whose whole job is to match the regex. It exports nothing and must stay that way; a package that wants real shared setup adds a second entry of its own. Since 2026-08 all 13 configs that import the plugin carry it, and `bun run check:jest-dom-markers` (the `Scripts` CI job) fails the build if one loses it. The guard is per **file**, not per project: `cire/host`'s browser project has no `setupFiles` and still takes the injection, which is harmless there because that package imports the matchers in eighteen files anyway.
 
 - **Import the matchers where you assert with them, and declare the dependency only there.** A test that uses `toHaveAttribute` or `toBeInTheDocument` writes `import "@testing-library/jest-dom/vitest";` at the top of the file, and its package lists `@testing-library/jest-dom` in `devDependencies`. Three packages do — `cire/host`, `cire/vendor` and `pulse/web`. Ten others declared it while importing no matcher and were pruned. Bun's install layout is not hoisted, so an undeclared dependency is unresolvable rather than quietly satisfied: the failure is a red `Cannot find module`, not a green suite. `tsconfig.json` already has the test files in `include`, so the matcher types resolve across a package from any one import. `tools/lab` is the deliberate exception — it leaves the plugin out entirely, so nothing injects and it needs no marker; the guard matches the import statement rather than the plugin's name so its comment about the plugin does not trip it.
+
+## Assertions that cannot fail
+
+[[#Rules]] says a test must fail for the reason it is named. This is the
+catalogue of how that goes wrong here. Every entry below was found by
+deliberately breaking the code and watching the test stay green — never by
+reading it. One epic produced four such tests and four destroyed fixes from
+these three causes alone.
+
+### `created_at` is unix seconds, so rows written together tie
+
+Four separate false greens in one epic, all the same shape.
+
+A helper picked "the newest row" by sorting `created_at`. Two credentials
+enrolled in the same second tied, so the test read the *parent's* value and
+asserted it against the child — and an implementation that did the wrong thing
+passed the one test written to catch it. Elsewhere every fixture was backdated,
+so `<` and `<=` agreed on every row and a boundary went untested until a
+same-second case was added.
+
+Two rules follow:
+
+- **Order by something exact.** Where a decision comes down to which row is
+  newer, break the tie on an id the code already returns, not on the timestamp.
+  A test that seeds two rows and expects a particular one to win must make the
+  ordering explicit rather than hope the clock separates them.
+- **Pass one `Date`, not two `new Date()` calls.** A tie test that calls
+  `new Date()` twice is hoping both land in the same second. Build the value
+  once and hand it to both seeds.
+
+And where a comparison could flip — `<` against `<=` — seed the exact-equal
+case. That is the only row on which the two operators disagree.
+
+### `waitFor` calls its callback synchronously on the first attempt
+
+`@testing-library/dom` runs the callback once, immediately, before yielding. So
+this passes before anything has rendered:
+
+```ts
+// Green whether or not the guard exists.
+await waitFor(() => expect(screen.queryByRole("button", { name: X })).toBeNull());
+```
+
+`toBeNull()` is already true on an empty document, `waitFor` resolves on the
+spot, and a resource that would have rendered the button never gets a tick to
+settle. Wrapping a racy absence check in `waitFor` is the same bug with more
+ceremony — two such assertions were confirmed green 5/5 and 3/3 runs against a
+deliberately reintroduced bug.
+
+**Mount the case under test beside one that does render the thing**, wait for
+that sibling to paint, then assert the absence. The wait then turns on a
+condition that starts out false, so it has to observe a real render:
+
+```ts
+// The admitting twin is what makes the wait mean something.
+renderAdmitting();
+renderRefusing();
+await vi.waitFor(() => expect(screen.getByRole("button", { name: X })).toBeVisible());
+expect(screen.queryAllByRole("button", { name: X })).toHaveLength(1);
+```
+
+Under faked timers use `vi.waitFor`, not testing-library's — the latter schedules
+against the `setTimeout` the fake clock has replaced.
+
+### Commit before you red-proof
+
+Breaking a guard to watch a test go red is the only way to know the test works.
+Restoring with `git checkout -- <path>` while the work is **uncommitted**
+restores `origin/main`, not the work — silently deleting the fix being proved.
+
+Four people hit this in one epic. One noticed only because a test count changed;
+another only because an unrelated test failed. Nothing announces it.
+
+Commit first, then break, then `git checkout --` restores the commit. If the
+change genuinely cannot be committed yet, copy the file aside and restore from
+the copy. A read-only reviewer should mutate a copy of the whole worktree
+instead — `cp -Rc` is a cheap clone on APFS — which also means an interrupted
+review costs nothing.
 
 ## Schema-derived test databases
 
