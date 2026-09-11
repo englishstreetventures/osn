@@ -5,7 +5,7 @@
     "branch": "fix/cire-consent-cookie-prefix",
     "base_sha": "fcf34fccdf0b4a94f3c8efd2f73dec7fdba0b3b6",
     "head_sha": "2ea7944b2511c5c3d2018d6dcc9f0cbf4580f3db",
-    "generated_at": "2026-09-09T06:24:29.037Z",
+    "generated_at": "2026-09-11T06:24:24.053Z",
     "merged_at": "2026-08-31T06:43:13Z",
     "phase": "at-merge"
   },
@@ -16,7 +16,7 @@
   },
   "complexity": {
     "declared": null,
-    "method": "none"
+    "method": "not-fetched"
   },
   "window": {
     "sessions": 4,

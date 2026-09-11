@@ -922,6 +922,27 @@ export function buildCard(records: SessionRecord[], diff: DiffSummary, context: 
   };
 }
 
+/**
+ * Whether a freshly built card says anything the one on disk does not.
+ *
+ * `generated_at` records when a run happened, not a fact about the pull
+ * request, so on settled work it is the one field a re-run changes. Stamping it
+ * unconditionally made the tool non-idempotent in git terms: a backfill over 25
+ * pull requests rewrote 15 cards with a one-line timestamp diff and no data
+ * change. Comparing the new card against the old timestamp substituted in
+ * separates the two, so an unchanged card is left alone and the date on it goes
+ * on meaning the run that last learned something.
+ *
+ * `buildCard` fixes key order and both sides come from it, so comparing the
+ * serialised form is sound here. A hand-edited card with the same fields in a
+ * different order reads as changed and is rewritten — the safe way round.
+ */
+export function sameApartFromGeneratedAt(existing: Card, next: Card): boolean {
+  const rebased: Card = { ...next, pr: { ...next.pr, generated_at: existing.pr.generated_at } };
+
+  return JSON.stringify(existing) === JSON.stringify(rebased);
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -1578,8 +1599,21 @@ if (import.meta.main) {
 
   const outDir = flag("out-dir") ?? defaultMetricsDir();
   const outPath = `${outDir}/${branchSlug(branch)}.json`;
-  require("node:fs").mkdirSync(outDir, { recursive: true });
-  require("node:fs").writeFileSync(outPath, `${JSON.stringify(card, null, 2)}\n`);
+
+  // A re-run on the same branch is common — `prep-pr` writes the card, then the
+  // review adds a commit and it is written again. Where nothing but the
+  // timestamp moved, leave the file as it stands.
+  let existingCard: Card | null = null;
+  try {
+    existingCard = JSON.parse(require("node:fs").readFileSync(outPath, "utf8") as string) as Card;
+  } catch {
+    existingCard = null;
+  }
+
+  if (existingCard === null || !sameApartFromGeneratedAt(existingCard, card)) {
+    require("node:fs").mkdirSync(outDir, { recursive: true });
+    require("node:fs").writeFileSync(outPath, `${JSON.stringify(card, null, 2)}\n`);
+  }
 
   if (records.length === 0) {
     console.warn(

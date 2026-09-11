@@ -202,7 +202,8 @@ One thing does need care: a remote container is destroyed when the session ends
 and takes its transcripts with it, and a card that was never written is gone for
 good. So a **`SessionEnd` hook in `.claude/settings.json`** writes the card at
 the end of every session, in every environment, whether or not anyone reached
-`prep-pr`. It is idempotent — it rewrites the same file — it already refuses
+`prep-pr`. It is idempotent — it writes the same file, and leaves it untouched
+when the only field that would change is `generated_at` — it already refuses
 `main`, and it ends in `|| true` so it can never fail a session. The settings
 file is committed, so remote sessions pick it up with no per-machine setup.
 

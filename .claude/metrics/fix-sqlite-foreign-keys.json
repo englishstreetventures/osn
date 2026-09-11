@@ -5,7 +5,7 @@
     "branch": "fix/sqlite-foreign-keys",
     "base_sha": "1789a19df627206d8bcbff0ff2d02a54f667370b",
     "head_sha": "7dd2a0d7c529ed55edcf40f587313f29cca541bf",
-    "generated_at": "2026-09-09T06:24:29.038Z",
+    "generated_at": "2026-09-11T06:24:24.055Z",
     "merged_at": "2026-08-30T14:20:51Z",
     "phase": "at-merge"
   },
@@ -16,7 +16,7 @@
   },
   "complexity": {
     "declared": null,
-    "method": "none"
+    "method": "not-fetched"
   },
   "window": {
     "sessions": 1,

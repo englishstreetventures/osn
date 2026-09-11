@@ -44,7 +44,7 @@ blended from diff size cannot separate a wasteful PR from a hard debug that
 ended in a one-line fix, and folding the two together makes the metric punish
 the hardest legitimate work in the repository.
 
-## Two rules the metrics depend on
+## Three rules the metrics depend on
 
 **An edit is not only an `Edit` call.** Agents here are told to change files
 with `sed`, heredocs and short scripts, so `isFileWritingCommand` counts shell
@@ -56,6 +56,14 @@ nothing and every ranking drops it. Reporting 100% instead once made
 `cire/host` look like the worst-mapped package in the repository at 62%; it
 reads 5% correctly. "We did not see the boundary" and "all of it was
 exploration" are different claims.
+
+**A re-run that learns nothing writes nothing.** `generated_at` records when a
+run happened, not a fact about the pull request, so on settled work it is the
+one field a second run moves. Both writers compare the new card against the one
+on disk with that timestamp substituted in, and leave the file untouched when
+nothing else differs — otherwise a backfill over a hundred pull requests buries
+the handful that changed under a hundred one-line timestamp diffs. The date on a
+card therefore means the run that last learned something about it.
 
 And in the reports: **median, never mean.** These distributions are severely
 right-skewed — median 3.6M tokens against a mean of 15.4M and a maximum of

@@ -5,18 +5,22 @@
     "branch": "feat/osn-recovery-ui",
     "base_sha": "91f5b5dd1b5e6c4bfe87857eaf2507087cb06ecc",
     "head_sha": "32ca41046a71a5770b2886e82d13d1b571bc78ac",
-    "generated_at": "2026-09-10T04:14:09.024Z",
+    "generated_at": "2026-09-11T06:24:24.024Z",
     "merged_at": "2026-09-09T16:53:34Z",
     "phase": "at-merge"
   },
   "issue": {
     "number": 953,
     "type": null,
-    "labels": []
+    "labels": [
+      "complexity:3",
+      "complexity:unconfirmed",
+      "product:musubi"
+    ]
   },
   "complexity": {
-    "declared": null,
-    "method": "none"
+    "declared": 3,
+    "method": "unconfirmed"
   },
   "window": {
     "sessions": 1,

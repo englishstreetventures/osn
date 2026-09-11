@@ -5,7 +5,7 @@
     "branch": "fix/pulse-d1-bind-cap",
     "base_sha": "15e404061d22adc354aeebda036351cf728ce450",
     "head_sha": "caf24cd736bf28fdf1d7ca62a2d7c1c4bf88af9b",
-    "generated_at": "2026-09-09T06:24:29.036Z",
+    "generated_at": "2026-09-11T06:24:24.052Z",
     "merged_at": "2026-09-06T09:25:51Z",
     "phase": "at-merge"
   },
@@ -16,7 +16,7 @@
   },
   "complexity": {
     "declared": null,
-    "method": "none"
+    "method": "not-fetched"
   },
   "window": {
     "sessions": 3,

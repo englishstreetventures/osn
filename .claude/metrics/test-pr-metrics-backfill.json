@@ -5,18 +5,22 @@
     "branch": "test/pr-metrics-backfill",
     "base_sha": "5667074a2ffd3b62aae424c5c3fd33fc162f32d4",
     "head_sha": "39d45644798c7bdd2df95301e66689e234cc92ea",
-    "generated_at": "2026-09-09T06:24:29.014Z",
+    "generated_at": "2026-09-11T06:24:24.037Z",
     "merged_at": "2026-09-08T14:48:06Z",
     "phase": "at-merge"
   },
   "issue": {
     "number": 944,
     "type": null,
-    "labels": []
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:2"
+    ]
   },
   "complexity": {
-    "declared": null,
-    "method": "none"
+    "declared": 2,
+    "method": "confirmed"
   },
   "window": {
     "sessions": 1,

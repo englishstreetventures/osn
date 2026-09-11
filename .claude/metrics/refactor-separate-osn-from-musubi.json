@@ -5,18 +5,21 @@
     "branch": "refactor/separate-osn-from-musubi",
     "base_sha": "10e490c9aa8581cf5b4cf2f739e1f689370a0083",
     "head_sha": "9b33d22a6e4b7520cf96a450e65a09f4434e9b59",
-    "generated_at": "2026-09-09T06:24:29.003Z",
+    "generated_at": "2026-09-11T06:24:24.031Z",
     "merged_at": "2026-09-09T02:56:45Z",
     "phase": "at-merge"
   },
   "issue": {
     "number": 954,
     "type": null,
-    "labels": []
+    "labels": [
+      "complexity:5",
+      "product:musubi"
+    ]
   },
   "complexity": {
-    "declared": null,
-    "method": "none"
+    "declared": 5,
+    "method": "confirmed"
   },
   "window": {
     "sessions": 5,

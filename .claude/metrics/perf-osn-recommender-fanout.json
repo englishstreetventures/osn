@@ -5,7 +5,7 @@
     "branch": "perf/osn-recommender-fanout",
     "base_sha": "8b55084abdc82867cb1aeaacb4102ecb1213b146",
     "head_sha": "e7c6f0f170f01a937c8e3fa06ff9db2bf4b0cdb9",
-    "generated_at": "2026-09-09T06:24:29.036Z",
+    "generated_at": "2026-09-11T06:24:24.053Z",
     "merged_at": "2026-08-31T15:41:14Z",
     "phase": "at-merge"
   },
@@ -16,7 +16,7 @@
   },
   "complexity": {
     "declared": null,
-    "method": "none"
+    "method": "not-fetched"
   },
   "window": {
     "sessions": 1,

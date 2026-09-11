@@ -5,14 +5,17 @@
     "branch": "chore/deps-changesets-cli-3",
     "base_sha": "8058ef3d260f6c1e850e07f423f2d43557879743",
     "head_sha": "19090b4b4e04220bb5a041ff513c6f8e2ff2ad8b",
-    "generated_at": "2026-09-09T06:24:29.027Z",
+    "generated_at": "2026-09-11T06:24:24.046Z",
     "merged_at": "2026-09-06T05:02:15Z",
     "phase": "at-merge"
   },
   "issue": {
     "number": 879,
     "type": null,
-    "labels": []
+    "labels": [
+      "product:shared",
+      "area:ops"
+    ]
   },
   "complexity": {
     "declared": null,

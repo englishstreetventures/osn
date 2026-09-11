@@ -5,18 +5,23 @@
     "branch": "chore/svgo-advisory",
     "base_sha": "2eb9393ca64639068c42d5a614e3df8ab68c6e61",
     "head_sha": "9d19c6885a48edb24aff2e429496fc5d53f97bb2",
-    "generated_at": "2026-09-09T06:29:32.626Z",
+    "generated_at": "2026-09-11T06:24:24.037Z",
     "merged_at": "2026-09-09T01:40:51Z",
     "phase": "at-merge"
   },
   "issue": {
     "number": 960,
     "type": null,
-    "labels": []
+    "labels": [
+      "product:shared",
+      "area:ops",
+      "complexity:1",
+      "complexity:unconfirmed"
+    ]
   },
   "complexity": {
-    "declared": null,
-    "method": "none"
+    "declared": 1,
+    "method": "unconfirmed"
   },
   "window": {
     "sessions": 1,

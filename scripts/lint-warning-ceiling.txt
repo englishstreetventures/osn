@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1061   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/lint-warning-ceiling @ 2026-09-11
+1062   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), chore/repopulate-complexity @ 2026-09-11

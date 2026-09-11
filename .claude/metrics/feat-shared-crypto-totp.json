@@ -5,18 +5,22 @@
     "branch": "feat/shared-crypto-totp",
     "base_sha": "be06e53fb322237baf274b4091a777d7a1cad08f",
     "head_sha": "da51b21a83f31123722841649f4ef193118a0a4c",
-    "generated_at": "2026-09-09T06:29:32.625Z",
+    "generated_at": "2026-09-11T06:24:24.036Z",
     "merged_at": "2026-09-09T01:46:00Z",
     "phase": "at-merge"
   },
   "issue": {
     "number": 948,
     "type": null,
-    "labels": []
+    "labels": [
+      "product:shared",
+      "complexity:2",
+      "complexity:unconfirmed"
+    ]
   },
   "complexity": {
-    "declared": null,
-    "method": "none"
+    "declared": 2,
+    "method": "unconfirmed"
   },
   "window": {
     "sessions": 1,

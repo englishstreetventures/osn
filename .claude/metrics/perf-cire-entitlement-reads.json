@@ -5,7 +5,7 @@
     "branch": "perf/cire-entitlement-reads",
     "base_sha": "fcf34fccdf0b4a94f3c8efd2f73dec7fdba0b3b6",
     "head_sha": "16d786d2fc27a381037f8b64b391856bb1d819fc",
-    "generated_at": "2026-09-09T06:24:29.037Z",
+    "generated_at": "2026-09-11T06:24:24.053Z",
     "merged_at": "2026-08-31T06:44:15Z",
     "phase": "at-merge"
   },
@@ -16,7 +16,7 @@
   },
   "complexity": {
     "declared": null,
-    "method": "none"
+    "method": "not-fetched"
   },
   "window": {
     "sessions": 2,

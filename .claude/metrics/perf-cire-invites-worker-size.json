@@ -5,7 +5,7 @@
     "branch": "perf/cire-invites-worker-size",
     "base_sha": "7094065879b85fc107c0778a176d3d8002a9cf85",
     "head_sha": "6379aad47887720961d148bc96d0d90a5d2f1b0f",
-    "generated_at": "2026-09-09T06:24:29.032Z",
+    "generated_at": "2026-09-11T06:24:24.050Z",
     "merged_at": "2026-09-02T01:17:53Z",
     "phase": "at-merge"
   },
@@ -16,7 +16,7 @@
   },
   "complexity": {
     "declared": null,
-    "method": "none"
+    "method": "not-fetched"
   },
   "window": {
     "sessions": 3,

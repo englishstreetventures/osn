@@ -5,18 +5,23 @@
     "branch": "feat/osn-recovery-routes",
     "base_sha": "0d468b94d48e80e66b707a0318b02a41e01faad5",
     "head_sha": "f33518077f260307123eaa5397d6c1241b756039",
-    "generated_at": "2026-09-10T04:14:09.026Z",
+    "generated_at": "2026-09-11T06:24:24.026Z",
     "merged_at": "2026-09-09T11:25:29Z",
     "phase": "at-merge"
   },
   "issue": {
     "number": 951,
     "type": null,
-    "labels": []
+    "labels": [
+      "product:osn-core",
+      "area:security",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
   },
   "complexity": {
-    "declared": null,
-    "method": "none"
+    "declared": 5,
+    "method": "unconfirmed"
   },
   "window": {
     "sessions": 1,

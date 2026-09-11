@@ -5,18 +5,23 @@
     "branch": "feat/osn-recovery-cooldown",
     "base_sha": "57fd79685c25dea10bfad65cdb5b0f99354fa0ec",
     "head_sha": "414ca7a96521ab9d148ee6c2e2b5d30e2d711355",
-    "generated_at": "2026-09-10T04:14:09.021Z",
+    "generated_at": "2026-09-11T06:24:24.022Z",
     "merged_at": "2026-09-09T17:03:07Z",
     "phase": "at-merge"
   },
   "issue": {
     "number": 952,
     "type": null,
-    "labels": []
+    "labels": [
+      "product:osn-core",
+      "area:security",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
   },
   "complexity": {
-    "declared": null,
-    "method": "none"
+    "declared": 5,
+    "method": "unconfirmed"
   },
   "window": {
     "sessions": 1,

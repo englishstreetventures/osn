@@ -5,14 +5,17 @@
     "branch": "feat/subagent-branch-attribution",
     "base_sha": "a020dc6fe429b21c26399470519d79ef8e3793c1",
     "head_sha": "e93bea3b62fbd34ab573cf2867efbd2dfa7ff25d",
-    "generated_at": "2026-09-09T06:24:29.015Z",
+    "generated_at": "2026-09-11T06:24:24.038Z",
     "merged_at": "2026-09-08T13:33:50Z",
     "phase": "at-merge"
   },
   "issue": {
     "number": 942,
     "type": null,
-    "labels": []
+    "labels": [
+      "product:shared",
+      "area:ops"
+    ]
   },
   "complexity": {
     "declared": null,

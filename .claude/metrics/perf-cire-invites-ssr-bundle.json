@@ -5,7 +5,7 @@
     "branch": "perf/cire-invites-ssr-bundle",
     "base_sha": "851df71756b28cbe60cc72bac4f82de072179237",
     "head_sha": "0fbe9a2b7098c414b16bbbb8acd5e3302f1016d1",
-    "generated_at": "2026-09-09T06:24:29.022Z",
+    "generated_at": "2026-09-11T06:24:24.043Z",
     "merged_at": "2026-09-06T15:01:51Z",
     "phase": "at-merge"
   },
@@ -16,7 +16,7 @@
   },
   "complexity": {
     "declared": null,
-    "method": "none"
+    "method": "not-fetched"
   },
   "window": {
     "sessions": 4,

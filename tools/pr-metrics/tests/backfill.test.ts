@@ -736,3 +736,31 @@ esac
     await rm(f.dir, { recursive: true, force: true });
   }
 });
+
+// The backfill is run again whenever the tool learns something new — a price
+// list, a label source. Rewriting every card it touches buries the handful that
+// changed under a hundred one-line timestamp diffs.
+test("a second backfill over unchanged inputs rewrites nothing", async () => {
+  const f = await fixture({ withTranscript: true });
+  try {
+    const first = await runBackfill(f);
+    expect(first.exitCode).toBe(0);
+    expect(first.stdout).toContain("wrote 1 card(s).");
+
+    const cardPath = join(f.dir, "cards", `${SLUG}.json`);
+    const before = {
+      text: await readFile(cardPath, "utf8"),
+      mtimeMs: (await stat(cardPath)).mtimeMs,
+    };
+
+    const second = await runBackfill(f);
+
+    expect(second.exitCode).toBe(0);
+    expect(second.stdout).toContain("wrote 0 card(s).");
+    expect(second.stdout).toContain("left 1 card(s) untouched");
+    expect(await readFile(cardPath, "utf8")).toBe(before.text);
+    expect((await stat(cardPath)).mtimeMs).toBe(before.mtimeMs);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});

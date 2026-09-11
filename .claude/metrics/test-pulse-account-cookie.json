@@ -5,7 +5,7 @@
     "branch": "test/pulse-account-cookie",
     "base_sha": "a381059a5908272c3c5b024743bccc1fc7fba168",
     "head_sha": "d31fe56e410df2c5033c4602daaa17b73d7093e2",
-    "generated_at": "2026-09-09T06:24:29.038Z",
+    "generated_at": "2026-09-11T06:24:24.055Z",
     "merged_at": "2026-08-31T04:32:47Z",
     "phase": "at-merge"
   },
@@ -16,7 +16,7 @@
   },
   "complexity": {
     "declared": null,
-    "method": "none"
+    "method": "not-fetched"
   },
   "window": {
     "sessions": 1,

@@ -5,7 +5,7 @@
     "branch": "perf/cire-store-reactive-readers",
     "base_sha": "07e6b0d68307fb03d356f327b276ebea627e3136",
     "head_sha": "ce3e26dd8704b7a23d774f1db4603a2399cc14cd",
-    "generated_at": "2026-09-09T06:24:29.032Z",
+    "generated_at": "2026-09-11T06:24:24.049Z",
     "merged_at": "2026-09-06T07:50:37Z",
     "phase": "at-merge"
   },
@@ -16,7 +16,7 @@
   },
   "complexity": {
     "declared": null,
-    "method": "none"
+    "method": "not-fetched"
   },
   "window": {
     "sessions": 3,

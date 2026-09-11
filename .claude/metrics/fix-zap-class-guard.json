@@ -5,7 +5,7 @@
     "branch": "fix/zap-class-guard",
     "base_sha": "273e4ba82e35358c1ef08ab4ae2e38f7692ac855",
     "head_sha": "50b30905dc82292d0e3478b6b394e9eabc0bafea",
-    "generated_at": "2026-09-09T06:24:29.038Z",
+    "generated_at": "2026-09-11T06:24:24.055Z",
     "merged_at": "2026-08-30T14:14:43Z",
     "phase": "at-merge"
   },
@@ -16,7 +16,7 @@
   },
   "complexity": {
     "declared": null,
-    "method": "none"
+    "method": "not-fetched"
   },
   "window": {
     "sessions": 4,

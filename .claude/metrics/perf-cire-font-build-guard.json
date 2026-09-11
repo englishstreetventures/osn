@@ -5,7 +5,7 @@
     "branch": "perf/cire-font-build-guard",
     "base_sha": "fcf34fccdf0b4a94f3c8efd2f73dec7fdba0b3b6",
     "head_sha": "f214eab18a664d314561822e78b0bdcb009733c4",
-    "generated_at": "2026-09-09T06:24:29.037Z",
+    "generated_at": "2026-09-11T06:24:24.054Z",
     "merged_at": "2026-08-31T06:42:12Z",
     "phase": "at-merge"
   },
@@ -16,7 +16,7 @@
   },
   "complexity": {
     "declared": null,
-    "method": "none"
+    "method": "not-fetched"
   },
   "window": {
     "sessions": 1,

@@ -26,6 +26,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
+import type { Card } from "./index.ts";
 import {
   branchSlug,
   buildCard,
@@ -34,6 +35,7 @@ import {
   parseNumstat,
   recordsByBranch,
   repoProjectPaths,
+  sameApartFromGeneratedAt,
 } from "./index.ts";
 
 /** A pull request's linked issue, as `gh pr list --json closingIssuesReferences`
@@ -108,12 +110,10 @@ export function numstatFromApi(files: ChangedFile[]): string {
     .join("\n");
 }
 
-/** The branch a card on disk was written for, or `null` if it cannot be read. */
-function readCardBranch(path: string): string | null {
+/** The card on disk, or `null` if the file is absent or not readable as JSON. */
+function readCardFile(path: string): Card | null {
   try {
-    const card = JSON.parse(readFileSync(path, "utf8") as string) as { pr?: { branch?: string } };
-
-    return card.pr?.branch ?? null;
+    return JSON.parse(readFileSync(path, "utf8") as string) as Card;
   } catch {
     return null;
   }
@@ -334,6 +334,8 @@ if (import.meta.main) {
 
   const skipped: number[] = [];
   let written = 0;
+  let unchanged = 0;
+  const claimed = new Set<string>();
 
   // No transcript means the work happened on another machine, or before this
   // machine's logs begin. Writing a zero-cost card would put a row in the
@@ -429,19 +431,30 @@ if (import.meta.main) {
     // the trailing `^-+|-+$` strip, so a branch name ending in a character
     // outside the class made `backfill` and `card` write two different files
     // for the same branch, and nothing downstream keys on the filename.
-    const path = `${outDir}/${branchSlug(pull.headRefName)}.json`;
+    const slug = branchSlug(pull.headRefName);
+    const path = `${outDir}/${slug}.json`;
 
     // `branchSlug` is not injective — `feat/x-`, `feat-x` and `feat/x` all slug
     // to `feat-x` — and this loop writes many cards in one pass. `card` writes
     // one per run and cannot see a clash; here it is visible, and a silently
     // overwritten card is indistinguishable from a pull request that was never
-    // backfilled at all.
-    const existing = written > 0 && existsSync(path) ? readCardBranch(path) : null;
+    // backfilled at all. The guard keys on the slugs this run has claimed, so a
+    // card left untouched still holds its filename against a second branch, and
+    // a card left by an earlier run is not mistaken for a clash.
+    const onDisk = existsSync(path) ? readCardFile(path) : null;
+    const existing = claimed.has(slug) ? (onDisk?.pr?.branch ?? null) : null;
     if (existing !== null && existing !== pull.headRefName) {
       console.warn(
-        `  ⚠️  slug collision on ${branchSlug(pull.headRefName)}.json: \`${existing}\` and \`${pull.headRefName}\` — keeping the first, skipping #${pull.number}.`,
+        `  ⚠️  slug collision on ${slug}.json: \`${existing}\` and \`${pull.headRefName}\` — keeping the first, skipping #${pull.number}.`,
       );
       skipped.push(pull.number);
+      continue;
+    }
+
+    claimed.add(slug);
+
+    if (onDisk !== null && sameApartFromGeneratedAt(onDisk, card)) {
+      unchanged += 1;
       continue;
     }
 
@@ -461,6 +474,10 @@ if (import.meta.main) {
   }
 
   console.log(`\n${dryRun ? "would write" : "wrote"} ${written} card(s).`);
+
+  if (unchanged > 0) {
+    console.log(`left ${unchanged} card(s) untouched — nothing but the timestamp would change.`);
+  }
 
   if (skipped.length > 0) {
     console.log(

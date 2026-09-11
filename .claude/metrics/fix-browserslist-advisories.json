@@ -5,7 +5,7 @@
     "branch": "fix/browserslist-advisories",
     "base_sha": "a6c9eb6de6ea076c07b228dc21089ce79171cded",
     "head_sha": "5d14ee9f62b8c15a5a33931c8b680af25a27fb59",
-    "generated_at": "2026-09-09T06:24:29.031Z",
+    "generated_at": "2026-09-11T06:24:24.048Z",
     "merged_at": "2026-09-02T02:08:09Z",
     "phase": "at-merge"
   },
@@ -16,7 +16,7 @@
   },
   "complexity": {
     "declared": null,
-    "method": "none"
+    "method": "not-fetched"
   },
   "window": {
     "sessions": 3,

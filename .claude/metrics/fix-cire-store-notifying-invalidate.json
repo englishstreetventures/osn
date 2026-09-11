@@ -5,7 +5,7 @@
     "branch": "fix/cire-store-notifying-invalidate",
     "base_sha": "cb345fbec36cce19e5a5cc97d45927cafd69984e",
     "head_sha": "66c9950197ee25bfc25f86664de7ac607504d843",
-    "generated_at": "2026-09-09T06:24:29.033Z",
+    "generated_at": "2026-09-11T06:24:24.050Z",
     "merged_at": "2026-09-06T07:50:35Z",
     "phase": "at-merge"
   },
@@ -16,7 +16,7 @@
   },
   "complexity": {
     "declared": null,
-    "method": "none"
+    "method": "not-fetched"
   },
   "window": {
     "sessions": 2,

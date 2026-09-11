@@ -5,18 +5,23 @@
     "branch": "fix/osn-waituntil-sink",
     "base_sha": "ca2887eedd58e3537da77121fa07993718584433",
     "head_sha": "8d84638db7b106a05158d73b0f670b08cbf46eb5",
-    "generated_at": "2026-09-10T04:14:09.027Z",
+    "generated_at": "2026-09-11T06:24:24.027Z",
     "merged_at": "2026-09-09T10:38:51Z",
     "phase": "at-merge"
   },
   "issue": {
     "number": 971,
     "type": null,
-    "labels": []
+    "labels": [
+      "product:osn-core",
+      "area:ops",
+      "complexity:5",
+      "complexity:unconfirmed"
+    ]
   },
   "complexity": {
-    "declared": null,
-    "method": "none"
+    "declared": 5,
+    "method": "unconfirmed"
   },
   "window": {
     "sessions": 1,

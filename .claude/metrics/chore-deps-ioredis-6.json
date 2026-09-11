@@ -5,14 +5,17 @@
     "branch": "chore/deps-ioredis-6",
     "base_sha": "19090b4b4e04220bb5a041ff513c6f8e2ff2ad8b",
     "head_sha": "eee06ccf60ec4583b78fb994d13d299572e1b68f",
-    "generated_at": "2026-09-09T06:24:29.026Z",
+    "generated_at": "2026-09-11T06:24:24.045Z",
     "merged_at": "2026-09-06T05:02:16Z",
     "phase": "at-merge"
   },
   "issue": {
     "number": 878,
     "type": null,
-    "labels": []
+    "labels": [
+      "product:shared",
+      "area:ops"
+    ]
   },
   "complexity": {
     "declared": null,

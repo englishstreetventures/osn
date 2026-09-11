@@ -5,18 +5,23 @@
     "branch": "feat/d1-migration-cost-guard",
     "base_sha": "09ce0e2daf10c89df6bef57fe63bc31ebb16534f",
     "head_sha": "f83f722101ecdf0b84458f5af44405d11ea77288",
-    "generated_at": "2026-09-11T02:01:21.097Z",
+    "generated_at": "2026-09-11T06:24:24.020Z",
     "merged_at": "2026-09-10T08:44:44Z",
     "phase": "at-merge"
   },
   "issue": {
     "number": 991,
     "type": null,
-    "labels": []
+    "labels": [
+      "product:cire",
+      "area:ops",
+      "complexity:3",
+      "complexity:unconfirmed"
+    ]
   },
   "complexity": {
-    "declared": null,
-    "method": "none"
+    "declared": 3,
+    "method": "unconfirmed"
   },
   "window": {
     "sessions": 4,

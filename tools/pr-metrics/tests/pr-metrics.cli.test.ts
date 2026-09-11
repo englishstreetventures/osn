@@ -12,7 +12,7 @@
 // pre-parsed records can catch that.
 
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -56,9 +56,11 @@ interface CliRun {
   stdout: string;
   stderr: string;
   card: Card;
+  /** The written file after each invocation, in order. */
+  writes: { mtimeMs: number; text: string }[];
 }
 
-async function run(extraArgs: string[] = []): Promise<CliRun> {
+async function run(extraArgs: string[] = [], invocations = 1): Promise<CliRun> {
   const dir = await mkdtemp(join(tmpdir(), "pr-metrics-cli-"));
 
   try {
@@ -140,39 +142,50 @@ async function run(extraArgs: string[] = []): Promise<CliRun> {
       }),
     );
 
-    const proc = Bun.spawn(
-      [
-        "bun",
-        "run",
-        SCRIPT,
-        "--branch",
-        BRANCH,
-        "--base",
-        "main",
-        "--sessions-dir",
-        join(dir, "sessions"),
-        "--pr",
-        "908",
-        "--issue",
-        "895",
-        "--out-dir",
-        join(dir, "out"),
-        ...extraArgs,
-      ],
-      { cwd: dir, stdout: "pipe", stderr: "pipe" },
-    );
+    const outPath = join(dir, "out", "feat-metrics-cli-fixture.json");
+    const writes: CliRun["writes"] = [];
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
 
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
+    for (let attempt = 0; attempt < invocations; attempt += 1) {
+      const proc = Bun.spawn(
+        [
+          "bun",
+          "run",
+          SCRIPT,
+          "--branch",
+          BRANCH,
+          "--base",
+          "main",
+          "--sessions-dir",
+          join(dir, "sessions"),
+          "--pr",
+          "908",
+          "--issue",
+          "895",
+          "--out-dir",
+          join(dir, "out"),
+          ...extraArgs,
+        ],
+        { cwd: dir, stdout: "pipe", stderr: "pipe" },
+      );
 
-    const card = JSON.parse(
-      await Bun.file(join(dir, "out", "feat-metrics-cli-fixture.json")).text(),
-    ) as Card;
+      [stdout, stderr, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
 
-    return { exitCode, stdout, stderr, card };
+      writes.push({
+        mtimeMs: (await stat(outPath)).mtimeMs,
+        text: await Bun.file(outPath).text(),
+      });
+    }
+
+    const card = JSON.parse(writes[writes.length - 1]!.text) as Card;
+
+    return { exitCode, stdout, stderr, card, writes };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -564,4 +577,16 @@ test("the CLI names unmarked subagent transcripts when a card comes back empty",
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+// `prep-pr` writes the card, the review adds a commit, and the card is written
+// again — so a second run over unchanged inputs is the common case, not the odd
+// one. Stamping `generated_at` every time turned each of those into a one-line
+// diff with no data behind it.
+test("a second run over unchanged inputs leaves the card file alone", async () => {
+  const { writes } = await run([], 2);
+
+  expect(writes).toHaveLength(2);
+  expect(writes[1]!.text).toBe(writes[0]!.text);
+  expect(writes[1]!.mtimeMs).toBe(writes[0]!.mtimeMs);
 });
