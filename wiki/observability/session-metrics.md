@@ -14,7 +14,7 @@ related:
   - "[[observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-09-10
+last-reviewed: 2026-09-11
 ---
 
 # Session Metrics
@@ -306,6 +306,29 @@ the datalake, and it would drag every average it touches toward nothing.
 Ratings are transcribed, never invented: a backfilled card carries whatever the
 issue's `complexity:` label says, and `rate-complexity`'s backfill mode marks
 anything it adds `complexity:unconfirmed`.
+
+The issue is the pull request's **first-listed** linked issue —
+`closingIssuesReferences[0]`, an ordering GitHub controls, not this tool. A
+pull request closing several issues is attributed to whichever one GitHub
+lists first.
+
+**Only when that issue lives in this same repository.** Most of this
+repository's pull requests close a finding in the private
+`xchromo/osn-tracker` repo instead, and that issue's labels are never fetched
+at all — its `severity:`/`area:` pair must not reach a card committed here
+(see `CLAUDE.md` §Comments on not linking a finding from a public file).
+Such a card writes `complexity.method: "not-fetched"`, not `"none"`: a rating
+may well exist on that issue, nobody checked. `xchromo/osn#1012` tracks
+whether and how to surface it safely later.
+
+`complexity.method` can therefore read five ways: `"confirmed"` /
+`"unconfirmed"` (a rating was found, on an issue in this repository),
+`"none"` (no linked issue, or a linked issue here with no `complexity:`
+label), `"not-fetched"` (the linked issue is in another repository), or
+`"lookup-failed"` (a fetch was attempted and did not resolve — a transport
+error, or the issue vanished between merge and backfill). Only `"confirmed"`
+is a rating to act on; the rest are all a null `complexity.declared`, for
+different reasons.
 
 ## The two fields that name a cause
 

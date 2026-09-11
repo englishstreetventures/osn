@@ -319,6 +319,8 @@ test("backfill cards a marked subagent, and agrees with `card` on both figure an
     // dash is where the two used to differ.
     const backfilled = JSON.parse(await readFile(join(f.dir, "cards", `${SLUG}.json`), "utf8")) as {
       spend: { usd_equivalent: number; by_actor: Record<string, { tokens: { output: number } }> };
+      issue: { number: number | null; labels: string[] };
+      complexity: { declared: number | null; method: string };
     };
 
     // Assert the marker path FIRST. Equality alone can pass vacuously: if
@@ -328,6 +330,13 @@ test("backfill cards a marked subagent, and agrees with `card` on both figure an
     // same branch and must be rejected on ownership alone.
     expect(backfilled.spend.by_actor.subagent?.tokens.output).toBe(1000);
     expect(backfilled.spend.by_actor.main?.tokens.output).toBe(0);
+
+    // This fixture's PR has no linked issue (`closingIssuesReferences: []`) —
+    // a rating must never be guessed for it.
+    expect(backfilled.issue.number).toBeNull();
+    expect(backfilled.issue.labels).toEqual([]);
+    expect(backfilled.complexity.declared).toBeNull();
+    expect(backfilled.complexity.method).toBe("none");
 
     // Now the agreement the doc comment has only ever asserted in prose. Read
     // the JSON: both tools print `toFixed(2)`, so comparing stdout compares
@@ -507,6 +516,222 @@ test("one gh call per carded PR for files, plus one batched query, and no per-PR
     expect(calls.filter((c) => c.includes("api graphql"))).toHaveLength(1);
     expect(calls.filter((c) => c.includes("/files"))).toHaveLength(1);
     expect(calls.filter((c) => c.includes("--jq .commits"))).toHaveLength(0);
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+// The bug this file exists to catch: `backfill` must read a rating off the
+// pull request's LINKED ISSUE, never the pull request's own labels (which
+// this repository never sets) — and the fetch has to work across two pull
+// requests sharing one batched `nodes(ids:)` document, not just one.
+test("backfill reads complexity off the linked issue's labels, in one batched nodes(ids:) call", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branchA = "feat/complexity-a";
+    const branchB = "feat/complexity-b";
+    const slugA = "feat-complexity-a";
+    const slugB = "feat-complexity-b";
+
+    await writeFile(
+      join(f.binDir, "gh"),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_CALL_LOG"
+case "$*" in
+  *"pr list"*)
+    printf '%s' '[{"number":5001,"headRefName":"${branchA}","mergedAt":"2026-09-09T12:00:00Z","baseRefOid":"aaa","headRefOid":"bbb","closingIssuesReferences":[{"id":"I_test_970","number":970,"repository":{"name":"osn","owner":{"login":"xchromo"}}}]},{"number":5002,"headRefName":"${branchB}","mergedAt":"2026-09-09T13:00:00Z","baseRefOid":"ccc","headRefOid":"ddd","closingIssuesReferences":[{"id":"I_test_200","number":200,"repository":{"name":"osn","owner":{"login":"xchromo"}}}]}]' ;;
+  *"nodes(ids:"*)
+    printf '%s' '{"data":{"nodes":[{"labels":{"nodes":[{"name":"product:osn-core"},{"name":"complexity:3"},{"name":"complexity:unconfirmed"}]}},{"labels":{"nodes":[{"name":"product:cire"}]}}]}}' ;;
+  *"api graphql"*)
+    printf '%s' '{"data":{"repository":{"p5001":{"commits":{"totalCount":3}},"p5002":{"commits":{"totalCount":1}}}}}' ;;
+  *"/files"*)
+    printf '%s\\n' '{"filename":"osn/api/src/svc.ts","additions":1,"deletions":0}' ;;
+  *)
+    printf '%s' '3' ;;
+esac
+`,
+    );
+    await chmod(join(f.binDir, "gh"), 0o755);
+
+    const project = join(f.sessions, await projectDirFor(f.dir));
+    await mkdir(project, { recursive: true });
+    await writeFile(
+      join(project, "sess-a.jsonl"),
+      `${JSON.stringify({
+        type: "assistant",
+        sessionId: "sess-a",
+        gitBranch: branchA,
+        requestId: "req-a",
+        timestamp: "2026-09-09T11:00:00.000Z",
+        message: { model: "claude-opus-5", usage: { output_tokens: 50 } },
+      })}\n`,
+    );
+    await writeFile(
+      join(project, "sess-b.jsonl"),
+      `${JSON.stringify({
+        type: "assistant",
+        sessionId: "sess-b",
+        gitBranch: branchB,
+        requestId: "req-b",
+        timestamp: "2026-09-09T11:00:00.000Z",
+        message: { model: "claude-opus-5", usage: { output_tokens: 50 } },
+      })}\n`,
+    );
+
+    const run = await runBackfill(f);
+    expect(run.exitCode).toBe(0);
+
+    // One batched call for both issues' labels, not one per pull request.
+    const calls = (await readFile(f.log, "utf8")).split("\n").filter(Boolean);
+    expect(calls.filter((c) => c.includes("nodes(ids:"))).toHaveLength(1);
+
+    const cardA = JSON.parse(await readFile(join(f.dir, "cards", `${slugA}.json`), "utf8")) as {
+      issue: { number: number | null; labels: string[] };
+      complexity: { declared: number | null; method: string };
+    };
+    expect(cardA.issue.number).toBe(970);
+    expect(cardA.issue.labels).toEqual([
+      "product:osn-core",
+      "complexity:3",
+      "complexity:unconfirmed",
+    ]);
+    expect(cardA.complexity.declared).toBe(3);
+    expect(cardA.complexity.method).toBe("unconfirmed");
+
+    // The linked issue has no `complexity:` label — a real, checked "none",
+    // not a skipped fetch: `issue.labels` still carries what was found.
+    const cardB = JSON.parse(await readFile(join(f.dir, "cards", `${slugB}.json`), "utf8")) as {
+      issue: { number: number | null; labels: string[] };
+      complexity: { declared: number | null; method: string };
+    };
+    expect(cardB.issue.number).toBe(200);
+    expect(cardB.issue.labels).toEqual(["product:cire"]);
+    expect(cardB.complexity.declared).toBeNull();
+    expect(cardB.complexity.method).toBe("none");
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+// `wiki/observability/session-metrics.md` §Backfilling: a linked issue outside
+// this repository — chiefly the private `xchromo/osn-tracker`, which closes
+// most of this repository's pull requests — is never fetched at all, because
+// its labels can carry a severity/area pair that must not reach a card
+// committed here. `method: "not-fetched"` says so, distinct from `"none"`.
+test("a linked issue outside this repository is never fetched", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/tracker-linked";
+    const slug = "feat-tracker-linked";
+
+    await writeFile(
+      join(f.binDir, "gh"),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_CALL_LOG"
+case "$*" in
+  *"pr list"*)
+    printf '%s' '[{"number":6001,"headRefName":"${branch}","mergedAt":"2026-09-09T12:00:00Z","baseRefOid":"aaa","headRefOid":"bbb","closingIssuesReferences":[{"id":"I_test_tracker_619","number":619,"repository":{"name":"osn-tracker","owner":{"login":"xchromo"}}}]}]' ;;
+  *"nodes(ids:"*)
+    printf '%s' 'SHOULD NOT BE CALLED' ;;
+  *"api graphql"*)
+    printf '%s' '{"data":{"repository":{"p6001":{"commits":{"totalCount":1}}}}}' ;;
+  *"/files"*)
+    printf '%s\\n' '{"filename":"osn/api/src/svc.ts","additions":1,"deletions":0}' ;;
+  *)
+    printf '%s' '3' ;;
+esac
+`,
+    );
+    await chmod(join(f.binDir, "gh"), 0o755);
+
+    const project = join(f.sessions, await projectDirFor(f.dir));
+    await mkdir(project, { recursive: true });
+    await writeFile(
+      join(project, "sess-tracker.jsonl"),
+      `${JSON.stringify({
+        type: "assistant",
+        sessionId: "sess-tracker",
+        gitBranch: branch,
+        requestId: "req-tracker",
+        timestamp: "2026-09-09T11:00:00.000Z",
+        message: { model: "claude-opus-5", usage: { output_tokens: 50 } },
+      })}\n`,
+    );
+
+    const run = await runBackfill(f);
+    expect(run.exitCode).toBe(0);
+
+    // The filter excludes it before any fetch — not merely fails softly.
+    const calls = await readFile(f.log, "utf8");
+    expect(calls).not.toContain("nodes(ids:");
+
+    const card = JSON.parse(await readFile(join(f.dir, "cards", `${slug}.json`), "utf8")) as {
+      issue: { number: number | null; labels: string[] };
+      complexity: { declared: number | null; method: string };
+    };
+    expect(card.issue.number).toBe(619);
+    expect(card.issue.labels).toEqual([]);
+    expect(card.complexity.declared).toBeNull();
+    expect(card.complexity.method).toBe("not-fetched");
+  } finally {
+    await rm(f.dir, { recursive: true, force: true });
+  }
+});
+
+// `backfill.ts`'s own rule ("a card must never claim to have checked
+// something it did not") applies to a rating exactly as it does to spend: a
+// lookup that never resolved must not read the same as one that resolved and
+// found nothing.
+test("a failed label lookup is reported and left unrated, not written as a checked none", async () => {
+  const f = await fixture({ withTranscript: false });
+  try {
+    const branch = "feat/lookup-fails";
+    const slug = "feat-lookup-fails";
+
+    await writeFile(
+      join(f.binDir, "gh"),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$GH_CALL_LOG"
+case "$*" in
+  *"pr list"*)
+    printf '%s' '[{"number":7001,"headRefName":"${branch}","mergedAt":"2026-09-09T12:00:00Z","baseRefOid":"aaa","headRefOid":"bbb","closingIssuesReferences":[{"id":"I_test_vanished","number":444,"repository":{"name":"osn","owner":{"login":"xchromo"}}}]}]' ;;
+  *"nodes(ids:"*)
+    printf '%s' '{"data":{"nodes":[null]},"errors":[{"type":"NOT_FOUND"}]}'
+    exit 1 ;;
+  *"api graphql"*)
+    printf '%s' '{"data":{"repository":{"p7001":{"commits":{"totalCount":1}}}}}' ;;
+  *"/files"*)
+    printf '%s\\n' '{"filename":"osn/api/src/svc.ts","additions":1,"deletions":0}' ;;
+  *)
+    printf '%s' '3' ;;
+esac
+`,
+    );
+    await chmod(join(f.binDir, "gh"), 0o755);
+
+    const project = join(f.sessions, await projectDirFor(f.dir));
+    await mkdir(project, { recursive: true });
+    await writeFile(
+      join(project, "sess-vanished.jsonl"),
+      `${JSON.stringify({
+        type: "assistant",
+        sessionId: "sess-vanished",
+        gitBranch: branch,
+        requestId: "req-vanished",
+        timestamp: "2026-09-09T11:00:00.000Z",
+        message: { model: "claude-opus-5", usage: { output_tokens: 50 } },
+      })}\n`,
+    );
+
+    const run = await runBackfill(f);
+    expect(run.exitCode).toBe(0);
+    expect(run.stderr).toContain("#444");
+
+    const card = JSON.parse(await readFile(join(f.dir, "cards", `${slug}.json`), "utf8")) as {
+      complexity: { declared: number | null; method: string };
+    };
+    expect(card.complexity.declared).toBeNull();
+    expect(card.complexity.method).toBe("lookup-failed");
   } finally {
     await rm(f.dir, { recursive: true, force: true });
   }

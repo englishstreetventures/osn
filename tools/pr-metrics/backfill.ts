@@ -36,14 +36,32 @@ import {
   repoProjectPaths,
 } from "./index.ts";
 
+/** A pull request's linked issue, as `gh pr list --json closingIssuesReferences`
+ * already returns it — unconditionally, not a field this tool asked for by
+ * name (`--json` takes no nested selection; see `issueLabelsById`'s doc
+ * comment). The issue is usually not in this repository: see below. */
+interface IssueRef {
+  id: string;
+  number: number;
+  repository: { name: string; owner: { login: string } };
+}
+
 interface PullRequest {
   number: number;
   headRefName: string;
   mergedAt: string;
   baseRefOid: string;
   headRefOid: string;
-  labels: { name: string }[];
-  closingIssuesReferences: { number: number }[];
+  closingIssuesReferences: IssueRef[];
+}
+
+/** A card's complexity fields, decided per pull request below. Structurally
+ * compatible with `DeclaredComplexity` (`index.ts`) but not that type itself:
+ * `method` here also carries `"not-fetched"` and `"lookup-failed"`, neither
+ * of which `declaredFromLabels` can produce. */
+interface RatingOutcome {
+  declared: number | null;
+  method: string;
 }
 
 export interface ChangedFile {
@@ -168,6 +186,79 @@ async function commitCounts(repo: string, numbers: number[]): Promise<Map<number
   return counts;
 }
 
+/** How many GraphQL nodes one `nodes(ids:)` document asks about. Verified
+ * against the real ceiling — `nodes(ids:)` rejects a request over 100 ids
+ * outright ("ARGUMENT_LIMIT") — and against cost: a 50-id document with a
+ * `labels(first: 20)` sub-selection each measured `cost: 1`, `nodeCount:
+ * 1050` against GitHub's 500,000-node per-query budget. 50 leaves headroom
+ * under the hard limit rather than assuming a cost this small never grows. */
+const NODE_QUERY_CHUNK = 50;
+
+/**
+ * The labels of every given issue, addressed by its GraphQL node id — never
+ * by `(repository, number)`.
+ *
+ * `closingIssuesReferences[].number` is not safe to look up with a
+ * repository-scoped `issue(number:)` alias (the shape `commitCounts` uses
+ * above for pull-request numbers): the linked issue is usually not in this
+ * repository at all — most of this repository's pull requests close a
+ * finding in the private `xchromo/osn-tracker` repo instead — so the same
+ * bare number can resolve to an unrelated issue in the wrong repository, or
+ * to nothing (`NOT_FOUND`) when it happens to be a pull-request number
+ * instead. Either way one bad alias makes the whole batched `gh api graphql`
+ * call exit non-zero, and `commitCounts`'s `if (!result.ok) continue` would
+ * then drop every OTHER issue in that chunk too.
+ *
+ * `nodes(ids:)` needs no repository scoping — `gh pr list --json
+ * closingIssuesReferences` already returns each linked issue's node id
+ * alongside its number — and resolves every id independently: a id GraphQL
+ * cannot resolve becomes `null` at that position without touching its
+ * siblings. The document's exit code still goes non-zero when any id in it
+ * is unresolved (verified live), so `result.out` is parsed regardless of
+ * `result.ok`; only output that isn't JSON at all — a total transport
+ * failure — gives up on the chunk.
+ *
+ * Returns a map keyed by id. `has(id)` distinguishes "resolved, whatever
+ * labels came back" from "never resolved" — callers need that distinction to
+ * avoid recording a failed lookup as if it were a successfully-checked,
+ * genuinely unrated issue (see the `"lookup-failed"` branch below).
+ */
+async function issueLabelsById(ids: string[]): Promise<Map<string, string[]>> {
+  const labels = new Map<string, string[]>();
+
+  for (let i = 0; i < ids.length; i += NODE_QUERY_CHUNK) {
+    const chunk = ids.slice(i, i + NODE_QUERY_CHUNK);
+    const idList = chunk.map((id) => JSON.stringify(id)).join(", ");
+
+    const result = await ghAsync([
+      "gh",
+      "api",
+      "graphql",
+      "-f",
+      `query=query { nodes(ids: [${idList}]) { ... on Issue { labels(first: 20) { nodes { name } } } } }`,
+    ]);
+
+    let parsed: { data?: { nodes?: ({ labels?: { nodes?: { name: string }[] } } | null)[] } };
+    try {
+      parsed = JSON.parse(result.out) as typeof parsed;
+    } catch {
+      continue;
+    }
+
+    const nodes = parsed.data?.nodes ?? [];
+    chunk.forEach((id, idx) => {
+      const node = nodes[idx];
+      if (node)
+        labels.set(
+          id,
+          (node.labels?.nodes ?? []).map((l) => l.name),
+        );
+    });
+  }
+
+  return labels;
+}
+
 /** The changed-file list of every given pull request, a bounded number of
  * requests at a time. The list has to stay on the paginated REST endpoint:
  * `gh pr list --json files` silently truncates at 100 files, and this
@@ -226,7 +317,7 @@ if (import.meta.main) {
     "--limit",
     limit,
     "--json",
-    "number,headRefName,mergedAt,baseRefOid,headRefOid,labels,closingIssuesReferences",
+    "number,headRefName,mergedAt,baseRefOid,headRefOid,closingIssuesReferences",
   ]);
 
   if (!listed.ok) {
@@ -256,17 +347,64 @@ if (import.meta.main) {
   // Both fetches happen up front rather than twice per iteration. Neither
   // depends on the other's result, and the loop's own work is local.
   const numbers = carded.map((pull) => pull.number);
-  const [counts, files] = await Promise.all([
+
+  // A linked issue's labels are read only when the issue itself lives in
+  // this same repository — see `issueLabelsById`'s doc comment for why a
+  // repository-scoped alias can't be used for one elsewhere, and
+  // xchromo/osn#1012 for why one elsewhere (chiefly the private
+  // xchromo/osn-tracker) is never fetched at all: its labels can carry a
+  // severity/area pair that must not reach a card committed in this public
+  // repository. Keyed by pull-request number so the per-pull loop below can
+  // look its ref back up.
+  const [repoOwner, repoName] = repo.split("/");
+  const localIssueRefs = new Map<number, IssueRef>();
+  for (const pull of carded) {
+    const ref = pull.closingIssuesReferences[0];
+    if (ref && ref.repository.owner.login === repoOwner && ref.repository.name === repoName) {
+      localIssueRefs.set(pull.number, ref);
+    }
+  }
+  const uniqueIssueIds = [...new Set([...localIssueRefs.values()].map((ref) => ref.id))];
+
+  const [counts, files, labelsById] = await Promise.all([
     commitCounts(repo, numbers),
     fileLists(repo, numbers),
+    issueLabelsById(uniqueIssueIds),
   ]);
 
   for (const pull of carded) {
     const records = byBranch.get(pull.headRefName) ?? [];
-
-    const labels = pull.labels.map((label) => label.name);
-    const complexity = declaredFromLabels(labels);
     const changed = files.get(pull.number) ?? [];
+
+    const linkedRef = pull.closingIssuesReferences[0] ?? null;
+    const issueNumber = linkedRef?.number ?? null;
+    const localRef = localIssueRefs.get(pull.number) ?? null;
+
+    let labels: string[] = [];
+    let complexity: RatingOutcome;
+    if (linkedRef === null) {
+      // No linked issue at all — nothing to check. Matches what `card`
+      // itself writes when given no `--issue-labels` (index.ts).
+      complexity = { declared: null, method: "none" };
+    } else if (localRef === null) {
+      // A linked issue exists but lives outside this repository —
+      // deliberately never read (see the comment above `localIssueRefs`).
+      // Distinct from "none": a rating may well exist there; nobody checked.
+      complexity = { declared: null, method: "not-fetched" };
+    } else if (!labelsById.has(localRef.id)) {
+      // Queried and unresolved — a transport error, or the issue vanished
+      // between merge and backfill. Distinct from "none" for the same
+      // reason a zero-transcript pull request is skipped rather than carded
+      // at zero: a card must never claim to have checked something it did
+      // not.
+      complexity = { declared: null, method: "lookup-failed" };
+      console.warn(
+        `  ⚠️  could not fetch labels for issue #${localRef.number} (linked from PR #${pull.number}) — leaving complexity unrated rather than guessing.`,
+      );
+    } else {
+      labels = labelsById.get(localRef.id) ?? [];
+      complexity = declaredFromLabels(labels);
+    }
 
     const card = buildCard(
       records,
@@ -274,7 +412,7 @@ if (import.meta.main) {
       {
         branch: pull.headRefName,
         prNumber: pull.number,
-        issueNumber: pull.closingIssuesReferences[0]?.number ?? null,
+        issueNumber,
         issueType: null,
         issueLabels: labels,
         declaredComplexity: complexity.declared,
