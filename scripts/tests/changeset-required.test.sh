@@ -95,6 +95,82 @@ osn/api/src/index.ts'
 
 run_case "empty diff" skip ''
 
+# changeset-check.yml pipes `printf '%s\n' "$diff"`, not a bare empty string —
+# for an empty diff that is one newline byte, still on a pipe. Confirm the TTY
+# guard leaves that alone: stdin is a pipe either way, so `-t 0` stays false.
+name="empty diff via CI's own printf form"
+got=$(printf '%s\n' "" | bash "$script")
+if [ "$got" = "skip" ]; then
+  echo "ok   - $name ($got)"
+  pass=$((pass + 1))
+else
+  echo "FAIL - $name (got '$got', want 'skip')"
+  fail=$((fail + 1))
+fi
+
+# Every case above runs the script on a pipe, so none of them can reach the
+# `[ -t 0 ]` branch — a harness's own stdin is never a terminal. Attach the
+# script's stdin to a real pseudo-terminal instead, via Python's stdlib `pty`
+# module, and check that it refuses. A regression that dropped the guard would
+# otherwise block forever on `read` against a pty nothing writes to, so an EOF
+# (Ctrl-D) goes to the pty right after the fork — harmless to the guarded
+# script, which exits before ever reading, and what turns a removed guard into
+# an observed `skip`/exit 0 instead of a hang. `signal.alarm` is a second,
+# independent backstop in case anything else blocks.
+name="refuses when stdin is a terminal"
+if command -v python3 >/dev/null 2>&1; then
+  result=$(python3 - "$script" <<'PYEOF' 2>&1
+import os, pty, signal, sys
+
+def on_alarm(signum, frame):
+    sys.stdout.write("\n__EXIT__:124\n")  # 124: conventional shell timeout code
+    os._exit(124)
+
+signal.signal(signal.SIGALRM, on_alarm)
+signal.alarm(10)
+
+script = sys.argv[1]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execvp("bash", ["bash", script])
+    os._exit(127)  # execvp only returns on failure
+
+os.write(fd, b"\x04")  # EOF, in case the guard is gone and the script reads
+
+output = b""
+while True:
+    try:
+        chunk = os.read(fd, 4096)
+    except OSError:
+        break
+    if not chunk:
+        break
+    output += chunk
+_, status = os.waitpid(pid, 0)
+code = os.WEXITSTATUS(status) if os.WIFEXITED(status) else 1
+signal.alarm(0)
+sys.stdout.buffer.write(output)
+sys.stdout.write("\n__EXIT__:%d\n" % code)
+PYEOF
+)
+  code=$(printf '%s\n' "$result" | sed -n 's/^__EXIT__:\(-\{0,1\}[0-9]*\)$/\1/p')
+  msg=$(printf '%s\n' "$result" | grep -v '^__EXIT__:')
+  if [ "$code" != "0" ] && printf '%s' "$msg" | grep -q "reads the changed-file list on stdin"; then
+    echo "ok   - $name (exit $code)"
+    pass=$((pass + 1))
+  else
+    echo "FAIL - $name (exit '$code', output: $msg)"
+    fail=$((fail + 1))
+  fi
+elif [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+  # No silent green in CI: a missing interpreter there is an environment
+  # regression, not a reason to drop the only test of this guard.
+  echo "FAIL - $name (no python3 in CI — cannot allocate a pseudo-terminal to test the TTY guard)"
+  fail=$((fail + 1))
+else
+  echo "skip - $name (no python3 — cannot allocate a pseudo-terminal here)"
+fi
+
 # A `*` glob spans `/`, so an allowlisted prefix followed by `..` would
 # otherwise escape it. Unreachable via `git diff --name-only`, guarded anyway.
 run_case "dot-dot escape from an allowed prefix" required \
