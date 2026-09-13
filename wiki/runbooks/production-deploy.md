@@ -12,7 +12,7 @@ related:
   - "[[cire-vendors]]"
   - "[[musubi-identity-migration]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-11
+last-reviewed: 2026-09-13
 ---
 
 # Production Deploy Runbook — osn + cire
@@ -75,7 +75,7 @@ marked **TBD** blocks the deploy.
 |---|---|---|
 | `OSN_JWT_PRIVATE_KEY` / `OSN_JWT_PUBLIC_KEY` (ES256 JWK, base64) | osn-api | **generate** (section 1) |
 | `OSN_SESSION_IP_PEPPER` (≥32 bytes) | osn-api | **generate** (section 1) |
-| `OSN_TOTP_ENCRYPTION_KEY` (exactly 32 bytes, base64) | osn-api | **generate** — `openssl rand -base64 32`, then **keep your copy** (see below) and set it as a GitHub Environment secret before running the `set-osn-api-secret` workflow. Fail-closed: without it osn-api returns 503 on **every** route in a deployed tier, so it must exist BEFORE the deploy that first needs it. Rotatable, in the fixed order in §10. See [[totp]]. |
+| `OSN_TOTP_ENCRYPTION_KEY` (exactly 32 bytes, base64) | osn-api | **DONE — set on dev and on production 2026-09-13** (`set-osn-api-secret` run 34760078500). Production ran without it from the 2026-07-27 cutover until then and answered 503 `Worker misconfigured` on **every** route, not just the TOTP ones — see §7 smoke check 1 for why a deploy can go green with the key missing. To set it on a new tier: `openssl rand -base64 32`, **keep your copy** (see below), add it as that tier's GitHub Environment secret, then run the `set-osn-api-secret` workflow. It must exist BEFORE the first deploy of the tier. Rotatable, in the fixed order in §10. See [[totp]]. |
 | `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` (exactly 32 bytes, base64) | osn-api | **optional** — set only while a rotation drains (§10), and deleted afterwards. Present-but-malformed fails the boot exactly as the current key does. |
 | `OSN_RP_ID` (WebAuthn RP ID — registrable domain) | osn-api WebAuthn | **DONE — `musubi.social`** (identity's own registrable apex, as of the 2026-07-27 move — §5.4, [[musubi-identity-migration]]). It covers the apex itself plus every future `*.musubi.social` surface. **This invalidated every passkey enrolled under `cireweddings.com`** — the private half is bound to the RP ID inside the authenticator, so nothing in D1 re-points it. |
 | `OSN_ORIGIN` (prod https origins, comma-sep) | osn-api WebAuthn | **DONE — `https://musubi.social`** (the identity app — the one surface that can legally run a ceremony under the new RP ID). The cire origins were **removed** on 2026-07-27: a different registrable domain cannot run a ceremony for RP ID `musubi.social`, so listing them would only have hidden the failure. Picked up on merge — **osn-api auto-deploys via CI** (`deploy-osn-api` in `deploy.yml`); no manual `wrangler deploy` needed. |
@@ -324,6 +324,9 @@ bunx wrangler secret put OSN_JWT_PRIVATE_KEY        --env <dev|staging|productio
 bunx wrangler secret put OSN_JWT_PUBLIC_KEY         --env <dev|staging|production>
 bunx wrangler secret put OSN_SESSION_IP_PEPPER      --env <dev|staging|production>
 bunx wrangler secret put OSN_PAIRWISE_SALT          --env <dev|staging|production>
+# OSN_TOTP_ENCRYPTION_KEY too — but set it through the `set-osn-api-secret` workflow,
+# which checks the decoded length is exactly 32 bytes and refuses a blind overwrite:
+bunx wrangler secret put OSN_TOTP_ENCRYPTION_KEY    --env <dev|staging|production>
 bunx wrangler secret put UPSTASH_REDIS_REST_URL     --env <dev|staging|production>
 bunx wrangler secret put UPSTASH_REDIS_REST_TOKEN   --env <dev|staging|production>
 # Email — REQUIRED non-local UNLESS OSN_EMAIL_OPTIONAL is set (§1.1). RESEND_API_KEY
@@ -349,6 +352,8 @@ bunx wrangler secret put OTEL_EXPORTER_OTLP_HEADERS  --env <dev|staging|producti
 | `OSN_JWT_PUBLIC_KEY` | `wrangler secret put` | **Yes** | base64 ES256 JWK; published at `/.well-known/jwks.json`. §1.2 |
 | `OSN_SESSION_IP_PEPPER` | `wrangler secret put` | **Yes** | ≥32 bytes or throws. §1.3 |
 | `OSN_PAIRWISE_SALT` | **Preferred: the `Set an osn-api Worker secret` GitHub workflow** (`.github/workflows/set-osn-api-secret.yml`, `workflow_dispatch`, `secret: OSN_PAIRWISE_SALT`, production environment) — idempotent, refuses to rotate, never prints the value. Manual `wrangler secret put` remains for non-prod envs. | **Yes** | ≥32 bytes or throws (`build-deps.ts`). HMAC key behind every OIDC pairwise `sub`. **Never rotate it** once clients hold tokens — every subject changes and every client sees its users as strangers. The workflow enforces this: it exits without touching an existing secret. [[oidc-provider]] |
+| `OSN_TOTP_ENCRYPTION_KEY` | **Preferred: the `Set an osn-api Worker secret` GitHub workflow** (`.github/workflows/set-osn-api-secret.yml`, `secret: OSN_TOTP_ENCRYPTION_KEY`) — it validates the decoded length and will not overwrite an existing key unless `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` is already staged. Manual `wrangler secret put` checks nothing. | **Yes** | Exactly 32 base64-encoded random bytes (`openssl rand -base64 32`) or the boot throws (`build-deps.ts`). AES-256-GCM key for every stored TOTP secret. **Keep your copy** — Cloudflare never hands it back, and a key nobody escrowed cannot be rotated, only replaced, which makes every enrolled user re-enrol. Missing ⇒ 503 on **every** route, not just TOTP. Rotate in the fixed order in §10. [[totp]] |
+| `OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` | Same workflow, `secret: OSN_TOTP_ENCRYPTION_KEY_PREVIOUS` | Only while a rotation drains | The outgoing key, held in the second slot of the key ring so old ciphertext still decrypts. Set in §10.1, deleted in §10.4. Present-but-malformed fails the boot exactly as the current key does. [[totp]] |
 | `OSN_AUTHORIZE_UI_URL` | `[env.<env>.vars]` | Optional, but **set it** | Absolute URL of the OIDC consent screen. Prod = **`https://musubi.social/authorize`** (`@musubi/social` on the `osn-social` Pages project, serving the musubi.social apex). Unset ⇒ `/authorize` on the **first** `OSN_ORIGIN` — which happens to be right under the current config, and would silently break the moment that list is reordered. Keep it explicit. [[oidc-provider]], [[authorize-ui]] |
 | `OSN_RP_ID` | `[env.<env>.vars]` | **Yes** | WebAuthn RP ID — must be a **registrable domain**. Prod = **`musubi.social`** since 2026-07-27 (was `cireweddings.com`). The apex, not `id.musubi.social`, so a ceremony is legal on the apex identity app *and* on any future `*.musubi.social` surface. **The change invalidated every passkey enrolled under `cireweddings.com`** — a private key is bound to its RP ID inside the authenticator, so recovery-code login is the only way back in. [[musubi-identity-migration]] |
 | `OSN_ORIGIN` | `[env.<env>.vars]` | **Yes** | Comma-sep accepted WebAuthn origins; prod **https** origins. Prod = **`https://musubi.social`** — the identity app, and the only origin same-site with the RP ID. The cire origins were **removed** on 2026-07-27; a ceremony from `host.`/`vendor.`/`invite.cireweddings.com` is now illegal no matter what this list says, so listing them would only mislead. |
@@ -868,6 +873,20 @@ so the run sits on `Waiting` until someone approves it.
 4. The approval, the approver and the timestamp are recorded on the run — that record is
    the deploy audit trail (SOC 2 CC8, [[compliance/soc2]]).
 
+> [!warning] A green dev tier does not prove production has the secrets
+> Secrets are per-Worker and per-GitHub-Environment: dev and production share a
+> commit, never a value. So a change that needs a new fail-closed secret can pass
+> every dev smoke check and still take production down on the first request after
+> approval — which is what `OSN_TOTP_ENCRYPTION_KEY` did between the 2026-07-27
+> cutover and 2026-09-13. The `Preflight — required prod secrets are set` step in
+> `deploy.yml` guards against exactly this, but it only asserts the names in its
+> own `required` list, which today holds `OSN_PAIRWISE_SALT` alone — **a new
+> fail-closed secret is caught only if somebody adds its name there** (xchromo/osn#1021
+> is extending the list to the whole set). Until then, before approving a run that
+> introduces one, diff the names yourself:
+> `cd osn/api && bunx --bun wrangler secret list --env production` against §3.1,
+> then run §7 smoke check 1 straight after the deploy.
+
 Rejecting a deployment leaves production on the previous release with dev already
 ahead — a normal state, not a broken one. The next approved merge reconciles them.
 
@@ -939,10 +958,31 @@ Run these in order. Each one maps to a startup requirement listed above.
 1. **Health / readiness / JWKS.** `curl https://id.musubi.social/health`,
    `/` , and `/.well-known/jwks.json` (and the cire-api root `https://api.cireweddings.com/`).
    200s confirm the Worker booted: no startup throw fired and the edge returned no 503
-   `Worker misconfigured`. So the JWT keys, pepper, Upstash **and** an email provider are
-   all present — production carries `RESEND_API_KEY` and no `OSN_EMAIL_OPTIONAL`, so a
-   missing provider would fail the boot outright (§1.1).
-   `/.well-known/jwks.json` must return an ES256 (`alg:"ES256"`, P-256) JWK.
+   `Worker misconfigured`. That is the **whole** fail-closed set in one check — in a
+   non-local tier the boot throws on a missing or malformed:
+
+   | Secret / var | Thrown from |
+   |---|---|
+   | `OSN_JWT_PRIVATE_KEY` + `OSN_JWT_PUBLIC_KEY` | `osn/api/src/build-deps.ts` |
+   | `OSN_SESSION_IP_PEPPER` (≥32 bytes) | `osn/api/src/build-deps.ts` |
+   | `OSN_ORIGIN` | `osn/api/src/build-deps.ts` |
+   | `OSN_PAIRWISE_SALT` (≥32 bytes) | `osn/api/src/build-deps.ts` |
+   | `OSN_TOTP_ENCRYPTION_KEY` (exactly 32 bytes) | `osn/api/src/build-deps.ts` |
+   | `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` | `osn/api/src/index.ts` |
+   | `OSN_CORS_ORIGIN` | `osn/api/src/lib/cors-config.ts` |
+   | an email provider | `osn/api/src/lib/email-layer.ts` — production carries `RESEND_API_KEY` and no `OSN_EMAIL_OPTIONAL`, so a missing provider fails the boot outright (§1.1) |
+
+   Any one of them missing takes down **every** route, not the feature it belongs to.
+   The deploy job's `Preflight — required prod secrets are set` step is meant to catch
+   that first, but it checks only the names hard-coded in its own `required` list —
+   `OSN_PAIRWISE_SALT` today — so a secret nobody added there sails past it, and
+   `wrangler deploy` reports success while every route 503s. That is how production ran
+   without `OSN_TOTP_ENCRYPTION_KEY` from the 2026-07-27 cutover to 2026-09-13.
+   **Run this check after every deploy that adds a tier or a new fail-closed value**,
+   and re-read §0 against `wrangler secret list --env <tier>` when the list above grows.
+   Extending the preflight to the whole set is xchromo/osn#1021.
+
+   `/.well-known/jwks.json` must also return an ES256 (`alg:"ES256"`, P-256) JWK.
 2. **No ephemeral-key warning in logs.** Search osn-api boot logs; you must **NOT** see
    `"Using ephemeral JWT key pair — tokens will be invalidated on restart"`
    (`osn/api/src/index.ts:272-275`). If you do, `OSN_ENV` and/or the JWT key vars are not
