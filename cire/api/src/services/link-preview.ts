@@ -490,32 +490,22 @@ export function scanHtml(html: string): ScannedHtml {
 async function readCapped(response: Response, maxBytes: number): Promise<string> {
   const body = response.body;
   if (!body) return "";
-  const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  for (;;) {
-    // Reading a stream is sequential by definition.
-    // eslint-disable-next-line no-await-in-loop
-    const { done, value } = (await reader.read()) as {
-      done: boolean;
-      value?: Uint8Array;
-    };
-    if (done) break;
-    if (!value) continue;
+  // Async iteration rather than a reader loop: a stream arrives one chunk at a
+  // time, so there is no set of promises to run in parallel here. Leaving the
+  // loop cancels it — past the cap we hang up rather than keep pulling, because
+  // `Content-Length` is a claim by the same server that would lie about it, so
+  // the cap is enforced on what actually arrives.
+  for await (const chunk of body) {
     const remaining = maxBytes - total;
-    if (value.byteLength >= remaining) {
-      chunks.push(value.subarray(0, remaining));
-      // Past the cap — hang up rather than keep pulling. `Content-Length` is a
-      // claim by the same server that would lie about it, so the cap is enforced
-      // on what actually arrives. Reading a stream is sequential by definition —
-      // there is no set of promises to run in parallel here.
-      // oxlint-disable-next-line no-await-in-loop
-      await reader.cancel().catch(() => undefined);
+    if (chunk.byteLength >= remaining) {
+      chunks.push(chunk.subarray(0, remaining));
       total = maxBytes;
       break;
     }
-    chunks.push(value);
-    total += value.byteLength;
+    chunks.push(chunk);
+    total += chunk.byteLength;
   }
   const buffer = new Uint8Array(total);
   let offset = 0;
@@ -555,22 +545,15 @@ export async function readCappedBytes(response: Response, maxBytes: number): Pro
 
   const body = response.body;
   if (!body) return { ok: true, bytes: new Uint8Array(0) };
-  const reader = body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
-  for (;;) {
-    // Reading a stream is sequential by definition.
-    // oxlint-disable-next-line no-await-in-loop
-    const { done, value } = (await reader.read()) as { done: boolean; value?: Uint8Array };
-    if (done) break;
-    if (!value) continue;
-    total += value.byteLength;
-    if (total > maxBytes) {
-      // oxlint-disable-next-line no-await-in-loop
-      await reader.cancel().catch(() => undefined);
-      return { ok: false, reason: "too_large" };
-    }
-    chunks.push(value);
+  // Async iteration rather than a reader loop, for the same reason as
+  // {@link readCapped}: chunks arrive one at a time, and returning out of the
+  // loop cancels the stream instead of pulling bytes we have already refused.
+  for await (const chunk of body) {
+    total += chunk.byteLength;
+    if (total > maxBytes) return { ok: false, reason: "too_large" };
+    chunks.push(chunk);
   }
   const buffer = new Uint8Array(total);
   let offset = 0;

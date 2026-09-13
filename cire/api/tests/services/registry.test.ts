@@ -15,6 +15,7 @@ import { Effect, Exit } from "effect";
 import { DbService } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import {
+  CurrencyMismatch,
   FamilyNotInWedding,
   GiftNotInWedding,
   ImageKeyNotInWedding,
@@ -87,9 +88,12 @@ function seedContribution(
     currency: string;
     primaryAmountMinor: number | null;
     primaryCurrency: string | null;
-    status: "pending" | "succeeded";
+    refundedAmountMinor: number | null;
+    status: "pending" | "succeeded" | "failed" | "refunded" | "disputed";
     familyId: string;
-    sessionId: string;
+    /** Explicit `null` is meaningful: an attempt that never got a page. */
+    sessionId: string | null;
+    paymentIntentId: string | null;
     createdAt: Date;
   }> = {},
 ) {
@@ -109,8 +113,10 @@ function seedContribution(
       primaryCurrency: over.primaryCurrency ?? null,
       fxRate: null,
       fxRateAt: null,
-      stripeCheckoutSessionId: over.sessionId ?? `cs_${crypto.randomUUID()}`,
-      stripePaymentIntentId: null,
+      refundedAmountMinor: over.refundedAmountMinor ?? null,
+      stripeCheckoutSessionId:
+        over.sessionId === undefined ? `cs_${crypto.randomUUID()}` : over.sessionId,
+      stripePaymentIntentId: over.paymentIntentId ?? null,
       message: null,
       displayName: null,
       thankedAt: null,
@@ -121,6 +127,86 @@ function seedContribution(
     .run();
   return id;
 }
+
+describe("the parting gift summary", () => {
+  /** Put a summary on the bootstrap wedding's settings row the way the retention
+   *  sweep does — blob and timestamp together, in one write. */
+  function writeSummary(db: Db0, json: string | null, at: Date | null = new Date()) {
+    const now = new Date();
+    db.insert(registrySettings)
+      .values({
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        published: true,
+        giftSummaryJson: json,
+        giftSummaryAt: at,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  const KEPT = {
+    sweptOn: "2026-06-17",
+    firstGiftOn: "2025-05-11",
+    lastGiftOn: "2025-05-20",
+    claims: { reserved: 1, purchased: 2 },
+    contributions: {
+      count: 3,
+      totals: [
+        { currency: "AUD", amountMinor: 17_500 },
+        { currency: "JPY", amountMinor: 3_000 },
+      ],
+    },
+  };
+
+  it("reads as absent for a wedding that was never swept", async () => {
+    const db = db0();
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.giftSummary).toBeNull();
+  });
+
+  it("carries the counts, the totals and the arrival range back out", async () => {
+    const db = db0();
+    writeSummary(db, JSON.stringify(KEPT));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.giftSummary).toEqual(KEPT);
+  });
+
+  it("drops keys the summary never had rather than passing them through", async () => {
+    // This blob is the one part of the response not built from typed columns.
+    // Anything extra in it — a name, a note, a stray debug field — must not
+    // reach the portal merely because it was in the row.
+    const db = db0();
+    writeSummary(db, JSON.stringify({ ...KEPT, displayName: "The Ashworths" }));
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.giftSummary).toEqual(KEPT);
+    expect(JSON.stringify(snap.giftSummary)).not.toContain("Ashworth");
+  });
+
+  it("reads a damaged or half-written summary as no summary at all", async () => {
+    // A throw here would take the whole registry screen down; absent costs one
+    // band on a page. Run in parallel — a loop with an await in it is banned.
+    const cases: [string, Date | null][] = [
+      ["}{ not json", new Date()],
+      [JSON.stringify({ sweptOn: "2026-06-17" }), new Date()],
+      [JSON.stringify({ ...KEPT, claims: { reserved: "lots" } }), new Date()],
+      [
+        JSON.stringify({ ...KEPT, contributions: { count: 1, totals: [{ currency: "AUD" }] } }),
+        new Date(),
+      ],
+      // JSON with no `gift_summary_at` is a half-written row, not a record.
+      [JSON.stringify(KEPT), null],
+    ];
+    const snaps = await Promise.all(
+      cases.map(([json, at]) => {
+        const db = db0();
+        writeSummary(db, json, at);
+        return ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+      }),
+    );
+    for (const snap of snaps) expect(snap.giftSummary).toBeNull();
+  });
+});
 
 describe("registry settings", () => {
   it("reads as unpublished before any row exists", async () => {
@@ -505,11 +591,39 @@ describe("gift log", () => {
 
     const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
     expect(snap.contributionsPrimaryMinor).toBe(10_000 + 9_700);
+    // Both rows land in AUD once the snapshot is taken into account, so nothing
+    // is left out of the figure.
+    expect(snap.contributionsOtherCurrencyCount).toBe(0);
 
     const foreign = snap.gifts.find((g) => g.currency === "GBP")!;
     expect(foreign.amountMinor).toBe(5_000);
     expect(foreign.primaryAmountMinor).toBe(9_700);
     expect(foreign.primaryCurrency).toBe("AUD");
+  });
+
+  it("counts an unconverted foreign gift instead of adding it to the total", async () => {
+    const db = db0();
+    seedContribution(db, { amountMinor: 10_000, currency: "AUD" });
+    // No primary snapshot, so there is no honest way to add this to an AUD
+    // total. Adding yen to dollars produces a number that is not money.
+    seedContribution(db, { amountMinor: 300_000, currency: "JPY" });
+    seedContribution(db, { amountMinor: 4_000, currency: "USD" });
+
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.contributionsPrimaryMinor).toBe(10_000);
+    expect(snap.contributionsOtherCurrencyCount).toBe(2);
+  });
+
+  it("does not split one currency in two over the case Stripe writes it in", async () => {
+    const db = db0();
+    // Authored rows are upper case; the settle path writes whatever Stripe sent,
+    // which is lower case. Both are the wedding's own currency.
+    seedContribution(db, { amountMinor: 10_000, currency: "AUD" });
+    seedContribution(db, { amountMinor: 2_500, currency: "aud" });
+
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.contributionsPrimaryMinor).toBe(12_500);
+    expect(snap.contributionsOtherCurrencyCount).toBe(0);
   });
 
   it("keeps a contribution after its item is deleted", async () => {
@@ -881,6 +995,54 @@ describe("registry ownership + range guards", () => {
     expect(enabled.cashGiftsEnabled).toBe(true);
   });
 
+  it("refuses cash gifts when Stripe would settle in another currency", async () => {
+    const db = db0();
+    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
+    // Charges work, but the account settles in dollars while the wedding prices
+    // everything in Australian dollars. Checkout would convert or refuse.
+    db.update(registrySettings)
+      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: "USD" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+    const blocked = await run(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+    );
+    expect(Exit.isFailure(blocked)).toBe(true);
+    if (Exit.isFailure(blocked)) {
+      expect(blocked.cause.toString()).toContain(new CurrencyMismatch()._tag);
+    }
+    const refused = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(refused.settings.cashGiftsEnabled).toBe(false);
+
+    // The same patch goes through once the two agree.
+    db.update(registrySettings)
+      .set({ stripeDefaultCurrency: "AUD" })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+    const enabled = await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+    );
+    expect(enabled.cashGiftsEnabled).toBe(true);
+  });
+
+  it("treats a settlement currency Stripe has not named as unknown, not as a mismatch", async () => {
+    const db = db0();
+    await ok(db, registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { published: true }));
+    db.update(registrySettings)
+      .set({ stripeChargesEnabled: true, stripeDefaultCurrency: null })
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .run();
+
+    const enabled = await ok(
+      db,
+      registryService.updateSettings(BOOTSTRAP_WEDDING_ID, { cashGiftsEnabled: true }),
+    );
+    expect(enabled.cashGiftsEnabled).toBe(true);
+  });
+
   it("stops a wedding adding items past the ceiling", async () => {
     const db = db0();
     const now = new Date();
@@ -918,5 +1080,762 @@ describe("registryService.hasRows", () => {
     expect(await ok(db, registryService.hasRows(BOOTSTRAP_WEDDING_ID))).toBe(true);
     // Scoped: the other wedding is still clean.
     expect(await ok(db, registryService.hasRows(OTHER))).toBe(false);
+  });
+});
+
+/** Point the wedding's settings row at a connected account. */
+function ownAccount(db: Db0, accountId: string, weddingId = BOOTSTRAP_WEDDING_ID) {
+  const now = new Date();
+  db.insert(registrySettings)
+    .values({ weddingId, stripeAccountId: accountId, createdAt: now, updatedAt: now })
+    .onConflictDoUpdate({
+      target: registrySettings.weddingId,
+      set: { stripeAccountId: accountId },
+    })
+    .run();
+}
+
+const ACCOUNT = "acct_connected";
+
+/** The one row the contribution tests read back. */
+function contribution(db: Db0, id: string) {
+  return db.select().from(registryContributions).where(eq(registryContributions.id, id)).get() as {
+    status: string;
+    refundedAmountMinor: number | null;
+    stripeCheckoutSessionId: string | null;
+    stripePaymentIntentId: string | null;
+  };
+}
+
+describe("failContribution", () => {
+  it("closes a pending gift whose money is never coming", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, { status: "pending", sessionId: "cs_1" });
+
+    const outcome = await ok(
+      db,
+      registryService.failContribution({
+        contributionId: id,
+        checkoutSessionId: "cs_1",
+        stripeAccountId: ACCOUNT,
+      }),
+    );
+
+    expect(outcome).toBe("failed");
+    expect(contribution(db, id).status).toBe("failed");
+  });
+
+  /**
+   * THE ONE THAT MATTERS. `checkout.session.expired` is a plausible thing for a
+   * hostile connected account to send, and a service that could turn
+   * `succeeded` into `failed` on receipt of it would be a way to make a
+   * couple's gift vanish.
+   */
+  it("cannot un-settle a gift somebody actually gave", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, { status: "succeeded", sessionId: "cs_1" });
+
+    const outcome = await ok(
+      db,
+      registryService.failContribution({
+        contributionId: id,
+        checkoutSessionId: "cs_1",
+        stripeAccountId: ACCOUNT,
+      }),
+    );
+
+    expect(outcome).toBe("ignored");
+    expect(contribution(db, id).status).toBe("succeeded");
+  });
+
+  it("refuses a failure sent on an account the wedding does not own", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, { status: "pending", sessionId: "cs_1" });
+
+    const outcome = await ok(
+      db,
+      registryService.failContribution({
+        contributionId: id,
+        checkoutSessionId: "cs_1",
+        stripeAccountId: "acct_someone_else",
+      }),
+    );
+
+    expect(outcome).toBe("rejected");
+    expect(contribution(db, id).status).toBe("pending");
+  });
+
+  it("refuses a failure naming another session", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, { status: "pending", sessionId: "cs_1" });
+
+    const outcome = await ok(
+      db,
+      registryService.failContribution({
+        contributionId: id,
+        checkoutSessionId: "cs_other",
+        stripeAccountId: ACCOUNT,
+      }),
+    );
+
+    expect(outcome).toBe("rejected");
+    expect(contribution(db, id).status).toBe("pending");
+  });
+
+  it("writes nothing for a contribution id that does not exist", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+
+    const outcome = await ok(
+      db,
+      registryService.failContribution({
+        contributionId: "rct_forged",
+        checkoutSessionId: "cs_1",
+        stripeAccountId: ACCOUNT,
+      }),
+    );
+
+    expect(outcome).toBe("unknown");
+    expect(db.select().from(registryContributions).all()).toHaveLength(0);
+  });
+});
+
+describe("refundContribution", () => {
+  it("marks a settled gift refunded, found by its payment intent", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, { status: "succeeded", paymentIntentId: "pi_1" });
+
+    const outcome = await ok(
+      db,
+      registryService.refundContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: ACCOUNT,
+        refundedAmountMinor: 10_000,
+        fullyRefunded: true,
+      }),
+    );
+
+    expect(outcome).toBe("refunded");
+    expect(contribution(db, id).status).toBe("refunded");
+  });
+
+  it("refuses a refund from an account the wedding does not own", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, { status: "succeeded", paymentIntentId: "pi_1" });
+
+    const outcome = await ok(
+      db,
+      registryService.refundContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: "acct_someone_else",
+        refundedAmountMinor: 10_000,
+        fullyRefunded: true,
+      }),
+    );
+
+    expect(outcome).toBe("rejected");
+    expect(contribution(db, id).status).toBe("succeeded");
+  });
+
+  it("is a no-op the second time Stripe delivers the same refund", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, { status: "refunded", paymentIntentId: "pi_1" });
+
+    const outcome = await ok(
+      db,
+      registryService.refundContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: ACCOUNT,
+        refundedAmountMinor: 10_000,
+        fullyRefunded: true,
+      }),
+    );
+
+    expect(outcome).toBe("ignored");
+    expect(contribution(db, id).status).toBe("refunded");
+  });
+
+  it("never matches a pending row, which has no intent to refund", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    // A pending row carrying an intent is not a state the settle path writes,
+    // but the guard is what keeps a forged refund off a gift still in flight.
+    const id = seedContribution(db, { status: "pending", paymentIntentId: "pi_1" });
+
+    const outcome = await ok(
+      db,
+      registryService.refundContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: ACCOUNT,
+        refundedAmountMinor: 10_000,
+        fullyRefunded: true,
+      }),
+    );
+
+    expect(outcome).toBe("unknown");
+    expect(contribution(db, id).status).toBe("pending");
+  });
+
+  it("refuses to guess when two gifts share one payment intent", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    // Not a shape the settle path writes today — the point is that the column
+    // is an index and not a UNIQUE, so nothing at the database stops it, and
+    // the refund must not pick one of them by accident of row order.
+    const first = seedContribution(db, { status: "succeeded", paymentIntentId: "pi_1" });
+    const second = seedContribution(db, { status: "succeeded", paymentIntentId: "pi_1" });
+
+    const outcome = await ok(
+      db,
+      registryService.refundContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: ACCOUNT,
+        refundedAmountMinor: 10_000,
+        fullyRefunded: true,
+      }),
+    );
+
+    expect(outcome).toBe("ambiguous");
+    expect(contribution(db, first).status).toBe("succeeded");
+    expect(contribution(db, second).status).toBe("succeeded");
+  });
+
+  it("refuses to guess which of two gifts a dispute names", async () => {
+    // Same undecidable read the refund path has, and the same answer: nothing
+    // is written, and the log is what wants a human.
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const first = seedContribution(db, { status: "succeeded", paymentIntentId: "pi_1" });
+    const second = seedContribution(db, { status: "succeeded", paymentIntentId: "pi_1" });
+
+    const outcome = await ok(
+      db,
+      registryService.disputeContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: ACCOUNT,
+        resolution: "opened",
+      }),
+    );
+
+    expect(outcome).toBe("ambiguous");
+    expect(contribution(db, first).status).toBe("succeeded");
+    expect(contribution(db, second).status).toBe("succeeded");
+  });
+
+  it("will not re-open a dispute on a gift already refunded", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, { status: "refunded", paymentIntentId: "pi_1" });
+
+    const outcome = await ok(
+      db,
+      registryService.disputeContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: ACCOUNT,
+        resolution: "opened",
+      }),
+    );
+
+    expect(outcome).toBe("ignored");
+    expect(contribution(db, id).status).toBe("refunded");
+  });
+
+  it("clears the account a couple revoked, and says so only once", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+
+    const first = await ok(db, registryService.detachStripeAccount({ accountId: ACCOUNT }));
+    // The second delivery — Stripe sends every event at least once — matches
+    // nothing, because the id it names is already gone.
+    const second = await ok(db, registryService.detachStripeAccount({ accountId: ACCOUNT }));
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+  });
+
+  it("leaves another wedding's account alone", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+
+    const matched = await ok(
+      db,
+      registryService.detachStripeAccount({ accountId: "acct_someone_else" }),
+    );
+
+    expect(matched).toBe(false);
+    const row = db
+      .select()
+      .from(registrySettings)
+      .where(eq(registrySettings.weddingId, BOOTSTRAP_WEDDING_ID))
+      .get();
+    expect(row?.stripeAccountId).toBe(ACCOUNT);
+  });
+
+  it("takes a refunded gift out of the primary-currency total", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    seedContribution(db, { amountMinor: 10_000, currency: "AUD" });
+    seedContribution(db, {
+      amountMinor: 4_000,
+      currency: "AUD",
+      status: "succeeded",
+      paymentIntentId: "pi_1",
+    });
+    expect(
+      (await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID))).contributionsPrimaryMinor,
+    ).toBe(14_000);
+
+    await ok(
+      db,
+      registryService.refundContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: ACCOUNT,
+        refundedAmountMinor: 4_000,
+        fullyRefunded: true,
+      }),
+    );
+
+    const snap = await ok(db, registryService.get(BOOTSTRAP_WEDDING_ID));
+    expect(snap.contributionsPrimaryMinor).toBe(10_000);
+  });
+
+  it("records what went back on a partial refund and leaves the gift standing", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, {
+      amountMinor: 10_000,
+      status: "succeeded",
+      paymentIntentId: "pi_1",
+    });
+
+    const outcome = await ok(
+      db,
+      registryService.refundContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: ACCOUNT,
+        refundedAmountMinor: 2_500,
+        fullyRefunded: false,
+      }),
+    );
+
+    expect(outcome).toBe("partial");
+    const row = contribution(db, id);
+    // The couple kept the rest, so the gift is still a gift — but the row no
+    // longer claims the whole amount survived.
+    expect(row.status).toBe("succeeded");
+    expect(row.refundedAmountMinor).toBe(2_500);
+  });
+
+  it("records the amount on a full refund as well as moving the status", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, {
+      amountMinor: 10_000,
+      status: "succeeded",
+      paymentIntentId: "pi_1",
+    });
+
+    const outcome = await ok(
+      db,
+      registryService.refundContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: ACCOUNT,
+        refundedAmountMinor: 10_000,
+        fullyRefunded: true,
+      }),
+    );
+
+    expect(outcome).toBe("refunded");
+    const row = contribution(db, id);
+    expect(row.status).toBe("refunded");
+    expect(row.refundedAmountMinor).toBe(10_000);
+  });
+
+  it("keeps the recorded amount when a stale delivery reports less", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, {
+      amountMinor: 10_000,
+      status: "succeeded",
+      paymentIntentId: "pi_1",
+      refundedAmountMinor: 4_000,
+    });
+
+    // Stripe's `amount_refunded` is the running total across every refund on the
+    // charge, and deliveries can arrive out of order, so a smaller figure is an
+    // older event and not news.
+    const outcome = await ok(
+      db,
+      registryService.refundContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: ACCOUNT,
+        refundedAmountMinor: 1_000,
+        fullyRefunded: false,
+      }),
+    );
+
+    expect(outcome).toBe("partial");
+    expect(contribution(db, id).refundedAmountMinor).toBe(4_000);
+  });
+
+  it("writes nothing when a partial refund carries no usable amount", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, {
+      amountMinor: 10_000,
+      status: "succeeded",
+      paymentIntentId: "pi_1",
+    });
+
+    const outcome = await ok(
+      db,
+      registryService.refundContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: ACCOUNT,
+        refundedAmountMinor: null,
+        fullyRefunded: false,
+      }),
+    );
+
+    expect(outcome).toBe("partial");
+    const row = contribution(db, id);
+    expect(row.status).toBe("succeeded");
+    // NULL reads as "not recorded", which is the truth — falling back to the
+    // row's own amount would invent a figure Stripe never sent.
+    expect(row.refundedAmountMinor).toBeNull();
+  });
+
+  it("refuses a partial refund from an account the wedding does not own", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, {
+      amountMinor: 10_000,
+      status: "succeeded",
+      paymentIntentId: "pi_1",
+    });
+
+    const outcome = await ok(
+      db,
+      registryService.refundContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: "acct_someone_else",
+        refundedAmountMinor: 2_500,
+        fullyRefunded: false,
+      }),
+    );
+
+    expect(outcome).toBe("rejected");
+    const row = contribution(db, id);
+    expect(row.status).toBe("succeeded");
+    expect(row.refundedAmountMinor).toBeNull();
+  });
+
+  it("moves a full refund that carried no amount, and records nothing", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, {
+      amountMinor: 10_000,
+      status: "succeeded",
+      paymentIntentId: "pi_1",
+    });
+
+    const outcome = await ok(
+      db,
+      registryService.refundContribution({
+        paymentIntentId: "pi_1",
+        stripeAccountId: ACCOUNT,
+        refundedAmountMinor: null,
+        fullyRefunded: true,
+      }),
+    );
+
+    expect(outcome).toBe("refunded");
+    const row = contribution(db, id);
+    expect(row.status).toBe("refunded");
+    expect(row.refundedAmountMinor).toBeNull();
+  });
+});
+
+describe("what the couple sees of a gift that failed", () => {
+  it("hides a failed contribution and keeps a refunded one", async () => {
+    const db = db0();
+    seedContribution(db, { amountMinor: 10_000, status: "succeeded" });
+    seedContribution(db, { amountMinor: 7_000, status: "refunded", paymentIntentId: "pi_1" });
+    // Money that never moved is not a gift, and a guest who abandoned checkout
+    // never meant to tell the couple anything.
+    seedContribution(db, { amountMinor: 99_999, status: "failed" });
+
+    const { entries } = await ok(db, registryService.giftLog(BOOTSTRAP_WEDDING_ID));
+
+    expect(entries.map((g) => g.amountMinor).toSorted((a, b) => (a ?? 0) - (b ?? 0))).toEqual([
+      7_000, 10_000,
+    ]);
+    // A refund is a thing that HAPPENED to the couple's record, so it stays
+    // visible — out of the total, still in the log.
+    expect(entries.some((g) => g.status === "refunded")).toBe(true);
+  });
+});
+
+/**
+ * The gift row now exists BEFORE Stripe is asked for a payment page, so its
+ * session id starts NULL and is attached afterwards. What
+ * follows is every way that window can end: the page arrives and is attached,
+ * the same page arrives twice, two rows race for one page, and the row is gone.
+ */
+describe("createPendingContribution", () => {
+  const pending = (db: Db0, id: string) => ({
+    id,
+    weddingId: BOOTSTRAP_WEDDING_ID,
+    familyId: twoFamilies(db)[0],
+    itemId: null,
+    amountMinor: 5000,
+    currency: "AUD",
+    message: null,
+    displayName: null,
+  });
+
+  it("writes the gift with no session id at all", async () => {
+    const db = db0();
+    const id = `rct_${crypto.randomUUID()}`;
+
+    expect(await ok(db, registryService.createPendingContribution(pending(db, id)))).toBe(true);
+
+    const row = contribution(db, id);
+    expect(row.status).toBe("pending");
+    expect(row.stripeCheckoutSessionId).toBeNull();
+  });
+
+  /**
+   * The id is minted fresh per request, so a second insert under the same id is
+   * a UUID collision, not a retry. The honest answer is `false` — and no
+   * payment page — rather than silently handing the guest somebody else's gift.
+   */
+  it("refuses to write over a gift that already has that id", async () => {
+    const db = db0();
+    const id = `rct_${crypto.randomUUID()}`;
+    await ok(db, registryService.createPendingContribution(pending(db, id)));
+
+    const second = await ok(
+      db,
+      registryService.createPendingContribution({ ...pending(db, id), amountMinor: 99_000 }),
+    );
+
+    expect(second).toBe(false);
+    // The first gift is untouched — the collision wrote nothing.
+    expect(
+      db
+        .select({ amountMinor: registryContributions.amountMinor })
+        .from(registryContributions)
+        .where(eq(registryContributions.id, id))
+        .get()?.amountMinor,
+    ).toBe(5000);
+  });
+});
+
+describe("attachCheckoutSession", () => {
+  it("attaches the page Stripe handed back", async () => {
+    const db = db0();
+    const id = seedContribution(db, { status: "pending", sessionId: null });
+
+    const outcome = await ok(
+      db,
+      registryService.attachCheckoutSession({ contributionId: id, checkoutSessionId: "cs_1" }),
+    );
+
+    expect(outcome).toBe("attached");
+    expect(contribution(db, id).stripeCheckoutSessionId).toBe("cs_1");
+  });
+
+  /** A retry of the same attach is the same answer, not a second write. */
+  it("is idempotent when the row already holds that session", async () => {
+    const db = db0();
+    const id = seedContribution(db, { status: "pending", sessionId: "cs_1" });
+
+    const outcome = await ok(
+      db,
+      registryService.attachCheckoutSession({ contributionId: id, checkoutSessionId: "cs_1" }),
+    );
+
+    expect(outcome).toBe("attached");
+    expect(contribution(db, id).stripeCheckoutSessionId).toBe("cs_1");
+  });
+
+  /**
+   * One session id belongs to exactly one gift. A row that loses the race has
+   * no page of its own and never will, so it is closed rather than left
+   * `pending` for an organiser to wait on.
+   */
+  it("closes the loser when a session already belongs to another gift", async () => {
+    const db = db0();
+    const winner = seedContribution(db, { status: "pending", sessionId: "cs_1" });
+    const loser = seedContribution(db, { status: "pending", sessionId: null });
+
+    const outcome = await ok(
+      db,
+      registryService.attachCheckoutSession({ contributionId: loser, checkoutSessionId: "cs_1" }),
+    );
+
+    expect(outcome).toBe("duplicate");
+    expect(contribution(db, loser).status).toBe("failed");
+    expect(contribution(db, loser).stripeCheckoutSessionId).toBeNull();
+    // The gift that got there first keeps the page.
+    expect(contribution(db, winner).status).toBe("pending");
+    expect(contribution(db, winner).stripeCheckoutSessionId).toBe("cs_1");
+  });
+
+  it("says so when there is no such gift", async () => {
+    const db = db0();
+    const outcome = await ok(
+      db,
+      registryService.attachCheckoutSession({
+        contributionId: "rct_gone",
+        checkoutSessionId: "cs_1",
+      }),
+    );
+    expect(outcome).toBe("missing");
+  });
+});
+
+describe("abandonPendingContribution", () => {
+  it("closes an attempt Stripe never gave a page to", async () => {
+    const db = db0();
+    const id = seedContribution(db, { status: "pending", sessionId: null });
+
+    await ok(db, registryService.abandonPendingContribution({ contributionId: id }));
+
+    expect(contribution(db, id).status).toBe("failed");
+  });
+
+  /**
+   * The guard is three clauses, and this is the one that matters: a row that
+   * DID get a session is a live payment page, and a late failure on the request
+   * that opened it must not close a gift the guest may already be paying.
+   */
+  it("leaves a gift that already has a payment page alone", async () => {
+    const db = db0();
+    const id = seedContribution(db, { status: "pending", sessionId: "cs_1" });
+
+    await ok(db, registryService.abandonPendingContribution({ contributionId: id }));
+
+    expect(contribution(db, id).status).toBe("pending");
+  });
+});
+
+describe("findReusableContribution", () => {
+  const reuse = (db: Db0) => ({
+    weddingId: BOOTSTRAP_WEDDING_ID,
+    familyId: twoFamilies(db)[0],
+    itemId: null,
+    amountMinor: 10_000,
+    message: null,
+    displayName: null,
+    since: new Date(Date.now() - 60_000),
+  });
+
+  it("hands back the page an identical attempt already got", async () => {
+    const db = db0();
+    seedContribution(db, { status: "pending", sessionId: "cs_1" });
+
+    expect(await ok(db, registryService.findReusableContribution(reuse(db)))).toEqual({
+      sessionId: "cs_1",
+    });
+  });
+
+  /**
+   * A NULL session is an attempt that never reached Stripe —
+   * there is no page to send anyone back to, so reuse must skip it. Returning
+   * it would hand the guest a `null` URL.
+   */
+  it("skips an attempt that never got a page", async () => {
+    const db = db0();
+    seedContribution(db, { status: "pending", sessionId: null });
+
+    expect(await ok(db, registryService.findReusableContribution(reuse(db)))).toBeNull();
+  });
+});
+
+describe("settling a gift whose session was never attached", () => {
+  it("adopts the session id the webhook names", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, { status: "pending", sessionId: null });
+
+    const outcome = await ok(
+      db,
+      registryService.settleContribution({
+        contributionId: id,
+        checkoutSessionId: "cs_1",
+        stripeAccountId: ACCOUNT,
+        paymentIntentId: "pi_1",
+        paid: true,
+        paidAmountMinor: 10_000,
+        paidCurrency: "AUD",
+      }),
+    );
+
+    expect(outcome).toBe("settled");
+    const row = contribution(db, id);
+    expect(row.status).toBe("succeeded");
+    // The window closes here: the gift is paid AND now names its own session.
+    expect(row.stripeCheckoutSessionId).toBe("cs_1");
+    expect(row.stripePaymentIntentId).toBe("pi_1");
+  });
+
+  /** Adoption is guarded: a session another gift already holds is not free. */
+  it("refuses to adopt a session another gift already holds", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const holder = seedContribution(db, { status: "succeeded", sessionId: "cs_1" });
+    const orphan = seedContribution(db, { status: "pending", sessionId: null });
+
+    const outcome = await ok(
+      db,
+      registryService.settleContribution({
+        contributionId: orphan,
+        checkoutSessionId: "cs_1",
+        stripeAccountId: ACCOUNT,
+        paymentIntentId: "pi_1",
+        paid: true,
+        paidAmountMinor: 10_000,
+        paidCurrency: "AUD",
+      }),
+    );
+
+    expect(outcome).toBe("rejected");
+    expect(contribution(db, orphan).status).toBe("pending");
+    expect(contribution(db, orphan).stripeCheckoutSessionId).toBeNull();
+    expect(contribution(db, holder).status).toBe("succeeded");
+  });
+
+  /**
+   * The other end of the same window: the guest walked away, the session
+   * expired, and the expiry event is the first thing that ever names the
+   * session. The row is closed and stamped with the session it was.
+   */
+  it("closes an orphan on expiry, and records which session expired", async () => {
+    const db = db0();
+    ownAccount(db, ACCOUNT);
+    const id = seedContribution(db, { status: "pending", sessionId: null });
+
+    const outcome = await ok(
+      db,
+      registryService.failContribution({
+        contributionId: id,
+        checkoutSessionId: "cs_1",
+        stripeAccountId: ACCOUNT,
+      }),
+    );
+
+    expect(outcome).toBe("failed");
+    const row = contribution(db, id);
+    expect(row.status).toBe("failed");
+    expect(row.stripeCheckoutSessionId).toBe("cs_1");
   });
 });

@@ -58,6 +58,12 @@ const MAX_CONNECTION_QUERY_LEN = 64;
  *
  * `graph:resolve-account` — gates `/graph/internal/profile-account` only
  * (see SCOPE_RESOLVE_ACCOUNT above). Granted to pulse-api + cire-api.
+ *
+ * `account:email-read` — gates `/internal/accounts/emails`, which hands back
+ * account email addresses. Granted to cire-api alone, for one purpose: the
+ * retention sweep has to tell a couple their gift detail has been deleted,
+ * and cire stores no address. Kept separate from `graph:read` so it can be
+ * withdrawn without taking the graph lookups with it.
  */
 const PERMITTED_SCOPES = new Set([
   "graph:read",
@@ -66,6 +72,7 @@ const PERMITTED_SCOPES = new Set([
   "step-up:verify",
   "app-enrollment:write",
   "org:read",
+  "account:email-read",
 ]);
 
 // ---------------------------------------------------------------------------

@@ -1,8 +1,8 @@
 /**
  * Shared CSV serialisation for the organiser exports (`rsvps.csv`,
- * `guests.csv`, `events.csv`). Extracted from `services/rsvp-export.ts` when
- * the guests/events exports were added so all three downloads share one
- * formula-injection guard and one RFC 4180 serialiser.
+ * `guests.csv`, `events.csv`, `gifts.csv`). Extracted from
+ * `services/rsvp-export.ts` when the guests/events exports were added so every
+ * download shares one formula-injection guard and one RFC 4180 serialiser.
  */
 
 const FORMULA_MARKERS = new Set(["=", "+", "-", "@"]);

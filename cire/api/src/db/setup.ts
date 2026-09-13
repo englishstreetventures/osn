@@ -368,6 +368,11 @@ CREATE TABLE IF NOT EXISTS registry_settings (
   stripe_charges_enabled INTEGER NOT NULL DEFAULT 0,
   stripe_payouts_enabled INTEGER NOT NULL DEFAULT 0,
   stripe_account_updated_at INTEGER,
+  stripe_default_currency TEXT,
+  stripe_deauthorized_at INTEGER,
+  stripe_deauthorized_account_id TEXT,
+  gift_summary_json TEXT,
+  gift_summary_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -424,7 +429,8 @@ CREATE TABLE IF NOT EXISTS registry_contributions (
   primary_currency TEXT,
   fx_rate TEXT,
   fx_rate_at INTEGER,
-  stripe_checkout_session_id TEXT NOT NULL UNIQUE,
+  refunded_amount_minor INTEGER,
+  stripe_checkout_session_id TEXT UNIQUE,
   stripe_payment_intent_id TEXT,
   message TEXT,
   display_name TEXT,
@@ -435,6 +441,7 @@ CREATE TABLE IF NOT EXISTS registry_contributions (
 );
 CREATE INDEX IF NOT EXISTS registry_contributions_wedding_created_idx ON registry_contributions(wedding_id, created_at);
 CREATE INDEX IF NOT EXISTS registry_contributions_item_idx ON registry_contributions(item_id);
+CREATE INDEX IF NOT EXISTS registry_contributions_payment_intent_idx ON registry_contributions(stripe_payment_intent_id);
 `;
 
 export function createDb(path: string = ":memory:") {

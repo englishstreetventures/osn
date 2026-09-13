@@ -8,7 +8,8 @@ related:
   - "[[identity-model]]"
   - "[[cire-auth]]"
   - "[[cire]]"
-last-reviewed: 2026-08-30
+  - "[[subprocessors]]"
+last-reviewed: 2026-09-11
 ---
 
 # Access Control
@@ -31,6 +32,7 @@ Already strong; documented elsewhere.
 | Cire organiser | OSN access token (`aud: "osn-access"`) verified via `@shared/osn-auth-client`, then per-wedding **role authz** — three tiers: `weddingOwner()` (owner: code management, delete, and the SUBTRACTIVE half of host management — removing a co-host, changing a co-host's role), `weddingEditor()` (owner or `editor` co-host: module writes — import, invite, locations — **and ADDING a co-host**; viewers get 403 `read_only_role`) — including `PUT /settings`, which the middleware alone cannot decide: the settings body is owner-only EXCEPT the RSVP-by deadline (`rsvpDeadline` + `rsvpDeadlineTimezone`), so the handler applies a **field-level owner check** on top of the gate and refuses a non-owner patch carrying any other key with 403 `owner_only_fields` (logged + counted on `cire.wedding.settings.owner_only_refused`; the allow-list is derived from the request schema's own field list, so a new setting is owner-only by default). Every settings write records its author in `weddings.updated_by_osn_profile_id` (migration 0056) — the panel has two principal classes now, so a change to a guest-facing control is attributable. A deadline may not be set in the PAST by anyone, owner included: a backdated date locks the invite for every guest the instant it lands (400 `rsvp_deadline_in_past`), `weddingMember()` (any role incl. `viewer`: reads + invite preview). Roles live in `wedding_hosts.role` (`editor`/`viewer`), checked per-request from the DB (demotion is immediate, never embedded in the JWT). **An `editor` may create a seat; only the owner may change a role or revoke one** (2026-08-01) — the grant boundary is additive-versus-subtractive, not owner-versus-co-host. `editor` is the ceiling anyone can grant (the owner is never rowed into `wedding_hosts`), seats are capped per wedding so the owner's list can never truncate below the real count, and `wedding_hosts.added_by_osn_profile_id` is surfaced in the panel so a seat the owner did not create is visible as such. | [[cire-auth]] |
 | Cire guest | **Guest-session credential class** — family claim code (`families.public_id`) → opaque 256-bit `cire_session` (SHA-256 at rest), family-scoped, gates `/api/rsvp` only. Never an OSN account. | [[cire-auth]] |
 | Cire vendor (sole-trader) | **Vendor principal class** — OSN account holder + organization membership (per `org:read` ARC scope grant). `vendorOrgMember()` middleware gate (fail-closed: missing/failed check → 403, never bypass) protects `/api/vendor/*` listing writes and claim consumption. Scope `org:read` requested by cire-api, granted by osn-api's ARC allowlist; resolved at claim/consume time via ARC verification of the requestor's org membership. | [[cire-auth]] |
+| Cire organiser address lookup | **ARC scope `account:email-read`** — gates `POST /internal/accounts/emails` on osn-api and nothing else. Deliberately not folded into `graph:read`: an email address is the one field the graph routes never return, so the grant can be withdrawn on its own without taking co-host autocomplete down with it. Sole intended holder: `@cire/api`, whose retention sweep has to reach a couple whose gift detail it is about to delete and stores no address of its own. Returns account email addresses, capped at 100 profile ids per call, as an omit-list — an unknown id, a soft-deleted account and an address-less account are indistinguishable, so the route is not an existence oracle. **Known limitation (S-M2):** `PERMITTED_SCOPES` in `graph-internal.ts` is one flat allowlist governing what `/graph/internal/register-service` will grant to any service, so nothing on the registration side binds this scope to cire-api. The restriction is enforced at the point of use instead — the handler checks the signature-verified `iss` against `cire-api` and 401s anything else. Making the registration allowlist per-service is the outstanding fix. | [[arc-tokens]], [[retention]] |
 
 ## Production console access (the SOC 2 gap)
 
@@ -51,7 +53,7 @@ The matrix that needs to exist, by environment + system + role.
 | Cire Cloudflare D1 (guest DB) | Read-write (operator) | <named humans> | ✓ Via Cloudflare dashboard / Wrangler + WebAuthn | Manual + audit log | Quarterly |
 | Cire Cloudflare R2 (`cire-sheets`, raw guest CSVs) | Read-write (operator) | <named humans> | ✓ | Manual + audit log | Quarterly |
 | Domain registrar | Owner | <named humans> | ✓ | Manual | Annual |
-| Stripe (when ticketing lands) | Admin | <named humans> | ✓ | Manual | Quarterly |
+| Stripe platform Dashboard (cire gift registry — first live use once the PR #760/#762 keys are set; Pulse ticketing later). Dashboard access reaches every couple's connected-account view and the API/webhook secrets below | Admin | <named humans> | ✓ | Manual | Quarterly |
 | Email provider (Resend today; Cloudflare Email Service is the legacy fallback) | Admin | <named humans> | ✓ | Manual | Quarterly |
 | Redis provider (Upstash, `ap-southeast-2`) | Admin | <named humans> | ✓ | Manual | Quarterly |
 
@@ -60,6 +62,21 @@ a private successor under `wiki/compliance/access-matrix/<YYYY>-<Q>.md`
 on a quarterly cadence and is **never committed publicly**. The public
 template gives auditors the structure; the private quarterly file gives
 them the evidence.
+
+## Worker secrets — Stripe (`cire-api-production`)
+
+Two Cloudflare Workers secrets gate the cire gift-payment surface. Both
+are **unset today on every tier**, so the code (PR #760, stacked PR #762)
+ships inert; setting either is gated by the paperwork checklist in
+[[subprocessors]] §"Stripe Connect (cire) — the paperwork gate". They are
+secrets, never `[vars]`: the API key can move money, and the signing
+secret is the only thing that stops anyone else's webhook body being
+believed.
+
+| Secret | What it gates | Provisioned | Rotation |
+|---|---|---|---|
+| `STRIPE_SECRET_KEY` | Unset ⇒ the organiser Connect routes are **not mounted** (no payment surface, not a broken one). The portal does **not** probe for this: the Money-gifts panel renders either way and surfaces the 404 as a toast, so an unset key is visible to a couple only when they press Connect (C-L1). Set ⇒ account creation, onboarding links, live account reads — calls that act on the platform's Stripe account. | `bunx wrangler secret put STRIPE_SECRET_KEY --env production`, then `wrangler deploy --env production` (a secret change does not cycle warm isolates). Requires Cloudflare access per the matrix above + Stripe Dashboard access to mint the key. Live key on production only; the dev tier gets a test-mode key (`sk_test_…`) or nothing. | Roll the key in the Stripe Dashboard (Developers → API keys) with an expiry window, `wrangler secret put` the new value, redeploy, let the old key expire. Immediate revocation (suspected compromise): roll with no window — the Worker 502s Stripe calls until the new value is deployed, which is the correct failure. |
+| `STRIPE_WEBHOOK_SECRET` | Unset ⇒ `POST /api/stripe/webhook` **does not exist**. Nothing else authenticates that endpoint — the signature IS the authentication — so without a signing secret it must not be reachable. | Same `wrangler secret put` + redeploy path. The value comes from the Dashboard webhook endpoint (created in checklist step 6). | **Zero-downtime by design, worth writing down:** when a secret is rolled in the Dashboard with an overlap window, Stripe signs each delivery with BOTH secrets, and the verifier (`cire/api/src/services/stripe.ts`) checks every `v1` digest in the header against its one configured secret — so deliveries verify throughout, whichever value the Worker holds. Sequence: roll in the Dashboard with an overlap window → `wrangler secret put` the new value → redeploy → old secret expires. |
 
 ## Access lifecycle
 

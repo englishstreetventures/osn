@@ -7,7 +7,7 @@ import type { Db } from "../db";
 import { sessionAuth } from "../middleware/auth";
 import { rateLimitMiddleware } from "../middleware/rate-limit";
 import { runCire } from "../observability";
-import { ClaimItemBody } from "../schemas/registry";
+import { ClaimItemBody, ContributeBody } from "../schemas/registry";
 import { versionFromKey } from "../services/event-image";
 import { AssetsR2Service, REGISTRY_IMAGE_NAME } from "../services/invite-assets";
 import type { AssetsBucket } from "../services/invite-assets";
@@ -18,6 +18,7 @@ import {
 } from "../services/invite-image-transform";
 import type { ImagesBindingLike } from "../services/invite-image-transform";
 import { registryGuestService, registryService } from "../services/registry";
+import type { StripeClient } from "../services/stripe";
 
 // Sentinel parse hook — the handler parses by hand so a malformed payload
 // degrades to the schema's 400 (same idiom as every other cire write route).
@@ -218,6 +219,240 @@ export const createRegistryGuestMineRoutes = (db: Db) =>
         ),
       );
     });
+
+/**
+ * How long two presses count as the same attempt, in milliseconds.
+ *
+ * Long enough to swallow a double-tap and a browser retry; short enough that a
+ * guest who genuinely gives the same amount twice in one evening — a couple
+ * paying separately from one household, say — is two gifts and not one.
+ */
+const GIFT_ATTEMPT_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * An idempotency key over the whole request, bucketed in time.
+ *
+ * Hashed rather than concatenated because the parts include free text: a note
+ * containing the separator would otherwise collide with a different note that
+ * did not.
+ */
+function giftIdempotencyKey(input: {
+  familyId: string;
+  slug: string;
+  amountMinor: number;
+  itemId: string | null;
+  message: string | null;
+  displayName: string | null;
+}): Effect.Effect<string, never> {
+  return Effect.promise(async () => {
+    const bucket = Math.floor(Date.now() / GIFT_ATTEMPT_WINDOW_MS);
+    const canonical = JSON.stringify([
+      input.familyId,
+      input.slug,
+      input.amountMinor,
+      input.itemId,
+      input.message,
+      input.displayName,
+      bucket,
+    ]);
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+    const hex = [...new Uint8Array(digest)]
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+      .slice(0, 32);
+    return `cire-gift-${hex}`;
+  });
+}
+
+/** Options for {@link createRegistryContributeRoutes}. */
+export interface RegistryContributeDeps {
+  /** Absent ⇒ the route is not mounted; a guest is never offered a dead button. */
+  readonly stripe: StripeClient;
+  /** Its OWN limiter, tighter than the claim one — see the route header. */
+  readonly limiter: RateLimiterBackend;
+  /** Guest-site origin, for the two URLs Stripe returns the guest to. */
+  readonly guestOrigin: string;
+}
+
+/**
+ * GIVING MONEY:
+ *
+ *   POST /api/invite/:slug/registry/contribute  (sessionAuth + limiter)
+ *
+ * Answers with a hosted Stripe Checkout URL for the guest to be sent to. The
+ * charge is DIRECT on the couple's connected account: the money is theirs from
+ * the moment it is taken, and cire never holds it.
+ *
+ * **Its own limiter, and a tight one.** Every call here is an outbound Stripe
+ * request — the same "amplifier" shape the link-preview route is limited for,
+ * and the one guest route that can cost money to be wrong about.
+ *
+ * **The gates that matter run before Stripe does** (`contributionContext`): the
+ * registry must be visible, the household must belong to THIS wedding, the
+ * couple must have said yes, and Stripe must be able to take the charge today.
+ * A guest is turned away before their card is, or not at all.
+ *
+ * **Nothing is recorded here.** A session is an intention, not a gift. The row
+ * in `registry_contributions` is written by the webhook when Stripe says the
+ * money moved — which is the only party that knows.
+ */
+export const createRegistryContributeRoutes = (db: Db, deps: RegistryContributeDeps) =>
+  new Elysia({ prefix: "/api/invite" })
+    .use(sessionAuth(db))
+    .use(rateLimitMiddleware(deps.limiter))
+    .post(
+      "/:slug/registry/contribute",
+      async ({ params, familyId, request, set }) => {
+        if (!familyId) return unauthorisedSync(set);
+        const raw: unknown = await request.json().catch(() => null);
+        return runCire(
+          Effect.gen(function* () {
+            const body = yield* Schema.decodeUnknownEffect(ContributeBody)(raw);
+            // The item check rides along with the household check inside the
+            // context read, rather than waiting on its answer: two point reads
+            // against the same wedding, one round trip.
+            const context = yield* registryService.contributionContext({
+              slug: params.slug,
+              familyId,
+              itemId: body.itemId,
+            });
+            const itemId = context.itemId;
+
+            // The attempt this guest already has open, if they have one. This
+            // is the idempotency that has no edges: the time bucket
+            // below can put two presses either side of a boundary, but a row
+            // we already wrote is a row either press can find.
+            const openAttempt = yield* registryService.findReusableContribution({
+              weddingId: context.weddingId,
+              familyId,
+              itemId,
+              amountMinor: body.amountMinor,
+              message: body.message,
+              displayName: body.displayName,
+              since: new Date(Date.now() - GIFT_ATTEMPT_WINDOW_MS),
+            });
+            if (openAttempt) {
+              const existing = yield* deps.stripe.retrieveCheckoutSession({
+                accountId: context.stripeAccountId,
+                sessionId: openAttempt.sessionId,
+              });
+              // `null` means the page is no longer somewhere they can pay —
+              // expired, or already paid. Fall through and mint a fresh one.
+              if (existing) return { url: existing.url };
+            }
+
+            const giftUrl = `${deps.guestOrigin.replace(/\/+$/, "")}/${encodeURIComponent(params.slug)}/registry`;
+            // Minted here so the row and the session name the same gift. It is
+            // the ONLY thing about this gift that reaches Stripe.
+            const contributionId = `rct_${crypto.randomUUID()}`;
+
+            // THE ROW COMES FIRST, before Stripe is told anything (osn-tracker
+            // #528). Written the other way round there is a window — small, but
+            // it is the window in which the guest's money moves — where a
+            // session exists at Stripe and no row exists here: evict the Worker
+            // between the call and the insert and the settle webhook names a
+            // gift we have no record of. Writing the row first inverts which
+            // side the orphan falls on, and an orphan on our side is one we can
+            // see, close, and count.
+            const stored = yield* registryService.createPendingContribution({
+              id: contributionId,
+              weddingId: context.weddingId,
+              familyId,
+              itemId,
+              amountMinor: body.amountMinor,
+              currency: context.currency,
+              message: body.message,
+              displayName: body.displayName,
+            });
+            if (!stored) return yield* internal(set);
+
+            const session = yield* deps.stripe
+              .createCheckoutSession({
+                accountId: context.stripeAccountId,
+                amountMinor: body.amountMinor,
+                currency: context.currency,
+                // Deliberately generic. It is what the guest sees on the Stripe
+                // page and on their statement, and a gift's line item is not the
+                // place to publish what a couple asked for.
+                productName: "Wedding gift",
+                successUrl: `${giftUrl}?gift=thanks`,
+                cancelUrl: `${giftUrl}?gift=cancelled`,
+                // One opaque id, and nothing else. The guest's note and
+                // the name they chose stay in D1 under a basis we have declared;
+                // Stripe needs neither to take a payment.
+                metadata: { contributionId },
+                // The same id again, in the one field a connected account cannot
+                // rewrite. Stripe echoes it on every event for this session, so
+                // the settle path can read it before it reads any metadata.
+                clientReferenceId: contributionId,
+                // Keyed on WHAT is being given and WHEN, to the nearest few
+                // minutes. SECOND belt now, behind the reuse read above:
+                // it covers the simultaneous double-tap, where neither request
+                // has written a row for the other to find.
+                // The previous key folded the note down to its
+                // LENGTH, which had both failure modes an idempotency key exists
+                // to avoid: two different gifts of the same amount collided, so
+                // the second silently never charged, and a retry with different
+                // words hit Stripe's `idempotency_error` — permanently, because
+                // the key never changed. A hash of the whole request plus a
+                // coarse time bucket collapses a double-tap and separates
+                // everything else.
+                idempotencyKey: yield* giftIdempotencyKey({
+                  familyId,
+                  slug: params.slug,
+                  amountMinor: body.amountMinor,
+                  itemId,
+                  message: body.message,
+                  displayName: body.displayName,
+                }),
+              })
+              .pipe(
+                // Stripe refused, so the row above is an attempt that will never
+                // be paid. Close it here rather than leave the guest's note and
+                // chosen name sitting `pending` for a year.
+                Effect.tapError(() =>
+                  registryService.abandonPendingContribution({ contributionId }),
+                ),
+              );
+
+            // Now the row knows which session it became. `duplicate` means
+            // another request's row already holds this session — Stripe's
+            // idempotency handed both the same one — and this row has closed
+            // itself; the guest still goes to the same page. `missing` means
+            // the row we just wrote is gone, which nothing explains, so nobody
+            // is sent to pay.
+            const attached = yield* registryService.attachCheckoutSession({
+              contributionId,
+              checkoutSessionId: session.id,
+            });
+            if (attached === "missing") return yield* internal(set);
+
+            return { url: session.url };
+          }).pipe(
+            Effect.provideService(DbService, db),
+            Effect.catchTag("SchemaError", () => badRequest(set)),
+            Effect.catchTag("RegistryNotVisible", () => notVisible(set)),
+            Effect.catchTag("CashGiftsUnavailable", () =>
+              Effect.sync(() => {
+                set.status = 409;
+                return { error: "cash_gifts_unavailable" };
+              }),
+            ),
+            Effect.catchTag("StripeError", () =>
+              Effect.sync(() => {
+                // Stripe refusing is not the guest's fault and not a broken
+                // list: 502, so the page can offer the button again.
+                set.status = 502;
+                return { error: "stripe_unavailable" };
+              }),
+            ),
+            Effect.tapDefect(logDefect),
+            Effect.catchDefect(() => internal(set)),
+          ),
+        );
+      },
+      manualParse,
+    );
 
 /** Options for {@link createRegistryGuestClaimRoutes}. */
 export interface RegistryGuestClaimDeps {

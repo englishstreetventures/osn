@@ -232,6 +232,136 @@ export async function fetchGiftRegistryHousehold(
 }
 
 /**
+ * What a "give money" request can answer.
+ *
+ * `unavailable` is the 409: the couple are not taking money right now — they
+ * never turned it on, Stripe cannot take a charge today, or there is no
+ * connected account. One code for all three, because to a guest they are the
+ * same fact and none of them is theirs to fix.
+ */
+export type GiftContributionResult =
+  | { kind: "ok"; url: string }
+  | { kind: "unavailable" }
+  | { kind: "signed-out" }
+  | { kind: "rate-limited"; retryAfterSeconds: number | null }
+  | { kind: "invalid" }
+  | { kind: "error" };
+
+/** What a guest is giving, and what they want said with it. */
+export interface GiftContributionBody {
+  /** Minor units of the wedding's currency. */
+  amountMinor: number;
+  /** Giving TOWARDS a listed gift, rather than in general. */
+  itemId?: string | null;
+  message?: string | null;
+  displayName?: string | null;
+}
+
+/**
+ * Ask for a hosted payment page.
+ *
+ * Returns a URL to SEND the guest to; it never navigates. Payment is a hand-off
+ * to Stripe, and the moment of leaving the page belongs to the component that
+ * knows what else is on it — not to the client that fetched the link.
+ *
+ * Credentialed, like every other gift call: the couple's list, and who may give
+ * to it, are for the people they invited.
+ */
+export async function contributeGift(
+  apiUrl: string,
+  slug: string,
+  body: GiftContributionBody,
+): Promise<GiftContributionResult> {
+  try {
+    const res = await fetch(`${registryBase(apiUrl, slug)}/contribute`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+    if (res.status === 401) return { kind: "signed-out" };
+    if (res.status === 409) return { kind: "unavailable" };
+    if (res.status === 400) return { kind: "invalid" };
+    if (res.status === 429) {
+      const raw = res.headers.get("retry-after");
+      const seconds = raw === null ? Number.NaN : Number.parseInt(raw, 10);
+      return {
+        kind: "rate-limited",
+        retryAfterSeconds: Number.isFinite(seconds) && seconds > 0 ? seconds : null,
+      };
+    }
+    if (!res.ok) return { kind: "error" };
+    const payload = (await res.json()) as { url?: unknown };
+    // A 200 without a USABLE url is not a success — sending a guest nowhere is
+    // worse than telling them it did not work, and sending them somewhere else
+    // is worse than both. The destination of this hand-off is a fixed, known
+    // origin, so it is asserted rather than assumed: one bad response body
+    // otherwise turns "Continue to payment" into an open redirect, which is the
+    // single worst place for one.
+    return typeof payload?.url === "string" && isStripeCheckoutUrl(payload.url)
+      ? { kind: "ok", url: payload.url }
+      : { kind: "error" };
+  } catch {
+    return { kind: "error" };
+  }
+}
+
+/** Stripe's own hosted checkout, and nowhere else. */
+export function isStripeCheckoutUrl(raw: string): boolean {
+  try {
+    return new URL(raw).origin === "https://checkout.stripe.com";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The amounts a guest is offered before they type one, in MINOR units of the
+ * wedding's currency.
+ *
+ * Deliberately currency-blind: 5 000 minor units is $50 in a two-exponent
+ * currency and ¥5 000 in yen, and both are a sensible wedding gift. A
+ * per-currency table would be a table nobody keeps current, and the guest can
+ * always type their own.
+ */
+export const GIFT_AMOUNT_PRESETS_MINOR = [5_000, 10_000, 20_000] as const;
+
+/** The server's own bounds (`ContributeBody`). Mirrored for the input's min/max. */
+export const MIN_GIFT_AMOUNT_MINOR = 500;
+export const MAX_GIFT_AMOUNT_MINOR = 1_000_000;
+
+/**
+ * Turn what a guest typed into minor units, or `null` if it is not a number the
+ * server would accept.
+ *
+ * The box holds a MAJOR-unit amount, because that is what people type: "50",
+ * not "5000". The exponent comes from the same `Intl` data `formatGiftPrice`
+ * uses, so a yen gift of 5000 is 5000 minor units and a dollar gift of 50 is
+ * 5000 — the one place that conversion lives.
+ */
+export function parseGiftAmountMinor(raw: string, currency: string): number | null {
+  const trimmed = raw.trim();
+  if (trimmed === "") return null;
+  const major = Number(trimmed);
+  if (!Number.isFinite(major) || major <= 0) return null;
+  const minor = Math.round(major * 10 ** giftCurrencyExponent(currency));
+  if (!Number.isInteger(minor)) return null;
+  if (minor < MIN_GIFT_AMOUNT_MINOR || minor > MAX_GIFT_AMOUNT_MINOR) return null;
+  return minor;
+}
+
+/**
+ * How many decimal places a currency has. JPY has none and KWD has three; a
+ * fixed 2 is wrong by 100× in both directions, which on a payment screen is not
+ * a rounding nit.
+ */
+export function giftCurrencyExponent(currency: string): number {
+  const formatter = priceFormatter(currency);
+  return formatter?.resolvedOptions().maximumFractionDigits ?? 2;
+}
+
+/**
  * Reserve (or re-reserve at a new quantity) one item for this household.
  *
  * A claim is NOT a purchase — it reserves, so the couple's list stops offering

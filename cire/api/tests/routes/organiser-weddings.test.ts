@@ -6,6 +6,9 @@ import {
   families,
   guestEvents,
   guests,
+  registryClaims,
+  registryContributions,
+  registryItems,
   rsvps,
   sessions,
   weddingEntitlements,
@@ -16,6 +19,7 @@ import { createRateLimiter } from "@shared/rate-limit";
 import { eq } from "drizzle-orm";
 
 import { createApp } from "../../src/app";
+import type { Db } from "../../src/db";
 import { createDb, seedDb } from "../../src/db/setup";
 import type { TestDb } from "../../src/db/setup";
 import { appRequest } from "../test-helpers";
@@ -1294,6 +1298,207 @@ describe("GET /api/organiser/weddings/:weddingId/events.csv", () => {
     const { db, app } = buildApp();
     seedCohost(db);
     const res = await get(app, path, COHOST);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+  });
+});
+
+describe("GET /api/organiser/weddings/:weddingId/gifts.csv", () => {
+  const COHOST = "usr_cohost_giftscsv";
+  const path = `/api/organiser/weddings/${BOOTSTRAP_WEDDING_ID}/gifts.csv`;
+
+  function seedCohost(db: Db) {
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_giftscsv",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: COHOST,
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "host",
+        createdAt: new Date(),
+      })
+      .run();
+  }
+
+  /**
+   * One of each kind of gift on the bootstrap wedding, plus the two rows the
+   * export must NOT print: a failed contribution (money that never moved) and a
+   * claim belonging to the other wedding.
+   */
+  function seedGifts(db: Db) {
+    const now = new Date();
+    db.insert(families)
+      .values({
+        id: "fam_gifts",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        publicId: "GIFT-AAA-0001",
+        familyName: "Marchetti",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(registryItems)
+      .values({
+        id: "ritem_pan",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        title: "Copper Pan",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(registryClaims)
+      .values({
+        id: "rclaim_pan",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: "ritem_pan",
+        familyId: "fam_gifts",
+        quantity: 2,
+        status: "purchased",
+        note: "Bought the pair",
+        displayName: "Auntie Ros",
+        createdAt: new Date(now.getTime() - 60_000),
+        updatedAt: now,
+      })
+      .run();
+    db.insert(registryContributions)
+      .values({
+        id: "rcon_cash",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: null,
+        familyId: "fam_gifts",
+        status: "succeeded",
+        amountMinor: 12_500,
+        currency: "AUD",
+        message: "For the honeymoon",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(registryContributions)
+      .values({
+        id: "rcon_failed",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        itemId: null,
+        familyId: "fam_gifts",
+        status: "failed",
+        amountMinor: 9_900,
+        currency: "AUD",
+        message: "Card declined here",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    // Other wedding — same shape, must never appear in this wedding's export.
+    db.insert(registryItems)
+      .values({
+        id: "ritem_other",
+        weddingId: OTHER_WEDDING_ID,
+        title: "Someone Elses Kettle",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    db.insert(registryClaims)
+      .values({
+        id: "rclaim_other",
+        weddingId: OTHER_WEDDING_ID,
+        itemId: "ritem_other",
+        familyId: "fam_other",
+        quantity: 1,
+        status: "reserved",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+  }
+
+  it("returns 401 without a token", async () => {
+    const { app } = buildApp();
+    const res = await get(app, path);
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 403 for a non-member (neither owner nor co-host)", async () => {
+    const { app } = buildApp();
+    const res = await get(app, path, OTHER_OWNER);
+    expect(res.status).toBe(403);
+  });
+
+  it("returns 404 for an unknown wedding", async () => {
+    const { app } = buildApp();
+    const res = await get(app, "/api/organiser/weddings/wed_nope/gifts.csv", BOOTSTRAP_OWNER);
+    expect(res.status).toBe(404);
+  });
+
+  it("serves a CSV download for the owner with the right headers", async () => {
+    const { db, app } = buildApp();
+    seedGifts(db);
+    const res = await get(app, path, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+    const disposition = res.headers.get("content-disposition") ?? "";
+    expect(disposition).toContain("attachment");
+    // Filename embeds the wedding slug.
+    expect(disposition).toContain("cire-gifts-cire-wedding.csv");
+    expect(res.headers.get("cache-control")).toContain("no-store");
+
+    const body = await res.text();
+    const header = body.split("\r\n")[0]!;
+    expect(header).toContain("Kind");
+    expect(header).toContain("Amount In Your Currency");
+    // The household's claim code is a bearer credential, so the file names the
+    // household and never codes it.
+    expect(header).not.toContain("Household Code");
+    expect(body).not.toContain("GIFT-AAA-0001");
+
+    // Both kinds of gift, cash first (newest first).
+    const lines = body.split("\r\n");
+    expect(lines[1]).toContain("Cash gift");
+    expect(lines[1]).toContain("125.00");
+    expect(lines[1]).toContain("For the honeymoon");
+    expect(lines[2]).toContain("Gift list");
+    expect(lines[2]).toContain("Copper Pan");
+    expect(lines[2]).toContain("Auntie Ros");
+
+    // Money that never moved is not a gift, and another wedding's gifts are
+    // not this couple's.
+    expect(body).not.toContain("Card declined here");
+    expect(body).not.toContain("Someone Elses Kettle");
+  });
+
+  it("serves a header-only CSV when the couple have had no gifts", async () => {
+    const { app } = buildApp();
+    const res = await get(app, path, BOOTSTRAP_OWNER);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(
+      "Kind,Item,Household,Given As,Quantity,Status,Note,Amount,Currency," +
+        "Amount In Your Currency,Your Currency,Exchange Rate,Thanked At,Received At",
+    );
+  });
+
+  it("serves the CSV for a co-host too (weddingMember gate)", async () => {
+    const { db, app } = buildApp();
+    seedCohost(db);
+    const res = await get(app, path, COHOST);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/csv");
+  });
+
+  it("serves the CSV for a viewer co-host as well", async () => {
+    const { db, app } = buildApp();
+    // `weddingMember` admits every role, viewer included — the export is a read,
+    // and a viewer already sees the same log in the portal.
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_giftscsv_viewer",
+        weddingId: BOOTSTRAP_WEDDING_ID,
+        osnProfileId: "usr_viewer_giftscsv",
+        addedByOsnProfileId: BOOTSTRAP_OWNER,
+        role: "viewer",
+        createdAt: new Date(),
+      })
+      .run();
+    const res = await get(app, path, "usr_viewer_giftscsv");
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("text/csv");
   });

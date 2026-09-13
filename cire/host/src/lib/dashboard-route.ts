@@ -64,7 +64,7 @@ export const MODULE_SUBS = {
   // The gift list the couple authors, then the log of what guests actually
   // claimed and sent. `list` is the default: an empty registry has no gifts to
   // show, and the list is the surface that fixes that.
-  registry: ["list", "gifts"],
+  registry: ["list", "gifts", "settings"],
   // `edit` is the interactive guest editor (E5), an editor-only sub the shell
   // hides from read-only viewers (the parser can't see the role).
   guests: ["list", "edit", "rsvps"],

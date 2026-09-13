@@ -81,9 +81,10 @@ vi.mock("../../src/components/VendorsView", () => ({
 vi.mock("../../src/components/RegistryView", () => ({
   // Surfaces `view`: both sub-tabs mount the SAME component, so a mock reading
   // only weddingId would keep passing with the gift list and the gift log wired
-  // to the same sub.
-  default: (p: { weddingId: string; view: string }) => (
-    <div data-testid="registry" data-view={p.view}>
+  // to the same sub. Surfaces `weddingSlug` too, because the gift-log export
+  // names the downloaded file after it and a dropped prop is otherwise silent.
+  default: (p: { weddingId: string; view: string; weddingSlug: string }) => (
+    <div data-testid="registry" data-view={p.view} data-slug={p.weddingSlug}>
       {p.weddingId}
     </div>
   ),
@@ -431,7 +432,10 @@ describe("ModuleShell", () => {
 
     it("renders the gift log on the gifts sub", async () => {
       renderShell({ module: "registry", sub: "gifts", entitlements: ["registry"] });
-      expect((await screen.findByTestId("registry")).getAttribute("data-view")).toBe("gifts");
+      const view = await screen.findByTestId("registry");
+      expect(view.getAttribute("data-view")).toBe("gifts");
+      // The export names its file after the slug, so the shell has to hand it down.
+      expect(view.getAttribute("data-slug")).toBe("r-and-v");
     });
 
     it("stays locked on another module's entitlement", () => {

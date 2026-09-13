@@ -1,7 +1,9 @@
 import { useAuth } from "@shared/rp-auth/solid";
+import { toast } from "@shared/toast";
 import { createMemo, createSignal, For, onMount, Show } from "solid-js";
 
 import { apiUrl, isAuthExpired, redirectToLogin } from "../lib/api";
+import { downloadBlob } from "../lib/download";
 import { haptic } from "../lib/haptics";
 import { formatMinor, formatMinorPair, minorToInput, parseMinor } from "../lib/money";
 import {
@@ -29,6 +31,10 @@ interface RegistryViewProps {
   /** Owner/editor may add, edit, reorder and delete items, and mark a gift
    *  thanked. A viewer reads both sub-views and writes nothing. */
   canEdit?: boolean;
+  /** The wedding's slug, used to name the downloaded gift-log CSV. Passed in
+   *  rather than read from the snapshot so the filename is right on the first
+   *  click, before the registry has loaded. */
+  weddingSlug: string;
 }
 
 /** Quantity range the API's schema allows (`Quantity` in `schemas/registry.ts`). */
@@ -54,6 +60,53 @@ function isHttpsUrl(value: string): boolean {
 }
 
 /**
+ * What a gift's status means, in the words the couple would use for it.
+ *
+ * The two tables behind the log share this column and do not share its values: a
+ * CLAIM is `reserved` / `purchased` / `released`, a CONTRIBUTION is `pending` /
+ * `succeeded` / `refunded`. Rendering the raw column made the couple read
+ * "succeeded" about a wedding present.
+ *
+ * `failed` is handled for completeness only — the API's gift log leaves those
+ * rows out, because money that never moved is not a gift.
+ *
+ * Module scope, not the component: it reads nothing but its argument, so keeping
+ * it inside meant rebuilding the closure on every render of a view that renders
+ * on every keystroke in the list's forms.
+ */
+function giftStatus(gift: GiftLogEntry) {
+  if (gift.kind === "claim") {
+    switch (gift.status) {
+      case "reserved":
+        return { label: "Promised", gone: false };
+      case "purchased":
+        return { label: "Bought", gone: false };
+      case "released":
+        return { label: "No longer coming", gone: true };
+    }
+  } else {
+    switch (gift.status) {
+      case "pending":
+        return { label: "Not cleared yet", gone: false };
+      case "succeeded":
+        return { label: "Received", gone: false };
+      case "refunded":
+        return { label: "Refunded", gone: true };
+      // Held, not ended: the guest's bank has the money while it decides. `gone`
+      // keeps it out of the received total, which is the honest side to be on —
+      // the couple does not have this money today.
+      case "disputed":
+        return { label: "Payment disputed", gone: true };
+      case "failed":
+        return { label: "Didn't go through", gone: true };
+    }
+  }
+  // A value this build has no word for is a newer API than this build. Show it
+  // as it came rather than swallowing the row's only state.
+  return { label: gift.status, gone: false };
+}
+
+/**
  * The gift registry — the couple's list, and the log of gifts against it.
  *
  * Guest-authored text (`note`, `displayName`, and the household's `familyName`)
@@ -67,6 +120,7 @@ export default function RegistryView(props: RegistryViewProps) {
   const snapshot = registryAccessor(props.weddingId);
   const [error, setError] = createSignal<string | null>(null);
   const [loadingMore, setLoadingMore] = createSignal(false);
+  const [exporting, setExporting] = createSignal(false);
 
   // Add-item form state.
   const [newTitle, setNewTitle] = createSignal("");
@@ -353,6 +407,36 @@ export default function RegistryView(props: RegistryViewProps) {
    *  household name otherwise — both guest-authored, both text nodes. */
   const giftFrom = (gift: GiftLogEntry): string => gift.displayName ?? gift.familyName;
 
+  /**
+   * The parting summary, or null while the gifts themselves are still here.
+   *
+   * Non-null is the signal that the retention sweep has run and the per-guest
+   * detail is gone — which is also why the empty gift log below must not then
+   * say "No gifts yet": after a sweep the log is empty because we deleted it,
+   * not because nobody gave anything.
+   */
+  const giftSummary = createMemo(() => snapshot()?.giftSummary ?? null);
+
+  /** "1 gift" / "3 gifts". */
+  const plural = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`;
+
+  /**
+   * A stored ISO day as a readable date.
+   *
+   * Parsed as UTC and printed as UTC, both ends pinned. The sweep writes a
+   * calendar day, not an instant: a bare `2026-06-17` handed to `new Date` is
+   * READ as UTC midnight but PRINTED in the reader's zone, which lands a day
+   * earlier for everyone west of Greenwich — so the date on the record would
+   * differ from the date in the record.
+   */
+  const summaryDate = (iso: string): string =>
+    new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+
   /** The two money lines a gift renders as. Foreign-currency gifts show the
    *  as-given amount as the headline with the primary equivalent underneath;
    *  a primary-currency gift shows one line. */
@@ -418,6 +502,34 @@ export default function RegistryView(props: RegistryViewProps) {
       setError("Couldn't load more gifts.");
     } finally {
       setLoadingMore(false);
+    }
+  };
+
+  // ── Export ────────────────────────────────────────────────────────────────
+  // The couple's own copy of the gift log. The view above pages 50 at a time
+  // and the whole log is deleted a year after the wedding (the summary band
+  // says so), so a download is the only way they keep who gave what, in which
+  // currency, and what the guest wrote.
+  //
+  // Reports outcome through toasts rather than the `error()` Notice above: that
+  // Notice is for a view that failed to load and stays broken, and a download
+  // that failed is a transient thing the couple retries — the same shape the
+  // guest and RSVP exports already use in `GuestTable`.
+  const exportGifts = async () => {
+    if (exporting()) return;
+    setExporting(true);
+    try {
+      const res = await authFetch(apiUrl(`/api/organiser/weddings/${wedding()}/gifts.csv`));
+      if (res.status === 401) return redirectToLogin();
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      downloadBlob(`cire-gifts-${props.weddingSlug}.csv`, await res.blob());
+      toast.success("Gift log downloaded");
+    } catch (err) {
+      if (isAuthExpired(err)) return redirectToLogin();
+      haptic("reject");
+      toast.error("Gift export failed. Try again.");
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -699,9 +811,63 @@ export default function RegistryView(props: RegistryViewProps) {
 
       {/* ── Gifts received ────────────────────────────────────────────────── */}
       <Show when={props.view === "gifts"}>
+        {/* The record that outlives the detail. Written by the retention sweep a
+            year after the last event, in the same pass that deletes the
+            households every gift hangs off — so this is not a summary OF the log
+            below, it is what stands INSTEAD of it. The copy has to say that
+            outright, or a couple reads an empty log as an empty guest list.
+            Rendered ONLY when a summary exists, i.e. only after the sweep. */}
+        <Show when={giftSummary()}>
+          {(summary) => (
+            <div class="border-border bg-surface/20 flex flex-col gap-2 rounded-sm border p-4">
+              <span class="text-gold-dim font-body text-[0.7rem] tracking-[0.18em] uppercase">
+                Your record of gifts
+              </span>
+              <p class="text-text-muted text-[0.8rem]">
+                On {summaryDate(summary().sweptOn)}, a year after your wedding, we deleted your
+                guests' details — and the gifts went with them. Who gave what, and the notes they
+                wrote, are gone. These totals are what we kept.
+              </p>
+              <Show when={summary().claims.reserved + summary().claims.purchased > 0}>
+                <span class="text-text text-[1.05rem]">
+                  {plural(summary().claims.reserved + summary().claims.purchased, "gift", "gifts")}{" "}
+                  from your list
+                  <span class="text-text-muted text-[0.85rem]">
+                    {" "}
+                    · {summary().claims.purchased} marked bought
+                  </span>
+                </span>
+              </Show>
+              <Show when={summary().contributions.count > 0}>
+                {/* Per currency, side by side, never added together: a total
+                    that re-values itself is not a record of anything, and
+                    there is nothing left here to re-derive a rate from. */}
+                <span class="text-text text-[1.05rem]">
+                  {summary()
+                    .contributions.totals.map((total) =>
+                      formatMinor(total.amountMinor, total.currency),
+                    )
+                    .join(" · ")}
+                  <span class="text-text-muted text-[0.85rem]">
+                    {" "}
+                    · {plural(summary().contributions.count, "cash gift", "cash gifts")}
+                  </span>
+                </span>
+              </Show>
+              <span class="text-text-muted text-[0.75rem]">
+                Gifts arrived between {summaryDate(summary().firstGiftOn)} and{" "}
+                {summaryDate(summary().lastGiftOn)}. Each currency is totalled as it was given.
+              </span>
+            </div>
+          )}
+        </Show>
         <Show when={snapshot()}>
           {(snap) => (
-            <Show when={snap().contributionsPrimaryMinor > 0}>
+            <Show
+              when={
+                snap().contributionsPrimaryMinor > 0 || snap().contributionsOtherCurrencyCount > 0
+              }
+            >
               <div class="border-border bg-surface/20 flex flex-col gap-1 rounded-sm border p-4">
                 <span class="text-gold-dim font-body text-[0.7rem] tracking-[0.18em] uppercase">
                   Cash gifts
@@ -709,21 +875,55 @@ export default function RegistryView(props: RegistryViewProps) {
                 <span class="text-text text-[1.05rem]">
                   {formatMinor(snap().contributionsPrimaryMinor, snap().currency)}
                 </span>
-                {/* Each foreign-currency gift was converted at the rate on the
-                    day it arrived, so this is a sum of historical conversions,
-                    not a live valuation. Labelled, never presented as exact. */}
+                {/* A gift converted to the couple's currency was converted at the
+                    rate on the day it arrived, so this is a sum of historical
+                    conversions, not a live valuation. Labelled, never exact. */}
                 <span class="text-text-muted text-[0.75rem]">
-                  Approximate — every gift given in another currency is counted at the rate on the
-                  day it arrived.
+                  Approximate — a gift given in another currency is counted at the rate on the day
+                  it arrived.
                 </span>
+                {/* Adding two currencies together gives a number that is not an
+                    amount of anything, so gifts left in their own currency are
+                    counted here instead of being folded into the figure above. */}
+                <Show when={snap().contributionsOtherCurrencyCount > 0}>
+                  <span class="text-text-muted text-[0.75rem]">
+                    {snap().contributionsOtherCurrencyCount === 1
+                      ? "One more gift is held in another currency and is not in this total."
+                      : `${snap().contributionsOtherCurrencyCount} more gifts are held in other currencies and are not in this total.`}{" "}
+                    The gift log below shows each one as it was given.
+                  </span>
+                </Show>
               </div>
             </Show>
           )}
         </Show>
 
+        {/* Shown only when there is a log to download — after the retention
+            sweep the list is empty and an export would hand back a header row.
+            `Button` rather than the raw classes `GuestTable` uses, to match the
+            "Load more gifts" control below it. */}
+        <Show when={gifts().length > 0}>
+          <Button
+            variant="quiet"
+            size="sm"
+            class="self-start"
+            disabled={exporting()}
+            onClick={() => void exportGifts()}
+          >
+            {exporting() ? "Exporting…" : "Download gifts (CSV)"}
+          </Button>
+        </Show>
+
         <Show
           when={gifts().length > 0}
-          fallback={<p class="text-text-muted text-[0.85rem] italic">No gifts yet.</p>}
+          fallback={
+            // After a sweep the log is empty because we deleted it — the band
+            // above has just said so, and "No gifts yet." underneath it would
+            // flatly contradict it.
+            <Show when={!giftSummary()}>
+              <p class="text-text-muted text-[0.85rem] italic">No gifts yet.</p>
+            </Show>
+          }
         >
           <ul class="flex flex-col gap-1">
             <For each={gifts()}>
@@ -732,6 +932,7 @@ export default function RegistryView(props: RegistryViewProps) {
                 // three times in the markup below, and it is the only
                 // non-trivial work a gift row does (REG-P-I1).
                 const money = giftMoney(gift);
+                const status = giftStatus(gift);
                 return (
                   <li class="border-border bg-surface/10 flex flex-col gap-1 rounded-sm border px-3 py-2">
                     <div class="flex flex-wrap items-center gap-3">
@@ -753,8 +954,14 @@ export default function RegistryView(props: RegistryViewProps) {
                           </Show>
                         </span>
                       </Show>
-                      <span class="bg-surface/60 text-text-muted rounded-full px-2 py-0.5 text-[0.72rem]">
-                        {gift.status}
+                      <span
+                        class={
+                          status.gone
+                            ? "bg-error/10 text-error rounded-full px-2 py-0.5 text-[0.72rem]"
+                            : "bg-surface/60 text-text-muted rounded-full px-2 py-0.5 text-[0.72rem]"
+                        }
+                      >
+                        {status.label}
                       </span>
                       <Show
                         when={props.canEdit}
@@ -775,6 +982,13 @@ export default function RegistryView(props: RegistryViewProps) {
                         </button>
                       </Show>
                     </div>
+                    {/* A refunded gift stays in the log and stays out of the
+                        total, which is two facts a one-word pill cannot carry. */}
+                    <Show when={gift.kind === "contribution" && gift.status === "refunded"}>
+                      <p class="text-text-muted text-[0.78rem]">
+                        This one went back to the guest, so it is not counted in the total above.
+                      </p>
+                    </Show>
                     <Show when={gift.note}>
                       {/* Guest-authored — a text node, never markup (S-L3). */}
                       <p class="text-text-muted text-[0.82rem] italic">{gift.note}</p>

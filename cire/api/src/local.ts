@@ -7,6 +7,7 @@ import { createDb, seedDb } from "./db/setup";
 import { runCireSync } from "./observability";
 import { createAssetsStub } from "./services/invite-assets";
 import { createR2Stub } from "./services/r2-imports";
+import { createStripeClientFromEnv } from "./services/stripe";
 
 const db = createDb(":memory:");
 await seedDb(db);
@@ -38,6 +39,19 @@ const port = Number(process.env.PORT ?? 8787);
 const r2 = createR2Stub();
 const assets = createAssetsStub();
 
+// Stripe, key-optional exactly as the Worker is (see index.ts): no
+// `STRIPE_SECRET_KEY` and the organiser Connect routes are not mounted, no
+// `STRIPE_WEBHOOK_SECRET` and `/api/stripe/webhook` does not exist. Both come
+// from the shell, never from a committed file — the webhook secret in
+// particular is whatever `stripe listen` prints for THIS session:
+//
+//   stripe listen --forward-connect-to localhost:8787/api/stripe/webhook
+//   STRIPE_WEBHOOK_SECRET=whsec_… bun run --cwd cire/api dev:app
+//
+// `--forward-connect-to`, not `--forward-to`: every gift event happens on the
+// couple's connected account, and the handler reads `event.account`.
+const stripe = createStripeClientFromEnv({ STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY });
+
 const app = createApp(db, {
   webOrigin,
   allowedOrigins: origins,
@@ -46,6 +60,9 @@ const app = createApp(db, {
   osnJwksUrl: process.env.OSN_JWKS_URL,
   osnIssuerUrl: process.env.OSN_ISSUER_URL,
   osnAudience: process.env.OSN_AUDIENCE,
+  stripe,
+  stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? null,
+  stripeAccountCountry: process.env.STRIPE_ACCOUNT_COUNTRY,
 });
 
 const server = Bun.serve({

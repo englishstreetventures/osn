@@ -1,6 +1,12 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import { BOOTSTRAP_WEDDING_ID, weddingEntitlements, weddingHosts, weddings } from "@cire/db";
+import {
+  BOOTSTRAP_WEDDING_ID,
+  registrySettings,
+  weddingEntitlements,
+  weddingHosts,
+  weddings,
+} from "@cire/db";
 import { createRateLimiter } from "@shared/rate-limit";
 
 import { createApp } from "../../src/app";
@@ -32,10 +38,14 @@ function buildApp({
   grantRegistry = false,
   linkPreview,
   assets,
+  seed,
 }: {
   grantRegistry?: boolean;
   linkPreview?: LinkPreviewOptions;
   assets?: ReturnType<typeof createAssetsStub>;
+  /** Rows the route then has to read back. This fixture owns its database and
+   *  never hands the handle out, so anything a test needs on disk goes here. */
+  seed?: (db: ReturnType<typeof createDb>) => void;
 } = {}) {
   const db = createDb(":memory:");
   seedDb(db);
@@ -84,6 +94,8 @@ function buildApp({
       .onConflictDoNothing()
       .run();
   }
+
+  seed?.(db);
 
   return createApp(db, {
     osnTestKey: auth.key,
@@ -181,6 +193,42 @@ describe("registry routes (entitled)", () => {
     expect(body.gifts).toEqual([]);
     expect(body.currency).toBe("AUD");
     expect(body.contributionsPrimaryMinor).toBe(0);
+    // No sweep has run, so there is nothing kept in place of the detail.
+    expect(body.giftSummary).toBeNull();
+  });
+
+  it("hands the parting gift summary out on the same GET as the gift log", async () => {
+    // Same route on purpose: it is read off the settings row this response
+    // already selects, so it costs no extra query, and the portal caches one
+    // snapshot per wedding — a second endpoint would be a second cache entry
+    // able to disagree with the first about whether the detail still exists.
+    const kept = {
+      sweptOn: "2026-06-17",
+      firstGiftOn: "2025-05-11",
+      lastGiftOn: "2025-05-20",
+      claims: { reserved: 1, purchased: 2 },
+      contributions: { count: 3, totals: [{ currency: "AUD", amountMinor: 17_500 }] },
+    };
+    const app = buildApp({
+      grantRegistry: true,
+      seed: (db) => {
+        const now = new Date();
+        db.insert(registrySettings)
+          .values({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            published: true,
+            giftSummaryJson: JSON.stringify(kept),
+            giftSummaryAt: now,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+      },
+    });
+    const body = (await (await req(app, "GET", base, OWNER)).json()) as RegistrySnapshot;
+    expect(body.giftSummary).toEqual(kept);
+    // The record is here precisely because the log is not.
+    expect(body.gifts).toEqual([]);
   });
 
   it("runs the item lifecycle end to end", async () => {
@@ -288,6 +336,35 @@ describe("registry routes (entitled)", () => {
 
     const snap = (await (await req(app, "GET", base, OWNER)).json()) as RegistrySnapshot;
     expect(snap.settings.published).toBe(true);
+    expect(snap.settings.cashGiftsEnabled).toBe(false);
+  });
+
+  it("refuses cash gifts priced in a currency Stripe would not settle", async () => {
+    const app = buildApp({
+      grantRegistry: true,
+      seed: (db) => {
+        const now = new Date();
+        // The account takes charges, but Stripe settles it in US dollars while
+        // the wedding prices everything in Australian ones. Checkout would
+        // convert on Stripe's terms or refuse, in front of a guest.
+        db.insert(registrySettings)
+          .values({
+            weddingId: BOOTSTRAP_WEDDING_ID,
+            stripeAccountId: "acct_live",
+            stripeChargesEnabled: true,
+            stripeDefaultCurrency: "USD",
+            createdAt: now,
+            updatedAt: now,
+          })
+          .run();
+      },
+    });
+
+    const cash = await req(app, "PUT", `${base}/settings`, EDITOR, { cashGiftsEnabled: true });
+    expect(cash.status).toBe(409);
+    expect(((await cash.json()) as { error: string }).error).toBe("currency_mismatch");
+
+    const snap = (await (await req(app, "GET", base, OWNER)).json()) as RegistrySnapshot;
     expect(snap.settings.cashGiftsEnabled).toBe(false);
   });
 

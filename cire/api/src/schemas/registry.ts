@@ -223,7 +223,46 @@ export type SetThankedBody = Schema.Schema.Type<typeof SetThankedBody>;
 
 export const GiftKindSchema = Schema.Literals(["claim", "contribution"]);
 
-/** Guest claim — the honour-system "we've got this". */
+/**
+ * A money gift, in the wedding's own minor units.
+ *
+ * The floor exists because Stripe's own minimum charge is around 50 cents and a
+ * fee-eaten gift helps nobody; the ceiling because a guest fat-fingering an
+ * extra zero should hit a validation error rather than a card charge. Both are
+ * in MINOR units of whatever the wedding's currency is — 500 is $5.00 in a
+ * two-exponent currency and ¥500 in yen, and that asymmetry is deliberate: the
+ * alternative is a per-currency table nobody would keep current.
+ */
+const MIN_CONTRIBUTION_MINOR = 500;
+const MAX_CONTRIBUTION_MINOR = 1_000_000;
+
+export const ContributionAmount = Schema.Number.check(
+  Schema.isInt(),
+  Schema.isBetween({ minimum: MIN_CONTRIBUTION_MINOR, maximum: MAX_CONTRIBUTION_MINOR }),
+);
+
+/**
+ * Body of a guest's "give money" request. Everything but the amount is
+ * optional, and both free-text fields are bounded here rather than at Stripe:
+ * they ride along as checkout METADATA, which Stripe caps at 500 characters per
+ * value and rejects — as a 400 the guest would meet in the middle of paying —
+ * anything longer.
+ */
+export const ContributeBody = Schema.Struct({
+  amountMinor: ContributionAmount,
+  /** Contributing TOWARDS a listed gift, rather than in general. */
+  itemId: Schema.NullOr(Schema.String.check(Schema.isMaxLength(64))).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed(null)),
+  ),
+  message: Schema.NullOr(Schema.String.check(Schema.isMaxLength(400))).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed(null)),
+  ),
+  displayName: Schema.NullOr(DisplayName).pipe(
+    Schema.withDecodingDefaultType(Effect.succeed(null)),
+  ),
+});
+export type ContributeBody = Schema.Schema.Type<typeof ContributeBody>;
+
 export const ClaimItemBody = Schema.Struct({
   quantity: Quantity.pipe(Schema.withDecodingDefaultType(Effect.succeed(1))),
   // `purchased` is the "I already bought it elsewhere" path; `reserved` is the

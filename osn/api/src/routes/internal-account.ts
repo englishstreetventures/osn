@@ -4,6 +4,11 @@ import { Elysia, t } from "elysia";
 
 import { requireArc } from "../lib/arc-middleware";
 import { makeAppRunner, type AppRuntime } from "../lib/route-runtime";
+import {
+  lookupProfileEmails,
+  MAX_EMAIL_LOOKUP_IDS,
+  type ProfileEmail,
+} from "../services/account-emails";
 import * as accountErasure from "../services/account-erasure";
 import { joinApp } from "../services/app-enrollments";
 import { createAuthService, type AuthConfig } from "../services/auth";
@@ -11,9 +16,38 @@ import { createAuthService, type AuthConfig } from "../services/auth";
 const AUDIENCE = "osn-api";
 const SCOPE_STEP_UP_VERIFY = "step-up:verify";
 const SCOPE_APP_ENROLLMENT_WRITE = "app-enrollment:write";
+/**
+ * Gates the address lookup and nothing else. Deliberately NOT `graph:read`:
+ * an email address is the one field the graph routes are careful never to
+ * return, so it gets its own grant that can be withdrawn on its own without
+ * taking co-host autocomplete down with it.
+ */
+const SCOPE_ACCOUNT_EMAIL_READ = "account:email-read";
 
 /**
- * Internal endpoints called by other OSN services (Pulse, Zap) over ARC:
+ * The one service allowed to use that scope.
+ *
+ * `PERMITTED_SCOPES` in graph-internal.ts is a single flat allowlist governing
+ * what /graph/internal/register-service will grant to ANY service, so holding
+ * `INTERNAL_SERVICE_SECRET` is enough to register a key asking for
+ * `account:email-read`. Until that allowlist is per-service, the restriction to
+ * cire-api is enforced here instead — at the point of use, where the issuer is
+ * signature-verified. Kept even after the registration side is fixed: a scope
+ * granted by mistake still cannot be spent from the wrong service.
+ */
+const EMAIL_READ_ISSUER = "cire-api";
+
+/**
+ * Wire shape for one answered address. Snake_case on the wire like the rest of
+ * the internal routes; the parameter carries the anonymous type and the return
+ * stays inferred (same shape as `orgSummary` in organisation-internal.ts).
+ */
+function wireEmail(e: ProfileEmail) {
+  return { profile_id: e.profileId, email: e.email };
+}
+
+/**
+ * Internal endpoints called by other OSN services (Pulse, Zap, cire) over ARC:
  *
  *   POST /internal/step-up/verify — verifies that a user-supplied step-up
  *   token is valid for the requested purpose, account, and AMR. Single
@@ -22,9 +56,15 @@ const SCOPE_APP_ENROLLMENT_WRITE = "app-enrollment:write";
  *   POST /internal/app-enrollment/leave — flips `app_enrollments.left_at`
  *   to mark a user as having left an app. Idempotent.
  *
+ *   POST /internal/accounts/emails — resolves OSN profile ids to the address
+ *   of the account that owns each. The only caller is cire-api's retention
+ *   sweep, which has to reach a couple whose gift detail it is about to
+ *   delete and holds no address of its own. Minimisation rules live on the
+ *   handler; the short version is a cap, an omit-list, and no oracle.
+ *
  * Pulse / Zap must register their ARC public keys with osn-api in advance
  * (via /graph/internal/register-service) and request the `step-up:verify`
- * + `app-enrollment:write` scopes.
+ * + `app-enrollment:write` scopes; cire-api requests `account:email-read`.
  */
 export function createInternalAccountRoutes(
   authConfig: AuthConfig,
@@ -146,6 +186,51 @@ export function createInternalAccountRoutes(
         body: t.Object({
           account_id: t.String({ minLength: 1 }),
           app: t.Union([t.Literal("pulse"), t.Literal("zap")]),
+        }),
+      },
+    )
+    .post(
+      "/accounts/emails",
+      async ({ body, headers, set }) => {
+        // Its own scope, not `graph:read` — see SCOPE_ACCOUNT_EMAIL_READ.
+        const caller = await requireArc(
+          headers.authorization,
+          set,
+          run,
+          AUDIENCE,
+          SCOPE_ACCOUNT_EMAIL_READ,
+        );
+        if (!caller) return { error: "Unauthorized" };
+        // Same 401 shape as a missing or wrong-scoped token: a service that
+        // should not be here learns nothing from the difference.
+        if (caller.iss !== EMAIL_READ_ISSUER) {
+          set.status = 401;
+          return { error: "Unauthorized" };
+        }
+
+        try {
+          const found = await run(lookupProfileEmails(body.profile_ids));
+          // ALWAYS 200, ALWAYS a plain array of what could be answered. An id
+          // that is unknown, tombstoned, or address-less is simply not in it,
+          // and the three cases are indistinguishable — a per-id `not_found`
+          // would turn this into an existence oracle for any `usr_*` id a
+          // holder of the scope cared to guess.
+          return { emails: found.map(wireEmail) };
+        } catch {
+          set.status = 500;
+          return { error: "internal_error" };
+        }
+      },
+      {
+        body: t.Object({
+          // The cap is enforced HERE, before the handler runs: an over-cap body
+          // is a 422 that never reaches the database. `maxLength` on the id
+          // bounds the request too — no real `usr_*` id is anywhere near 64
+          // characters, so a longer one is a probe.
+          profile_ids: t.Array(t.String({ minLength: 1, maxLength: 64 }), {
+            minItems: 1,
+            maxItems: MAX_EMAIL_LOOKUP_IDS,
+          }),
         }),
       },
     );

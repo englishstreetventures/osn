@@ -1278,6 +1278,27 @@ describe("internal graph routes (ARC-protected)", () => {
       expect(body.error).toContain("Unknown scopes");
     });
 
+    it("accepts account:email-read scope (needed for cire-api's retention sweep)", async () => {
+      // Without this scope in PERMITTED_SCOPES the registration curl in the
+      // deploy runbook is rejected, and cire-api can never obtain a key that
+      // reaches POST /internal/accounts/emails — the year-end gift summary then
+      // has no address to send to and fails silently in production.
+      const res = await app.handle(
+        new Request("http://localhost/graph/internal/register-service", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${SECRET}` },
+          body: JSON.stringify({
+            ...validBody,
+            keyId: "key-account-email-read-1",
+            allowedScopes: "graph:read,account:email-read",
+          }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean };
+      expect(body.ok).toBe(true);
+    });
+
     it("accepts org:read scope (needed for cire-api org-membership resolvers)", async () => {
       // org:read must be in PERMITTED_SCOPES so the registration curl in
       // the §6.2 runbook can widen cire-api's grant to include org:read.

@@ -118,6 +118,9 @@ function buildApp(
     published?: boolean;
     shippingAddress?: string | null;
     shippingVisibleFrom?: string | null;
+    /** The couple's intent, and Stripe's capability — two different things. */
+    cashGiftsEnabled?: boolean;
+    stripeChargesEnabled?: boolean;
     images?: ImagesBindingLike;
   } = {},
 ) {
@@ -126,6 +129,8 @@ function buildApp(
     published = true,
     shippingAddress = null,
     shippingVisibleFrom = null,
+    cashGiftsEnabled = false,
+    stripeChargesEnabled = false,
     images,
   } = opts;
   const db = createDb(":memory:");
@@ -176,7 +181,8 @@ function buildApp(
       published,
       headline: "Gifts",
       message: "Your presence is the present.",
-      cashGiftsEnabled: false,
+      cashGiftsEnabled,
+      stripeChargesEnabled,
       shippingAddress,
       shippingVisibleFrom,
       // Present so a leak test has something to catch: no guest payload may
@@ -438,6 +444,32 @@ describe("GET /api/invite/:slug/registry (sessionAuth)", () => {
     expect(Object.keys(body).toSorted()).toEqual(
       ["cashGiftsEnabled", "currency", "headline", "items", "message"].toSorted(),
     );
+  });
+});
+
+describe("whether a guest may give money", () => {
+  /**
+   * The DTO ANDs the couple's intent with Stripe's capability, so the guest
+   * surface never has to reason about the two separately. Drop the AND and
+   * every guest of a couple whose Stripe capability lapsed gets a live
+   * give-money form whose every press ends in a 409 they cannot act on.
+   */
+  it("is false when the couple said yes but Stripe cannot take a charge", async () => {
+    const { app } = buildApp({ cashGiftsEnabled: true, stripeChargesEnabled: false });
+    const body = await listView(app, await guestCookie(app));
+    expect(body.cashGiftsEnabled).toBe(false);
+  });
+
+  it("is false when Stripe is ready but the couple never said yes", async () => {
+    const { app } = buildApp({ cashGiftsEnabled: false, stripeChargesEnabled: true });
+    const body = await listView(app, await guestCookie(app));
+    expect(body.cashGiftsEnabled).toBe(false);
+  });
+
+  it("is true only when both are", async () => {
+    const { app } = buildApp({ cashGiftsEnabled: true, stripeChargesEnabled: true });
+    const body = await listView(app, await guestCookie(app));
+    expect(body.cashGiftsEnabled).toBe(true);
   });
 });
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { renderTemplate, type EmailTemplate } from "../src/templates";
+import { renderTemplate, type EmailTemplate, type EmailTemplateData } from "../src/templates";
 
 describe("renderTemplate", () => {
   it("renders registration OTP with code + TTL", () => {
@@ -66,23 +66,64 @@ describe("renderTemplate", () => {
     expect(large.text).toContain("1440 minutes");
   });
 
+  /**
+   * One fixture per template, checked against the template-to-data map. The
+   * `satisfies` is the point: adding a template to `EmailTemplate` without
+   * adding data here is a type error, so no future template can slip past
+   * this test the way `registry-gift-summary` and the enquiry ones did while
+   * the list was written out by hand.
+   */
+  const fixtures = {
+    "enquiry-new": {
+      vendorName: "Bloom & Co",
+      weddingName: "Ama & Jonah",
+      message: "Are you free on the 10th?",
+      threadUrl: "https://example.test/thread/1",
+      unclaimed: false,
+    },
+    "enquiry-reply": {
+      recipientName: "Ama",
+      senderName: "Bloom & Co",
+      message: "We are.",
+      threadUrl: "https://example.test/thread/1",
+    },
+    "enquiry-quote": {
+      vendorName: "Bloom & Co",
+      amountFormatted: "A$1,200.00",
+      threadUrl: "https://example.test/thread/1",
+    },
+    "otp-registration": { code: "000000", ttlMinutes: 10 },
+    "otp-step-up": { code: "000000", ttlMinutes: 10 },
+    "otp-email-change": { code: "000000", ttlMinutes: 10 },
+    "recovery-generated": {},
+    "recovery-consumed": {},
+    "otp-recovery": { code: "000000", ttlMinutes: 10 },
+    "recovery-used": { disownUrl: "https://example.test/disown/abc" },
+    "totp-enrolled": {},
+    "totp-disabled": {},
+    "passkey-added": {},
+    "passkey-removed": {},
+    "cross-device-login": {},
+    "registry-gift-summary": {
+      weddingName: "Ama & Jonah",
+      finalEventOn: "2025-05-10",
+      sweptOn: "2026-05-11",
+      giftCount: 3,
+      giftTotal: "A$300.00",
+      listPurchased: 1,
+      listReserved: 2,
+    },
+    "vendor-claim-invite": {
+      claimUrl: "https://example.test/claim/abc",
+      vendorName: "Bloom & Co",
+    },
+  } satisfies { [K in EmailTemplate]: EmailTemplateData<K> };
+
   it("renders every declared template without throwing", () => {
-    const templates: readonly EmailTemplate[] = [
-      "otp-registration",
-      "otp-step-up",
-      "otp-email-change",
-      "recovery-generated",
-      "recovery-consumed",
-      "passkey-added",
-      "passkey-removed",
-      "totp-enrolled",
-      "totp-disabled",
-      "cross-device-login",
-    ];
-    for (const t of templates) {
-      const data = t.startsWith("otp-") ? { code: "000000", ttlMinutes: 10 } : {};
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const out = renderTemplate(t, data as any);
+    const templates = Object.keys(fixtures) as readonly EmailTemplate[];
+    expect(templates.length).toBeGreaterThan(0);
+    for (const template of templates) {
+      const out = renderTemplate(template, fixtures[template]);
       expect(out.subject.length).toBeGreaterThan(0);
       expect(out.text.length).toBeGreaterThan(0);
       expect(out.html.length).toBeGreaterThan(0);

@@ -46,15 +46,21 @@ const loadInviteBuilder = () => import("./InviteBuilder");
  * because it is the only module gated by an entitlement **no wedding holds**:
  * every organiser today loads its tree, its money formatting and its two panels
  * to be shown an upsell instead (REG-P-W4). Once the entitlement is granted the
- * cost lands on the rail click that opens the module — one chunk, warmed by the
- * hover on either sub-tab through `PANEL_LOADERS` below.
+ * cost lands on the rail click that opens the module.
+ *
+ * TWO chunks, not one. The list and the gifts received are two panels of
+ * `RegistryView`; the settings tab is its own file, so its bytes stay out of the
+ * way of the couple who only came to add a gift. Both are warmed by a hover or
+ * a focus on the sub-tab that needs them, through `PANEL_LOADERS` below.
  */
 const loadRegistry = () => import("./RegistryView");
+const loadRegistrySettings = () => import("./RegistrySettingsView");
 
 const EventsEditor = lazy(loadEventsEditor);
 const GuestsEditor = lazy(loadGuestsEditor);
 const InviteBuilder = lazy(loadInviteBuilder);
 const RegistryView = lazy(loadRegistry);
+const RegistrySettingsView = lazy(loadRegistrySettings);
 
 /**
  * What one of those chunks resolves to: a panel, default-exported.
@@ -103,6 +109,7 @@ const PANEL_LOADERS: PanelLoaders = {
   "invite:design": loadInviteBuilder,
   "registry:list": loadRegistry,
   "registry:gifts": loadRegistry,
+  "registry:settings": loadRegistrySettings,
 };
 
 /** The map's keys, for the drift guard in `ModuleShell.test.tsx`. */
@@ -174,6 +181,11 @@ const MODULE_SUB_TABS: ModuleSubTabs = {
   registry: [
     { id: "list", label: "Gift list" },
     { id: "gifts", label: "Gifts received" },
+    // `edit`, not `manage`: a co-host with edit rights may publish the list and
+    // write its copy. The one owner-only control — connecting the account gifts
+    // are paid into — is disabled inside the panel with the reason, rather than
+    // hiding a whole tab from someone who is allowed most of it.
+    { id: "settings", label: "Settings", edit: true },
   ],
   guests: [
     { id: "list", label: "Households" },
@@ -458,12 +470,17 @@ export default function ModuleShell(props: ModuleShellProps) {
                   when={props.entitlements.includes("registry")}
                   fallback={<UpsellPanel feature="registry" />}
                 >
-                  {/* One boundary for both subs: they are the same chunk, so a
-                  sub switch never re-suspends once it has landed. */}
+                  {/* One boundary for all three subs. The list and the gifts
+                  received share a chunk, so switching between those never
+                  re-suspends once it has landed; settings is a second chunk and
+                  suspends the first time it is opened cold — which is what
+                  `warmPanel` on the sub-tab is for, and why the fallback below
+                  is the panel-shaped one rather than a spinner. */}
                   <Suspense fallback={<PanelLoading />}>
                     <Show when={active() === "list"}>
                       <RegistryView
                         weddingId={props.weddingId}
+                        weddingSlug={props.weddingSlug}
                         view="list"
                         canEdit={props.canEdit}
                       />
@@ -471,8 +488,16 @@ export default function ModuleShell(props: ModuleShellProps) {
                     <Show when={active() === "gifts"}>
                       <RegistryView
                         weddingId={props.weddingId}
+                        weddingSlug={props.weddingSlug}
                         view="gifts"
                         canEdit={props.canEdit}
+                      />
+                    </Show>
+                    <Show when={active() === "settings"}>
+                      <RegistrySettingsView
+                        weddingId={props.weddingId}
+                        canEdit={props.canEdit}
+                        canManage={props.canManage}
                       />
                     </Show>
                   </Suspense>

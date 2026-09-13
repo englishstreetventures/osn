@@ -51,12 +51,15 @@ import {
   createRegistryWriteRoutes,
 } from "./routes/registry";
 import {
+  createRegistryContributeRoutes,
   createRegistryGuestClaimRoutes,
   createRegistryGuestImageRoutes,
   createRegistryGuestListRoutes,
   createRegistryGuestMineRoutes,
 } from "./routes/registry-guest";
+import { createRegistryStripeRoutes } from "./routes/registry-stripe";
 import { createRsvpRoutes } from "./routes/rsvp";
+import { createStripeWebhookRoutes } from "./routes/stripe-webhook";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
 import {
   createVendorDirectoryReadRoutes,
@@ -80,6 +83,7 @@ import type {
   OsnProfileOrgsResolver,
 } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
+import type { StripeClient } from "./services/stripe";
 import type { ZapChatClient } from "./services/zap-bridge";
 
 /** Default per-IP rate limiter for the claim endpoint: 5 attempts per minute. */
@@ -221,6 +225,16 @@ const defaultRegistryImageLimiter = createRateLimiter({ maxRequests: 10, windowM
  * indexed statement.
  */
 const defaultRegistryGuestLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
+// Per-organiser, and sized like the image limiter beside it: an authenticated
+// couple at hand-speed, whose every press costs an outbound Stripe call.
+const defaultRegistryStripeLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+// Per-IP, like the claim limiter, and sized the same way for the same reason:
+// a NAT'd venue or hotel wifi is ONE address for a whole reception, and the
+// budget has to cover the room rather than a household. Five would have
+// the sixth guest of an evening meet a 429 on their way to paying, which is the
+// highest-value action in the product. `sessionAuth` runs first, so only
+// claimed guests ever reach this at all.
+const defaultRegistryContributeLimiter = createRateLimiter({ maxRequests: 20, windowMs: 60_000 });
 /**
  * Default per-IP limiter for the pre-auth OIDC redirect legs (`/oidc/start`,
  * `/oidc/callback`). Tighter than the session probe below — these are the
@@ -441,6 +455,27 @@ export interface AppOptions {
   registryImageLimiter?: RateLimiterBackend;
   /** Override the guest registry claim/release rate limiter (useful for testing). */
   registryGuestLimiter?: RateLimiterBackend;
+  /** Override the guest "give money" limiter (useful for testing). */
+  registryContributeLimiter?: RateLimiterBackend;
+  /**
+   * Stripe Connect. BOTH halves are key-optional and independent, because in
+   * practice they arrive at different moments: the client can be configured
+   * before an endpoint has a signing secret, and a signing secret is useless
+   * without the client.
+   *
+   *  - `stripe` absent ⇒ the organiser onboarding routes are not mounted, so a
+   *    deployment with no Stripe account has no payment surface at all rather
+   *    than one that 500s.
+   *  - `stripeWebhookSecret` absent ⇒ the webhook route is not mounted, because
+   *    nothing could be verified and an endpoint that writes from unverified
+   *    bodies is an unauthenticated write API.
+   */
+  stripe?: StripeClient | null;
+  stripeWebhookSecret?: string | null;
+  /** Country for a newly created connected account (`AU` unless overridden). */
+  stripeAccountCountry?: string;
+  /** Override the Stripe onboarding limiter (useful for testing). */
+  registryStripeLimiter?: RateLimiterBackend;
   /**
    * Test seam: injectable `fetch` + DNS resolver for the registry link-preview
    * service, so its route tests reach no network. Production passes nothing and
@@ -512,6 +547,11 @@ export function createApp(db: Db, options: AppOptions = {}) {
     registryPreviewLimiter = defaultRegistryPreviewLimiter,
     registryImageLimiter = defaultRegistryImageLimiter,
     registryGuestLimiter = defaultRegistryGuestLimiter,
+    registryContributeLimiter = defaultRegistryContributeLimiter,
+    stripe = null,
+    stripeWebhookSecret = null,
+    stripeAccountCountry,
+    registryStripeLimiter = defaultRegistryStripeLimiter,
     registryLinkPreviewOptions,
     // Key-optional default: an inert provider that serves registry defaults with
     // no network, so an app built without GrowthBook config behaves exactly as
@@ -696,6 +736,18 @@ export function createApp(db: Db, options: AppOptions = {}) {
       .use(createRegistryGuestListRoutes(db))
       .use(createRegistryGuestMineRoutes(db))
       .use(createRegistryGuestClaimRoutes(db, { limiter: registryGuestLimiter }))
+      // Giving money. Mounted only with Stripe configured — a guest must never
+      // be offered a button that cannot lead anywhere. Its own limiter, tighter
+      // than the claim one: every call is an outbound Stripe request.
+      .use(
+        stripe
+          ? createRegistryContributeRoutes(db, {
+              stripe,
+              limiter: registryContributeLimiter,
+              guestOrigin: webOrigin,
+            })
+          : new Elysia(),
+      )
       .use(createOrganiserWeddingsRoutes(db, osnAuthOptions))
       .use(createOrganiserExportRoutes(db, osnAuthOptions, exportLimiter))
       .use(createOrganiserWeddingCreateRoute(db, osnAuthOptions, weddingCreateLimiter))
@@ -752,10 +804,23 @@ export function createApp(db: Db, options: AppOptions = {}) {
       // reap the R2 object its `image_key` pointed at, and D1's cascade stops at
       // the row.
       .use(createRegistryWriteRoutes(db, osnAuthOptions, assets))
-      // Link preview is a third sibling instance, not part of the write group:
-      // it carries its own per-organiser limiter (it is the one registry route
-      // that makes an outbound fetch), and an Elysia guard would spread that
-      // limiter across every write above.
+      // Stripe Connect onboarding — its own instance because its gate is
+      // `weddingOwner`, not `weddingEditor`: it names the bank account the money
+      // lands in. Mounted only when Stripe is configured at all.
+      .use(
+        stripe
+          ? createRegistryStripeRoutes(db, osnAuthOptions, {
+              stripe,
+              limiter: registryStripeLimiter,
+              organiserOrigin,
+              defaultCountry: stripeAccountCountry,
+            })
+          : new Elysia(),
+      )
+      // Link preview is another sibling instance, not part of the write group:
+      // it carries its own per-organiser limiter (it makes an outbound fetch,
+      // as the Stripe routes above now do), and an Elysia guard would spread
+      // that limiter across every write above.
       .use(
         createRegistryLinkPreviewRoutes(db, osnAuthOptions, {
           limiter: registryPreviewLimiter,
@@ -865,5 +930,12 @@ export function createApp(db: Db, options: AppOptions = {}) {
   // accumulated route-type surface here caps the depth; it's runtime-inert
   // (`.use()` only needs an Elysia instance) and scoped to this final mount.
   const rootApp: AnyElysia = app;
-  return paymentWebhookEnabled ? rootApp.use(createPaymentWebhookSkeleton()) : rootApp;
+  // Stripe's own deliveries. Mounted only with a signing secret: nothing else
+  // authenticates this endpoint, so without one it must not exist.
+  const withStripeWebhook: AnyElysia = stripeWebhookSecret
+    ? rootApp.use(createStripeWebhookRoutes(db, { webhookSecret: stripeWebhookSecret }))
+    : rootApp;
+  return paymentWebhookEnabled
+    ? withStripeWebhook.use(createPaymentWebhookSkeleton())
+    : withStripeWebhook;
 }

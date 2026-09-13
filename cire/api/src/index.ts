@@ -10,6 +10,7 @@ import { type AppOptions, createApp } from "./app";
 import { createD1Db, DbService } from "./db";
 import { createSessionRoutedClient, runInD1Session } from "./db/d1-session";
 import { setExecutionCtx } from "./lib/execution-ctx";
+import { sendGiftSummaryEmails } from "./lib/gift-summary-email";
 import { CIRE_OIDC_TX_HMAC_INFO } from "./lib/oidc";
 import { flushCireTelemetry, runCire } from "./observability";
 import { assetReconcileService } from "./services/asset-reconcile";
@@ -20,12 +21,14 @@ import {
   createConnectionSearchResolverFromEnv,
   createHandleResolverFromEnv,
   createHandleSearchResolverFromEnv,
+  createOrganiserEmailResolverFromEnv,
   createOrgMembershipResolverFromEnv,
   createProfileDisplayResolverFromEnv,
   createProfileOrgsResolverFromEnv,
 } from "./services/osn-bridge";
-import { retentionService } from "./services/retention";
+import { retentionService, type GiftSummaryNotice } from "./services/retention";
 import { sessionService } from "./services/session";
+import { createStripeClientFromEnv } from "./services/stripe";
 import { createZapChatClientFromEnv } from "./services/zap-bridge";
 
 // Worker bindings + vars. Mirrors `wrangler.toml` ([[d1_databases]], [[r2_buckets]],
@@ -126,6 +129,20 @@ export interface Env {
   // RSVP endpoints require a valid Turnstile token (fail-closed); unset ⇒ those
   // gates are skipped. `wrangler secret put TURNSTILE_SECRET_KEY`.
   TURNSTILE_SECRET_KEY?: string;
+  // Stripe Connect for gift contributions (KEY-OPTIONAL, and the two halves are
+  // independent). `STRIPE_SECRET_KEY` set ⇒ the organiser can connect a Stripe
+  // account from the portal; unset ⇒ those routes are not mounted at all, so a
+  // deployment with no Stripe account has no payment surface rather than a
+  // broken one. `STRIPE_WEBHOOK_SECRET` set ⇒ `/api/stripe/webhook` exists and
+  // verifies every delivery; unset ⇒ it does not exist, because nothing could
+  // be verified and an endpoint that writes from unverified bodies is an
+  // unauthenticated write API. Both: `wrangler secret put …`.
+  STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  // Two-letter country for a NEW connected account (`AU` unless set). Stripe
+  // fixes an account's country at creation, so this is a per-deployment default
+  // and not something a couple can change afterwards.
+  STRIPE_ACCOUNT_COUNTRY?: string;
   // Resend API key for transactional email (vendor claim-invite emails). When
   // set, the vendor list-in-directory endpoint dispatches via Resend; absent ⇒
   // falls back to LogEmailLive (emails captured in-memory / logged). Fail-soft:
@@ -367,6 +384,9 @@ const handler: ExportedHandler<Env> = {
       // claim + rsvp gates are skipped. The secret is read here and never
       // logged or placed anywhere but Cloudflare's siteverify endpoint.
       const turnstileVerifier = createTurnstileVerifier(env.TURNSTILE_SECRET_KEY);
+      // `null` without a key, exactly like the Turnstile verifier above: the
+      // absence of configuration is a state this product supports, not a fault.
+      const stripe = createStripeClientFromEnv(env);
       // GrowthBook feature flags (KEY-OPTIONAL). Unset client key ⇒ an inert
       // provider that serves registry defaults with no network. Built once per
       // isolate alongside the app so its payload cache is isolate-lived. No
@@ -428,6 +448,9 @@ const handler: ExportedHandler<Env> = {
         resolveOsnHandleSearch,
         resolveOsnConnectionSearch,
         turnstileVerifier,
+        stripe,
+        stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET ?? null,
+        stripeAccountCountry: env.STRIPE_ACCOUNT_COUNTRY,
         flags,
         orgMembership,
         profileOrgs,
@@ -574,16 +597,47 @@ const handler: ExportedHandler<Env> = {
     // carry guest PII) would outlive the deleted DB rows forever. The `cire-assets`
     // invite images are NOT reaped here — those rows survive (the invite stays
     // live); see retentionService.sweepExpiredGuestData.
+    // The parting summary needs two things the sweep itself does not have: a
+    // way to ask osn-api for the organiser's address (cire stores none) and a
+    // real mail transport. Both are assembled here, where the ARC key material
+    // and the Resend key live, so the service keeps its DbService-only context.
+    //
+    // Both are optional and the sweep does not care: no ARC key, or no Resend
+    // key, means no notifier and a silent sweep that still deletes on time.
+    // `makeLogEmailLive` is deliberately NOT used as a stand-in — logging a
+    // summary nobody reads is not delivery, and would make the compliance
+    // record claim the couple was told when they were not.
+    const resendApiKey = env.RESEND_API_KEY;
+    const organiserEmails = await createOrganiserEmailResolverFromEnv({
+      osnApiUrl: env.OSN_API_URL,
+      arcPrivateKeyJwk: env.CIRE_API_ARC_PRIVATE_KEY,
+      arcKeyId: env.CIRE_API_ARC_KEY_ID,
+    });
+    const giftSummaryNotifier =
+      organiserEmails && resendApiKey
+        ? (notices: readonly GiftSummaryNotice[]) =>
+            sendGiftSummaryEmails(notices, organiserEmails).pipe(
+              Effect.provide(
+                makeResendEmailLive({
+                  apiKey: resendApiKey,
+                  fromAddress: "hello@cireweddings.com",
+                }),
+              ),
+            )
+        : undefined;
+
     runSweep(() =>
       Effect.runPromise(
-        retentionService.sweepExpiredGuestData(new Date(), { sheets: env.SHEETS }).pipe(
-          Effect.catch((err) =>
-            Effect.logError("scheduled guest-data retention sweep failed", {
-              reason: err.reason,
-            }),
+        retentionService
+          .sweepExpiredGuestData(new Date(), { sheets: env.SHEETS }, giftSummaryNotifier)
+          .pipe(
+            Effect.catch((err) =>
+              Effect.logError("scheduled guest-data retention sweep failed", {
+                reason: err.reason,
+              }),
+            ),
+            Effect.provide(dbLayer),
           ),
-          Effect.provide(dbLayer),
-        ),
       ),
     );
 

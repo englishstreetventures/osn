@@ -9,13 +9,21 @@ import {
   rsvps,
   imports,
   weddingInviteCustomisations,
+  registryClaims,
+  registryContributions,
+  registrySettings,
+  registryItems,
 } from "@cire/db";
 import { eq } from "drizzle-orm";
 import { Effect } from "effect";
 
 import { DbService, dbQuery } from "../../src/db";
 import type { DeletableBucket } from "../../src/services/r2-cleanup";
-import { retentionService, RETENTION_AFTER_FINAL_EVENT_MS } from "../../src/services/retention";
+import {
+  type GiftSummaryNotice,
+  retentionService,
+  RETENTION_AFTER_FINAL_EVENT_MS,
+} from "../../src/services/retention";
 import { TestDbLayer } from "../db/test-layer";
 import { effWith } from "../test-helpers";
 
@@ -654,6 +662,319 @@ describe("retentionService.sweepExpiredGuestData", () => {
         // …yet every sheet key they referenced was reaped (proving pre-delete collect).
         for (const k of sheetKeys) expect(sheets.deleted.has(k)).toBe(true);
         expect(sheets.deleted.size).toBe(sheetKeys.length);
+      }),
+    ),
+  );
+});
+
+describe("the parting gift summary", () => {
+  /**
+   * Gifts are guest data: claims and contributions hang off `families`, so the
+   * sweep's family delete cascades them away. The window is deliberate — cire
+   * holds no funds and has no record-keeping duty of its own — but the couple
+   * should not find the record simply gone, so a summary lands on the settings
+   * row the sweep keeps. `wiki/compliance/retention.md`.
+   */
+  it(
+    "counts what arrived, and leaves it where the sweep cannot reach",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        const { weddingId, familyId } = yield* makeWedding({
+          eventDates: ["2025-04-01", "2025-05-10"],
+        });
+        const stamp = new Date("2025-05-11T00:00:00.000Z");
+        db.insert(registrySettings)
+          .values({ weddingId, published: true, createdAt: stamp, updatedAt: stamp })
+          .run();
+        const item = `reg_${crypto.randomUUID()}`;
+        db.insert(registryItems)
+          .values({
+            id: item,
+            weddingId,
+            kind: "product",
+            title: "Copper pan",
+            quantityWanted: 3,
+            sortOrder: 0,
+            createdAt: stamp,
+            updatedAt: stamp,
+          })
+          .run();
+        // One claim row per (item, family) is the unique constraint, so the
+        // three states go on three items.
+        for (const [index, [status, quantity]] of (
+          [
+            ["reserved", 1],
+            ["purchased", 2],
+            ["released", 5],
+          ] as const
+        ).entries()) {
+          const itemId = `reg_${index}_${crypto.randomUUID()}`;
+          db.insert(registryItems)
+            .values({
+              id: itemId,
+              weddingId,
+              kind: "product",
+              title: `Gift ${index}`,
+              quantityWanted: 9,
+              sortOrder: index,
+              createdAt: stamp,
+              updatedAt: stamp,
+            })
+            .run();
+          db.insert(registryClaims)
+            .values({
+              id: `rcl_${crypto.randomUUID()}`,
+              weddingId,
+              itemId,
+              familyId,
+              quantity,
+              status,
+              createdAt: stamp,
+              updatedAt: stamp,
+            })
+            .run();
+        }
+        const gift = (
+          status: "succeeded" | "pending",
+          amountMinor: number,
+          currency: string,
+          at: Date = stamp,
+        ) =>
+          db
+            .insert(registryContributions)
+            .values({
+              id: `rct_${crypto.randomUUID()}`,
+              weddingId,
+              itemId: null,
+              familyId,
+              status,
+              amountMinor,
+              currency,
+              stripeCheckoutSessionId: `cs_${crypto.randomUUID()}`,
+              message: "Enjoy Japan",
+              displayName: "The Ashworths",
+              createdAt: at,
+              updatedAt: at,
+            })
+            .run();
+        gift("succeeded", 12_500, "AUD");
+        gift("succeeded", 5_000, "AUD");
+        gift("succeeded", 3_000, "JPY", new Date("2025-05-20T00:00:00.000Z"));
+        // Latest of all of them AND unsettled: it must move neither the totals
+        // nor the range, which is what proves the range is taken from the same
+        // rows as the counts.
+        gift("pending", 99_999, "AUD", new Date("2026-01-05T00:00:00.000Z"));
+
+        yield* retentionService.sweepExpiredGuestData(now);
+
+        const row = yield* dbQuery(() =>
+          db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).get(),
+        );
+        expect(row?.giftSummaryAt).not.toBeNull();
+        const summary = JSON.parse(row?.giftSummaryJson ?? "{}") as {
+          sweptOn: string;
+          firstGiftOn: string;
+          lastGiftOn: string;
+          claims: { reserved: number; purchased: number };
+          contributions: { count: number; totals: { currency: string; amountMinor: number }[] };
+        };
+        expect(summary.sweptOn).toBe("2026-06-17");
+        // The span the counted gifts actually arrived over — epoch seconds out
+        // of `min()`/`max()`, rendered as ISO days. The released claim and the
+        // unsettled charge fall outside it for the same reason they fall
+        // outside the totals.
+        expect(summary.firstGiftOn).toBe("2025-05-11");
+        expect(summary.lastGiftOn).toBe("2025-05-20");
+        // A released claim is what they did NOT receive; counting it would
+        // overstate the record.
+        expect(summary.claims).toEqual({ reserved: 1, purchased: 2 });
+        // Only money that actually moved, summed per currency — never converted.
+        expect(summary.contributions.count).toBe(3);
+        expect(summary.contributions.totals).toEqual([
+          { currency: "AUD", amountMinor: 17_500 },
+          { currency: "JPY", amountMinor: 3_000 },
+        ]);
+        // AGGREGATES ONLY. The detail is gone, and the summary must not be the
+        // deletion undone in the row next door.
+        const raw = row?.giftSummaryJson ?? "";
+        expect(raw).not.toContain("Ashworth");
+        expect(raw).not.toContain("Enjoy Japan");
+        expect(raw).not.toContain(familyId);
+        // And the gifts themselves went with the households.
+        const contributionsLeft = yield* dbQuery(() =>
+          db
+            .select()
+            .from(registryContributions)
+            .where(eq(registryContributions.weddingId, weddingId))
+            .all(),
+        );
+        expect(contributionsLeft.length).toBe(0);
+        const claimsLeft = yield* dbQuery(() =>
+          db.select().from(registryClaims).where(eq(registryClaims.weddingId, weddingId)).all(),
+        );
+        expect(claimsLeft.length).toBe(0);
+      }),
+    ),
+  );
+
+  it(
+    "hands the notifier one notice per swept wedding, and only after the detail is gone",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        const { weddingId, familyId } = yield* makeWedding({ eventDates: ["2025-05-10"] });
+        const stamp = new Date("2025-05-11T00:00:00.000Z");
+        db.insert(registrySettings)
+          .values({ weddingId, published: true, createdAt: stamp, updatedAt: stamp })
+          .run();
+        db.insert(registryContributions)
+          .values({
+            id: `rct_${crypto.randomUUID()}`,
+            weddingId,
+            itemId: null,
+            familyId,
+            status: "succeeded",
+            amountMinor: 12_500,
+            currency: "AUD",
+            stripeCheckoutSessionId: `cs_${crypto.randomUUID()}`,
+            message: "Enjoy Japan",
+            displayName: "The Ashworths",
+            createdAt: stamp,
+            updatedAt: stamp,
+          })
+          .run();
+
+        const seen: GiftSummaryNotice[][] = [];
+        let rowsLeftWhenNotified = -1;
+        const notify = (notices: readonly GiftSummaryNotice[]) =>
+          Effect.gen(function* () {
+            seen.push([...notices]);
+            // The email says the detail is gone, so it must not be sent while
+            // it is still there. Counted at the moment of the call, not after.
+            const left = yield* dbQuery(() =>
+              db
+                .select()
+                .from(registryContributions)
+                .where(eq(registryContributions.weddingId, weddingId))
+                .all(),
+            );
+            rowsLeftWhenNotified = left.length;
+          });
+
+        yield* retentionService.sweepExpiredGuestData(now, {}, notify);
+
+        expect(seen.length).toBe(1);
+        expect(rowsLeftWhenNotified).toBe(0);
+        const notice = seen[0]?.[0];
+        expect(notice?.weddingId).toBe(weddingId);
+        expect(notice?.ownerOsnProfileId).toBe("usr_test");
+        expect(notice?.finalEventOn).toBe("2025-05-10");
+        expect(notice?.summary.contributions.count).toBe(1);
+        // The notice carries aggregates only, same as the stored summary.
+        const asText = JSON.stringify(notice);
+        expect(asText).not.toContain("Ashworth");
+        expect(asText).not.toContain("Enjoy Japan");
+      }),
+    ),
+  );
+
+  it(
+    "does not call the notifier when the cohort produced no summaries",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        const { weddingId } = yield* makeWedding({ eventDates: ["2025-04-01"] });
+        const stamp = new Date("2025-05-11T00:00:00.000Z");
+        db.insert(registrySettings)
+          .values({ weddingId, published: true, createdAt: stamp, updatedAt: stamp })
+          .run();
+
+        let calls = 0;
+        yield* retentionService.sweepExpiredGuestData(now, {}, () =>
+          Effect.sync(() => {
+            calls += 1;
+          }),
+        );
+
+        // No gifts, no summary, nothing to tell them about.
+        expect(calls).toBe(0);
+      }),
+    ),
+  );
+
+  it(
+    "sweeps normally when the notifier dies",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        const { weddingId, familyId, guestId } = yield* makeWedding({
+          eventDates: ["2025-05-10"],
+        });
+        const stamp = new Date("2025-05-11T00:00:00.000Z");
+        db.insert(registrySettings)
+          .values({ weddingId, published: true, createdAt: stamp, updatedAt: stamp })
+          .run();
+        db.insert(registryContributions)
+          .values({
+            id: `rct_${crypto.randomUUID()}`,
+            weddingId,
+            itemId: null,
+            familyId,
+            status: "succeeded",
+            amountMinor: 4_000,
+            currency: "AUD",
+            stripeCheckoutSessionId: `cs_${crypto.randomUUID()}`,
+            createdAt: stamp,
+            updatedAt: stamp,
+          })
+          .run();
+
+        // The notifier's error channel is `never` by contract, so the only
+        // shape a broken one can take is a defect. The sweep has already
+        // committed its deletes by then and must not fail on the courtesy.
+        const deleted = yield* retentionService.sweepExpiredGuestData(now, {}, () =>
+          Effect.die(new Error("mail transport unreachable")),
+        );
+
+        expect(deleted).toBe(1);
+        const guestsLeft = yield* dbQuery(() =>
+          db.select().from(guests).where(eq(guests.id, guestId)).all(),
+        );
+        expect(guestsLeft.length).toBe(0);
+        const row = yield* dbQuery(() =>
+          db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).get(),
+        );
+        // The stored summary is the durable half and survives regardless.
+        expect(row?.giftSummaryJson).not.toBeNull();
+      }),
+    ),
+  );
+
+  it(
+    "writes nothing for a wedding that never had a gift",
+    withDb(
+      Effect.gen(function* () {
+        const db = yield* DbService;
+        const now = new Date("2026-06-17T04:00:00.000Z");
+        const { weddingId } = yield* makeWedding({ eventDates: ["2025-04-01"] });
+        const stamp = new Date("2025-05-11T00:00:00.000Z");
+        db.insert(registrySettings)
+          .values({ weddingId, published: true, createdAt: stamp, updatedAt: stamp })
+          .run();
+
+        yield* retentionService.sweepExpiredGuestData(now);
+
+        const row = yield* dbQuery(() =>
+          db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).get(),
+        );
+        // An empty summary is noise on a page; its absence says the same thing
+        // more quietly.
+        expect(row?.giftSummaryJson).toBeNull();
       }),
     ),
   );

@@ -15,6 +15,7 @@ import { CreateWeddingBody, RemintBody } from "../schemas/wedding";
 import { claimService } from "../services/claim";
 import { entitlementService } from "../services/entitlements";
 import { familyDeactivateService } from "../services/family-deactivate";
+import { giftExportService } from "../services/gift-export";
 import { hostCodeService } from "../services/host-code";
 import { markSharedService } from "../services/mark-shared";
 import { regenerateCodeService } from "../services/regenerate-code";
@@ -30,8 +31,8 @@ import { weddingsService } from "../services/weddings";
 const manualParse = { parse: () => ({}) };
 
 /**
- * Wrap a server-built CSV in a browser-download response. Shared by the three
- * exports (rsvps / guests / events): Content-Disposition: attachment so the
+ * Wrap a server-built CSV in a browser-download response. Shared by the four
+ * exports (rsvps / guests / events / gifts): Content-Disposition: attachment so the
  * browser downloads it directly; guest PII (names, dietary, codes) — never let
  * an intermediary cache it; nosniff as belt-and-braces against content sniffing.
  */
@@ -387,6 +388,31 @@ export const createOrganiserExportRoutes = (
             }).pipe(
               Effect.provideService(DbService, db),
               Effect.catchDefect(() => exportDefect(set, "events.csv", weddingId)),
+            ),
+          );
+        })
+        // Gift-log CSV export — one row per gift, claims and cash together,
+        // newest first: the same log the registry tab pages through, whole.
+        // This is the couple's copy of a record we delete a year after the
+        // wedding, so it carries the detail the year-end summary cannot:
+        // who gave what, in which currency, and what they wrote. Same
+        // weddingMember() gate + attachment/no-store contract as the exports
+        // above.
+        .get("/gifts.csv", ({ weddingId, set }) => {
+          if (!weddingId) {
+            set.status = 500;
+            return { error: "Internal error" };
+          }
+          return runCire(
+            Effect.gen(function* () {
+              const [csv, slug] = yield* Effect.all(
+                [giftExportService.giftsCsv(weddingId), weddingsService.slugOf(weddingId)],
+                { concurrency: 2 },
+              );
+              return csvAttachment(csv, `cire-gifts-${slug ?? weddingId}.csv`);
+            }).pipe(
+              Effect.provideService(DbService, db),
+              Effect.catchDefect(() => exportDefect(set, "gifts.csv", weddingId)),
             ),
           );
         })

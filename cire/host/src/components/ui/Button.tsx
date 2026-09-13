@@ -34,7 +34,14 @@ export type ButtonSize = "sm" | "md" | "icon";
 const BASE =
   "font-body inline-flex items-center justify-center gap-2 rounded-sm border whitespace-nowrap " +
   "uppercase transition-colors duration-(--dur-fast) ease-(--ease-out) " +
-  "disabled:pointer-events-none disabled:opacity-40";
+  "disabled:pointer-events-none disabled:opacity-40 " +
+  // `aria-disabled` is the other way to say it: the control stays in the tab
+  // order and keeps its description reachable, and the click is swallowed here
+  // rather than left to each caller. Used where the point is that someone READS
+  // why they cannot press it — a `disabled` button is skipped by the keyboard
+  // and by a screen reader in forms mode, which hides the explanation from
+  // exactly the person asking.
+  "aria-disabled:cursor-not-allowed aria-disabled:opacity-40";
 
 const VARIANT = {
   primary: "border-gold bg-gold text-bg hover:bg-gold-dim",
@@ -56,7 +63,20 @@ export type ButtonProps = SafeProps<"button"> & {
 };
 
 export default function Button(props: ButtonProps) {
-  const [own, rest] = splitProps(props, ["variant", "size", "class"]);
+  const [own, rest] = splitProps(props, ["variant", "size", "class", "onClick"]);
+
+  /**
+   * `aria-disabled` has to mean it.
+   *
+   * The attribute only tells assistive technology the control is unavailable —
+   * the browser still fires the click, because that is the whole reason to
+   * choose it over `disabled` (the control keeps its tab stop, so its reason
+   * stays reachable). Swallowing the click here is what makes the announcement
+   * true; leaving it to every caller makes the styling a promise the component
+   * does not keep.
+   */
+  const inert = () => props["aria-disabled"] === true || props["aria-disabled"] === "true";
+
   return (
     // `type` sits before the spread so a caller can still pass `type="submit"`.
     // A button with no type submits the form it is in, which is never what a
@@ -67,6 +87,18 @@ export default function Button(props: ButtonProps) {
       class={`${BASE} ${VARIANT[own.variant ?? "quiet"]} ${SIZE[own.size ?? "md"]}${
         own.class ? ` ${own.class}` : ""
       }`}
+      onClick={(event) => {
+        if (inert()) {
+          // `preventDefault` as well as the early return: a `type="submit"`
+          // button inside a form would otherwise still submit it.
+          event.preventDefault();
+          return;
+        }
+        const handler = own.onClick;
+        if (typeof handler === "function") handler(event);
+        // Solid's bound form: `onClick={[fn, data]}`.
+        else if (Array.isArray(handler)) handler[0](handler[1], event);
+      }}
     />
   );
 }

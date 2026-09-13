@@ -75,6 +75,30 @@ ZAP_API_URL = "http://localhost:3002"
 # `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET`. Absent ⇒ the endpoint is
 # disabled (503). The SAME value must be provisioned on the osn-api side.
 
+# ── Stripe Connect, for gift contributions (KEY-OPTIONAL, both halves) ───────
+# The couple are the merchant of record: gifts are DIRECT charges on their own
+# connected account, so the money goes from the guest's card to their bank and
+# cire never holds it. Holding gift funds, even in transit, is money
+# transmission — this is the line that keeps the platform on the right side of
+# it, and the reason the integration is Connect rather than a platform checkout.
+#
+# STRIPE_SECRET_KEY UNSET ⇒ the organiser Connect routes are not mounted, so a
+# deployment with no Stripe account has no payment surface at all rather than
+# one that 500s. The portal probes and hides the panel.
+# STRIPE_WEBHOOK_SECRET UNSET ⇒ /api/stripe/webhook does not exist. Nothing else
+# authenticates that endpoint — the signature IS the authentication — so without
+# a signing secret it must not be reachable.
+#
+#   bunx wrangler secret put STRIPE_SECRET_KEY --env production
+#   bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env production
+#
+# Both are SECRETS, never [vars]: the API key can move money, and the signing
+# secret is what stops anyone else's body being believed.
+# STRIPE_ACCOUNT_COUNTRY is an ordinary var (default "AU" in code). Stripe fixes
+# an account's country at creation, so it is a per-deployment default rather
+# than something a couple can change later.
+# STRIPE_ACCOUNT_COUNTRY = "AU"
+
 # ── GrowthBook feature flags (KEY-OPTIONAL) ──────────────────────────────────
 # GROWTHBOOK_CLIENT_KEY UNSET ⇒ @shared/feature-flags serves every flag's coded
 # default (src/index.ts FLAGS registry) with ZERO network — the state before a

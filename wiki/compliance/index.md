@@ -13,7 +13,7 @@ related:
   - "[[data-map]]"
   - "[[subprocessors]]"
   - "[[cire]]"
-last-reviewed: 2026-09-01
+last-reviewed: 2026-09-11
 ---
 
 # Compliance
@@ -68,7 +68,7 @@ compliance" surface looks like.
 
 - [[scope-matrix]] — which standard applies to which user / surface, and why
 - [[data-map]] — every personal-data field, its purpose, lawful basis, retention, and recipients
-- [[subprocessors]] — third parties that touch personal data (Cloudflare Email, Photon geocoder, Grafana Cloud, Redis provider, Supabase) — required by GDPR Art. 28 + CCPA + SOC 2 vendor mgmt
+- [[subprocessors]] — third parties that touch personal data (Cloudflare Email, Photon geocoder, Grafana Cloud, Redis provider, Supabase, **Stripe — cire gift registry, code landed inert, paperwork gate open**) — required by GDPR Art. 28 + CCPA + SOC 2 vendor mgmt
 - [[retention]] — retention schedule per data class (sessions, security events, logs, traces, metrics, deleted-account tombstones)
 - [[dsar]] — operational runbook for Data Subject Access Requests (export + erasure + rectification)
 - [[breach-response]] — 72-hour GDPR notification clock, customer notification SLA, the runbook

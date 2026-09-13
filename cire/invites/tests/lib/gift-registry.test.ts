@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   claimGiftRegistryItem,
+  contributeGift,
   DEFAULT_GIFT_REGISTRY_EYEBROW,
   DEFAULT_GIFT_REGISTRY_HEADING,
   fetchGiftRegistry,
@@ -515,5 +516,68 @@ describe("groupGiftRegistryItems", () => {
       true,
     );
     expect(hasGiftRegistryCategories([])).toBe(false);
+  });
+});
+
+/**
+ * The "give money" call.
+ *
+ * Two properties, both silent when broken: without `credentials: "include"` the
+ * host-scoped session cookie never leaves the browser and every attempt reads
+ * as signed out; and a `url` that is not Stripe's own checkout is a full-page
+ * navigation out of a payment flow to somewhere else entirely.
+ */
+describe("contributeGift", () => {
+  it("carries the household cookie, and never caches", async () => {
+    fetchMock.mockResolvedValueOnce(json({ url: "https://checkout.stripe.com/c/pay/cs_1" }));
+    await contributeGift(API, SLUG, { amountMinor: 5000 });
+    expect(lastUrl()).toBe(`${API}/api/invite/${SLUG}/registry/contribute`);
+    expect(lastInit().credentials).toBe("include");
+    expect(lastInit().cache).toBe("no-store");
+    expect(lastInit().method).toBe("POST");
+  });
+
+  it("takes a Stripe checkout URL, and refuses anything else", async () => {
+    fetchMock.mockResolvedValueOnce(json({ url: "https://checkout.stripe.com/c/pay/cs_1" }));
+    expect(await contributeGift(API, SLUG, { amountMinor: 5000 })).toEqual({
+      kind: "ok",
+      url: "https://checkout.stripe.com/c/pay/cs_1",
+    });
+
+    for (const url of [
+      "https://checkout.stripe.com.evil.test/c/pay/cs_1",
+      "http://checkout.stripe.com/c/pay/cs_1",
+      "javascript:alert(1)",
+      "",
+    ]) {
+      fetchMock.mockResolvedValueOnce(json({ url }));
+      expect(await contributeGift(API, SLUG, { amountMinor: 5000 })).toEqual({ kind: "error" });
+    }
+  });
+
+  it("tells each refusal apart, because the guest can act on some of them", async () => {
+    const cases: [number, unknown, unknown][] = [
+      [401, { error: "Unauthorized" }, { kind: "signed-out" }],
+      [409, { error: "cash_gifts_unavailable" }, { kind: "unavailable" }],
+      [400, { error: "Missing or invalid fields" }, { kind: "invalid" }],
+      [502, { error: "stripe_unavailable" }, { kind: "error" }],
+    ];
+    for (const [status, body, expected] of cases) {
+      fetchMock.mockResolvedValueOnce(json(body, status));
+      expect(await contributeGift(API, SLUG, { amountMinor: 5000 })).toEqual(expected);
+    }
+  });
+
+  it("names a wait only when the server named one", async () => {
+    fetchMock.mockResolvedValueOnce(json({}, 429, { "retry-after": "45" }));
+    expect(await contributeGift(API, SLUG, { amountMinor: 5000 })).toEqual({
+      kind: "rate-limited",
+      retryAfterSeconds: 45,
+    });
+    fetchMock.mockResolvedValueOnce(json({}, 429));
+    expect(await contributeGift(API, SLUG, { amountMinor: 5000 })).toEqual({
+      kind: "rate-limited",
+      retryAfterSeconds: null,
+    });
   });
 });

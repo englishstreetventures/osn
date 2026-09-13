@@ -130,6 +130,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  window.history.replaceState({}, "", "/anita-and-ben/registry");
   document.cookie = "cire_claimed=; Path=/; Max-Age=0";
   globalThis.fetch = realFetch;
   vi.restoreAllMocks();
@@ -251,6 +252,84 @@ describe("what the page paints", () => {
     renderPage({ inviteBody: "Your presence is the present." });
     await screen.findByText("Your presence is the present.");
     expect(screen.queryByText("No boxed gifts, please.")).toBeNull();
+  });
+});
+
+describe("the money panel", () => {
+  /**
+   * The API ANDs the couple's intent with Stripe's capability into this one
+   * boolean, so the page has one thing to read. Drop the check here and every
+   * guest of every wedding gets a give-money form, whose every press ends in a
+   * 409 they cannot act on.
+   */
+  it("is absent unless the couple are actually taking money", async () => {
+    routedFetch({ list: [json(registry({ cashGiftsEnabled: false }))] });
+    const { container } = renderPage();
+    await whenListed();
+    expect(container.querySelector("[data-gift-money]")).toBeNull();
+  });
+
+  it("is there when they are", async () => {
+    routedFetch({ list: [json(registry({ cashGiftsEnabled: true }))] });
+    const { container } = renderPage();
+    await whenListed();
+    await waitFor(() => expect(container.querySelector("[data-gift-money]")).toBeTruthy());
+  });
+
+  it("sits above the shelves even when every gift is taken", async () => {
+    // A guest who finds the list spoken for has not stopped wanting to give
+    // something; an option that appears only once the list runs dry reads as a
+    // consolation prize.
+    routedFetch({
+      list: [
+        json(
+          registry({
+            cashGiftsEnabled: true,
+            items: [item({ quantityWanted: 1, quantityClaimed: 1 })],
+          }),
+        ),
+      ],
+    });
+    const { container } = renderPage();
+    await whenListed();
+    await waitFor(() => expect(container.querySelector("[data-gift-money]")).toBeTruthy());
+    expect(container.querySelector("[data-gift-availability]")?.textContent).toBe(
+      "Every gift has been reserved",
+    );
+  });
+
+  it("is there for an empty published list too", async () => {
+    routedFetch({ list: [json(registry({ cashGiftsEnabled: true, items: [] }))] });
+    const { container } = renderPage();
+    await screen.findByText("The couple haven’t added any gifts yet.");
+    await waitFor(() => expect(container.querySelector("[data-gift-money]")).toBeTruthy());
+  });
+});
+
+describe("coming back from Stripe", () => {
+  it("thanks a guest without asserting that money moved", async () => {
+    // The parameter is one anybody can type and the row is the webhook's to
+    // write, so the copy is conditional rather than a confirmation.
+    window.history.replaceState({}, "", "/anita-and-ben/registry?gift=thanks");
+    routedFetch({});
+    const { container } = renderPage();
+
+    await waitFor(() =>
+      expect(container.querySelector('[data-gift-payment="thanks"]')).toBeTruthy(),
+    );
+    const said = container.querySelector('[data-gift-payment="thanks"]')?.textContent ?? "";
+    expect(said).toMatch(/if your payment went through/i);
+  });
+
+  it("says plainly that nothing was charged when they backed out", async () => {
+    window.history.replaceState({}, "", "/anita-and-ben/registry?gift=cancelled");
+    routedFetch({});
+    const { container } = renderPage();
+
+    await waitFor(() =>
+      expect(container.querySelector('[data-gift-payment="cancelled"]')).toBeTruthy(),
+    );
+    expect(container.textContent).toMatch(/nothing was charged/i);
   });
 });
 
@@ -632,7 +711,9 @@ describe("the status line", () => {
     await whenListed();
 
     const status = container.querySelector("[data-gift-status]") as HTMLElement;
-    expect(status.getAttribute("role")).toBe("status");
+    // `<output>` carries role="status" implicitly, which is why the attribute
+    // is not spelled out on the element.
+    expect(status.tagName).toBe("OUTPUT");
     expect(status.getAttribute("aria-live")).toBe("polite");
     // A `transform` on any ancestor would trap a fixed overlay; there is none.
     expect(container.querySelector(".fixed")).toBeNull();

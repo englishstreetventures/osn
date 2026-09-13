@@ -25,12 +25,28 @@ import {
   registrySettings,
   weddings,
 } from "@cire/db";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  isNotNull,
+  isNull,
+  lte,
+  ne,
+  or,
+  type SQL,
+  sql,
+} from "drizzle-orm";
 import { Data, Effect } from "effect";
 
 import { commitGroupedBatches, DbService, dbQuery } from "../db";
 import { entitlementService } from "./entitlements";
 import { REGISTRY_IMAGE_NAME } from "./invite-assets";
+// Type only — `./retention` owns the shape, this module only reads it back.
+// Nothing at runtime crosses between them, so no import cycle.
+import type { GiftSummary } from "./retention";
 
 /** No item with this id under this wedding (missing or another wedding's). 404-class. */
 export class RegistryItemNotInWedding extends Data.TaggedError("RegistryItemNotInWedding") {}
@@ -44,6 +60,13 @@ export class FamilyNotInWedding extends Data.TaggedError("FamilyNotInWedding") {
 export class ImageKeyNotInWedding extends Data.TaggedError("ImageKeyNotInWedding") {}
 /** Cash gifts asked for without a Stripe account that can take charges. 409-class. */
 export class StripeNotReady extends Data.TaggedError("StripeNotReady") {}
+/**
+ * Cash gifts asked for in a currency the connected account cannot settle.
+ * 409-class.
+ */
+export class CurrencyMismatch extends Data.TaggedError("CurrencyMismatch") {}
+/** A guest asked to give money to a couple who are not taking it. 409-class. */
+export class CashGiftsUnavailable extends Data.TaggedError("CashGiftsUnavailable") {}
 /** The wedding is at its item ceiling. 409-class. */
 export class RegistryItemLimitReached extends Data.TaggedError("RegistryItemLimitReached") {}
 /**
@@ -84,6 +107,46 @@ const MAX_CLAIM_QUANTITY = 99;
 
 export type RegistryItemKind = "product" | "cash_fund";
 export type RegistryClaimStatus = "reserved" | "purchased" | "released";
+/**
+ * A contribution's lifecycle, mirroring `registry_contributions.status`.
+ *
+ * Every one of the five is written, and each by exactly one kind of Stripe
+ * event:
+ *
+ *  - `pending` — the row the guest's own request writes, before they are handed
+ *    a payment page. Also where a completed session whose money has not moved
+ *    yet stays: a delayed bank debit completes the session and settles days
+ *    later.
+ *  - `succeeded` — the money moved. `checkout.session.completed` with
+ *    `payment_status: "paid"`, or the `async_payment_succeeded` that follows a
+ *    delayed debit.
+ *  - `failed` — it never will. The delayed debit bounced
+ *    (`async_payment_failed`), or the guest walked away and Stripe expired the
+ *    session. A failed row is kept rather than deleted — a webhook that deletes
+ *    is a webhook a forged event can use to erase a gift — but it is not a gift
+ *    and the couple's log does not show it.
+ *  - `refunded` — it moved and went back. A `charge.refunded` for the FULL
+ *    amount; a partial refund leaves the row `succeeded`, because the couple
+ *    did keep part of it and the log would otherwise say a gift never arrived.
+ *  - `disputed` — the guest's bank has taken it back while it decides
+ *    (`charge.dispute.created`). The one status that is a HOLD rather than an
+ *    ending: `charge.dispute.closed` moves it on, to `succeeded` if the couple
+ *    won and `refunded` if they lost. It stays in the gift log — the couple
+ *    needs to see it — and out of the received total, which filters on
+ *    `succeeded`, because today the money is not theirs.
+ *
+ * The transitions are one-way and guarded in the service, not here: `pending` is
+ * the only status that may fail or settle, `succeeded` the only one that may
+ * refund or open a dispute, and only a dispute may leave `disputed`. Stripe
+ * delivers at least once, out of order, and retries for days, so every one of
+ * these events arrives twice sooner or later.
+ */
+export type RegistryContributionStatus =
+  | "pending"
+  | "succeeded"
+  | "failed"
+  | "refunded"
+  | "disputed";
 /** Which table a gift-log row came from — the discriminator the portal reads. */
 export type GiftKind = "claim" | "contribution";
 
@@ -158,15 +221,35 @@ export interface RegistrySnapshot {
   gifts: GiftLogEntryDto[];
   /** Whether another page of gift-log rows sits past `gifts`. */
   giftsHasMore: boolean;
+  /**
+   * The aggregates the retention sweep left behind, or null.
+   *
+   * Non-null means the sweep has run and the per-guest detail is DELETED — so
+   * `gifts` above is empty not because nothing arrived but because we erased
+   * it, and the portal has to say which. Null is the ordinary case: the gift
+   * log is still the record.
+   */
+  giftSummary: GiftSummary | null;
   /** The wedding's primary currency — what every authored figure is in. */
   currency: string;
   /**
-   * Sum of succeeded contributions expressed in the primary currency. APPROXIMATE
-   * by construction: each foreign-currency row was converted at its own
-   * snapshotted rate, so this is a sum of historical conversions, not a live
-   * valuation. The portal must label it as such.
+   * Sum of the succeeded contributions that are IN the primary currency, and
+   * only those. A row that arrived in some other currency and carries no
+   * conversion is counted by `contributionsOtherCurrencyCount` instead of being
+   * added in, because a sum across currencies is not an amount of money.
+   *
+   * Still APPROXIMATE where a row does carry a conversion: that row was
+   * converted at its own snapshotted rate, so this is a sum of historical
+   * conversions, not a live valuation. The portal must label it as such.
    */
   contributionsPrimaryMinor: number;
+  /**
+   * How many succeeded contributions this total leaves out — rows whose
+   * currency, after the primary-currency snapshot is taken into account, is not
+   * the wedding's. Non-zero means the figure above is not the whole of the
+   * money, and the portal has to say so rather than showing one total.
+   */
+  contributionsOtherCurrencyCount: number;
 }
 
 export interface UpdateRegistrySettingsPatch {
@@ -213,6 +296,9 @@ interface SettingsRow {
   stripeChargesEnabled: boolean;
   stripePayoutsEnabled: boolean;
   stripeAccountUpdatedAt: Date | null;
+  /** Written by the retention sweep, never from the portal. Both or neither. */
+  giftSummaryJson: string | null;
+  giftSummaryAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -274,6 +360,94 @@ const toSettingsDto = (r: SettingsRow): RegistrySettingsDto => ({
   updatedAt: r.updatedAt.getTime(),
 });
 
+/** One per-currency line of a stored summary, checked rather than trusted. */
+const isCurrencyTotal = (value: unknown): value is { currency: string; amountMinor: number } =>
+  typeof value === "object" &&
+  value !== null &&
+  "currency" in value &&
+  typeof value.currency === "string" &&
+  "amountMinor" in value &&
+  typeof value.amountMinor === "number" &&
+  Number.isFinite(value.amountMinor);
+
+/** Both halves of a stored summary's claim counts, present and finite. */
+const isClaimCounts = (value: unknown): value is { reserved: number; purchased: number } =>
+  typeof value === "object" &&
+  value !== null &&
+  "reserved" in value &&
+  typeof value.reserved === "number" &&
+  Number.isFinite(value.reserved) &&
+  "purchased" in value &&
+  typeof value.purchased === "number" &&
+  Number.isFinite(value.purchased);
+
+const isContributionTotals = (
+  value: unknown,
+): value is { count: number; totals: { currency: string; amountMinor: number }[] } =>
+  typeof value === "object" &&
+  value !== null &&
+  "count" in value &&
+  typeof value.count === "number" &&
+  Number.isFinite(value.count) &&
+  "totals" in value &&
+  Array.isArray(value.totals) &&
+  value.totals.every(isCurrencyTotal);
+
+const isGiftSummary = (value: unknown): value is GiftSummary =>
+  typeof value === "object" &&
+  value !== null &&
+  "sweptOn" in value &&
+  typeof value.sweptOn === "string" &&
+  "firstGiftOn" in value &&
+  typeof value.firstGiftOn === "string" &&
+  "lastGiftOn" in value &&
+  typeof value.lastGiftOn === "string" &&
+  "claims" in value &&
+  isClaimCounts(value.claims) &&
+  "contributions" in value &&
+  isContributionTotals(value.contributions);
+
+/**
+ * Decode `registry_settings.gift_summary_json` — the aggregates the retention
+ * sweep leaves behind a year after the last event, in the same pass that deletes
+ * the households every claim and contribution hangs off (`GiftSummary` in
+ * `./retention`).
+ *
+ * Both columns or neither. `gift_summary_at` is set by the same UPDATE, so JSON
+ * without it is a half-written row rather than a record, and a timestamp without
+ * JSON has nothing to say.
+ *
+ * Copied field by field, never the parsed object whole — the rule `decodePalette`
+ * follows in `./claim`. This blob is the one part of the organiser snapshot not
+ * built out of typed columns, and spreading it would let anything a later writer
+ * (or a hand-edited row) puts in there ride out to the portal. Malformed reads as
+ * ABSENT rather than throwing: a bad blob then costs the couple one band on a
+ * page, where a throw costs them the whole registry screen.
+ */
+function decodeGiftSummary(raw: string | null, at: Date | null): GiftSummary | null {
+  if (raw === null || at === null) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!isGiftSummary(parsed)) return null;
+  return {
+    sweptOn: parsed.sweptOn,
+    firstGiftOn: parsed.firstGiftOn,
+    lastGiftOn: parsed.lastGiftOn,
+    claims: { reserved: parsed.claims.reserved, purchased: parsed.claims.purchased },
+    contributions: {
+      count: parsed.contributions.count,
+      totals: parsed.contributions.totals.map((total) => ({
+        currency: total.currency,
+        amountMinor: total.amountMinor,
+      })),
+    },
+  };
+}
+
 const toItemDto = (r: ItemRow, quantityClaimed: number): RegistryItemDto => ({
   id: r.id,
   weddingId: r.weddingId,
@@ -334,24 +508,46 @@ function claimedByItem(weddingId: string): Effect.Effect<Map<string, number>, ne
   });
 }
 
+/** One currency's worth of settled gift money. */
+interface CurrencyTotal {
+  /** Upper-case ISO code, as `RegistrySnapshot.currency` is. */
+  currency: string;
+  totalMinor: number;
+  count: number;
+}
+
 /**
- * Sum of succeeded contributions in the primary currency, computed IN SQL.
+ * Succeeded contributions totalled PER CURRENCY, computed IN SQL.
  *
  * It used to be a JS loop over the gift log, which quietly made the total a
  * function of how many rows the log happened to return — so paginating the log
- * would have started under-reporting the money. One row out of the database,
- * whatever the page size.
+ * would have started under-reporting the money. One query, whatever the page
+ * size.
  *
  * A same-currency row has no primary snapshot (the FX columns are NULL) and so
  * contributes its as-given amount; that is the `coalesce` pair.
+ *
+ * GROUPED, because adding two currencies together produces a number that is not
+ * an amount of anything. The caller takes the wedding's own currency out of this
+ * and reports the rest as a count. `retention.ts` groups the same way for the
+ * same reason.
+ *
+ * The key is upper-cased: authored currencies are upper case and the ones the
+ * settle path writes come from Stripe in lower case, so the raw column values
+ * would split one currency across two groups.
  */
-function contributionsPrimaryTotal(weddingId: string): Effect.Effect<number, never, DbService> {
+function contributionsByCurrency(
+  weddingId: string,
+): Effect.Effect<CurrencyTotal[], never, DbService> {
   return Effect.gen(function* () {
     const db = yield* DbService;
-    const [row] = yield* dbQuery(() =>
+    const key = sql<string>`upper(coalesce(${registryContributions.primaryCurrency}, ${registryContributions.currency}))`;
+    const rows = yield* dbQuery(() =>
       db
         .select({
-          total: sql<number>`coalesce(sum(coalesce(${registryContributions.primaryAmountMinor}, ${registryContributions.amountMinor})), 0)`,
+          currency: key,
+          totalMinor: sql<number>`coalesce(sum(coalesce(${registryContributions.primaryAmountMinor}, ${registryContributions.amountMinor})), 0)`,
+          count: sql<number>`count(*)`,
         })
         .from(registryContributions)
         .where(
@@ -360,9 +556,14 @@ function contributionsPrimaryTotal(weddingId: string): Effect.Effect<number, nev
             eq(registryContributions.status, "succeeded"),
           ),
         )
+        .groupBy(key)
         .all(),
     );
-    return Number((row as { total: number } | undefined)?.total ?? 0) || 0;
+    return (rows as CurrencyTotal[]).map((row) => ({
+      currency: String(row.currency ?? "").toUpperCase(),
+      totalMinor: Number(row.totalMinor ?? 0) || 0,
+      count: Number(row.count ?? 0) || 0,
+    }));
   });
 }
 
@@ -392,6 +593,185 @@ function familyInWedding(
     );
     return (rows as Array<{ id: string }>).length > 0;
   });
+}
+
+/**
+ * Whether an item id is one of this wedding's.
+ *
+ * A free function for the same reason `familyInWedding` is one: a cash gift
+ * needs it at the same moment it needs the family check, and the two are then
+ * one `Effect.all` rather than two serial D1 hops.
+ */
+function itemInWedding(
+  weddingId: string,
+  itemId: string,
+): Effect.Effect<boolean, never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const rows = yield* dbQuery(() =>
+      db
+        .select({ id: registryItems.id })
+        .from(registryItems)
+        .where(and(eq(registryItems.id, itemId), eq(registryItems.weddingId, weddingId)))
+        .all(),
+    );
+    return (rows as Array<{ id: string }>).length > 0;
+  });
+}
+
+/**
+ * The row a Stripe event names, and whether the account it arrived on may move
+ * it — in ONE read.
+ *
+ * Every webhook path needs the same two facts, and asking for them separately
+ * cost two serial D1 round trips inside a handler Stripe times out at 20
+ * seconds and retries for days. The join is LEFT on purpose: an account that
+ * does not own the row must still come back WITH the row, so the caller can
+ * tell "no such contribution" (acknowledge, nothing a retry fixes) from "not
+ * yours" (reject, and worth an operator's attention).
+ *
+ * The `where` is the caller's because the two lookups differ: a checkout
+ * session event names the contribution id we minted, and a refund names only
+ * the payment intent.
+ */
+interface WebhookContributionRow {
+  id: string;
+  status: RegistryContributionStatus;
+  /**
+   * NULL while the row exists but Stripe has not answered yet — the window the
+   * route opens deliberately. A webhook that names such a
+   * row by `client_reference_id` is the first news of which session it was.
+   */
+  sessionId: string | null;
+  /** What the guest was shown and agreed to, for the settle-time check. */
+  amountMinor: number;
+  currency: string;
+  /**
+   * What Stripe has sent back so far, or NULL where no refund has been seen.
+   * Read so a refund write can be monotonic: Stripe's `amount_refunded` is
+   * cumulative, and two deliveries can arrive out of order.
+   */
+  refundedAmountMinor: number | null;
+  /** Non-null exactly when the row's wedding owns the account the event came on. */
+  ownedAccountId: string | null;
+}
+
+function contributionsOnAccount(
+  where: SQL,
+  stripeAccountId: string,
+  limit: number,
+): Effect.Effect<WebhookContributionRow[], never, DbService> {
+  return Effect.gen(function* () {
+    const db = yield* DbService;
+    const rows = yield* dbQuery(() =>
+      db
+        .select({
+          id: registryContributions.id,
+          status: registryContributions.status,
+          sessionId: registryContributions.stripeCheckoutSessionId,
+          amountMinor: registryContributions.amountMinor,
+          currency: registryContributions.currency,
+          refundedAmountMinor: registryContributions.refundedAmountMinor,
+          ownedAccountId: registrySettings.stripeAccountId,
+        })
+        .from(registryContributions)
+        .leftJoin(
+          registrySettings,
+          and(
+            eq(registrySettings.weddingId, registryContributions.weddingId),
+            eq(registrySettings.stripeAccountId, stripeAccountId),
+          ),
+        )
+        .where(where)
+        .limit(limit)
+        .all(),
+    );
+    return rows as WebhookContributionRow[];
+  });
+}
+
+/**
+ * The columns a Stripe account-state write touches.
+ *
+ * `stripeDefaultCurrency` is optional because a caller that read a payload
+ * which never mentioned the settlement currency must leave the stored value
+ * alone rather than write null over what Stripe told us earlier.
+ */
+interface StripeAccountStatePatch {
+  stripeChargesEnabled: boolean;
+  stripePayoutsEnabled: boolean;
+  stripeDefaultCurrency?: string | null;
+  stripeAccountUpdatedAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * The columns a settle or an expiry writes.
+ *
+ * `stripeCheckoutSessionId` is optional because it is written ONLY while
+ * adopting — a row that already holds its session id must not have the column
+ * named in the UPDATE at all, since that write is the one carrying the
+ * uniqueness guard.
+ */
+interface ContributionPatch {
+  status: RegistryContributionStatus;
+  updatedAt: Date;
+  stripeCheckoutSessionId?: string;
+  stripePaymentIntentId?: string | null;
+  // The four currency columns, which move together or not at all: a row either
+  // carries a complete primary-currency snapshot or none of one. They are
+  // optional for the same reason the session id is — a settle that has nothing
+  // to say about currency must not name them in the UPDATE and overwrite a
+  // snapshot some earlier event wrote.
+  primaryAmountMinor?: number;
+  primaryCurrency?: string;
+  fxRate?: string;
+  fxRateAt?: Date;
+}
+
+/** The columns a refund writes. Both are optional: a refund may move only one. */
+interface RefundPatch {
+  updatedAt: Date;
+  status?: RegistryContributionStatus;
+  refundedAmountMinor?: number;
+}
+
+/**
+ * A refunded amount worth writing, or `null`.
+ *
+ * Stripe sends whole minor units, so anything fractional, negative, absent or
+ * not a number at all is an event this product cannot honestly record. Zero is
+ * excluded too: it is what a charge with no refund on it reports, and writing
+ * it would turn "nothing went back" into a recorded refund of nothing.
+ */
+function refundedAmountOf(value: number | null): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+/**
+ * The `where` that lets a session-less row adopt a session id without ever
+ * risking the UNIQUE.
+ *
+ * `dbQuery` is `Effect.promise`, so a constraint violation is a DEFECT — a 500
+ * inside a webhook Stripe will then retry for three days. So the check has to
+ * live in the predicate rather than in a catch: the row still has no session,
+ * and no other row has claimed this one. If either stopped being true between
+ * the read and the write, the update matches nothing and the caller sees it.
+ */
+function sessionAdoptionGuard(contributionId: string, checkoutSessionId: string): SQL {
+  return and(
+    eq(registryContributions.id, contributionId),
+    isNull(registryContributions.stripeCheckoutSessionId),
+    sql`not exists (select 1 from ${registryContributions} other where other.stripe_checkout_session_id = ${checkoutSessionId})`,
+  ) as SQL;
+}
+
+/** The single row a lookup on a unique column names, or nothing. */
+function contributionOnAccount(
+  where: SQL,
+  stripeAccountId: string,
+): Effect.Effect<WebhookContributionRow | undefined, never, DbService> {
+  return contributionsOnAccount(where, stripeAccountId, 1).pipe(Effect.map((rows) => rows[0]));
 }
 
 /**
@@ -439,7 +819,7 @@ export const registryService = {
       // latency instead of stacking it — the same shape claimService.get uses.
       // On bun:sqlite the concurrency is a no-op; on D1 it is most of the
       // endpoint's wall clock.
-      const { claimed, contributionsPrimaryMinor, currency, gifts, itemRows, settingsRows } =
+      const { claimed, contributionTotals, currency, gifts, itemRows, settingsRows } =
         yield* Effect.all(
           {
             settingsRows: dbQuery(() =>
@@ -460,21 +840,37 @@ export const registryService = {
             claimed: claimedByItem(weddingId),
             gifts: registryService.giftLog(weddingId, { offset: options?.giftsOffset }),
             currency: primaryCurrency(weddingId),
-            contributionsPrimaryMinor: contributionsPrimaryTotal(weddingId),
+            contributionTotals: contributionsByCurrency(weddingId),
           },
           { concurrency: "unbounded" },
         );
-      const [settingsRow] = settingsRows;
+      const settingsRow = settingsRows[0] as SettingsRow | undefined;
+      // Split here rather than in SQL: the wedding's currency comes from its own
+      // read, and the two run together above. Passing one into the other would
+      // serialise two D1 round trips that currently overlap, to save a filter
+      // over at most a handful of rows.
+      const primary = currency.toUpperCase();
+      const contributionsPrimaryMinor =
+        contributionTotals.find((total) => total.currency === primary)?.totalMinor ?? 0;
+      const contributionsOtherCurrencyCount = contributionTotals.reduce(
+        (count, total) => (total.currency === primary ? count : count + total.count),
+        0,
+      );
 
       return {
-        settings: settingsRow
-          ? toSettingsDto(settingsRow as SettingsRow)
-          : defaultSettings(weddingId),
+        settings: settingsRow ? toSettingsDto(settingsRow) : defaultSettings(weddingId),
         items: (itemRows as ItemRow[]).map((r) => toItemDto(r, claimed.get(r.id) ?? 0)),
         gifts: gifts.entries,
         giftsHasMore: gifts.hasMore,
+        // Read off the settings row already in hand. The sweep writes the summary
+        // onto the one registry row it keeps, so this costs no extra D1 round
+        // trip, and a wedding that was never swept simply has nothing here.
+        giftSummary: settingsRow
+          ? decodeGiftSummary(settingsRow.giftSummaryJson, settingsRow.giftSummaryAt)
+          : null,
         currency,
         contributionsPrimaryMinor,
+        contributionsOtherCurrencyCount,
       };
     }).pipe(Effect.withSpan("cire.registry.get"));
   },
@@ -556,7 +952,19 @@ export const registryService = {
           // fact sets `item_id` NULL rather than erasing the gift.
           .leftJoin(registryItems, eq(registryContributions.itemId, registryItems.id))
           .innerJoin(families, eq(registryContributions.familyId, families.id))
-          .where(eq(registryContributions.weddingId, weddingId))
+          .where(
+            and(
+              eq(registryContributions.weddingId, weddingId),
+              // A gift whose money never moved is not a gift. A bounced
+              // bank debit or a session the guest abandoned leaves a `failed`
+              // row, which is kept for the audit trail and the idempotency
+              // anchor — but showing it to the couple would be telling them
+              // somebody gave them money that nobody gave them, and inviting a
+              // thank-you note for it. `refunded` is NOT hidden: that one did
+              // happen, and then went back, and the couple should see both.
+              ne(registryContributions.status, "failed"),
+            ),
+          )
           .orderBy(desc(registryContributions.createdAt))
           .limit(readAhead)
           .all(),
@@ -655,11 +1063,17 @@ export const registryService = {
    * charge. Enforcing it here rather than in the route means every caller gets
    * it — a guest paying into an account that cannot receive money is a refund
    * and a support case, not a validation nit.
+   *
+   * The same switch also owns the currency invariant. Charges are taken on the
+   * connected account, so Stripe settles them in THAT account's currency, and a
+   * session priced in anything else is converted on Stripe's terms or refused
+   * outright. Turning cash gifts on while the two disagree would look fine in
+   * the portal and then fail at Checkout, in front of a guest.
    */
   updateSettings(
     weddingId: string,
     patch: UpdateRegistrySettingsPatch,
-  ): Effect.Effect<RegistrySettingsDto, StripeNotReady, DbService> {
+  ): Effect.Effect<RegistrySettingsDto, StripeNotReady | CurrencyMismatch, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
       const now = new Date();
@@ -669,13 +1083,28 @@ export const registryService = {
         // row means the registry was never opened, so certainly no Stripe.
         const [existing] = yield* dbQuery(() =>
           db
-            .select({ chargesEnabled: registrySettings.stripeChargesEnabled })
+            .select({
+              chargesEnabled: registrySettings.stripeChargesEnabled,
+              defaultCurrency: registrySettings.stripeDefaultCurrency,
+            })
             .from(registrySettings)
             .where(eq(registrySettings.weddingId, weddingId))
             .all(),
         );
-        if (!(existing as { chargesEnabled: boolean } | undefined)?.chargesEnabled) {
+        const stripe = existing as
+          | { chargesEnabled: boolean; defaultCurrency: string | null }
+          | undefined;
+        if (!stripe?.chargesEnabled) {
           return yield* Effect.fail(new StripeNotReady());
+        }
+        // A null settlement currency means Stripe has not said yet, not that it
+        // disagrees — an account can take charges before Stripe settles on one.
+        // Only two known, different currencies are a refusal.
+        if (stripe.defaultCurrency) {
+          const wedding = yield* primaryCurrency(weddingId);
+          if (stripe.defaultCurrency.toUpperCase() !== wedding.toUpperCase()) {
+            return yield* Effect.fail(new CurrencyMismatch());
+          }
         }
       }
 
@@ -712,6 +1141,966 @@ export const registryService = {
       );
       return toSettingsDto(row as SettingsRow);
     }).pipe(Effect.withSpan("cire.registry.updateSettings"));
+  },
+
+  /**
+   * The settings row alone — one PK-indexed read, and the defaults when there
+   * is no row.
+   *
+   * `get` returns the whole snapshot: every item, a page of the gift log, the
+   * currency. Reading all of that to look at two Stripe booleans is the waste
+   * this avoids — a caller that only needs the settings asks for the settings.
+   */
+  settingsOnly(weddingId: string): Effect.Effect<RegistrySettingsDto, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const [row] = yield* dbQuery(() =>
+        db.select().from(registrySettings).where(eq(registrySettings.weddingId, weddingId)).all(),
+      );
+      return row ? toSettingsDto(row as SettingsRow) : defaultSettings(weddingId);
+    }).pipe(Effect.withSpan("cire.registry.settingsOnly"));
+  },
+
+  /**
+   * Remember the connected account this wedding just got, and its capabilities
+   * as Stripe reported them at creation.
+   *
+   * `stripe_account_id` is written ONLY when the column is null. A wedding's
+   * connected account is the couple's bank account by another name: overwriting
+   * it would silently point every future gift at a different one, and the row it
+   * replaced is the only record of where the last ones went. A wedding that
+   * already has an account never reaches Stripe again — the caller reads this
+   * row first and mints a fresh onboarding link for the account it finds.
+   */
+  attachStripeAccount(
+    weddingId: string,
+    account: {
+      id: string;
+      chargesEnabled: boolean;
+      payoutsEnabled: boolean;
+      /** Upper-case ISO, or null when Stripe has not settled on one yet. */
+      defaultCurrency?: string | null;
+    },
+  ): Effect.Effect<RegistrySettingsDto, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const now = new Date();
+      const [row] = yield* dbQuery(() =>
+        db
+          .insert(registrySettings)
+          .values({
+            weddingId,
+            stripeAccountId: account.id,
+            stripeChargesEnabled: account.chargesEnabled,
+            stripePayoutsEnabled: account.payoutsEnabled,
+            stripeDefaultCurrency: account.defaultCurrency ?? null,
+            stripeAccountUpdatedAt: now,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoUpdate({
+            target: registrySettings.weddingId,
+            set: {
+              // `coalesce` on the EXISTING value, so a second create can only
+              // ever fill a null — never repoint a couple's payouts.
+              stripeAccountId: sql`coalesce(${registrySettings.stripeAccountId}, ${account.id})`,
+              // And the capabilities follow the id. Writing them
+              // unconditionally would leave a row describing account A's id
+              // beside account B's capabilities — the invariant that saves that
+              // today lives in the caller, and a caller that does not exist yet
+              // cannot be relied on to repeat it.
+              stripeChargesEnabled: sql`case when ${registrySettings.stripeAccountId} is null then ${account.chargesEnabled} else ${registrySettings.stripeChargesEnabled} end`,
+              stripePayoutsEnabled: sql`case when ${registrySettings.stripeAccountId} is null then ${account.payoutsEnabled} else ${registrySettings.stripePayoutsEnabled} end`,
+              // And so does the settlement currency, for the same reason: it
+              // describes the account the id names, and the two have to agree.
+              stripeDefaultCurrency: sql`case when ${registrySettings.stripeAccountId} is null then ${account.defaultCurrency ?? null} else ${registrySettings.stripeDefaultCurrency} end`,
+              stripeAccountUpdatedAt: now,
+              updatedAt: now,
+            },
+          })
+          .returning()
+          .all(),
+      );
+      return toSettingsDto(row as SettingsRow);
+    }).pipe(Effect.withSpan("cire.registry.attachStripeAccount"));
+  },
+
+  /**
+   * Cache what an `account.updated` webhook said about a connected account.
+   *
+   * Keyed on the ACCOUNT, not the wedding: the webhook names an account and
+   * nothing else, and resolving it through metadata would trust a field the
+   * couple's own onboarding can rewrite. Returns whether a row matched, so the
+   * route can answer 200 either way (an event for an account we do not know is
+   * not an error — it is a webhook endpoint shared with whatever else the
+   * platform account does) while still saying so in a span.
+   *
+   * `cash_gifts_enabled` is deliberately NOT touched. That column is the
+   * couple's INTENT; `stripe_charges_enabled` is Stripe's CAPABILITY. Clearing
+   * intent because a capability lapsed would quietly turn the feature off for
+   * good, and turning it back on when the capability returns would be us making
+   * a decision they never made. The guest surface reads both.
+   */
+  applyStripeAccountState(account: {
+    id: string;
+    chargesEnabled: boolean;
+    payoutsEnabled: boolean;
+    /**
+     * The currency Stripe settles this account in, upper-case ISO, or null when
+     * Stripe has not decided one yet. `undefined` means the caller read a
+     * payload that did not mention it at all, and the stored value is left
+     * exactly as it is.
+     */
+    defaultCurrency?: string | null;
+    /**
+     * When STRIPE said it, in seconds — the event's own `created`, never our
+     * clock. Absent only for the live `…/stripe/refresh` read, which is by
+     * definition current.
+     */
+    observedAt?: number;
+  }): Effect.Effect<boolean, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const now = new Date();
+      const observed = account.observedAt === undefined ? now : new Date(account.observedAt * 1000);
+      const patch: StripeAccountStatePatch = {
+        stripeChargesEnabled: account.chargesEnabled,
+        stripePayoutsEnabled: account.payoutsEnabled,
+        stripeAccountUpdatedAt: observed,
+        updatedAt: now,
+      };
+      // Named only when the caller actually read a settlement currency off the
+      // payload. A caller that saw no such field says nothing here rather than
+      // writing null over what Stripe told us earlier.
+      if (account.defaultCurrency !== undefined) {
+        patch.stripeDefaultCurrency = account.defaultCurrency;
+      }
+      const rows = yield* dbQuery(() =>
+        db
+          .update(registrySettings)
+          .set(patch)
+          .where(
+            and(
+              eq(registrySettings.stripeAccountId, account.id),
+              // MONOTONIC, and this is the whole point. Stripe does not
+              // guarantee order and retries a failed delivery for three days,
+              // so an older event carrying `charges_enabled: true` can arrive
+              // after Stripe has disabled the account — and this column is the
+              // only gate on whether a couple may show guests a contribute
+              // button. Applying it would re-open a payment surface Stripe has
+              // shut. A row is written only by something Stripe said LATER than
+              // what it already holds.
+              or(
+                isNull(registrySettings.stripeAccountUpdatedAt),
+                lte(registrySettings.stripeAccountUpdatedAt, observed),
+              ),
+            ),
+          )
+          .returning({ weddingId: registrySettings.weddingId })
+          .all(),
+      );
+      return (rows as Array<{ weddingId: string }>).length > 0;
+    }).pipe(Effect.withSpan("cire.registry.applyStripeAccountState"));
+  },
+
+  /**
+   * The couple revoked cire's access to their connected account, from their own
+   * Stripe dashboard. Stripe says so once, as `account.application.deauthorized`.
+   *
+   * Everything the platform could do with that account is gone with it: no
+   * charge, no account link, not even a capability read. So the id is CLEARED
+   * rather than flagged. Two things follow from that, and both are the point:
+   *
+   *  - the guest gate needs an account id, so the contribute button disarms in
+   *    the same write. Left alone, a guest would reach a Checkout that refuses;
+   *  - `attachStripeAccount` only ever fills a NULL id, so clearing it is also
+   *    what lets the couple reconnect. A flag beside a stale id would wedge them
+   *    on a dead account with no way back.
+   *
+   * `cash_gifts_enabled` is left alone, for the same reason `account.updated`
+   * leaves it alone: it is the couple's intent, and revoking a key is not the
+   * same as saying they never want gifts again. With no account the guest
+   * surface is closed regardless, and reconnecting restores what they chose.
+   *
+   * NO monotonic guard, unlike `applyStripeAccountState`, and deliberately.
+   * Deauthorization is terminal — after it, no `account.updated` can match a row
+   * whose id is now NULL — so the ordering hazard runs one way only: a stale
+   * `charges_enabled: true` arriving late must never re-open the surface, while
+   * a deauthorization arriving late must always close it. Gating this write on a
+   * timestamp would invert exactly that.
+   *
+   * Returns whether a row matched, so the caller can 200 either way: an event
+   * for an account this platform does not know is not an error.
+   */
+  detachStripeAccount(input: {
+    accountId: string;
+    /** Stripe's own `created`, in seconds. Recorded, never used as a gate. */
+    observedAt?: number;
+  }): Effect.Effect<boolean, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const now = new Date();
+      const observed = input.observedAt === undefined ? now : new Date(input.observedAt * 1000);
+      const rows = yield* dbQuery(() =>
+        db
+          .update(registrySettings)
+          .set({
+            stripeAccountId: null,
+            // What the cleared id leaves behind — see the column comments.
+            stripeDeauthorizedAccountId: input.accountId,
+            stripeDeauthorizedAt: observed,
+            stripeChargesEnabled: false,
+            stripePayoutsEnabled: false,
+            stripeAccountUpdatedAt: observed,
+            updatedAt: now,
+          })
+          .where(eq(registrySettings.stripeAccountId, input.accountId))
+          .returning({ weddingId: registrySettings.weddingId })
+          .all(),
+      );
+      return (rows as Array<{ weddingId: string }>).length > 0;
+    }).pipe(Effect.withSpan("cire.registry.detachStripeAccount"));
+  },
+
+  /**
+   * Everything a guest's "give money" request needs before it may reach Stripe:
+   * the wedding, the account the charge belongs to, and the currency it is in.
+   *
+   * The gates are all here, in one read, because each of them is the difference
+   * between a payment and a refund:
+   *
+   *  - the registry must be visible (published, entitled, real slug);
+   *  - the family must belong to THIS wedding — a session names a household,
+   *    not a wedding;
+   *  - the couple must have said yes (`cash_gifts_enabled`) AND Stripe must be
+   *    able to take the charge today (`stripe_charges_enabled`) AND there must
+   *    be an account to take it into. All three, or the guest is sent away
+   *    before their card is.
+   *
+   * A missing registry and a foreign family both fail as `RegistryNotVisible`,
+   * which the route answers as the same 404 everything else does. Only the
+   * cash-specific refusal is its own failure, because it is the one a guest
+   * looking at a contribute button can actually act on.
+   */
+  contributionContext(input: {
+    slug: string;
+    familyId: string;
+    /**
+     * The line the guest aimed the money at, if they picked one. Checked here
+     * rather than by the caller so it rides along with the family check instead
+     * of costing a round trip of its own; an id that is not this wedding's
+     * comes back as `null` rather than as a refusal.
+     */
+    itemId?: string | null;
+  }): Effect.Effect<
+    { weddingId: string; stripeAccountId: string; currency: string; itemId: string | null },
+    RegistryNotVisible | CashGiftsUnavailable,
+    DbService
+  > {
+    return Effect.gen(function* () {
+      const { settings, weddingId, currency } = yield* resolveVisibleRegistry(input.slug);
+      // Two independent point reads against the same wedding, so they go
+      // together. The item check runs even on a request the family check is
+      // about to turn away — one extra indexed read on a request that was never
+      // going to charge, against a round trip saved on every one that does.
+      const gates = yield* Effect.all(
+        {
+          familyBelongs: familyInWedding(weddingId, input.familyId),
+          itemBelongs: input.itemId
+            ? itemInWedding(weddingId, input.itemId)
+            : Effect.succeed(false),
+        },
+        { concurrency: "unbounded" },
+      );
+      // The same shared check the list read and the writes use, so the three
+      // gates cannot drift.
+      if (!gates.familyBelongs) {
+        return yield* Effect.fail(new RegistryNotVisible());
+      }
+      if (!settings.cashGiftsEnabled || !settings.stripeChargesEnabled) {
+        return yield* Effect.fail(new CashGiftsUnavailable());
+      }
+      const stripeAccountId = settings.stripeAccountId;
+      if (!stripeAccountId) return yield* Effect.fail(new CashGiftsUnavailable());
+      return {
+        weddingId,
+        stripeAccountId,
+        currency,
+        // An item id that is not this wedding's is dropped, not refused: what
+        // the guest is doing is giving money, and which line they aimed it at
+        // is the smaller half of that.
+        itemId: gates.itemBelongs ? (input.itemId ?? null) : null,
+      };
+    }).pipe(Effect.withSpan("cire.registry.contributionContext"));
+  },
+
+  /** Whether an item id is one of this wedding's — for a contribution TOWARDS a gift. */
+  itemBelongsToWedding(input: {
+    weddingId: string;
+    itemId: string;
+  }): Effect.Effect<boolean, never, DbService> {
+    return itemInWedding(input.weddingId, input.itemId).pipe(
+      Effect.withSpan("cire.registry.itemBelongsToWedding"),
+    );
+  },
+
+  /**
+   * Write the gift a completed Checkout Session paid for.
+   *
+   * IDEMPOTENT ON THE SESSION ID, which is `unique` on the column: Stripe
+   * retries a delivery until it gets a 2xx, and at-least-once means a duplicate
+   * is the ordinary case, not the edge. A second delivery of the same session
+   * writes nothing and reports `false`.
+   *
+   * THE METADATA IS NOT TRUSTED ON ITS OWN. We wrote it at session creation, but
+   * the event arrives on a webhook endpoint that also hears about sessions the
+   * connected account created for itself — where the metadata is whatever the
+   * account owner typed. So the wedding must actually own the account the event
+   * came from, and the family must belong to that wedding. Either failing means
+   * the row is not written and the caller is told, rather than a gift being
+   * recorded against a household that never gave one.
+   *
+   * FX IS LEFT NULL, deliberately. The primary-currency equivalent comes from
+   * the balance transaction's `exchange_rate`, which is not on this event; the
+   * schema's four FX columns are all-or-nothing and null is the honest state
+   * until that read lands. A gift in the wedding's own currency — the common
+   * case — never needs them at all.
+   */
+  /**
+   * The gift this guest already has a payment page open for, if there is one.
+   *
+   * WHY THIS EXISTS, and why a time bucket was not enough. The Stripe
+   * idempotency key is derived from the request plus a coarse wall-clock
+   * bucket, and a bucket has edges: two presses a second apart can land either
+   * side of one, get different keys, and become two sessions and two charges
+   * for one gift. This read has no edges. It asks D1 what we actually wrote,
+   * scoped to the same household, the same wedding, the same item and the same
+   * amount and words, and still `pending` — an attempt the guest has not
+   * finished. The bucket stays as the second belt for the truly simultaneous
+   * double-tap, where no row exists yet for either request to find.
+   *
+   * ONLY `pending` ROWS, and only recent ones: a settled gift must never hand
+   * back a payment page, and an abandoned attempt from last week is a new gift
+   * today, not a resumed one.
+   */
+  findReusableContribution(input: {
+    weddingId: string;
+    familyId: string;
+    itemId: string | null;
+    amountMinor: number;
+    message: string | null;
+    displayName: string | null;
+    since: Date;
+  }): Effect.Effect<{ sessionId: string } | null, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const rows = yield* dbQuery(() =>
+        db
+          .select({ sessionId: registryContributions.stripeCheckoutSessionId })
+          .from(registryContributions)
+          .where(
+            and(
+              eq(registryContributions.weddingId, input.weddingId),
+              eq(registryContributions.familyId, input.familyId),
+              eq(registryContributions.status, "pending"),
+              eq(registryContributions.amountMinor, input.amountMinor),
+              input.itemId
+                ? eq(registryContributions.itemId, input.itemId)
+                : isNull(registryContributions.itemId),
+              input.message === null
+                ? isNull(registryContributions.message)
+                : eq(registryContributions.message, input.message),
+              input.displayName === null
+                ? isNull(registryContributions.displayName)
+                : eq(registryContributions.displayName, input.displayName),
+              gte(registryContributions.createdAt, input.since),
+              // A row whose session id is still NULL is an attempt that never
+              // reached Stripe — there is no payment page to send anyone back
+              // to, so it cannot be reused.
+              isNotNull(registryContributions.stripeCheckoutSessionId),
+            ),
+          )
+          // Newest first: if a guest somehow has two open attempts of the same
+          // shape, the one they were just sent to is the one to send them back.
+          .orderBy(desc(registryContributions.createdAt))
+          .limit(1)
+          .all(),
+      );
+      const rowsTyped = rows as Array<{ sessionId: string }>;
+      return rowsTyped.length > 0 ? { sessionId: rowsTyped[0].sessionId } : null;
+    }).pipe(Effect.withSpan("cire.registry.findReusableContribution"));
+  },
+
+  /**
+   * Write the gift a guest is ABOUT to pay for, as `pending`.
+   *
+   * WHY THE ROW COMES FIRST, before Stripe is ever told anything about it.
+   * Three findings pointed at the same shape:
+   *
+   *  - **Nothing a connected account can forge.** The webhook endpoint
+   *    also hears about sessions the couple's own account created for itself,
+   *    where every metadata field is whatever its owner typed. Settling against
+   *    a row WE wrote means a forged session settles nothing: there is no row
+   *    with that id, and one cannot be conjured from the event.
+   *  - **Nothing personal in Stripe's metadata.** The guest's note and
+   *    the name they chose stay in D1 under a basis we have declared. Stripe is
+   *    told an opaque id and the money; it needs nothing else to reconcile.
+   *  - **Somewhere for a status to go.** A refund or a failed delayed
+   *    debit has a row to move, instead of an insert that can only ever add.
+   *
+   * AND BEFORE STRIPE, not after it. The id is minted here, handed to Stripe
+   * as `client_reference_id`, and the session attached afterwards by
+   * `attachCheckoutSession`. Waiting for Stripe to hand back a session id would
+   * leave a window in which a session exists at Stripe that we have never heard
+   * of: evict the Worker between the two and the settle webhook names a row
+   * that does not exist, so a gift that was actually paid is a gift we cannot
+   * show anyone.
+   *
+   * `onConflictDoNothing` is on the PRIMARY KEY, which is not idempotency —
+   * the id is fresh per request, so a conflict means a collision, and the
+   * honest answer is `false` and no payment page. Retry safety comes from
+   * Stripe's own idempotency key plus the reuse lookup above. Never a throw.
+   */
+  createPendingContribution(input: {
+    id: string;
+    weddingId: string;
+    familyId: string;
+    itemId: string | null;
+    amountMinor: number;
+    currency: string;
+    message: string | null;
+    displayName: string | null;
+  }): Effect.Effect<boolean, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const now = new Date();
+      const inserted = yield* dbQuery(() =>
+        db
+          .insert(registryContributions)
+          .values({
+            id: input.id,
+            weddingId: input.weddingId,
+            itemId: input.itemId,
+            familyId: input.familyId,
+            status: "pending",
+            amountMinor: input.amountMinor,
+            currency: input.currency,
+            // Nothing to write yet — Stripe has not been asked.
+            stripeCheckoutSessionId: null,
+            stripePaymentIntentId: null,
+            message: input.message,
+            displayName: input.displayName,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing({ target: registryContributions.id })
+          .returning({ id: registryContributions.id })
+          .all(),
+      );
+      return (inserted as Array<{ id: string }>).length > 0;
+    }).pipe(Effect.withSpan("cire.registry.createPendingContribution"));
+  },
+
+  /**
+   * Record which Checkout session the gift row above ended up as.
+   *
+   * The second half of the inverted order. Between the insert and this call the
+   * row is a gift attempt with no session — visible to the couple, ignored by
+   * the reuse lookup, and closed by the route if Stripe never answers.
+   *
+   * Three outcomes, and the interesting one is `duplicate`. The session id is
+   * UNIQUE, so if some other row already holds it this row must not: that
+   * happens when two requests raced, Stripe's idempotency handed both the SAME
+   * session, and only one of them can be the gift. The loser closes ITSELF as
+   * `failed` — it is an attempt whose money will move under the winner's row —
+   * and the guest is still sent to the same payment page, because it is the
+   * same session either way.
+   *
+   * Calling it twice with the same pair is `attached` both times: the second
+   * call's guarded update matches nothing, and the re-read finds the session
+   * already on the row.
+   */
+  attachCheckoutSession(input: {
+    contributionId: string;
+    checkoutSessionId: string;
+  }): Effect.Effect<"attached" | "duplicate" | "missing", never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const attached = yield* dbQuery(() =>
+        db
+          .update(registryContributions)
+          .set({ stripeCheckoutSessionId: input.checkoutSessionId, updatedAt: new Date() })
+          .where(sessionAdoptionGuard(input.contributionId, input.checkoutSessionId))
+          .returning({ id: registryContributions.id })
+          .all(),
+      );
+      if ((attached as Array<{ id: string }>).length > 0) return "attached";
+
+      // The guard refused. Which of its three clauses failed decides the
+      // answer, so read the row back rather than guess.
+      const rows = yield* dbQuery(() =>
+        db
+          .select({
+            id: registryContributions.id,
+            sessionId: registryContributions.stripeCheckoutSessionId,
+          })
+          .from(registryContributions)
+          .where(eq(registryContributions.id, input.contributionId))
+          .limit(1)
+          .all(),
+      );
+      const row = (rows as Array<{ id: string; sessionId: string | null }>)[0];
+      if (!row) return "missing";
+      if (row.sessionId === input.checkoutSessionId) return "attached";
+
+      yield* Effect.logWarning("checkout session already belongs to another gift", {
+        contributionId: input.contributionId,
+        heldSessionId: row.sessionId,
+      });
+      // Close the loser, but only while it is still session-less: a row that
+      // has since acquired a session of its own is somebody's live attempt.
+      yield* dbQuery(() =>
+        db
+          .update(registryContributions)
+          .set({ status: "failed", updatedAt: new Date() })
+          .where(
+            and(
+              eq(registryContributions.id, input.contributionId),
+              eq(registryContributions.status, "pending"),
+              isNull(registryContributions.stripeCheckoutSessionId),
+            ),
+          )
+          .run(),
+      );
+      return "duplicate";
+    }).pipe(Effect.withSpan("cire.registry.attachCheckoutSession"));
+  },
+
+  /**
+   * Close a gift attempt that never reached Stripe.
+   *
+   * The other end of the window `createPendingContribution` opens: the row is
+   * written, Stripe refuses, and the guest gets a 502. Without this the row
+   * would sit `pending` — carrying the note and the name they typed — until the
+   * retention sweep a year later, and would be counted as an open attempt by
+   * anything that counts them.
+   *
+   * Guarded on `pending` AND on a NULL session, so it can only ever close a row
+   * that is still in that window. Never a throw; nothing to report.
+   */
+  abandonPendingContribution(input: {
+    contributionId: string;
+  }): Effect.Effect<void, never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      yield* dbQuery(() =>
+        db
+          .update(registryContributions)
+          .set({ status: "failed", updatedAt: new Date() })
+          .where(
+            and(
+              eq(registryContributions.id, input.contributionId),
+              eq(registryContributions.status, "pending"),
+              isNull(registryContributions.stripeCheckoutSessionId),
+            ),
+          )
+          .run(),
+      );
+    }).pipe(Effect.withSpan("cire.registry.abandonPendingContribution"));
+  },
+
+  /**
+   * Settle the gift a completed Checkout Session paid for.
+   *
+   * Moves a `pending` row and only a `pending` row. Stripe delivers at least
+   * once and retries until it gets a 2xx, so a second delivery finding the row
+   * already settled is the ordinary case, not an error — it answers
+   * `duplicate` and writes nothing.
+   *
+   * THREE THINGS ARE CHECKED, and none of them trusts the event's metadata
+   * beyond the id it carries:
+   *
+   *  - a row with that id exists (so a session we never created settles
+   *    nothing);
+   *  - the session id on the row is the one that just completed (so one
+   *    contribution cannot be settled by another session's event);
+   *  - the row's wedding owns the connected account the event arrived on (so
+   *    an account cannot settle another couple's gift).
+   *
+   * FX IS LEFT NULL, deliberately: the primary-currency equivalent comes from
+   * the balance transaction, which is not on this event, and the schema's four
+   * FX columns are all-or-nothing.
+   */
+  settleContribution(input: {
+    contributionId: string;
+    checkoutSessionId: string;
+    stripeAccountId: string;
+    paymentIntentId: string | null;
+    paid: boolean;
+    /** What Stripe says was actually charged, when the event carries it. */
+    paidAmountMinor: number | null;
+    paidCurrency: string | null;
+  }): Effect.Effect<"settled" | "duplicate" | "unknown" | "rejected", never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const pending = yield* contributionOnAccount(
+        eq(registryContributions.id, input.contributionId),
+        input.stripeAccountId,
+      );
+      if (!pending) return "unknown";
+      // A NULL session id is not a mismatch: it is a row written before Stripe
+      // answered, and this event is the first news of which session it became.
+      // Any OTHER session id still means one gift is being settled by another
+      // gift's event.
+      if (pending.sessionId !== null && pending.sessionId !== input.checkoutSessionId) {
+        return "rejected";
+      }
+      if (!pending.ownedAccountId) return "rejected";
+      if (pending.status !== "pending") return "duplicate";
+
+      // The row's amount is what the guest was shown; the session's is
+      // what Stripe charged. Nothing in the checkout we build can make them
+      // disagree — one fixed line item, no promotion codes, no adjustable
+      // quantity — so a disagreement means something changed that we do not
+      // model, and the gift log would quietly record a figure nobody paid.
+      //
+      // It is logged, not corrected and not refused. The money has moved
+      // either way, and a row the couple can see beats a webhook we keep
+      // rejecting; the as-given figure stays as given, because that is the
+      // number the guest agreed to.
+      const amountDiffers =
+        input.paidAmountMinor !== null && input.paidAmountMinor !== pending.amountMinor;
+      const currencyDiffers =
+        input.paidCurrency !== null &&
+        input.paidCurrency.toUpperCase() !== pending.currency.toUpperCase();
+      if (amountDiffers || currencyDiffers) {
+        yield* Effect.logWarning("contribution settled at an amount it was not opened at", {
+          contributionId: pending.id,
+          expectedMinor: pending.amountMinor,
+          expectedCurrency: pending.currency,
+          paidMinor: input.paidAmountMinor,
+          paidCurrency: input.paidCurrency,
+        });
+      }
+
+      // Adopting means writing the UNIQUE column, so the write carries the
+      // guard and its result is checked; the ordinary settle does not.
+      const adopting = pending.sessionId === null;
+      const patch: ContributionPatch = {
+        // `paid` is the only status that means the money moved. A completed
+        // session that is not paid yet (a delayed bank debit) stays pending
+        // so the couple see it without being told it has landed — the
+        // `async_payment_succeeded` or `async_payment_failed` that follows
+        // days later is what moves it off pending.
+        status: input.paid ? "succeeded" : "pending",
+        stripePaymentIntentId: input.paymentIntentId,
+        updatedAt: new Date(),
+      };
+      if (adopting) patch.stripeCheckoutSessionId = input.checkoutSessionId;
+      const updated = yield* dbQuery(() =>
+        db
+          .update(registryContributions)
+          .set(patch)
+          .where(
+            adopting
+              ? sessionAdoptionGuard(pending.id, input.checkoutSessionId)
+              : eq(registryContributions.id, pending.id),
+          )
+          .returning({ id: registryContributions.id })
+          .all(),
+      );
+      if ((updated as Array<{ id: string }>).length === 0) {
+        // Only reachable while adopting: another row claimed this session id
+        // between the read and the write, so this row is not the one that was
+        // paid. Nothing is written, and Stripe is still answered — a retry
+        // would only lose the same race again.
+        yield* Effect.logError("settle lost the race to adopt a checkout session", {
+          contributionId: pending.id,
+          checkoutSessionId: input.checkoutSessionId,
+        });
+        return "rejected";
+      }
+      return input.paid ? "settled" : "duplicate";
+    }).pipe(Effect.withSpan("cire.registry.settleContribution"));
+  },
+
+  /**
+   * Close a gift whose money is never going to move.
+   *
+   * Two Stripe events land here, and they are the same fact twice: a delayed
+   * bank debit that bounced (`checkout.session.async_payment_failed`), and a
+   * session the guest walked away from that Stripe eventually expired
+   * (`checkout.session.expired`). Both leave a `pending` row that would
+   * otherwise sit in the table forever, and — until the sweep a year later —
+   * carry the guest's note and chosen name for a gift that never happened.
+   *
+   * ONLY A PENDING ROW MOVES. A settled gift cannot be un-settled by a late or
+   * replayed expiry, which is the shape that matters: `expired` is a plausible
+   * thing for a hostile connected account to send, and a webhook that could
+   * turn `succeeded` into `failed` on receipt of it would be a way to make a
+   * couple's gift vanish. The same three checks the settle path runs — row
+   * exists, session matches, account owns the row's wedding — run here.
+   *
+   * The row is kept, not deleted. A delete would be the same forged-event
+   * problem with no way back, and the row is also the idempotency anchor: the
+   * `unique` session id is what makes the second delivery a no-op rather than a
+   * second gift.
+   */
+  failContribution(input: {
+    contributionId: string;
+    checkoutSessionId: string;
+    stripeAccountId: string;
+  }): Effect.Effect<"failed" | "ignored" | "unknown" | "rejected", never, DbService> {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const row = yield* contributionOnAccount(
+        eq(registryContributions.id, input.contributionId),
+        input.stripeAccountId,
+      );
+      if (!row) return "unknown";
+      // As in the settle path: NULL is a row that never heard back from Stripe,
+      // and an `expired` naming it is exactly how such a row gets closed.
+      if (row.sessionId !== null && row.sessionId !== input.checkoutSessionId) return "rejected";
+      if (!row.ownedAccountId) return "rejected";
+      // Already settled, already failed, already refunded: nothing to move, and
+      // a redelivery of an event we acted on weeks ago is the ordinary case.
+      if (row.status !== "pending") return "ignored";
+
+      const adopting = row.sessionId === null;
+      const patch: ContributionPatch = { status: "failed", updatedAt: new Date() };
+      if (adopting) patch.stripeCheckoutSessionId = input.checkoutSessionId;
+      const updated = yield* dbQuery(() =>
+        db
+          .update(registryContributions)
+          .set(patch)
+          .where(
+            adopting
+              ? sessionAdoptionGuard(row.id, input.checkoutSessionId)
+              : eq(registryContributions.id, row.id),
+          )
+          .returning({ id: registryContributions.id })
+          .all(),
+      );
+      if ((updated as Array<{ id: string }>).length === 0) {
+        // Adopting only, same race as settle: the session belongs to another
+        // row, so closing this one against it would be closing the wrong gift.
+        yield* Effect.logError("expiry lost the race to adopt a checkout session", {
+          contributionId: row.id,
+          checkoutSessionId: input.checkoutSessionId,
+        });
+        return "rejected";
+      }
+      return "failed";
+    }).pipe(Effect.withSpan("cire.registry.failContribution"));
+  },
+
+  /**
+   * Record money that went back.
+   *
+   * FOUND BY PAYMENT INTENT, because that is all a refund event carries. Stripe
+   * does not thread the checkout session through to `charge.refunded`, and the
+   * connected account's own metadata is not evidence of anything — so the
+   * payment intent the settle path wrote is the link, and migration 0058 is the
+   * index that keeps this read off a full scan.
+   *
+   * ONLY A SUCCEEDED ROW MOVES: a refund of something never settled is either a
+   * replay or an event about a charge that is not a wedding gift at all, and
+   * neither should write.
+   *
+   * AND ONLY WHEN THERE IS EXACTLY ONE. The intent column is
+   * indexed, not unique — 0058 argues why, and the argument holds: a UNIQUE
+   * would turn a future basket or a retried intent into an insert that fails at
+   * 2 a.m. inside a webhook, on a gift that was actually paid. What that leaves
+   * is a read that can come back with two rows, and this one refuses them:
+   * `ambiguous`, an error in the log naming both ids, and nothing written.
+   *
+   * PARTIAL AND FULL REFUNDS BOTH LAND HERE, and they part company only at the
+   * status. A full refund moves the row to `refunded`, which is what takes it
+   * out of the settled total. A partial one leaves the status at `succeeded`,
+   * because the couple did receive the rest — but it still records
+   * `refunded_amount_minor`, so the row stops claiming the whole gift survived.
+   * Routing both through one lookup is also what gives a partial refund the
+   * ownership and ambiguity checks.
+   *
+   * `amount_minor` is never rewritten, either way: it is what the guest gave,
+   * and netting it off would rewrite history in the couple's own record.
+   *
+   * THE RECORDED AMOUNT ONLY EVER GROWS. Stripe's `amount_refunded` is the
+   * running total across every refund on the charge, and two deliveries can
+   * arrive out of order, so a figure at or below what the row already holds is
+   * an older event and is not written.
+   *
+   * An event carrying no usable amount still moves the status on a full refund;
+   * the column stays NULL, which reads as "not recorded" rather than as zero.
+   */
+  refundContribution(input: {
+    paymentIntentId: string;
+    stripeAccountId: string;
+    /**
+     * Stripe's `charge.amount_refunded`, in the charge's own currency — the one
+     * `coalesce(primary_currency, currency)` names, since a refund is always
+     * denominated in what the account settled. `null` where the event carried
+     * no usable number.
+     */
+    refundedAmountMinor: number | null;
+    /** Stripe's `charge.refunded`: the whole charge went back, not part of it. */
+    fullyRefunded: boolean;
+  }): Effect.Effect<
+    "refunded" | "partial" | "ignored" | "unknown" | "rejected" | "ambiguous",
+    never,
+    DbService
+  > {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const rows = yield* contributionsOnAccount(
+        and(
+          eq(registryContributions.stripePaymentIntentId, input.paymentIntentId),
+          // Defensive, not decorative: the column is nullable, and a NULL never
+          // equals anything in SQL, but the intent is that a pending row with no
+          // intent yet can never be matched by a refund.
+          ne(registryContributions.status, "pending"),
+        ) as SQL,
+        input.stripeAccountId,
+        // Two, because two is all it takes to know the answer is not one.
+        2,
+      );
+      if (rows.length > 1) {
+        // The column is indexed, not unique, and deliberately so — see
+        // migration 0058. So the read has to carry the check the constraint
+        // does not: more than one gift on this intent means the refund names a
+        // row we cannot pick, and picking the first would move somebody's gift
+        // to `refunded` on the strength of an ORDER BY nobody wrote.
+        //
+        // Nothing is written. The event is still acknowledged, because a 500
+        // would only buy the same undecidable read on Stripe's retry schedule
+        // for the next three days; the log is the thing that wants a human.
+        yield* Effect.logError("refund names more than one contribution", {
+          paymentIntentId: input.paymentIntentId,
+          stripeAccountId: input.stripeAccountId,
+          contributionIds: rows.map((candidate) => candidate.id),
+        });
+        return "ambiguous";
+      }
+      const row = rows[0];
+      if (!row) return "unknown";
+      if (!row.ownedAccountId) return "rejected";
+      if (row.status !== "succeeded") return "ignored";
+
+      const refunded = refundedAmountOf(input.refundedAmountMinor);
+      // Cumulative and monotonic: anything at or below what the row already
+      // holds is an older delivery of a total already recorded.
+      const advances = refunded !== null && refunded > (row.refundedAmountMinor ?? 0);
+      if (!input.fullyRefunded && !advances) {
+        yield* Effect.logWarning("partial refund carried no new amount", {
+          paymentIntentId: input.paymentIntentId,
+          stripeAccountId: input.stripeAccountId,
+          contributionId: row.id,
+          recordedAmountMinor: row.refundedAmountMinor,
+        });
+        return "partial";
+      }
+
+      const patch: RefundPatch = { updatedAt: new Date() };
+      if (advances) patch.refundedAmountMinor = refunded;
+      if (input.fullyRefunded) patch.status = "refunded";
+
+      yield* dbQuery(() =>
+        db
+          .update(registryContributions)
+          .set(patch)
+          .where(eq(registryContributions.id, row.id))
+          .run(),
+      );
+      return input.fullyRefunded ? "refunded" : "partial";
+    }).pipe(Effect.withSpan("cire.registry.refundContribution"));
+  },
+
+  /**
+   * A guest's bank pulled a gift back while it decides whether to keep it.
+   *
+   * Found by payment intent, exactly as a refund is, and carrying the same
+   * ambiguity check for the same reason: the column is indexed and not unique,
+   * so two gifts on one intent means the event names a row nothing here can
+   * pick, and picking one would move somebody else's gift.
+   *
+   * The three transitions, and why each is the one it is:
+   *
+   *  - `opened` moves a `succeeded` gift to `disputed`. The money is out of the
+   *    couple's balance today, so a log still reading "Received" is telling them
+   *    something untrue about their own bank account.
+   *  - `won` moves it back to `succeeded`. The bank sided with the couple and
+   *    the money returns; a gift that survived a dispute is a gift.
+   *  - `lost` moves it to `refunded`, which is what it has become — the guest
+   *    has their money and the couple does not.
+   *
+   * A `lost` may act on a `succeeded` row as well as a `disputed` one, because
+   * the `created` delivery can be the one that failed while `closed` got
+   * through, and a gift the couple no longer has must not stay in their total on
+   * the strength of a missed webhook. Nothing else moves: a `refunded` or
+   * `failed` row is already at an ending, and `pending` never held any money.
+   */
+  disputeContribution(input: {
+    paymentIntentId: string;
+    stripeAccountId: string;
+    resolution: "opened" | "won" | "lost";
+  }): Effect.Effect<
+    "disputed" | "restored" | "refunded" | "ignored" | "unknown" | "rejected" | "ambiguous",
+    never,
+    DbService
+  > {
+    return Effect.gen(function* () {
+      const db = yield* DbService;
+      const rows = yield* contributionsOnAccount(
+        and(
+          eq(registryContributions.stripePaymentIntentId, input.paymentIntentId),
+          ne(registryContributions.status, "pending"),
+        ) as SQL,
+        input.stripeAccountId,
+        2,
+      );
+      if (rows.length > 1) {
+        yield* Effect.logError("dispute names more than one contribution", {
+          paymentIntentId: input.paymentIntentId,
+          stripeAccountId: input.stripeAccountId,
+          contributionIds: rows.map((candidate) => candidate.id),
+        });
+        return "ambiguous";
+      }
+      const row = rows[0];
+      if (!row) return "unknown";
+      // The join found no settings row holding this account, so the gift does
+      // not belong to the account the event came from. Same refusal a refund
+      // makes, and for the same reason.
+      if (!row.ownedAccountId) return "rejected";
+
+      const next =
+        input.resolution === "opened"
+          ? row.status === "succeeded"
+            ? "disputed"
+            : null
+          : input.resolution === "won"
+            ? row.status === "disputed"
+              ? "succeeded"
+              : null
+            : row.status === "disputed" || row.status === "succeeded"
+              ? "refunded"
+              : null;
+      if (!next) return "ignored";
+
+      yield* dbQuery(() =>
+        db
+          .update(registryContributions)
+          .set({ status: next, updatedAt: new Date() })
+          // The status is re-checked in the predicate, not just read above: two
+          // dispute deliveries for one charge can be in flight together, and the
+          // read has already happened by the time either writes.
+          .where(
+            and(eq(registryContributions.id, row.id), eq(registryContributions.status, row.status)),
+          )
+          .run(),
+      );
+      return next === "disputed" ? "disputed" : next === "refunded" ? "refunded" : "restored";
+    }).pipe(Effect.withSpan("cire.registry.disputeContribution"));
   },
 
   createItem(
@@ -1192,6 +2581,13 @@ export interface PublicRegistryItemDto {
 export interface PublicRegistryDto {
   headline: string | null;
   message: string | null;
+  /**
+   * Whether a guest may give money RIGHT NOW — the couple's intent AND Stripe's
+   * capability, ANDed here so the guest surface never has to reason about the
+   * two separately. A contribute button the couple meant to offer but Stripe
+   * cannot honour is a refund and a support case; one they never meant to offer
+   * is worse.
+   */
   cashGiftsEnabled: boolean;
   /** The wedding's primary currency — what every `priceMinor` is denominated in. */
   currency: string;
@@ -1277,16 +2673,25 @@ const toPublicItemDto = (
 function resolveVisibleRegistry(
   slug: string,
 ): Effect.Effect<
-  { weddingId: string; settings: RegistrySettingsDto },
+  { weddingId: string; settings: RegistrySettingsDto; currency: string },
   RegistryNotVisible,
   DbService
 > {
   return Effect.gen(function* () {
     const db = yield* DbService;
+    // The CURRENCY rides along: SQLite reads the whole row for the slug
+    // lookup regardless, so the extra column is free — and it saves
+    // `primaryCurrency` a second read of the same row, one round trip down, on
+    // the read a guest waits on to reach a payment page.
     const [weddingRow] = yield* dbQuery(() =>
-      db.select({ id: weddings.id }).from(weddings).where(eq(weddings.slug, slug)).all(),
+      db
+        .select({ id: weddings.id, currency: weddings.currency })
+        .from(weddings)
+        .where(eq(weddings.slug, slug))
+        .all(),
     );
-    const weddingId = (weddingRow as { id: string } | undefined)?.id;
+    const wedding = weddingRow as { id: string; currency: string } | undefined;
+    const weddingId = wedding?.id;
     if (!weddingId) return yield* Effect.fail(new RegistryNotVisible());
 
     // Both gates read together: neither answer depends on the other, and the
@@ -1305,7 +2710,8 @@ function resolveVisibleRegistry(
       ? toSettingsDto(settingsRows[0] as SettingsRow)
       : defaultSettings(weddingId);
     if (!entitled || !settings.published) return yield* Effect.fail(new RegistryNotVisible());
-    return { weddingId, settings };
+    // Same fallback `primaryCurrency` has always used.
+    return { weddingId, settings, currency: wedding?.currency ?? "AUD" };
   });
 }
 
@@ -1371,7 +2777,8 @@ export const registryGuestService = {
       return {
         headline: settings.headline,
         message: settings.message,
-        cashGiftsEnabled: settings.cashGiftsEnabled,
+        // Intent AND capability. See the DTO.
+        cashGiftsEnabled: settings.cashGiftsEnabled && settings.stripeChargesEnabled,
         currency,
         items: (itemRows as ItemRow[]).map((r) =>
           toPublicItemDto(weddingId, r, claimed.get(r.id) ?? 0),

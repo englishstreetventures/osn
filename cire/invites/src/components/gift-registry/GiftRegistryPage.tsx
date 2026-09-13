@@ -1,4 +1,15 @@
-import { createMemo, createSignal, For, Match, onCleanup, onMount, Show, Switch } from "solid-js";
+import {
+  createMemo,
+  createSignal,
+  For,
+  lazy,
+  Match,
+  onCleanup,
+  onMount,
+  Show,
+  Suspense,
+  Switch,
+} from "solid-js";
 
 import {
   claimGiftRegistryItem,
@@ -22,6 +33,18 @@ import {
 } from "../../lib/gift-registry";
 import { CLAIM_SESSION_EVENT, hasClaimedHint } from "../claim-session";
 import { GiftRegistryItemCard } from "./GiftRegistryItemCard";
+
+/**
+ * The money panel is a whole second surface — its own amount field, its own
+ * fetch, its own Stripe hand-off — and most guests come here to tick something
+ * off the list instead. `lazy` keeps it out of the page's first chunk and
+ * fetches it only for the weddings that take money, which is the same
+ * `.then` adapter the invite designs use for a named export. Module scope, so
+ * the promise and therefore the chunk are shared across renders.
+ */
+const GiftMoneyPanel = lazy(() =>
+  import("./GiftMoneyPanel").then((m) => ({ default: m.GiftMoneyPanel })),
+);
 
 /**
  * THE GIFT LIST, as a guest reads it — the couple's list, what is still free on
@@ -144,6 +167,13 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
   const [mine, setMine] = createSignal<GiftRegistryHouseholdFetch | null>(null);
   const [status, setStatus] = createSignal("");
   const [busyItem, setBusyItem] = createSignal<string | null>(null);
+  /**
+   * Where a guest coming back from Stripe landed: `thanks` or `cancelled`, read
+   * once from the URL the payment page returned them to. Read on mount rather
+   * than reactively — it describes an arrival, not a state that changes while
+   * they are here.
+   */
+  const [payment, setPayment] = createSignal<"thanks" | "cancelled" | null>(null);
 
   async function loadList(): Promise<void> {
     const result = await fetchGiftRegistry(props.apiUrl, props.slug);
@@ -171,6 +201,9 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
   }
 
   onMount(() => {
+    const arrived = new URLSearchParams(window.location.search).get("gift");
+    if (arrived === "thanks" || arrived === "cancelled") setPayment(arrived);
+
     // Both reads on mount, in parallel — neither needs the other, and both are
     // credentialed, so this is the first moment either can run at all.
     void loadList();
@@ -320,14 +353,13 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                start until this island hydrates — a moment the page should name
                rather than fill with an empty frame. A live region, because for
                a screen reader this IS the page until it resolves. */
-            <p
+            <output
               data-gift-waiting
-              role="status"
               aria-live="polite"
-              class="font-body text-text-muted py-10 text-center text-[0.88rem]"
+              class="font-body text-text-muted block py-10 text-center text-[0.88rem]"
             >
               Opening the couple’s list…
-            </p>
+            </output>
           }
         >
           <Match when={answer() === "signed-out"}>
@@ -379,6 +411,24 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
           </Match>
 
           <Match when={registry()}>
+            {/* Back from Stripe. NOTHING here is evidence of a payment — the
+                parameter is one anybody can type, and the row is the webhook's
+                to write. So the copy is conditional rather than a
+                confirmation: it thanks them for what they did, without
+                asserting on the page that money moved. */}
+            <Show when={payment()}>
+              {(arrival) => (
+                <p
+                  data-gift-payment={arrival()}
+                  class="border-gold/40 bg-gold/5 text-gold-ink font-body mx-auto mb-8 max-w-[34rem] rounded-sm border px-4 py-3 text-center text-[0.85rem] leading-[1.6]"
+                >
+                  {arrival() === "thanks"
+                    ? "Thank you. If your payment went through, it’s on its way to them — the couple will see it in their gift list."
+                    : "Nothing was charged. The list is still here whenever you want it."}
+                </p>
+              )}
+            </Show>
+
             <Show when={intro()}>
               {(text) => (
                 <p class="font-body text-text-muted mx-auto mb-8 max-w-[34rem] text-center text-[0.92rem] leading-[1.7] break-words whitespace-pre-line">
@@ -427,14 +477,33 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 a screen reader hears the 409 the same moment a sighted guest reads
                 it. Never an overlay: page-level fixed positioning is trapped by any
                 ancestor `transform`. */}
-            <p
+            <output
               data-gift-status
-              role="status"
               aria-live="polite"
-              class="font-body text-text mx-auto mb-8 min-h-[1.25rem] max-w-[34rem] text-center text-[0.82rem] leading-[1.6]"
+              class="font-body text-text mx-auto mb-8 block min-h-[1.25rem] max-w-[34rem] text-center text-[0.82rem] leading-[1.6]"
             >
               {status()}
-            </p>
+            </output>
+
+            {/* Giving money sits ABOVE the shelves and outside the
+                items-exist branch on purpose: a guest who finds every gift
+                taken has not stopped wanting to give something, and an option
+                that only appears once the list runs dry reads as a
+                consolation prize. Shown only when the couple are actually
+                taking money — the API ANDs their intent with Stripe's
+                capability before it ever reaches here. */}
+            <Show when={registry()?.cashGiftsEnabled && signedIn()}>
+              {/* No fallback: a placeholder for a panel most guests will not
+                  use would push the shelves down and then snap them back. */}
+              <Suspense fallback={null}>
+                <GiftMoneyPanel
+                  apiUrl={props.apiUrl}
+                  slug={props.slug}
+                  currency={registry()?.currency ?? ""}
+                  inviteHref={props.inviteHref}
+                />
+              </Suspense>
+            </Show>
 
             <Show
               when={items().length > 0}

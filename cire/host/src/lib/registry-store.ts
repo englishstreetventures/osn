@@ -82,6 +82,26 @@ export interface GiftLogEntry {
   createdAt: number;
 }
 
+/**
+ * What cire kept when it deleted a wedding's gift detail.
+ *
+ * Present ONLY after the retention sweep: a year after the last event the guest
+ * households are deleted, and every claim and contribution goes with them.
+ * Aggregates only, by design — a summary carrying a name, a household or a note
+ * would be the deletion undone in the field next door. Money is totalled PER
+ * CURRENCY and never converted. Mirrors `GiftSummary` in
+ * `cire/api/src/services/retention.ts`.
+ */
+export interface GiftSummary {
+  /** The day the detail was deleted, ISO. */
+  sweptOn: string;
+  /** The span the counted gifts arrived over, ISO days, both ends inclusive. */
+  firstGiftOn: string;
+  lastGiftOn: string;
+  claims: { reserved: number; purchased: number };
+  contributions: { count: number; totals: { currency: string; amountMinor: number }[] };
+}
+
 /** The whole registry as the organiser API returns it in one GET. */
 export interface RegistrySnapshot {
   settings: RegistrySettings;
@@ -89,12 +109,21 @@ export interface RegistrySnapshot {
   gifts: GiftLogEntry[];
   /** Whether another page of gift-log rows sits past `gifts`. */
   giftsHasMore: boolean;
+  /** The parting summary, or null while the gifts themselves are still here.
+   *  Non-null means `gifts` is empty because we deleted it. */
+  giftSummary: GiftSummary | null;
   /** The wedding's primary currency — what every authored figure is in. */
   currency: string;
-  /** Succeeded contributions summed in the primary currency. APPROXIMATE by
-   *  construction (each foreign row converted at its own snapshotted rate), so
-   *  the view must label it as such. */
+  /** Succeeded contributions that are IN the primary currency, summed. A gift
+   *  in some other currency that carries no conversion is left out and counted
+   *  by `contributionsOtherCurrencyCount` instead, because a sum across
+   *  currencies is not an amount of money. APPROXIMATE even so: a row that does
+   *  carry a conversion was converted at its own snapshotted rate, so the view
+   *  must label it as such. */
   contributionsPrimaryMinor: number;
+  /** How many succeeded gifts the total above leaves out. Non-zero means it is
+   *  not the whole of the money and the view has to say so. */
+  contributionsOtherCurrencyCount: number;
 }
 
 interface CacheEntry {
@@ -184,6 +213,25 @@ export function stillWanted(item: RegistryItem): number {
 
 const inflight = new Map<string, Promise<boolean>>();
 
+/**
+ * Weddings whose Stripe capability has already been re-read this page load.
+ *
+ * It lives here rather than in the settings panel because the panel is behind a
+ * `<Show>` and remounts on every sub-tab switch, and module state in the panel
+ * would then outlive the cache it guards — including across tests. The state it
+ * re-reads for (an account mid-onboarding) can sit unchanged for days; a page
+ * reload is the one moment the answer is likely to have moved, and a reload
+ * clears this.
+ */
+const stripeChecked = new Set<string>();
+
+/** Claim the one live Stripe read this page load allows. False if already taken. */
+export function claimStripeCheck(weddingId: string): boolean {
+  if (stripeChecked.has(weddingId)) return false;
+  stripeChecked.add(weddingId);
+  return true;
+}
+
 export function ensureRegistryLoaded(
   weddingId: string,
   fetcher: () => Promise<RegistrySnapshot>,
@@ -232,6 +280,7 @@ export function ensureRegistryLoaded(
 export function __resetRegistryCache(): void {
   cache.clear();
   inflight.clear();
+  stripeChecked.clear();
   generation.clear();
   stale.clear();
 }
