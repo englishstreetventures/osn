@@ -1,5 +1,12 @@
 # @tools/metrics
 
+## 0.2.8
+
+### Patch Changes
+
+- Updated dependencies [98fd9ee]
+  - @osn/ui@1.11.3
+
 ## 0.2.7
 
 ### Patch Changes
