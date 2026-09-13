@@ -20,16 +20,20 @@ name: Deploy
 #
 # Two Environments, two Cloudflare credential NAMES:
 #
-#   dev         -> CLOUDFLARE_API_TOKEN_DEV, held only by the `dev` Environment,
-#                  falling back to CLOUDFLARE_API_TOKEN while that is unset
-#   production  -> CLOUDFLARE_API_TOKEN, reachable only from an approved job
+#   dev         -> CLOUDFLARE_API_TOKEN_DEV, held only by the `dev` Environment
+#   production  -> CLOUDFLARE_API_TOKEN, held only by the `production`
+#                  Environment, reachable only from an approved job
 #
-# The names differ so the day a dev-only credential exists, every dev job picks
-# it up with no change here. The fallback is what makes today work: dev and
-# production share ONE Cloudflare account (decided 2026-08-14 — ship the dev
-# tier now, split accounts later), and inside a single account a second token
-# grants exactly what the first one already does, for the reason below. Secret
-# VALUES are never embedded here.
+# Both are set as of 2026-09-11, so the `|| secrets.CLOUDFLARE_API_TOKEN`
+# fallback in every dev job below is now unreachable. It stays because a `||`
+# that never fires is free, and it is what makes a wrongly-placed job fail on an
+# empty token rather than deploy with the other tier's rights. The `Cloudflare
+# credential scope` job prints which credential a run actually got.
+#
+# The two tokens still share ONE Cloudflare account (decided 2026-08-14 — ship
+# the dev tier now, split accounts later), so inside that account the second
+# token grants what the first one does, for the reason below. Secret VALUES are
+# never embedded here.
 #
 # What the split does NOT buy: `Workers Scripts:Edit` and `D1:Edit` are
 # ACCOUNT-level permissions — Cloudflare has no per-script or per-database

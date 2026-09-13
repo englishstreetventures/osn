@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-10
+last-reviewed: 2026-09-11
 ---
 
 # Dev environment (cire + OSN identity)
@@ -135,42 +135,93 @@ other tier's rights. That is what closed the tracked finding **S-M
 (preview-ci-prod-token)**: no push-triggered job can reach a prod-scoped
 credential any more.
 
-**That protection is worth exactly as much as the secrets' placement, so read
-the placement before trusting it.** Every dev job in `deploy.yml` reads
+**Both secrets now sit on their Environments.** Each tier holds its own token,
+and `CLOUDFLARE_ACCOUNT_ID` sits on both alongside it. The `Cloudflare
+credential scope` job in `deploy.yml` prints which credential a run actually
+got; read its line rather than assuming.
+
+*Measured 2026-09-11 — run 34578664876 on `main` printed `Dev jobs in this run
+hold CLOUDFLARE_API_TOKEN_DEV (dev Environment)`, and all seven dev and all
+eight production deploys were green on the Environment-scoped tokens.*
+
+#### Where the tokens live
+
+Both are **user-owned tokens**, listed under My Profile → API Tokens
+(`dash.cloudflare.com/profile/api-tokens`). Cloudflare keeps a second, separate
+list of **account-owned** tokens under Manage Account → API Tokens, and a token
+in one list never appears in the other.
+
+Look in the profile list. A token there is visible only to the Cloudflare user
+who created it, so no other account member can see or rotate these two — an
+accepted trade for now, and the reason this paragraph exists. Searching the
+account list and finding nothing does not mean the token is gone.
+
+Permissions granted to `CLOUDFLARE_API_TOKEN_DEV`, one line per thing the dev
+jobs actually call:
+
+| Scope | Permission | What needs it |
+|---|---|---|
+| Account | `Workers Scripts: Edit` | `wrangler deploy --env dev` for cire-api and osn-api, plus their cron triggers and rate-limit bindings |
+| Account | `D1: Edit` | `db:migrate:dev` in `cire/db` and `osn/db`, and the D1 bindings |
+| Account | `Cloudflare Pages: Edit` | `pages deploy` and `pages project create` for cire-host-dev, cire-landing-dev, cire-vendor-dev, osn-social-dev |
+| Account | `Workers R2 Storage: Edit` | the `cire-assets` bucket binding — R2 is the one permission Cloudflare scopes per bucket, so restrict it to the dev bucket |
+| Account | `Account Settings: Read` | wrangler's account lookup, on every call |
+| Zone | `Zone: Read` | route resolution |
+| Zone | `Workers Routes: Edit` | the `custom_domain = true` routes on `[env.dev]` for cire-api and osn-api |
+
+`Workers KV Storage: Edit` is **not** granted and is not needed: the only
+`kv_namespaces` block in the repo is commented out, in `cire/api/wrangler.toml`.
+Uncomment it and the token needs that permission too.
+
+One case is untested. `custom_domain = true` provisions a DNS record and a
+certificate the first time it runs, which may want `DNS: Edit` and `SSL and
+Certificates: Edit` on the zone. Every dev custom domain already exists, so
+steady-state deploys never re-provision and the token has neither. If a *new*
+dev Worker on a *new* custom domain ever fails at the DNS step, that is the
+cause — do not grant them before then.
+
+#### The fallback is now dead code
+
+Every dev job in `deploy.yml` still reads
 
 ```yaml
 CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEV || secrets.CLOUDFLARE_API_TOKEN }}
 ```
 
 and a `||` cannot tell a missing secret from a deliberate one. With
-`CLOUDFLARE_API_TOKEN_DEV` unset the fallback is taken silently, and a dev job
-runs on whatever `CLOUDFLARE_API_TOKEN` resolves to — including a
-repository-scope copy, which is visible to every job in every workflow, gate or
-no gate. The `Cloudflare credential scope` job in `deploy.yml` prints which of
-the two each run got; read its line rather than assuming.
+`CLOUDFLARE_API_TOKEN_DEV` unset the fallback was taken silently, and a dev job
+ran on whatever `CLOUDFLARE_API_TOKEN` resolved to — a repository-scope copy,
+visible to every job in every workflow, gate or no gate. That is the state this
+section used to describe. It is no longer the state: the left side of the `||`
+is set, so the right side is never reached. Leave the expression alone anyway —
+it costs nothing and it is what makes a wrongly-placed job fail loudly.
 
-**Moving the token to its Environment is an ordered operation, and the order is
-the whole of it.** Do not start at step 3.
+#### What is left, and the order
 
-1. `gh secret list --env production` and `gh secret list --env dev`. Note what
-   is actually there. An Environment with no rows is the state to fix, not a
-   formatting quirk.
-2. Put `CLOUDFLARE_API_TOKEN` on `production` and a real `CLOUDFLARE_API_TOKEN_DEV`
-   on `dev`. Both must exist before anything is removed.
-3. Re-run step 1 and confirm both. Then deploy once to each tier and confirm the
-   `Cloudflare credential scope` line names the Environment, not the fallback.
-4. Only now `gh secret delete CLOUDFLARE_API_TOKEN` at repository scope.
-5. Before you do, find every workflow that reads a `CLOUDFLARE_*` secret without
-   declaring an `environment:` — `grep -l CLOUDFLARE .github/workflows/*.yml` and
-   check each one. `free-tier-ceiling-alert.yml` is one by design: it is a
-   scheduled watcher, it cannot take `environment: production` because that gate
-   waits on a human and nobody approves a cron at 22:00 UTC, and it needs only
-   `d1 (read)` and `account (read)`. Give it a read-only credential of its own at
-   that point rather than a share of a deploy token.
+The repository-scope `CLOUDFLARE_API_TOKEN` still exists and **cannot be
+deleted yet**.
 
-Deleting the repository-scope secret before step 3 breaks **every** deploy in the
-repository, dev and production alike, because that is the value the `||` has been
-resolving to.
+1. Mint a read-only token for `free-tier-ceiling-alert.yml`: `Account Settings:
+   Read`, `D1: Read`, `Account Analytics: Read`. The last of those is what the
+   `d1AnalyticsAdaptiveGroups` and `workersInvocationsAdaptive` GraphQL sets
+   need; a token without it returns an authentication error, not empty data.
+2. Add it as its own repository-scope secret and point that workflow at it.
+3. Only then `gh secret delete CLOUDFLARE_API_TOKEN` at repository scope.
+
+Step 3 before steps 1 and 2 breaks the nightly alert. `free-tier-ceiling-alert.yml`
+declares no `environment:`, by design — it is a scheduled watcher, and it cannot
+take `environment: production` because that gate waits on a human and nobody
+approves a cron at 22:00 UTC. So both its Cloudflare secrets resolve at
+repository scope, and repository scope is exactly what step 3 removes.
+
+Before running step 3, re-check the list rather than trusting this page:
+`grep -l CLOUDFLARE .github/workflows/*.yml`, then read each hit for an
+`environment:` line. As of 2026-09-11 the other four
+(`deploy.yml`, `cire-dev-db-rebuild.yml`, `deploy-osn-pulse-landing.yml`,
+`set-osn-api-secret.yml`) all declare one and are safe.
+
+Leave `CLOUDFLARE_ACCOUNT_ID` at repository scope. It is not a secret — it is an
+identifier that appears in wrangler output — and the alert workflow needs it.
 
 **What the split does not buy.** `Workers Scripts:Edit` and `D1:Edit` are
 account-level permissions — Cloudflare offers no per-script or per-database
