@@ -63,27 +63,34 @@ jobs:
       # error, an account the token cannot read, a total that is not a number.
       # That fails this job, which is the point: a watcher that reports
       # all-clear while it is broken is worse than no watcher.
-      # This job declares no `environment:`, so both Cloudflare secrets resolve
-      # at REPOSITORY scope. That is where `CLOUDFLARE_API_TOKEN` lives today —
-      # `gh secret list --env production` is empty, so every deploy job reads
-      # the repository copy too.
       #
-      # `wiki/runbooks/dev-environment.md` §"Two Environments, two tokens" wants
-      # that scope emptied: put the token on the `production` Environment and
-      # `gh secret delete CLOUDFLARE_API_TOKEN` at repo scope. The day that
-      # happens this job loses its credential, and it cannot simply take
-      # `environment: production` in exchange — that Environment gates on a human
-      # approving, and a watcher nobody approves at 22:00 UTC watches nothing.
-      # It needs a token at a scope an unattended job can read. Read-only is
-      # enough: `d1 (read)` and `account (read)`, no write rights of any kind.
+      # This job declares no `environment:`, so its secrets resolve at
+      # REPOSITORY scope. That is deliberate and cannot change: the `production`
+      # Environment gates on a person approving, and a watcher nobody approves
+      # at 22:00 UTC watches nothing.
       #
-      # The break would be loud — a 401 exits the script non-zero and fails this
+      # So it carries its own credential. `CLOUDFLARE_API_TOKEN_READONLY` is a
+      # separate Cloudflare token holding `Account Settings: Read`, `D1: Read`
+      # and `Account Analytics: Read` — that last one is what the
+      # `d1AnalyticsAdaptiveGroups` and `workersInvocationsAdaptive` GraphQL sets
+      # need — and no write right of any kind. It is not a deploy token. The
+      # deploy tokens live only on the `dev` and `production` Environments, and
+      # since 2026-09-13 repository scope holds no credential that can write to
+      # Cloudflare at all. See `wiki/runbooks/dev-environment.md`
+      # §"Two Environments, two tokens".
+      #
+      # The env var below keeps the plain name because
+      # `check-free-tier-ceilings.ts` reads `CLOUDFLARE_API_TOKEN`, the name
+      # Cloudflare's own tools use. What changed is the secret it is filled
+      # from, not the variable.
+      #
+      # A break here is loud — a 401 exits the script non-zero and fails this
       # job, which is the behaviour to keep. Do not paper over it with a
       # `continue-on-error` or an empty-token skip; a watcher that goes quiet
       # when its credential is gone is worse than no watcher.
       - name: Read the counters and file or update the issue
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_READONLY }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GH_TOKEN: ${{ github.token }}
           END: ${{ inputs.end }}

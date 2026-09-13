@@ -9,7 +9,7 @@ related:
   - "[[cire-auth]]"
   - "[[oidc-provider]]"
   - "[[devloop-urls]]"
-last-reviewed: 2026-09-11
+last-reviewed: 2026-09-13
 ---
 
 # Dev environment (cire + OSN identity)
@@ -196,31 +196,44 @@ section used to describe. It is no longer the state: the left side of the `||`
 is set, so the right side is never reached. Leave the expression alone anyway —
 it costs nothing and it is what makes a wrongly-placed job fail loudly.
 
-#### What is left, and the order
+#### Repository scope holds no writing credential
 
-The repository-scope `CLOUDFLARE_API_TOKEN` still exists and **cannot be
-deleted yet**.
+Done, 2026-09-13. `CLOUDFLARE_API_TOKEN` no longer exists at repository scope.
+Every credential that can write to Cloudflare now sits on an Environment, and
+those two Environments are the only places a job can reach one.
 
-1. Mint a read-only token for `free-tier-ceiling-alert.yml`: `Account Settings:
-   Read`, `D1: Read`, `Account Analytics: Read`. The last of those is what the
-   `d1AnalyticsAdaptiveGroups` and `workersInvocationsAdaptive` GraphQL sets
-   need; a token without it returns an authentication error, not empty data.
-2. Add it as its own repository-scope secret and point that workflow at it.
-3. Only then `gh secret delete CLOUDFLARE_API_TOKEN` at repository scope.
+*Measured 2026-09-13 — `gh secret list --repo xchromo/osn` returns
+ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, CLOUDFLARE_ACCOUNT_ID,
+CLOUDFLARE_API_TOKEN_READONLY, RELEASE_TOKEN and TESSL_TOKEN — no deploy token
+among them.*
 
-Step 3 before steps 1 and 2 breaks the nightly alert. `free-tier-ceiling-alert.yml`
-declares no `environment:`, by design — it is a scheduled watcher, and it cannot
-take `environment: production` because that gate waits on a human and nobody
-approves a cron at 22:00 UTC. So both its Cloudflare secrets resolve at
-repository scope, and repository scope is exactly what step 3 removes.
+`free-tier-ceiling-alert.yml` was the one workflow that had to change before
+that delete. It declares no `environment:`, by design — it is a scheduled
+watcher, and it cannot take `environment: production`, because that gate waits
+on a person and nobody approves a cron at 22:00 UTC. So it now carries its own
+repository-scope secret, `CLOUDFLARE_API_TOKEN_READONLY`, a separate Cloudflare
+token granted only:
 
-Before running step 3, re-check the list rather than trusting this page:
-`grep -l CLOUDFLARE .github/workflows/*.yml`, then read each hit for an
-`environment:` line. As of 2026-09-11 the other four
+| Scope | Permission | What needs it |
+|---|---|---|
+| Account | `Account Settings: Read` | resolving the account the counters belong to |
+| Account | `D1: Read` | the D1 rows-written and reads counters |
+| Account | `Account Analytics: Read` | the `d1AnalyticsAdaptiveGroups` and `workersInvocationsAdaptive` GraphQL sets — a token without it returns an authentication error, not empty data |
+
+No write right of any kind. A read-only token at a scope every job can read is a
+much smaller thing to leak than a deploy token at the same scope, which is the
+whole point of the swap.
+
+Before adding a workflow that touches Cloudflare, check what scope it resolves
+at rather than trusting this page: `grep -l CLOUDFLARE .github/workflows/*.yml`,
+then read each hit for an `environment:` line. As of 2026-09-13 the other four
 (`deploy.yml`, `cire-dev-db-rebuild.yml`, `deploy-osn-pulse-landing.yml`,
-`set-osn-api-secret.yml`) all declare one and are safe.
+`set-osn-api-secret.yml`) all declare one. A workflow that declares none and
+needs to write has no credential to read — that is the design. Give it an
+Environment, or a job that can be approved; do not answer it by putting a
+writing token back at repository scope.
 
-Leave `CLOUDFLARE_ACCOUNT_ID` at repository scope. It is not a secret — it is an
+`CLOUDFLARE_ACCOUNT_ID` stays at repository scope. It is not a secret — it is an
 identifier that appears in wrangler output — and the alert workflow needs it.
 
 **What the split does not buy.** `Workers Scripts:Edit` and `D1:Edit` are
