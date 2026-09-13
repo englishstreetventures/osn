@@ -512,18 +512,30 @@ describe("fail-closed shapes", () => {
       const { profile } = yield* seedWithOldPasskey("prov-tie@example.com", "provtie");
 
       const firstToken = yield* auth.issueStepUpToken(profile.accountId, "otp", "passkey_register");
-      const a = yield* enrol(profile.accountId, firstToken);
+      const enrolled = yield* enrol(profile.accountId, firstToken);
       const secondToken = yield* auth.issueStepUpToken(
         profile.accountId,
         "otp",
         "passkey_register",
       );
-      const b = yield* enrol(profile.accountId, secondToken);
+      const enrolledAgain = yield* enrol(profile.accountId, secondToken);
+
+      // Both rows are then stamped onto one named second rather than left
+      // wherever the wall clock landed. Back-to-back enrolments usually tie on
+      // their own, but the second can turn over between them, and then the
+      // precondition below is false and the run fails in its own setup without
+      // ever reaching the guard. Naming the second makes the tie the test's
+      // rather than the clock's. Both rows are still written by the real
+      // registration path first, so what the guard reads is a real row.
+      const tieSecond = Math.floor(Date.now() / 1000);
+      yield* stampCreatedAt(enrolled.id, tieSecond);
+      yield* stampCreatedAt(enrolledAgain.id, tieSecond);
+      const a = yield* passkeyById(enrolled.id);
+      const b = yield* passkeyById(enrolledAgain.id);
 
       // Same second, different rows — the precondition the guard exists for.
-      expect(Math.floor(b.createdAt.getTime() / 1000)).toBe(
-        Math.floor(a.createdAt.getTime() / 1000),
-      );
+      expect(Math.floor(a.createdAt.getTime() / 1000)).toBe(tieSecond);
+      expect(Math.floor(b.createdAt.getTime() / 1000)).toBe(tieSecond);
       expect(b.id).not.toBe(a.id);
 
       const deleteToken = yield* assertFor(profile.accountId, b.credentialId, "passkey_delete");
