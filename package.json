@@ -2,7 +2,7 @@
   "name": "osn",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.4.0",
+  "packageManager": "bun@1.4.2",
   "workspaces": ["cire/*", "musubi/*", "osn/*", "pulse/*", "zap/*", "shared/*", "tools/lab", "tools/oxlint/house",
     "tools/pr-metrics", "tools/metrics"],
   "scripts": {
@@ -38,9 +38,9 @@
     "prepare": "lefthook install"
   },
   "devDependencies": {
-    "@changesets/cli": "^3.0.1",
+    "@changesets/cli": "^3.0.2",
     "@oxlint/plugins": "1.80.0",
-    "bun-types": "^1.4.0",
+    "bun-types": "^1.4.2",
     "lefthook": "^2.1.12",
     "oxfmt": "^0.65.0",
     "oxlint": "1.80.0",

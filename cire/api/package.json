@@ -38,7 +38,7 @@
     "@cloudflare/workers-types": "^5.20260903.1",
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
-    "jose": "^6.2.10",
+    "jose": "^6.2.12",
     "miniflare": "^4.20260730.0",
     "wrangler": "^4.127.1"
   }

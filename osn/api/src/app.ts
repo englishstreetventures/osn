@@ -212,7 +212,6 @@ export function createApp(deps: AppDeps) {
     ? withRoot.use(
         openapi({
           documentation: {
-            openapi: "3.1.0",
             info: { title: "OSN Identity API", version: "1.0.0" },
             components: {
               securitySchemes: {

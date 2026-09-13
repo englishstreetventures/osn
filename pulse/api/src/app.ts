@@ -126,7 +126,6 @@ export function createApp(options: AppOptions = {}) {
     ? base.use(
         openapi({
           documentation: {
-            openapi: "3.1.0",
             info: { title: "Pulse API", version: "1.0.0" },
             components: {
               securitySchemes: {

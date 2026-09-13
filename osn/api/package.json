@@ -23,7 +23,7 @@
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.2",
-    "@elysiajs/openapi": "1.4.15",
+    "@elysiajs/openapi": "1.4.16",
     "@osn/db": "workspace:*",
     "@shared/crypto": "workspace:*",
     "@shared/db-utils": "workspace:*",
@@ -37,7 +37,7 @@
     "drizzle-orm": "^0.45.2",
     "effect": "4.0.0-rc.112",
     "elysia": "^1.4.30",
-    "jose": "^6.2.10"
+    "jose": "^6.2.12"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260903.1",

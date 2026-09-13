@@ -42,7 +42,7 @@
     "test:run": "bunx --bun vitest run"
   },
   "dependencies": {
-    "@kobalte/core": "^0.13.13",
+    "@kobalte/core": "^0.13.14",
     "@osn/client": "workspace:*",
     "@shared/toast": "workspace:*",
     "@simplewebauthn/browser": "^13.3.0",

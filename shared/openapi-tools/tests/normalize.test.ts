@@ -49,10 +49,28 @@ describe("stripRedundantNullable", () => {
     expect(node).toEqual({ anyOf: [{ type: "string" }, { type: "null" }] });
   });
 
+  it("removes the 3.0 keyword when a type array already says null", () => {
+    const node = { nullable: true, type: ["string", "null"] };
+    stripRedundantNullable(node);
+    expect(node).toEqual({ type: ["string", "null"] });
+  });
+
+  it("removes it beside an enum whose type array says null", () => {
+    const node = { enum: ["host_left", "organiser"], nullable: true, type: ["string", "null"] };
+    stripRedundantNullable(node);
+    expect(node).toEqual({ enum: ["host_left", "organiser"], type: ["string", "null"] });
+  });
+
   it("keeps `nullable` when nothing else expresses nullability", () => {
     const node = { nullable: true, type: "string" };
     stripRedundantNullable(node);
     expect(node).toEqual({ nullable: true, type: "string" });
+  });
+
+  it("keeps `nullable` when the type array carries no null member", () => {
+    const node = { nullable: true, type: ["string", "number"] };
+    stripRedundantNullable(node);
+    expect(node).toEqual({ nullable: true, type: ["string", "number"] });
   });
 });
 

@@ -647,7 +647,7 @@
     "title": "Pulse API",
     "version": "1.0.0"
   },
-  "openapi": "3.1.0",
+  "openapi": "3.1.2",
   "paths": {
     "/account": {
       "delete": {
@@ -4558,24 +4558,13 @@
                           "type": "string"
                         },
                         "reason": {
-                          "anyOf": [
-                            {
-                              "const": "unsupported_freq",
-                              "type": "string"
-                            },
-                            {
-                              "const": "too_many_instances",
-                              "type": "string"
-                            },
-                            {
-                              "const": "missing_termination",
-                              "type": "string"
-                            },
-                            {
-                              "const": "parse_error",
-                              "type": "string"
-                            }
-                          ]
+                          "enum": [
+                            "unsupported_freq",
+                            "too_many_instances",
+                            "missing_termination",
+                            "parse_error"
+                          ],
+                          "type": "string"
                         }
                       },
                       "required": [

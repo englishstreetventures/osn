@@ -114,12 +114,15 @@ export function stripVoidContent(doc: Doc): Doc {
 }
 
 // `t.Nullable(...)` makes the plugin emit both spellings of nullability at
-// once: the 3.1-correct `anyOf: [X, { type: "null" }]` *and* OpenAPI 3.0's
-// `nullable: true` keyword, which does not exist in 3.1. The document declares
-// 3.1.0, so the extra keyword is invalid — swift-openapi-generator emits one
-// validation warning per occurrence (253 of them) before falling back to the
-// `anyOf`. Drop `nullable` only where the union already carries `type: "null"`,
-// so nullability is never silently lost.
+// once: a 3.1-correct one *and* OpenAPI 3.0's `nullable: true` keyword, which
+// does not exist in 3.1. The document declares 3.1, so the extra keyword is
+// invalid — swift-openapi-generator emits one validation warning per
+// occurrence (253 of them) before falling back to the correct spelling.
+//
+// The 3.1-correct spelling comes in two shapes and both have been seen from
+// this plugin: `anyOf: [X, { type: "null" }]`, and a type array
+// `type: ["string", "null"]`. Drop `nullable` where either one already carries
+// null, so nullability is never silently lost.
 export function stripRedundantNullable(node: unknown): void {
   if (Array.isArray(node)) {
     for (const child of node) stripRedundantNullable(child);
@@ -129,8 +132,11 @@ export function stripRedundantNullable(node: unknown): void {
   const schema = node as Doc;
   if (schema["nullable"] === true) {
     const anyOf = schema["anyOf"];
+    const type = schema["type"];
     const expressesNull =
-      Array.isArray(anyOf) && anyOf.some((member) => isSchema(member) && member["type"] === "null");
+      (Array.isArray(anyOf) &&
+        anyOf.some((member) => isSchema(member) && member["type"] === "null")) ||
+      (Array.isArray(type) && type.includes("null"));
     if (expressesNull) delete schema["nullable"];
   }
   for (const child of Object.values(schema)) stripRedundantNullable(child);

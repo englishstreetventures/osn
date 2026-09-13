@@ -43,7 +43,7 @@
     "@effect/vitest": "4.0.0-rc.112",
     "@shared/dev-urls": "workspace:*",
     "@shared/typescript-config": "workspace:*",
-    "jose": "^6.2.10",
+    "jose": "^6.2.12",
     "miniflare": "^4.20260730.0",
     "vitest": "^4.1.11",
     "wrangler": "^4.127.1"

@@ -18,7 +18,7 @@
   "dependencies": {
     "@astrojs/solid-js": "^7.0.2",
     "@cire/theme": "workspace:*",
-    "@kobalte/core": "^0.13.13",
+    "@kobalte/core": "^0.13.14",
     "@shared/rp-auth": "workspace:*",
     "@shared/toast": "workspace:*",
     "@tailwindcss/vite": "^4.3.3",

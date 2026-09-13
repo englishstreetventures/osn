@@ -9,7 +9,7 @@ related:
   - "[[dev-environment]]"
   - "[[devloop-urls]]"
   - "[[commands]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-11
 ---
 
 # Bun 1.4 migration
@@ -64,6 +64,21 @@ devDependency, never bundled into a Worker. The entry in `bunfig.toml` carried
 its own drop-trigger, and it fired: **`bun-types` was removed from
 `minimumReleaseAgeExcludes` on 2026-08-24**, leaving the list empty. Leaving it
 would have exempted every future `bun-types` release from the soak.
+
+**The three pins moved together on 2026-09-11**, to `1.4.2`: `.bun-version`,
+`packageManager` in the root `package.json`, and the `bun-types` devDependency.
+That is the shape every later bump should take — the types package is what makes
+the typecheck describe the runtime, so moving one without the other is how the
+1.3.14/1.4.0 split above happened. No `minimumReleaseAge` exception was needed
+this time: 1.4.2 was six days old.
+
+`1.4.1` was skipped deliberately. It introduced a `bun build` regression that
+renamed a nested `var` to collide with a `let` in the same block, and the shape
+it broke was **Elysia** — every build importing it failed to load with
+`SyntaxError: Cannot declare a var variable that shadows a let/const/class
+variable`. All four APIs here are Elysia. 1.4.2 fixes it and adds a regression
+test, so the repo went straight there. 1.4.2 also fixes an `AsyncLocalStorage`
+leak that 1.4.1 introduced.
 
 Drop-triggers are no longer prose. `scripts/check-release-age-excludes.ts` runs
 in CI (the `script-tests` job) and fails the build if an entry in

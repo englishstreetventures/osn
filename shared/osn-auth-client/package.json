@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@shared/crypto": "workspace:*",
-    "jose": "^6.2.10"
+    "jose": "^6.2.12"
   },
   "peerDependencies": {
     "elysia": "^1.4.30"
