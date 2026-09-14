@@ -9,8 +9,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // The Register stand-in exposes a button that fires `onSuccess`, which is how
 // the real component signals "account created and passkey enrolled".
 vi.mock("@osn/ui/auth/SignIn", () => ({
-  SignIn: (props: { onSuccess?: () => void }) => (
+  SignIn: (props: { onSuccess?: () => void; productName: string }) => (
     <div data-testid="signin">
+      <span data-testid="signin-product-name">{props.productName}</span>
       <button type="button" data-testid="signin-finished" onClick={() => props.onSuccess?.()}>
         finish
       </button>
@@ -18,8 +19,9 @@ vi.mock("@osn/ui/auth/SignIn", () => ({
   ),
 }));
 vi.mock("@osn/ui/auth/Register", () => ({
-  Register: (props: { onSuccess?: () => void }) => (
+  Register: (props: { onSuccess?: () => void; productName: string }) => (
     <div data-testid="register">
+      <span data-testid="register-product-name">{props.productName}</span>
       <button type="button" data-testid="register-finished" onClick={() => props.onSuccess?.()}>
         finish
       </button>
@@ -96,6 +98,18 @@ describe("<AuthDialogs /> — close-on-session invariant", () => {
       { signIn: true },
     );
     expect(screen.getByTestId("signin")).toBeDefined();
+  });
+
+  // The prop this whole file's mocks used to type away entirely — a call
+  // site that dropped or misspelled `productName` compiled and passed here
+  // before this assertion existed.
+  it("passes the app's product name to both dialogs", () => {
+    renderDialogs(
+      makeAuth(() => null),
+      { signIn: true, register: true },
+    );
+    expect(screen.getByTestId("signin-product-name").textContent).toBe("Musubi");
+    expect(screen.getByTestId("register-product-name").textContent).toBe("Musubi");
   });
 
   it("never renders an auth dialog once a session exists", () => {

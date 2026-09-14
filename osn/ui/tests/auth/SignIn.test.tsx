@@ -98,7 +98,13 @@ describe("SignIn component", () => {
       login.passkeyComplete.mockResolvedValue({ session: sampleSession, user: sampleUser });
       hoisted.adoptSession.mockResolvedValue(undefined);
 
-      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          productName="Musubi"
+        />
+      ));
       fillIdentifier("alice");
       fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
 
@@ -120,7 +126,13 @@ describe("SignIn component", () => {
       hoisted.startAuthentication.mockResolvedValue({ id: "cred" });
       login.passkeyComplete.mockRejectedValue(new Error("Passkey verification failed"));
 
-      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          productName="Musubi"
+        />
+      ));
       fillIdentifier("alice");
       fireEvent.click(screen.getByRole("button", { name: /^Continue$/ }));
 
@@ -145,7 +157,13 @@ describe("SignIn component", () => {
       login.passkeyComplete.mockResolvedValue({ session: sampleSession, user: sampleUser });
       hoisted.adoptSession.mockResolvedValue(undefined);
 
-      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          productName="Musubi"
+        />
+      ));
 
       await waitFor(() => expect(login.passkeyBegin).toHaveBeenCalledWith());
       await waitFor(() =>
@@ -169,7 +187,13 @@ describe("SignIn component", () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- cleanup
       delete (window as any).PublicKeyCredential;
 
-      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          productName="Musubi"
+        />
+      ));
 
       await new Promise((r) => setTimeout(r, 10));
       expect(login.passkeyBegin).not.toHaveBeenCalled();
@@ -224,6 +248,7 @@ describe("SignIn component", () => {
           client={asLogin(login)}
           recoveryClient={asRecovery(recovery)}
           turnstileSiteKey="0x4AAAAAADnA2piUnbgG_kVw"
+          productName="Musubi"
         />
       ));
 
@@ -252,7 +277,13 @@ describe("SignIn component", () => {
   describe("WebAuthn-unsupported fallback", () => {
     it("shows the informational screen and routes to recovery on click", async () => {
       hoisted.webauthnSupported = false;
-      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          productName="Musubi"
+        />
+      ));
       await waitFor(() => {
         expect(screen.queryByLabelText(/Email or @handle/)).toBeNull();
       });
@@ -270,9 +301,42 @@ describe("SignIn component", () => {
     });
   });
 
+  describe("product name", () => {
+    it("heads the dialog with the product it was given", () => {
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          productName="Kumiho"
+        />
+      ));
+      expect(screen.getByRole("heading", { name: "Sign in to Kumiho" })).toBeTruthy();
+    });
+
+    it("names the product in the WebAuthn-unsupported fallback", async () => {
+      hoisted.webauthnSupported = false;
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          productName="Kumiho"
+        />
+      ));
+      await waitFor(() => {
+        expect(screen.getByText(/Kumiho sign-in needs a passkey or security key/)).toBeTruthy();
+      });
+    });
+  });
+
   describe("Lost your passkey? escape hatch", () => {
     it("surfaces the recovery form when the user clicks it", async () => {
-      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          productName="Musubi"
+        />
+      ));
       fireEvent.click(screen.getByRole("button", { name: /Lost your passkey/i }));
       await waitFor(() => screen.getByRole("button", { name: /Use a recovery code/i }));
       fireEvent.click(screen.getByRole("button", { name: /Use a recovery code/i }));
@@ -286,14 +350,25 @@ describe("SignIn component", () => {
     it("renders a Cancel button only when onCancel is provided", () => {
       const onCancel = vi.fn();
       render(() => (
-        <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} onCancel={onCancel} />
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          onCancel={onCancel}
+          productName="Musubi"
+        />
       ));
       fireEvent.click(screen.getByRole("button", { name: /^Cancel$/ }));
       expect(onCancel).toHaveBeenCalled();
     });
 
     it("omits the Cancel button when no onCancel prop is given", () => {
-      render(() => <SignIn client={asLogin(login)} recoveryClient={asRecovery(recovery)} />);
+      render(() => (
+        <SignIn
+          client={asLogin(login)}
+          recoveryClient={asRecovery(recovery)}
+          productName="Musubi"
+        />
+      ));
       expect(screen.queryByRole("button", { name: /^Cancel$/ })).toBeNull();
     });
   });

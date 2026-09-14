@@ -1,5 +1,6 @@
 import { SecurityEventsBanner } from "@osn/ui/auth/SecurityEventsBanner";
 
+import { PRODUCT_NAME } from "../lib/auth";
 import { securityEventsClient, stepUpClient, totpClient } from "../lib/authClients";
 import { runPasskeyCeremony } from "../lib/webauthn-ceremony";
 
@@ -21,6 +22,7 @@ export default function SecurityEventsBannerMount(props: { accessToken: string }
       accessToken={props.accessToken}
       runPasskeyCeremony={runPasskeyCeremony}
       totpClient={totpClient}
+      productName={PRODUCT_NAME}
     />
   );
 }

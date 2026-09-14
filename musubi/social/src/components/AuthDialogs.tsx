@@ -4,7 +4,7 @@ import { SignIn } from "@osn/ui/auth/SignIn";
 import { Dialog } from "@osn/ui/ui/dialog";
 import { createEffect } from "solid-js";
 
-import { TURNSTILE_SITEKEY } from "../lib/auth";
+import { PRODUCT_NAME, TURNSTILE_SITEKEY } from "../lib/auth";
 import { registrationClient, loginClient, recoveryClient } from "../lib/authClients";
 import { runPasskeyRegistrationDeferred } from "../lib/webauthn-registration-deferred";
 import { ResponsiveDialogContent } from "./ResponsiveDialogContent";
@@ -41,6 +41,7 @@ export function AuthDialogs(props: {
           <Register
             client={registrationClient}
             turnstileSiteKey={TURNSTILE_SITEKEY}
+            productName={PRODUCT_NAME}
             onCancel={() => props.onShowRegisterChange(false)}
             onSuccess={() => props.onShowRegisterChange(false)}
           />
@@ -54,6 +55,7 @@ export function AuthDialogs(props: {
             registrationClient={registrationClient}
             runPasskeyRegistration={runPasskeyRegistrationDeferred}
             turnstileSiteKey={TURNSTILE_SITEKEY}
+            productName={PRODUCT_NAME}
             onCancel={() => props.onShowSignInChange(false)}
             onSuccess={() => props.onShowSignInChange(false)}
           />

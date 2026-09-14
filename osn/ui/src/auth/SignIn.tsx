@@ -49,6 +49,8 @@ export interface SignInProps {
    * gate on the explicit begin call. Omitted/blank ⇒ no widget, no gate.
    */
   turnstileSiteKey?: string;
+  /** Product name shown in this dialog's copy — e.g. "Musubi". */
+  productName: string;
 }
 
 export function SignIn(props: SignInProps) {
@@ -183,7 +185,7 @@ export function SignIn(props: SignInProps) {
     <div class="mx-auto max-w-sm px-4 py-8">
       <div class="mb-6 flex items-center justify-between">
         <h2 class="text-foreground text-2xl font-bold">
-          {view() === "recovery" ? "Recover your account" : "Sign in to OSN"}
+          {view() === "recovery" ? "Recover your account" : `Sign in to ${props.productName}`}
         </h2>
         <Show when={props.onCancel}>
           <Button variant="ghost" size="sm" onClick={props.onCancel}>
@@ -236,8 +238,8 @@ export function SignIn(props: SignInProps) {
       <Show when={!signedIn() && view() === "passkey" && !webauthnSupported()}>
         <div class="flex flex-col gap-4">
           <p class="text-muted-foreground text-sm">
-            OSN sign-in needs a passkey or security key, and this browser doesn&apos;t support
-            WebAuthn. You can either:
+            {props.productName} sign-in needs a passkey or security key, and this browser
+            doesn&apos;t support WebAuthn. You can either:
           </p>
           <ul class="text-muted-foreground list-inside list-disc text-sm">
             <li>Sign in on a device that does (iOS 16+, Android 9+, recent desktop browsers).</li>

@@ -18,13 +18,24 @@ import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vites
  *
  * These tests assert the prop actually arrives at each of the three ceremony
  * call sites, which is the part that silently went missing.
+ *
+ * `productName` is asserted here for the same reason: a required prop a mock's
+ * type doesn't mention compiles and passes silently at every call site, and
+ * nothing type-checks this directory (`tsconfig.json` `include` is `["src"]`).
+ * `captured` records both props so a dropped one fails rather than vanishes.
  */
 
 const SITEKEY = "0x4AAAAAAAtestsitekey";
+const PRODUCT_NAME = "Musubi";
+
+interface Captured {
+  turnstileSiteKey?: string;
+  productName: string;
+}
 
 const captured = vi.hoisted(() => ({
-  signIn: [] as (string | undefined)[],
-  register: [] as (string | undefined)[],
+  signIn: [] as Captured[],
+  register: [] as Captured[],
 }));
 
 // `src/lib/auth.ts` reads import.meta.env at module-evaluation time, so the stub
@@ -35,17 +46,23 @@ vi.hoisted(() => {
   vi.stubEnv("VITE_TURNSTILE_SITEKEY", "0x4AAAAAAAtestsitekey");
 });
 
-// Stand-ins for the real ceremonies: they only record the sitekey they were
+// Stand-ins for the real ceremonies: they only record the props they were
 // handed, so no WebAuthn feature-detection or Turnstile script load is involved.
 vi.mock("@osn/ui/auth/SignIn", () => ({
-  SignIn: (props: { turnstileSiteKey?: string }) => {
-    captured.signIn.push(props.turnstileSiteKey);
+  SignIn: (props: { turnstileSiteKey?: string; productName: string }) => {
+    captured.signIn.push({
+      turnstileSiteKey: props.turnstileSiteKey,
+      productName: props.productName,
+    });
     return <div data-testid="signin" />;
   },
 }));
 vi.mock("@osn/ui/auth/Register", () => ({
-  Register: (props: { turnstileSiteKey?: string }) => {
-    captured.register.push(props.turnstileSiteKey);
+  Register: (props: { turnstileSiteKey?: string; productName: string }) => {
+    captured.register.push({
+      turnstileSiteKey: props.turnstileSiteKey,
+      productName: props.productName,
+    });
     return <div data-testid="register" />;
   },
 }));
@@ -131,13 +148,21 @@ describe("TURNSTILE_SITEKEY", () => {
   });
 });
 
-describe("Turnstile sitekey reaches every ceremony call site", () => {
-  it("passes it to <SignIn /> on the consent screen", () => {
+describe("Turnstile sitekey and product name reach every ceremony call site", () => {
+  it("passes both to <SignIn /> on the consent screen (default, sign-in mode)", () => {
     render(() => <AuthorizeSignIn onSuccess={() => {}} />);
-    expect(captured.signIn).toEqual([SITEKEY]);
+    expect(captured.signIn).toEqual([{ turnstileSiteKey: SITEKEY, productName: PRODUCT_NAME }]);
   });
 
-  it("passes it to the sidebar's <SignIn /> and <Register /> dialogs", async () => {
+  // AuthorizeSignIn.tsx's register-mode <Register> is its own call site, and
+  // this is the only test that renders the consent screen with
+  // `initialMode="register"`.
+  it("passes both to <Register /> on the consent screen (register mode)", () => {
+    render(() => <AuthorizeSignIn initialMode="register" onSuccess={() => {}} />);
+    expect(captured.register).toEqual([{ turnstileSiteKey: SITEKEY, productName: PRODUCT_NAME }]);
+  });
+
+  it("passes both to the sidebar's <SignIn /> and <Register /> dialogs", async () => {
     const result = render(() => (
       <AuthContext.Provider value={signedOutAuth()}>
         <MemoryRouter>
@@ -148,10 +173,18 @@ describe("Turnstile sitekey reaches every ceremony call site", () => {
 
     fireEvent.click(result.getByText("Sign in"));
     await waitFor(() => expect(captured.signIn.length).toBeGreaterThan(0));
-    expect(captured.signIn.every((k) => k === SITEKEY)).toBe(true);
+    expect(
+      captured.signIn.every(
+        (c) => c.turnstileSiteKey === SITEKEY && c.productName === PRODUCT_NAME,
+      ),
+    ).toBe(true);
 
     fireEvent.click(result.getByText("Create account"));
     await waitFor(() => expect(captured.register.length).toBeGreaterThan(0));
-    expect(captured.register.every((k) => k === SITEKEY)).toBe(true);
+    expect(
+      captured.register.every(
+        (c) => c.turnstileSiteKey === SITEKEY && c.productName === PRODUCT_NAME,
+      ),
+    ).toBe(true);
   });
 });

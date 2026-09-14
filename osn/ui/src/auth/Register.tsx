@@ -48,6 +48,8 @@ interface RegisterProps {
    * widget, no gate (key-optional — matches osn-api skipping siteverify).
    */
   turnstileSiteKey?: string;
+  /** Product name shown in this dialog's copy — e.g. "Musubi". */
+  productName: string;
 }
 
 export function Register(props: RegisterProps) {
@@ -276,7 +278,7 @@ export function Register(props: RegisterProps) {
   return (
     <div class="mx-auto max-w-sm px-4 py-8">
       <div class="mb-6 flex items-center justify-between">
-        <h2 class="text-foreground text-2xl font-bold">Create your OSN account</h2>
+        <h2 class="text-foreground text-2xl font-bold">Create your {props.productName} account</h2>
         <Button variant="ghost" size="sm" onClick={props.onCancel}>
           Cancel
         </Button>
@@ -290,9 +292,9 @@ export function Register(props: RegisterProps) {
         fallback={
           <div class="flex flex-col gap-4">
             <p class="text-muted-foreground text-sm">
-              Creating an account on OSN needs a passkey or security key — something this browser
-              doesn&apos;t support. Try a device with WebAuthn (iOS 16+, Android 9+, a recent
-              desktop browser), or plug in a FIDO2 security key.
+              Creating an account on {props.productName} needs a passkey or security key — something
+              this browser doesn&apos;t support. Try a device with WebAuthn (iOS 16+, Android 9+, a
+              recent desktop browser), or plug in a FIDO2 security key.
             </p>
           </div>
         }
@@ -338,11 +340,13 @@ export function Register(props: RegisterProps) {
                 onInput={(e) => setBirthdate(e.currentTarget.value)}
               />
               <Show when={BIRTHDATE_RE.test(birthdate()) && !birthdateOk()}>
-                <span class="text-destructive text-xs">OSN is for users 13 and older</span>
+                <span class="text-destructive text-xs">
+                  {props.productName} is for users 13 and older
+                </span>
               </Show>
               <Show when={!birthdate()}>
                 <span class="text-muted-foreground text-xs">
-                  You must be 13 or older to use OSN
+                  You must be 13 or older to use {props.productName}
                 </span>
               </Show>
             </div>
@@ -424,7 +428,9 @@ export function Register(props: RegisterProps) {
         </Show>
 
         <Show when={step() === "done"}>
-          <p class="text-muted-foreground text-sm">You&apos;re all set. Loading Pulse…</p>
+          <p class="text-muted-foreground text-sm">
+            You&apos;re all set. Loading {props.productName}…
+          </p>
         </Show>
       </Show>
     </div>

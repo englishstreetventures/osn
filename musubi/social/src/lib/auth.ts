@@ -1,5 +1,8 @@
 export const OSN_ISSUER_URL = import.meta.env.VITE_OSN_ISSUER_URL ?? "http://localhost:4000";
 
+/** The product name this instance shows in `@osn/ui`'s auth copy. */
+export const PRODUCT_NAME = "Musubi";
+
 /**
  * Cloudflare Turnstile sitekey — the CLIENT half of the bot-protection gate on
  * `/register/begin` and the identifier-bound `/login/passkey/begin` (see

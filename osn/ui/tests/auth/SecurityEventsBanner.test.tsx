@@ -83,6 +83,7 @@ describe("SecurityEventsBanner", () => {
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
         accessToken="acc"
+        productName="Musubi"
       />
     ));
     await waitFor(() => expect(stub.list).toHaveBeenCalledTimes(1));
@@ -96,10 +97,11 @@ describe("SecurityEventsBanner", () => {
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
         accessToken="acc"
+        productName="Musubi"
       />
     ));
     await waitFor(() => {
-      expect(screen.getByText(/recovery codes were regenerated/i)).toBeTruthy();
+      expect(screen.getByText(/your Musubi recovery codes were regenerated/i)).toBeTruthy();
       expect(screen.getByText(/Firefox on macOS/)).toBeTruthy();
     });
   });
@@ -113,10 +115,11 @@ describe("SecurityEventsBanner", () => {
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
         accessToken="acc"
+        productName="Musubi"
       />
     ));
     await waitFor(() => {
-      expect(screen.getByText(/recovery code was used on your account/i)).toBeTruthy();
+      expect(screen.getByText(/a recovery code was used on your Musubi account/i)).toBeTruthy();
     });
   });
 
@@ -132,6 +135,7 @@ describe("SecurityEventsBanner", () => {
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
         accessToken="acc"
+        productName="Musubi"
       />
     ));
     await waitFor(() => {
@@ -149,6 +153,7 @@ describe("SecurityEventsBanner", () => {
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
         accessToken="acc"
+        productName="Musubi"
       />
     ));
     await waitFor(() => screen.getByRole("button", { name: /Acknowledge/ }));
@@ -189,6 +194,7 @@ describe("SecurityEventsBanner", () => {
         client={asClient(stub)}
         stepUpClient={asStepUp(stepUp)}
         accessToken="acc"
+        productName="Musubi"
       />
     ));
     await waitFor(() => screen.getByRole("button", { name: /Acknowledge/ }));

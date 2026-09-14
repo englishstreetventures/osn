@@ -110,13 +110,13 @@ describe("Register component", () => {
 
   describe("details step", () => {
     it("sanitises handle input: lowercases and strips invalid chars", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
       const input = fillHandle("Alice WONDERLAND!");
       expect(input.value).toBe("alicewonderland");
     });
 
     it("flags handle as invalid format synchronously, no fetch", () => {
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
       // Empty after sanitisation? No — we want a string that survives
       // sanitisation but fails HANDLE_RE. The sanitiser strips everything
       // except [a-z0-9_], so any input that survives is by construction valid.
@@ -128,7 +128,7 @@ describe("Register component", () => {
 
     it("debounces availability check and shows 'available'", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
       fillHandle("alice");
       // Synchronously transitions to "checking".
       expect(screen.getByText(/Checking/)).toBeTruthy();
@@ -144,7 +144,7 @@ describe("Register component", () => {
 
     it("aborts the previous in-flight check before issuing a new one (P-W10)", async () => {
       stub.checkHandle.mockImplementation(() => new Promise(() => {}));
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
       fillHandle("ali");
       await vi.advanceTimersByTimeAsync(350);
       expect(stub.checkHandle).toHaveBeenCalledTimes(1);
@@ -160,7 +160,7 @@ describe("Register component", () => {
 
     it("shows 'taken' when the server reports unavailable", async () => {
       stub.checkHandle.mockResolvedValue({ available: false });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
       fillHandle("taken");
       await vi.advanceTimersByTimeAsync(350);
       await waitFor(() => {
@@ -174,7 +174,7 @@ describe("Register component", () => {
       // input was perfectly valid. Network/server failures must surface
       // separately so the user isn't told their handle is the wrong shape.
       stub.checkHandle.mockRejectedValue(new Error("network down"));
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
       fillHandle("alice");
       await vi.advanceTimersByTimeAsync(350);
       await waitFor(() => {
@@ -187,7 +187,7 @@ describe("Register component", () => {
       stub.checkHandle.mockImplementation(
         () => new Promise(() => {}), // never resolves
       );
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
       fillEmail("alice@example.com");
       fillHandle("alice");
       // Still "checking" — debounce hasn't fired but the synchronous status
@@ -200,7 +200,7 @@ describe("Register component", () => {
 
     it("submit becomes enabled once email + handle + birthdate are all valid", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
       fillEmail("alice@example.com");
       fillHandle("alice");
       fillBirthdate("1990-01-01");
@@ -217,7 +217,7 @@ describe("Register component", () => {
     // feedback — the submit button stays disabled and the copy explains why.
     it("keeps submit disabled and warns for an under-13 birthdate", async () => {
       stub.checkHandle.mockResolvedValue({ available: true });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
       fillEmail("alice@example.com");
       fillHandle("alice");
       const tenYearsAgo = new Date();
@@ -239,7 +239,7 @@ describe("Register component", () => {
     async function advanceToVerify() {
       stub.checkHandle.mockResolvedValue({ available: true });
       stub.beginRegistration.mockResolvedValue({ sent: true });
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
       fillEmail("alice@example.com");
       fillHandle("alice");
       fillBirthdate("1990-01-01");
@@ -344,7 +344,12 @@ describe("Register component", () => {
       });
       hoisted.adoptSession.mockResolvedValue(undefined);
       render(() => (
-        <Register client={asClient(stub)} onCancel={() => {}} onSuccess={extra?.onSuccess} />
+        <Register
+          client={asClient(stub)}
+          onCancel={() => {}}
+          onSuccess={extra?.onSuccess}
+          productName="Musubi"
+        />
       ));
       fillEmail("alice@example.com");
       fillHandle("alice");
@@ -501,13 +506,36 @@ describe("Register component", () => {
       await waitFor(() => {
         expect(screen.getByText(/You.re all set/)).toBeTruthy();
       });
+      // The done step names the product it is loading. It named a different
+      // one for as long as this component was written for a single consumer,
+      // so the assertion is on the name and not just on the sentence.
+      expect(screen.getByText(/You.re all set\. Loading Musubi/)).toBeTruthy();
+    });
+  });
+
+  describe("product name", () => {
+    it("heads the dialog with the product it was given", () => {
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
+      expect(screen.getByRole("heading", { name: "Create your Kumiho account" })).toBeTruthy();
+    });
+
+    it("names the product in the age gate and the WebAuthn fallback", () => {
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
+      fillEmail("alice@example.com");
+      fillBirthdate("2020-01-01");
+      expect(screen.getByText("Kumiho is for users 13 and older")).toBeTruthy();
+
+      cleanup();
+      hoisted.webauthnSupported = false;
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
+      expect(screen.getByText(/Creating an account on Kumiho needs a passkey/)).toBeTruthy();
     });
   });
 
   describe("WebAuthn-unsupported environment", () => {
     it("blocks the flow at the start with an informational screen", async () => {
       hoisted.webauthnSupported = false;
-      render(() => <Register client={asClient(stub)} onCancel={() => {}} />);
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
       // No form fields render; only the fallback copy.
       expect(screen.queryByLabelText(/Email/)).toBeNull();
       expect(screen.getByText(/needs a passkey or security key/i)).toBeTruthy();
@@ -517,7 +545,7 @@ describe("Register component", () => {
 
   it("Cancel button calls onCancel", () => {
     const onCancel = vi.fn();
-    render(() => <Register client={asClient(stub)} onCancel={onCancel} />);
+    render(() => <Register client={asClient(stub)} onCancel={onCancel} productName="Musubi" />);
     fireEvent.click(screen.getByRole("button", { name: /Cancel/i }));
     expect(onCancel).toHaveBeenCalled();
   });

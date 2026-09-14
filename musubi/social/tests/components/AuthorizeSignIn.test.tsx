@@ -17,8 +17,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
  */
 
 vi.mock("@osn/ui/auth/SignIn", () => ({
-  SignIn: (props: { onSuccess?: () => void }) => (
+  SignIn: (props: { onSuccess?: () => void; productName: string }) => (
     <div data-testid="signin">
+      <span data-testid="signin-product-name">{props.productName}</span>
       <button type="button" onClick={() => props.onSuccess?.()}>
         complete sign-in
       </button>
@@ -26,8 +27,9 @@ vi.mock("@osn/ui/auth/SignIn", () => ({
   ),
 }));
 vi.mock("@osn/ui/auth/Register", () => ({
-  Register: (props: { onSuccess?: () => void; onCancel?: () => void }) => (
+  Register: (props: { onSuccess?: () => void; onCancel?: () => void; productName: string }) => (
     <div data-testid="register">
+      <span data-testid="register-product-name">{props.productName}</span>
       <button type="button" onClick={() => props.onSuccess?.()}>
         complete registration
       </button>
@@ -64,6 +66,9 @@ describe("<AuthorizeSignIn />", () => {
 
     expect(screen.getByTestId("register")).toBeTruthy();
     expect(screen.queryByTestId("signin")).toBeNull();
+    // The consent screen's own registration half, which is a separate call
+    // site from the sidebar's and passes the prop separately.
+    expect(screen.getByTestId("register-product-name").textContent).toBe("Musubi");
   });
 
   it("leads with sign-in by default", () => {
@@ -71,6 +76,7 @@ describe("<AuthorizeSignIn />", () => {
 
     expect(screen.getByTestId("signin")).toBeTruthy();
     expect(screen.queryByTestId("register")).toBeNull();
+    expect(screen.getByTestId("signin-product-name").textContent).toBe("Musubi");
   });
 
   /**

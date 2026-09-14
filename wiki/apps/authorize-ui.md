@@ -12,7 +12,7 @@ related:
   - "[[passkey-primary]]"
   - "[[sessions]]"
   - "[[musubi-identity-migration]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-14
 ---
 
 # Authorize UI — the OIDC consent screen
@@ -181,8 +181,8 @@ short-circuits consent), so state 4's copy can assume a third party.
 - **`reason=create` leads with sign-up once, not every time** (2026-08-06).
   The URL still says `create` after the account exists, so anything that
   returns the user to the sign-in screen — a `login_required` replay, a
-  refused decision — used to reopen "Create your OSN account" at someone who
-  had just made one, which reads as the flow having discarded the new
+  refused decision — used to reopen "Create your Musubi account" at someone
+  who had just made one, which reads as the flow having discarded the new
   account. `initialMode` is therefore gated on `signedInHere()`: once a
   ceremony has happened on this page, the way forward is signing in.
 - **A registration that leaves no session is the same loop, one layer down.**

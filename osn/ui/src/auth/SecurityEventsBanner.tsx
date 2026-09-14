@@ -49,18 +49,20 @@ export interface SecurityEventsBannerProps {
    * See `StepUpDialog.totpClient`.
    */
   totpClient?: TotpClient;
+  /** Product name shown in this banner's copy — e.g. "Musubi". */
+  productName: string;
 }
 
 function formatTs(ts: number): string {
   return new Date(ts * 1000).toLocaleString();
 }
 
-function headlineFor(kind: SecurityEventSummary["kind"]): string {
+function headlineFor(kind: SecurityEventSummary["kind"], productName: string): string {
   switch (kind) {
     case "recovery_code_generate":
-      return "Your OSN recovery codes were regenerated";
+      return `Your ${productName} recovery codes were regenerated`;
     case "recovery_code_consume":
-      return "An OSN recovery code was used on your account";
+      return `A recovery code was used on your ${productName} account`;
     default:
       return "Security event on your account";
   }
@@ -106,7 +108,7 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
           <For each={visibleEvents()}>
             {(event: SecurityEventSummary) => (
               <div class="flex flex-col gap-0.5">
-                <span class="font-medium">{headlineFor(event.kind)}</span>
+                <span class="font-medium">{headlineFor(event.kind, props.productName)}</span>
                 <span class="text-muted-foreground text-xs">
                   {formatTs(event.createdAt)}
                   <Show when={event.uaLabel}> · {event.uaLabel}</Show>

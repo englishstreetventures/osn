@@ -445,7 +445,7 @@ describe("<AuthorizePage />", () => {
   /**
    * The URL still says `create` after the account exists, so anything that
    * sends the user back to the sign-in screen — here, a decision the server
-   * answered `login_required` — used to reopen "Create your OSN account" at
+   * answered `login_required` — used to reopen "Create your Musubi account" at
    * someone who had just made one. That reads as the flow having discarded the
    * new account, and it is the loop a relying party's `prompt=create` journey
    * fell into. Once a ceremony has happened on this page, the way forward is

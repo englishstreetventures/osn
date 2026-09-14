@@ -358,8 +358,8 @@ export function AuthorizePage() {
                   with sign-up a second time. The URL still says `create` after
                   the account exists, so a later bounce back to this screen — a
                   `login_required` replay, or a decision the server refused —
-                  would otherwise reopen "Create your OSN account" at someone
-                  who has just made one, which reads as the flow having thrown
+                  would otherwise reopen "Create your Musubi account" at
+                  someone who has just made one, which reads as the flow having thrown
                   the new account away. Once a ceremony has happened on this
                   page, the way forward is signing in. */}
               <AuthorizeSignIn

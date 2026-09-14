@@ -3,7 +3,7 @@ import { Register } from "@osn/ui/auth/Register";
 import { SignIn } from "@osn/ui/auth/SignIn";
 import { createSignal, Show } from "solid-js";
 
-import { OSN_ISSUER_URL, TURNSTILE_SITEKEY } from "../lib/auth";
+import { OSN_ISSUER_URL, PRODUCT_NAME, TURNSTILE_SITEKEY } from "../lib/auth";
 import { loginClient, recoveryClient, registrationClient } from "../lib/authClients";
 import { runPasskeyRegistrationDeferred } from "../lib/webauthn-registration-deferred";
 
@@ -44,6 +44,7 @@ export function AuthorizeSignIn(props: {
               client={loginClient}
               recoveryClient={recoveryClient}
               turnstileSiteKey={TURNSTILE_SITEKEY}
+              productName={PRODUCT_NAME}
               onSuccess={() => props.onSuccess()}
             />
             <p class="text-muted-foreground text-body px-4 pb-4 text-center">
@@ -65,6 +66,7 @@ export function AuthorizeSignIn(props: {
         <Register
           client={registrationClient}
           turnstileSiteKey={TURNSTILE_SITEKEY}
+          productName={PRODUCT_NAME}
           onCancel={() => setMode("signIn")}
           onSuccess={() => props.onSuccess()}
         />
