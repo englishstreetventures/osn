@@ -291,6 +291,19 @@
     // Shallow checkouts of an upstream repo, cloned as reference material and
     // gitignored (the Effect v4 migration's two lived here). Not our source,
     // and linting them buries real findings in someone else's warnings.
-    ".repos"
+    ".repos",
+    // Third-party skills installed by `npx skills add`. Their example and
+    // template files are prose in executable form — they are read by an agent,
+    // never built — and `skills-lock.json` carries a hash the `skills` CLI
+    // wrote at install time and checks on `npx skills update`. Nothing here
+    // recomputes it, so a finding fixed in one of these files fails no gate of
+    // ours — it either stops the next update or is thrown away by it.
+    //
+    // Both paths are needed. oxlint walks through the `.claude/skills/<name>`
+    // symlink and reports what it finds under that path, which `.agents` does
+    // not match, so the first entry alone leaves every file in the tree linted
+    // under its second name. Installing another skill means another line here.
+    ".agents",
+    ".claude/skills/webgpu-threejs-tsl"
   ]
 }

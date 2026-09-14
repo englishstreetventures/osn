@@ -49,8 +49,14 @@ wrangler.jsonc       @chav-aniket
 # here changes what an agent is told to do in this repo, and an agent runs with
 # full permissions, so it gets a human owner.
 #
-# There is no `/.agents/**` or `/skills-lock.json` rule because no third-party
-# skill is installed. If `npx skills add` is ever used again, add both back in
-# the same commit — that tree is someone else's instructions running with our
-# permissions, and it is exactly what this section exists to gate.
+# `/.agents/**` is where `npx skills add` puts a third-party skill, and
+# `/.claude/skills/<name>` is only a symlink to it, so the text a review has to
+# read is under the first path and not the second. `/skills-lock.json` carries
+# the hash the `skills` CLI checks on update: a change there is either an
+# update to someone else's instructions or a tree that no longer matches what
+# was installed, and nothing of ours tells the two apart. All three get the
+# same owner as the rest of this section, for the same reason — that tree is
+# someone else's instructions running with our permissions.
 /.claude/**          @chav-aniket
+/.agents/**          @chav-aniket
+/skills-lock.json    @chav-aniket

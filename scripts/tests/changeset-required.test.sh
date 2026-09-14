@@ -62,19 +62,33 @@ run_case "agent instructions plus one source file" required \
   '.claude/commands/prep-pr.md
 cire/api/src/index.ts'
 
-# RETIRED PATHS — `.agents/skills/` held third-party skills installed by
-# `npx skills add` and `skills-lock.json` pinned them; both went with the
-# Effect v4 migration. The allowlist entries survive only so the removal PR's
-# own deletions do not trip this gate, so these two cases go WITH those
-# entries when they are dropped.
-run_case "retired third-party skill tree alone" skip \
-  '.agents/skills/effect-v3-to-v4/SKILL.md
-.claude/skills/effect-v3-to-v4
+# Third-party skills installed by `npx skills add`: the tree under `.agents/`,
+# its symlink under `.claude/skills/` and the root `skills-lock.json` that
+# hashes it. Agent instructions, shipped by no package.
+run_case "third-party skill tree alone" skip \
+  '.agents/skills/webgpu-threejs-tsl/SKILL.md
+.claude/skills/webgpu-threejs-tsl
 skills-lock.json'
 
-run_case "retired third-party skill tree plus one source file" required \
-  '.agents/skills/effect-ts/SKILL.md
-osn/api/src/index.ts'
+# One case per allowlist arm, each on its own. The compound case above goes red
+# for any of the three, which tells you a rule broke but not which one.
+run_case "third-party skill file alone" skip \
+  '.agents/skills/webgpu-threejs-tsl/SKILL.md'
+
+run_case "the skill symlink alone" skip \
+  '.claude/skills/webgpu-threejs-tsl'
+
+run_case "skills-lock.json alone" skip \
+  'skills-lock.json'
+
+# The source file comes first on purpose. The loop breaks at the first path it
+# will not allow, so with the skill file first this case returns `required`
+# whether or not `.agents/*` is on the allowlist — it would stay green with the
+# rule deleted, and prove nothing. This order makes it prove what it is named
+# after: the loop keeps going past an allowed path and still rejects a later one.
+run_case "third-party skill tree plus one source file" required \
+  'osn/api/src/index.ts
+.agents/skills/webgpu-threejs-tsl/SKILL.md'
 
 run_case "source file in a versioned package" required \
   'osn/api/src/routes/graph.ts'

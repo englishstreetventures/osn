@@ -16,6 +16,13 @@ on:
     paths:
       - ".claude/skills/**"
       - ".claude/evals/**"
+      # A third-party skill installed by `npx skills add` lives under
+      # `.agents/skills/`, and `.claude/skills/<name>` is only a symlink to it.
+      # An update moves the tree and the lock and nothing under `.claude/`, so
+      # without these two the one diff that carries new instructions written by
+      # someone else would reach no review gate at all.
+      - ".agents/skills/**"
+      - "skills-lock.json"
       # The scoreboard is written BY this workflow. Watching it would make
       # every run trigger the next one.
       - "!.claude/evals/scores.json"
@@ -104,6 +111,13 @@ jobs:
         run: |
           : > "$RUNNER_TEMP/pairs.txt"
           for dir in .claude/skills/*/; do
+            # A `*/` glob in bash matches a symlink to a directory, so a
+            # third-party skill installed under `.agents/skills/` would be
+            # scored here and written to the quality board. `skill-evals.ts`
+            # does not see one — a `Dirent` for a symlink answers
+            # `isDirectory: false` — and the board is a trend line for skills
+            # this repo can fix, so the two agree on skipping it.
+            [ -L "${dir%/}" ] && continue
             name=$(basename "$dir")
             out=$(tessl review run quality "$dir" --workspace musubi 2>&1 || true)
             score=$(printf '%s' "$out" | sed $'s/\033\[[0-9;]*m//g' | sed -n 's/^Review Score: \([0-9][0-9]*\)%.*/\1/p' | tail -1)

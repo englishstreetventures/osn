@@ -48,9 +48,9 @@ is_allowed() {
   case "$f" in
     */*) ;; # has a directory component — checked below
     .gitignore) return 0 ;;
-    # RETIRED PATH — see the `.agents/*` note below; this is its root-file half,
-    # and it has to live in THIS block because a path with no `/` never reaches
-    # the one below. DROP once the removal PR has merged.
+    # The lock for third-party skills — see the `.agents/*` case below. It has
+    # to live in THIS block because a path with no `/` never reaches the one
+    # below.
     skills-lock.json) return 0 ;;
     *.md) return 0 ;; # top-level README.md, CLAUDE.md
     *) return 1 ;;    # any other root file (bun.lock, turbo.json, …)
@@ -70,16 +70,11 @@ is_allowed() {
     # so these two cases can only ever match that PR's own deletions.
     # DROP BOTH once it has merged.
     cire/wiki/* | cire/CLAUDE.md) return 0 ;;
-    # RETIRED PATH — `.agents/skills/` held third-party skills installed by
-    # `npx skills add`, pinned by the root `skills-lock.json` above. Both were
-    # removed with the Effect v4 migration on 2026-09-06 and nothing writes
-    # either now, so both cases can only ever match that PR's own deletions.
-    # Keeping an allowlist entry alive for a path nothing writes is a hole
-    # nobody is watching — but removing it in the SAME commit as the deletions
-    # makes this gate fire on them, hence the two-step the cases above take.
-    # DROP once it has merged. If `npx skills add` is ever used again, re-add
-    # both as live entries in the commit that installs the skill, together with
-    # the `.github/CODEOWNERS` rules for both paths.
+    # Third-party skills installed by `npx skills add`, pinned by the root
+    # `skills-lock.json` above. Agent instructions, like `.claude/*`: read by
+    # the coding agent, built into no package. Both entries are live again as
+    # of the `webgpu-threejs-tsl` install — drop them together, with the
+    # `.github/CODEOWNERS` rules for both paths, if the tree ever goes.
     .agents/*) return 0 ;;
   esac
 

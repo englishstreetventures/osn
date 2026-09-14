@@ -9,7 +9,7 @@
 // the script needed.
 
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -781,6 +781,34 @@ test("compare stays quiet when the fixture moved, however far the score fell", a
     const out = await run(dir, "compare", "--run", "run.json");
     expect(out.stderr).not.toContain("NEEDS-DECISION");
     expect(out.stdout).toContain("history void");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a symlinked skill is not a skill this script can see", async () => {
+  // `npx skills add` installs a third-party skill under `.agents/skills/<name>/`
+  // and puts a symlink at `.claude/skills/<name>`. Everything here — the
+  // scenario owner, the subset filter, the quality board — is a trend line for
+  // skills this repository can change, and that tree is somebody else's text.
+  // `listSkills` filters on `isDirectory()`, which answers false for a symlink,
+  // and this is the test that says so before someone "fixes" the filter.
+  const dir = await makeTree(["prep-pr"], ["prep-pr-one"]);
+  try {
+    await mkdir(join(dir, ".agents/skills/webgpu-threejs-tsl"), { recursive: true });
+    await writeFile(
+      join(dir, ".agents/skills/webgpu-threejs-tsl/SKILL.md"),
+      "---\nname: webgpu-threejs-tsl\n---\n",
+    );
+    await symlink(
+      join(dir, ".agents/skills/webgpu-threejs-tsl"),
+      join(dir, ".claude/skills/webgpu-threejs-tsl"),
+    );
+
+    const out = await run(dir, "subset", "--skills", "webgpu-threejs-tsl", "--out", join(dir, "o"));
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain("not a skill in .claude/skills/: webgpu-threejs-tsl");
+    expect(out.stderr).toContain("Known skills: prep-pr");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

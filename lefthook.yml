@@ -7,13 +7,27 @@ pre-commit:
       # a separate command gives no ordering guarantee against oxlint, and the
       # vendored anti-slop plugin (oxlintrc.json's jsPlugins) could execute
       # unverified anyway. `&&` is the only way this hook enforces order.
+      #
+      # `.agents/**` is third-party skill text, already in oxlintrc.json's
+      # `ignorePatterns`. That alone is not enough here: oxlint does apply
+      # `ignorePatterns` to paths named on the command line, but when every
+      # named path is ignored it answers "No files found to lint" and exits 1,
+      # which blocks the commit. Excluded here so lefthook never names them.
+      exclude:
+        - ".agents/**"
       run: bash scripts/verify-vendored-anti-slop.sh && bunx --bun oxlint -c oxlintrc.json {staged_files}
     format:
       glob: "*.{js,jsx,ts,tsx}"
       # Vendored upstream source is left byte-identical so re-vendoring a newer
-      # anti-slop is a plain copy, not a copy plus a reformat diff.
+      # anti-slop is a plain copy, not a copy plus a reformat diff. Third-party
+      # skills under `.agents/**` are stricter still: `skills-lock.json` carries
+      # a hash the `skills` CLI wrote at install time and checks on
+      # `npx skills update`. Nothing in this repo recomputes it, so a reformat
+      # here fails no gate of ours — it either stops the next update or is
+      # thrown away by it.
       exclude:
         - "tools/oxlint/anti-slop/**"
+        - ".agents/**"
       run: bunx --bun oxfmt {staged_files}
       stage_fixed: true
 
