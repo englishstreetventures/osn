@@ -146,11 +146,11 @@ export default defineConfig(async () => ({
         // `@simplewebauthn/browser`'s single-entry barrel (see above) also
         // means Rollup's default chunking groups `startAuthentication` and
         // `startRegistration` into one shared vendor chunk regardless of
-        // source-level organisation. That defeats P-I1: the security-events
-        // banner (mounted on every settings visit) ends up pulling in
-        // `startRegistration`, which only `SecuritySection` (opened rarely)
-        // needs. Splitting on the underlying method files forces Rollup to
-        // place each method's compiled body in its own chunk.
+        // source-level organisation. Without the split the security-events
+        // banner — mounted on every route a signed-in user sees — ends up
+        // pulling in `startRegistration`, which only `SecuritySection` (opened
+        // rarely) needs. Splitting on the underlying method files forces
+        // Rollup to place each method's compiled body in its own chunk.
         manualChunks(id) {
           if (id.includes("@simplewebauthn/browser/esm/methods/startAuthentication")) {
             return "webauthn-authentication";

@@ -6,7 +6,8 @@ import { Button } from "@osn/ui/ui/button";
 import { Card } from "@osn/ui/ui/card";
 import { Input } from "@osn/ui/ui/input";
 import { Label } from "@osn/ui/ui/label";
-import { createMemo, createSignal, For, lazy, onCleanup, onMount, Show, Suspense } from "solid-js";
+import { useLocation, useNavigate } from "@solidjs/router";
+import { createMemo, For, lazy, Show, Suspense } from "solid-js";
 
 import { registrationClient } from "../lib/authClients";
 import { getTokenClaims, profileInitials, safeAvatarUrl } from "../lib/utils";
@@ -17,7 +18,6 @@ const SecuritySection = lazy(() => import("../components/SecuritySection"));
 const ConnectedAppsSection = lazy(() =>
   import("../components/ConnectedAppsSection").then((m) => ({ default: m.ConnectedAppsSection })),
 );
-const SecurityEventsBannerMount = lazy(() => import("../components/SecurityEventsBannerMount"));
 
 type Section = "profile" | "account" | "security" | "apps";
 
@@ -34,30 +34,34 @@ const SECTIONS: { value: Section; label: string }[] = [
  * organiser portal sends people to `#security`, because passkeys are bound to
  * this origin's RP ID and can only be managed here.
  */
-function sectionFromHash(): Section {
-  if (typeof window === "undefined") return "profile";
-  const hash = window.location.hash.replace(/^#/, "");
-  return SECTIONS.some((s) => s.value === hash) ? (hash as Section) : "profile";
+function sectionFromHash(hash: string): Section {
+  const value = hash.replace(/^#/, "");
+  return SECTIONS.some((s) => s.value === value) ? (value as Section) : "profile";
 }
 
 export function SettingsPage() {
   const { session, profiles, activeProfileId } = useAuth();
-  const [section, setSection] = createSignal<Section>(sectionFromHash());
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  // Keep tab and fragment in step both ways: Back/Forward or a fresh deep link
-  // moves the tab, and a click rewrites the fragment so the tab survives a
-  // reload and can be shared.
-  onMount(() => {
-    const onHashChange = () => setSection(sectionFromHash());
-    window.addEventListener("hashchange", onHashChange);
-    onCleanup(() => window.removeEventListener("hashchange", onHashChange));
-  });
+  // The fragment in the router's location is the only source of truth for
+  // which tab is open, so every way of arriving at one behaves the same: a
+  // deep link from another origin, Back and Forward, a tab click, and a link
+  // from elsewhere in this app to `/settings#security` while Settings is
+  // already open. That last one is why this reads the router rather than
+  // `window.location` and a `hashchange` listener — neither `pushState` nor
+  // `replaceState` fires that event, so a same-route link used to change the
+  // address bar and leave the tab where it was.
+  const section = () => sectionFromHash(location.hash);
 
   const selectSection = (value: Section) => {
-    setSection(value);
-    // replaceState, not a hash assignment: switching tabs should not pile up
-    // history entries between the page you came from and the page you leave to.
-    window.history.replaceState(null, "", `#${value}`);
+    // The whole path, never a bare `#value`: the router resolves a bare
+    // fragment against its base rather than the current route.
+    //
+    // `replace` so switching tabs does not pile up history entries between
+    // the page you came from and the page you leave to. `scroll: false` so a
+    // tab click leaves the reading position alone.
+    navigate(`/settings#${value}`, { replace: true, scroll: false });
   };
 
   const accessToken = () => session()?.accessToken ?? null;
@@ -81,17 +85,6 @@ export function SettingsPage() {
           </div>
         }
       >
-        {/* Security-event banner — surfaces recovery-code generate/consume and
-            other security events in-app (the channel that survives email
-            filtering). Lazy so @simplewebauthn stays out of the main bundle. */}
-        <Show when={accessToken()}>
-          <div class="mb-4">
-            <Suspense>
-              <SecurityEventsBannerMount accessToken={accessToken()!} />
-            </Suspense>
-          </div>
-        </Show>
-
         {/* Profile onboarding banner */}
         <div class="mb-4">
           <ProfileOnboarding checkHandle={registrationClient.checkHandle} dismissible />

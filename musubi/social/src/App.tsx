@@ -4,6 +4,7 @@ import { Toaster } from "@shared/toast";
 import { Route, Router, useLocation } from "@solidjs/router";
 import { createSignal, lazy, onCleanup, onMount, Show } from "solid-js";
 
+import { AccountBanners } from "./components/AccountBanners";
 import { OSN_ISSUER_URL } from "./lib/auth";
 
 import "./App.css";
@@ -75,7 +76,14 @@ function Layout(props: { children?: import("solid-js").JSX.Element }) {
             <Show when={isMobile()} fallback={<Sidebar />}>
               <MobileChrome />
             </Show>
-            <Content padForMobileNav>{props.children}</Content>
+            {/* Inside the scroll column, above the page: the layout is a row on
+                desktop, so a sibling of `Content` would land beside the rail
+                rather than over the page. Renders nothing until a session
+                exists, and nothing at all on a bare route. */}
+            <Content padForMobileNav>
+              <AccountBanners />
+              {props.children}
+            </Content>
           </AuthProvider>
         }
       >

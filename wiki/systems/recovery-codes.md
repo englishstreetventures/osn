@@ -6,13 +6,14 @@ related:
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
   - "[[step-up]]"
+  - "[[social]]"
 packages:
   - "@shared/crypto"
   - "@osn/db"
   - "@osn/api"
   - "@osn/client"
   - "@osn/ui"
-last-reviewed: 2026-09-10
+last-reviewed: 2026-09-14
 ---
 # Recovery Codes
 
@@ -188,6 +189,19 @@ GET /recovery/status
 
 **No step-up.** The response carries counts only, never a code, and gating it would be circular — this answer is what tells a user whether starting a ceremony is worth it. It is still account-scoped, so an anonymous read returns 401. `generatedAt` is `max(created_at)` over the set (unix seconds); generation replaces the whole set atomically, so the newest row dates the set as a whole.
 
+> [!warning] `generatedAt` is not monotonic — never cache "this account has codes"
+> It is `null` whenever the account has **zero rows**, however it got there, and
+> generation is not the only thing that deletes them. Scheduling an account
+> deletion wipes every recovery code at the start of the seven-day grace window
+> (`osn/api/src/services/account-erasure.ts`, alongside passkeys and TOTP), and
+> cancelling inside that window restores the account without re-minting them. A
+> live account can therefore go from a timestamp back to `null`, and it does so
+> on exactly the account that most needs prompting. A client that latches "has
+> codes" on a first non-null read silences itself there forever.
+>
+> Separately, `active` can be `0` while `generatedAt` is set: nothing re-mints
+> after the tenth code is consumed.
+
 Both `/recovery/generate` and `/recovery/status` set `Cache-Control: no-store` as the first statement of the handler (RFC 6749 §5.1, RFC 6750 §5.3) — for `/recovery/status` this used to run after the DB read, so the 401/429 paths never got it; it now runs first (tracker#467, tracker#469). See `[[architecture/backend-patterns]]` §Cache-Control on Authenticated Routes.
 
 ```
@@ -212,7 +226,7 @@ All failure modes — unknown identifier, bad code, used code — surface as `{ 
 - `consumeRecoveryCode(identifier, code) → { profile }` — verify, mark used, revoke sessions, return profile.
 - `completeRecoveryLogin(identifier, code) → { session, profile }` — `consumeRecoveryCode` + `issueTokens`, wrapped with the standard `withAuthLogin("recovery_code")` metric span.
 - `countActiveRecoveryCodes(accountId) → { active, total, generatedAt }` — one SQL aggregate (P-I1), never SELECTs the secret-bearing `code_hash`. Backs `GET /recovery/status`.
-- `listUnacknowledgedSecurityEvents(accountId) → { events }` — drives the Settings banner.
+- `listUnacknowledgedSecurityEvents(accountId) → { events }` — drives the in-app security-events banner.
 - `acknowledgeSecurityEvent(accountId, id) → { acknowledged }` — idempotent, scoped to the owning account.
 
 ## Regeneration + consumption notification (M-PK1b)
@@ -222,7 +236,9 @@ Step-up gates `/recovery/generate`, but a compromised session with inbox access 
 1. **Audit row — generate.** Every `generateRecoveryCodesForAccount` call inserts a `security_events` row (kind `"recovery_code_generate"`) in the same transaction as the code swap. If the audit write fails, the codes don't commit either.
 2. **Audit row — consume (S-H1).** Every successful `consumeRecoveryCode` inserts a `security_events` row (kind `"recovery_code_consume"`) in the same transaction as the sessions wipe. Failed consume attempts (wrong code, unknown identifier) do NOT record — only genuine takeovers.
 3. **Email notification.** Both kinds fire a best-effort email (S-L5 framed, codes never included). Dispatch runs through `forkBackground` (`osn/api/src/lib/background.ts`) with a 10 s `Effect.timeout`, so mailer health does not affect user-visible request latency (P-W2). `forkBackground`, not a bare `Effect.forkDetach`: on workerd a promise never handed to `ExecutionContext.waitUntil` may not run at all once the response is returned — see [[backend-patterns#Background work must reach waitUntil]]. Failure is reported via `osn.auth.security_event.notified{result=failed}` and never rolls back the primary action.
-4. **Settings banner.** `GET /account/security-events` surfaces still-unacknowledged rows (newest first, `limit 50`, backed by a partial index over `WHERE acknowledged_at IS NULL` — P-W1). Dismissal happens via `POST /account/security-events/:id/ack` or the bulk `POST /account/security-events/ack-all`, **both gated by a fresh step-up token (S-M1)** — an XSS-captured access token cannot silently clear the banner, because the banner exists to warn about that compromise. Ack is idempotent; ack-all returns the number of rows dismissed. UI in `@osn/ui/auth/SecurityEventsBanner` (opens `StepUpDialog` on "Acknowledge", then POSTs to `ack-all`); SDK in `@osn/client/security-events.ts`.
+4. **In-app banner.** `GET /account/security-events` surfaces still-unacknowledged rows (newest first, `limit 50`, backed by a partial index over `WHERE acknowledged_at IS NULL` — P-W1). Dismissal happens via `POST /account/security-events/:id/ack` or the bulk `POST /account/security-events/ack-all`, **both gated by a fresh step-up token (S-M1)** — an XSS-captured access token cannot silently clear the banner, because the banner exists to warn about that compromise. Ack is idempotent; ack-all returns the number of rows dismissed. UI in `@osn/ui/auth/SecurityEventsBanner` (opens `StepUpDialog` on "Acknowledge", then POSTs to `ack-all`); SDK in `@osn/client/security-events.ts`.
+
+   Where that banner mounts is the host application's choice, and `@musubi/social` mounts it in the **application shell** — every route once a session exists, not the Settings page alone. A channel that survives email filtering is worth little behind a page the user has no reason to open. See [[social#Account-health banners]]. The component renders nothing rather than throwing when the list cannot be read, because a Solid resource rethrows on read and shell code has no page-sized blast radius.
 
 Schema lives in `osn/db/src/schema/index.ts` → `securityEvents`. Columns: `id` (`sev_` + 12 hex), `account_id`, `kind` (bounded string literal enforced at service boundary, not the column), `created_at`, `acknowledged_at`, `ip_hash`, `ua_label`. Index: `security_events_unacked_idx (account_id, created_at) WHERE acknowledged_at IS NULL`.
 
@@ -259,6 +275,22 @@ Mounted in:
 - `cire/host/src/components/SecurityPanel.tsx` — same position, `passkeyOnly` forced (that deployment's OTP factor can't be relied on).
 
 `RecoveryLoginForm` is the redemption side, mounted in `@osn/ui/auth/SignIn`.
+
+### Getting people to the view in the first place
+
+`RecoveryCodesView` answers "how do I make a set" for somebody already looking
+at the Security tab. Nothing used to tell an account the codes existed at all —
+a user finishes signup with one passkey, no codes and no authenticator, and the
+view sits behind a tab nobody opens.
+
+`musubi/social/src/components/RecoveryCodesPrompt.tsx` is the nudge: an
+app-shell banner shown when `GET /recovery/status` reports `generatedAt: null`,
+linking to `/settings#security`. It is app-local rather than shared — the copy
+names a product and the link names a route only that app has (see
+[[osn-and-musubi]]) — and it is suppressed while an unacknowledged security
+event is showing. Dismissal is a `localStorage` key per profile id, so a shared
+device never hides it from the next person. Details in
+[[social#Account-health banners]].
 
 ## Observability
 

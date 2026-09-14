@@ -14,9 +14,9 @@ import { startAuthentication } from "@simplewebauthn/browser";
  * inline in every component that mounts one of those surfaces.
  *
  * Kept in its own module, separate from `webauthn-registration.ts`: the
- * `SecurityEventsBanner` mounts on every settings visit and only ever runs
- * this ceremony, never registration. A single shared module would drag
- * `startRegistration` into the banner's lazy chunk even though it is only
+ * `SecurityEventsBanner` mounts on every route a signed-in user sees and only
+ * ever runs this ceremony, never registration. A single shared module would
+ * drag `startRegistration` into the banner's lazy chunk even though it is only
  * needed by the rarely-visited Security tab (`SecuritySection`).
  *
  * WHY THE ASSERTION IS HERE AND IS SAFE:

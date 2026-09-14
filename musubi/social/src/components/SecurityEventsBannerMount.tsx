@@ -5,16 +5,22 @@ import { securityEventsClient, stepUpClient, totpClient } from "../lib/authClien
 import { runPasskeyCeremony } from "../lib/webauthn-ceremony";
 
 /**
- * Wires the shared `SecurityEventsBanner` to this app's clients. Split into its
- * own module (lazy-loaded by SettingsPage) so `@simplewebauthn/browser` — pulled
- * in by the step-up ceremony — stays out of the main app bundle (P-I1).
+ * Wires the shared `SecurityEventsBanner` to this app's clients.
  *
- * Mounting this is what makes recovery-code generate/consume events actually
- * reach the user in-app; before it, the audit design's "survives email
- * filtering" channel was unmounted dead code and only the best-effort email
- * path was live.
+ * Its own module, reached only through the lazy import in `AccountBanners`, so
+ * `@simplewebauthn/browser` — which the step-up ceremony pulls in — stays out
+ * of the entry chunk. This module imports the assertion ceremony and must
+ * never import the enrolment one: the banner mounts on every route a signed-in
+ * user sees, while enrolment only ever runs from the Security tab.
+ *
+ * Mounting it is what makes recovery-code generate and consume events reach
+ * the user inside the application, rather than only in an email that a filter
+ * or an attacker holding the mailbox can swallow.
  */
-export default function SecurityEventsBannerMount(props: { accessToken: string }) {
+export default function SecurityEventsBannerMount(props: {
+  accessToken: string;
+  onVisibleCountChange?: (count: number) => void;
+}) {
   return (
     <SecurityEventsBanner
       client={securityEventsClient}
@@ -23,6 +29,7 @@ export default function SecurityEventsBannerMount(props: { accessToken: string }
       runPasskeyCeremony={runPasskeyCeremony}
       totpClient={totpClient}
       productName={PRODUCT_NAME}
+      onVisibleCountChange={props.onVisibleCountChange}
     />
   );
 }

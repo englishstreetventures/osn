@@ -8,8 +8,9 @@ import { startRegistration } from "@simplewebauthn/browser";
  *
  * Kept out of `webauthn-ceremony.ts`: registration only runs from the
  * Security tab (`SecuritySection`), which is already its own lazy chunk. The
- * banner (`SecurityEventsBannerMount`, mounted on every settings visit) never
- * imports this module, so `startRegistration` does not ship in its chunk.
+ * banner (`SecurityEventsBannerMount`, mounted on every route a signed-in user
+ * sees) never imports this module, so `startRegistration` does not ship in its
+ * chunk.
  *
  * WHY THE ASSERTION IS HERE AND IS SAFE:
  * The options come off the wire typed as the STANDARD lib.dom

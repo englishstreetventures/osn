@@ -211,4 +211,103 @@ describe("SecurityEventsBanner", () => {
       expect(screen.getByText(/server on fire/)).toBeTruthy();
     });
   });
+
+  // A host may mount this in an application shell rather than a settings
+  // panel. There a thrown resource blanks every route, and a host stacking its
+  // own banners under this one needs to know whether this one is showing.
+
+  it("renders nothing, rather than throwing, when the list cannot be read", async () => {
+    stub.list.mockRejectedValue(new Error("Request failed: 429"));
+    const { container } = render(() => (
+      <SecurityEventsBanner
+        client={asClient(stub)}
+        stepUpClient={asStepUp(stepUp)}
+        accessToken="acc"
+        productName="Musubi"
+      />
+    ));
+    await waitFor(() => expect(stub.list).toHaveBeenCalledTimes(1));
+    expect(container.textContent?.trim()).toBe("");
+  });
+
+  it("reports its count only once the read has settled", async () => {
+    const counts: number[] = [];
+    let resolveList: (value: { events: SecurityEventSummary[] }) => void = () => {};
+    stub.list.mockReturnValue(
+      new Promise<{ events: SecurityEventSummary[] }>((resolve) => {
+        resolveList = resolve;
+      }),
+    );
+    render(() => (
+      <SecurityEventsBanner
+        client={asClient(stub)}
+        stepUpClient={asStepUp(stepUp)}
+        accessToken="acc"
+        productName="Musubi"
+        onVisibleCountChange={(count) => counts.push(count)}
+      />
+    ));
+
+    // Silence while the request is in flight is the point: a host told "0"
+    // here would show its own banner and then have to pull it away.
+    expect(counts).toEqual([]);
+
+    resolveList({ events: [recoveryGenerateEvent] });
+    await waitFor(() => expect(counts).toEqual([1]));
+  });
+
+  it("reports zero for an empty list", async () => {
+    const counts: number[] = [];
+    stub.list.mockResolvedValue({ events: [] });
+    render(() => (
+      <SecurityEventsBanner
+        client={asClient(stub)}
+        stepUpClient={asStepUp(stepUp)}
+        accessToken="acc"
+        productName="Musubi"
+        onVisibleCountChange={(count) => counts.push(count)}
+      />
+    ));
+    await waitFor(() => expect(counts).toEqual([0]));
+  });
+
+  it("reports zero for a list it could not read", async () => {
+    const counts: number[] = [];
+    stub.list.mockRejectedValue(new Error("Request failed: 429"));
+    render(() => (
+      <SecurityEventsBanner
+        client={asClient(stub)}
+        stepUpClient={asStepUp(stepUp)}
+        accessToken="acc"
+        productName="Musubi"
+        onVisibleCountChange={(count) => counts.push(count)}
+      />
+    ));
+    await waitFor(() => expect(counts).toEqual([0]));
+  });
+
+  it("reports zero again once the events are acknowledged", async () => {
+    const counts: number[] = [];
+    stub.list.mockResolvedValue({ events: [recoveryGenerateEvent] });
+    stub.acknowledgeAll.mockResolvedValue({ acknowledged: 1 });
+    render(() => (
+      <SecurityEventsBanner
+        client={asClient(stub)}
+        stepUpClient={asStepUp(stepUp)}
+        accessToken="acc"
+        productName="Musubi"
+        onVisibleCountChange={(count) => counts.push(count)}
+      />
+    ));
+    await waitFor(() => expect(counts).toEqual([1]));
+
+    fireEvent.click(screen.getByRole("button", { name: /Acknowledge/ }));
+    await waitFor(() => screen.getByRole("button", { name: /Email me a code/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Email me a code/i }));
+    await waitFor(() => expect(stepUp.otpBegin).toHaveBeenCalled());
+    fireEvent.input(screen.getByLabelText(/Code/i), { target: { value: "123456" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm$/ }));
+
+    await waitFor(() => expect(counts).toEqual([1, 0]));
+  });
 });

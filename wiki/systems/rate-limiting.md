@@ -22,7 +22,7 @@ packages:
   - "@cire/api"
   - "@shared/rate-limit"
   - "@shared/redis"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-14
 ---
 # Rate Limiting
 
@@ -126,7 +126,8 @@ Send `maxRequests + 1` requests and assert the last returns 429.
 | `/register/complete`, `/login/passkey/begin`, `/login/passkey/complete`, `/passkey/register/{begin,complete}`, `/step-up/{passkey,otp}/complete`, `/account/email/complete`, `/handle/:handle` | 10 | Verify / complete — higher, to allow legitimate retries |
 | `/login/recovery/complete` | 5/hr | Brute-force defence on the lost-device escape hatch |
 | `/recovery/generate` | 10/hr | Flood control on a destructive action — each call burns the previous set |
-| `GET /recovery/status` | 30 | Counts-only read; the settings panel polls it on mount and after each generate |
+| `GET /recovery/status` | 30 | Counts-only read. The Security panel polls it on mount and after each generate, and `@musubi/social`'s application shell reads it once per load for a signed-in account that has neither dismissed the recovery-code prompt nor an unacknowledged security event |
+| `GET /account/security-events` | 30 | Unacknowledged-events read, behind a partial index. `@musubi/social` mounts that banner in its shell, so this is one read per app load for every signed-in user |
 | `PATCH /passkeys/:id` (rename) | 20 | Cheap settings action; label-only writes |
 | `DELETE /passkeys/:id` | 10 | Step-up is the primary gate; per-IP throttle is defence in depth |
 | `GET /passkeys` | 30 | Settings listing — cheap reads |

@@ -7,11 +7,13 @@ import { describe, expect, it } from "vitest";
 import viteConfig, { barrelIsSideEffectFree } from "../vite.config";
 
 /**
- * P-I3: `startRegistration` must stay reachable only from the Security-tab-only
- * chunk, never from code shared with the always-loaded Settings banner. The
- * security-events banner mounts on every Settings visit; the passkey
- * enrolment ceremony only ever runs from the Security tab. Keeping the two
- * apart is worth about 4 kB of JS to every visitor who never opens that tab.
+ * `startRegistration` must stay reachable only from the Security-tab-only
+ * chunk, never from code shared with the security-events banner. That banner
+ * mounts in the application shell, so it is fetched on every route a signed-in
+ * user opens, while the passkey enrolment ceremony only ever runs from the
+ * Security tab. Keeping the two apart is worth about 4 kB of JS to every
+ * visitor who never opens that tab — a wider audience than when the banner sat
+ * on the Settings page alone, so the split is worth more now, not less.
  *
  * The source split alone does not survive bundling — `@simplewebauthn/browser`
  * exports both ceremonies through one barrel — so the split is held by
@@ -103,6 +105,26 @@ describe("webauthn chunk split", () => {
     // The Security tab is the one surface allowed to reach enrolment.
     const security = readSource("../src/components/SecuritySection.tsx");
     expect(security).toContain("../lib/webauthn-registration");
+  });
+
+  it("keeps the entry chunk off the banner stack", () => {
+    // `AccountBanners` is imported statically by `App.tsx`, so whatever it
+    // names statically lands in the chunk every anonymous visitor downloads —
+    // `/authorize` included, a cold cross-origin landing deliberately kept
+    // thin. The stack it mounts reaches `StepUpDialog` and through it
+    // `@simplewebauthn/browser`, so it may only be named in a dynamic import.
+    //
+    // An allowlist, not a pair of `toContain` checks: asserting merely that
+    // the file says `lazy(` and `import(` still passes when it ALSO imports
+    // the stack, the banner mount or the ceremony statically, which is the
+    // exact failure being guarded — a working build, no error, and the bytes
+    // paid by everyone.
+    const gate = readSource("../src/components/AccountBanners.tsx");
+    const staticSpecifiers = [...gate.matchAll(/^import\s[^;]*?from\s*"([^"]+)";$/gm)].map(
+      (m) => m[1],
+    );
+    expect(staticSpecifiers.sort()).toEqual(["@osn/client/solid", "solid-js"]);
+    expect(gate).toMatch(/lazy\(\s*\(\)\s*=>\s*import\(\s*"\.\/AccountBannerStack"\s*\)\s*\)/);
   });
 
   it("keeps the sign-in dialog off a static registration import", () => {

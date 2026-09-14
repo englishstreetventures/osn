@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1038,
+    "branch": "feat/musubi-account-health-banners",
+    "base_sha": "ace44b3acbd37decf047267910affcc653db9fe0",
+    "head_sha": "f5a8593c765d077f42928774ccf653bc1240196b",
+    "generated_at": "2026-09-14T09:44:42.269Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1030,
+    "type": null,
+    "labels": [
+      "complexity:3",
+      "product:musubi"
+    ]
+  },
+  "complexity": {
+    "declared": 3,
+    "method": "confirmed"
+  },
+  "window": {
+    "sessions": 3,
+    "first_ts": "2026-09-14T08:52:52.234Z",
+    "last_ts": "2026-09-14T09:44:40.511Z",
+    "span_seconds": 3108,
+    "active_seconds": 3069,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 36.471321749999994,
+    "tokens": {
+      "input": 1291,
+      "output": 43748,
+      "thinking": 0,
+      "cache_write_5m": 789848,
+      "cache_write_1h": 0,
+      "cache_read": 55174848
+    },
+    "by_model": {
+      "claude-opus-4-7": {
+        "tokens": {
+          "input": 27,
+          "output": 5720,
+          "thinking": 0,
+          "cache_write_5m": 60044,
+          "cache_write_1h": 0,
+          "cache_read": 844059
+        },
+        "usd_equivalent": 0.9404395,
+        "messages": 17
+      },
+      "claude-fable-5-1": {
+        "tokens": {
+          "input": 898,
+          "output": 191,
+          "thinking": 0,
+          "cache_write_5m": 167607,
+          "cache_write_1h": 0,
+          "cache_read": 3580768
+        },
+        "usd_equivalent": 5.694385499999999,
+        "messages": 29
+      },
+      "claude-opus-5": {
+        "tokens": {
+          "input": 366,
+          "output": 37837,
+          "thinking": 0,
+          "cache_write_5m": 562197,
+          "cache_write_1h": 0,
+          "cache_read": 50750021
+        },
+        "usd_equivalent": 29.83649674999999,
+        "messages": 183
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 27,
+          "output": 5720,
+          "thinking": 0,
+          "cache_write_5m": 60044,
+          "cache_write_1h": 0,
+          "cache_read": 844059
+        },
+        "usd_equivalent": 0.9404395,
+        "messages": 17
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1264,
+          "output": 38028,
+          "thinking": 0,
+          "cache_write_5m": 729804,
+          "cache_write_1h": 0,
+          "cache_read": 54330789
+        },
+        "usd_equivalent": 35.530882250000005,
+        "messages": 212
+      }
+    },
+    "effort": {
+      "high": 29,
+      "xhigh": 183
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 7,
+      "docs": 3,
+      "config": 0,
+      "source": 13
+    },
+    "loc": {
+      "generated": {
+        "added": 41,
+        "deleted": 0
+      },
+      "test": {
+        "added": 597,
+        "deleted": 5
+      },
+      "docs": {
+        "added": 93,
+        "deleted": 9
+      },
+      "config": {
+        "added": 0,
+        "deleted": 0
+      },
+      "source": {
+        "added": 324,
+        "deleted": 58
+      }
+    },
+    "packages": [
+      "osn/client",
+      "osn/ui"
+    ],
+    "touches_migration": false,
+    "commits": 1
+  },
+  "interaction": {
+    "user_turns": 2,
+    "corrective_turns": 0,
+    "tokens_before_first_edit": null,
+    "sessions_with_observed_edit": 0,
+    "tool_calls": {
+      "Bash": 132,
+      "Edit": 58,
+      "Read": 27,
+      "Write": 18,
+      "Grep": 6,
+      "Skill": 3,
+      "Agent": 1,
+      "ToolSearch": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 10,
+      "max_edits_one_file": 11
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "obsidian:obsidian-markdown": 1
+    },
+    "subagents": {
+      "attacker": 1
+    }
+  }
+}

@@ -1,10 +1,11 @@
 /**
  * Out-of-band security event client (M-PK1b).
  *
- * Backs the Settings banner that surfaces "did you do this?" prompts for
- * account-level security actions (recovery-code regeneration today, more
- * kinds to follow). The banner renders what's on the audit trail even if
- * the confirmation email was suppressed by an attacker holding the inbox.
+ * Backs the banner that surfaces "did you do this?" prompts for account-level
+ * security actions. Where that banner mounts is the host application's
+ * choice; `@musubi/social` puts it in the application shell, so it is seen
+ * without being looked for. The banner renders what's on the audit trail even
+ * if the confirmation email was suppressed by an attacker holding the inbox.
  */
 
 export interface SecurityEventsClientConfig {

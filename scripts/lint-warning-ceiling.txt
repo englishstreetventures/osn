@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1059   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/locked-module-nav @ 2026-09-14
+1057   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), feat/musubi-account-health-banners rebased onto ace44b3a @ 2026-09-14

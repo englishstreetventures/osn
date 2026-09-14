@@ -4,19 +4,26 @@ import type {
   StepUpClient,
   TotpClient,
 } from "@osn/client";
-import { createResource, createSignal, For, Show } from "solid-js";
+import { createEffect, createResource, createSignal, For, Show } from "solid-js";
 
 import { Button } from "../components/ui/button";
 import { StepUpDialog, type RunPasskeyCeremony } from "./StepUpDialog";
 
 /**
- * Settings-panel banner for out-of-band security events (M-PK1b).
+ * Banner for out-of-band security events. Its host decides where it mounts —
+ * a settings panel, or the application shell, where it is seen without being
+ * looked for.
  *
  * Surfaces "somebody regenerated your recovery codes — was this you?" style
  * prompts on a loop that survives email filtering. The banner is the audit
  * trail's last-mile delivery: it keeps rendering until the user clicks
  * "Acknowledge" (and completes a step-up ceremony), regardless of whether
  * the notification email was delivered.
+ *
+ * It renders nothing rather than throwing when the list cannot be read. A
+ * Solid resource rethrows its fetch error on read, and a host that mounts
+ * this in an application shell has no page-sized blast radius to absorb that:
+ * one 429 on a shared address would blank every route.
  *
  * Design notes
  * ------------
@@ -51,6 +58,17 @@ export interface SecurityEventsBannerProps {
   totpClient?: TotpClient;
   /** Product name shown in this banner's copy — e.g. "Musubi". */
   productName: string;
+  /**
+   * Reports how many events the banner is showing, whenever that settles: 0
+   * when the account has none, 0 when the list could not be read, and 0 again
+   * once an acknowledgement clears them.
+   *
+   * Never called while the first read is still in flight, so a host can tell
+   * "nothing to show" from "not known yet" and stack its own banners
+   * underneath without one flashing in before this one arrives. Omit it and
+   * the banner behaves exactly as it does without it.
+   */
+  onVisibleCountChange?: (count: number) => void;
 }
 
 function formatTs(ts: number): string {
@@ -77,7 +95,20 @@ export function SecurityEventsBanner(props: SecurityEventsBannerProps) {
     return res.events;
   });
   const [localRemovedAll, setLocalRemovedAll] = createSignal(false);
-  const visibleEvents = () => (localRemovedAll() ? [] : (serverEvents() ?? []));
+  const visibleEvents = (): readonly SecurityEventSummary[] => {
+    if (localRemovedAll()) return [];
+    // `.error` before `serverEvents()`: reading a rejected resource rethrows,
+    // and this component renders inside an application shell.
+    if (serverEvents.error) return [];
+    return serverEvents() ?? [];
+  };
+
+  // Reported after the read settles, never during it, so a host stacking its
+  // own banners under this one can distinguish "none" from "not yet known".
+  createEffect(() => {
+    if (serverEvents.loading) return;
+    props.onVisibleCountChange?.(visibleEvents().length);
+  });
 
   const [error, setError] = createSignal<string | null>(null);
   const [stepUpOpen, setStepUpOpen] = createSignal(false);

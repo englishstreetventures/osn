@@ -16,7 +16,7 @@ related:
   - "[[identity-model]]"
   - "[[passkey-primary]]"
   - "[[rate-limiting]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-14
 ---
 
 # Social
@@ -43,7 +43,7 @@ The app ships as a web build only.
 | `/discover` | `DiscoverPage` | Contact suggestions (`GET /recommendations/connections`) — mutual connections and shared organisations, each card saying which. See [[social-graph]] |
 | `/organisations` | `OrganisationsPage` | Orgs the user owns or belongs to; create new |
 | `/organisations/:id` | `OrgDetailPage` | Org detail + member management |
-| `/settings` | `SettingsPage` | Profile / Account / **Security** (passkey add/rename/delete, step-up gated) / Connected apps tabs. The Security tab is lazy-loaded (`SecuritySection` chunk). `@simplewebauthn/browser` is split across two wrappers: `src/lib/webauthn-ceremony.ts` (assertion) ships with the always-mounted security-events banner, and `src/lib/webauthn-registration.ts` (enrolment) only when the Security tab opens — see below. |
+| `/settings` | `SettingsPage` | Profile / Account / **Security** (passkey add/rename/delete, step-up gated) / Connected apps tabs. Which tab opens comes from the URL fragment (`/settings#security`), read off the router's location — so a deep link from another origin, Back/Forward, a tab click and an in-app link to a tab all behave the same. The Security tab is lazy-loaded (`SecuritySection` chunk). `@simplewebauthn/browser` is split across two wrappers: `src/lib/webauthn-ceremony.ts` (assertion) ships with the security-events banner, and `src/lib/webauthn-registration.ts` (enrolment) only when the Security tab opens — see below. |
 | `/authorize` | `AuthorizePage` | The OIDC consent screen — another app asking to sign the user in with their OSN account. Lazy-loaded, and the one route on a **bare layout**: no sidebar, nothing to click but the decision. Full contract in [[authorize-ui]]. |
 
 `BARE_ROUTES` in `src/App.tsx` is the allow-list that strips the sidebar. Add
@@ -55,6 +55,55 @@ left rail on desktop, and a bottom-tab-bar + top-bar shell on mobile
 as bottom sheets through `ResponsiveDialogContent`). The mobile UX audit and
 the design rules the responsive work follows live in [[social-mobile-ux]] and
 `DESIGN.md` §Responsive layout.
+
+## Account-health banners
+
+Two banners sit above the page on every non-bare route once a session exists,
+mounted from `AccountBanners` in `src/App.tsx` rather than from any one page.
+
+| Banner | Shows when | Source |
+|---|---|---|
+| Security events | The account has an unacknowledged `security_events` row | `@osn/ui/auth/SecurityEventsBanner`, wired by `src/components/SecurityEventsBannerMount.tsx` |
+| Recovery-code prompt | `GET /recovery/status` returns `generatedAt: null` — the account has never generated a set | `src/components/RecoveryCodesPrompt.tsx`, app-local |
+
+**Only one shows at a time, and security events win.** An unacknowledged event
+describes something that already happened to the account and costs a step-up
+ceremony to clear, so it stays until the user deals with it; a recovery-code
+offer is housekeeping. The prompt waits for a *settled* count from the events
+banner rather than an empty one, so it never appears for an instant and then
+gives way to an event that was still in flight. Coexistence would be ordinary
+rather than rare: most of the 18 kinds in `SecurityEventKind`
+(`shared/observability/src/metrics/attrs.ts`) — adding a passkey, enrolling an
+authenticator, signing in from a second device — sit happily on an account with
+no recovery codes.
+
+> [!warning] The banners are behind a session check **and** a `lazy()`, in that order
+> They reach `@simplewebauthn/browser` through the step-up ceremony. `lazy()`
+> calls its import thunk on first render and `Show` reads its children only when
+> the condition holds, so a signed-out visitor fetches none of it and
+> `/authorize` — which renders the bare layout and never reaches this code —
+> pays nothing. Putting the stack in an eagerly-evaluated prop, a `fallback`
+> among them, would fetch it for everyone and show nothing for it.
+> `musubi/social/tests/webauthn-chunks.test.ts` pins the gate's static imports
+> to an allowlist for that reason.
+
+The prompt's dismissal is a `localStorage` key per profile id,
+`musubi:recovery-codes-prompt-dismissed:<profileId>`. Per profile rather than
+per account because no account id ever reaches the client — the access token
+carries `sub`, `email`, `handle` and `displayName` and nothing else. The account
+email is the only account-wide identifier available, and a key built from it
+would leave one person's address in storage for the next person on a shared
+device. A dismissed prompt makes no request at all.
+
+Nothing caches "this account has codes". `generatedAt` looks monotonic and is
+not: scheduling an account deletion erases every recovery code, and cancelling
+inside the grace window restores the account without re-minting them, so a live
+account can go from a timestamp back to `null`. See [[recovery-codes]].
+
+`AccountBanners` wraps the pair in an `ErrorBoundary` that renders nothing. Both
+banners read endpoints limited to 30 requests a minute **per IP**, a Solid
+resource rethrows its fetch error on read, and shell code has no page-sized
+blast radius: one 429 on a shared address would otherwise blank every route.
 
 ## Search surfaces — two ARIA patterns, deliberately
 
@@ -150,8 +199,10 @@ wrapper. This app has two, one per ceremony:
 | `src/lib/webauthn-registration.ts` | attestation (passkey enrolment) | `SecuritySection` only |
 
 They are two modules, not one, because `SecurityEventsBannerMount` mounts on
-every Settings visit while `SecuritySection` loads only on the Security tab. A
-single module would drag the enrolment code into the banner's chunk.
+every route a signed-in user opens (see [[#Account-health banners]]) while
+`SecuritySection` loads only on the Security tab. A single module would drag
+the enrolment code into the banner's chunk, and it would now do so for every
+signed-in visitor rather than only the ones who opened Settings.
 
 The source split alone does not hold through the bundler. `@simplewebauthn/browser`
 exports both methods through one barrel (`esm/index.js`) and ships no
