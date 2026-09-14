@@ -1,5 +1,12 @@
 # @tools/lab
 
+## 0.1.24
+
+### Patch Changes
+
+- Updated dependencies [894a26f]
+  - @osn/ui@1.13.0
+
 ## 0.1.23
 
 ### Patch Changes
