@@ -235,6 +235,68 @@ describe("Register component", () => {
     });
   });
 
+  // The address verifies the account, is the emailed-code way back into an
+  // account whose passkeys are gone, and receives security notices. The form
+  // said none of it, and the recovery job is the one that should steer which
+  // address a person types in.
+  describe("email explainer", () => {
+    it("names the trigger, since a circled glyph announces nothing", () => {
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      const trigger = screen.getByLabelText("What this address is used for");
+      expect(trigger.tagName).toBe("BUTTON");
+      expect(trigger.textContent).toBe("i");
+    });
+
+    it("is a real button that cannot submit the form it sits in", () => {
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      const trigger = screen.getByLabelText("What this address is used for") as HTMLButtonElement;
+      expect(trigger.getAttribute("type")).toBe("button");
+      expect(trigger.disabled).toBe(false);
+      expect(trigger.getAttribute("tabindex")).toBeNull();
+    });
+
+    it("gives all three uses of the address, naming the product it was given", async () => {
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Kumiho" />);
+      fireEvent.click(screen.getByLabelText("What this address is used for"));
+
+      const panel = await screen.findByRole("dialog");
+      expect(panel.textContent).toMatch(/six-digit code/);
+      expect(panel.textContent).toMatch(/Kumiho account is not created until you enter it/);
+      expect(panel.textContent).toMatch(/lose every device with a passkey/);
+      expect(panel.textContent).toMatch(/Security notices/);
+    });
+
+    // The form is filled to valid first on purpose. `submitDetails` returns
+    // early while the details are invalid, and happy-dom's `requestSubmit`
+    // runs `checkValidity()` against three required inputs — so on an empty
+    // form a trigger that DID submit would still reach nothing, and this
+    // assertion would pass without proving anything.
+    it("opening it does not submit the form or advance the step", async () => {
+      stub.checkHandle.mockResolvedValue({ available: true });
+      render(() => <Register client={asClient(stub)} onCancel={() => {}} productName="Musubi" />);
+      fillEmail("alice@example.com");
+      fillHandle("alice");
+      fillBirthdate("1990-01-01");
+      await vi.advanceTimersByTimeAsync(350);
+
+      const submit = await waitFor(() => {
+        const b = screen.getByRole("button", {
+          name: /Send verification code/i,
+        }) as HTMLButtonElement;
+        expect(b.disabled).toBe(false);
+        return b;
+      });
+
+      fireEvent.click(screen.getByLabelText("What this address is used for"));
+      expect(await screen.findByRole("dialog")).toBeTruthy();
+
+      expect(stub.beginRegistration).not.toHaveBeenCalled();
+      // Still on the details step: its submit button is the one on screen.
+      expect(submit.isConnected).toBe(true);
+      expect(screen.queryByText(/Enter it below to verify/)).toBeNull();
+    });
+  });
+
   describe("verify step", () => {
     async function advanceToVerify() {
       stub.checkHandle.mockResolvedValue({ available: true });

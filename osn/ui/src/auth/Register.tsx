@@ -5,6 +5,7 @@ import { browserSupportsWebAuthn, startRegistration } from "@simplewebauthn/brow
 import { createSignal, Show, onCleanup } from "solid-js";
 
 import { Button } from "../components/ui/button";
+import { InfoPopover } from "../components/ui/info-popover";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { OtpInput, type OtpStatus } from "../components/ui/otp-input";
@@ -80,6 +81,12 @@ export function Register(props: RegisterProps) {
   // one is redeemed by `/register/begin` (tokens are single-use — Cloudflare
   // only auto-refreshes on the ~300s expiry, not on consumption).
   let resetTurnstile: (() => void) | undefined;
+
+  // Names all three jobs the address does, so the choice of address is made
+  // knowing the second: an emailed code is a way back into an account whose
+  // passkeys are all gone.
+  const emailUses = () =>
+    `We send a six-digit code here to confirm the address — your ${props.productName} account is not created until you enter it. It is also how you get back in if you lose every device with a passkey on it, so use an address you will still be reading in a year. Security notices come here too, such as a recovery code being created or used.`;
 
   const [handleStatus, setHandleStatus] = createSignal<
     "idle" | "checking" | "available" | "taken" | "invalid" | "error"
@@ -302,7 +309,15 @@ export function Register(props: RegisterProps) {
         <Show when={step() === "details"}>
           <form onSubmit={submitDetails} class="flex flex-col gap-4">
             <div class="flex flex-col gap-1">
-              <Label for="reg-email">Email</Label>
+              <div class="flex items-center">
+                <Label for="reg-email">Email</Label>
+                <InfoPopover
+                  label="What this address is used for"
+                  glyph="i"
+                  placement="top"
+                  body={emailUses()}
+                />
+              </div>
               <Input
                 id="reg-email"
                 type="email"

@@ -20,7 +20,7 @@ related:
 packages:
   - "@osn/ui"
   - "@pulse/web"
-last-reviewed: 2026-08-24
+last-reviewed: 2026-09-14
 ---
 
 # Component Library (Zaidan)
@@ -51,6 +51,7 @@ osn/ui/src/
 │       ├── checkbox.tsx       ← Checkbox (Kobalte)
 │       ├── dialog.tsx         ← Dialog, DialogContent, etc. (Kobalte)
 │       ├── dropdown-menu.tsx  ← DropdownMenu, DropdownMenuItem, etc. (Kobalte)
+│       ├── info-popover.tsx   ← InfoPopover (circled glyph beside a form label)
 │       ├── input.tsx          ← Input
 │       ├── label.tsx          ← Label
 │       ├── otp-input.tsx      ← OtpInput (6-digit code verification)
@@ -60,9 +61,38 @@ osn/ui/src/
 │       ├── textarea.tsx       ← Textarea
 │       └── username-input.tsx ← UsernameInput ("@" prefix + availability status)
 └── auth/
-    ├── Register.tsx           ← uses Button, Input, Label, OtpInput, UsernameInput
+    ├── Register.tsx           ← uses Button, InfoPopover, Input, Label, OtpInput, UsernameInput
     └── SignIn.tsx           ← uses Button, Input, Label, OtpInput, clsx()
 ```
+
+### `InfoPopover` — the form-field explainer
+
+A circled glyph beside a form label, opening a `Popover` panel that says what the
+field is for. `glyph` chooses the character (`?` by default, `i` where the panel
+states a fact rather than answering a question), and `placement` chooses the side —
+Kobalte's default `"bottom"` opens the panel over whatever sits below the trigger,
+which for a field label is the input itself, so a form field usually wants `"top"`.
+
+The trigger is a native `<button type="button">`: Kobalte's `ButtonRoot` supplies
+that default, so it never submits the form it sits inside. `osn/ui`'s own tests
+hold that guarantee rather than trusting it.
+
+> [!important] Why `PopoverContent` carries `data-kb-top-layer`
+> Kobalte's `Dialog` defaults to `modal: true` and sets `aria-hidden="true"` on
+> everything outside itself — including nodes portalled to `<body>` after it
+> opened, which it reaches with a `MutationObserver`. `PopoverContent` portals to
+> `<body>`, so a popover opened from inside a dialog would be visible on screen
+> and absent from the accessibility tree. `data-kb-top-layer` is what exempts a
+> node from that walk; Kobalte itself sets it on `ToastRegion` and nowhere else.
+>
+> It sits on `PopoverContent` rather than behind a prop, because a prop is
+> something every call site inside a dialog has to remember. Outside a dialog
+> nothing walks the tree and the attribute does nothing.
+>
+> A test covering this **must flush macrotasks first**: the hide defers through
+> `setTimeout` then `requestAnimationFrame`, so a check made immediately passes
+> while the panel is in fact hidden. `osn/ui/tests/components/ui/info-popover.test.tsx`
+> holds the guarantee, rendering the popover inside a real `Dialog`.
 
 `CreateProfileForm.tsx` also uses `UsernameInput` for its handle field. `cire/host` doesn't depend on `@osn/ui` (its own component kit, different design system) — it has a local port at `cire/host/src/components/ui/UsernameInput.tsx` wrapping that kit's own `Input`, same "@"-prefix idea, used in `HostsPanel`'s add-host combobox.
 

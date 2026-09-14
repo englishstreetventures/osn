@@ -17,6 +17,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@osn/ui/ui/dropdown-menu";
+import { InfoPopover } from "@osn/ui/ui/info-popover";
+import { Input } from "@osn/ui/ui/input";
+import { Label } from "@osn/ui/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@osn/ui/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@osn/ui/ui/tabs";
 import { createSignal } from "solid-js";
@@ -86,6 +89,37 @@ export const PopoverStory = () => (
       it later.
     </PopoverContent>
   </Popover>
+);
+
+/**
+ * The same Popover packaged as a form-field affordance: a circled glyph
+ * beside a label. `placement` matters here — the default opens the panel over
+ * whatever sits below the trigger, which is usually the field itself.
+ */
+export const InfoPopoverStory = () => (
+  <div class="flex max-w-sm flex-col gap-4">
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center">
+        <Label for="lab-email">Email</Label>
+        <InfoPopover
+          label="What this address is used for"
+          glyph="i"
+          placement="top"
+          body="We send a six-digit code here to confirm the address — your account is not created until you enter it. It is also how you get back in if you lose every device with a passkey on it. Security notices come here too."
+        />
+      </div>
+      <Input id="lab-email" type="email" placeholder="you@example.com" />
+    </div>
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center">
+        <Label>Guest list visibility</Label>
+        <InfoPopover
+          label="About visibility"
+          body="Who can see the list of people coming. The default glyph is a question mark and the panel opens below."
+        />
+      </div>
+    </div>
+  </div>
 );
 
 export const TabsStory = () => (

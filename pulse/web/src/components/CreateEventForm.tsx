@@ -1,6 +1,7 @@
 import { Button } from "@osn/ui/ui/button";
 import { Card } from "@osn/ui/ui/card";
 import { Checkbox } from "@osn/ui/ui/checkbox";
+import { InfoPopover } from "@osn/ui/ui/info-popover";
 import { Input } from "@osn/ui/ui/input";
 import { Label } from "@osn/ui/ui/label";
 import { RadioGroup, RadioGroupItem } from "@osn/ui/ui/radio-group";
@@ -12,7 +13,6 @@ import { api } from "../lib/api";
 import { formatPrice } from "../lib/formatPrice";
 import { LocationInput } from "../lib/LocationInput";
 import { toDatetimeLocal, isEndBeforeOrAtStart, deriveEndFromDuration } from "../lib/utils";
-import { InfoPopover } from "./InfoPopover";
 
 const DURATION_PRESETS: ReadonlyArray<{ label: string; hours: number }> = [
   { label: "1h", hours: 1 },
