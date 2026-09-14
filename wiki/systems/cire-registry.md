@@ -7,7 +7,7 @@ related:
   - "[[cire-platform-plan]]"
   - "[[cire-consent]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-09-11
+last-reviewed: 2026-09-14
 ---
 
 # Gift registry
@@ -377,7 +377,7 @@ This is what closed **S-L2** in `wiki/todo/security.md`.
 
 The module lives at `cire/host/src/components/RegistryView.tsx`, wired into the rail by `lib/module-nav.ts`, into the route grammar by `lib/dashboard-route.ts` (`MODULE_SUBS.registry = ["list", "gifts", "settings"]`) and into the shell by `components/ModuleShell.tsx`. Three sub-tabs, two components: `list` and `gifts` mount the **same** `RegistryView` with a `view` prop — one fetch, one cache, two renders — and `settings` is `RegistrySettingsView`, a second chunk reading the same cached snapshot.
 
-**The upsell is the normal state.** The shell wraps the module in `<Show when={entitlements.includes("registry")} fallback={<UpsellPanel feature="registry" />}>`, exactly as vendors does. No wedding holds the entitlement, so an organiser navigating to Registry today sees the panel, and the module below it is code nobody can reach without a comp grant.
+**Locked means no page.** A wedding without the `registry` entitlement never renders this module: `ModuleShell` coerces a locked module to Overview, so a deep link or a stale hash naming Registry lands on a real view rather than on an empty panel. The rail and sheet keep the Registry row, faded and inert, and it offers the upgrade — a three-second pointer dwell, the same delay on keyboard focus, or a click, which is what a touch user gets. The command palette and the Overview cards leave a locked module out entirely, because a row that navigates nowhere is worse than no row. See [[cire-entitlements]].
 
 **No Overview card.** The obvious "gifts received" tile would fire a guaranteed-402 request on the most-loaded page in the portal, for every wedding, forever, to render nothing. It lands with the entitlement, not before.
 

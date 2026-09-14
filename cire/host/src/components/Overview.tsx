@@ -11,6 +11,7 @@ import {
 } from "../lib/budget-store";
 import { ensureEventsLoaded, type EventRow, eventsAccessor } from "../lib/events-store";
 import { ensureGuestsLoaded, guestsAccessor, type OrganiserGuestRow } from "../lib/guests-store";
+import { isModuleLocked } from "../lib/module-nav";
 import { buildAgenda, type AgendaItem } from "../lib/overview-agenda";
 import { ensureTasksLoaded, peekCachedTasks, taskCounts, type TaskRow } from "../lib/tasks-store";
 import { ensureVendorsLoaded, vendorCount, type VendorRow } from "../lib/vendors-store";
@@ -142,6 +143,10 @@ const cardLinkClass = cardClass({ interactive: true });
 
 export default function Overview(props: {
   weddingId: string;
+  /** Entitlement keys active on this wedding. A card for a locked module is not
+   *  rendered at all: the shell coerces a locked module back to Overview, so a
+   *  card linking to one would be a click that visibly does nothing. */
+  entitlements: readonly string[];
   /** Jump to another module (+ optional sub) — wired to the shell's navigation
    *  so an Overview card can send the organiser to the right place. */
   onNavigate: (
@@ -150,6 +155,8 @@ export default function Overview(props: {
   ) => void;
 }) {
   const { authFetch } = useAuth();
+
+  const vendorsLocked = () => isModuleLocked("vendors", props.entitlements);
 
   const [data] = createResource<OverviewData>(async () => {
     try {
@@ -195,23 +202,30 @@ export default function Overview(props: {
           if (!res.ok) return { items: [], payments: [], budgetTotalMinor: null, currency: "AUD" };
           return (await res.json()) as BudgetSnapshot;
         }),
-        // Vendors — soft-fail: unavailable vendors never block Overview and never
-        // cache an empty array on error (which would show "0 vendors" on a backend
-        // error). A non-ok / 401 response throws so ensureVendorsLoaded rejects
-        // without populating the cache, leaving vendorCount() as null
-        // (loading/unknown). The .catch() swallows the rejection so it never
-        // bubbles out of the outer Promise.all.
-        ensureVendorsLoaded(props.weddingId, async () => {
-          const res = await authFetch(apiUrl(`/api/organiser/weddings/${props.weddingId}/vendors`));
-          if (res.status === 401) {
-            redirectToLogin();
-            throw new Error("unauthenticated");
-          }
-          if (!res.ok) throw new Error(`vendors ${res.status}`);
-          return ((await res.json()) as { vendors: VendorRow[] }).vendors;
-        }).catch(() => {
-          // Swallow the rejection — the cache stays unpopulated (vendorCount null).
-        }),
+        // Vendors — not fetched at all while the module is locked: the only
+        // thing that reads the count is a card this wedding does not get.
+        //
+        // Soft-fail otherwise: unavailable vendors never block Overview and
+        // never cache an empty array on error (which would show "0 vendors" on
+        // a backend error). A non-ok / 401 response throws so
+        // ensureVendorsLoaded rejects without populating the cache, leaving
+        // vendorCount() as null (loading/unknown). The .catch() swallows the
+        // rejection so it never bubbles out of the outer Promise.all.
+        vendorsLocked()
+          ? Promise.resolve()
+          : ensureVendorsLoaded(props.weddingId, async () => {
+              const res = await authFetch(
+                apiUrl(`/api/organiser/weddings/${props.weddingId}/vendors`),
+              );
+              if (res.status === 401) {
+                redirectToLogin();
+                throw new Error("unauthenticated");
+              }
+              if (!res.ok) throw new Error(`vendors ${res.status}`);
+              return ((await res.json()) as { vendors: VendorRow[] }).vendors;
+            }).catch(() => {
+              // Swallow the rejection — the cache stays unpopulated (vendorCount null).
+            }),
       ]);
 
       if (settingsRes.status === 401 || rsvpsRes.status === 401) {
@@ -650,31 +664,39 @@ export default function Overview(props: {
               </button>
 
               {/* ── Vendors snapshot (live count) ─────────────────────────── */}
-              <button
-                type="button"
-                onClick={() => props.onNavigate("vendors")}
-                class={cardLinkClass}
-              >
-                <CardEyebrow>Vendors</CardEyebrow>
-                <Show
-                  when={vendorCountValue() !== null}
-                  fallback={<p class="text-text-muted text-[0.82rem]">Loading your vendors…</p>}
+              {/* Absent while the module is locked. The shell sends a locked
+                  module back to Overview, so this card would otherwise be a
+                  click that lands on the page it was clicked from. The faded
+                  nav row is where the upgrade is offered. */}
+              <Show when={!vendorsLocked()}>
+                <button
+                  type="button"
+                  onClick={() => props.onNavigate("vendors")}
+                  class={cardLinkClass}
                 >
+                  <CardEyebrow>Vendors</CardEyebrow>
                   <Show
-                    when={(vendorCountValue() ?? 0) > 0}
-                    fallback={
-                      <p class="text-text-muted text-[0.82rem]">No vendors yet — add your first.</p>
-                    }
+                    when={vendorCountValue() !== null}
+                    fallback={<p class="text-text-muted text-[0.82rem]">Loading your vendors…</p>}
                   >
-                    <p class="text-text text-[0.95rem]">
-                      <span class="text-gold text-[1.3rem] font-semibold">
-                        {vendorCountValue()}
-                      </span>{" "}
-                      {vendorCountValue() === 1 ? "vendor" : "vendors"} tracked
-                    </p>
+                    <Show
+                      when={(vendorCountValue() ?? 0) > 0}
+                      fallback={
+                        <p class="text-text-muted text-[0.82rem]">
+                          No vendors yet — add your first.
+                        </p>
+                      }
+                    >
+                      <p class="text-text text-[0.95rem]">
+                        <span class="text-gold text-[1.3rem] font-semibold">
+                          {vendorCountValue()}
+                        </span>{" "}
+                        {vendorCountValue() === 1 ? "vendor" : "vendors"} tracked
+                      </p>
+                    </Show>
                   </Show>
-                </Show>
-              </button>
+                </button>
+              </Show>
 
               {/* ── Budget snapshot (Phase 1 — live spend + upcoming payments) ── */}
               <button

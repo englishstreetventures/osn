@@ -69,13 +69,13 @@ afterEach(() => {
 describe("Overview checklist widget", () => {
   it("shows the N-of-M completion line", async () => {
     setCachedTasks("wed_1", [row({ id: "a", status: "open" }), row({ id: "b", status: "done" })]);
-    render(() => <Overview weddingId="wed_1" onNavigate={() => {}} />);
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={() => {}} />);
     expect(await screen.findByText(/1 of 2 done/i)).toBeInTheDocument();
   });
 
   it("shows the live open-task count once tasks are cached", async () => {
     setCachedTasks("wed_1", [row({ id: "a", status: "open" }), row({ id: "b", status: "done" })]);
-    render(() => <Overview weddingId="wed_1" onNavigate={() => {}} />);
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={() => {}} />);
     // "1 open task" surfaces on the Checklist card. The count ("1") is in a child
     // <span> inside a <p>, so wait for the span holding the count to appear.
     const countSpan = await screen.findByText("1", { selector: "span" });
@@ -110,7 +110,7 @@ describe("Overview checklist widget", () => {
         return json({ items: [], payments: [], budgetTotalMinor: null, currency: "AUD" });
       return json({}, 404);
     });
-    render(() => <Overview weddingId="wed_1" onNavigate={() => {}} />);
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={() => {}} />);
 
     const checklistCard = (await screen.findByText("Checklist")).closest("button")!;
     await waitFor(() =>

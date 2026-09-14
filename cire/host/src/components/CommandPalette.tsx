@@ -3,7 +3,7 @@ import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 
 import type { Module } from "../lib/dashboard-route";
 import { haptic } from "../lib/haptics";
-import { MODULE_NAV } from "../lib/module-nav";
+import { isModuleLocked, MODULE_NAV } from "../lib/module-nav";
 import { setThemePreference, theme } from "../lib/theme";
 import type { WeddingSummary } from "./CreateWeddingForm";
 
@@ -73,6 +73,11 @@ export default function CommandPalette(props: {
     const wedding = props.wedding;
     if (wedding) {
       for (const mod of MODULE_NAV) {
+        // A locked module is not a place this wedding can go: the shell sends it
+        // back to Overview. The upgrade is offered on the nav row, which stays
+        // visible, rather than here — a palette row that lands somewhere else
+        // is worse than no row.
+        if (isModuleLocked(mod.id, wedding.entitlements ?? [])) continue;
         list.push({
           id: `module:${mod.id}`,
           group: "Go to",

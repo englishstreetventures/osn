@@ -147,11 +147,11 @@ function parseGiftsOffset(raw: unknown): number {
  * Split from the write factory so the read gate (weddingMember) never
  * cross-contaminates the write gates — mirrors createBudgetReadRoutes.
  *
- * LOCKED: `weddingEntitlement(db, "registry")` sits after the role gate, and the
- * `registry` entitlement is granted to no wedding, so this answers
- * 402 `payment_required` for every caller today. That is the whole mechanism by
- * which the feature ships built but unreachable — the portal turns the 402 into
- * the upsell panel.
+ * LOCKED: `weddingEntitlement(db, "registry")` sits after the role gate, so a
+ * wedding without that entitlement gets 402 `payment_required` from every route
+ * here. That is the whole mechanism by which the feature ships built but
+ * unreachable — in the portal the module's nav row fades and offers the upgrade
+ * rather than opening.
  */
 export const createRegistryReadRoutes = (db: Db, osnAuthOptions: OsnAuthOptions) =>
   new Elysia({ prefix: "/api/organiser" })

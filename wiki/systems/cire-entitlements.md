@@ -5,7 +5,7 @@ related:
   - "[[cire-vendors]]"
   - "[[cire-registry]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-09-01
+last-reviewed: 2026-09-14
 ---
 # Entitlements — per-wedding capability gates
 
@@ -98,7 +98,7 @@ The entitlement gate sits **after** the role gate. The role gate already returns
 { "error": "payment_required", "entitlement": "<key>" }
 ```
 
-HTTP status `402`. The organiser portal reads the `entitlement` field to display the relevant upsell UI panel.
+HTTP status `402`. In the organiser portal a locked module has no page at all, so this response is a backstop rather than something a user normally meets: `isModuleLocked` (`cire/host/src/lib/module-nav.ts`) derives the lock from the wedding's own entitlement set, `ModuleShell` coerces a locked module back to Overview, and the module's nav row stays visible but faded and inert. Resting a pointer on that row for three seconds — or clicking it, which is the only path a touch user has — opens a popover naming the module and offering an Upgrade button that is inert until checkout exists.
 
 A missing `weddingId` in `params` (should not occur after the role gate validates it) degrades to a `402` rather than throwing.
 

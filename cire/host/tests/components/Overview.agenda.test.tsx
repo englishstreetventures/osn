@@ -90,7 +90,7 @@ describe("Overview what's-next band", () => {
     });
 
     const onNavigate = vi.fn();
-    render(() => <Overview weddingId="wed_1" onNavigate={onNavigate} />);
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={onNavigate} />);
 
     // The three labels appear under the "What's next" heading.
     const payment = await screen.findByText("Venue balance");
@@ -104,7 +104,7 @@ describe("Overview what's-next band", () => {
 
   it("shows the empty-state line when there is nothing scheduled", async () => {
     setCachedEvents("wed_1", [{ id: "e1", name: "Ceremony" } as never]); // no startAt/date → not on agenda
-    render(() => <Overview weddingId="wed_1" onNavigate={() => {}} />);
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={() => {}} />);
     expect(await screen.findByText(/nothing scheduled yet/i)).toBeInTheDocument();
   });
 });

@@ -19,13 +19,14 @@ interface EntitlementGateError {
  * BEFORE the rate limiter: a viewer on an entitled wedding is already stopped by
  * the role gate's 403, so a 402 here only reaches callers who ARE allowed by role
  * but whose WEDDING has not bought `key`. Returns 402 `payment_required` +
- * `{ entitlement }` — the contract the portal turns into an upsell.
+ * `{ entitlement }` — the contract behind the portal's faded nav row, which
+ * offers the upgrade instead of opening the module.
  *
  * Reads `params.weddingId` directly (the role gate has already validated it);
  * a missing weddingId degrades to 402 rather than throwing.
  *
- * S-L2: when the role gate has already parked an error, this derive returns
- * without touching D1. The role gate's onBeforeHandle is registered first and so
+ * When the role gate has already parked an error, this derive returns without
+ * touching D1. The role gate's onBeforeHandle is registered first and so
  * answers first, meaning that entitlement read could never change the response —
  * it only spent a query telling an unauthenticated or wrong-role caller apart.
  * Skipping it keeps the status ordering the routes are tested against (401, then

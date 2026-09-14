@@ -141,7 +141,7 @@ describe("Overview", () => {
       events: [],
       guests: [],
     });
-    render(() => <Overview weddingId="wed_1" onNavigate={vi.fn()} />);
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
     await waitFor(() => expect(screen.getByTestId("getting-started")).toBeTruthy());
     // No stat cards for an empty wedding — the checklist IS the home.
     expect(screen.queryByText(/attending across/i)).toBeNull();
@@ -163,7 +163,7 @@ describe("Overview", () => {
       events: EVENTS,
       guests: GUESTS,
     });
-    render(() => <Overview weddingId="wed_1" onNavigate={vi.fn()} />);
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
 
     // Countdown: ~30 days out (allow ±1 for the local-midnight rounding boundary).
     await waitFor(() => expect(screen.getByText(/days to go/i)).toBeTruthy());
@@ -194,7 +194,7 @@ describe("Overview", () => {
       events: EVENTS,
       guests: GUESTS,
     });
-    render(() => <Overview weddingId="wed_1" onNavigate={vi.fn()} />);
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
     await waitFor(() => expect(screen.getByText(/No date yet/i)).toBeTruthy());
     expect(screen.getByText(/Set your wedding date/i)).toBeTruthy();
   });
@@ -207,7 +207,7 @@ describe("Overview", () => {
       guests: GUESTS,
       tasks: [],
     });
-    render(() => <Overview weddingId="wed_1" onNavigate={vi.fn()} />);
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
     // Both Checklist and Budget cards are live (no "Soon" badge, no "Coming soon" text).
     await waitFor(() => expect(screen.getByText("Checklist")).toBeTruthy());
     expect(screen.getByText("Budget")).toBeTruthy();
@@ -240,7 +240,7 @@ describe("Overview", () => {
         { id: "v3", weddingId: "wed_1", name: "DJ", category: "music", status: "researching" },
       ],
     });
-    render(() => <Overview weddingId="wed_1" onNavigate={vi.fn()} />);
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={vi.fn()} />);
     // The vendors cache starts cold (nothing seeded before render), so this
     // can only pass if `vendorCountValue` actually subscribes to the load —
     // the #620 bug left it permanently stuck on the "Loading your vendors…"
@@ -253,6 +253,27 @@ describe("Overview", () => {
       expect(vendorsCard.textContent!.replace(/\s+/g, " ").trim()).toMatch(/3 vendors tracked/i),
     );
     expect(vendorsCard.textContent).not.toMatch(/Loading your vendors…/i);
+  });
+
+  it("drops the Vendors card, and its fetch, when the module is locked", async () => {
+    routeFetch({
+      settings: { weddingDate: null, currency: "AUD", budgetTotalMinor: null },
+      rsvps: RSVPS,
+      events: EVENTS,
+      guests: GUESTS,
+      tasks: [],
+      vendors: [
+        { id: "v1", weddingId: "wed_1", name: "Florist", category: "florals", status: "booked" },
+      ],
+    });
+    render(() => <Overview weddingId="wed_1" entitlements={[]} onNavigate={vi.fn()} />);
+    // Wait for the rest of Overview, so the absence below is a real absence
+    // rather than a snapshot taken before the resource settled.
+    await screen.findByText(/Guests/i);
+    expect(screen.queryByText("Vendors")).toBeNull();
+    // A card the wedding cannot open is not worth a round trip. The shell would
+    // coerce the module back to Overview anyway, so the count has no reader.
+    expect(authFetchMock.mock.calls.some(([url]) => String(url).endsWith("/vendors"))).toBe(false);
   });
 
   it("renders the RSVP progress bar and per-event attending breakdown", async () => {
@@ -292,7 +313,7 @@ describe("Overview", () => {
       return json({}, 404);
     });
     setCachedGuests("wed_1", [{ familyId: "fam_a", firstName: "Al" } as never]);
-    render(() => <Overview weddingId="wed_1" onNavigate={() => {}} />);
+    render(() => <Overview weddingId="wed_1" entitlements={["vendors"]} onNavigate={() => {}} />);
 
     // Per-event line for the Ceremony shows its attending count.
     const ceremony = await screen.findByText("Ceremony");

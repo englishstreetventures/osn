@@ -15,8 +15,16 @@ import { isModule, isSubOf, type Module } from "../../src/lib/dashboard-route";
  * never reaches a write-only or owner-only sub even via a stale deep link.
  */
 
+// `entitlements` is on the mock deliberately. The shell is the only place its
+// two ends meet — Overview's own tests pass the prop directly — and a required
+// prop means deleting the pass-down fails typecheck while quietly passing `[]`
+// does not. Rendering it here is what makes the wrong value visible.
 vi.mock("../../src/components/Overview", () => ({
-  default: (p: { weddingId: string }) => <div data-testid="overview">{p.weddingId}</div>,
+  default: (p: { weddingId: string; entitlements: readonly string[] }) => (
+    <div data-testid="overview" data-entitlements={p.entitlements.join(",")}>
+      {p.weddingId}
+    </div>
+  ),
 }));
 vi.mock("../../src/components/EventTable", () => ({
   default: (p: { weddingId: string }) => <div data-testid="events">{p.weddingId}</div>,
@@ -91,13 +99,6 @@ vi.mock("../../src/components/RegistryView", () => ({
 }));
 vi.mock("../../src/components/DirectoryBrowseView", () => ({
   default: (p: { weddingId: string }) => <div data-testid="directory-browse">{p.weddingId}</div>,
-}));
-vi.mock("../../src/components/UpsellPanel", () => ({
-  default: (p: { feature: string }) => (
-    <div data-testid="upsell-panel" data-feature={p.feature}>
-      Locked
-    </div>
-  ),
 }));
 vi.mock("../../src/components/ChecklistView", () => ({
   default: (p: { weddingId: string }) => <div data-testid="checklist">{p.weddingId}</div>,
@@ -377,33 +378,73 @@ describe("ModuleShell", () => {
     });
   });
 
+  /**
+   * A locked module has no page. The shell coerces it to Overview, so a deep
+   * link or a stale hash naming one lands on a real view rather than on an
+   * empty panel — the upgrade is offered on the faded nav row instead.
+   */
   describe("entitlement gating — vendors module", () => {
-    it("renders UpsellPanel when the vendors entitlement is absent", () => {
+    it("renders Overview instead when the vendors entitlement is absent", () => {
       // No entitlements → vendors module is locked.
       renderShell({ module: "vendors", sub: "index", entitlements: [] });
-      expect(screen.getByTestId("upsell-panel")).toBeTruthy();
-      expect(screen.getByTestId("upsell-panel").getAttribute("data-feature")).toBe("vendors");
+      expect(screen.getByTestId("overview")).toBeTruthy();
       expect(screen.queryByTestId("vendors")).toBeNull();
       expect(screen.queryByTestId("directory-browse")).toBeNull();
     });
 
-    it("renders the vendors feature views when the vendors entitlement is present", () => {
+    // The three vendors panels are `lazy()`, like the registry and for the same
+    // reason, so a mounted one arrives a microtask after the render. Every
+    // positive assertion here has to await it; the NEGATIVE ones deliberately
+    // do not, because the point of the locked case is that the chunk is never
+    // asked for at all.
+    it("renders the vendors feature views when the vendors entitlement is present", async () => {
       renderShell({ module: "vendors", sub: "index", entitlements: ["vendors"] });
-      expect(screen.queryByTestId("upsell-panel")).toBeNull();
-      expect(screen.getByTestId("vendors")).toBeTruthy();
+      expect(screen.queryByTestId("overview")).toBeNull();
+      expect(await screen.findByTestId("vendors")).toBeTruthy();
     });
 
-    it("renders the browse sub-view when entitled and active() is 'browse'", () => {
+    it("renders the browse sub-view when entitled and active() is 'browse'", async () => {
       renderShell({ module: "vendors", sub: "browse", entitlements: ["vendors"] });
-      expect(screen.queryByTestId("upsell-panel")).toBeNull();
-      expect(screen.getByTestId("directory-browse")).toBeTruthy();
+      expect(screen.queryByTestId("overview")).toBeNull();
+      expect(await screen.findByTestId("directory-browse")).toBeTruthy();
     });
 
-    it("does not show UpsellPanel for other entitlements (only absent vendors key locks)", () => {
+    it("coerces on the absent vendors key alone, not on holding some other key", () => {
       // Has other entitlements but not vendors → still locked.
       renderShell({ module: "vendors", sub: "index", entitlements: ["capacity_500", "ai"] });
-      expect(screen.getByTestId("upsell-panel")).toBeTruthy();
+      expect(screen.getByTestId("overview")).toBeTruthy();
       expect(screen.queryByTestId("vendors")).toBeNull();
+    });
+
+    it("headlines the coerced module as Overview rather than as Vendors", () => {
+      // The header, the sub-tabs and the rail's active row all read the same
+      // coerced module, so nothing on screen claims a module that is not there.
+      renderShell({ module: "vendors", sub: "index", entitlements: [] });
+      expect(screen.getByRole("heading", { name: /Overview/ })).toBeTruthy();
+      expect(screen.queryByRole("tab", { name: /My vendors/ })).toBeNull();
+    });
+
+    it("coerces without touching the route", () => {
+      // The shell does not own the hash — `Dashboard` does — and pushing
+      // history from a render path invites loops. So the hash keeps saying
+      // `vendors` while Overview renders: stable, if not self-describing. This
+      // is the only falsifiable form of that guarantee.
+      const { onModule, onSub } = renderShell({
+        module: "vendors",
+        sub: "index",
+        entitlements: [],
+      });
+      expect(screen.getByTestId("overview")).toBeTruthy();
+      expect(onModule).not.toHaveBeenCalled();
+      expect(onSub).not.toHaveBeenCalled();
+    });
+
+    it("passes the entitlement set down to Overview", () => {
+      // Overview gates its own Vendors card on the same predicate, so a shell
+      // that forgot to thread the prop would put a card linking to a locked
+      // module on the page the coercion sends you to.
+      renderShell({ module: "overview", entitlements: ["registry", "ai"] });
+      expect(screen.getByTestId("overview").getAttribute("data-entitlements")).toBe("registry,ai");
     });
   });
 
@@ -414,19 +455,18 @@ describe("ModuleShell", () => {
    * locked case is that the chunk is never asked for at all.
    */
   describe("entitlement gating — registry module", () => {
-    it("renders UpsellPanel when the registry entitlement is absent", () => {
-      // No wedding holds this entitlement yet, so the locked state is the NORMAL
-      // one: every registry route answers 402 today. The gate has to keep the
-      // views unmounted, or the module fires a guaranteed-failing fetch.
+    it("renders Overview instead when the registry entitlement is absent", () => {
+      // A wedding without the key answers 402 on every registry route, so the
+      // coercion has to keep the views unmounted, or the module fires a
+      // guaranteed-failing fetch.
       renderShell({ module: "registry", sub: "list", entitlements: [] });
-      expect(screen.getByTestId("upsell-panel")).toBeTruthy();
-      expect(screen.getByTestId("upsell-panel").getAttribute("data-feature")).toBe("registry");
+      expect(screen.getByTestId("overview")).toBeTruthy();
       expect(screen.queryByTestId("registry")).toBeNull();
     });
 
     it("renders the gift list when the registry entitlement is present", async () => {
       renderShell({ module: "registry", sub: "list", entitlements: ["registry"] });
-      expect(screen.queryByTestId("upsell-panel")).toBeNull();
+      expect(screen.queryByTestId("overview")).toBeNull();
       expect((await screen.findByTestId("registry")).getAttribute("data-view")).toBe("list");
     });
 
@@ -441,13 +481,14 @@ describe("ModuleShell", () => {
     it("stays locked on another module's entitlement", () => {
       // The vendors key unlocks vendors, nothing else.
       renderShell({ module: "registry", sub: "list", entitlements: ["vendors"] });
-      expect(screen.getByTestId("upsell-panel").getAttribute("data-feature")).toBe("registry");
+      expect(screen.getByTestId("overview")).toBeTruthy();
       expect(screen.queryByTestId("registry")).toBeNull();
     });
 
     it("gives a viewer the module read-only rather than hiding it", async () => {
-      // Every module has a read view; the write controls are gated INSIDE
-      // RegistryView by canEdit, not by hiding the module from the rail.
+      // Role and entitlement gate different things: an entitled wedding's
+      // viewer gets the read view, with the write controls gated INSIDE
+      // RegistryView by canEdit rather than by hiding the module.
       renderShell({
         canManage: false,
         canEdit: false,

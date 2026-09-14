@@ -83,6 +83,21 @@ describe("CommandPalette", () => {
     }
   });
 
+  it("omits a module the wedding is not entitled to", () => {
+    // A palette row that lands somewhere else is worse than no row: the shell
+    // coerces a locked module back to Overview. The faded nav row is where the
+    // upgrade is offered.
+    mount();
+    expect(screen.queryByText("Vendors")).toBeNull();
+    expect(screen.queryByText("Registry")).toBeNull();
+  });
+
+  it("offers a module once its entitlement is held", () => {
+    mount({ wedding: { ...RUTH, entitlements: ["vendors", "registry"] } });
+    expect(screen.getByText("Vendors")).toBeTruthy();
+    expect(screen.getByText("Registry")).toBeTruthy();
+  });
+
   it("drops the module group when no wedding is open", () => {
     // On the wedding list there is nothing to go *into* — the group would be a
     // set of rows that navigate nowhere.

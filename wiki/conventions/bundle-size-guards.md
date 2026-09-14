@@ -9,7 +9,7 @@ related:
   - "[[review-findings]]"
   - "[[free-tier-limits]]"
   - "[[dev-environment]]"
-last-reviewed: 2026-09-11
+last-reviewed: 2026-09-14
 ---
 
 # Guards that gate on a number
@@ -164,7 +164,7 @@ the guard regardless of how large or small the app's own baseline is:
 | App | Mode | Measured | Threshold |
 |---|---|---:|---:|
 | cire/invites | worker | 163332 B | 175000 B *(pre-existing, tracker #287/#616)* |
-| cire/host | static | 212832 B | 224515 B |
+| cire/host | static | 226917 B | 238617 B *(re-baselined, xchromo/osn#1026 — see below)* |
 | cire/vendor | static | 69961 B | 81644 B |
 | cire/landing | static | 177641 B | 189324 B |
 | musubi/landing | static | 15182 B | 26865 B |
@@ -178,6 +178,40 @@ guard reads; this table only mirrors it.*
 `cire/landing` ships a Three.js scene by design (the wax-seal hero) — its
 JS number is dominated by one intentional dependency, which is exactly why
 each app gets its own baseline rather than a shared number.
+
+### `cire/host` went **up** on a change that made the first load smaller
+
+Worth recording, because it is the one way this guard's number can move in the
+opposite direction to the thing anyone cares about. The guard sums gzip across
+every file in `dist/_astro`, so **splitting a chunk cannot reduce it and usually
+raises it**: each chunk is compressed on its own, losing the shared dictionary,
+and carries its own boilerplate.
+
+`xchromo/osn#1026` made a locked module unreachable rather than merely
+upsold, and took the vendors module's three panels out of the first load on the
+same argument the registry was already split on. Measured both ways, clean, one
+build at a time:
+
+| Vendors panels | `dist/_astro` gzip total | Files |
+|---|---:|---:|
+| eager (before) | 222524 B | 39 |
+| three chunks (after) | 226917 B | 45 |
+
+**+4393 B shipped, ~10.7 KB off the first load** — `VendorsView` 3676 B,
+`DirectoryBrowseView` 4121 B and `EnquiriesView` 2961 B left `OrganiserApp`'s
+chunk. Overview is the page every organiser lands on and most never open
+vendors at all, so the trade is worth taking, but the guard cannot see it: it is
+a total-bytes guard, and this was a first-load change.
+
+*Measured 2026-09-14 — `rm -rf cire/host/dist && bun run --cwd cire/host build`
+on `feat/locked-module-nav`, reading the total the guard itself prints; the
+eager figure from the same build with the three `lazy()` calls replaced by
+static imports.*
+
+Headroom stays ~11.7 KB, so the guard is no less sensitive than before. The
+threshold is in `scripts/`, which `.github/CODEOWNERS` puts under a human owner
+— a raise like this one is reviewed rather than waved through, which is the
+right place for the judgement about whether the trade was worth it.
 
 **Re-baselining** after an intentional change: build (clean, alone — two builds
 running at once in one checkout interleave their chunks and the guard then
