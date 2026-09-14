@@ -1,5 +1,12 @@
 # @osn/pulse
 
+## 0.22.56
+
+### Patch Changes
+
+- Updated dependencies [2c2f120]
+  - @osn/ui@1.11.4
+
 ## 0.22.55
 
 ### Patch Changes

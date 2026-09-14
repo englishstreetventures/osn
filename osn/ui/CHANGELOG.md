@@ -1,5 +1,15 @@
 # @osn/ui
 
+## 1.11.4
+
+### Patch Changes
+
+- 2c2f120: Thread the product name shown in `@osn/ui`'s shared auth components as a
+  required `productName` prop instead of hardcoding it. `Register`, `SignIn` and
+  `SecurityEventsBanner` no longer say "OSN" or, in one spot, the wrong product
+  ("Loading Pulse…") — every call site in `@musubi/social` now passes
+  `"Musubi"`.
+
 ## 1.11.3
 
 ### Patch Changes
