@@ -12,7 +12,7 @@
 // pre-parsed records can catch that.
 
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -60,7 +60,17 @@ interface CliRun {
   writes: { mtimeMs: number; text: string }[];
 }
 
-async function run(extraArgs: string[] = [], invocations = 1): Promise<CliRun> {
+/**
+ * `laterArgs` replaces `extraArgs` from the second invocation on, so a test can
+ * prove what a *changed* re-run does. Without it every invocation is identical
+ * and `sameApartFromGeneratedAt` alone would explain an untouched file.
+ */
+async function run(
+  extraArgs: string[] = [],
+  invocations = 1,
+  laterArgs?: string[],
+  betweenRuns?: (paths: { outPath: string; sessionsDir: string }) => void | Promise<void>,
+): Promise<CliRun> {
   const dir = await mkdtemp(join(tmpdir(), "pr-metrics-cli-"));
 
   try {
@@ -166,7 +176,7 @@ async function run(extraArgs: string[] = [], invocations = 1): Promise<CliRun> {
           "895",
           "--out-dir",
           join(dir, "out"),
-          ...extraArgs,
+          ...(attempt === 0 ? extraArgs : (laterArgs ?? extraArgs)),
         ],
         { cwd: dir, stdout: "pipe", stderr: "pipe" },
       );
@@ -181,6 +191,10 @@ async function run(extraArgs: string[] = [], invocations = 1): Promise<CliRun> {
         mtimeMs: (await stat(outPath)).mtimeMs,
         text: await Bun.file(outPath).text(),
       });
+
+      if (betweenRuns !== undefined && attempt + 1 < invocations) {
+        await betweenRuns({ outPath, sessionsDir: join(dir, "sessions") });
+      }
     }
 
     const card = JSON.parse(writes[writes.length - 1]!.text) as Card;
@@ -243,7 +257,7 @@ test("the CLI charges pre-edit exploration to tokens_before_first_edit", async (
   expect(card.interaction.tokens_before_first_edit).toBe(1_000_150);
 });
 
-// `prep-pr` passes whatever the issue carries, so the rating rides along with
+// `retro` passes whatever the issue carries, so the rating rides along with
 // the labels and nobody retypes a number the issue already holds.
 test("the CLI reads the declared rating out of the issue labels", async () => {
   const { card } = await run(["--issue-labels", "product:osn-core,complexity:3"]);
@@ -579,7 +593,7 @@ test("the CLI names unmarked subagent transcripts when a card comes back empty",
   }
 });
 
-// `prep-pr` writes the card, the review adds a commit, and the card is written
+// `retro` writes the card, the review adds a commit, and the card is written
 // again — so a second run over unchanged inputs is the common case, not the odd
 // one. Stamping `generated_at` every time turned each of those into a one-line
 // diff with no data behind it.
@@ -589,4 +603,230 @@ test("a second run over unchanged inputs leaves the card file alone", async () =
   expect(writes).toHaveLength(2);
   expect(writes[1]!.text).toBe(writes[0]!.text);
   expect(writes[1]!.mtimeMs).toBe(writes[0]!.mtimeMs);
+});
+
+// The `SessionEnd` hook in `.claude/settings.json` runs the collector with no
+// `--pr`, `--issue` or `--issue-labels` — it has no way to know them. Left
+// unguarded it therefore overwrites the identity-bearing card `retro` wrote and
+// committed with one whose pull request, issue and declared complexity are all
+// null, into a working tree nobody looks at while the session is closing.
+// `--complexity 8` stands in for that difference here: it genuinely changes the
+// card, so an untouched file cannot be explained by the unchanged-inputs rule
+// the test above covers.
+test("--if-absent leaves an existing card alone even when the new one would differ", async () => {
+  const { exitCode, stdout, writes } = await run([], 2, ["--if-absent", "--complexity", "8"]);
+
+  expect(exitCode).toBe(0);
+  expect(stdout).toContain("--if-absent");
+  expect(writes[1]!.text).toBe(writes[0]!.text);
+  expect(JSON.parse(writes[1]!.text).complexity.declared).toBeNull();
+});
+
+test("without --if-absent the same re-run does rewrite the card", async () => {
+  const { writes } = await run([], 2, ["--complexity", "8"]);
+
+  expect(JSON.parse(writes[0]!.text).complexity.declared).toBeNull();
+  expect(JSON.parse(writes[1]!.text).complexity.declared).toBe(8);
+  expect(JSON.parse(writes[1]!.text).complexity.method).toBe("manual");
+});
+
+test("--if-absent writes the card when the branch has none", async () => {
+  const { exitCode, card } = await run(["--if-absent"]);
+
+  expect(exitCode).toBe(0);
+  expect(card.pr.number).toBe(908);
+});
+
+// `--format markdown` writes nothing, so it must never be what `--if-absent`
+// skips: `retro` renders the pull-request block with both reachable, on a
+// branch whose card it has just written. Drop the `flag("format") !==
+// "markdown"` conjunct from the guard and every other test here still passes
+// while that block comes out empty on every branch that already has a card.
+test("--if-absent never suppresses the markdown render", async () => {
+  const { stdout, writes } = await run([], 2, ["--if-absent", "--format", "markdown"]);
+
+  expect(stdout).toContain("<details>");
+  expect(stdout).not.toContain("already exists");
+  expect(writes[1]!.text).toBe(writes[0]!.text);
+});
+
+// The guard asks whether a card is there, and an unreadable file is not one.
+// A `SessionEnd` hook killed at its 60s timeout mid-write leaves a truncated
+// file; keyed on existence alone the fallback would protect that forever, and
+// nothing short of a person running `retro` would repair it. The un-flagged
+// path already replaces an unparseable card, and this agrees with it.
+test("--if-absent replaces a card that does not parse", async () => {
+  const { card, writes } = await run([], 2, ["--if-absent"], ({ outPath }) => {
+    require("node:fs").writeFileSync(outPath, '{"schema_version":1,"pr":{"bran');
+  });
+
+  expect(writes[1]!.text).not.toBe(writes[0]!.text);
+  expect(card.pr.number).toBe(908);
+  expect(card.spend).toBeDefined();
+});
+
+// A file whose JSON parses but which is not a card is the same case — the
+// fallback has no reason to defend it.
+test("--if-absent replaces a file that parses but is not a card", async () => {
+  const { card } = await run([], 2, ["--if-absent"], ({ outPath }) => {
+    require("node:fs").writeFileSync(outPath, '{"schema_version":1}');
+  });
+
+  expect(card.pr.number).toBe(908);
+  expect(card.interaction).toBeDefined();
+});
+
+// `branchSlug` collapses `/` and `_` alike, and `.claude/metrics/` is tracked,
+// so every worktree already holds every merged branch's card. Without a branch
+// check `--if-absent` would read a colliding neighbour as this branch's card and
+// leave that other branch's spend and tool calls standing as this branch's
+// public record — and the hook discards its own output, so nothing would say so.
+test("--if-absent replaces a card whose pr.branch is another branch", async () => {
+  const { card } = await run([], 2, ["--if-absent"], async ({ outPath }) => {
+    const other = JSON.parse(await Bun.file(outPath).text()) as Card;
+    other.pr.branch = "feat/metrics_cli_fixture";
+    other.spend.usd_equivalent = 999;
+    require("node:fs").writeFileSync(outPath, JSON.stringify(other, null, 2));
+  });
+
+  expect(card.pr.branch).toBe(BRANCH);
+  expect(card.spend.usd_equivalent).not.toBe(999);
+});
+
+// The whole point of this branch is a string in `.claude/settings.json`. Drop a
+// flag from it in a merge and every test above still passes while the unattended
+// fallback resumes clobbering the identity-bearing card — and `>/dev/null 2>&1
+// || true` swallows every sign of it.
+test("the SessionEnd hook still passes the flags this CLI relies on", async () => {
+  const settings = (await Bun.file(
+    new URL("../../../.claude/settings.json", import.meta.url).pathname,
+  ).json()) as {
+    hooks: Record<string, { hooks: { command: string }[] }[]>;
+  };
+
+  const commands = (settings.hooks.SessionEnd ?? [])
+    .flatMap((matcher) => matcher.hooks)
+    .map((hook) => hook.command)
+    .filter((command) => command.includes("tools/pr-metrics") && command.includes("card"));
+
+  expect(commands).toHaveLength(1);
+  // Never overwrite the card `retro` committed with this run's identity-less one.
+  expect(commands[0]).toContain("--if-absent");
+  // And recover the identity this run was never given, so the card it does
+  // write for a fresh branch is not null for ever.
+  expect(commands[0]).toContain("--resolve-issue");
+});
+
+/**
+ * `--resolve-issue` against a stubbed `gh`.
+ *
+ * Its own fixture, because `run()` always passes `--pr` and `--issue`, and the
+ * flag only fires when neither was given. Executable with a shebang, or Bun
+ * skips the stub and resolves the REAL `gh` further down `PATH` — which would
+ * send the test to the network with the developer's credentials. The blanked
+ * tokens are the second line of defence for the same reason `backfill.test.ts`
+ * blanks them: shadowing fails on a `noexec` TMPDIR, and the fall-through then
+ * exits non-zero and fails loudly instead of quietly going online.
+ */
+async function runResolving(issueRepo: string, labels: string): Promise<Card> {
+  const dir = await mkdtemp(join(tmpdir(), "pr-metrics-resolve-"));
+
+  try {
+    const git = async (...args: string[]) => {
+      await Bun.spawn(["git", ...args], { cwd: dir, stdout: "pipe", stderr: "pipe" }).exited;
+    };
+    await git("init", "-q", "-b", "main");
+    await git("config", "user.email", "test@example.com");
+    await git("config", "user.name", "Test");
+    await git("config", "commit.gpgsign", "false");
+    await writeFile(join(dir, "seed.txt"), "seed\n");
+    await git("add", ".");
+    await git("commit", "-qm", "seed");
+    await git("checkout", "-qb", BRANCH);
+    await writeFile(join(dir, "work.ts"), "export const a = 1;\n");
+    await git("add", ".");
+    await git("commit", "-qm", "work");
+
+    const [owner, name] = issueRepo.split("/");
+    const binDir = join(dir, "bin");
+    await mkdir(binDir, { recursive: true });
+    await writeFile(
+      join(binDir, "gh"),
+      `#!/bin/sh
+case "$*" in
+  *"repo view"*) printf '%s' 'xchromo/osn' ;;
+  *"pr list"*)
+    printf '%s' '[{"number":1046,"closingIssuesReferences":[{"number":1041,"repository":{"name":"${name}","owner":{"login":"${owner}"}}}]}]' ;;
+  *"issue view"*) printf '%s' '${labels}' ;;
+  *) printf '%s' '' ;;
+esac
+`,
+    );
+    await chmod(join(binDir, "gh"), 0o755);
+    expect((await stat(join(binDir, "gh"))).mode & 0o111).toBeGreaterThan(0);
+
+    const proc = Bun.spawn(
+      [
+        "bun",
+        "run",
+        SCRIPT,
+        "--branch",
+        BRANCH,
+        "--base",
+        "main",
+        "--sessions-dir",
+        join(dir, "sessions"),
+        "--out-dir",
+        join(dir, "out"),
+        "--resolve-issue",
+      ],
+      {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          PATH: `${binDir}:${process.env.PATH}`,
+          GH_TOKEN: "",
+          GITHUB_TOKEN: "",
+          GH_ENTERPRISE_TOKEN: "",
+          GH_CONFIG_DIR: join(dir, "gh-config"),
+          GH_NO_UPDATE_NOTIFIER: "1",
+        },
+      },
+    );
+    await proc.exited;
+
+    return JSON.parse(
+      await Bun.file(join(dir, "out", "feat-metrics-cli-fixture.json")).text(),
+    ) as Card;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+// The `SessionEnd` fallback fires as a session closes and is given no `--pr`,
+// `--issue` or `--issue-labels` — it has no way to know them. Unresolved, the
+// card it writes carries a null `complexity.declared` for ever, because nothing
+// re-runs the collector once the transcripts go with the container.
+test("--resolve-issue recovers the pull request, issue and rating", async () => {
+  const card = await runResolving("xchromo/osn", "product:shared,area:ops,complexity:3");
+
+  expect(card.pr.number).toBe(1046);
+  expect(card.issue.number).toBe(1041);
+  expect(card.complexity).toEqual({ declared: 3, method: "confirmed" });
+});
+
+// The one that must not regress. Most of this repository's pull requests close
+// a finding in the private `xchromo/osn-tracker`, whose `severity:`/`area:`
+// labels must never reach a card committed to a public repository. `not-fetched`
+// is not `none`: a rating may exist there and nobody looked.
+test("--resolve-issue withholds the labels of an issue in another repository", async () => {
+  const card = await runResolving(
+    "xchromo/osn-tracker",
+    "severity:high,area:security,complexity:5",
+  );
+
+  expect(card.complexity).toEqual({ declared: null, method: "not-fetched" });
+  expect(card.issue.labels).toEqual([]);
 });

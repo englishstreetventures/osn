@@ -216,9 +216,17 @@ Two rules for anything you dispatch into a worktree:
 
 Run the `prep-pr` skill on the branch. Its own steps validate the changeset, build and test, run `review-tests`, and run the performance and security reviews in parallel. This skill's contract is stronger: **after the reviews, dispatch `implementer` fix subagents to add the missing tests and fix every security and performance finding** — Critical, High and Medium at minimum, Low and Info when cheap — then re-verify. **Critical and High are not deferrable at all**: fix them here, or open the follow-up pull request immediately and link it before either merges — see `wiki/conventions/review-findings.md`. A Medium deliberately deferred is carried into the PR body as a tracked follow-up. Scale review depth to the change: a docs or config PR does not need three review agents; an auth, route or binding change does. Then the five-section PR body, push, and open the PR.
 
-### Step 5 — Watch, merge, tear down
+### Step 5 — Retro, then watch, merge, tear down
 
-**Delegate the waiting, not the deciding.** Dispatch a **`shepherd` subagent** (`.claude/agents/shepherd.md`) to poll — slow CI polling should not sit in your context, and waiting does not need an expensive model. It polls to a terminal state and reports. It does not merge, does not rebase, does not push and does not remove a worktree: those are the only irreversible operations in this loop, and `shepherd` pins the cheapest model in the fleet precisely because it is not the thing making that call.
+**First, the card.** Invoke the **`retro`** skill on the task's branch before
+dispatching the shepherd. It writes and commits the session-metrics card with
+the pull request's identity on it, and reads what the task cost against the
+complexity declared at Step 1. Under this skill that matters more than
+anywhere else: an orchestrated task's spend sits in subagent transcripts, and
+the card is the only place it is ever added up. Skip it and the task's own cost
+is unrecoverable once the worktree is torn down at the end of this step.
+
+**Then delegate the waiting, not the deciding.** Dispatch a **`shepherd` subagent** (`.claude/agents/shepherd.md`) to poll — slow CI polling should not sit in your context, and waiting does not need an expensive model. It polls to a terminal state and reports. It does not merge, does not rebase, does not push and does not remove a worktree: those are the only irreversible operations in this loop, and `shepherd` pins the cheapest model in the fleet precisely because it is not the thing making that call.
 
 The shepherd's whole job:
 

@@ -12,7 +12,7 @@ plugin root here is `.claude/`:
 ```
 .claude/
 ├── .tessl-plugin/plugin.json     # name, version, workspace
-├── tessl.json                    # written by `tessl project create` — NOT yet committed
+├── tessl.json                    # the plugin manifest — committed, and NOT the project link
 ├── skills/<name>/SKILL.md
 └── evals/<scenario>/
     ├── task.md                   # free-form markdown — the ONLY file the agent sees
@@ -26,29 +26,69 @@ CLI warns on any extra field. Weight the items that carry the scenario's point,
 and put a prohibition in the description as "MUST NOT ...", since there is no
 category field to say it for you. `tessl eval lint .claude` checks this.
 
-## Before the first run
+## Before the first run — where the scenarios directory sits
 
-Two things are missing on purpose, because both need a Tessl account:
+The plugin lives at `.claude/`, and that is deliberate: a `tessl.json` at the
+repo root is not on the changeset allowlist and would force a changeset on every
+pull request that touched it.
 
-The plugin is linked to the `musubi` workspace, and `.claude/tessl.json` names
-the project every run is saved to. Both are committed. If that link ever breaks,
-`tessl project repair` from `.claude/` fixes it — the project is created there
-rather than at the repo root on purpose, because a root `tessl.json` is not on
-the changeset allowlist and would force a changeset on every PR that touched it.
+**`tessl eval run` resolves the project from its scenarios argument, so that
+argument has to sit inside `.claude/`.** Point it anywhere else — a temp
+directory, the repository root, `$RUNNER_TEMP` — and it answers:
+
+```
+✘ No Tessl project found. Run tessl init from your project root, then rerun this command.
+```
+
+Do not run `tessl init`, whatever that message says: it would make a second
+project and split this suite's history across two scoreboards. Move the
+scenarios instead. `subset --out .claude/eval-subset`, then
+`cd .claude && tessl eval run eval-subset --context .`.
+
+> [!warning] The message names the wrong cause, and that cost this repository
+> six months of an inert eval loop.
+> It reads as a missing or broken project link, and every remedy that follows
+> from that reading — `tessl project repair`, checking the token's workspace,
+> committing something into `tessl.json` — changes nothing. On a CI runner
+> `tessl project repair --json` prints `"status": "match"`, `"Linked project
+> matches this directory."`, with the right project id, immediately before the
+> same command fails with the message above. Locally, a relink made no
+> difference either; moving the scenarios directory did, on the next attempt.
+>
+> The committed `.claude/tessl.json` is the plugin manifest and carries no
+> project id, which makes the link look like the suspect. It is not. One
+> variable separates every failing run from every passing one, and it is where
+> the scenarios are.
 
 ## Running
 
+**Anything that submits a run goes from inside `.claude/`** — that is the
+directory the project is linked to, and the workflow's own eval step sets
+`working-directory: .claude` for the same reason. The scenarios argument itself
+may sit anywhere; CI passes `$RUNNER_TEMP/scenarios`.
+
 ```bash
-tessl eval run .claude                 # all ten scenarios, baseline + with-skill
+cd .claude
+tessl eval run . --context .                # every scenario, baseline + with-skill
 tessl eval view --last
-tessl scenario generate .claude --count 3   # draft more scenarios
-tessl scenario download --last              # run from INSIDE .claude/ so they land in evals/
+tessl scenario generate . --count 3         # draft more scenarios
+tessl scenario download --last              # lands them in evals/
+```
+
+Two need no project and run from the repo root. Only the first is free —
+`review run quality` spends credits per invocation even though it runs no agent
+solve, so do not loop it.
+
+```bash
+tessl eval lint .claude                          # scenario shape; free
+tessl review run quality .claude/skills/<name>   # the deterministic gate — see below
 ```
 
 ## The inner loop
 
-A full run is ten scenarios, two variants, three runs each — sixty agent solves,
-which is most of a working day and hundreds of credits. The harness launches a
+A full run is every scenario, two variants, three runs each — ninety agent
+solves across the fifteen scenarios there are today, and it grows with the
+suite. That is most of a working day and hundreds of credits. The harness launches a
 whole run index at once (17–20 solves) and waits for the slowest before starting
 the next, so wall clock is the sum of the waves' maxima, not the mean solve:
 run 7 took 290 minutes for 19.4 agent-hours, and one straggler held its last
@@ -82,6 +122,21 @@ before you submit one. The loop is three steps, and
    no agent solve. This is the gate: it fails the check. In CI it is
    `tesslio/skill-review`, which reviews only the `SKILL.md` files the diff
    touched and comments the scores.
+
+   It runs validation before the judge, and a validation error means no score at
+   all — `Review Score: N/A`, whatever the prose is worth. **The one that bites
+   is a colon in the description.** YAML reads `card: nothing else writes one` in
+   an unquoted scalar as a nested mapping and rejects the whole frontmatter, so
+   a skill that reads perfectly well to a person parses as nothing:
+
+   ```
+   ✘ frontmatter_valid - Failed to parse YAML frontmatter:
+     Nested mappings are not allowed in compact mappings at line 2, column 14
+   ```
+
+   Every skill here avoids it with an em dash. The judge's own weakest item is
+   worth reading too — it is usually `trigger_term_quality`, and the fix is
+   naming the thing a person would actually type.
 2. **A narrowed eval.** `scripts/skill-evals.ts changed --base <ref>` names the
    skills the branch touched, `subset` copies just their scenarios into a
    directory, and the run is
@@ -193,7 +248,7 @@ only thing read, and point each checklist item at it.
 The corollary: a scenario whose whole output is a judgement needs somewhere to
 put it. A scenario that changes code does not — the diff is the artefact.
 
-## The twelve scenarios
+## The scenarios
 
 | Scenario | Skill | Ground truth |
 |---|---|---|
@@ -212,6 +267,8 @@ put it. A scenario that changes code does not — the diff is the artefact.
 
 | `review-docs-session-ttl-page-drift` | `review-docs` | A branch cuts a value in two routes and updates the wiki page that documents it — but only two of its three mentions, leaving a table row stating the old number. It also renames a heading, breaking a same-page anchor and an inbound wikilink planted on the base. Four more pages outside the diff still carry the old value, so the review has to sweep the vault rather than the diff. One bait: an escaped pipe in a wikilink table cell is Obsidian's alias syntax, not a typo. |
 | `new-feat-tracker-finding-branch` | `new-feat` | A fictional tracker finding handed to the skill as the work to start. The public repo must not gain a duplicate issue, and the branch name, the commits and the plan file must not describe the defect — this repository is public and the tracker is not. Scores the routing rule, not the code. |
+| `retro-fallback-card-and-routing` | `retro` | A finished branch whose only card is the one the unattended `SessionEnd` fallback left: null pull request, null issue, null `complexity.declared`. The rating is on the issue and says `complexity:1`; the session cost $47, corrected six turns out of nine, and hit a compaction. Scores whether the card is recognised as the fallback's and replaced, whether spend is compared against the rating on the *issue* rather than the null on the card, and whether the unclear brief goes to the person rather than into an issue nobody can be assigned. |
+| `retro-restraint-on-a-proportionate-session` | `retro` | The same skill one session later, on work that cost $58 against a `complexity:5` a human confirmed before it started. Three baits — spend that reads as waste, a null first-edit boundary that reads as total exploration, and a hundred committed cards that invite a trend claim — and one real finding, a model missing from the rate table that priced at zero and understated the total. Ten of fourteen points are for **not** reporting the baits. The pair is the rediscovery/restraint shape applied to a skill whose failure mode is inventing findings rather than missing them. |
 
 The rediscovery scenarios are the pattern worth repeating: **every merged fix PR
 is a free labelled example.** Pin its parent SHA, write one checklist item per

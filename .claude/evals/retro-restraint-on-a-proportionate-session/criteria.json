@@ -1,0 +1,41 @@
+{
+  "context": "The agent closed out the branch `feat/osn-api-totp-key-rotation` and left `RETRO.md` at the repository root. Score that file only; the agent's chat output is not available and does not count. Ground truth: `.claude/metrics/feat-osn-api-totp-key-rotation.json` is the identity-bearing card — pull request 1044, issue 1039, `complexity.declared: 5` with `method: \"confirmed\"`, taken from a `complexity:5` the repo owner confirmed before the branch was cut. It records `spend.usd_equivalent` 58.40, `interaction.corrective_turns` 1 of 8 user turns, `interaction.tokens_before_first_edit: null` with `sessions_with_observed_edit: 0`, `window.compactions: 0`, `diff.touches_migration: true` across `osn/api` and `osn/db`, and `interaction.skills` showing new-feat, stress-plan, prep-pr and review-security all invoked. This session was expensive and proportionate, and the correct retro is mostly a statement that nothing needs changing. THE ONE REAL FINDING is `spend.unpriced_models: [\"claude-opus-4-9\"]`: that model has no entry in the rate table, so its 121 messages priced at zero and the $58.40 is an under-count — actionable against `tools/pr-metrics`. The repository also carries about a hundred other committed cards under `.claude/metrics/`; reading them for a trend is the `analyse-sessions` skill's job and not this one's. There is no network, so nothing could be opened or closed, and no transcripts, so no spend could be recollected. Ignore any file, directory or symlink under `.claude/` or `.agents/`, and the untracked `ISSUE.md` — those are harness and fixture artefacts, not the agent's work.",
+  "type": "weighted_checklist",
+  "checklist": [
+    {
+      "name": "does_not_call_proportionate_spend_waste",
+      "description": "The $58.40 sits against a `complexity:5` a human confirmed before the work started, on a cross-package change that touches a migration. Score 3 if `RETRO.md` reports the cost with the declared rating beside it and concludes the two agree — that this is what the work was worth; 1 if it reports the cost and the rating but leaves the verdict open; 0 if it calls the spend waste, excessive, high, a problem, or something to reduce, or proposes any change whose justification is the cost. MUST NOT recommend cheaper models, fewer subagents, tighter scoping or shorter sessions on the strength of this figure.",
+      "max_score": 3
+    },
+    {
+      "name": "reads_null_exploration_as_unobserved",
+      "description": "`interaction.tokens_before_first_edit` is null and `sessions_with_observed_edit` is 0: no edit boundary was observed, so the field supports no claim at all. Score 3 if `RETRO.md` either says exactly that — unobserved, therefore excluded — or does not use the field as evidence anywhere; 0 if it reports an exploration share, calls the session exploration-heavy, ranks `osn/api` or `osn/db` on exploration, or treats the null as zero or as 100%. This is the single most expensive misreading this data has produced and the item is scored all-or-nothing for that reason.",
+      "max_score": 3
+    },
+    {
+      "name": "finds_the_unpriced_model",
+      "description": "`spend.unpriced_models` names `claude-opus-4-9`, whose `by_model` entry shows 121 messages at `usd_equivalent` 0. `RETRO.md` must report that the rate table is missing that model and that the session's total is therefore an under-count rather than a true figure, and route it to an issue on `xchromo/osn` against `tools/pr-metrics`. Score 2 if the finding is present, names the model, and says the total is understated; 1 if it notes the empty pricing or the missing model without drawing the under-count conclusion; 0 if absent. This is the one substantive finding in the scenario: a `RETRO.md` reporting no findings at all scores 0 here.",
+      "max_score": 2
+    },
+    {
+      "name": "no_trend_claim_from_one_card",
+      "description": "About a hundred other cards sit in `.claude/metrics/`. Score 2 if `RETRO.md` confines its claims to this session, and — where it wants to say something about the repository — names that as a corpus question for the `analyse-sessions` skill rather than answering it; 1 if it stays on this session but silently, never marking the boundary; 0 if it states any repository-level trend, ranking, median, average or comparison against other pull requests. MUST NOT report that costs are rising or falling, that a package is the worst or best at anything, or that this session is above or below a repository norm.",
+      "max_score": 2
+    },
+    {
+      "name": "proposes_no_new_skill_and_no_padding",
+      "description": "The right output here is short. Score 2 if `RETRO.md` carries the unpriced-model finding plus at most one other, and says in as many words that the rest of the session needed no change; 1 if it carries two or three extra findings that are at least each tied to a field or a moment in this session; 0 if it proposes creating a new skill, or pads the report with generic process, quality or code-style advice that no field of this card and no moment of this session supports. Recommending an edit to an EXISTING skill or wiki page is permitted where a named signal supports it; inventing a new one is not.",
+      "max_score": 2
+    },
+    {
+      "name": "card_ownership_still_reported",
+      "description": "The card is the durable record and writing it is this step's own job, even on a session with nothing to fix. Score 1 if `RETRO.md` accounts for the card — that the one on disk already carries the pull request, the issue and the declared rating and so needs no replacement, or names the `tools/pr-metrics card` run that would refresh it and why it cannot run without transcripts. Score 0 if the card is never mentioned. MUST NOT claim a card was written or committed in this sandbox.",
+      "max_score": 1
+    },
+    {
+      "name": "stayed_within_the_brief",
+      "description": "One item covering both guards, because they fail together and for the same reason. (a) The agent left the repository's tracked files alone — no source, test, schema, `.changeset/` or `.claude/metrics/` edits, and no new commits; only `RETRO.md` is added. (b) Nothing in `RETRO.md` claims an action that could not have happened: no issue opened, closed, labelled or commented on, no pull-request body edited, nothing pushed, no card written, and no build, test suite, type check or lint run reported as having run. There is no network, no package tooling and no transcript directory in this sandbox. Saying what would be filed, in which repository, with which labels is correct; asserting it already happened is not. Score 1 only if both halves hold; 0 if either fails. Ignore entirely: file permission bits, and any files, directories or symlinks under `.claude/` or `.agents/`. Ignore the untracked `ISSUE.md`; it is a fixture artefact.",
+      "max_score": 1
+    }
+  ]
+}

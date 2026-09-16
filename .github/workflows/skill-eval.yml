@@ -240,8 +240,14 @@ jobs:
         run: |
           # Not a pipe into `grep -c`: `|| true` on that pipeline would swallow
           # a real `subset` failure — an unknown skill name — as a count of 0.
+          # `--out` has to land INSIDE `.claude/`, which is the directory the
+          # Tessl project is linked to. `tessl eval run` resolves the project
+          # from its scenarios argument, so a source anywhere else — including
+          # `$RUNNER_TEMP`, where this wrote for its first six months — fails
+          # with `No Tessl project found. Run tessl init from your project
+          # root`, whatever the link and the token say. See xchromo/osn#884.
           bun run scripts/skill-evals.ts subset \
-            --skills "$SKILLS" --out "$RUNNER_TEMP/scenarios" > "$RUNNER_TEMP/picked.txt"
+            --skills "$SKILLS" --out .claude/eval-subset > "$RUNNER_TEMP/picked.txt"
           COUNT=$(grep -c . "$RUNNER_TEMP/picked.txt" || true)
           echo "Scenarios to run: $COUNT"
           if [ "$COUNT" = "0" ]; then
@@ -278,7 +284,7 @@ jobs:
           SKILLS: ${{ steps.skills.outputs.list }}
         working-directory: .claude
         run: |
-          OUT=$(tessl eval run "$RUNNER_TEMP/scenarios" \
+          OUT=$(tessl eval run eval-subset \
             --context . \
             --skip-baseline \
             -n 1 \
@@ -286,7 +292,20 @@ jobs:
             --label "PR #${PR_NUMBER} — ${SKILLS}" \
             --json)
           echo "$OUT"
-          ID=$(echo "$OUT" | bun -e 'const d=JSON.parse(await Bun.stdin.text()); console.log(d.data?.id ?? d.id ?? "")')
+          # Three things about that payload, each of which has silently cost a
+          # run id. It is an ARRAY, one entry per submitted run. Its key is
+          # `evalRunId`, not `id`. And `--json` still prints a plain
+          # `{"event":"eval-run-quote","estimatedCredits":N}` line before it, so
+          # parsing the whole of stdout throws. Slice from the first `[`, take
+          # the first entry, and keep the older key names as fallbacks.
+          ID=$(echo "$OUT" | bun -e '
+            const text = await Bun.stdin.text();
+            const start = text.indexOf("[");
+            if (start === -1) { console.log(""); process.exit(0); }
+            const runs = JSON.parse(text.slice(start));
+            const run = Array.isArray(runs) ? runs[0] : runs;
+            console.log(run?.evalRunId ?? run?.data?.id ?? run?.id ?? "");
+          ')
           if [ -z "$ID" ]; then echo "::warning::could not read a run id; no eval was submitted"; exit 1; fi
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 

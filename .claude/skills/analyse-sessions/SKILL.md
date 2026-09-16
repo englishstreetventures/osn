@@ -117,5 +117,11 @@ Where the data supports a change to how work is dispatched, hand it to
 
 `wiki/observability/session-metrics.md` holds the schema and the reasoning
 behind every field. `tools/pr-metrics/README.md` has the commands. Cards are
-written by `prep-pr` and by the `SessionEnd` hook, so a branch worked entirely
-in a remote session still has one.
+written by the **`retro`** skill, which runs after `prep-pr` opens a pull
+request, and — for a branch whose retro never ran — by the `SessionEnd` hook,
+whose `--if-absent` run never overwrites one `retro` committed.
+
+`retro` is the per-session counterpart of this skill: it reads **one** card and
+may propose a change to one artefact. Only this skill reads the corpus, so only
+this skill can say a trend exists. A retro finding that recurs across branches
+arrives here as a question, not as a conclusion.

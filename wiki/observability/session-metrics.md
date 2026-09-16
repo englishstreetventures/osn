@@ -14,7 +14,7 @@ related:
   - "[[observability/metrics]]"
   - "[[conventions/review-findings]]"
   - "[[conventions/stacked-prs]]"
-last-reviewed: 2026-09-11
+last-reviewed: 2026-09-16
 ---
 
 # Session Metrics
@@ -77,6 +77,31 @@ Diff size is recorded separately, on purpose, and the two are never blended.
 Exclude unconfirmed ratings from anything you intend to act on — they are an
 agent's guess standing alone, and mostly arrive from the backfill of issues that
 predate the label.
+
+## Who writes a card
+
+Three writers, and only one of them is the owner.
+
+| Writer | When | Carries identity? |
+|---|---|---|
+| The **`retro`** skill | Once, straight after `prep-pr` opens the pull request | Yes — `--pr`, `--issue` and the issue's `complexity:` label. It commits the JSON and appends the `<details>` block to the pull-request body |
+| The `SessionEnd` hook | At the end of every session, in every environment | No. It runs `card -- --if-absent`, so it writes a card for a branch that has none and never touches one `retro` committed |
+| `backfill` | Retrospectively, over merged pull requests | From the GitHub API — see [[#Backfilling]] |
+
+`prep-pr` used to write the card in its own Step 8 and no longer does. The
+reason is that it is the wrong moment to measure: `prep-pr` dispatches
+`review-tests`, `review-performance` and `review-security`, so a card written
+mid-run reports the cost of building the change and not the cost of shipping
+it. `retro` runs after the pull request is open and covers the whole session.
+
+> [!warning] The fallback must never overwrite the owner's card.
+> The hook has no way to know the pull request, the issue or the rating — it
+> runs unattended as a session closes. Left unguarded it rewrites `retro`'s
+> card with one whose `pr.number`, `issue.number` and `complexity.declared` are
+> all null, into a working tree nobody is watching, and the result then sits in
+> the corpus looking complete while answering none of the questions the cards
+> exist for. `--if-absent` is what stops that: it checks for the file and exits
+> before it reads a single transcript.
 
 ## Where the data comes from
 
@@ -211,10 +236,12 @@ One thing does need care: a remote container is destroyed when the session ends
 and takes its transcripts with it, and a card that was never written is gone for
 good. So a **`SessionEnd` hook in `.claude/settings.json`** writes the card at
 the end of every session, in every environment, whether or not anyone reached
-`prep-pr`. It is idempotent — it writes the same file, and leaves it untouched
-when the only field that would change is `generated_at` — it already refuses
-`main`, and it ends in `|| true` so it can never fail a session. The settings
-file is committed, so remote sessions pick it up with no per-machine setup.
+`retro`. It runs `card -- --if-absent`, so it only ever fills a gap — see
+[[#Who writes a card]]. It is otherwise idempotent — it writes the same file,
+and leaves it untouched when the only field that would change is `generated_at`
+— it already refuses `main`, and it ends in `|| true` so it can never fail a
+session. The settings file is committed, so remote sessions pick it up with no
+per-machine setup.
 
 The consequence to remember: **a remote card can never be refreshed past
 `at-open`**, because the container that held its transcripts is gone. That is
@@ -263,7 +290,7 @@ the rate table prices at zero rather than guessing, and is named in
 A card written when the PR opens cannot see review-cycle cost. `phase` says
 which you are looking at:
 
-- `at-open` — written by `prep-pr`, covers work up to the pull request.
+- `at-open` — written by `retro`, covers work up to the pull request.
 - `at-merge` — written after merge, includes review fixes.
 
 > [!caution] Do not filter a query on `phase = 'at-merge'`.
@@ -401,6 +428,7 @@ point and points back here.
 | `--pr`, `--issue`, `--issue-type`, `--issue-labels` | Unset |
 | `--complexity`, `--complexity-method` | Unset |
 | `--phase` | `at-open` |
+| `--if-absent` | Off. On, it exits without writing where the card already exists — the `SessionEnd` fallback's flag |
 
 It never fails on missing transcripts — a card with a diff and zero spend is
 still a true record, and it warns on stderr rather than exiting non-zero.

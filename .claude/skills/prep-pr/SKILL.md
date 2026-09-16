@@ -445,33 +445,19 @@ says.
 **Test plan.** The gates that ran, with their real results, and below the table
 anything a reviewer must exercise by hand — including the honest negatives.
 
-### Append the session metrics
+### The session metrics are not this step's job
 
-After `## Test plan` and before the shape check, append the card for this
-branch — what the session that produced this pull request cost, what it
-changed, and how much steering it needed:
+The card for this branch — what the session cost, what it changed and how much
+steering it needed — is written by the **`retro`** skill after this run
+finishes, not here. Leave the body without it.
 
-```bash
-bun run --cwd tools/pr-metrics card -- \
-  --issue-labels "$(gh issue view "$ISSUE" --repo xchromo/osn --json labels --jq '[.labels[].name] | join(",")')" \
-  --pr "$PR" --issue "$ISSUE"                       # writes .claude/metrics/<branch>.json
-
-bun run --cwd tools/pr-metrics card -- \
-  --issue-labels "…" --format markdown >> <body-file>   # appends the block
-```
-
-Two runs on purpose: the first writes the committed card, the second prints the
-`<details>` block on stdout with none of the warnings in it. **Commit the JSON
-file with the branch** — the card is the durable record and
-`~/.claude/projects` is neither committed nor shared.
-
-It is a `<details>` block and not a section, and that is a constraint rather
-than a preference: the shape check below permits exactly five `##` headings, so
-a metrics section would fail a body that is otherwise correct. `<details>` adds
-no heading.
-
-If the collector cannot run — no transcripts on this machine, no `gh` — say so
-under `## Decisions` and carry on. A missing card never blocks a pull request.
+The reason is that this step is the wrong moment to measure: `prep-pr` itself
+dispatches `review-tests`, `review-performance` and `review-security`, so a card
+written mid-run reports the cost of building the change and not the cost of
+shipping it. `retro` writes it after Step 9, appends the `<details>` block to
+the pull request it finds open, and commits the JSON. Do not add a placeholder
+here, and do not run the collector to "save it a step" — an identity-less card
+on disk is the one thing that makes its job harder.
 
 ### Check the body before you finish
 
@@ -502,3 +488,22 @@ should target, and leave the body file in place. That is a complete run.
 Confirming the base took, and registering a stack when `$BASE` is not `main`,
 are in `references/workflow-steps.md`. Report the PR number, its base branch,
 whether the stack is registered, and the issues it closes.
+
+---
+
+## Step 10 — Hand off to `retro`
+
+Invoke the **`retro`** skill (`.claude/skills/retro/SKILL.md`) with the branch
+name and the pull request number. It writes and commits the session-metrics
+card, appends the `<details>` block to the body this run just opened, and reads
+what the session cost against the complexity declared before it started.
+
+This is not optional tidying. The card is the only durable record of what the
+work cost — `~/.claude/projects` is local, unversioned, and dies with a remote
+container — and this is the last moment it can be written with the pull
+request's identity on it. A branch whose retro never ran leaves the
+`SessionEnd` hook to write an identity-less card, which lands in the corpus
+looking complete and answering nothing.
+
+Where the PR could not be opened, invoke it anyway: the card is written from
+the branch and the transcripts, not from GitHub.

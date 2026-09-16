@@ -897,6 +897,14 @@ export function declaredFromLabels(labels: string[]): DeclaredComplexity {
   return { declared: ratings[0], method: unconfirmed ? "unconfirmed" : "confirmed" };
 }
 
+/** A linked issue as `gh pr list --json closingIssuesReferences` returns it.
+ * The repository is the load-bearing part: it decides whether the labels may
+ * be read at all. */
+interface IssueReference {
+  number: number;
+  repository: { name: string; owner: { login: string } };
+}
+
 export interface Card {
   schema_version: number;
   pr: {
@@ -1092,13 +1100,23 @@ export function renderDetails(card: Card): string {
  * Falling back to the cwd keeps the tests working outside a checkout, where
  * every path is passed explicitly anyway.
  */
+let memoisedRepoRoot: string | null = null;
+
 export function repoRoot(): string {
+  // Memoised for the process. The unattended `SessionEnd` fallback reaches here
+  // through `defaultMetricsDir` before its guard, and a `git rev-parse` costs
+  // about 8 ms against a guard that costs one file read — so the spawn, not the
+  // work, was the fallback's bill. Nothing here re-reads a repository that
+  // could have moved inside one invocation.
+  if (memoisedRepoRoot !== null) return memoisedRepoRoot;
+
   const result = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], {
     stdout: "pipe",
     stderr: "pipe",
   });
+  memoisedRepoRoot = result.success ? result.stdout.toString().trim() : ".";
 
-  return result.success ? result.stdout.toString().trim() : ".";
+  return memoisedRepoRoot;
 }
 
 /** Where cards live, resolved against the repository rather than the cwd. */
@@ -1116,6 +1134,44 @@ export function defaultMetricsDir(): string {
  */
 export function branchSlug(branch: string): string {
   return branch.replace(/[^a-zA-Z0-9._-]/g, "-").replace(/^-+|-+$/g, "") || "unknown";
+}
+
+/**
+ * The card already on disk at `path`, or `null` where there is nothing a reader
+ * could use — no file, malformed JSON, or JSON that is not card-shaped.
+ *
+ * The shape check is the part that matters. `JSON.parse` succeeds on
+ * `{"schema_version": 1}`, and a cast cannot make that a `Card`:
+ * `sameApartFromGeneratedAt` then reads `existing.pr.generated_at` off
+ * `undefined` and the collector dies with a `TypeError`, having written
+ * nothing. A `SessionEnd` hook killed at its timeout leaves exactly such a
+ * file, so the case is reachable rather than hypothetical.
+ *
+ * Both readers go through here, and that is deliberate: `--if-absent` has to
+ * treat as absent whatever the writer would replace, or the fallback ends up
+ * defending a file nobody can read.
+ */
+function readCardFile(path: string, branch?: string): Card | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(require("node:fs").readFileSync(path, "utf8") as string);
+  } catch {
+    return null;
+  }
+
+  if (typeof parsed !== "object" || parsed === null) return null;
+  if (!("pr" in parsed) || !("spend" in parsed) || !("interaction" in parsed)) return null;
+
+  const card = parsed as Card;
+  // `branchSlug` collapses `/`, `_` and anything else outside `[A-Za-z0-9._-]`
+  // to `-`, so `feat/a-b` and `feat_a_b` land on one file. `.claude/metrics/`
+  // is tracked, so every worktree already holds every merged branch's card:
+  // without this check `--if-absent` would read a colliding neighbour as this
+  // branch's card and leave that other branch's spend and `tool_calls` standing
+  // as this one's public record — silently, since the hook discards its output.
+  if (branch !== undefined && card.pr.branch !== branch) return null;
+
+  return card;
 }
 
 // ---------------------------------------------------------------------------
@@ -1584,10 +1640,129 @@ export function readRecordsForBranch(
   return records;
 }
 
-function git(args: string[]): string {
-  const result = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
+/** Memoised because the unattended fallback pays for every spawn it makes and
+ * nothing here re-runs git for a changed working tree inside one invocation: a
+ * `git rev-parse` costs about 8 ms, and the fallback made two of them before
+ * reaching a guard that costs one file read. Keyed on the whole argument list,
+ * so no two different questions share an answer. */
+const gitAnswers = new Map<string, string>();
 
-  return result.success ? result.stdout.toString().trim() : "";
+function git(args: string[]): string {
+  const key = args.join("\u0000");
+  const memo = gitAnswers.get(key);
+  if (memo !== undefined) return memo;
+
+  const result = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
+  const out = result.success ? result.stdout.toString().trim() : "";
+  gitAnswers.set(key, out);
+
+  return out;
+}
+
+/** One `gh` invocation's stdout, or `null` where `gh` is missing, unauthenticated
+ * or simply had nothing to say. Never throws: every caller here is a best-effort
+ * lookup on a path that must still produce a card without it. */
+function gh(args: string[]): string | null {
+  try {
+    const result = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
+    if (!result.success) return null;
+    const out = result.stdout.toString().trim();
+
+    return out === "" ? null : out;
+  } catch {
+    return null;
+  }
+}
+
+/** What `--resolve-issue` recovers: the pull request for a branch, its first
+ * linked issue, and that issue's labels where reading them is allowed. */
+interface ResolvedIdentity {
+  prNumber: number | null;
+  issueNumber: number | null;
+  labels: string[];
+  method: "none" | "not-fetched" | "lookup-failed" | "confirmed" | "unconfirmed";
+  declared: number | null;
+}
+
+/**
+ * Recover a branch's pull request and rating from `gh`, for a run that was
+ * given neither.
+ *
+ * The `SessionEnd` fallback in `.claude/settings.json` has no way to know
+ * either: it fires as a session closes, often before a pull request exists at
+ * all. Left unresolved its card carries a null `complexity.declared` for ever —
+ * the denominator every session-metrics query divides spend by — because
+ * nothing re-runs the collector for that branch once its transcripts are gone
+ * with the container. So the fallback asks.
+ *
+ * **Labels are read only from an issue in this same repository.** Most of this
+ * repository's pull requests close a finding in the private
+ * `xchromo/osn-tracker`, whose `severity:`/`area:` labels must never reach a
+ * card committed to a public one. That case records `not-fetched`, which is not
+ * `none`: a rating may well exist, and nobody looked. `backfill.ts` draws the
+ * same four outcomes for the same reasons.
+ */
+function resolveIdentity(branch: string): ResolvedIdentity {
+  const miss: ResolvedIdentity = {
+    prNumber: null,
+    issueNumber: null,
+    labels: [],
+    method: "none",
+    declared: null,
+  };
+
+  const repo = gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]);
+  const listed = gh([
+    "pr",
+    "list",
+    "--head",
+    branch,
+    "--state",
+    "all",
+    "--limit",
+    "1",
+    "--json",
+    "number,closingIssuesReferences",
+  ]);
+  if (listed === null) return miss;
+
+  let pulls: { number: number; closingIssuesReferences: IssueReference[] }[];
+  try {
+    pulls = JSON.parse(listed) as typeof pulls;
+  } catch {
+    return miss;
+  }
+
+  const pull = pulls[0];
+  if (pull === undefined) return miss;
+
+  const ref = pull.closingIssuesReferences[0];
+  if (ref === undefined) return { ...miss, prNumber: pull.number };
+
+  const identity = { ...miss, prNumber: pull.number, issueNumber: ref.number };
+  const sameRepo = repo !== null && `${ref.repository.owner.login}/${ref.repository.name}` === repo;
+  if (!sameRepo) return { ...identity, method: "not-fetched" };
+
+  const raw = gh([
+    "issue",
+    "view",
+    String(ref.number),
+    "--repo",
+    repo,
+    "--json",
+    "labels",
+    "--jq",
+    '[.labels[].name] | join(",")',
+  ]);
+  // An empty answer is ambiguous — an issue with no labels prints nothing, and
+  // so does a failed call — so `gh` returning nothing is recorded as a lookup
+  // that did not land rather than as a checked, genuinely unrated issue.
+  if (raw === null) return { ...identity, method: "lookup-failed" };
+
+  const labels = raw.split(",").filter(Boolean);
+  const rating = declaredFromLabels(labels);
+
+  return { ...identity, labels, method: rating.method, declared: rating.declared };
 }
 
 function flag(name: string): string | null {
@@ -1609,6 +1784,36 @@ if (import.meta.main) {
     process.exit(1);
   }
 
+  // `--if-absent` exists for one caller: the unattended `SessionEnd` fallback in
+  // `.claude/settings.json`. That run carries no `--pr`, `--issue` or
+  // `--issue-labels`, so the card it builds is identity-less — and writing it
+  // over the one `retro` committed would strip the pull request, the issue and
+  // the `complexity.declared` every session-metrics query divides spend by,
+  // silently, into a working tree nobody is watching at session end. So the
+  // fallback writes a card for a branch that has none and never touches one
+  // that exists. `retro` owns the identity-bearing write and always overwrites.
+  const outDir = flag("out-dir") ?? defaultMetricsDir();
+  const outPath = `${outDir}/${branchSlug(branch)}.json`;
+
+  // Checked here rather than beside the write below so the fallback costs one
+  // read and not a transcript scan — `SessionEnd` hooks run on a timeout.
+  // `--format markdown` writes nothing at all, so it is never what is skipped.
+  //
+  // What counts as present is a card that parses, not a file that exists. The
+  // un-flagged path below rewrites an unreadable card rather than preserving
+  // it, and this has to agree: a hook killed at its timeout mid-write leaves a
+  // truncated file, and a guard keyed on existence alone would then protect
+  // that forever, with nothing but a human running `retro` to repair it.
+  const skipExisting =
+    Bun.argv.includes("--if-absent") &&
+    flag("format") !== "markdown" &&
+    readCardFile(outPath, branch) !== null;
+
+  if (skipExisting) {
+    console.log(`pr-metrics: ${outPath} already exists — leaving it alone (--if-absent).`);
+    process.exit(0);
+  }
+
   const sessionsDir = flag("sessions-dir") ?? `${process.env.HOME}/.claude/projects`;
   const base = flag("base") ?? "origin/main";
   const records = readRecordsForBranch(sessionsDir, branch, { repoPaths: repoProjectPaths() });
@@ -1619,7 +1824,7 @@ if (import.meta.main) {
 
   const issueLabels = (flag("issue-labels") ?? "").split(",").filter(Boolean);
 
-  // The labels are the normal source — `prep-pr` passes whatever the issue
+  // The labels are the normal source — `retro` passes whatever the issue
   // carries and the rating comes along with them, so nobody has to retype a
   // number the issue already holds. `--complexity` stays as an override for a
   // branch with no issue, and it is recorded as `manual` so a hand-typed
@@ -1627,14 +1832,27 @@ if (import.meta.main) {
   const fromLabels = declaredFromLabels(issueLabels);
   const override = flag("complexity");
 
+  // `--resolve-issue` is the unattended fallback's other half. Explicit flags
+  // always win: a caller that named the pull request, the issue or the labels
+  // knows more than `gh` does, and only the gaps it left are filled in.
+  const resolved =
+    Bun.argv.includes("--resolve-issue") && flag("issue") === null && issueLabels.length === 0
+      ? resolveIdentity(branch)
+      : null;
+
   const card = buildCard(records, diff, {
     branch,
-    prNumber: flag("pr") ? Number.parseInt(flag("pr") as string, 10) : null,
-    issueNumber: flag("issue") ? Number.parseInt(flag("issue") as string, 10) : null,
+    prNumber: flag("pr") ? Number.parseInt(flag("pr") as string, 10) : (resolved?.prNumber ?? null),
+    issueNumber: flag("issue")
+      ? Number.parseInt(flag("issue") as string, 10)
+      : (resolved?.issueNumber ?? null),
     issueType: flag("issue-type"),
-    issueLabels,
-    declaredComplexity: override ? Number.parseInt(override, 10) : fromLabels.declared,
-    complexityMethod: flag("complexity-method") ?? (override ? "manual" : fromLabels.method),
+    issueLabels: resolved === null ? issueLabels : resolved.labels,
+    declaredComplexity: override
+      ? Number.parseInt(override, 10)
+      : (resolved?.declared ?? fromLabels.declared),
+    complexityMethod:
+      flag("complexity-method") ?? (override ? "manual" : (resolved?.method ?? fromLabels.method)),
     baseSha: git(["rev-parse", base]) || null,
     headSha: git(["rev-parse", "HEAD"]) || null,
     mergedAt: flag("merged-at"),
@@ -1643,25 +1861,17 @@ if (import.meta.main) {
   });
 
   // `--format markdown` prints the `<details>` block on stdout and writes
-  // nothing, so `prep-pr` can append it to a body without a temporary file and
-  // without the warnings below landing in the middle of the markdown.
+  // nothing, so `retro` can append it to a pull-request body without a
+  // temporary file and without the warnings below landing in the markdown.
   if (flag("format") === "markdown") {
     console.log(renderDetails(card));
     process.exit(0);
   }
 
-  const outDir = flag("out-dir") ?? defaultMetricsDir();
-  const outPath = `${outDir}/${branchSlug(branch)}.json`;
-
-  // A re-run on the same branch is common — `prep-pr` writes the card, then the
+  // A re-run on the same branch is common — `retro` writes the card, then the
   // review adds a commit and it is written again. Where nothing but the
   // timestamp moved, leave the file as it stands.
-  let existingCard: Card | null = null;
-  try {
-    existingCard = JSON.parse(require("node:fs").readFileSync(outPath, "utf8") as string) as Card;
-  } catch {
-    existingCard = null;
-  }
+  const existingCard = readCardFile(outPath, branch);
 
   if (existingCard === null || !sameApartFromGeneratedAt(existingCard, card)) {
     require("node:fs").mkdirSync(outDir, { recursive: true });

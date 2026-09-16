@@ -1,0 +1,11 @@
+{
+  "description": "A finished branch whose only session-metrics card is the one the unattended SessionEnd fallback left behind — null pull request, null issue, null declared complexity — while the issue itself says complexity:1 and the session cost $47 and hit a compaction. Tests whether retro recognises the card as the fallback's and replaces it, compares spend against the rating on the issue rather than the null on the card, and routes each finding where it belongs: the unclear brief to the person and not to an issue, the missing map to the public repo.",
+  "fixtures": {
+    "repo": {
+      "type": "commit",
+      "repoUrl": "https://github.com/xchromo/osn.git",
+      "ref": "b5f9c8f",
+      "installPath": "."
+    }
+  }
+}

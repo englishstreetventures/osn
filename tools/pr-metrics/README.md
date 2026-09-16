@@ -28,6 +28,24 @@ questions.
 | `--pr`, `--issue`, `--issue-type`, `--issue-labels` | Unset                          |
 | `--complexity`, `--complexity-method`               | Unset                          |
 | `--phase`                                           | `at-open`                      |
+| `--if-absent`                                       | Off — see below                |
+
+## Who writes a card
+
+The **`retro`** skill, once, after `prep-pr` has opened the pull request. It is
+the only writer that knows the pull request number, the issue and the issue's
+`complexity:` label, and it commits the JSON with the branch.
+
+The `SessionEnd` hook in `.claude/settings.json` is a fallback for a branch
+whose retro never ran, and it passes **`--if-absent`**: it writes a card where
+none exists and exits without touching one that does. Unguarded it would
+overwrite `retro`'s card with an identity-less one — no pull request, no issue,
+no `complexity.declared` — into a working tree nobody is watching at session
+end, and the result would sit in the corpus looking complete while answering
+none of the questions the cards exist for.
+
+`backfill` is the third writer and is retrospective: merged pull requests that
+predate cards, or whose card was never written.
 
 ## Read this before changing it
 
