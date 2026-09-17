@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS wedding_hosts (
   osn_profile_id TEXT NOT NULL,
   added_by_osn_profile_id TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'host',
+  run_sheet_scope TEXT NOT NULL DEFAULT 'own',
   created_at INTEGER NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS wedding_hosts_wedding_profile_uniq ON wedding_hosts(wedding_id, osn_profile_id);

@@ -22,6 +22,13 @@
       "when": 1789630563674,
       "tag": "0059_rsvp_dietary_presets",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "6",
+      "when": 1789679218448,
+      "tag": "0060_helper_role_and_run_sheet_scope",
+      "breakpoints": true
     }
   ]
 }

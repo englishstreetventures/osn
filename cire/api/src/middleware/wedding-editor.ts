@@ -7,7 +7,9 @@ import { runCire } from "../observability";
 import type { EntitlementKey } from "../services/entitlements";
 import { hostsService } from "../services/hosts";
 import { readOsnProfileId } from "./upstream-context";
-import type { WeddingEntitlementFold, WeddingRole } from "./wedding-member";
+import type { WeddingEntitlementFold } from "./wedding-member";
+import { decideCapability } from "./wedding-role";
+import type { WeddingRole } from "./wedding-role";
 
 interface GateError {
   status: number;
@@ -44,12 +46,14 @@ const pass = (
 
 /**
  * Authz gate for /api/organiser/weddings/:weddingId/* WRITE routes — sits
- * between `weddingMember()` (any role, reads) and `weddingOwner()` (owner-only
- * destructive/management actions). Admits the OWNER or an `editor` co-host;
- * a `viewer` co-host is rejected with 403 `read_only_role` (a distinct error
- * string so the portal can say "ask the owner for editor access" instead of a
- * generic forbidden). 404 for unknown weddings, 403 `forbidden` for
- * non-members — the same contract as the member gate.
+ * between `weddingMember()` (the read surface) and `weddingOwner()` (owner-only
+ * destructive/management actions). Admits the OWNER, or a co-host whose role
+ * carries the `editor` capability; `policyFor()` in `wedding-role.ts` is what
+ * says which those are. A refused role gets its own policy's error string: a
+ * `viewer` gets 403 `read_only_role` (distinct, so the portal can say "ask the
+ * owner for editor access"), every other refused role the generic `forbidden`.
+ * 404 for unknown weddings, 403 `forbidden` for non-members — the same contract
+ * as the member gate.
  *
  * Derives `weddingOwnerOsnProfileId` alongside the role, which the other two
  * gates do not: this is the gate whose caller is not necessarily the owner but
@@ -85,7 +89,8 @@ export function weddingEditor(db: Db, entitlementKey?: EntitlementKey) {
 
       if (!result) return fail(404, "wedding_not_found");
       if (!result.role) return fail(403, "forbidden");
-      if (result.role === "viewer") return fail(403, "read_only_role");
+      const decision = decideCapability(result.role, "editor");
+      if (!decision.allowed) return fail(403, decision.error);
       return pass(
         weddingId,
         result.role,

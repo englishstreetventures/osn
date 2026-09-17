@@ -1,0 +1,1 @@
+ALTER TABLE `wedding_hosts` ADD `run_sheet_scope` text DEFAULT 'own' NOT NULL;

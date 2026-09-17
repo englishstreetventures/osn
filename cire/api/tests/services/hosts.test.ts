@@ -6,12 +6,20 @@ import { Effect } from "effect";
 
 import { DbService } from "../../src/db";
 import { createDb } from "../../src/db/setup";
+import { policyFor } from "../../src/middleware/wedding-role";
 import {
   hostConflictReason,
   hostsService,
+  LEAST_PRIVILEGE_ROLE,
   MAX_HOSTS_PER_WEDDING,
   normaliseHostRole,
+  STORED_HOST_ROLES,
 } from "../../src/services/hosts";
+import type { StoredHostRole } from "../../src/services/hosts";
+
+/** Every value the role column may hold, taken from the guard rather than
+ *  restated — a restated list stops matching the column when it is widened. */
+const STORED_ROLES = Object.keys(STORED_HOST_ROLES) as StoredHostRole[];
 
 const OWNER = "usr_owner";
 const ALICE = "usr_alice";
@@ -61,10 +69,34 @@ describe("normaliseHostRole", () => {
     expect(normaliseHostRole("host")).toBe("editor");
   });
 
-  it("degrades unknown/corrupted values to viewer — least privilege, never fail-open (S-L1)", () => {
-    expect(normaliseHostRole("")).toBe("viewer");
-    expect(normaliseHostRole("admin")).toBe("viewer");
-    expect(normaliseHostRole("EDITOR")).toBe("viewer");
+  it("maps every stored role except the legacy 'host' to itself", () => {
+    // The guard against the quiet way to satisfy the exhaustiveness check:
+    // a role added to the column can be given a `case` that folds it into an
+    // existing role, which compiles and hands it that role's whole reach.
+    // `host` is the one deliberate fold, and it is asserted separately above.
+    for (const role of STORED_ROLES) {
+      if (role === "host") continue;
+      expect(normaliseHostRole(role)).toBe(role);
+    }
+  });
+
+  it("degrades unknown/corrupted values to the least-privileged role, never fail-open", () => {
+    // Asserted against LEAST_PRIVILEGE_ROLE rather than a literal: the floor
+    // moves when a narrower role is added, and a test naming today's floor
+    // would keep passing while the fallback silently outranked the new role.
+    expect(normaliseHostRole("")).toBe(LEAST_PRIVILEGE_ROLE);
+    expect(normaliseHostRole("admin")).toBe(LEAST_PRIVILEGE_ROLE);
+    expect(normaliseHostRole("EDITOR")).toBe(LEAST_PRIVILEGE_ROLE);
+  });
+
+  it("puts the least-privileged role at or below every other role's reach", () => {
+    // The property that makes the fallback safe: whatever the floor is, no
+    // other role may have fewer capabilities than it.
+    const floor = policyFor(LEAST_PRIVILEGE_ROLE).capabilities;
+    for (const role of STORED_ROLES) {
+      const other = policyFor(normaliseHostRole(role)).capabilities;
+      for (const capability of floor) expect(other).toContain(capability);
+    }
   });
 });
 
@@ -409,6 +441,8 @@ describe("hostsService.authorize", () => {
       isOwner: true,
       isHost: false,
       role: "owner",
+      hostId: null,
+      runSheetScope: "own",
     });
   });
 
@@ -430,6 +464,8 @@ describe("hostsService.authorize", () => {
       isOwner: false,
       isHost: true,
       role: "editor",
+      hostId: expect.stringMatching(/^whost_/),
+      runSheetScope: "own",
     });
   });
 
@@ -473,6 +509,8 @@ describe("hostsService.authorize", () => {
       isOwner: false,
       isHost: false,
       role: null,
+      hostId: null,
+      runSheetScope: "own",
     });
   });
 
@@ -517,6 +555,8 @@ describe("hostsService.authorize — entitlement fold (P-W1)", () => {
       isOwner: true,
       isHost: false,
       role: "owner",
+      hostId: null,
+      runSheetScope: "own",
       entitled: true,
     });
   });
@@ -571,6 +611,8 @@ describe("hostsService.authorize — entitlement fold (P-W1)", () => {
       isOwner: false,
       isHost: true,
       role: "editor",
+      hostId: expect.stringMatching(/^whost_/),
+      runSheetScope: "own",
       entitled: true,
     });
   });
@@ -609,6 +651,8 @@ describe("hostsService.authorize — entitlement fold (P-W1)", () => {
       isOwner: false,
       isHost: false,
       role: null,
+      hostId: null,
+      runSheetScope: "own",
       entitled: false,
     });
   });

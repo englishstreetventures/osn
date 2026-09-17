@@ -6,16 +6,14 @@ import type { Db } from "../db";
 import { runCire } from "../observability";
 import type { EntitlementKey } from "../services/entitlements";
 import { hostsService } from "../services/hosts";
-import type { HostRole } from "../services/hosts";
 import { readOsnProfileId } from "./upstream-context";
+import { decideCapability } from "./wedding-role";
+import type { WeddingRole } from "./wedding-role";
 
 interface GateError {
   status: number;
   body: { error: string };
 }
-
-/** The caller's effective role on the wedding, derived by the member gate. */
-export type WeddingRole = "owner" | HostRole;
 
 /**
  * The result of folding an entitlement presence check into THIS gate's own
@@ -54,13 +52,18 @@ const pass = (
 
 /**
  * Authz gate for /api/organiser/weddings/:weddingId/* — admits the wedding's
- * OWNER **or** a CO-HOST (editor or viewer). Requires osnAuth() upstream
- * (osnProfileId derived). 404 for unknown weddings, 403 for callers who are
- * neither owner nor host. Derives `weddingId` (on success), `weddingIsOwner`,
- * and `weddingRole` so a route can keep an owner-only action (e.g. host
- * management) gated even though co-hosts reach the shared dashboard reads.
- * Viewers pass this gate — routes that WRITE must sit behind `weddingEditor()`
- * (see `wedding-editor.ts`) or `weddingOwner()` instead.
+ * OWNER, or a co-host whose role carries the `member` capability. Requires
+ * osnAuth() upstream (osnProfileId derived). 404 for unknown weddings, 403 for
+ * callers who are neither owner nor host. Derives `weddingId` (on success),
+ * `weddingIsOwner`, and `weddingRole` so a route can keep an owner-only action
+ * (e.g. host management) gated even though co-hosts reach the shared dashboard
+ * reads.
+ *
+ * Which roles those are is `policyFor()`'s to say, not this file's — see
+ * `wedding-role.ts`. This gate does not enumerate the roles it excludes,
+ * because a gate written that way admits every role added after it. Routes
+ * that WRITE must sit behind `weddingEditor()` (see `wedding-editor.ts`) or
+ * `weddingOwner()` instead.
  *
  * Mirrors `weddingOwner()`'s lifecycle: the derive runs before osnAuth's
  * onBeforeHandle fires, so it tolerates an unauthenticated request (records the
@@ -92,6 +95,8 @@ export function weddingMember(db: Db, entitlementKey?: EntitlementKey) {
 
       if (!result) return fail(404, "wedding_not_found");
       if (!result.role) return fail(403, "forbidden");
+      const decision = decideCapability(result.role, "member");
+      if (!decision.allowed) return fail(403, decision.error);
       return pass(
         weddingId,
         result.role,

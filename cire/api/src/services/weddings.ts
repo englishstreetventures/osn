@@ -6,15 +6,18 @@ import { DbService, dbQuery } from "../db";
 import { metricWeddingCreated } from "../metrics";
 import type { CodeStyle } from "./family-code";
 import { normaliseHostRole } from "./hosts";
+import type { HostRole } from "./hosts";
 
 export type WeddingSummary = {
   id: string;
   slug: string;
   displayName: string;
-  /** The caller's role on this wedding: `owner` (created it, full management),
-   *  `editor` (co-host with module writes) or `viewer` (read-only co-host).
-   *  Lets the portal label each wedding and gate write/management surfaces. */
-  role: "owner" | "editor" | "viewer";
+  /** The caller's role on this wedding — `owner` (created it, full management)
+   *  or the app-layer role of their co-host seat. Lets the portal label each
+   *  wedding and gate write/management surfaces; the API gates remain the
+   *  enforcement, so a portal that does not recognise a role may mislabel it
+   *  but can never widen what it reaches. */
+  role: "owner" | HostRole;
   /** Entitlement keys active on this wedding (e.g. `"vendors"`, `"capacity_500"`).
    *  Merged in by the route from `entitlementService.setsForWeddings` — the
    *  service itself stays free of entitlement logic. */

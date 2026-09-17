@@ -119,11 +119,19 @@ export const weddings = sqliteTable(
 // server-to-server ARC call to osn-api's `/graph/internal/profile-by-handle`
 // (cire never sees the handle→id mapping otherwise). `added_by_osn_profile_id`
 // records which owner added the host (audit only). `role` splits co-hosts into
-// `editor` (full module writes — a partner or hired planner) and `viewer`
-// (read-only). `host` is LEGACY: migration 0031 rewrote every 'host' row to
-// 'editor' and the app only ever writes editor/viewer, but the value stays in
-// the enum because the column's DDL DEFAULT 'host' can't change without a
-// table rebuild — readers normalise a stray 'host' to 'editor'.
+// `editor` (full module writes — a partner or hired planner), `viewer`
+// (read-only across the dashboard) and `helper` (the day-of run sheet and
+// nothing else — not the guest list, not the budget, not the RSVPs). `host` is
+// LEGACY: migration 0031 rewrote every 'host' row to 'editor' and the app only
+// ever writes editor/viewer, but the value stays in the enum because the
+// column's DDL DEFAULT 'host' can't change without a table rebuild — readers
+// normalise a stray 'host' to 'editor'.
+//
+// `run_sheet_scope` is a helper's own visibility setting, and applies to no
+// other role: `own` (the default) means they receive only the tasks assigned to
+// them, `full` means the host has opened the whole run sheet to them. It is
+// stored rather than derived because the route has to filter on it — a helper
+// who can read the unfiltered response is one network tab away from the lot.
 export const weddingHosts = sqliteTable(
   "wedding_hosts",
   {
@@ -133,9 +141,12 @@ export const weddingHosts = sqliteTable(
       .references(() => weddings.id, { onDelete: "cascade" }),
     osnProfileId: text("osn_profile_id").notNull(),
     addedByOsnProfileId: text("added_by_osn_profile_id").notNull(),
-    role: text("role", { enum: ["host", "editor", "viewer"] })
+    role: text("role", { enum: ["host", "editor", "viewer", "helper"] })
       .notNull()
       .default("host"),
+    runSheetScope: text("run_sheet_scope", { enum: ["own", "full"] })
+      .notNull()
+      .default("own"),
     createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   },
   (t) => [

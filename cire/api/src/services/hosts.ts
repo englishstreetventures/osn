@@ -6,24 +6,128 @@ import { DbService, dbQuery } from "../db";
 import type { EntitlementKey } from "./entitlements";
 
 /**
- * A co-host's role. `editor` gets full module writes (guests, schedule,
- * invite, import — a partner or hired planner); `viewer` is read-only. The
- * owner is never rowed into `wedding_hosts`, so "owner" is not a stored role.
+ * Every value the `wedding_hosts.role` column may hold, read off the column
+ * itself. The app-layer vocabulary below derives from this, so the two cannot
+ * drift: widening the column widens {@link HostRole}, and every exhaustive
+ * switch over it stops compiling until the new role is handled.
  */
-export type HostRole = "editor" | "viewer";
+export type StoredHostRole = (typeof weddingHosts.$inferSelect)["role"];
 
 /**
- * Map a stored role onto the app-layer {@link HostRole}. `host` is the legacy
- * pre-roles value (and still the column's DDL DEFAULT — unchangeable without a
- * table rebuild): migration 0031 rewrote all rows to `editor`, but a stray
- * legacy value degrades to `editor` (what every pre-roles co-host effectively
- * was). Anything ELSE — an unknown or corrupted value no code path writes —
- * degrades to `viewer`, the least-privilege role, so the gate chain never
- * fails open (S-L1).
+ * A co-host's role in the app layer. `editor` gets full module writes (guests,
+ * schedule, invite, import — a partner or hired planner); `viewer` is
+ * read-only. The owner is never rowed into `wedding_hosts`, so "owner" is not
+ * a stored role.
+ *
+ * `host` is excluded: it is the legacy pre-roles value and still the column's
+ * DDL DEFAULT (unchangeable without a table rebuild), but no reader treats it
+ * as a role of its own — {@link normaliseHostRole} folds it into `editor`.
+ */
+export type HostRole = Exclude<StoredHostRole, "host">;
+
+/**
+ * The roles the organiser API may WRITE. Deliberately narrower than
+ * {@link HostRole}: `add()` and `setRole()` take this, so the compiler proves
+ * no route can assign a role outside it, independently of the runtime bar that
+ * `HostRoleSchema` puts on the request body.
+ */
+export type AssignableHostRole = "editor" | "viewer";
+
+/**
+ * Each role's privilege rank, lowest first. Exhaustive over {@link HostRole} by
+ * type — a role added to the column must be ranked here before this compiles,
+ * which is what makes {@link LEAST_PRIVILEGE_ROLE} true rather than merely
+ * intended.
+ */
+const ROLE_PRIVILEGE_RANK = {
+  helper: 0,
+  viewer: 1,
+  editor: 2,
+} satisfies Record<HostRole, number>;
+
+/**
+ * What an unrecognised stored role degrades to: the narrowest role there is.
+ * Derived from {@link ROLE_PRIVILEGE_RANK} rather than written out, so adding a
+ * role below the current floor moves the floor with it instead of leaving a
+ * stale literal that grants more than the newest role gets.
+ */
+export const LEAST_PRIVILEGE_ROLE: HostRole = (
+  Object.keys(ROLE_PRIVILEGE_RANK) as HostRole[]
+).reduce((lowest, role) =>
+  ROLE_PRIVILEGE_RANK[role] < ROLE_PRIVILEGE_RANK[lowest] ? role : lowest,
+);
+
+/**
+ * How far into the run sheet a seat may see, as stored on
+ * `wedding_hosts.run_sheet_scope`. It is a helper's setting and no other role's
+ * — `runSheetScopeFor()` in `../middleware/wedding-role` is what decides when it
+ * applies.
+ */
+export type RunSheetScope = (typeof weddingHosts.$inferSelect)["runSheetScope"];
+
+const RUN_SHEET_SCOPES = {
+  own: true,
+  full: true,
+} satisfies Record<RunSheetScope, true>;
+
+/** The narrowest scope — what an unrecognised stored value degrades to, so a
+ *  corrupted row shows a helper less rather than more. */
+export const LEAST_PRIVILEGE_RUN_SHEET_SCOPE: RunSheetScope = "own";
+
+/** Map a stored scope onto {@link RunSheetScope}, degrading anything the column
+ *  is not declared to hold to the narrow value. */
+export function normaliseRunSheetScope(scope: string): RunSheetScope {
+  if (!Object.hasOwn(RUN_SHEET_SCOPES, scope)) return LEAST_PRIVILEGE_RUN_SHEET_SCOPE;
+  switch (scope as RunSheetScope) {
+    case "own":
+      return "own";
+    case "full":
+      return "full";
+  }
+  return LEAST_PRIVILEGE_RUN_SHEET_SCOPE;
+}
+
+/** Membership test for {@link StoredHostRole}, keyed rather than listed so a
+ *  value added to the column has to be answered for here too. Exported so a
+ *  test can enumerate the stored roles without restating them — a restated list
+ *  is one that stops matching the column the first time it is widened. */
+export const STORED_HOST_ROLES = {
+  host: true,
+  editor: true,
+  viewer: true,
+  helper: true,
+} satisfies Record<StoredHostRole, true>;
+
+function isStoredHostRole(role: string): role is StoredHostRole {
+  return Object.hasOwn(STORED_HOST_ROLES, role);
+}
+
+/** Fold a recognised stored value onto the app-layer role it means. */
+function mapStoredRole(role: StoredHostRole): HostRole {
+  switch (role) {
+    // Migration 0031 rewrote every legacy `host` row to `editor`; a stray one
+    // is what every pre-roles co-host effectively was.
+    case "host":
+    case "editor":
+      return "editor";
+    case "viewer":
+      return "viewer";
+    case "helper":
+      return "helper";
+  }
+  const _exhaustive: never = role;
+  return LEAST_PRIVILEGE_ROLE;
+}
+
+/**
+ * Map a stored role onto the app-layer {@link HostRole}. A value the column is
+ * not declared to hold — corrupted, or written by something that bypassed the
+ * schema — degrades to {@link LEAST_PRIVILEGE_ROLE} so the gate chain never
+ * fails open.
  */
 export function normaliseHostRole(role: string): HostRole {
-  if (role === "editor" || role === "host") return "editor";
-  return "viewer";
+  if (!isStoredHostRole(role)) return LEAST_PRIVILEGE_ROLE;
+  return mapStoredRole(role);
 }
 
 /** A co-host row surfaced to the management panel. Never echoes the account id —
@@ -104,6 +208,13 @@ type AuthorizeResult = {
   isOwner: boolean;
   isHost: boolean;
   role: "owner" | HostRole | null;
+  /** The caller's `wedding_hosts.id`, or `null` when they are the owner (never
+   *  rowed in) or a stranger. The run-sheet gate needs it to tell the caller's
+   *  own assignments from everyone else's. */
+  hostId: string | null;
+  /** The caller's stored run-sheet visibility. `own` for anyone with no seat —
+   *  the narrow value, so a missing row can never widen what is returned. */
+  runSheetScope: RunSheetScope;
 };
 
 /**
@@ -133,12 +244,20 @@ function authorizePlain(
         isOwner: true,
         isHost: false,
         role: "owner" as const,
+        // The owner is never rowed into wedding_hosts, so there is no seat id
+        // and no stored scope; they see the whole run sheet by role.
+        hostId: null,
+        runSheetScope: LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
       };
     }
 
     const [host] = yield* dbQuery(() =>
       db
-        .select({ id: weddingHosts.id, role: weddingHosts.role })
+        .select({
+          id: weddingHosts.id,
+          role: weddingHosts.role,
+          runSheetScope: weddingHosts.runSheetScope,
+        })
         .from(weddingHosts)
         .where(
           and(eq(weddingHosts.weddingId, weddingId), eq(weddingHosts.osnProfileId, osnProfileId)),
@@ -151,6 +270,10 @@ function authorizePlain(
       isOwner: false,
       isHost: Boolean(host),
       role: host ? normaliseHostRole(host.role) : null,
+      hostId: host?.id ?? null,
+      runSheetScope: host
+        ? normaliseRunSheetScope(host.runSheetScope)
+        : LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
     };
   }).pipe(Effect.withSpan("cire.host.authorize"));
 }
@@ -190,13 +313,20 @@ function authorizeWithEntitlement(
         isOwner: true,
         isHost: false,
         role: "owner" as const,
+        hostId: null,
+        runSheetScope: LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
         entitled: Boolean(owner.entitled),
       };
     }
 
     const [host] = yield* dbQuery(() =>
       db
-        .select({ id: weddingHosts.id, role: weddingHosts.role, entitled: entitledExists })
+        .select({
+          id: weddingHosts.id,
+          role: weddingHosts.role,
+          runSheetScope: weddingHosts.runSheetScope,
+          entitled: entitledExists,
+        })
         .from(weddingHosts)
         .where(
           and(eq(weddingHosts.weddingId, weddingId), eq(weddingHosts.osnProfileId, osnProfileId)),
@@ -209,6 +339,10 @@ function authorizeWithEntitlement(
       isOwner: false,
       isHost: Boolean(host),
       role: host ? normaliseHostRole(host.role) : null,
+      hostId: host?.id ?? null,
+      runSheetScope: host
+        ? normaliseRunSheetScope(host.runSheetScope)
+        : LEAST_PRIVILEGE_RUN_SHEET_SCOPE,
       // No host row means neither the owner nor a co-host branch matched — the
       // caller is a stranger, and `entitled` is meaningless (the role gate
       // 403s before anything reads it), so `false` rather than a bogus query.
@@ -266,7 +400,7 @@ export const hostsService = {
     osnProfileId: string;
     addedByOsnProfileId: string;
     ownerOsnProfileId: string;
-    role: HostRole;
+    role: AssignableHostRole;
   }): Effect.Effect<WeddingHostRow, HostConflict | HostWriteError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
@@ -399,7 +533,7 @@ export const hostsService = {
   setRole(input: {
     weddingId: string;
     osnProfileId: string;
-    role: HostRole;
+    role: AssignableHostRole;
   }): Effect.Effect<WeddingHostRow, HostNotFound | HostWriteError, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
@@ -496,14 +630,11 @@ export const hostsService = {
     osnProfileId: string,
     entitlementKey?: EntitlementKey,
   ): Effect.Effect<
-    {
-      ownerOsnProfileId: string;
-      isOwner: boolean;
-      isHost: boolean;
-      role: "owner" | HostRole | null;
-      /** Only present when `entitlementKey` was passed. */
-      entitled?: boolean;
-    } | null,
+    | (AuthorizeResult & {
+        /** Only present when `entitlementKey` was passed. */
+        entitled?: boolean;
+      })
+    | null,
     never,
     DbService
   > {

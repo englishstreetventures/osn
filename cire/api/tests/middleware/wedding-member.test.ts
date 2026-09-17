@@ -86,6 +86,33 @@ describe("weddingMember", () => {
     expect(await jsonBody(res)).toEqual({ weddingRole: "viewer" });
   });
 
+  it("REFUSES a helper — the read surface is not theirs", async () => {
+    // A helper holds a real seat on this wedding and is still turned away:
+    // this gate fronts the guest list, the budget, the registry, the vendors
+    // and the RSVPs, and a helper is someone handed a job on the day.
+    const db = buildDb();
+    db.insert(weddingHosts)
+      .values({
+        id: "whost_helper",
+        weddingId: WEDDING_ID,
+        osnProfileId: "usr_helper",
+        addedByOsnProfileId: OWNER,
+        role: "helper",
+        createdAt: new Date(),
+      })
+      .run();
+    const app = new Elysia({ aot: false })
+      .derive(() => ({ osnProfileId: "usr_helper" }))
+      .group("/weddings/:weddingId", (group) =>
+        group.use(weddingMember(db)).get("/probe", ({ weddingRole }) => ({ weddingRole })),
+      );
+    const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);
+    expect(res.status).toBe(403);
+    // The same body a stranger gets, so a probe cannot tell a helper's seat
+    // from no seat at all.
+    expect(await jsonBody(res)).toEqual({ error: "forbidden" });
+  });
+
   it("returns 403 for a stranger (neither owner nor host)", async () => {
     const app = buildApp("usr_mallory");
     const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);

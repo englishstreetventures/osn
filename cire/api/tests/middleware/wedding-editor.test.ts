@@ -13,6 +13,7 @@ const OWNER = "usr_alice";
 const EDITOR = "usr_bob";
 const VIEWER = "usr_carol";
 const LEGACY_HOST = "usr_dora";
+const HELPER = "usr_erin";
 
 function buildDb(): Db {
   const db = createDb(":memory:");
@@ -44,6 +45,16 @@ function buildDb(): Db {
       osnProfileId: VIEWER,
       addedByOsnProfileId: OWNER,
       role: "viewer",
+      createdAt: now,
+    })
+    .run();
+  db.insert(weddingHosts)
+    .values({
+      id: "whost_helper",
+      weddingId: WEDDING_ID,
+      osnProfileId: HELPER,
+      addedByOsnProfileId: OWNER,
+      role: "helper",
       createdAt: now,
     })
     .run();
@@ -110,6 +121,18 @@ describe("weddingEditor", () => {
     const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);
     expect(res.status).toBe(403);
     expect(await jsonBody(res)).toEqual({ error: "read_only_role" });
+  });
+
+  it("REFUSES a helper with 403 forbidden, not read_only_role", async () => {
+    // Its own test rather than a case folded into the viewer one: the status
+    // matches but the body deliberately does not. `read_only_role` is the
+    // portal's cue to offer "ask the owner for editor access", which is a
+    // sensible thing to say to a viewer and the wrong thing to say to a helper
+    // — it would also confirm the seat exists.
+    const app = buildApp(HELPER);
+    const res = await appRequest(app, `/weddings/${WEDDING_ID}/probe`);
+    expect(res.status).toBe(403);
+    expect(await jsonBody(res)).toEqual({ error: "forbidden" });
   });
 
   it("returns 403 forbidden for a stranger (neither owner nor host)", async () => {

@@ -76,12 +76,15 @@ Elysia plugins in `cire/api/src/middleware/`, all scoped `derive` + `onBeforeHan
 | `osn-auth.ts` | `osnAuth` — organiser JWT, via the shared Elysia adapter |
 | `wedding-owner.ts` | owner only — codes, settings, removing/demoting a co-host, delete |
 | `wedding-editor.ts` | owner or `editor` — module writes, the RSVP-by date, adding a co-host |
-| `wedding-member.ts` | any role including `viewer` — reads + invite preview |
+| `wedding-member.ts` | reads + invite preview — every role carrying the `member` capability (`editor`, `viewer`; **not** `helper`) |
+| `wedding-run-sheet.ts` | the day-of run sheet — every role including `helper`. Standalone: mount it INSTEAD OF `wedding-member.ts`, never after it |
+| `wedding-role.ts` | not a gate — the policy the three role gates ask. Exhaustive over the role enum, so a new role fails `check` until decided |
 | `rate-limit.ts`, `turnstile.ts` | abuse gates |
 
 Pick the gate from the roles matrix in [[cire-auth]], not by guessing from the
-route name. (An `ownedWedding` "single owned wedding" middleware existed before
-multi-wedding; it went when organisers could own several.)
+route name. Never add a role check inside a route handler: the roles live in
+`wedding-role.ts` so that adding one to the column is a compile error at every
+place that decides, and a check written in a handler is invisible to that.
 
 ## Tests
 
