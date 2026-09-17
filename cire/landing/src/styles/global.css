@@ -22,8 +22,8 @@
 @theme {
   --color-bg: oklch(19.96% 0.0331 147.34);
   --color-surface: oklch(22.7% 0.0275 152.78);
-  --color-surface-raised: oklch(27.87% 0.0393 149.62);
-  --color-border: oklch(85.51% 0.069 144.94 / 0.1);
+  --color-surface-raised: oklch(27.7% 0.0275 152.78);
+  --color-border: oklch(94.62% 0.0111 89.72 / 0.12);
   --color-text: oklch(94.62% 0.0111 89.72);
   /* The control boundary. Written out at every form control as `border-text/55`
      before it had a name — the guest site's claim-code box and its
@@ -39,8 +39,8 @@
   --color-text-muted: oklch(69.24% 0.0186 109.31);
   --color-gold: oklch(74.99% 0.0854 82.08);
   --color-gold-dim: oklch(74.99% 0.0854 82.08 / 0.35);
-  --color-error: oklch(67.56% 0.1401 21.48);
-  --color-success: oklch(75.96% 0.1421 146.94);
+  --color-error: oklch(72% 0.1401 21.48);
+  --color-success: oklch(64% 0.1421 146.94);
   /* Both faces are self-hosted by Astro's font pipeline, which defines
      `--font-cormorant` / `--font-lato` on :root with their metric-matched
      fallbacks already in the chain (see astro.config.mjs). */

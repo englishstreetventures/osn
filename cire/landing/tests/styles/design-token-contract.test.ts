@@ -60,26 +60,11 @@ describe("design-token contract", () => {
 
 describe("brand parity with the guest site", () => {
   /**
-   * Six of the ten shared colour tokens had drifted apart when this test was
-   * written, on a file whose own comment says they are kept byte-identical and
-   * that changing one here means changing it there. A comment is not a guard.
-   *
-   * One of the six was a defect and is fixed: `--color-text-muted` was
-   * `--color-text / 0.5`, which composites to 4.24:1 on `--color-surface-raised`
-   * against a 4.5:1 floor, and no contrast check sees an alpha. The other five
-   * are live divergences with no contrast argument either way, so aligning them
-   * is a design decision rather than a fix — they are listed here, which is what
-   * makes them visible, and tracked as xchromo/osn#1050.
-   *
-   * Removing a name from this list is how one gets resolved. Adding one needs a
-   * reason in the same breath.
+   * Every shared colour token matches the guest site's value. A name goes in
+   * this set only with a reason in the same breath — a deliberate divergence,
+   * asserted by a test, not an untracked drift.
    */
-  const KNOWN_DIVERGENCES = new Set([
-    "--color-border",
-    "--color-error",
-    "--color-success",
-    "--color-surface-raised",
-  ]);
+  const KNOWN_DIVERGENCES = new Set<string>([]);
 
   it("keeps every shared brand token equal to the guest site's", () => {
     const mine = brandTokens(CSS);
