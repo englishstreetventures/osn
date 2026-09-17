@@ -240,12 +240,10 @@ jobs:
         run: |
           # Not a pipe into `grep -c`: `|| true` on that pipeline would swallow
           # a real `subset` failure — an unknown skill name — as a count of 0.
-          # `--out` has to land INSIDE `.claude/`, which is the directory the
-          # Tessl project is linked to. `tessl eval run` resolves the project
-          # from its scenarios argument, so a source anywhere else — including
-          # `$RUNNER_TEMP`, where this wrote for its first six months — fails
-          # with `No Tessl project found. Run tessl init from your project
-          # root`, whatever the link and the token say. See xchromo/osn#884.
+          # `--out` has to land INSIDE `.claude/`. `tessl eval run` resolves
+          # the project from its scenarios argument, so a source anywhere else
+          # fails with `No Tessl project found. Run tessl init from your project
+          # root` whatever the link and the token say.
           bun run scripts/skill-evals.ts subset \
             --skills "$SKILLS" --out .claude/eval-subset > "$RUNNER_TEMP/picked.txt"
           COUNT=$(grep -c . "$RUNNER_TEMP/picked.txt" || true)

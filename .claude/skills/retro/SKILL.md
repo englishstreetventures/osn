@@ -27,19 +27,14 @@ and nothing here needs changing" is a real and common result, and inventing
 three suggestions to avoid writing it is the single worst thing this skill can
 do.
 
-## Why this runs after `prep-pr`, not inside it
+## Where this sits
 
-`prep-pr` used to write the card in its Step 8. It no longer does, for a reason
-worth keeping: **`prep-pr` is itself one of the most expensive parts of the
-session.** It dispatches `review-tests`, `review-performance` and
-`review-security`, and a card written in the middle of that misses its own
-reviews — it reports the cost of building the change and not the cost of
-shipping it. Written after the pull request is open, the card covers the whole
-run.
+`new-feat`, implement, `prep-pr`, then this. Under `orchestrate`, once per task,
+after that task's pull request is open and before the shepherd watches it.
 
-So the ordering is: `new-feat` → implement → `prep-pr` → **`retro`**. Under
-`orchestrate` it runs once per task, after that task's pull request is open,
-before the shepherd is dispatched to watch it.
+After `prep-pr` and not inside it, because `prep-pr` dispatches three review
+agents: a card written before they finish measures building the change rather
+than shipping it.
 
 ## Before Step 1 — what can actually run
 
@@ -70,6 +65,7 @@ record, and it is written first so a run that ends early still leaves it behind.
 
 ```bash
 BRANCH=$(git branch --show-current)
+PR=$(gh pr view --json number --jq .number)
 ```
 
 Then the two runs, which do different jobs:
@@ -83,15 +79,14 @@ bun run --cwd tools/pr-metrics card -- --resolve-issue
 bun run --cwd tools/pr-metrics card -- --resolve-issue --format markdown > /tmp/card.md
 ```
 
-Three rules about that pair:
+Four rules about that pair:
 
-- **Let `--resolve-issue` do the lookup; do not hand-roll it.** It exists
-  because the obvious shell version is wrong in a way nothing reports.
-  `.closingIssuesReferences[0].number` throws the repository away, and a
-  follow-up `gh issue view <n> --repo xchromo/osn` then **succeeds** against a
-  different repository's issue of the same number and writes a stranger's
-  `complexity:` label in as this branch's denominator. `resolveIdentity` in
-  `tools/pr-metrics/index.ts` compares the reference's own repository instead.
+- **Let `--resolve-issue` do the lookup; never hand-roll it in the shell.**
+  `.closingIssuesReferences[0].number` drops the repository, so a follow-up
+  `gh issue view <n> --repo xchromo/osn` **succeeds** against a different
+  repository's issue of the same number and writes a stranger's `complexity:`
+  label in as this branch's denominator. `resolveIdentity` in
+  `tools/pr-metrics/index.ts` compares the reference's own repository.
 - **Labels are read only from an issue in this repository.** Most work here
   closes a finding in the private `xchromo/osn-tracker`, and that issue's
   `severity:`/`area:` labels must never reach a card committed to a public
@@ -154,8 +149,7 @@ it gets replaced.
 ## Step 2 — Read the card before forming any opinion
 
 ```bash
-ls -t .claude/metrics | head -1          # the slug is the branch with `/` and friends replaced
-cat .claude/metrics/<slug>.json
+cat ".claude/metrics/$(echo "$BRANCH" | tr -c 'a-zA-Z0-9._-' '-').json"
 bun run --cwd tools/pr-metrics report -- --coverage     # where this card sits in the corpus
 ```
 

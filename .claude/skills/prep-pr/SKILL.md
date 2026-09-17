@@ -447,17 +447,10 @@ anything a reviewer must exercise by hand — including the honest negatives.
 
 ### The session metrics are not this step's job
 
-The card for this branch — what the session cost, what it changed and how much
-steering it needed — is written by the **`retro`** skill after this run
-finishes, not here. Leave the body without it.
-
-The reason is that this step is the wrong moment to measure: `prep-pr` itself
-dispatches `review-tests`, `review-performance` and `review-security`, so a card
-written mid-run reports the cost of building the change and not the cost of
-shipping it. `retro` writes it after Step 9, appends the `<details>` block to
-the pull request it finds open, and commits the JSON. Do not add a placeholder
-here, and do not run the collector to "save it a step" — an identity-less card
-on disk is the one thing that makes its job harder.
+`retro` writes the card after Step 10, appends its `<details>` block to the
+pull request and commits the JSON. Leave the body without it — no placeholder,
+and do not run the collector to save a step: a card on disk with no pull
+request or issue on it is the one thing that makes `retro`'s job harder.
 
 ### Check the body before you finish
 

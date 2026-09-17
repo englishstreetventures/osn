@@ -45,27 +45,23 @@ project and split this suite's history across two scoreboards. Move the
 scenarios instead. `subset --out .claude/eval-subset`, then
 `cd .claude && tessl eval run eval-subset --context .`.
 
-> [!warning] The message names the wrong cause, and that cost this repository
-> six months of an inert eval loop.
-> It reads as a missing or broken project link, and every remedy that follows
-> from that reading — `tessl project repair`, checking the token's workspace,
-> committing something into `tessl.json` — changes nothing. On a CI runner
+> [!warning] The message names the wrong cause. Do not go looking at the link.
+> It reads as a missing or broken project, and every remedy that follows from
+> that reading — `tessl project repair`, checking the token's workspace, putting
+> a project id into `tessl.json` — changes nothing. On a CI runner
 > `tessl project repair --json` prints `"status": "match"`, `"Linked project
-> matches this directory."`, with the right project id, immediately before the
-> same command fails with the message above. Locally, a relink made no
-> difference either; moving the scenarios directory did, on the next attempt.
+> matches this directory."` with the right project id, immediately before the
+> same command fails with the message above.
 >
 > The committed `.claude/tessl.json` is the plugin manifest and carries no
-> project id, which makes the link look like the suspect. It is not. One
-> variable separates every failing run from every passing one, and it is where
-> the scenarios are.
+> project id, which is what makes the link look like the suspect. It is not.
+> Move the scenarios.
 
 ## Running
 
-**Anything that submits a run goes from inside `.claude/`** — that is the
-directory the project is linked to, and the workflow's own eval step sets
-`working-directory: .claude` for the same reason. The scenarios argument itself
-may sit anywhere; CI passes `$RUNNER_TEMP/scenarios`.
+**Anything that submits a run goes from inside `.claude/`**, with its scenarios
+inside it too. `skill-eval.yml` does the same: `working-directory: .claude`, and
+`subset --out .claude/eval-subset`.
 
 ```bash
 cd .claude

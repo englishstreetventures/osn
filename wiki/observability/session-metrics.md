@@ -88,11 +88,10 @@ Three writers, and only one of them is the owner.
 | The `SessionEnd` hook | At the end of every session, in every environment | No. It runs `card -- --if-absent`, so it writes a card for a branch that has none and never touches one `retro` committed |
 | `backfill` | Retrospectively, over merged pull requests | From the GitHub API — see [[#Backfilling]] |
 
-`prep-pr` used to write the card in its own Step 8 and no longer does. The
-reason is that it is the wrong moment to measure: `prep-pr` dispatches
-`review-tests`, `review-performance` and `review-security`, so a card written
-mid-run reports the cost of building the change and not the cost of shipping
-it. `retro` runs after the pull request is open and covers the whole session.
+`retro` runs after the pull request is open, so the card covers the whole
+session — `prep-pr` dispatches `review-tests`, `review-performance` and
+`review-security`, and a card written before those finish measures building the
+change rather than shipping it.
 
 > [!warning] The fallback must never overwrite the owner's card.
 > The hook has no way to know the pull request, the issue or the rating — it
