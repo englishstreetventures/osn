@@ -12,7 +12,7 @@ file is only about what a **single** card licenses you to say.
 | Field | Answers | A finding it supports | The trap |
 |---|---|---|---|
 | `spend.usd_equivalent` | What the session cost, as a unit of effort comparable across models | Nothing on its own | It is not money. This work runs on a subscription; the figure is a normalised effort unit, and quoting it as a bill is wrong in both directions |
-| `spend.usd_equivalent ÷ complexity.declared` | Whether cost and declared difficulty agree | "A `complexity:1` issue cost $40 — the brief or the map was missing something" | Null denominator on an unrated or tracker-linked issue. Then the ratio does not exist; say so rather than substituting a guess |
+| `spend.usd_equivalent ÷ complexity.declared` | Whether cost and declared difficulty agree | "A `complexity:1` issue cost $40 — the brief or the map was missing something" | A `null` here means this card did not fetch a rating, not that none exists. Read the issue's `complexity:` label and use that. Only an issue carrying no such label is genuinely unrated, and only then does the ratio not exist |
 | `spend.by_model` | Which model did the work | "A mechanical rename ran entirely on the expensive model" → `pick-agent` | Model choice is set by the agent definition's frontmatter, so the fix is a `.claude/agents/*.md` file, not an instruction in prose |
 | `spend.by_actor` | Whether delegation happened and what it cost | "A cross-package task delegated nothing and hit a compaction" | `subagent: 0` also reads that way when the `TASK-BRANCH:` marker was missing from a dispatch — check `orchestrate`'s Step 3 before concluding no delegation happened |
 | `spend.tokens.cache_read` as a share | How wide the loaded context was | Nothing from one card | A share rising *across* cards is the real signal, and that is `analyse-sessions` |
@@ -53,4 +53,4 @@ file is only about what a **single** card licenses you to say.
 |---|---|---|---|
 | `complexity.declared` + `.method` | What was declared, and by whom | `method: "unconfirmed"` on work that turned out to be an 8 → get the rating confirmed next time | `"not-fetched"` is **not** a missing rating. It means the issue lives in the private tracker and its labels were deliberately not fetched into a public card. Never file that as a gap |
 | `pr.phase` | `at-open` or `at-merge` | Nothing | An `at-open` card has not seen review-cycle cost. Do not conclude a session was cheap from one |
-| `pr.number: null` | The `SessionEnd` fallback wrote this card | Step 1 replaces it | — |
+| `pr.number: null` | The `SessionEnd` fallback wrote this card, before a pull request existed | Step 1 fills the identity in | Only the identity is missing. The spend and interaction numbers are as trustworthy as any other card's, and stay usable when Step 1 cannot run |

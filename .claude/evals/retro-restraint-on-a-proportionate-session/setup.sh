@@ -63,90 +63,88 @@ git checkout -q -B main
 git remote remove origin 2>/dev/null || true
 git remote add origin "$PWD"
 
-git checkout -q -b feat/osn-api-totp-key-rotation
+git checkout -q -b feat/osn-passkey-clone-detection
 
-# A real diff across the two packages the card names. What the code does is not
-# scored; that the change is genuinely cross-package, migration-touching work —
-# so that the declared 5 is defensible on its face — is.
-mkdir -p osn/api/src/lib osn/api/tests/lib osn/db/migrations
-cat > osn/api/src/lib/totp-key-ring.ts <<'SRC'
+# A real diff across the two packages the card names, on work that does NOT
+# already exist at the pinned commit — `signCount` appears nowhere in the tree,
+# and no committed card describes it. A fixture whose feature is already shipped
+# beside it reads as a duplicate, and the agent then spends the run explaining
+# why the branch should not land instead of doing what the task asked.
+#
+# The migration goes in `osn/db/drizzle/`, which is where every real one lives.
+# `parseNumstat` counts `/drizzle/` and `/migrations/` alike, so a made-up
+# directory would still flip `touches_migration` while leaving a tree no
+# migration runner would ever read.
+mkdir -p osn/api/src/lib osn/api/tests/lib osn/db/drizzle
+cat > osn/api/src/lib/passkey-sign-count.ts <<'SRC'
 /**
- * The version-to-key ring the TOTP secrets are encrypted under.
+ * WebAuthn's signature counter, and what a regression in it means.
  *
- * New ciphertext goes under the highest version; decryption tries every key in
- * descending version order, so the previous key drains as rows are verified
- * rather than by a bulk job. A row's `key_version` is a hint about which key
- * wrote it, never an instruction about which key can read it.
+ * An authenticator that keeps a counter increments it on every assertion. A
+ * value at or below the one already stored therefore means one of two things:
+ * the credential has been cloned and the copy is behind, or the authenticator
+ * does not implement the counter at all and reports zero for ever. The second
+ * is common and harmless; the first is the only cloning signal WebAuthn gives.
+ *
+ * Telling them apart is the whole of this module: an authenticator that has
+ * only ever reported zero is exempt, and one that has counted before is not.
  */
-export interface KeyRing {
-  readonly current: { version: number; key: CryptoKey };
-  readonly previous: { version: number; key: CryptoKey } | null;
-}
+export type SignCountVerdict = "ok" | "not-supported" | "cloned";
 
-export function ringVersions(ring: KeyRing): number[] {
-  return ring.previous === null
-    ? [ring.current.version]
-    : [ring.current.version, ring.previous.version];
-}
+export function checkSignCount(stored: number, presented: number): SignCountVerdict {
+  if (stored === 0 && presented === 0) return "not-supported";
 
-export function keyForVersion(ring: KeyRing, version: number): CryptoKey | null {
-  if (ring.current.version === version) return ring.current.key;
-  if (ring.previous !== null && ring.previous.version === version) return ring.previous.key;
-  return null;
+  return presented > stored ? "ok" : "cloned";
 }
 SRC
 
-cat > osn/api/tests/lib/totp-key-ring.test.ts <<'TEST'
+cat > osn/api/tests/lib/passkey-sign-count.test.ts <<'TEST'
 import { describe, expect, it } from "vitest";
 
-import { keyForVersion, type KeyRing, ringVersions } from "../../src/lib/totp-key-ring";
+import { checkSignCount } from "../../src/lib/passkey-sign-count";
 
-const key = {} as CryptoKey;
-const ring: KeyRing = { current: { version: 2, key }, previous: { version: 1, key } };
-
-describe("ringVersions", () => {
-  it("lists the current key first", () => {
-    expect(ringVersions(ring)).toEqual([2, 1]);
+describe("checkSignCount", () => {
+  it("accepts a counter that moved forward", () => {
+    expect(checkSignCount(4, 5)).toBe("ok");
   });
 
-  it("lists one version when no previous key is configured", () => {
-    expect(ringVersions({ current: ring.current, previous: null })).toEqual([2]);
+  it("exempts an authenticator that has only ever reported zero", () => {
+    expect(checkSignCount(0, 0)).toBe("not-supported");
   });
-});
 
-describe("keyForVersion", () => {
-  it("returns null for a version the ring does not hold", () => {
-    expect(keyForVersion(ring, 3)).toBeNull();
+  it("flags a counter that stood still or went backwards", () => {
+    expect(checkSignCount(5, 5)).toBe("cloned");
+    expect(checkSignCount(5, 4)).toBe("cloned");
   });
 });
 TEST
 
-cat > osn/db/migrations/0092_totp_key_version.sql <<'SQL'
-ALTER TABLE `totp_credentials` ADD `key_version` integer DEFAULT 1 NOT NULL;
+cat > osn/db/drizzle/0011_passkey_sign_count.sql <<'SQL'
+ALTER TABLE `passkeys` ADD `sign_count` integer DEFAULT 0 NOT NULL;
 SQL
 
-cat > .changeset/osn-totp-key-rotation.md <<'CS'
+cat > .changeset/osn-passkey-clone-detection.md <<'CS'
 ---
 "@osn/api": minor
 "@osn/db": minor
 ---
 
-Hold the TOTP encryption key as a version-to-key ring, so the secret can be rotated without a bulk re-encryption job.
+Store each passkey's WebAuthn signature counter and raise a security event when an assertion presents one that did not move forward, which is the only cloning signal the protocol gives.
 CS
 
 git add -A
-git commit -qm "feat(osn-api): rotate the TOTP encryption key through a version ring"
-git config branch.feat/osn-api-totp-key-rotation.gh-merge-base main
+git commit -qm "feat(osn-api): detect a cloned passkey from its signature counter"
+git config branch.feat/osn-passkey-clone-detection.gh-merge-base main
 
 # The card, written with its identity attached: pull request, issue, and the
 # `complexity:5` a human confirmed on the issue before the work started.
 mkdir -p .claude/metrics
-cat > .claude/metrics/feat-osn-api-totp-key-rotation.json <<'CARD'
+cat > .claude/metrics/feat-osn-passkey-clone-detection.json <<'CARD'
 {
   "schema_version": 1,
   "pr": {
     "number": 1044,
-    "branch": "feat/osn-api-totp-key-rotation",
+    "branch": "feat/osn-passkey-clone-detection",
     "base_sha": "b5f9c8f0000000000000000000000000000000c3",
     "head_sha": "b5f9c8f0000000000000000000000000000000d4",
     "generated_at": "2026-09-15T16:20:44.902Z",
@@ -245,32 +243,32 @@ cat > .claude/metrics/feat-osn-api-totp-key-rotation.json <<'CARD'
   },
   "diff": {
     "files": {
-      "generated": 1,
-      "test": 4,
-      "docs": 2,
-      "config": 1,
-      "source": 6
+      "generated": 2,
+      "test": 1,
+      "docs": 0,
+      "config": 0,
+      "source": 1
     },
     "loc": {
       "generated": {
-        "added": 22,
+        "added": 7,
         "deleted": 0
       },
       "test": {
-        "added": 508,
-        "deleted": 31
+        "added": 18,
+        "deleted": 0
       },
       "docs": {
-        "added": 141,
-        "deleted": 28
+        "added": 0,
+        "deleted": 0
       },
       "config": {
-        "added": 9,
-        "deleted": 2
+        "added": 0,
+        "deleted": 0
       },
       "source": {
-        "added": 402,
-        "deleted": 96
+        "added": 19,
+        "deleted": 0
       }
     },
     "packages": [
@@ -278,7 +276,7 @@ cat > .claude/metrics/feat-osn-api-totp-key-rotation.json <<'CARD'
       "osn/db"
     ],
     "touches_migration": true,
-    "commits": 7
+    "commits": 1
   },
   "interaction": {
     "user_turns": 8,
@@ -315,25 +313,26 @@ CARD
 # The brief. Untracked: it is what the session was handed, not repository
 # content.
 cat > ISSUE.md <<'ISSUE'
-# xchromo/osn#1039 — Make the TOTP encryption key rotatable
+# xchromo/osn#1039 — Detect a cloned passkey from its signature counter
 
 **Type** Feature
 **Labels** `product:osn-core`, `area:security`, `complexity:5`
 
-The TOTP secret is the one credential stored as recoverable ciphertext rather
-than a hash, under a single `OSN_TOTP_ENCRYPTION_KEY`. There is today no way to
-change that key without re-encrypting every row in one pass, which is exactly
-the operation nobody wants to run on the credential that locks people out.
+WebAuthn authenticators that keep a signature counter increment it on every
+assertion. We store no counter at all, so an assertion presenting one that did
+not move forward looks exactly like one that did, and the only cloning signal
+the protocol offers goes unread.
 
-Hold the key as a version-to-key ring instead, with an optional previous key.
-New ciphertext goes under the highest version; decryption tries every key. Each
-verify re-encrypts its own row inside the statement that already consumes the
-step, so the old key drains with no bulk job.
+Store the counter on the passkey row, compare it on every assertion, and raise a
+security event when it fails to advance. An authenticator that has only ever
+reported zero does not implement the counter and must stay exempt, or every
+assertion from a large share of real keys becomes an alert.
 
-**Done when** a rotation can be performed by setting one new environment
-variable, no row needs touching, and `last_used_at` is what measures the drain.
+**Done when** a passkey row carries its last counter, a non-advancing counter
+from an authenticator that has counted before raises a security event the owner
+can see, and an all-zero authenticator raises nothing.
 
 > The `complexity:5` was proposed from this body and confirmed by the repo owner
-> before the branch was cut. It is a contract other services read, and the shape
-> of the drain was not decided when the rating was made.
+> before the branch was cut. It changes a table other services read, and how the
+> false-positive case should behave was not settled when the rating was made.
 ISSUE

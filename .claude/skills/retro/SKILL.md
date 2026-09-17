@@ -46,12 +46,20 @@ command -v gh >/dev/null && gh auth status >/dev/null 2>&1 && echo "gh: yes" || 
 ls ~/.claude/projects >/dev/null 2>&1 && echo "transcripts: yes" || echo "transcripts: no"
 ```
 
-**`transcripts: no` is the one that changes this run's shape.** The collector
-reads `~/.claude/projects`, and where that directory is absent the card carries
-the diff and zero spend — true, but it can answer nothing about cost. Say so at
-the top of `RETRO.md`, write the card anyway (the diff half is still a record),
-and confine the findings to what the *session* showed rather than what the card
-counted. Never present a zero-spend card as a cheap session.
+**`transcripts: no` is the one that changes this run's shape**, and it governs
+what the collector can *write*, never what a card already on disk says. The
+collector reads `~/.claude/projects`; with that directory absent a card it
+writes now carries the diff and zero spend — true, but able to answer nothing
+about cost. Say so at the top of `RETRO.md`, write it anyway, and confine the
+findings to what the session showed rather than what that card counted. Never
+present a zero-spend card as a cheap session.
+
+**A card already in `.claude/metrics/` is a record, not collector output to be
+distrusted.** Its spend was measured when the transcripts still existed, and it
+stays true after they are gone — that is the entire reason the file is committed
+rather than recomputed. So read it and use its numbers, whatever the probe above
+answered and whoever wrote it. "There are no transcripts" is never a reason to
+decline to report a figure the card already holds.
 
 If `prep-pr` ran in this same session, it already has these three answers.
 Re-probing costs a turn; read them out of its report instead.
@@ -138,11 +146,15 @@ and leave the block in a file, naming it in `RETRO.md`. No transcripts: as
 above. No network: commit the card locally; it pushes with the next push.
 
 **The `SessionEnd` hook is a fallback, not a second writer.** It runs
-`card -- --if-absent`, so it writes a card for a branch that has none and never
-touches one this skill committed — it has no way to know the pull request, the
-issue or the rating, and an unguarded run would strip all three. If you find a
-card on a branch with `pr.number: null`, that is the hook's, and Step 1 is how
-it gets replaced.
+`card -- --if-absent --resolve-issue`, so it writes a card for a branch that has
+none and never touches one this skill committed.
+
+A card with `pr.number: null` is one the hook wrote before a pull request
+existed. **Its spend and interaction numbers are as good as any other card's** —
+only its identity is missing, and Step 1 fills that in where it can run. Where
+it cannot, say the identity is missing and go on to read the rest: an incomplete
+card is still the measurement, and the comparison in Step 2 is the reason this
+skill exists.
 
 ---
 
@@ -172,10 +184,16 @@ the artefact a finding about it belongs in. Read it before Step 3.
 
 Two readings that are wrong every time:
 
+- **The rating lives on the issue, and the card only copies it.** A
+  `complexity.declared` of `null` means this card did not fetch one, never that
+  the work is unrated: look at the issue before you conclude anything, and where
+  it carries a `complexity:` label **that label is the denominator**. Only when
+  the issue has no such label is the work genuinely unrated, and only then do
+  you say "unrated, so I cannot tell".
 - **Cost is not waste without the declared rating.** A small diff, a high
   rating and a large spend is a hard problem that ended in a one-line fix, and
   it is fine. The same diff at `complexity:1` is the thing this whole system
-  exists to find. Unrated, say "unrated, so I cannot tell".
+  exists to find.
 - **One card is a sample of one.** Comparing it to the corpus is
   `analyse-sessions`, not this skill, and a claim about *the repository* needs
   that skill's coverage step first. Findings here are about **this session**.

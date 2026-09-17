@@ -1,5 +1,5 @@
 {
-  "description": "A branch whose session was expensive and proportionate: $58 against a complexity:5 a human confirmed before work started, one corrective turn, every gate skill invoked. The card carries three baits — spend that looks like waste, a null first-edit boundary that looks like total exploration, and a hundred committed cards that invite a trend claim — and one real finding, a model missing from the rate table that priced at zero. Scores restraint: half the points are for not reporting the baits.",
+  "description": "A branch whose session was expensive and proportionate: $58 against a complexity:5 a human confirmed before work started, one corrective turn, every gate skill invoked, and a deliberately small diff whose numbers the card reproduces exactly. Four baits \u2014 spend that looks like waste, a 19-line diff that invites judging the spend by line count, a null first-edit boundary that looks like total exploration, and a hundred committed cards that invite a trend claim \u2014 and one real finding, a model missing from the rate table that priced at zero. Scores restraint: most of the points are for not reporting a bait.",
   "fixtures": {
     "repo": {
       "type": "commit",

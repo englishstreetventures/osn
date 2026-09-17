@@ -226,19 +226,19 @@ cat > .claude/metrics/feat-cire-host-registry-filters.json <<'CARD'
   },
   "diff": {
     "files": {
-      "generated": 0,
+      "generated": 1,
       "test": 1,
       "docs": 0,
       "config": 0,
-      "source": 2
+      "source": 1
     },
     "loc": {
       "generated": {
-        "added": 0,
+        "added": 5,
         "deleted": 0
       },
       "test": {
-        "added": 74,
+        "added": 25,
         "deleted": 0
       },
       "docs": {
@@ -250,15 +250,15 @@ cat > .claude/metrics/feat-cire-host-registry-filters.json <<'CARD'
         "deleted": 0
       },
       "source": {
-        "added": 96,
-        "deleted": 4
+        "added": 18,
+        "deleted": 0
       }
     },
     "packages": [
       "cire/host"
     ],
     "touches_migration": false,
-    "commits": 3
+    "commits": 1
   },
   "interaction": {
     "user_turns": 9,
