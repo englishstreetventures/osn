@@ -19,7 +19,6 @@ import { buildAgenda, type AgendaItem } from "../lib/overview-agenda";
 import { ensureTasksLoaded, peekCachedTasks, taskCounts, type TaskRow } from "../lib/tasks-store";
 import { ensureVendorsLoaded, vendorCount, type VendorRow } from "../lib/vendors-store";
 import GettingStarted from "./GettingStarted";
-import SectionIntro from "./SectionIntro";
 /** The Overview home — the module shell's landing view. It answers "how's the
  *  wedding tracking?" at a glance: a countdown to the date, RSVP totals rolled
  *  up across events, a Checklist card showing the live open-task count, and a
@@ -413,14 +412,10 @@ export default function Overview(props: {
     </Card>
   );
 
+  // No section header of its own: the module shell prints the panel header —
+  // the module's label and its one-line hint — directly above this.
   return (
     <div class="flex flex-col gap-8">
-      <SectionIntro
-        eyebrow="Overview"
-        title="Your wedding at a glance"
-        description="The headline numbers — how long to go, who's replied, and what's next. Dig into any module from the sidebar."
-      />
-
       <Show when={data.loading}>
         <div class="flex flex-col gap-4">
           <div class="bg-surface h-[120px] animate-pulse rounded-sm" />
