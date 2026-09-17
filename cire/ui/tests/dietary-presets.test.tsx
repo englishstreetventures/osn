@@ -1,0 +1,112 @@
+import { DIETARY_PRESETS, type DietaryPreset } from "@cire/dietary";
+import "@testing-library/jest-dom/vitest";
+// @vitest-environment happy-dom
+import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library";
+import { createSignal } from "solid-js";
+import { afterEach, describe, expect, it } from "vitest";
+
+import DietaryPresets from "../src/dietary-presets";
+
+/*
+ * The inline picker's contract: every option visible, nothing to open.
+ *
+ * This entry point has no viewport fork and imports no popover — that is the
+ * bundle boundary `dietary-presets-popover.tsx` exists to hold — so nothing here
+ * needs to stub `matchMedia`. The trigger and the wide shell are tested beside
+ * the file that owns them.
+ */
+
+function Harness(props: { initial?: readonly DietaryPreset[] }) {
+  const [value, setValue] = createSignal<readonly DietaryPreset[]>(props.initial ?? []);
+  return (
+    <>
+      <DietaryPresets value={value()} onChange={setValue} label="Dietary requirements for Ada" />
+      <output data-testid="value">{value().join(",")}</output>
+    </>
+  );
+}
+
+const valueOf = () => screen.getByTestId("value").textContent;
+
+afterEach(cleanup);
+
+describe("DietaryPresets", () => {
+  it("renders every preset in the vocabulary as a checkbox", () => {
+    render(() => <Harness />);
+    expect(screen.getAllByRole("checkbox")).toHaveLength(DIETARY_PRESETS.length);
+  });
+
+  it("names the group for whoever the requirements belong to", () => {
+    // On a household sheet "Vegetarian" means nothing without "for Ada" — the
+    // label is what keeps a screen reader's announcement attributable.
+    render(() => <Harness />);
+    expect(screen.getByRole("group", { name: "Dietary requirements for Ada" })).toBeTruthy();
+  });
+
+  it("selects more than one, which is the whole reason this is not a select", () => {
+    render(() => <Harness />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /vegetarian/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /^nuts$/i }));
+    expect(valueOf()).toBe("vegetarian,nuts");
+  });
+
+  it("hands back canonical order however it was clicked", () => {
+    render(() => <Harness />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /^nuts$/i }));
+    fireEvent.click(screen.getByRole("checkbox", { name: /vegetarian/i }));
+    // Clicked nuts-first, stored diet-first: nothing downstream re-sorts, and
+    // two guests who picked the same things produce the same stored string.
+    expect(valueOf()).toBe("vegetarian,nuts");
+  });
+
+  it("reflects the value it is given, so a saved reply re-lights", () => {
+    render(() => <Harness initial={["gluten", "other"]} />);
+    expect((screen.getByRole("checkbox", { name: /gluten/i }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect((screen.getByRole("checkbox", { name: /^other$/i }) as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect((screen.getByRole("checkbox", { name: /vegan/i }) as HTMLInputElement).checked).toBe(
+      false,
+    );
+  });
+
+  it("deselects", () => {
+    render(() => <Harness initial={["vegetarian"]} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: /vegetarian/i }));
+    expect(valueOf()).toBe("");
+  });
+
+  it("disables every checkbox when the form is locked", () => {
+    render(() => (
+      <DietaryPresets value={[]} onChange={() => {}} disabled label="Dietary requirements" />
+    ));
+    for (const box of screen.getAllByRole("checkbox")) {
+      expect((box as HTMLInputElement).disabled).toBe(true);
+    }
+  });
+
+  it("groups the bands, so an allergy does not read as a preference", () => {
+    // A caterer isolates for an allergy and plates for a diet. The headings are
+    // what carry that difference to the guest choosing.
+    render(() => <Harness />);
+    expect(screen.getByText("Diet")).toBeTruthy();
+    expect(screen.getByText("Allergies")).toBeTruthy();
+  });
+
+  it("asks nothing of matchMedia at all", () => {
+    // The property that keeps this entry point safe for every consumer's unit
+    // suite, and the reason the viewport fork lives in the other file: mounting
+    // must not depend on a DOM global jsdom does not provide.
+    const original = window.matchMedia;
+    // @ts-expect-error — deleting a DOM global is the situation being reproduced.
+    delete window.matchMedia;
+    try {
+      expect(() => render(() => <Harness />)).not.toThrow();
+      expect(screen.getAllByRole("checkbox")).toHaveLength(DIETARY_PRESETS.length);
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+});

@@ -321,6 +321,11 @@ describe("redact", () => {
       publicId: "SHARMA-IVY-QM42",
       public_id: "SHARMA-IVY-QM42",
       dietary: "coeliac, no nuts",
+      // The structured half of the same answer. A key is no less revealing than
+      // the sentence it replaced — `halal` names a religious practice, `nuts` a
+      // health condition — so both spellings are on the list.
+      dietaryPresets: "gluten,nuts",
+      dietary_presets: "halal,shellfish",
     };
     const out = redact(input) as Record<string, unknown>;
     // Non-sensitive scoping id passes through.
@@ -466,6 +471,8 @@ describe("redact", () => {
       "publicid",
       "public_id",
       "dietary",
+      "dietary_presets",
+      "dietarypresets",
       "osnaccountid",
       "osn_account_id",
     ].toSorted();

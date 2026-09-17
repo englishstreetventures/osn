@@ -1,4 +1,5 @@
 import { families, guests, guestEvents, weddings } from "@cire/db";
+import type { DietaryPreset } from "@cire/dietary";
 import type { TurnstileVerifier } from "@shared/turnstile";
 import { eq } from "drizzle-orm";
 import { Effect, Schema } from "effect";
@@ -7,7 +8,7 @@ import { Elysia } from "elysia";
 import { DbService, dbQuery } from "../db";
 import type { Db } from "../db";
 import { isRsvpClosed } from "../lib/rsvp-deadline";
-import { metricRsvpBatchSize, metricRsvpBlocked } from "../metrics";
+import { metricDietaryPreset, metricRsvpBatchSize, metricRsvpBlocked } from "../metrics";
 import { sessionAuth } from "../middleware/auth";
 import { turnstileGate } from "../middleware/turnstile";
 import { runCire } from "../observability";
@@ -19,6 +20,34 @@ import { rsvpService } from "../services/rsvp";
 // Content-Length pre-check. The Schema (dietary/array bounds) is the real cap;
 // this is a cheap upfront guard against a CDN that strips/lies notwithstanding.
 const MAX_RSVP_BYTES = 256 * 1024;
+
+/**
+ * Does this reply carry special-category dietary data at all?
+ *
+ * One predicate, used by the consent gate and by the consent-stamping decision,
+ * so the two can never disagree about what needs authorising.
+ */
+function hasDietaryData(rsvp: { dietary: string; dietaryPresets: readonly DietaryPreset[] }) {
+  return rsvp.dietary.length > 0 || rsvp.dietaryPresets.length > 0;
+}
+
+/**
+ * Free text implies `other`, whether or not the client said so.
+ *
+ * The picker sets `other` when it reveals the text box, but an older cached
+ * client sends free text with no presets at all. Normalising is the lenient
+ * half of that: rejecting would 422 a guest whose browser is simply out of
+ * date, and the invariant — text is always reachable from a selected `other` —
+ * is cheap to restore here.
+ */
+function withOtherForFreeText(rsvp: {
+  dietary: string;
+  dietaryPresets: readonly DietaryPreset[];
+}): readonly DietaryPreset[] {
+  if (rsvp.dietary.trim().length === 0) return rsvp.dietaryPresets;
+  if (rsvp.dietaryPresets.includes("other")) return rsvp.dietaryPresets;
+  return [...rsvp.dietaryPresets, "other"];
+}
 
 export interface RsvpRouteOptions {
   /**
@@ -181,14 +210,20 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
               }
             }
 
-            // Art. 9(2)(a) gate: the special-category `dietary` free-text may
-            // only be collected with the guest's explicit opt-in. Reject the
-            // whole batch (422) if any non-empty dietary lacks consent — the
-            // form blocks this, so reaching here means a tampered/legacy client.
+            // Art. 9(2)(a) gate: the special-category dietary data may only be
+            // collected with the guest's explicit opt-in. Reject the whole batch
+            // (422) if any reply carries dietary data without consent — the form
+            // blocks this, so reaching here means a tampered/legacy client.
+            //
+            // Presets count, not just the free text: `halal` and `kosher` reveal
+            // religious belief, `nuts` and `shellfish` reveal health. A reply
+            // with a preset and no typed text is exactly as protected as one
+            // with a typed sentence and no preset.
             // See [[wiki/compliance/dpia/cire-guest-data]] → C-H2.
             for (const rsvp of body.rsvps) {
-              if (rsvp.dietary.length > 0 && !rsvp.dietaryConsent) {
+              if (hasDietaryData(rsvp) && !rsvp.dietaryConsent) {
                 set.status = 422;
+                yield* Effect.sync(() => metricRsvpBlocked("dietary_consent"));
                 return { error: "Dietary requirements need your consent to store" };
               }
             }
@@ -202,14 +237,21 @@ export const createRsvpRoutes = (db: Db, { turnstileVerifier = null }: RsvpRoute
                 eventId: rsvp.eventId,
                 status: rsvp.status,
                 dietary: rsvp.dietary,
+                dietaryPresets: withOtherForFreeText(rsvp),
                 // Only stamp a consent record when there is special-category
-                // data to authorise; clearing dietary clears the record too.
-                dietaryConsent: rsvp.dietary.length > 0 && rsvp.dietaryConsent,
+                // data to authorise; clearing the whole answer clears the
+                // record too.
+                dietaryConsent: hasDietaryData(rsvp) && rsvp.dietaryConsent,
               })),
               familyId,
             );
 
-            yield* Effect.sync(() => metricRsvpBatchSize(body.rsvps.length));
+            yield* Effect.sync(() => {
+              metricRsvpBatchSize(body.rsvps.length);
+              for (const rsvp of body.rsvps) {
+                for (const preset of withOtherForFreeText(rsvp)) metricDietaryPreset(preset);
+              }
+            });
 
             return { rsvps: updatedRsvps };
           }).pipe(

@@ -20,6 +20,7 @@
       "name": "@cire/api",
       "dependencies": {
         "@cire/db": "workspace:*",
+        "@cire/dietary": "workspace:*",
         "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
         "@elysiajs/cors": "^1.4.2",
@@ -57,9 +58,16 @@
         "drizzle-kit": "^0.31.10",
       },
     },
+    "cire/dietary": {
+      "name": "@cire/dietary",
+      "devDependencies": {
+        "@shared/typescript-config": "workspace:*",
+      },
+    },
     "cire/host": {
       "name": "@cire/host",
       "dependencies": {
+        "@cire/dietary": "workspace:*",
         "@astrojs/solid-js": "^7.0.2",
         "@cire/invite-designs": "workspace:*",
         "@cire/theme": "workspace:*",
@@ -104,6 +112,7 @@
     "cire/invites": {
       "name": "@cire/invites",
       "dependencies": {
+        "@cire/dietary": "workspace:*",
         "@astrojs/cloudflare": "^14.2.6",
         "@astrojs/solid-js": "^7.0.2",
         "@cire/invite-designs": "workspace:*",
@@ -140,6 +149,7 @@
     "cire/landing": {
       "name": "@cire/landing",
       "dependencies": {
+        "@cire/dietary": "workspace:*",
         "@astrojs/solid-js": "^7.0.2",
         "@cire/ui": "workspace:*",
         "@shared/ui": "workspace:*",
@@ -175,6 +185,7 @@
     "cire/ui": {
       "name": "@cire/ui",
       "dependencies": {
+        "@cire/dietary": "workspace:*",
         "@shared/ui": "workspace:*",
         "@shared/design-tokens": "workspace:*",
       },

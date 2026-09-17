@@ -49,6 +49,7 @@ describe("rsvpService.submitRsvp", () => {
           eventId: HINDU_ID,
           status: "attending",
           dietary: "",
+          dietaryPresets: [],
           dietaryConsent: false,
         });
 
@@ -71,6 +72,7 @@ describe("rsvpService.submitRsvp", () => {
           eventId: HINDU_ID,
           status: "attending",
           dietary: "",
+          dietaryPresets: [],
           dietaryConsent: false,
         });
         yield* rsvpService.submitRsvp({
@@ -78,6 +80,7 @@ describe("rsvpService.submitRsvp", () => {
           eventId: HINDU_ID,
           status: "declined",
           dietary: "",
+          dietaryPresets: [],
           dietaryConsent: false,
         });
 
@@ -99,6 +102,7 @@ describe("rsvpService.submitRsvp", () => {
           eventId: RECEPTION_ID,
           status: "attending",
           dietary: "Vegetarian, no nuts",
+          dietaryPresets: [],
           dietaryConsent: true,
         });
 
@@ -123,6 +127,7 @@ describe("rsvpService.submitRsvp", () => {
           eventId: RECEPTION_ID,
           status: "attending",
           dietary: "Coeliac",
+          dietaryPresets: [],
           dietaryConsent: true,
         });
 
@@ -158,6 +163,7 @@ describe("rsvpService.submitRsvp", () => {
           eventId: RECEPTION_ID,
           status: "declined",
           dietary: "",
+          dietaryPresets: [],
           dietaryConsent: false,
         });
         const read = () =>
@@ -182,6 +188,7 @@ describe("rsvpService.submitRsvp", () => {
           eventId: RECEPTION_ID,
           status: "attending",
           dietary: "Halal",
+          dietaryPresets: [],
           dietaryConsent: true,
         });
         expect((yield* read())?.version).toBe(DIETARY_CONSENT_VERSION);
@@ -192,6 +199,7 @@ describe("rsvpService.submitRsvp", () => {
           eventId: RECEPTION_ID,
           status: "attending",
           dietary: "",
+          dietaryPresets: [],
           dietaryConsent: false,
         });
         expect((yield* read())?.at).toBeNull();
@@ -215,6 +223,7 @@ describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {
             eventId: HINDU_ID,
             status: "attending",
             dietary: "",
+            dietaryPresets: [],
             dietaryConsent: false,
           },
           {
@@ -222,6 +231,7 @@ describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {
             eventId: RECEPTION_ID,
             status: "declined",
             dietary: "",
+            dietaryPresets: [],
             dietaryConsent: false,
           },
           {
@@ -229,6 +239,7 @@ describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {
             eventId: HINDU_ID,
             status: "maybe",
             dietary: "Vegan, no shellfish",
+            dietaryPresets: [],
             dietaryConsent: true,
           },
         ]);
@@ -260,6 +271,7 @@ describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {
             eventId: HINDU_ID,
             status: "attending",
             dietary: "",
+            dietaryPresets: [],
             dietaryConsent: false,
           },
         ]);
@@ -269,6 +281,7 @@ describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {
             eventId: HINDU_ID,
             status: "declined",
             dietary: "",
+            dietaryPresets: [],
             dietaryConsent: false,
           },
           {
@@ -276,6 +289,7 @@ describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {
             eventId: RECEPTION_ID,
             status: "attending",
             dietary: "",
+            dietaryPresets: [],
             dietaryConsent: false,
           },
         ]);
@@ -302,6 +316,7 @@ describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {
             eventId: HINDU_ID,
             status: "attending",
             dietary: "Coeliac",
+            dietaryPresets: [],
             dietaryConsent: true,
           },
           {
@@ -309,6 +324,7 @@ describe("rsvpService.submitRsvps (P-W1 — batched upserts)", () => {
             eventId: RECEPTION_ID,
             status: "attending",
             dietary: "",
+            dietaryPresets: [],
             dietaryConsent: false,
           },
         ]);
@@ -361,6 +377,7 @@ describe("rsvpService.getRsvpsForFamily", () => {
           eventId: HINDU_ID,
           status: "attending",
           dietary: "",
+          dietaryPresets: [],
           dietaryConsent: false,
         });
         yield* rsvpService.submitRsvp({
@@ -368,6 +385,7 @@ describe("rsvpService.getRsvpsForFamily", () => {
           eventId: HINDU_ID,
           status: "maybe",
           dietary: "Gluten-free",
+          dietaryPresets: [],
           dietaryConsent: true,
         });
 

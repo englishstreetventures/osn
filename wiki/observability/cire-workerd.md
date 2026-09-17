@@ -5,7 +5,7 @@ related:
   - "[[observability/overview]]"
   - "[[cire]]"
   - "[[deferred-decisions]]"
-last-reviewed: 2026-08-21
+last-reviewed: 2026-09-17
 ---
 # Observability Overview
 
@@ -46,7 +46,7 @@ Every Effect run goes through `runCire(effect)` (or `runCireSync` for the framew
 
 ### Redaction deny-list
 
-The deny-list is the single shared list in `shared/observability/src/logger/redact.ts` — **not** a cire-local copy. It already lists every sensitive cire field: `cire_session`, `firstName`/`first_name`, `lastName`/`last_name`, `familyName`/`family_name`, `publicId`/`public_id` (the claim **code** — a credential), `dietary` (Art. 9 special-category), and `osnAccountId`/`osn_account_id`. Add a new sensitive cire field there (camelCase + snake_case) **and** add its assertion in `redact.test.ts`, in the same commit.
+The deny-list is the single shared list in `shared/observability/src/logger/redact.ts` — **not** a cire-local copy. It already lists every sensitive cire field: `cire_session`, `firstName`/`first_name`, `lastName`/`last_name`, `familyName`/`family_name`, `publicId`/`public_id` (the claim **code** — a credential), `dietary` and `dietaryPresets`/`dietary_presets` (both Art. 9 special-category — a preset key names a religious practice or a health condition as plainly as the sentence it replaces), and `osnAccountId`/`osn_account_id`. Add a new sensitive cire field there (camelCase + snake_case) **and** add its assertion in `redact.test.ts`, in the same commit.
 
 ## Naming conventions
 

@@ -1,0 +1,13 @@
+-- The guest's picks from the closed dietary vocabulary in `@cire/dietary`, as a
+-- canonically-ordered comma-separated key list ("vegetarian,nuts").
+--
+-- A bare ADD COLUMN with a default: nothing is rebuilt, no rows are copied, and
+-- every existing reply keeps its free text in `rsvps.dietary` and defaults to ''
+-- here. Nothing back-fills prose into keys — guessing that "veggie, no nuts pls"
+-- means two specific keys is the unreliable inference the preset picker exists
+-- to remove — so a legacy row simply opens as an "Other"-only answer.
+--
+-- Special-category under Art. 9 exactly as `dietary` is: it sits inside the same
+-- `dietary_consent_at` / `dietary_consent_version` gate, is cleared by the same
+-- retention sweep, and is on the same log-redaction deny-list.
+ALTER TABLE `rsvps` ADD `dietary_presets` text DEFAULT '' NOT NULL;

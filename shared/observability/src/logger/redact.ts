@@ -266,6 +266,12 @@ export const REDACT_KEYS: ReadonlySet<string> = new Set(
     // special-category: reveals religion (halal/kosher) and health
     // (allergies/coeliac). Highest-sensitivity PII in cire.
     "dietary",
+    // `rsvps.dietary_presets` — the same requirements as keys from a closed
+    // vocabulary. A key is no less revealing than the sentence it replaced:
+    // `halal` and `kosher` name a religious practice outright, `nuts` and
+    // `shellfish` a health condition. Structured is not anonymous.
+    "dietaryPresets",
+    "dietary_presets",
     // `guest_account_links.osn_account_id` — the OSN account principal a cire
     // guest optionally links to (resolved S2S over ARC, never sent to clients).
     // Same secrecy profile as `accountId`: pairing it with a cire household

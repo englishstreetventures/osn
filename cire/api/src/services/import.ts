@@ -7,6 +7,7 @@ import {
   weddings,
   weddingEntitlements,
 } from "@cire/db";
+import { formatDietaryCell, parsePresets } from "@cire/dietary";
 import { and, eq, inArray, ne } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect, Data, type Types } from "effect";
@@ -709,7 +710,7 @@ export function diffAgainstDb(
       for (const r of rsvpRows) {
         const firstName = lostFirst.get(r.guestId) ?? "(unknown)";
         warnings.push(
-          `Removing guest ${firstName} would lose their RSVP: status=${r.status}, dietary=${r.dietary ?? ""}`,
+          `Removing guest ${firstName} would lose their RSVP: status=${r.status}, dietary=${formatDietaryCell(parsePresets(r.dietaryPresets ?? ""), r.dietary ?? "")}`,
         );
       }
     }

@@ -1,4 +1,5 @@
 import { rsvps, guests } from "@cire/db";
+import { parsePresets, serialisePresets, type DietaryPreset } from "@cire/dietary";
 import { eq } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { Effect } from "effect";
@@ -22,9 +23,13 @@ export interface RsvpInput {
   eventId: string;
   status: "attending" | "declined" | "maybe";
   dietary: string;
-  // True only when consent is present AND there is dietary text to authorise
-  // (the route already collapses both conditions). Stamps an Art. 9(2)(a)
-  // consent record; false clears any prior record (e.g. dietary removed).
+  // The guest's picks from the closed vocabulary. Stored canonically ordered and
+  // deduplicated by `serialisePresets`, so one selection has one stored string.
+  dietaryPresets: readonly DietaryPreset[];
+  // True only when consent is present AND there is dietary data to authorise —
+  // presets or free text, since both are special-category (the route already
+  // collapses those conditions). Stamps an Art. 9(2)(a) consent record; false
+  // clears any prior record (e.g. the guest cleared their whole answer).
   dietaryConsent: boolean;
   // Who recorded the row + the consent basis. Optional; defaults to `guest`
   // (the invite write path). The organiser endpoint passes `organiser_attested`
@@ -56,6 +61,7 @@ function buildRsvpUpsertStatements(
         eventId: input.eventId,
         status: input.status,
         dietary: input.dietary,
+        dietaryPresets: serialisePresets(input.dietaryPresets),
         dietaryConsentAt,
         dietaryConsentVersion,
         consentSource,
@@ -66,6 +72,7 @@ function buildRsvpUpsertStatements(
         set: {
           status: input.status,
           dietary: input.dietary,
+          dietaryPresets: serialisePresets(input.dietaryPresets),
           dietaryConsentAt,
           dietaryConsentVersion,
           // Overwrite the writer/consent provenance too: an organiser
@@ -75,6 +82,29 @@ function buildRsvpUpsertStatements(
         },
       });
   });
+}
+
+/**
+ * The stored row, before {@link toRsvpRecord} widens it.
+ *
+ * `dietary_presets` is one comma-separated string in the column and an array in
+ * every consumer, so the two shapes need separate names — the read-back rides as
+ * the trailing statement of a `db.batch()` and is cast to its row type, and a
+ * cast straight to {@link RsvpRecord} would quietly claim the parse had already
+ * happened.
+ */
+type RsvpRow = Omit<RsvpRecord, "dietaryPresets" | "dietaryConsentCurrent"> & {
+  dietaryPresets: string;
+  dietaryConsentVersion: string | null;
+};
+
+function toRsvpRecord(row: RsvpRow): RsvpRecord {
+  const { dietaryConsentVersion, ...rest } = row;
+  return {
+    ...rest,
+    dietaryPresets: parsePresets(row.dietaryPresets),
+    dietaryConsentCurrent: dietaryConsentVersion === DIETARY_CONSENT_VERSION,
+  };
 }
 
 /**
@@ -92,6 +122,8 @@ function buildFamilyRsvpsQuery(db: Db, familyId: string) {
       eventId: rsvps.eventId,
       status: rsvps.status,
       dietary: rsvps.dietary,
+      dietaryPresets: rsvps.dietaryPresets,
+      dietaryConsentVersion: rsvps.dietaryConsentVersion,
     })
     .from(rsvps)
     .innerJoin(guests, eq(rsvps.guestId, guests.id))
@@ -165,7 +197,7 @@ export const rsvpService = {
 
       const rows = yield* dbQuery(() => buildFamilyRsvpsQuery(db, familyId).all());
 
-      return rows;
+      return rows.map(toRsvpRecord);
     }).pipe(Effect.withSpan("cire.rsvp.list"));
   },
 
@@ -191,10 +223,10 @@ export const rsvpService = {
 
       const now = new Date();
       const statements = buildRsvpUpsertStatements(db, inputs, now);
-      const tail = buildFamilyRsvpsQuery(db, familyId) as ReturningTail<RsvpRecord>;
+      const tail = buildFamilyRsvpsQuery(db, familyId) as ReturningTail<RsvpRow>;
 
       const rows = yield* dbQuery(() =>
-        commitGroupedBatchesReturning<RsvpRecord>(
+        commitGroupedBatchesReturning<RsvpRow>(
           db,
           statements.map((s) => [s]),
           tail,
@@ -206,7 +238,7 @@ export const rsvpService = {
         yield* Effect.sync(() => metricRsvpUpserted(input.status, writer, "ok"));
       }
 
-      return rows;
+      return rows.map(toRsvpRecord);
     }).pipe(Effect.withSpan("cire.rsvp.submitAndList"));
   },
 };

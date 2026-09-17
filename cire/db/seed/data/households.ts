@@ -273,22 +273,31 @@ const CODE_WORDS = [
 /** Crockford base32, same alphabet the real generator uses (no I/L/O/U). */
 const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-const DIETARY_NOTES = [
-  "Vegetarian.",
-  "Vegetarian, no onion or garlic.",
-  "Vegan.",
-  "Gluten free.",
-  "Coeliac — needs a separately prepared plate.",
-  "No pork.",
-  "Halal, please.",
-  "Nut allergy — airborne is fine, contact is not.",
-  "Shellfish allergy.",
-  "Dairy free.",
-  "Lactose intolerant, a little butter is fine.",
-  "Pescatarian.",
-  "Low salt, on doctor's orders.",
-  "No alcohol in the food, please.",
-  "Two toddler meals if that is possible.",
+/**
+ * Dietary answers in the shape the preset picker produces.
+ *
+ * Three kinds on purpose, because the read paths branch on exactly these: keys
+ * alone (the common case now — one tap, nothing typed), keys plus an "Other"
+ * note that narrows them, and free text alone for a need the vocabulary has no
+ * key for. Every entry carrying free text also carries `other`, which is the
+ * invariant the API normalises to.
+ */
+const DIETARY_ANSWERS: readonly (readonly [presets: string, dietary: string])[] = [
+  ["vegetarian", ""],
+  ["vegetarian,other", "No onion or garlic."],
+  ["vegan", ""],
+  ["gluten", ""],
+  ["gluten,other", "Coeliac — needs a separately prepared plate."],
+  ["no_pork", ""],
+  ["halal", ""],
+  ["nuts,other", "Airborne is fine, contact is not."],
+  ["shellfish", ""],
+  ["dairy", ""],
+  ["dairy,other", "Lactose intolerant — a little butter is fine."],
+  ["pescatarian", ""],
+  ["other", "Low salt, on doctor's orders."],
+  ["no_alcohol", ""],
+  ["other", "Two toddler meals if that is possible."],
 ] as const;
 
 /**
@@ -411,9 +420,12 @@ for (let familyIndex = 1; familyIndex <= HOUSEHOLD_COUNT; familyIndex++) {
 
     for (const eventId of guestEvents) {
       const status = weighted(STATUSES);
-      // Consent is stamped by the generator iff there is dietary text, matching
+      // Consent is stamped by the generator iff there is dietary data — presets
+      // or free text, both special-category — matching
       // cire/api/src/services/rsvp.ts. Only an attending guest is asked.
-      const dietary = status === "attending" && rng() < DIETARY_RATE ? pick(DIETARY_NOTES) : "";
+      const answer =
+        status === "attending" && rng() < DIETARY_RATE ? pick(DIETARY_ANSWERS) : ["", ""];
+      const [dietaryPresets, dietary] = answer;
       rsvpCounter++;
       replies.push({
         id: synthId("c1000000", rsvpCounter),
@@ -421,6 +433,7 @@ for (let familyIndex = 1; familyIndex <= HOUSEHOLD_COUNT; familyIndex++) {
         eventId,
         status,
         dietary,
+        dietaryPresets,
         consentSource,
         daysAgo: repliedDaysAgo,
       });

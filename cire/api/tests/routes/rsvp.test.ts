@@ -362,6 +362,103 @@ describe("POST /api/rsvp", () => {
   );
 
   it(
+    "returns 422 when PRESETS are submitted without consent, with no free text",
+    eff(
+      Effect.gen(function* () {
+        // The gate that a regression to the old free-text-only condition would
+        // silently reopen. `halal` names a religious practice and `nuts` a
+        // health condition as plainly as any sentence, so a reply carrying only
+        // those is exactly as protected as one that types them out — and would
+        // otherwise be stored with a NULL consent record.
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* post(
+          {
+            rsvps: [
+              {
+                guestId: sharmaGuestId,
+                eventId: HINDU_ID,
+                status: "attending",
+                dietaryPresets: ["halal", "nuts"],
+                // no `dietary`, and `dietaryConsent` omitted → defaults false
+              },
+            ],
+          },
+          cookie,
+        );
+        expect(res.status).toBe(422);
+        const data = yield* Effect.promise(() => res.json<{ error: string }>());
+        expect(data.error).toBe("Dietary requirements need your consent to store");
+      }),
+    ),
+  );
+
+  it(
+    "round-trips presets through the column, canonically ordered",
+    eff(
+      Effect.gen(function* () {
+        // Nothing else in this suite writes a non-empty `dietary_presets`, so
+        // without this the serialise → column → parse path is unasserted — and
+        // `parsePresets` is deliberately total, so a break returns `[]` rather
+        // than throwing and every other test stays green.
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* post(
+          {
+            rsvps: [
+              {
+                guestId: sharmaGuestId,
+                eventId: HINDU_ID,
+                status: "attending",
+                // Submitted allergy-first and with a duplicate; stored and
+                // returned diet-first and deduplicated.
+                dietaryPresets: ["nuts", "vegetarian", "nuts"],
+                dietaryConsent: true,
+              },
+            ],
+          },
+          cookie,
+        );
+        expect(res.status).toBe(200);
+        const data = yield* Effect.promise(() =>
+          res.json<{ rsvps: { eventId: string; dietaryPresets: string[] }[] }>(),
+        );
+        const row = data.rsvps.find((r) => r.eventId === HINDU_ID);
+        expect(row?.dietaryPresets).toEqual(["vegetarian", "nuts"]);
+      }),
+    ),
+  );
+
+  it(
+    "adds `other` when free text arrives with no preset naming it",
+    eff(
+      Effect.gen(function* () {
+        // An older cached client sends prose and no presets. Normalising rather
+        // than rejecting keeps that guest's reply working, and preserves the
+        // invariant the picker relies on to reveal its text box again.
+        const cookie = yield* claimAndCookie("TESTONE-IVY-AA11");
+        const res = yield* post(
+          {
+            rsvps: [
+              {
+                guestId: sharmaGuestId,
+                eventId: HINDU_ID,
+                status: "attending",
+                dietary: "No onion or garlic",
+                dietaryConsent: true,
+              },
+            ],
+          },
+          cookie,
+        );
+        expect(res.status).toBe(200);
+        const data = yield* Effect.promise(() =>
+          res.json<{ rsvps: { eventId: string; dietaryPresets: string[] }[] }>(),
+        );
+        expect(data.rsvps.find((r) => r.eventId === HINDU_ID)?.dietaryPresets).toEqual(["other"]);
+      }),
+    ),
+  );
+
+  it(
     "returns 200 and persists a consent record when dietary is submitted WITH consent (C-H2)",
     eff(
       Effect.gen(function* () {

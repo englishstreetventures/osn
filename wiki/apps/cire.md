@@ -22,7 +22,7 @@ related:
   - "[[turnstile]]"
   - "[[data-map]]"
   - "[[dpia/cire-guest-data]]"
-last-reviewed: 2026-09-09
+last-reviewed: 2026-09-17
 ---
 
 # Cire
@@ -198,8 +198,8 @@ Guest data (family/guest names, RSVP status, **special-category dietary
 free-text**, claim codes) lives in cire's own Cloudflare D1 + R2 and is
 recorded in the OSN compliance programme:
 
-- [[data-map]] — cire section (fields, lawful basis, recipients); dietary Art. 9(2)(a) consent captured (C-H2 (cire dietary), PR #123); residual C-H1 R2 retention + C-L1 age-gate note
-- [[dpia/cire-guest-data]] — Art. 35 DPIA (dietary special-category; gating consent mitigation RESOLVED PR #123, sign-off pending residual C-H1)
+- [[data-map]] — cire section (fields, lawful basis, recipients); dietary Art. 9(2)(a) consent captured (C-H2 (cire dietary), PR #123), covering both `rsvps.dietary` and the `rsvps.dietary_presets` vocabulary; residual C-H1 R2 retention + C-L1 age-gate note
+- [[dpia/cire-guest-data]] — Art. 35 DPIA (dietary special-category, presets and free text alike; consent asked once per submission and never pre-ticked for a member with no record; gating consent mitigation RESOLVED PR #123, sign-off pending residual C-H1)
 - [[retention]] — cire rows: guest data swept at 1 year (PR #132) + expired guest sessions swept daily (PR #127); R2-object lifecycle still open (C-H1)
 - [[subprocessors]] — Cloudflare D1/R2 (guest-PII volume) + Pinterest embed (C-H3)
 - privacy notice — guest site publishes `/privacy` + `/terms` (PR #124, C-H4)

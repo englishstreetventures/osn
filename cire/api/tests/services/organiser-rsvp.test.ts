@@ -103,6 +103,7 @@ describe("organiserRsvpService.record", () => {
         eventId: hindu,
         status: "attending",
         dietary: "",
+        dietaryPresets: [],
         dietaryConsent: false,
       }),
     );
@@ -139,6 +140,7 @@ describe("organiserRsvpService.record", () => {
         eventId: hindu,
         status: "attending",
         dietary: "",
+        dietaryPresets: [],
         dietaryConsent: false,
       }),
     );
@@ -163,6 +165,7 @@ describe("organiserRsvpService.record", () => {
         eventId: hindu,
         status: "maybe",
         dietary: "",
+        dietaryPresets: [],
         dietaryConsent: false,
       }),
     );
@@ -200,6 +203,7 @@ describe("organiserRsvpService.record", () => {
         eventId: hindu,
         status: "attending",
         dietary: "Coeliac",
+        dietaryPresets: [],
         dietaryConsent: true,
       }),
     );
@@ -228,6 +232,7 @@ describe("organiserRsvpService.record", () => {
         eventId: hindu,
         status: "attending",
         dietary: "",
+        dietaryPresets: [],
         dietaryConsent: true,
       }),
     );
@@ -250,6 +255,7 @@ describe("organiserRsvpService.record", () => {
           eventId: mehendi,
           status: "attending",
           dietary: "",
+          dietaryPresets: [],
           dietaryConsent: false,
         })
         .pipe(Effect.flip),
@@ -274,6 +280,7 @@ describe("organiserRsvpService.record", () => {
           eventId: "evt_foreign",
           status: "attending",
           dietary: "",
+          dietaryPresets: [],
           dietaryConsent: false,
         })
         .pipe(Effect.flip),
@@ -297,6 +304,7 @@ describe("organiserRsvpService.record", () => {
           eventId: "evt_foreign", // but a foreign wedding's event
           status: "attending",
           dietary: "",
+          dietaryPresets: [],
           dietaryConsent: false,
         })
         .pipe(Effect.flip),
@@ -340,6 +348,7 @@ describe("organiserRsvpService.record", () => {
           eventId: hindu,
           status: "attending",
           dietary: "",
+          dietaryPresets: [],
           dietaryConsent: false,
         })
         .pipe(Effect.flip),

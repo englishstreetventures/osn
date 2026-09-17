@@ -1,4 +1,5 @@
 import { families, guests, events, guestEvents, rsvps } from "@cire/db";
+import { formatDietaryCell, parsePresets, type DietaryPreset } from "@cire/dietary";
 import { and, asc, eq, ne } from "drizzle-orm";
 import { Effect } from "effect";
 
@@ -103,6 +104,10 @@ export interface RsvpViewGuest {
   familyCode: string;
   status: "attending" | "declined" | "maybe";
   dietary: string;
+  /** The guest's picks, parsed from the stored key list. The dashboard renders
+   *  these beside whatever they typed under "Other", and the search filter
+   *  matches on their labels. */
+  dietaryPresets: readonly DietaryPreset[];
   /** Provenance of this reply (migration 0037): `guest` (self-submitted) vs
    *  `organiser_attested` (an organiser recorded a phone/paper RSVP on the
    *  guest's behalf). The dashboard badges organiser-entered answers so an
@@ -183,6 +188,7 @@ export const rsvpExportService = {
                 guestId: rsvps.guestId,
                 status: rsvps.status,
                 dietary: rsvps.dietary,
+                dietaryPresets: rsvps.dietaryPresets,
                 consentSource: rsvps.consentSource,
                 firstName: guests.firstName,
                 lastName: guests.lastName,
@@ -250,6 +256,7 @@ export const rsvpExportService = {
           familyCode: row.familyCode,
           status: row.status,
           dietary: row.dietary,
+          dietaryPresets: parsePresets(row.dietaryPresets),
           consentSource: row.consentSource,
           sortOrder: row.sortOrder,
         });
@@ -385,6 +392,7 @@ export const rsvpExportService = {
                 eventId: rsvps.eventId,
                 status: rsvps.status,
                 dietary: rsvps.dietary,
+                dietaryPresets: rsvps.dietaryPresets,
                 consentSource: rsvps.consentSource,
               })
               .from(rsvps)
@@ -434,6 +442,7 @@ export const rsvpExportService = {
           {
             status: "attending" | "declined" | "maybe";
             dietary: string;
+            dietaryPresets: string;
             consentSource: "guest" | "organiser_attested";
           }
         >
@@ -447,6 +456,7 @@ export const rsvpExportService = {
         perGuest.set(row.eventId, {
           status: row.status,
           dietary: row.dietary,
+          dietaryPresets: row.dietaryPresets,
           consentSource: row.consentSource,
         });
       }
@@ -466,7 +476,14 @@ export const rsvpExportService = {
         // can't show a requirement beside an empty status.
         const dietary: string[] = orderedEvents.map((e) => {
           if (!g.invited.has(e.id)) return "";
-          return rsvpByGuest.get(g.guestId)?.get(e.id)?.dietary ?? "";
+          const reply = rsvpByGuest.get(g.guestId)?.get(e.id);
+          if (!reply) return "";
+          // Presets and the "Other" text collapse into the ONE existing column,
+          // so the sheet keeps its shape and an organiser's saved formulas
+          // survive. `formatDietaryCell` is what keeps a preset-only answer from
+          // gaining a trailing separator and a legacy prose-only row from
+          // gaining a leading one.
+          return formatDietaryCell(parsePresets(reply.dietaryPresets), reply.dietary);
         });
 
         // Writer provenance across the guest's replies: "organiser" if ANY

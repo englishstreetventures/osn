@@ -19,4 +19,4 @@
 # conflict rather than silently agreeing on the same leading number while
 # disagreeing on what it was measured from.
 
-1052   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), claude/nifty-cerf-jrox2u @ 2026-09-17 — -1 as the comments this branch's review flagged as narrating history were rewritten to state what the code guarantees now
+1050   # measured via scripts/guard-lint-warnings.sh (oxlint --format=json), claude/nice-mendel-x4wo6n @ 2026-09-17 — -2 as the two comments naming a tracker finding by its bare ID were rewritten to name the DPIA by repo path

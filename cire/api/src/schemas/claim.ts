@@ -69,6 +69,8 @@ export const RsvpSummary = Schema.Struct({
   eventId: Schema.String,
   status: Schema.String,
   dietary: Schema.String,
+  dietaryPresets: Schema.Array(Schema.String),
+  dietaryConsentCurrent: Schema.Boolean,
 });
 export type RsvpSummary = Schema.Schema.Type<typeof RsvpSummary>;
 

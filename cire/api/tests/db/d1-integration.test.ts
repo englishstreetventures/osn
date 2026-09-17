@@ -219,6 +219,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           eventId: EVENT_A,
           status: "attending",
           dietary: "none",
+          dietaryPresets: [],
           dietaryConsent: false,
         }),
       );
@@ -233,6 +234,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
           eventId: EVENT_A,
           status: "declined",
           dietary: "veg",
+          dietaryPresets: [],
           dietaryConsent: false,
         }),
       );
@@ -363,6 +365,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         eventId,
         status: "attending" as const,
         dietary: "",
+        dietaryPresets: [],
         dietaryConsent: false,
       }));
 
@@ -388,6 +391,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
               eventId: EVENT_A,
               status: "attending",
               dietary: "",
+              dietaryPresets: [],
               dietaryConsent: false,
             },
             {
@@ -395,6 +399,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
               eventId: EVENT_A,
               status: "declined",
               dietary: "",
+              dietaryPresets: [],
               dietaryConsent: false,
             },
           ],
@@ -450,6 +455,7 @@ describe("cire/api over real D1 (Miniflare)", () => {
         eventId,
         status: "attending" as const,
         dietary: "",
+        dietaryPresets: [],
         dietaryConsent: false,
       }));
 

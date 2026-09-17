@@ -19,7 +19,7 @@ related:
   - "[[d1-read-replication]]"
   - "[[commands]]"
   - "[[bundle-size-guards]]"
-last-reviewed: 2026-09-06
+last-reviewed: 2026-09-17
 ---
 
 # Cire development guide
@@ -138,6 +138,27 @@ cd cire/api && bunx wrangler types
 Local sign-in also needs an `oauth_clients` row in the local OSN D1 and
 `CIRE_OIDC_CLIENT_SECRET` in `cire/api/.dev.vars`. Without them `/api/auth/oidc/*`
 answers 503 and the rest of cire works as normal.
+
+### Adding a column
+
+Generating a migration here is `db:generate`, not `db:migrate` — cire is the one
+`*/db` package where `db:migrate:local|dev|prod` *applies* a migration to a tier
+rather than emitting one:
+
+```bash
+bun run --cwd cire/db db:generate --name rsvp_dietary_presets
+```
+
+Pass `--name`. Without it drizzle-kit invents one, and the journal entry's `tag`
+is the emitted filename — renaming the file by hand afterwards fails the first
+assertion in `cire/api/tests/db/ddl-lockstep.test.ts`.
+
+**A cire column has three DDL surfaces, not two.** The migration and
+`cire/db/src/schema.ts` are the two an agent reaches for; the third is the test
+DDL in `cire/api/src/db/setup.ts`, which the whole `@cire/api` suite boots
+against. Miss it and `bun test cire/api/tests/` fails in the lockstep test with
+the column's own name, after every other gate has passed. Full contract for the
+mirror is in [[cire-platform-plan]] §Code map.
 
 ### Deploying by hand
 

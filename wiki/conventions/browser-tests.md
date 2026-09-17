@@ -10,7 +10,7 @@ packages:
   - "@cire/host"
   - "@musubi/social"
   - "@pulse/web"
-last-reviewed: 2026-09-16
+last-reviewed: 2026-09-17
 ---
 # Browser Tests
 
@@ -202,6 +202,7 @@ nothing.
 | Package | File | Pins |
 |---|---|---|
 | `@cire/invites` | `tests/lib/z-index.browser.test.tsx` | Every `Z_CLASS` entry emits real CSS; a modal-launched popover hit-tests **above** the modal (#203); no ancestor traps it in a stacking context; the modal blocks page content beneath it |
+| `@cire/invites` | `tests/components/DietaryPresets.browser.test.tsx` | The dietary picker's preset track overflows **inside** the sheet rather than widening it (a `<fieldset>` sizes to its content unless every box down to the scrollport may be narrower than what it holds), and the picker stays inline at desktop width — a `showModal()` dialog paints above every stacking context, so a portalled popover opened from inside it would be unreachable at any z-index |
 | `@cire/invites` | `tests/components/RsvpModal.browser.test.tsx` | The sticky action bar sits on the scrollport's bottom edge, stays put while content scrolls under it, runs full-bleed to the panel's content box, and both buttons are the topmost element at their own centre |
 | `@cire/invites` | `tests/styles/reduced-motion.browser.test.tsx` | The clamp applies to transitions *and* animations, `animate-spin` keeps its documented exemption, and a clamped transition still lands on its end state and fires `transitionend` |
 | `@cire/invites` | `tests/components/EventCard.browser.test.tsx` | The RSVP confirmation fill **travels** (mid-sweep scale strictly between 0 and 1, so the transition is wired to the property Tailwind actually writes), lands on the `bloom` token, and is still painted seconds past `TOTAL_DURATION_MS`; a reply already on file paints filled on the first frame; the two `scale-x-*` utilities never coexist |

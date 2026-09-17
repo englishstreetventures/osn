@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS rsvps (
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
   status TEXT NOT NULL,
   dietary TEXT NOT NULL DEFAULT '',
+  dietary_presets TEXT NOT NULL DEFAULT '',
   dietary_consent_at INTEGER,
   dietary_consent_version TEXT,
   consent_source TEXT NOT NULL DEFAULT 'guest',

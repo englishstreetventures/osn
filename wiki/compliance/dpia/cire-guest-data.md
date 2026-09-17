@@ -10,7 +10,7 @@ related:
   - "[[subprocessors]]"
   - "[[cire]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-08-17
+last-reviewed: 2026-09-17
 ---
 
 # DPIA — Cire guest data
@@ -29,7 +29,7 @@ in this session (PR #123)**: the RSVP form now captures explicit Art. 9(2)(a)
 consent via an unticked opt-in checkbox, the API rejects (422) any non-empty
 dietary submitted without it, and a server-stamped consent record
 (`rsvps.dietary_consent_at` + `dietary_consent_version`, default
-`DIETARY_CONSENT_VERSION = "2026-06-17"`; migration `0012_dietary_consent.sql`)
+`DIETARY_CONSENT_VERSION`, currently `"2026-09-17"`; migration `0012_dietary_consent.sql`)
 evidences the condition. The lawful-processing blocker is therefore **closed**;
 final sign-off now turns only on the residual retention gaps (C-H1) below.
 
@@ -42,7 +42,9 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
 - **What.** A wedding organiser (the couple) uploads a guest list to cire.
   Guests open a household claim code (`families.public_id`) on a public,
   general-adult-audience site and submit an RSVP, optionally including
-  **free-text dietary requirements** (`rsvps.dietary`). See [[data-map]] for
+  **dietary requirements**, held in two columns: `rsvps.dietary_presets`, a
+  closed sixteen-entry vocabulary the guest picks from, and `rsvps.dietary`,
+  free text for anything the vocabulary has no key for. See [[data-map]] for
   the full field list and [[cire-auth]] for the two-auth model.
 - **Organiser-recorded RSVPs (PR 5b).** An organiser (owner/editor co-host)
   may ALSO record a **phone/paper RSVP on a guest's behalf** —
@@ -54,8 +56,8 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   in one column — see §2 (lawful basis) for the Art. 9 story of the
   organiser-attested variant.
 - **Data classes.** Family + guest names, RSVP status, the guest claim code
-  (a credential), the guest session, and — the focus of this DPIA — the
-  free-text `rsvps.dietary` field. Raw organiser spreadsheets are stored in
+  (a credential), the guest session, and — the focus of this DPIA — the dietary
+  fields `rsvps.dietary_presets` and `rsvps.dietary`. Raw organiser spreadsheets are stored in
   R2 (`cire-sheets`). All in cire's **own** Cloudflare D1 + R2, separate
   from `osn/db`.
 - **Roles.** The organiser is the **controller** of guest data (they decide
@@ -105,6 +107,33 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   administration) per [[data-map]]. Explicit consent is the appropriate
   Art. 9 condition because no employment/vital-interest/substantial-public-
   interest condition applies to a wedding RSVP.
+  - **One consent per submission (2026-09-17).** The affordance is asked once
+    per reply rather than once per guest: a household of four offering dietary
+    data ticks one box, not four saying the same thing. Three properties make
+    that collapse lawful rather than merely convenient. The box **names every
+    member it covers** ("…for Ana and Ravi"), so the consent stays specific
+    about whose data it authorises. It is **unticked by default**, and submit is
+    blocked until a human ticks it. And it **may only open pre-ticked when every
+    member it covers already has a stored consent record** — one person's prior
+    consent never carries another's, so a household where anyone is new to
+    consent is asked afresh. The evidence is unchanged: the server still stamps
+    `dietary_consent_at` / `dietary_consent_version` on each affected row
+    individually, so the stored record is still per-guest.
+  - **Re-consent by prefill.** Because the box opens pre-ticked for a household
+    already covered, a guest who reopens a saved reply and changes only their
+    status re-submits with it ticked and the server re-stamps the current
+    version. That is defensible — the current wording is on screen, ticked,
+    beside the data it authorises — and it is recorded here rather than left for
+    a reader to deduce.
+  - **Not the cookie-consent framework.** Moving this into the site-wide
+    consent framework (`cire/invites/src/lib/consent/`, see
+    [[cire-consent]]) was considered and rejected. That framework is an
+    ePrivacy cookie instrument: category-level granularity, opt-out defaults
+    for `embeds` and `functional`, and a client-writable cookie the guest can
+    clear. None of those can carry Art. 9(2)(a) *explicit* consent specific to
+    a named purpose, satisfy the Art. 7(1) duty to demonstrate it, or express
+    per-guest consent from a per-browser store — and the organiser-attested
+    path has no guest browser at all.
   - **Organiser-attested variant (PR 5b).** When an organiser records a
     phone/paper RSVP with dietary text, the guest is not present to tick the
     form opt-in. The Art. 9(2)(a) condition is instead met by the **organiser's
@@ -146,7 +175,7 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   (422) any non-empty dietary submitted without consent. A consent record is
   **persisted and server-stamped** — `rsvps.dietary_consent_at` +
   `rsvps.dietary_consent_version` (server-set to `DIETARY_CONSENT_VERSION`,
-  currently `"2026-06-17"`; migration `0012_dietary_consent.sql`) — so the
+  currently `"2026-09-17"`; migration `0012_dietary_consent.sql`) — so the
   Art. 9(2)(a) condition is evidenced (who/when/which copy version). This was
   the gating mitigation for sign-off and is now in place. **PR 5b extends the
   same gate to organiser-recorded RSVPs**: the record UI shows an "I confirm the
@@ -168,6 +197,16 @@ final sign-off now turns only on the residual retention gaps (C-H1) below.
   [[soc2]].
 - **Minimisation copy.** RSVP form asks for dietary *requirements* only; no
   free-text prompt that invites medical detail.
+- **Minimisation by vocabulary (2026-09-17).** The form's primary control is a
+  closed sixteen-entry list rather than a text box, and the text box appears
+  only once a guest picks "Other". This is a stronger minimisation control than
+  copy alone: it collects the requirement without offering a place to explain
+  it, so a guest who would have written "coeliac, diagnosed last year" now taps
+  *Gluten / coeliac*. The vocabulary also separates **diet** from **allergy**,
+  which is the distinction a caterer acts on, so the organiser gets a countable
+  answer from the same or less data. Rows written before the picker keep their
+  prose; nothing back-fills it into keys, because inferring which keys a
+  sentence meant would be the kind of guess this control exists to remove.
 
 ### C-M1 (2026-08-02) — the household session now auto-discloses, and cannot be ended
 

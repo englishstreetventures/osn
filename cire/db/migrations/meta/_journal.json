@@ -15,6 +15,13 @@
       "when": 1789050067214,
       "tag": "0058_gift_summary_and_stripe_state",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "6",
+      "when": 1789630563674,
+      "tag": "0059_rsvp_dietary_presets",
+      "breakpoints": true
     }
   ]
 }

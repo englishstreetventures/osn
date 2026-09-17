@@ -562,7 +562,7 @@ A primitive, in `@shared/ui`:
 1. Create the file at `shared/ui/src/ui/<name>.tsx`.
 2. Follow the existing pattern: `splitProps` for `class`, write `base:` prefixed defaults literally in the class string, use `clsx()` to compose them with `local.class`, spread `...others`. Type the rest props as `SafeProps<"div">` (from `./props`) rather than Solid's own attributes.
 3. Colour it with contract tokens — `bg-ui-surface`, `text-ui-ink`, `border-ui-hairline` — never an app's own name. See [[design-tokens]].
-4. For interactive components, use Kobalte primitives from `@kobalte/core/<name>`. Weigh the bundle cost first if the component has to render on a cire surface.
+4. For interactive components, use Kobalte primitives from `@kobalte/core/<name>`. Weigh the bundle cost first if the component has to render on a cire surface — and if only *some* callers need the heavy dependency, **give them a separate file to import**, not a prop. A `<Show>`, a `createMemo` or a `shell` prop does not help: a bundler follows the static import, so every caller pays for the branch none of them took. Kobalte's popover is ~18.7 KB gzip, which is enough on its own to put `@cire/invites` over its budget in [[bundle-size-guards]]. `cire/ui/src/dietary-presets.tsx` (fields, no Kobalte) and `dietary-presets-popover.tsx` (the same fields behind a trigger) are the worked pair.
 5. For a text control, reach for `controlClass` in `./control` instead of writing a box.
 6. For variant components, use CVA with a literal `base:` prefixed string for each variant, and export both the component and the `variants` function.
 7. For internal child elements that don't accept consumer `class` overrides, write the `base:` prefixed string directly (no `clsx` needed).

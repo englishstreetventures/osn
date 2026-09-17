@@ -868,7 +868,29 @@ export const rsvps = sqliteTable(
     status: text("status", {
       enum: ["attending", "declined", "maybe"],
     }).notNull(),
+    // Free text: what the guest typed under "Other". Everything nameable is a
+    // key in `dietary_presets` instead.
+    //
+    // Some rows carry whole prose here with no presets at all, and nothing
+    // back-fills them — guessing that "veggie, no nuts pls" means two specific
+    // keys is the unreliable inference the picker exists to remove. That is why
+    // the picker reveals its text box for a non-empty `dietary` as well as for a
+    // selected `other`: it is what makes such a row open intact.
     dietary: text("dietary").notNull().default(""),
+    // The guest's picks from the closed vocabulary in `@cire/dietary`, as a
+    // canonically-ordered comma-separated key list (`"vegetarian,nuts"`).
+    //
+    // Not JSON: every key is `[a-z_]+` from a fixed set, so nothing here can
+    // ever need escaping, the parse cannot throw, and the column stays legible
+    // in the D1 console. (`weddings.gift_summary_json` is JSON because it holds
+    // a nested object. A flat set of enum keys does not need it.)
+    //
+    // **Special-category, exactly like `dietary`** — `halal` and `kosher` reveal
+    // religious belief, `nuts` and `shellfish` reveal health. It sits inside the
+    // same Art. 9(2)(a) consent gate below, is cleared by the same erasure
+    // sweep, and is on the same log-redaction deny-list. A preset is not the
+    // safe half of this pair.
+    dietaryPresets: text("dietary_presets").notNull().default(""),
     // Explicit Art. 9(2)(a) consent record for the special-category `dietary`
     // free-text (see [[wiki/compliance/dpia/cire-guest-data]] → C-H2). Captured
     // here, 1:1 with the RSVP, because consent authorises exactly this row's

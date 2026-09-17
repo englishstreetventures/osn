@@ -7,6 +7,7 @@ import {
   weddingInviteCustomisations,
   weddings,
 } from "@cire/db";
+import { parsePresets } from "@cire/dietary";
 import { eq, and, asc, count, inArray, ne, isNull } from "drizzle-orm";
 import { Effect, Data } from "effect";
 
@@ -20,6 +21,7 @@ import type {
   DressSwatch,
 } from "../schemas/claim";
 import { decodeCrop, type ImageCrop } from "../schemas/invite";
+import { DIETARY_CONSENT_VERSION } from "../schemas/rsvp";
 import { eventImagePath, versionFromKey } from "./event-image";
 
 export class InvalidCredentials extends Data.TaggedError("InvalidCredentials") {}
@@ -202,6 +204,8 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
               eventId: rsvps.eventId,
               status: rsvps.status,
               dietary: rsvps.dietary,
+              dietaryPresets: rsvps.dietaryPresets,
+              dietaryConsentVersion: rsvps.dietaryConsentVersion,
             })
             .from(rsvps)
             .innerJoin(guests, eq(rsvps.guestId, guests.id))
@@ -292,7 +296,16 @@ function buildClaimResponse(family: FamilyRow): Effect.Effect<ClaimResponse, nev
       preview: family.kind === "host",
       members: Array.from(memberMap.values()),
       events: eventList,
-      rsvps: rsvpRows,
+      // The stored key list becomes an array at the boundary, and the stored
+      // consent VERSION collapses to "is this the copy we show now?" — the sheet
+      // re-lights its picker from the first and decides whether its consent box
+      // may open ticked from the second. Consent given against superseded
+      // wording is not consent to the current wording.
+      rsvps: rsvpRows.map(({ dietaryConsentVersion, ...row }) => ({
+        ...row,
+        dietaryPresets: parsePresets(row.dietaryPresets),
+        dietaryConsentCurrent: dietaryConsentVersion === DIETARY_CONSENT_VERSION,
+      })),
       // Resolved server-side so the banner the guest reads and the 403 the
       // write path returns are computed by the same function — the client
       // never turns the date into an instant itself.

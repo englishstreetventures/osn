@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@cire/db": "workspace:*",
+    "@cire/dietary": "workspace:*",
     "@cire/invite-designs": "workspace:*",
     "@cire/theme": "workspace:*",
     "@elysiajs/cors": "^1.4.2",

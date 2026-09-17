@@ -6,7 +6,7 @@ related:
   - "[[cire-invite-builder]]"
   - "[[monorepo-structure]]"
   - "[[cire-guest-event-editor]]"
-last-reviewed: 2026-09-01
+last-reviewed: 2026-09-17
 ---
 # Platform Plan — from digital invite to wedding management platform
 
@@ -267,7 +267,7 @@ the phase's epic in GitHub Issues + the phase's section above; skim the rest.
 - **No cross-DB FKs**: OSN identities are opaque `usr_*` strings; resolve via the ARC-gated `services/osn-bridge.ts` (key-optional, fail-soft). Never store OSN emails/handles.
 - **`events.end_at` `""` sentinel** = no stated end; anything aggregating or comparing event dates must use the effective end (`max(end_at, start_at)` — see `services/retention.ts`).
 - **Host preview families** (`families.kind = 'host'`) are synthetic and must stay invisible to imports, exports, RSVP counts, and (future) seating/comms.
-- **Guest PII rules**: dietary text is special-category (Art. 9 consent columns on `rsvps`); no PII in logs (redaction deny-list in [[cire-workerd]]); new PII classes need [[compliance/data-map|root data-map]] + retention rows (§10 lists the per-phase deltas).
+- **Guest PII rules**: dietary data is special-category — the `rsvps.dietary_presets` vocabulary as much as the `rsvps.dietary` free text, since `halal` and `nuts` name a belief and a health condition outright (Art. 9 consent columns on `rsvps`); no PII in logs (redaction deny-list in [[cire-workerd]]); new PII classes need [[compliance/data-map|root data-map]] + retention rows (§10 lists the per-phase deltas).
 - Effect is **backend-only** — never import it in `cire/host` or `cire/invites`.
 
 ### Definition of done (every platform PR)

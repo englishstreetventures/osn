@@ -56,15 +56,24 @@ export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions
             Effect.gen(function* () {
               const body = yield* Schema.decodeUnknownEffect(OrganiserRsvpBody)(raw);
 
-              // Art. 9(2)(a) gate (mirrors the guest path): the special-category
-              // dietary free-text may only be stored WITH consent — here the
-              // organiser's attestation. Reject (422) any non-empty dietary the
-              // organiser did not attest consent for. The form blocks this, so
-              // reaching it means a tampered client.
-              if (body.dietary.length > 0 && !body.dietaryConsent) {
+              // Art. 9(2)(a) gate (mirrors the guest path): special-category
+              // dietary data may only be stored WITH consent — here the
+              // organiser's attestation. Presets count as much as free text, so
+              // a reply recorded entirely from the picker is gated too. The form
+              // blocks this, so reaching it means a tampered client.
+              const hasDietaryData = body.dietary.length > 0 || body.dietaryPresets.length > 0;
+              if (hasDietaryData && !body.dietaryConsent) {
                 set.status = 422;
                 return { error: "Dietary requirements need the guest's consent to store" };
               }
+
+              // Free text implies `other`, as on the guest path: an organiser
+              // typing a note the picker has no key for must still leave the row
+              // able to reveal it.
+              const dietaryPresets =
+                body.dietary.trim().length > 0 && !body.dietaryPresets.includes("other")
+                  ? ([...body.dietaryPresets, "other"] as const)
+                  : body.dietaryPresets;
 
               const rsvp = yield* organiserRsvpService.record({
                 weddingId,
@@ -72,6 +81,7 @@ export const createOrganiserRsvpRoutes = (db: Db, osnAuthOptions: OsnAuthOptions
                 eventId: params.eventId,
                 status: body.status,
                 dietary: body.dietary,
+                dietaryPresets,
                 dietaryConsent: body.dietaryConsent,
               });
               return { rsvp };

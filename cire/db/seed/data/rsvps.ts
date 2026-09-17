@@ -6,7 +6,7 @@
 // table renders every organiser dashboard, export and summary at zero, which is
 // the one state that looks fine no matter how badly the aggregation is broken.
 // These ten rows deliberately cover EVERY axis the read paths branch on:
-// all three statuses, dietary text present and absent, and both consent
+// all three statuses, presets with and without free text (and neither), and both consent
 // sources.
 //
 // The Placeholder family (`TESTFOR-JOY-DD44`, Eli) is left reply-free on
@@ -17,15 +17,20 @@
 // on rows that carry dietary text — Art. 9(2)(a) consent authorises the health
 // data, so a row with no dietary text has nothing to consent to and the columns
 // stay NULL, exactly as the live write path leaves them.
-export const DIETARY_CONSENT_VERSION = "2026-06-17";
+export const DIETARY_CONSENT_VERSION = "2026-09-17";
 
 export type SeedRsvp = {
   readonly id: string;
   readonly guestId: string;
   readonly eventId: string;
   readonly status: "attending" | "declined" | "maybe";
-  // "" ⇒ no dietary note, and therefore no consent stamp.
+  // "" ⇒ no free text. Holds what the guest typed under "Other"; everything
+  // nameable is a key in `dietaryPresets`.
   readonly dietary: string;
+  // Canonically-ordered comma-separated keys from `@cire/dietary`, exactly as
+  // the column stores them. Both empty ⇒ no dietary data, and therefore no
+  // consent stamp.
+  readonly dietaryPresets: string;
   readonly consentSource: "guest" | "organiser_attested";
   // How long ago the reply came in. Emitted as `unixepoch() - 86400 * N` so
   // seeded replies always look recent, however long ago the seed was written.
@@ -44,7 +49,8 @@ export const rsvps = [
     guestId: "b0000000-0000-4000-8000-000000000001",
     eventId: CATHOLIC,
     status: "attending",
-    dietary: "Coeliac — strictly gluten free, including sauces.",
+    dietary: "Strictly gluten free, including sauces.",
+    dietaryPresets: "gluten,other",
     consentSource: "guest",
     daysAgo: 21,
   },
@@ -54,6 +60,7 @@ export const rsvps = [
     eventId: HINDU,
     status: "attending",
     dietary: "",
+    dietaryPresets: "",
     consentSource: "guest",
     daysAgo: 21,
   },
@@ -63,6 +70,7 @@ export const rsvps = [
     eventId: RECEPTION,
     status: "maybe",
     dietary: "",
+    dietaryPresets: "",
     consentSource: "guest",
     daysAgo: 21,
   },
@@ -74,7 +82,8 @@ export const rsvps = [
     guestId: "b0000000-0000-4000-8000-000000000002",
     eventId: HINDU,
     status: "attending",
-    dietary: "Vegetarian, no egg.",
+    dietary: "",
+    dietaryPresets: "vegetarian,egg",
     consentSource: "organiser_attested",
     daysAgo: 14,
   },
@@ -84,6 +93,7 @@ export const rsvps = [
     eventId: RECEPTION,
     status: "declined",
     dietary: "",
+    dietaryPresets: "",
     consentSource: "organiser_attested",
     daysAgo: 14,
   },
@@ -93,6 +103,7 @@ export const rsvps = [
     eventId: HINDU,
     status: "declined",
     dietary: "",
+    dietaryPresets: "",
     consentSource: "guest",
     daysAgo: 9,
   },
@@ -102,6 +113,7 @@ export const rsvps = [
     eventId: RECEPTION,
     status: "attending",
     dietary: "",
+    dietaryPresets: "",
     consentSource: "guest",
     daysAgo: 9,
   },
@@ -114,6 +126,7 @@ export const rsvps = [
     eventId: HINDU,
     status: "maybe",
     dietary: "",
+    dietaryPresets: "",
     consentSource: "guest",
     daysAgo: 3,
   },
@@ -123,7 +136,8 @@ export const rsvps = [
     guestId: "b0000000-0000-4000-8000-000000000005",
     eventId: CATHOLIC,
     status: "attending",
-    dietary: "Severe nut allergy — please keep preparation separate.",
+    dietary: "Please keep preparation separate.",
+    dietaryPresets: "nuts,other",
     consentSource: "guest",
     daysAgo: 6,
   },
@@ -133,6 +147,7 @@ export const rsvps = [
     eventId: HINDU,
     status: "attending",
     dietary: "",
+    dietaryPresets: "",
     consentSource: "guest",
     daysAgo: 6,
   },

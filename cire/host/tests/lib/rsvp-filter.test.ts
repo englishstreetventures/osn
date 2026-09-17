@@ -24,7 +24,10 @@ const CEREMONY: RsvpFilterEvent = {
       familyName: "Sharma",
       familyCode: "SHARMA-WIDGET-AB3K9",
       status: "attending",
-      dietary: "Gluten free",
+      // Preset-only: nothing typed. The row a substring search over free text
+      // could never find, which is the case this whole column exists for.
+      dietary: "",
+      dietaryPresets: ["gluten"],
       consentSource: "guest",
     },
     {
@@ -35,6 +38,7 @@ const CEREMONY: RsvpFilterEvent = {
       familyCode: "JONES-KITE-77Q2",
       status: "declined",
       dietary: "",
+      dietaryPresets: [],
       consentSource: "organiser_attested",
     },
     {
@@ -44,7 +48,9 @@ const CEREMONY: RsvpFilterEvent = {
       familyName: "Rao",
       familyCode: "RAO-EMBER-51X8",
       status: "maybe",
-      dietary: "Nut allergy (severe)",
+      // Preset plus an "Other" note that narrows it — both have to be findable.
+      dietary: "Severe (airborne is fine, contact is not)",
+      dietaryPresets: ["nuts", "other"],
       consentSource: "guest",
     },
   ],
@@ -68,7 +74,8 @@ const RECEPTION: RsvpFilterEvent = {
       familyName: "Sharma",
       familyCode: "SHARMA-WIDGET-AB3K9",
       status: "attending",
-      dietary: "Gluten free",
+      dietary: "",
+      dietaryPresets: ["gluten"],
       consentSource: "guest",
     },
   ],
@@ -91,9 +98,13 @@ describe("mergeRows", () => {
 
   it("builds each row's search text once, lower-cased, over every matchable field", () => {
     const rows = mergeRows(CEREMONY);
-    expect(rows[0]?.search).toBe("ada sharma sharma sharma-widget-ab3k9 gluten free");
-    // A silent guest has no dietary text, but is still searchable by household.
-    expect(rows[3]?.search).toBe("cleo jones jones jones-kite-77q2 ");
+    // Preset LABELS, not keys — `gluten` is stored, "Gluten / coeliac" is what
+    // a host sees, says and therefore types. The trailing space is this row's
+    // empty "Other" text.
+    expect(rows[0]?.search).toBe("ada sharma sharma sharma-widget-ab3k9 gluten / coeliac ");
+    // A silent guest has no dietary data at all, but is still searchable by
+    // household.
+    expect(rows[3]?.search).toBe("cleo jones jones jones-kite-77q2  ");
   });
 
   it("keeps the provenance of a reply and leaves it off a non-reply", () => {
@@ -143,9 +154,22 @@ describe("filterRows", () => {
     expect(ids(filterRows(rows, "nut", "all"))).toEqual(["g4"]);
   });
 
+  it("matches a preset a guest never typed, which free text alone could not", () => {
+    // g1 picked "Gluten / coeliac" from the list and typed nothing. Before the
+    // presets column there was no string on this row for "coeliac" to land on.
+    expect(ids(filterRows(rows, "coeliac", "all"))).toEqual(["g1"]);
+    expect(ids(filterRows(rows, "gluten", "all"))).toEqual(["g1"]);
+  });
+
+  it("matches a preset and its Other note on the same row", () => {
+    // g4 is `nuts` + `other`, with the note narrowing it. Both halves are one
+    // haystack, so either word finds the row and neither shadows the other.
+    expect(ids(filterRows(rows, "nuts airborne", "all"))).toEqual(["g4"]);
+  });
+
   it("matches punctuation inside a dietary note as typed", () => {
-    expect(ids(filterRows(rows, "(severe)", "all"))).toEqual(["g4"]);
-    expect(ids(filterRows(rows, "allergy (severe)", "all"))).toEqual(["g4"]);
+    expect(ids(filterRows(rows, "(airborne", "all"))).toEqual(["g4"]);
+    expect(ids(filterRows(rows, "severe (airborne", "all"))).toEqual(["g4"]);
   });
 
   it("treats a whitespace-only query as no query at all", () => {

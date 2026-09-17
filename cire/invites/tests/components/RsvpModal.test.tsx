@@ -1,11 +1,12 @@
 import { toast } from "@shared/toast";
-import { render, cleanup, fireEvent, waitFor, within } from "@solidjs/testing-library";
+import { render, cleanup, fireEvent, screen, waitFor, within } from "@solidjs/testing-library";
 import { createSignal, Show } from "solid-js";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 
 import { SAVED_DWELL_MIN_MS, SAVED_DWELL_MS } from "../../src/components/rsvp-saved";
 import { RsvpModal } from "../../src/components/RsvpModal";
 import type { EventSummary, FamilyMember, RsvpSummary } from "../../src/components/types";
+import { mockViewport } from "../test-support/viewport";
 
 vi.mock("motion", () => ({
   animate: vi.fn(() => ({ finished: Promise.resolve() })),
@@ -65,7 +66,40 @@ function fieldsetFor(name: string): HTMLElement {
   throw new Error(`fieldset for ${name} not found`);
 }
 
+/** Open the free-text box the way a guest does — by picking "Other" — and
+ *  return it. Nothing reaches that input without going through the picker. */
+const openOtherText = (fs: HTMLElement): HTMLInputElement => {
+  const other = within(fs).getByRole("checkbox", { name: /^other$/i }) as HTMLInputElement;
+  if (!other.checked) fireEvent.click(other);
+  return within(fs).getByPlaceholderText(/onion/i) as HTMLInputElement;
+};
+
+/** Tick a preset for a member, by its visible label. */
+const pickPreset = (fs: HTMLElement, label: RegExp) =>
+  fireEvent.click(within(fs).getByRole("checkbox", { name: label }));
+
+/** The ONE household consent box, which lives in the sheet footer rather than
+ *  in any member's fieldset. */
+const consentBox = () =>
+  screen.getByRole("checkbox", { name: /being stored and shared with the caterers/i });
+
+const queryConsentBox = () =>
+  screen.queryByRole("checkbox", { name: /being stored and shared with the caterers/i });
+
 describe("RsvpModal", () => {
+  // The picker renders its checkboxes inline below the `md:` breakpoint and
+  // collapses them behind a popover trigger above it. happy-dom reports 1024px,
+  // so without this every `getByRole("checkbox")` here would find a closed
+  // trigger instead of the control it means.
+  let restoreViewport = () => {};
+  beforeEach(() => {
+    restoreViewport = mockViewport(false);
+  });
+  afterEach(() => {
+    restoreViewport();
+    restoreViewport = () => {};
+  });
+
   afterEach(() => {
     cleanup();
     // `restoreAllMocks` does not cover the timer mock, and a leaked fake clock
@@ -104,13 +138,57 @@ describe("RsvpModal", () => {
     ));
 
     const fs = fieldsetFor("Priya");
-    expect(within(fs).queryByPlaceholderText(/Vegetarian/)).toBeNull();
+    expect(within(fs).queryByRole("group", { name: /dietary requirements/i })).toBeNull();
 
     fireEvent.click(within(fs).getByText("Attending"));
-    expect(within(fs).queryByPlaceholderText(/Vegetarian/)).toBeTruthy();
+    expect(within(fs).getByRole("group", { name: /dietary requirements for priya/i })).toBeTruthy();
 
     fireEvent.click(within(fs).getByText("Not attending"));
-    expect(within(fs).queryByPlaceholderText(/Vegetarian/)).toBeNull();
+    expect(within(fs).queryByRole("group", { name: /dietary requirements/i })).toBeNull();
+  });
+
+  it("reveals the free-text box only once Other is picked", () => {
+    render(() => (
+      <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
+    ));
+
+    const fs = fieldsetFor("Priya");
+    fireEvent.click(within(fs).getByText("Attending"));
+    // Presets cover the nameable cases, so the keyboard stays shut until the
+    // guest says the list does not have what they need.
+    expect(within(fs).queryByPlaceholderText(/onion/i)).toBeNull();
+
+    pickPreset(fs, /^other$/i);
+    expect(within(fs).getByPlaceholderText(/onion/i)).toBeTruthy();
+  });
+
+  it("opens a legacy prose-only reply with its text visible", () => {
+    // Written before the picker existed: free text, no presets, and nothing
+    // back-fills one into the other. The box has to show anyway or the guest's
+    // own answer is invisible to them.
+    render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "Coeliac — strictly gluten free.",
+            dietaryPresets: [],
+            dietaryConsentCurrent: true,
+          },
+        ]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+
+    const fs = fieldsetFor("Priya");
+    expect((within(fs).getByPlaceholderText(/onion/i) as HTMLInputElement).value).toBe(
+      "Coeliac — strictly gluten free.",
+    );
   });
 
   it("renders the dietary input at the 16px base size on mobile to avoid iOS zoom-on-focus", () => {
@@ -120,7 +198,7 @@ describe("RsvpModal", () => {
 
     const fs = fieldsetFor("Priya");
     fireEvent.click(within(fs).getByText("Attending"));
-    const input = within(fs).getByPlaceholderText(/Vegetarian/) as HTMLInputElement;
+    const input = openOtherText(fs);
     // Mobile-first base must be >=16px (Tailwind `text-base`); a smaller value
     // makes iOS Safari zoom the page when the field is focused.
     expect(input.className).toContain("text-base");
@@ -159,7 +237,14 @@ describe("RsvpModal", () => {
 
   it("allows submit with only some members answered, sending just the answered ones", async () => {
     const updatedRsvps: RsvpSummary[] = [
-      { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+      {
+        guestId: "guest-priya",
+        eventId: "event-1",
+        status: "attending",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsentCurrent: false,
+      },
     ];
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ rsvps: updatedRsvps }), {
@@ -210,8 +295,22 @@ describe("RsvpModal", () => {
 
   it("submit POSTs the expected JSON shape with credentials include and content-type", async () => {
     const updatedRsvps: RsvpSummary[] = [
-      { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "Vegetarian" },
-      { guestId: "guest-raj", eventId: "event-1", status: "declined", dietary: "" },
+      {
+        guestId: "guest-priya",
+        eventId: "event-1",
+        status: "attending",
+        dietary: "Vegetarian",
+        dietaryPresets: [],
+        dietaryConsentCurrent: true,
+      },
+      {
+        guestId: "guest-raj",
+        eventId: "event-1",
+        status: "declined",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsentCurrent: false,
+      },
     ];
     const fetchSpy = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ rsvps: updatedRsvps }), {
@@ -240,9 +339,9 @@ describe("RsvpModal", () => {
     // Priya: attending + dietary (+ consent box ticked, required for dietary)
     const priyaFs = fieldsetFor("Priya");
     fireEvent.click(within(priyaFs).getByText("Attending"));
-    const dietary = within(priyaFs).getByPlaceholderText(/Vegetarian/) as HTMLInputElement;
+    const dietary = openOtherText(priyaFs);
     fireEvent.input(dietary, { target: { value: "Vegetarian" } });
-    fireEvent.click(within(priyaFs).getByRole("checkbox"));
+    fireEvent.click(consentBox());
 
     // Raj: declined
     fireEvent.click(within(fieldsetFor("Raj")).getByText("Not attending"));
@@ -268,6 +367,7 @@ describe("RsvpModal", () => {
           eventId: "event-1",
           status: "attending",
           dietary: "Vegetarian",
+          dietaryPresets: ["other"],
           dietaryConsent: true,
         },
         {
@@ -275,6 +375,7 @@ describe("RsvpModal", () => {
           eventId: "event-1",
           status: "declined",
           dietary: "",
+          dietaryPresets: [],
           dietaryConsent: false,
         },
       ],
@@ -297,8 +398,22 @@ describe("RsvpModal", () => {
     // re-saving captures nothing new about completeness: toast, no celebration.
     vi.useFakeTimers();
     const alreadyComplete: RsvpSummary[] = [
-      { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
-      { guestId: "guest-raj", eventId: "event-1", status: "attending", dietary: "" },
+      {
+        guestId: "guest-priya",
+        eventId: "event-1",
+        status: "attending",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsentCurrent: false,
+      },
+      {
+        guestId: "guest-raj",
+        eventId: "event-1",
+        status: "attending",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsentCurrent: false,
+      },
     ];
     vi.stubGlobal(
       "fetch",
@@ -338,8 +453,22 @@ describe("RsvpModal", () => {
     // this save is the crossing and earns the sweep.
     vi.useFakeTimers();
     const both: RsvpSummary[] = [
-      { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
-      { guestId: "guest-raj", eventId: "event-1", status: "attending", dietary: "" },
+      {
+        guestId: "guest-priya",
+        eventId: "event-1",
+        status: "attending",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsentCurrent: false,
+      },
+      {
+        guestId: "guest-raj",
+        eventId: "event-1",
+        status: "attending",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsentCurrent: false,
+      },
     ];
     vi.stubGlobal(
       "fetch",
@@ -507,8 +636,22 @@ describe("RsvpModal", () => {
 
   it("prefills attending status and dietary from existingRsvps", () => {
     const existing: RsvpSummary[] = [
-      { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "Vegan" },
-      { guestId: "guest-raj", eventId: "event-1", status: "declined", dietary: "" },
+      {
+        guestId: "guest-priya",
+        eventId: "event-1",
+        status: "attending",
+        dietary: "Vegan",
+        dietaryPresets: [],
+        dietaryConsentCurrent: true,
+      },
+      {
+        guestId: "guest-raj",
+        eventId: "event-1",
+        status: "declined",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsentCurrent: false,
+      },
     ];
 
     render(() => (
@@ -522,20 +665,25 @@ describe("RsvpModal", () => {
     ));
 
     const priyaFs = fieldsetFor("Priya");
-    expect((within(priyaFs).getByPlaceholderText(/Vegetarian/) as HTMLInputElement).value).toBe(
-      "Vegan",
-    );
+    expect(openOtherText(priyaFs).value).toBe("Vegan");
     expect(within(priyaFs).getByText("Attending").getAttribute("aria-pressed")).toBe("true");
 
     const rajFs = fieldsetFor("Raj");
     expect(within(rajFs).getByText("Not attending").getAttribute("aria-pressed")).toBe("true");
     // Raj declined: no dietary input visible
-    expect(within(rajFs).queryByPlaceholderText(/Vegetarian/)).toBeNull();
+    expect(within(rajFs).queryByPlaceholderText(/onion/i)).toBeNull();
   });
 
   it("treats existing 'maybe' status as null (binary UX)", () => {
     const existing: RsvpSummary[] = [
-      { guestId: "guest-priya", eventId: "event-1", status: "maybe", dietary: "" },
+      {
+        guestId: "guest-priya",
+        eventId: "event-1",
+        status: "maybe",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsentCurrent: false,
+      },
     ];
 
     render(() => (
@@ -549,31 +697,185 @@ describe("RsvpModal", () => {
     ));
 
     const fs = fieldsetFor("Priya");
-    expect(within(fs).queryByPlaceholderText(/Vegetarian/)).toBeNull();
+    expect(within(fs).queryByPlaceholderText(/onion/i)).toBeNull();
     expect(within(fs).getByText("Attending").getAttribute("aria-pressed")).toBe("false");
     expect(within(fs).getByText("Not attending").getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("hides the consent checkbox until dietary text is entered (C-H2)", () => {
+  it("hides the consent checkbox until there is dietary data to authorise (C-H2)", () => {
     render(() => (
       <RsvpModal event={event} members={[priya]} apiUrl="https://api.test" onClose={() => {}} />
     ));
 
     const fs = fieldsetFor("Priya");
-    // Attending, no dietary text yet → no checkbox.
     fireEvent.click(within(fs).getByText("Attending"));
-    expect(within(fs).queryByRole("checkbox")).toBeNull();
+    expect(queryConsentBox()).toBeNull();
 
-    // Enter dietary text → consent checkbox appears, unticked, linking /privacy.
-    fireEvent.input(within(fs).getByPlaceholderText(/Vegetarian/), {
-      target: { value: "Vegan" },
-    });
-    const checkbox = within(fs).getByRole("checkbox") as HTMLInputElement;
+    // A preset alone earns the gate: `vegan` is no less special-category than
+    // the sentence it replaces.
+    pickPreset(fs, /^vegan$/i);
+    const checkbox = consentBox() as HTMLInputElement;
     expect(checkbox.checked).toBe(false);
-    const privacyLink = within(fs)
-      .getByText(/privacy notice/i)
-      .closest("a") as HTMLAnchorElement;
+    const privacyLink = screen.getByText(/privacy notice/i).closest("a") as HTMLAnchorElement;
     expect(privacyLink.getAttribute("href")).toBe("/privacy");
+  });
+
+  it("asks for consent ONCE and names everyone it covers", () => {
+    render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya, raj]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+
+    const priyaFs = fieldsetFor("Priya");
+    const rajFs = fieldsetFor("Raj");
+    fireEvent.click(within(priyaFs).getByText("Attending"));
+    fireEvent.click(within(rajFs).getByText("Attending"));
+    pickPreset(priyaFs, /^vegan$/i);
+    pickPreset(rajFs, /^nuts$/i);
+
+    // One box, not one per member — a household of four ticking four boxes that
+    // say the same thing is the friction this collapse removes.
+    expect(
+      screen.getAllByRole("checkbox", { name: /stored and shared with the caterers/i }),
+    ).toHaveLength(1);
+    expect(screen.getByText(/Priya and Raj/)).toBeTruthy();
+  });
+
+  it("never pre-ticks consent on behalf of a member who has never given it (C-H2)", () => {
+    // THE fan-out rule. Priya consented at a previous submit; Raj is answering
+    // for the first time. Collapsing four boxes into one is only safe if the
+    // survivor refuses to open ticked here — otherwise one tick nobody made for
+    // Raj would stamp his first-ever Art. 9(2)(a) consent.
+    render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya, raj]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: ["vegan"],
+            dietaryConsentCurrent: true,
+          },
+        ]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+
+    // Priya alone: her own record covers her, so the box opens ticked.
+    expect((consentBox() as HTMLInputElement).checked).toBe(true);
+
+    // Raj now offers dietary data of his own, with no record behind it.
+    const rajFs = fieldsetFor("Raj");
+    fireEvent.click(within(rajFs).getByText("Attending"));
+    pickPreset(rajFs, /^nuts$/i);
+
+    expect((consentBox() as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("lets a pre-ticked consent box be unticked, and then blocks submit", async () => {
+    // Withdrawal. The box opens ticked because Priya's saved reply is already
+    // covered; unticking it has to actually untick it. Under a derived
+    // `given() || alreadyCovers()` the click was a no-op write, the binding
+    // never re-ran, and the guest was left looking at an unticked box while the
+    // request carried `dietaryConsent: true`.
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const { getByText } = render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: ["vegan"],
+            dietaryConsentCurrent: true,
+          },
+        ]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+
+    const box = consentBox() as HTMLInputElement;
+    expect(box.checked).toBe(true);
+
+    fireEvent.click(box);
+    expect((consentBox() as HTMLInputElement).checked).toBe(false);
+
+    fireEvent.click(getByText("Save"));
+    await waitFor(() => expect(getByText(/tick the box/i)).toBeTruthy());
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("re-asks when the stored consent predates the current copy", () => {
+    // `dietaryConsentCurrent` is the server's verdict, not "a record exists".
+    // Consent given against superseded wording is not consent to the wording on
+    // screen, and a pre-ticked box is not consent at all.
+    render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: ["vegan"],
+            dietaryConsentCurrent: false,
+          },
+        ]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+    expect((consentBox() as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("blocks submit when a newly-covered member has no prior consent (C-H2)", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const { getByText } = render(() => (
+      <RsvpModal
+        event={event}
+        members={[priya, raj]}
+        existingRsvps={[
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: ["vegan"],
+            dietaryConsentCurrent: true,
+          },
+        ]}
+        apiUrl="https://api.test"
+        onClose={() => {}}
+      />
+    ));
+
+    const rajFs = fieldsetFor("Raj");
+    fireEvent.click(within(rajFs).getByText("Attending"));
+    pickPreset(rajFs, /^nuts$/i);
+    fireEvent.click(getByText("Save"));
+
+    await waitFor(() => {
+      expect(getByText(/tick the box/i)).toBeTruthy();
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("blocks submit and shows an error when dietary is entered without consent (C-H2)", async () => {
@@ -586,9 +888,7 @@ describe("RsvpModal", () => {
 
     const fs = fieldsetFor("Priya");
     fireEvent.click(within(fs).getByText("Attending"));
-    fireEvent.input(within(fs).getByPlaceholderText(/Vegetarian/), {
-      target: { value: "Vegan" },
-    });
+    pickPreset(fs, /^vegan$/i);
     // Leave the consent box unticked.
     fireEvent.click(getByText("Save"));
 
@@ -624,13 +924,21 @@ describe("RsvpModal", () => {
       eventId: "event-1",
       status: "attending",
       dietary: "",
+      dietaryPresets: [],
       dietaryConsent: false,
     });
   });
 
   it("prefills the consent box as ticked when an existing RSVP carries dietary (C-H2)", () => {
     const existing: RsvpSummary[] = [
-      { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "Vegan" },
+      {
+        guestId: "guest-priya",
+        eventId: "event-1",
+        status: "attending",
+        dietary: "Vegan",
+        dietaryPresets: [],
+        dietaryConsentCurrent: true,
+      },
     ];
     render(() => (
       <RsvpModal
@@ -642,7 +950,7 @@ describe("RsvpModal", () => {
       />
     ));
 
-    const checkbox = within(fieldsetFor("Priya")).getByRole("checkbox") as HTMLInputElement;
+    const checkbox = consentBox() as HTMLInputElement;
     expect(checkbox.checked).toBe(true);
   });
 
@@ -667,10 +975,10 @@ describe("RsvpModal", () => {
 
     const fs = fieldsetFor("Priya");
     fireEvent.click(within(fs).getByText("Attending"));
-    fireEvent.input(within(fs).getByPlaceholderText(/Vegetarian/), {
+    fireEvent.input(openOtherText(fs), {
       target: { value: "peanut allergy" },
     });
-    fireEvent.click(within(fs).getByRole("checkbox"));
+    fireEvent.click(consentBox());
     fireEvent.click(getByText("Save"));
 
     await waitFor(() => expect(fetchSpy).toHaveBeenCalled());
@@ -821,7 +1129,14 @@ describe("RsvpModal", () => {
         event={event}
         members={[priya]}
         existingRsvps={[
-          { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "Vegan" },
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "Vegan",
+            dietaryPresets: [],
+            dietaryConsentCurrent: true,
+          },
         ]}
         apiUrl="https://api.test"
         closed
@@ -848,7 +1163,7 @@ describe("RsvpModal", () => {
     expect(attending.getAttribute("aria-pressed")).toBe("true");
     expect(attending.disabled).toBe(true);
     expect((within(fs).getByText("Not attending") as HTMLButtonElement).disabled).toBe(true);
-    expect((within(fs).getByPlaceholderText(/Vegetarian/) as HTMLInputElement).disabled).toBe(true);
+    expect(openOtherText(fs).disabled).toBe(true);
   });
 
   it("never POSTs from a closed sheet, even on a form-level submit", async () => {
@@ -861,7 +1176,14 @@ describe("RsvpModal", () => {
         event={event}
         members={[priya]}
         existingRsvps={[
-          { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
         ]}
         apiUrl="https://api.test"
         closed
@@ -887,7 +1209,14 @@ describe("RsvpModal", () => {
         event={event}
         members={[priya]}
         existingRsvps={[
-          { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
         ]}
         apiUrl="https://api.test"
         closed={closed()}
@@ -961,7 +1290,14 @@ describe("RsvpModal", () => {
     /** Stub a 200 and answer for Priya, leaving the sheet mid-confirmation. */
     async function confirmOnce(props: Partial<{ onClose: () => void; withDietary: boolean }> = {}) {
       const rsvps: RsvpSummary[] = [
-        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+        {
+          guestId: "guest-priya",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsentCurrent: false,
+        },
       ];
       const fetchSpy = vi.fn().mockResolvedValue(
         new Response(JSON.stringify({ rsvps }), {
@@ -983,10 +1319,10 @@ describe("RsvpModal", () => {
       fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
       if (props.withDietary) {
         const fs = fieldsetFor("Priya");
-        fireEvent.input(within(fs).getByPlaceholderText(/Vegetarian/), {
+        fireEvent.input(openOtherText(fs), {
           target: { value: "Vegetarian" },
         });
-        fireEvent.click(within(fs).getByRole("checkbox"));
+        fireEvent.click(consentBox());
       }
       const save = view.getByRole("button", { name: "Save" });
       save.focus();
@@ -1025,7 +1361,14 @@ describe("RsvpModal", () => {
       const onConfirmed = vi.fn();
       const onClose = vi.fn();
       const rsvps: RsvpSummary[] = [
-        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+        {
+          guestId: "guest-priya",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsentCurrent: false,
+        },
       ];
       vi.stubGlobal(
         "fetch",
@@ -1094,7 +1437,14 @@ describe("RsvpModal", () => {
       fireEvent.click(within(fieldsetFor("Priya")).getByText("Attending"));
       fireEvent.click(document.querySelector("button[type='submit']") as HTMLElement);
       const rsvps: RsvpSummary[] = [
-        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+        {
+          guestId: "guest-priya",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsentCurrent: false,
+        },
       ];
       return () =>
         land(
@@ -1161,7 +1511,14 @@ describe("RsvpModal", () => {
       // would skip that path entirely and prove nothing about it.
       const onConfirmed = vi.fn();
       const rsvps: RsvpSummary[] = [
-        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+        {
+          guestId: "guest-priya",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsentCurrent: false,
+        },
       ];
       vi.stubGlobal(
         "fetch",
@@ -1257,7 +1614,14 @@ describe("RsvpModal", () => {
       const onConfirmed = vi.fn();
       const onClose = vi.fn();
       const rsvps: RsvpSummary[] = [
-        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+        {
+          guestId: "guest-priya",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsentCurrent: false,
+        },
       ];
       vi.stubGlobal(
         "fetch",
@@ -1291,8 +1655,22 @@ describe("RsvpModal", () => {
       const onConfirmed = vi.fn();
       const onClose = vi.fn();
       const rsvps: RsvpSummary[] = [
-        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
-        { guestId: "guest-raj", eventId: "event-1", status: "declined", dietary: "" },
+        {
+          guestId: "guest-priya",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsentCurrent: false,
+        },
+        {
+          guestId: "guest-raj",
+          eventId: "event-1",
+          status: "declined",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsentCurrent: false,
+        },
       ];
       vi.stubGlobal(
         "fetch",
@@ -1329,8 +1707,22 @@ describe("RsvpModal", () => {
       // answered entirely in this session.
       const onConfirmed = vi.fn();
       const rsvps: RsvpSummary[] = [
-        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
-        { guestId: "guest-raj", eventId: "event-1", status: "declined", dietary: "" },
+        {
+          guestId: "guest-priya",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsentCurrent: false,
+        },
+        {
+          guestId: "guest-raj",
+          eventId: "event-1",
+          status: "declined",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsentCurrent: false,
+        },
       ];
       vi.stubGlobal(
         "fetch",
@@ -1348,7 +1740,14 @@ describe("RsvpModal", () => {
           members={[priya, raj]}
           // Raj already answered on a previous visit; only Priya is missing.
           existingRsvps={[
-            { guestId: "guest-raj", eventId: "event-1", status: "declined", dietary: "" },
+            {
+              guestId: "guest-raj",
+              eventId: "event-1",
+              status: "declined",
+              dietary: "",
+              dietaryPresets: [],
+              dietaryConsentCurrent: false,
+            },
           ]}
           apiUrl="https://api.test"
           onClose={() => {}}
@@ -1421,10 +1820,8 @@ describe("RsvpModal", () => {
       // reply can no longer be sent.
       await confirmOnce({ withDietary: true });
       const fs = fieldsetFor("Priya");
-      expect((within(fs).getByPlaceholderText(/Vegetarian/) as HTMLInputElement).disabled).toBe(
-        true,
-      );
-      expect((within(fs).getByRole("checkbox") as HTMLInputElement).disabled).toBe(true);
+      expect(openOtherText(fs).disabled).toBe(true);
+      expect((consentBox() as HTMLInputElement).disabled).toBe(true);
     });
 
     it("never wears the in-flight fade while confirming", async () => {
@@ -1444,7 +1841,14 @@ describe("RsvpModal", () => {
       // would otherwise have disabled it.
       const [closed, setClosed] = createSignal(false);
       const rsvps: RsvpSummary[] = [
-        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+        {
+          guestId: "guest-priya",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsentCurrent: false,
+        },
       ];
       vi.stubGlobal(
         "fetch",
@@ -1493,7 +1897,14 @@ describe("RsvpModal", () => {
           new Response(
             JSON.stringify({
               rsvps: [
-                { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+                {
+                  guestId: "guest-priya",
+                  eventId: "event-1",
+                  status: "attending",
+                  dietary: "",
+                  dietaryPresets: [],
+                  dietaryConsentCurrent: false,
+                },
               ],
             }),
             { status: 200, headers: { "Content-Type": "application/json" } },
@@ -1534,7 +1945,14 @@ describe("RsvpModal", () => {
       // confirmation would reset to "Save" mid-sweep with nothing to catch it.
       const [rsvps, setRsvps] = createSignal<RsvpSummary[]>([]);
       const updated: RsvpSummary[] = [
-        { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+        {
+          guestId: "guest-priya",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsentCurrent: false,
+        },
       ];
       vi.stubGlobal(
         "fetch",
@@ -1580,7 +1998,14 @@ describe("RsvpModal", () => {
       try {
         const onClose = vi.fn();
         const rsvps: RsvpSummary[] = [
-          { guestId: "guest-priya", eventId: "event-1", status: "attending", dietary: "" },
+          {
+            guestId: "guest-priya",
+            eventId: "event-1",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
         ];
         vi.stubGlobal(
           "fetch",

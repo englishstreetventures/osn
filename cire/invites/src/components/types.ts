@@ -1,3 +1,5 @@
+import type { DietaryPreset } from "@cire/dietary";
+
 export interface DressSwatch {
   name: string;
   color: string;
@@ -61,6 +63,17 @@ export interface RsvpSummary {
   eventId: string;
   status: "attending" | "declined" | "maybe";
   dietary: string;
+  dietaryPresets: readonly DietaryPreset[];
+  /**
+   * Whether this row's Art. 9(2)(a) consent was given against the copy shown now.
+   *
+   * The sheet asks for consent once per submission rather than once per guest,
+   * so it has to know which members are already covered: one person's prior
+   * consent can never stand in for another's, and a household where anyone is
+   * new to consent — or whose record predates a consent-copy change — must be
+   * asked afresh. The server computes it, because the server owns the version.
+   */
+  dietaryConsentCurrent: boolean;
 }
 
 /**

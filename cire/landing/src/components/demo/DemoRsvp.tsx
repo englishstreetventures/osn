@@ -1,4 +1,6 @@
+import type { DietaryPreset } from "@cire/dietary";
 import Button from "@cire/ui/button";
+import DietaryPresets from "@cire/ui/dietary-presets";
 import { heldWhileClosing } from "@shared/ui/ui/modal";
 import { createEffect, createMemo, createSignal, createUniqueId, For, on, Show } from "solid-js";
 
@@ -126,6 +128,7 @@ interface DemoRsvpModalProps {
 interface MemberState {
   attending: Attending;
   dietary: string;
+  dietaryPresets: readonly DietaryPreset[];
 }
 
 function DemoRsvpModal(props: DemoRsvpModalProps) {
@@ -162,7 +165,10 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
       () => {
         setResponses(
           Object.fromEntries(
-            eventMembers().map((m) => [m.guestId, { attending: null, dietary: "" } as MemberState]),
+            eventMembers().map((m) => [
+              m.guestId,
+              { attending: null, dietary: "", dietaryPresets: [] } as MemberState,
+            ]),
           ),
         );
         setError(null);
@@ -174,6 +180,10 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
   function setAttending(guestId: string, attending: Attending) {
     setResponses((prev) => ({ ...prev, [guestId]: { ...prev[guestId]!, attending } }));
   }
+  function setDietaryPresets(guestId: string, dietaryPresets: readonly DietaryPreset[]) {
+    setResponses((prev) => ({ ...prev, [guestId]: { ...prev[guestId]!, dietaryPresets } }));
+  }
+
   function setDietary(guestId: string, dietary: string) {
     setResponses((prev) => ({ ...prev, [guestId]: { ...prev[guestId]!, dietary } }));
   }
@@ -262,17 +272,26 @@ function DemoRsvpModal(props: DemoRsvpModalProps) {
                     </button>
                   </div>
                   <Show when={responses()[guestId]?.attending === "attending"}>
-                    <label class="font-body text-text-muted text-ui-sm tracking-ui-wide mt-3 block uppercase">
-                      Dietary requirements
-                      <input
-                        type="text"
-                        class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base mt-1.5 block w-full rounded-sm border bg-transparent px-3 py-2.5 text-base transition-colors duration-200 focus:outline-none"
-                        placeholder="e.g. Vegetarian, no nuts"
-                        value={responses()[guestId]?.dietary ?? ""}
-                        onInput={(e) => setDietary(guestId, e.currentTarget.value)}
-                        maxLength={200}
+                    <div class="mt-3">
+                      <DietaryPresets
+                        value={responses()[guestId]?.dietaryPresets ?? []}
+                        onChange={(next) => setDietaryPresets(guestId, next)}
+                        label={`Dietary requirements for ${member.firstName}`}
                       />
-                    </label>
+                    </div>
+                    <Show when={responses()[guestId]?.dietaryPresets.includes("other")}>
+                      <label class="font-body text-text-muted text-ui-sm tracking-ui-wide mt-3 block uppercase">
+                        Anything else
+                        <input
+                          type="text"
+                          class="border-border font-body text-text placeholder:text-text-muted focus:border-gold sm:text-ui-base mt-1.5 block w-full rounded-sm border bg-transparent px-3 py-2.5 text-base transition-colors duration-200 focus:outline-none"
+                          placeholder="e.g. no onion or garlic"
+                          value={responses()[guestId]?.dietary ?? ""}
+                          onInput={(e) => setDietary(guestId, e.currentTarget.value)}
+                          maxLength={500}
+                        />
+                      </label>
+                    </Show>
                   </Show>
                 </fieldset>
               );

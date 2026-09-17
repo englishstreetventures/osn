@@ -97,7 +97,16 @@ const claim: ClaimResult = {
       imageUrl: null,
     },
   ],
-  rsvps: [{ guestId: "guest-1", eventId: "event-1", status: "attending", dietary: "Vegetarian" }],
+  rsvps: [
+    {
+      guestId: "guest-1",
+      eventId: "event-1",
+      status: "attending",
+      dietary: "Vegetarian",
+      dietaryPresets: [],
+      dietaryConsentCurrent: true,
+    },
+  ],
 };
 
 // `claim`'s single member is only invited to Mehndi (`eventIds: ["event-1"]`)
@@ -483,7 +492,14 @@ describe("gala InvitePage", () => {
     expect(typeof props.onSubmitted).toBe("function");
 
     const updated: RsvpSummary[] = [
-      { guestId: "guest-1", eventId: "event-1", status: "declined", dietary: "" },
+      {
+        guestId: "guest-1",
+        eventId: "event-1",
+        status: "declined",
+        dietary: "",
+        dietaryPresets: [],
+        dietaryConsentCurrent: false,
+      },
     ];
     (props.onSubmitted as (r: RsvpSummary[]) => void)(updated);
 
@@ -1149,7 +1165,14 @@ describe("gala InvitePage", () => {
         // is not a real sheet. The write lands at SUBMIT time…
         (capturedProps.value!.onSubmitted as (r: RsvpSummary[]) => void)([
           ...claimBothEvents.rsvps,
-          { guestId: "guest-1", eventId: "event-2", status: "attending", dietary: "" },
+          {
+            guestId: "guest-1",
+            eventId: "event-2",
+            status: "attending",
+            dietary: "",
+            dietaryPresets: [],
+            dietaryConsentCurrent: false,
+          },
         ]);
 
         // …and then, a full `SAVED_DWELL_MS` later, RsvpModal fires the cue and
@@ -1266,7 +1289,14 @@ describe("gala InvitePage", () => {
 
       // Reply recorded, sheet still open: nothing may show yet.
       const recorded: RsvpSummary[] = [
-        { guestId: "guest-1", eventId: "event-1", status: "attending", dietary: "" },
+        {
+          guestId: "guest-1",
+          eventId: "event-1",
+          status: "attending",
+          dietary: "",
+          dietaryPresets: [],
+          dietaryConsentCurrent: false,
+        },
       ];
       (capturedProps.value!.onSubmitted as (r: RsvpSummary[]) => void)(recorded);
       expect(respondButtonFor(container, "Mehndi").hasAttribute("data-rsvp-confirmed")).toBe(false);

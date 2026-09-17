@@ -74,7 +74,8 @@ const VIEW = {
         {
           ...ADA,
           status: "attending" as const,
-          dietary: "Gluten free",
+          dietary: "",
+          dietaryPresets: ["gluten"],
           consentSource: "guest" as const,
         },
         {
@@ -85,12 +86,14 @@ const VIEW = {
           familyCode: "JONES-KITE-77Q2",
           status: "declined" as const,
           dietary: "",
+          dietaryPresets: [],
           consentSource: "organiser_attested" as const,
         },
         {
           ...DEV,
           status: "maybe" as const,
-          dietary: "Nut allergy",
+          dietary: "Airborne is fine, contact is not.",
+          dietaryPresets: ["nuts", "other"],
           consentSource: "guest" as const,
         },
       ],
@@ -152,7 +155,9 @@ describe("RsvpView", () => {
     // The Ceremony section shows its responded guests + their status + dietary.
     const ceremony = screen.getByText("Ceremony").closest("section")!;
     expect(within(ceremony).getByText("Ada Sharma")).toBeTruthy();
-    expect(within(ceremony).getByText("Gluten free")).toBeTruthy();
+    // Ada picked from the list and typed nothing. Before the dashboard rendered
+    // presets this cell was blank while the CSV showed the requirement in full.
+    expect(within(ceremony).getByText("Gluten / coeliac")).toBeTruthy();
     expect(within(ceremony).getByText("Bo Jones")).toBeTruthy();
     // "Attending"/"Declined" appear in both the tally header (dt) and the status
     // badge — assert the guest-row badge specifically (within the table body).
@@ -377,8 +382,9 @@ describe("RsvpView", () => {
     // Cleo hasn't replied; her row carries the Record button.
     fireEvent.click(screen.getByRole("button", { name: "Record reply for Cleo Jones" }));
 
-    // Enter dietary text → the consent checkbox appears + gates submit.
-    const dietary = await screen.findByLabelText(/Dietary requirements/i);
+    // Type into the free-text box → the attestation checkbox appears + gates
+    // submit. ("Dietary requirements" now names the preset picker's group.)
+    const dietary = await screen.findByLabelText(/Anything else/i);
     fireEvent.input(dietary, { target: { value: "Nut allergy" } });
 
     // Saving without ticking consent surfaces the gate error, no PUT yet.
@@ -400,9 +406,17 @@ describe("RsvpView", () => {
     const body = JSON.parse(putCall[1]?.body as string) as {
       status: string;
       dietary: string;
+      dietaryPresets: readonly string[];
       dietaryConsent: boolean;
     };
-    expect(body).toEqual({ status: "attending", dietary: "Nut allergy", dietaryConsent: true });
+    // Typed into "Other" with nothing picked from the list — the server is what
+    // adds `other`, so the body carries the presets exactly as the form held them.
+    expect(body).toEqual({
+      status: "attending",
+      dietary: "Nut allergy",
+      dietaryPresets: [],
+      dietaryConsent: true,
+    });
   });
 
   it("editor edits an existing reply (prefilled, overwrites)", async () => {
@@ -446,7 +460,8 @@ describe("RsvpView", () => {
                 {
                   ...CLEO,
                   status: "attending" as const,
-                  dietary: "Nut allergy",
+                  dietary: "",
+                  dietaryPresets: ["nuts"] as const,
                   consentSource: "organiser_attested" as const,
                 },
               ],
@@ -471,7 +486,7 @@ describe("RsvpView", () => {
     const untouchedRow = within(reception).getByText("Ada Sharma").closest("tr")!;
 
     fireEvent.click(screen.getByRole("button", { name: "Record reply for Cleo Jones" }));
-    const dietary = await screen.findByLabelText(/Dietary requirements/i);
+    const dietary = await screen.findByLabelText(/Anything else/i);
     fireEvent.input(dietary, { target: { value: "Nut allergy" } });
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByRole("button", { name: /Save reply/i }));

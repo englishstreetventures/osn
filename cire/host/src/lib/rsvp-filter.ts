@@ -28,6 +28,8 @@
  * `filterRows` only reads it.
  */
 
+import { presetLabels, type DietaryPreset } from "@cire/dietary";
+
 export type RsvpStatus = "attending" | "declined" | "maybe";
 /** A row's status, including the guests who have not replied at all. */
 export type RsvpRowStatus = RsvpStatus | "none";
@@ -43,6 +45,7 @@ export interface RsvpFilterGuest {
   familyCode: string;
   status: RsvpStatus;
   dietary: string;
+  dietaryPresets: readonly DietaryPreset[];
   consentSource: ConsentSource;
 }
 
@@ -67,6 +70,8 @@ export interface RsvpRow {
   familyCode: string;
   status: RsvpRowStatus;
   dietary: string;
+  /** Empty on a row nobody has answered for, same as `dietary`. */
+  dietaryPresets: readonly DietaryPreset[];
   /** Null on a row nobody has answered for — there is no reply to attribute. */
   consentSource: ConsentSource | null;
   responded: boolean;
@@ -82,15 +87,24 @@ export const RSVP_FILTERS: readonly { key: RsvpFilterKey; label: string }[] = [
   { key: "none", label: "No reply" },
 ];
 
-/** Everything about a row a word can land on, lower-cased once. */
+/**
+ * Everything about a row a word can land on, lower-cased once.
+ *
+ * Preset LABELS, not keys: a host searching for a nut allergy types "nut", not
+ * "nuts" and certainly not `no_pork`. The labels are also what the row renders
+ * and what the caterer's sheet says, so the three agree on the words a search
+ * can find.
+ */
 function haystack(guest: {
   firstName: string;
   lastName: string;
   familyName: string;
   familyCode: string;
   dietary?: string;
+  dietaryPresets?: readonly DietaryPreset[];
 }): string {
-  return `${guest.firstName} ${guest.lastName} ${guest.familyName} ${guest.familyCode} ${guest.dietary ?? ""}`.toLowerCase();
+  const presets = presetLabels(guest.dietaryPresets ?? []).join(" ");
+  return `${guest.firstName} ${guest.lastName} ${guest.familyName} ${guest.familyCode} ${presets} ${guest.dietary ?? ""}`.toLowerCase();
 }
 
 /** Replies in the order the API gave them, then the guests who owe one. */
@@ -103,6 +117,7 @@ export function mergeRows(event: RsvpFilterEvent): RsvpRow[] {
     familyCode: guest.familyCode,
     status: guest.status,
     dietary: guest.dietary,
+    dietaryPresets: guest.dietaryPresets,
     consentSource: guest.consentSource,
     responded: true,
     search: haystack(guest),
@@ -115,6 +130,7 @@ export function mergeRows(event: RsvpFilterEvent): RsvpRow[] {
     familyCode: guest.familyCode,
     status: "none",
     dietary: "",
+    dietaryPresets: [],
     consentSource: null,
     responded: false,
     search: haystack(guest),

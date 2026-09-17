@@ -77,6 +77,8 @@ const savedRow: RsvpSummary = {
   eventId: "event-1",
   status: "attending",
   dietary: "",
+  dietaryPresets: [],
+  dietaryConsentCurrent: false,
 };
 
 /** The Respond button on the card — the control the confirmation plays on. */
@@ -305,7 +307,14 @@ describe("RSVP confirmation — RsvpModal ↔ EventCard", () => {
     // A fresh `Response` per call, not `mockResolvedValue(oneResponse)`: a body
     // can only be read once, so a reused instance makes the third submit throw
     // inside `res.json()` and surface as a connection error.
-    const rajRow = { guestId: "guest-raj", eventId: "event-1", status: "declined", dietary: "" };
+    const rajRow = {
+      guestId: "guest-raj",
+      eventId: "event-1",
+      status: "declined",
+      dietary: "",
+      dietaryPresets: [],
+      dietaryConsentCurrent: false,
+    };
     let call = 0;
     vi.stubGlobal(
       "fetch",

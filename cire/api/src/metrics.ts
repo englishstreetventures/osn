@@ -19,6 +19,7 @@
  * cardinality contract and makes the call-sites permanent.
  */
 
+import type { DietaryPreset } from "@cire/dietary";
 import {
   BYTE_BUCKETS,
   createCounter,
@@ -69,6 +70,7 @@ export const CIRE_METRICS = {
   rsvpBatchSize: "cire.rsvp.batch.size",
   // Guest RSVP submits refused before any write.
   rsvpBlocked: "cire.rsvp.blocked",
+  dietaryPreset: "cire.rsvp.dietary_preset.selected",
   // Organiser spreadsheet import.
   importApplied: "cire.import.applied",
   importRows: "cire.import.rows",
@@ -293,8 +295,11 @@ type RsvpUpsertedAttrs = { status: RsvpStatus; source: RsvpWriter; result: "ok" 
 /** Why a guest RSVP submit was refused before reaching the write — bounded set,
  *  one label per gate on the route. `deadline` = the wedding's RSVP-by date has
  *  passed; `preview` = the organiser's host-preview family, which never writes. */
-export type RsvpBlockedReason = "deadline" | "preview";
+export type RsvpBlockedReason = "deadline" | "preview" | "dietary_consent";
 type RsvpBlockedAttrs = { reason: RsvpBlockedReason };
+/** The preset key itself — a closed sixteen-value union, so the cardinality
+ *  ceiling is the vocabulary and cannot grow with traffic. */
+type DietaryPresetAttrs = { preset: DietaryPreset };
 /** Which organiser write touched a registry item. Bounded, one per route. */
 export type RegistryItemAction = "create" | "update" | "remove";
 type RegistryItemWriteAttrs = { action: RegistryItemAction };
@@ -491,6 +496,12 @@ const rsvpBlocked = createCounter<RsvpBlockedAttrs>({
   name: CIRE_METRICS.rsvpBlocked,
   description: "Guest RSVP submits refused before any write, by gate",
   unit: "{rsvp}",
+});
+
+const dietaryPreset = createCounter<DietaryPresetAttrs>({
+  name: CIRE_METRICS.dietaryPreset,
+  description: "Dietary presets selected on accepted RSVP replies, by preset",
+  unit: "{selection}",
 });
 
 const rsvpBatchSize = createHistogram<Record<never, never>>({
@@ -749,6 +760,17 @@ export const metricRegistryImageSave = (
 ): void => registryImageSave.inc({ source, result });
 
 export const metricRsvpBatchSize = (size: number): void => rsvpBatchSize.record(size, {});
+
+/**
+ * One increment per preset on an accepted reply.
+ *
+ * The attribute is the preset key, which is a closed sixteen-value union from
+ * `@cire/dietary` — bounded by construction, never a guest, household or event
+ * id. It is the only measure of whether the picker displaced free text, which is
+ * the claim the feature rests on: a caterer counting vegetarians by hand is the
+ * thing it exists to stop.
+ */
+export const metricDietaryPreset = (preset: DietaryPreset): void => dietaryPreset.inc({ preset });
 
 export const metricImportApplied = (
   result: "ok" | "error",

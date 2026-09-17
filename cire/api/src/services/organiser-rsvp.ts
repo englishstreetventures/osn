@@ -21,6 +21,7 @@
  */
 
 import { events, families, guestEvents, guests } from "@cire/db";
+import type { DietaryPreset } from "@cire/dietary";
 import { and, eq } from "drizzle-orm";
 import { Data, Effect } from "effect";
 
@@ -46,9 +47,13 @@ export interface OrganiserRsvpInput {
   eventId: string;
   status: "attending" | "declined" | "maybe";
   dietary: string;
-  /** Whether the organiser attests the guest consented to storing the dietary
-   *  free-text. Only meaningful when `dietary` is non-empty (the route collapses
-   *  both); stamps the Art. 9(2)(a) consent record as organiser-attested. */
+  /** The guest's picks from the closed vocabulary, as recorded by the organiser
+   *  from a phone or paper reply. */
+  dietaryPresets: readonly DietaryPreset[];
+  /** Whether the organiser attests the guest consented to storing their dietary
+   *  requirements. Only meaningful when there IS dietary data — presets or free
+   *  text, both special-category (the route collapses those); stamps the
+   *  Art. 9(2)(a) consent record as organiser-attested. */
   dietaryConsent: boolean;
 }
 
@@ -57,6 +62,7 @@ export interface OrganiserRsvpResult {
   eventId: string;
   status: "attending" | "declined" | "maybe";
   dietary: string;
+  dietaryPresets: readonly DietaryPreset[];
   consentSource: ConsentSource;
 }
 
@@ -68,12 +74,14 @@ export const organiserRsvpService = {
     GuestNotInWedding | EventNotInWedding | GuestNotInvitedToEvent,
     DbService
   > {
-    const { weddingId, guestId, eventId, status, dietary } = input;
+    const { weddingId, guestId, eventId, status, dietary, dietaryPresets } = input;
     // Consent authority is organiser-attested for every row this endpoint
-    // writes; the dietary consent record is only stamped when there IS dietary
-    // text to authorise (mirrors the guest path — clearing dietary clears it).
+    // writes; the consent record is only stamped when there IS dietary data to
+    // authorise — presets or free text (mirrors the guest path — clearing the
+    // whole answer clears it).
     const consentSource: ConsentSource = "organiser_attested";
-    const dietaryConsent = dietary.length > 0 && input.dietaryConsent;
+    const dietaryConsent =
+      (dietary.length > 0 || dietaryPresets.length > 0) && input.dietaryConsent;
 
     return Effect.gen(function* () {
       const db = yield* DbService;
@@ -127,11 +135,12 @@ export const organiserRsvpService = {
         eventId,
         status,
         dietary,
+        dietaryPresets,
         dietaryConsent,
         consentSource,
       });
 
-      return { guestId, eventId, status, dietary, consentSource };
+      return { guestId, eventId, status, dietary, dietaryPresets, consentSource };
     }).pipe(Effect.withSpan("cire.organiser-rsvp.record"));
   },
 };

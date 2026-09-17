@@ -239,7 +239,7 @@ function familyRow(family: SeedFamily): string {
 const FAMILY_COLUMNS = "id, wedding_id, public_id, family_name, created_at, updated_at";
 const GUEST_COLUMNS = "id, family_id, first_name, last_name, sort_order, created_at, updated_at";
 const RSVP_COLUMNS =
-  "id, guest_id, event_id, status, dietary, dietary_consent_at, dietary_consent_version, consent_source, created_at";
+  "id, guest_id, event_id, status, dietary, dietary_presets, dietary_consent_at, dietary_consent_version, consent_source, created_at";
 
 function familiesBlock(): string {
   const rows = guests.map(familyRow);
@@ -313,9 +313,12 @@ function rsvpRow(rsvp: SeedRsvp): string {
   // authorises exactly that free-text, so a reply with none has nothing to
   // consent to. Same rule the live write path applies
   // (cire/api/src/services/rsvp.ts).
-  const consentAt = rsvp.dietary === "" ? "NULL" : daysAgo(rsvp.daysAgo);
-  const consentVersion = rsvp.dietary === "" ? "NULL" : sql(DIETARY_CONSENT_VERSION);
-  return `  (${sql(rsvp.id)}, ${sql(rsvp.guestId)}, ${sql(rsvp.eventId)}, ${sql(rsvp.status)}, ${sql(rsvp.dietary)}, ${consentAt}, ${consentVersion}, ${sql(rsvp.consentSource)}, ${daysAgo(rsvp.daysAgo)})`;
+  // Presets are special-category exactly as the free text is, so either one
+  // being present is what earns the stamp.
+  const hasDietaryData = rsvp.dietary !== "" || rsvp.dietaryPresets !== "";
+  const consentAt = hasDietaryData ? daysAgo(rsvp.daysAgo) : "NULL";
+  const consentVersion = hasDietaryData ? sql(DIETARY_CONSENT_VERSION) : "NULL";
+  return `  (${sql(rsvp.id)}, ${sql(rsvp.guestId)}, ${sql(rsvp.eventId)}, ${sql(rsvp.status)}, ${sql(rsvp.dietary)}, ${sql(rsvp.dietaryPresets)}, ${consentAt}, ${consentVersion}, ${sql(rsvp.consentSource)}, ${daysAgo(rsvp.daysAgo)})`;
 }
 
 function rsvpsBlock(): string {

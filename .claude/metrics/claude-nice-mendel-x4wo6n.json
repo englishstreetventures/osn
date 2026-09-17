@@ -1,0 +1,194 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1095,
+    "branch": "claude/nice-mendel-x4wo6n",
+    "base_sha": "b94bb28874a5a1cbd1a1f1666888da3b42f262f4",
+    "head_sha": "2f9cbf9e6a1ef68566a16c09098664284ddf236a",
+    "generated_at": "2026-09-17T11:11:55.216Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1044,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:5"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "manual"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-09-16T08:31:31.794Z",
+    "last_ts": "2026-09-17T11:11:53.845Z",
+    "span_seconds": 96022,
+    "active_seconds": 10149,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 153.67995024999996,
+    "tokens": {
+      "input": 2591,
+      "output": 346302,
+      "thinking": 63238,
+      "cache_write_5m": 966124,
+      "cache_write_1h": 990016,
+      "cache_read": 248243280
+    },
+    "by_model": {
+      "claude-opus-5": {
+        "tokens": {
+          "input": 1371,
+          "output": 345886,
+          "thinking": 63238,
+          "cache_write_5m": 575687,
+          "cache_write_1h": 990016,
+          "cache_read": 243258002
+        },
+        "usd_equivalent": 143.78120974999993,
+        "messages": 686
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 1
+      },
+      "claude-fable-5-1": {
+        "tokens": {
+          "input": 1220,
+          "output": 416,
+          "thinking": 0,
+          "cache_write_5m": 390437,
+          "cache_write_1h": 0,
+          "cache_read": 4985278
+        },
+        "usd_equivalent": 9.898740499999999,
+        "messages": 40
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 957,
+          "output": 343444,
+          "thinking": 63238,
+          "cache_write_5m": 0,
+          "cache_write_1h": 990016,
+          "cache_read": 213387497
+        },
+        "usd_equivalent": 125.18479349999996,
+        "messages": 480
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1634,
+          "output": 2858,
+          "thinking": 0,
+          "cache_write_5m": 966124,
+          "cache_write_1h": 0,
+          "cache_read": 34855783
+        },
+        "usd_equivalent": 28.495156749999996,
+        "messages": 247
+      }
+    },
+    "effort": {
+      "high": 726
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 3,
+      "test": 18,
+      "docs": 7,
+      "config": 9,
+      "source": 27
+    },
+    "loc": {
+      "generated": {
+        "added": 57,
+        "deleted": 0
+      },
+      "test": {
+        "added": 1396,
+        "deleted": 89
+      },
+      "docs": {
+        "added": 61,
+        "deleted": 20
+      },
+      "config": {
+        "added": 3319,
+        "deleted": 5
+      },
+      "source": {
+        "added": 1332,
+        "deleted": 326
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "cire/dietary",
+      "cire/host",
+      "cire/invites",
+      "cire/landing",
+      "cire/ui",
+      "shared/observability",
+      "shared/ui"
+    ],
+    "touches_migration": true,
+    "commits": 7
+  },
+  "interaction": {
+    "user_turns": 26,
+    "corrective_turns": 25,
+    "tokens_before_first_edit": 5456210,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 723,
+      "Edit": 17,
+      "WebFetch": 13,
+      "Write": 11,
+      "Read": 7,
+      "ToolSearch": 5,
+      "mcp__github__issue_write": 5,
+      "Agent": 5,
+      "SubagentHandback": 5,
+      "Skill": 4,
+      "mcp__github__get_file_contents": 3,
+      "AskUserQuestion": 2,
+      "mcp__github__search_issues": 1,
+      "mcp__github__list_issue_types": 1,
+      "mcp__github__issue_read": 1,
+      "mcp__github__create_pull_request": 1,
+      "mcp__Claude_Code_Remote__subscribe_pr_activity": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 2,
+      "max_edits_one_file": 11
+    },
+    "skills": {
+      "new-feat": 1,
+      "stress-plan": 1,
+      "prep-pr": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 2,
+      "general-purpose": 3
+    }
+  }
+}
