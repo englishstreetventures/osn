@@ -22,7 +22,7 @@ import {
  *   - it links to the list's own page, at the encoded slug;
  *   - the peek shows real gifts (never empty frames), and the fourth tile is
  *     laid out only where a fourth fits;
- *   - the availability line is quantities, never names.
+ *   - it says nothing about how many gifts are left, and names no one.
  */
 
 const API = "https://api.test";
@@ -233,14 +233,14 @@ describe("the copy", () => {
     expect(screen.getByText("Thank You")).toBeTruthy();
   });
 
-  it("summarises the list in quantities and names no one", async () => {
+  it("summarises nothing: no count of what is left, and no one named", async () => {
     stubFetch(json(registry({ items: [item({ quantityWanted: 6, quantityClaimed: 2 })] })));
     const { container } = renderTeaser();
-    await waitFor(() =>
-      expect(container.querySelector("[data-gift-teaser-availability]")?.textContent).toBe(
-        "4 of 6 still available",
-      ),
-    );
+    await screen.findByRole("link", { name: "See the gift list" });
+
+    // The band invites a guest to the list. How much of it is spoken for is the
+    // couple's, and a tally on the invitation itself is a race in a headline.
+    expect(container.textContent).not.toMatch(/still available|has been reserved|of 6/i);
     expect(container.textContent).not.toMatch(/reserved by|claimed by/i);
   });
 });

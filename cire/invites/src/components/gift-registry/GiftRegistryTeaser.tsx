@@ -21,14 +21,14 @@
  * re-reads: without it, a guest who enters their code would have to reload
  * before the band the couple wrote appeared.
  *
- * NO COUNTS OF WHO. Same rule as the page: the availability line is quantities
- * only. Names and totals are the couple's.
+ * NO COUNTS AT ALL. Same rule as the page: the band says the couple have a list
+ * and shows a few of the gifts on it. How many are left, and who took them, are
+ * the couple's.
  */
 import { createMemo, createSignal, For, onCleanup, onMount, Show } from "solid-js";
 
 import {
   fetchGiftRegistry,
-  giftRegistryAvailabilityCopy,
   giftRegistryBody,
   giftRegistryEyebrow,
   giftRegistryHeading,
@@ -114,7 +114,6 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
   const eyebrow = createMemo(() => giftRegistryEyebrow(props.eyebrow));
   const heading = createMemo(() => giftRegistryHeading(props.heading, registry()?.headline));
   const body = createMemo(() => giftRegistryBody(props.body, registry()?.message));
-  const availabilityCopy = createMemo(() => giftRegistryAvailabilityCopy(items()));
 
   function imageBase(item: GiftRegistryItem): string {
     // Only ever called for the filtered preview items, which all have a name.
@@ -212,17 +211,6 @@ export function GiftRegistryTeaser(props: GiftRegistryTeaserProps) {
             >
               See the gift list
             </a>
-
-            <Show when={availabilityCopy()}>
-              {(copy) => (
-                <p
-                  data-gift-teaser-availability
-                  class="font-body text-text-muted text-ui-xs tracking-ui-widest mt-4 uppercase"
-                >
-                  {copy()}
-                </p>
-              )}
-            </Show>
           </div>
         </section>
       </Show>

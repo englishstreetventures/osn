@@ -15,7 +15,6 @@ import {
   claimGiftRegistryItem,
   fetchGiftRegistry,
   fetchGiftRegistryHousehold,
-  giftRegistryAvailabilityCopy,
   giftRegistryBody,
   giftRegistryClaimedCopy,
   giftRegistryImageBase,
@@ -62,8 +61,9 @@ const GiftMoneyPanel = lazy(() =>
  * this feature. Everything here is `gift-registry` / `GiftRegistry*` so the two
  * can never be confused, and no gift code lives under `src/designs/`.
  *
- * WHAT A GUEST MAY SEE. Counts, never names: "1 of 2 left". Who reserved what,
- * what anyone spent, and any running total belong to the couple. The API keeps
+ * WHAT A GUEST MAY SEE. What they themselves have reserved, and nothing about
+ * anybody else. Who reserved what, what anyone spent, and any running total —
+ * including how much of the list is still free — belong to the couple. The API keeps
  * that (its public read never selects a claimant identity); this component's job
  * is not to undo it. The one exception is this household's OWN claim, which it
  * reads from the separate credentialed `…/registry/mine` route — their own name,
@@ -269,8 +269,7 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
    */
   const intro = createMemo(() => giftRegistryBody(props.inviteBody, registry()?.message));
 
-  /** The two halves of the ledger line: what is free, and what is already theirs. */
-  const availabilityCopy = createMemo(() => giftRegistryAvailabilityCopy(items()));
+  /** The ledger line: what this household has already reserved. */
   const claimedCopy = createMemo(() => giftRegistryClaimedCopy(household()?.claims ?? []));
 
   /**
@@ -515,14 +514,17 @@ export function GiftRegistryPage(props: GiftRegistryPageProps) {
                 </p>
               }
             >
-              {/* The ledger: what is left, and what is already yours. The one place
-                  on the page that reads the WHOLE list at once, which is exactly
-                  what a page (rather than a section) is for — a guest scrolling a
-                  long list should never have to count it themselves. Counts only. */}
-              <div class="border-border font-body text-ui-xs tracking-ui-widest mb-10 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b pb-3 uppercase">
-                <p data-gift-availability class="text-text-muted">
-                  {availabilityCopy()}
-                </p>
+              {/* The ledger: what is already yours, and nothing about how much of
+                  the couple's list is left — a running tally of what is still
+                  free turns choosing a gift into a race.
+
+                  Mounted whenever the list has items, empty or not. Mounting it
+                  on the household's first claim instead would push the whole
+                  grid down under the guest who had just clicked. */}
+              <div
+                data-gift-ledger
+                class="border-border font-body text-ui-xs tracking-ui-widest mb-10 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b pb-3 uppercase"
+              >
                 <Show when={claimedCopy()}>
                   {(copy) => (
                     <p data-gift-claimed-count class="text-gold-ink">

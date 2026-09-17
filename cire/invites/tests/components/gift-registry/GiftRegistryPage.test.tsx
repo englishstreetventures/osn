@@ -151,7 +151,6 @@ describe("the gate", () => {
     );
     // Not one word of the couple's list is on the page beside the way in.
     expect(container.querySelector("[data-gift-item]")).toBeNull();
-    expect(container.querySelector("[data-gift-availability]")).toBeNull();
     expect(container.textContent).not.toContain("Copper pan");
     // And it is not dressed as a failure — nothing has gone wrong.
     expect(container.querySelector("[data-gift-unreachable]")).toBeNull();
@@ -236,9 +235,9 @@ describe("what the page paints", () => {
     routedFetch({ list: [json(registry({ items: [] }))] });
     const { container } = renderPage();
     await screen.findByText("The couple haven’t added any gifts yet.");
-    // Not the closed state, and no ledger line summarising nothing as "0 of 0".
+    // Not the closed state, and no ledger strip over a list with nothing in it.
     expect(container.querySelector("[data-gift-closed]")).toBeNull();
-    expect(container.querySelector("[data-gift-availability]")).toBeNull();
+    expect(container.querySelector("[data-gift-ledger]")).toBeNull();
   });
 
   it("carries the couple's intro, the invite's copy first and the module's second", async () => {
@@ -293,9 +292,10 @@ describe("the money panel", () => {
     const { container } = renderPage();
     await whenListed();
     await waitFor(() => expect(container.querySelector("[data-gift-money]")).toBeTruthy());
-    expect(container.querySelector("[data-gift-availability]")?.textContent).toBe(
-      "Every gift has been reserved",
-    );
+    // And the page does not announce that the list is spoken for. The panel is
+    // there because giving is still on offer, not as a consolation for a race
+    // this guest is being told they lost.
+    expect(container.textContent).not.toMatch(/still available|has been reserved/i);
   });
 
   it("is there for an empty published list too", async () => {
@@ -334,17 +334,19 @@ describe("coming back from Stripe", () => {
 });
 
 describe("the ledger line", () => {
-  it("counts what is free out of what the couple asked for, and nothing else", async () => {
+  it("says nothing about how much of the couple's list is still free", async () => {
     routedFetch({
       list: [json(registry({ items: [item({ quantityWanted: 4, quantityClaimed: 1 })] }))],
     });
     const { container } = renderPage();
     await whenListed();
 
-    expect(container.querySelector("[data-gift-availability]")?.textContent).toBe(
-      "3 of 4 still available",
-    );
-    // Nothing of this household's is claimed, so that half is simply absent.
+    // A running tally of what is left turns choosing a gift into a competition.
+    expect(container.textContent).not.toMatch(/still available|has been reserved/i);
+    // Nothing of this household's is claimed, so the strip holds nothing — and
+    // it is mounted anyway, so their first claim fills it instead of pushing
+    // the whole grid down under the guest who has just clicked.
+    expect(container.querySelector("[data-gift-ledger]")).toBeTruthy();
     expect(container.querySelector("[data-gift-claimed-count]")).toBeNull();
   });
 
@@ -371,9 +373,6 @@ describe("the ledger line", () => {
       expect(container.querySelector("[data-gift-claimed-count]")?.textContent).toBe(
         "You reserved 2 gifts",
       ),
-    );
-    expect(container.querySelector("[data-gift-availability]")?.textContent).toBe(
-      "2 of 4 still available",
     );
   });
 });
@@ -411,15 +410,16 @@ describe("the couple's shelves", () => {
 });
 
 describe("the privacy property", () => {
-  it("puts counts in the DOM and no claimant identity anywhere", async () => {
+  it("puts no claimant identity in the DOM, and no count either", async () => {
     routedFetch({
       list: [json(registry({ items: [item({ quantityWanted: 2, quantityClaimed: 1 })] }))],
     });
     const { container } = renderPage();
 
-    await screen.findByText("1 of 2 left");
+    await whenListed();
     const text = container.textContent ?? "";
     expect(text).not.toMatch(/reserved by|claimed by|Ashworth/i);
+    expect(text).not.toMatch(/1 of 2|still available/);
     expect(container.querySelector("[data-gift-mine]")).toBeNull();
   });
 
@@ -448,6 +448,23 @@ describe("a session that ends mid-visit", () => {
       "Your invite session has ended",
     );
     expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  it("still marks a gift that is gone, for a guest whose session has ended", async () => {
+    // Whether a gift is taken is a fact about the gift, not about the viewer's
+    // session, so the disabled control renders either way — and without it a
+    // dimmed card would carry no word saying why.
+    routedFetch({
+      list: [json(registry({ items: [item({ quantityWanted: 1, quantityClaimed: 1 })] }))],
+      mine: [json({ error: "Unauthorized" }, 401)],
+    });
+    const { container } = renderPage();
+
+    await whenListed();
+    const buttons = container.querySelectorAll("button");
+    expect(buttons).toHaveLength(1);
+    expect((buttons[0] as HTMLButtonElement).disabled).toBe(true);
+    expect(buttons[0].textContent).toBe("Reserved");
   });
 
   it("drops back to the gate when the guest signs out in this tab", async () => {
@@ -532,14 +549,14 @@ describe("claiming", () => {
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
 
     await screen.findByText("Reserved. “Copper pan” is marked as yours.");
-    // The counts come from the re-read, which lands after the message.
-    await waitFor(() =>
-      expect(container.querySelector("[data-gift-remaining]")?.textContent).toBe("1 of 2 left"),
-    );
-    expect(container.querySelector("[data-gift-mine]")).toBeTruthy();
-    // The ledger moves with the list, off the same re-read.
-    expect(container.querySelector("[data-gift-availability]")?.textContent).toBe(
-      "1 of 2 still available",
+    // The card's state comes from the re-read, which lands after the message.
+    await waitFor(() => expect(container.querySelector("[data-gift-mine]")).toBeTruthy());
+    // And the control it offers follows, once the form closes behind it — the
+    // form only closes on the resolved write, which is after both re-reads.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Change" })).toBeTruthy());
+    // The ledger moves with it, off the same re-read.
+    expect(container.querySelector("[data-gift-claimed-count]")?.textContent).toBe(
+      "You reserved 1 gift",
     );
     // Two list reads: the one on mount, and the one after the write.
     expect(calls.filter((c) => c.url.endsWith("/registry"))).toHaveLength(2);
@@ -565,10 +582,12 @@ describe("claiming", () => {
       "Another guest reserved the last “Copper pan” a moment ago. The list below is up to date.",
     );
 
-    // The counts beside the message came from a read that finished AFTER the
-    // 409 — never an optimistic decrement, never the stale ones.
+    // The state beside the message came from a read that finished AFTER the
+    // 409 — never an optimistic decrement, never the stale counts.
     await waitFor(() =>
-      expect(container.querySelector("[data-gift-remaining]")?.textContent).toBe("All reserved"),
+      expect((screen.getByRole("button", { name: "Reserved" }) as HTMLButtonElement).disabled).toBe(
+        true,
+      ),
     );
     expect(calls.filter((c) => c.url.endsWith("/registry"))).toHaveLength(2);
     // Nothing is claimed by us, and nothing pretends otherwise.
@@ -609,9 +628,12 @@ describe("claiming", () => {
     fireEvent.submit(container.querySelector("form") as HTMLFormElement);
 
     await screen.findByText(/Another guest reserved the last/);
+    // The ceiling came down with the re-read, and the hint beside the box with
+    // it — which is now the only thing on the page that says so.
     await waitFor(() =>
-      expect(container.querySelector("[data-gift-remaining]")?.textContent).toBe("1 of 3 left"),
+      expect((container.querySelector('input[type="number"]') as HTMLInputElement).max).toBe("1"),
     );
+    expect(screen.getByText("You can reserve 1.")).toBeTruthy();
     expect(container.querySelector("form")).toBeTruthy();
     expect((container.querySelector('input[type="text"]') as HTMLInputElement).value).toBe(
       "The Ashworths",

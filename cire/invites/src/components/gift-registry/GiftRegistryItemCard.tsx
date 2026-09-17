@@ -1,11 +1,11 @@
 import Button from "@cire/ui/button";
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, createUniqueId, Show } from "solid-js";
 
 import {
   formatGiftPrice,
   giftRegistryExternalHref,
+  giftRegistryQuantityHint,
   giftRegistryRemaining,
-  giftRegistryRemainingCopy,
   GIFT_REGISTRY_MAX_QUANTITY,
   type GiftRegistryClaimBody,
   type GiftRegistryHouseholdClaim,
@@ -46,13 +46,17 @@ export interface GiftRegistryItemCardProps {
 /**
  * One gift on the couple's list, as a guest sees it.
  *
- * THE PRIVACY PROPERTY THIS COMPONENT EXISTS TO KEEP: a guest sees COUNTS, never
- * names. "1 of 2 left" and nothing else. Who reserved a gift, what anyone spent,
- * and any running total are the couple's alone. That is enforced at the API —
- * the public read never selects a claimant identity — and this card must never
- * become the place it leaks back in. The ONLY name this component may ever
- * render is the household's OWN `displayName`, echoed back inside its own claim,
- * and only because that household typed it.
+ * THE PRIVACY PROPERTY THIS COMPONENT EXISTS TO KEEP: a guest sees what they
+ * themselves can do with this gift, and nothing about anybody else. Who reserved
+ * it, what anyone spent, and any running total are the couple's alone. That is
+ * enforced at the API — the public read never selects a claimant identity — and
+ * this card must never become the place it leaks back in. The ONLY name this
+ * component may ever render is the household's OWN `displayName`, echoed back
+ * inside its own claim, and only because that household typed it.
+ *
+ * A gift nobody can still reserve says so with a disabled control reading
+ * "Reserved". No count and no sentence about another guest: the card states what
+ * is left to do, never how many people got there first.
  *
  * A CLAIM IS NOT A PURCHASE. The guest reserves; nothing is charged, nothing is
  * sent. The copy says "reserve" throughout for that reason.
@@ -77,6 +81,16 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
   const [displayName, setDisplayName] = createSignal("");
 
   const remaining = createMemo(() => giftRegistryRemaining(props.item));
+
+  /**
+   * Nobody can reserve this one, and it is not ours.
+   *
+   * The test is the COUNT, not "another household holds a claim": a gift the
+   * couple asked six of can have five held elsewhere and still be one this guest
+   * can take. And a household holding its own claim keeps working controls
+   * whatever the count says, because the server's claim is an upsert.
+   */
+  const fullyReserved = createMemo(() => remaining() === 0 && !props.claim);
 
   /**
    * The most this household may reserve.
@@ -105,6 +119,16 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
   const externalHref = createMemo(() => giftRegistryExternalHref(props.item.externalUrl));
 
   const canReserveMore = createMemo(() => maxQuantity() >= 1);
+
+  /**
+   * Why the box will not take a larger number. `null` unless the ceiling has
+   * been pushed below what the couple asked for, which is the only case a guest
+   * cannot read off the card.
+   */
+  const quantityHint = createMemo(() =>
+    giftRegistryQuantityHint(maxQuantity(), props.item.quantityWanted),
+  );
+  const quantityHintId = createUniqueId();
 
   /**
    * Close an open form the moment the ceiling reaches zero.
@@ -158,9 +182,10 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
       note: trimmedNote === "" ? null : trimmedNote,
       displayName: trimmedName === "" ? null : trimmedName,
     });
-    // Only close on success. A 409 leaves the form open on purpose: the counts
-    // beside it have just been refreshed, so the guest can see what changed and
-    // decide, instead of having their words thrown away by a race they lost.
+    // Only close on success. A 409 leaves the form open on purpose: the list
+    // beside it has just been refreshed, and the box's own ceiling with it, so
+    // the guest can see what changed and decide instead of having their words
+    // thrown away by a race they lost.
     if (landed) setOpen(false);
   }
 
@@ -189,7 +214,11 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
             alt=""
             loading="lazy"
             decoding="async"
-            class={GIFT_CARD_IMAGE_CLASS}
+            // Dimmed when there is nothing left to reserve. The picture only —
+            // it is decorative (`alt=""`), so it carries no contrast floor,
+            // while the card's text is held to one by a palette derived per
+            // wedding and an opacity over it would put a passing wedding under.
+            class={fullyReserved() ? `${GIFT_CARD_IMAGE_CLASS} opacity-50` : GIFT_CARD_IMAGE_CLASS}
           />
         )}
       </Show>
@@ -210,14 +239,6 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
         <Show when={price()}>
           {(amount) => <p class="font-body text-gold-ink text-ui-base">{amount()}</p>}
         </Show>
-
-        {/* COUNTS ONLY. Never a name, never a total. */}
-        <p
-          data-gift-remaining
-          class="font-body text-text-muted text-ui-xs tracking-ui-widest uppercase"
-        >
-          {giftRegistryRemainingCopy(props.item)}
-        </p>
 
         <Show when={externalHref()}>
           {(href) => (
@@ -250,10 +271,16 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
         </Show>
 
         <div class="mt-auto flex flex-wrap items-center gap-3 pt-2">
-          {/* Fully reserved by OTHER households — said once, for everyone,
-              signed in or not. Still a count, still no name. */}
-          <Show when={!props.claim && remaining() === 0}>
-            <p class="font-body text-text-muted text-ui-sm">Another guest has this one covered.</p>
+          {/* Reserved elsewhere. A real `disabled` button rather than an
+              `aria-disabled` one: the word IS the whole message, so there is
+              nothing behind the control for a keyboard user to reach, and the
+              native attribute is what exempts the dimmed rendering from the
+              contrast floor. Rendered signed in or out — whether a gift is taken
+              is a fact about the gift, not about who is looking at it. */}
+          <Show when={fullyReserved()}>
+            <Button variant="cta" disabled>
+              Reserved
+            </Button>
           </Show>
           <Show when={props.canClaim && !open()}>
             <Show when={canReserveMore()}>
@@ -278,7 +305,7 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
         {/* The form is INLINE, not an overlay. Deliberate: a `transform` on any
             ancestor traps `position: fixed` against that ancestor, and this card
             sits inside animated sections — an inline form has no such hazard to
-            get wrong, and keeps the counts it depends on visible while the guest
+            get wrong, and keeps the gift it belongs to visible while the guest
             fills it in. */}
         {/* `canClaim` gates the form as well as the buttons: a session that
             lapses mid-visit (the 401 branch) drops this household back to the
@@ -286,18 +313,33 @@ export function GiftRegistryItemCard(props: GiftRegistryItemCardProps) {
             Confirm that can only 401 again. */}
         <Show when={open() && props.canClaim}>
           <form class="flex flex-col gap-3 pt-1" onSubmit={submit}>
-            <label class="font-body text-text-muted text-ui-xs tracking-ui-widest flex flex-col gap-1 uppercase">
-              How many
-              <input
-                type="number"
-                min="1"
-                max={maxQuantity()}
-                step="1"
-                value={quantityText()}
-                onInput={(e) => setQuantityText(e.currentTarget.value)}
-                class="border-text/55 bg-text/[0.045] font-body text-text focus:border-gold text-ui-base w-full rounded-sm border px-3 py-2 tracking-normal normal-case transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
-              />
-            </label>
+            <div class="flex flex-col gap-1">
+              <label class="font-body text-text-muted text-ui-xs tracking-ui-widest flex flex-col gap-1 uppercase">
+                How many
+                <input
+                  type="number"
+                  min="1"
+                  max={maxQuantity()}
+                  step="1"
+                  value={quantityText()}
+                  // Only while there is a hint to point at: an `aria-describedby`
+                  // naming an id that is not in the DOM describes nothing.
+                  aria-describedby={quantityHint() ? quantityHintId : undefined}
+                  onInput={(e) => setQuantityText(e.currentTarget.value)}
+                  class="border-text/55 bg-text/[0.045] font-body text-text focus:border-gold text-ui-base w-full rounded-sm border px-3 py-2 tracking-normal normal-case transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--invite-focus)]"
+                />
+              </label>
+              {/* OUTSIDE the label. The input is labelled by wrapping, so the
+                  label's whole text is its accessible name and a hint inside
+                  would be read out as part of it. */}
+              <Show when={quantityHint()}>
+                {(hint) => (
+                  <p id={quantityHintId} class="font-body text-text-muted text-ui-xs">
+                    {hint()}
+                  </p>
+                )}
+              </Show>
+            </div>
 
             <label class="font-body text-text-muted text-ui-xs tracking-ui-widest flex flex-col gap-1 uppercase">
               From (optional)

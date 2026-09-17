@@ -459,14 +459,26 @@ export function giftRegistryRemaining(item: GiftRegistryItem): number {
 }
 
 /**
- * The counts line a guest sees. COUNTS ONLY — this is the whole of what the
- * guest surface may say about who has taken what. No names, no totals.
+ * Why the quantity box will not take a larger number — said only where the
+ * answer would otherwise be a surprise.
+ *
+ * A ceiling is worth explaining when it sits BELOW what the couple asked for,
+ * which is to say when someone else has already taken some. That is the number
+ * a guest cannot work out from the page: the couple wanted three, three is what
+ * the card is for, and the box stops at two.
+ *
+ * Where the ceiling IS the couple's ask, it explains nothing — "You can reserve
+ * up to 3" under a gift they asked three of is the page repeating itself, and a
+ * hint that appears on every form is one nobody reads. Single-quantity gifts,
+ * which are most of them, fall here and stay silent.
+ *
+ * `null` means render no hint. The input's own `max` bounds the control either
+ * way; this is the explanation, never the guard.
  */
-export function giftRegistryRemainingCopy(item: GiftRegistryItem): string {
-  const remaining = giftRegistryRemaining(item);
-  if (remaining === 0) return "All reserved";
-  if (item.quantityWanted <= 1) return "Available";
-  return `${remaining} of ${item.quantityWanted} left`;
+export function giftRegistryQuantityHint(max: number, wanted: number): string | null {
+  if (!Number.isFinite(max) || max < 1) return null;
+  if (!Number.isFinite(wanted) || max >= wanted) return null;
+  return max === 1 ? "You can reserve 1." : `You can reserve up to ${max}.`;
 }
 
 /**
@@ -602,45 +614,13 @@ export function giftPageTitle(heading: string, heroTitle: string | null | undefi
   return heroTitle ? `${heroTitle} — ${heading}` : heading;
 }
 
-/** How many gifts are free, out of how many the couple asked for. */
-export interface GiftRegistryAvailability {
-  available: number;
-  total: number;
-}
-
 /**
- * The list read as counts. Quantities, not rows: a couple who asked for six wine
- * glasses wrote one row, and "5 of 6 still available" is what a guest can act on.
- */
-export function giftRegistryAvailability(
-  items: readonly GiftRegistryItem[],
-): GiftRegistryAvailability {
-  let available = 0;
-  let total = 0;
-  for (const item of items) {
-    available += giftRegistryRemaining(item);
-    // Guard the row itself: a negative or non-finite `quantityWanted` would
-    // otherwise put a nonsense number in the one line that summarises the page.
-    total += Math.max(0, Number.isFinite(item.quantityWanted) ? item.quantityWanted : 0);
-  }
-  return { available, total };
-}
-
-/**
- * The page's ledger line. COUNTS ONLY — the same rule the cards keep: how many
- * are left, never who took what.
+ * This household's own reservations, counted for the ledger line.
  *
- * `null` for an empty list, which has its own copy ("no gifts yet") and must not
- * be summarised as "0 of 0".
+ * The one count the guest surface keeps, and it is theirs: what they have
+ * reserved, not how much of the couple's list is left. Quantities rather than
+ * rows — one row for six glasses is six gifts to a guest.
  */
-export function giftRegistryAvailabilityCopy(items: readonly GiftRegistryItem[]): string | null {
-  const { available, total } = giftRegistryAvailability(items);
-  if (total === 0) return null;
-  if (available === 0) return "Every gift has been reserved";
-  return `${available} of ${total} still available`;
-}
-
-/** This household's own reservations, counted for the ledger line. */
 export function giftRegistryClaimedCopy(
   claims: readonly GiftRegistryHouseholdClaim[],
 ): string | null {

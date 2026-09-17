@@ -13,10 +13,10 @@ import type { GiftRegistryHouseholdClaim, GiftRegistryItem } from "../../../src/
 /**
  * One gift card.
  *
- * The load-bearing assertions here are the privacy property (counts, never a
- * name), the render-site https re-check on the shop link, and the reserve
- * ceiling — which is NOT `remaining`, because the server's claim is an upsert
- * whose guard excludes this household's own row.
+ * The load-bearing assertions here are the privacy property (nothing about any
+ * other household, in either direction), the render-site https re-check on the
+ * shop link, and the reserve ceiling — which is NOT `remaining`, because the
+ * server's claim is an upsert whose guard excludes this household's own row.
  */
 
 const ITEM: GiftRegistryItem = {
@@ -64,22 +64,48 @@ function renderCard(
 
 afterEach(cleanup);
 
-describe("privacy: counts, never names", () => {
-  it("renders only a count for an item another household has taken", () => {
+describe("privacy: nothing about any other household", () => {
+  it("says nothing about what other households have taken", () => {
     const { container } = renderCard({
       item: { quantityWanted: 2, quantityClaimed: 1 },
     });
 
-    expect(container.querySelector("[data-gift-remaining]")?.textContent).toBe("1 of 2 left");
+    // One of the two is gone, and the card is silent about it: a running count
+    // is the same scarcity signal as a sentence, one gift smaller.
+    expect(screen.getByRole("button", { name: "Reserve" })).toBeTruthy();
+    expect(container.textContent).not.toMatch(/1 of 2|left|All reserved|Available/);
     // Nothing in the payload names a claimant, and nothing here invents one.
     expect(container.querySelector("[data-gift-mine]")).toBeNull();
     expect(container.textContent).not.toMatch(/reserved by/i);
   });
 
-  it("says a fully-claimed item is covered without saying by whom", () => {
+  it("marks a gift nobody can still reserve with a disabled control, naming no one", () => {
     const { container } = renderCard({ item: { quantityWanted: 1, quantityClaimed: 1 } });
-    expect(container.querySelector("[data-gift-remaining]")?.textContent).toBe("All reserved");
-    expect(screen.getByText("Another guest has this one covered.")).toBeTruthy();
+
+    const reserved = screen.getByRole("button", { name: "Reserved" }) as HTMLButtonElement;
+    // The WORD carries the state. Opacity alone is not a state indicator, and
+    // the native `disabled` is what exempts the dimmed rendering from the
+    // contrast floor — `aria-disabled` would earn neither.
+    expect(reserved.disabled).toBe(true);
+    expect(container.textContent).not.toMatch(/another guest|reserved by|All reserved/i);
+  });
+
+  it("dims the picture of a gift that is gone, and only the picture", () => {
+    const imageBase = "https://api.test/api/invite/anita-and-ben/registry/image/registry-abc";
+    const free = renderCard({ imageBase });
+    expect((free.container.querySelector("img") as HTMLImageElement).className).not.toMatch(
+      /opacity-/,
+    );
+
+    cleanup();
+    const { container } = renderCard({
+      imageBase,
+      item: { quantityWanted: 1, quantityClaimed: 1 },
+    });
+    expect((container.querySelector("img") as HTMLImageElement).className).toContain("opacity-50");
+    // The card's TEXT is held to a contrast floor by a palette derived per
+    // wedding, so an opacity over it would put a passing wedding under.
+    expect((container.querySelector("h3") as HTMLElement).className).not.toMatch(/opacity-/);
   });
 
   it("echoes back only THIS household's own display name", () => {
@@ -141,6 +167,9 @@ describe("the reserve ceiling", () => {
       item: { quantityWanted: 2, quantityClaimed: 2 },
       claim: { itemId: "gi-1", quantity: 2, status: "reserved", note: null, displayName: null },
     });
+    // Ours, so never the disabled control: the count says nothing is left, and
+    // the upsert says we may still change what we hold.
+    expect(screen.queryByRole("button", { name: "Reserved" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Change" }));
     const input = container.querySelector('input[type="number"]') as HTMLInputElement;
     expect(input.max).toBe("2");
@@ -148,14 +177,81 @@ describe("the reserve ceiling", () => {
     expect(input.value).toBe("2");
   });
 
-  it("offers no reserve control at all when nothing is left and we hold none", () => {
+  it("swaps the live control for the disabled one when nothing is left and we hold none", () => {
     renderCard({ item: { quantityWanted: 1, quantityClaimed: 1 } });
     expect(screen.queryByRole("button", { name: "Reserve" })).toBeNull();
+    expect((screen.getByRole("button", { name: "Reserved" }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 
-  it("shows no controls at all for a signed-out guest", () => {
+  it("shows a signed-out guest no controls while the gift is still free", () => {
     const { container } = renderCard({ canClaim: false });
     expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+
+  it("shows a signed-out guest the same disabled control on a gift that is gone", () => {
+    // Whether a gift is taken is a fact about the gift, not about the viewer's
+    // session. Rendering nothing would leave a dimmed card with no word on it,
+    // which is opacity as the sole state indicator.
+    const { container } = renderCard({
+      canClaim: false,
+      item: { quantityWanted: 1, quantityClaimed: 1 },
+    });
+
+    const buttons = container.querySelectorAll("button");
+    expect(buttons).toHaveLength(1);
+    expect((buttons[0] as HTMLButtonElement).disabled).toBe(true);
+    expect(buttons[0].textContent).toBe("Reserved");
+  });
+});
+
+describe("the ceiling hint", () => {
+  it("says what the ceiling is, beside the box that enforces it", () => {
+    const { container } = renderCard({ item: { quantityWanted: 3, quantityClaimed: 1 } });
+    fireEvent.click(screen.getByRole("button", { name: "Reserve" }));
+
+    const input = container.querySelector('input[type="number"]') as HTMLInputElement;
+    const hint = screen.getByText("You can reserve up to 2.");
+    expect(input.max).toBe("2");
+    // DESCRIBED by, not labelled by: the label wraps the input, so its whole
+    // text is the accessible name and a hint inside would be read as part of it.
+    expect(input.getAttribute("aria-describedby")).toBe(hint.id);
+    expect(input.closest("label")?.textContent).not.toContain("You can reserve");
+  });
+
+  it("says nothing on a single-quantity gift, and describes nothing", () => {
+    // Most gifts are this one, and the box already permits exactly 1. A hint
+    // here would put a line under every open form on the page, which is how a
+    // hint stops being read at all.
+    const { container } = renderCard();
+    fireEvent.click(screen.getByRole("button", { name: "Reserve" }));
+
+    const input = container.querySelector('input[type="number"]') as HTMLInputElement;
+    expect(input.max).toBe("1");
+    expect(container.textContent).not.toContain("You can reserve");
+    // And an `aria-describedby` naming an id that is not in the DOM would
+    // describe nothing, so the attribute goes with the hint.
+    expect(input.getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("says nothing on a multi-quantity gift nobody has touched", () => {
+    const untouched = renderCard({ item: { quantityWanted: 3, quantityClaimed: 0 } });
+    fireEvent.click(screen.getByRole("button", { name: "Reserve" }));
+    expect(
+      (untouched.container.querySelector('input[type="number"]') as HTMLInputElement).max,
+    ).toBe("3");
+    expect(untouched.container.textContent).not.toContain("You can reserve");
+
+    cleanup();
+    // Nor when the whole ask is THIS household's own: the upsert lets them
+    // keep all of it, so the ceiling is still the couple's number.
+    const { container } = renderCard({
+      item: { quantityWanted: 2, quantityClaimed: 2 },
+      claim: { itemId: "gi-1", quantity: 2, status: "reserved", note: null, displayName: null },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Change" }));
+    expect(container.textContent).not.toContain("You can reserve");
   });
 });
 
