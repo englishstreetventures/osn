@@ -58,7 +58,7 @@ interface PreviewResponse {
 
 interface ApplyResponse {
   summary: {
-    importId: string;
+    changeId: string;
     eventsCreated: number;
     eventsUpdated: number;
     eventsRemoved: number;
@@ -481,7 +481,7 @@ export default function ImportPanel(props: { weddingId: string; kind: ImportKind
         {(s) => (
           <div class="border-gold/30 bg-gold/5 text-text text-ui-base flex flex-col gap-2 rounded-sm border p-4">
             <p class="font-display text-gold-ink text-ui-md">Applied</p>
-            <p class="text-text-muted text-ui-xs font-mono">{s().importId}</p>
+            <p class="text-text-muted text-ui-xs font-mono">{s().changeId}</p>
             <p>
               events: +{s().eventsCreated} / ~{s().eventsUpdated} / -{s().eventsRemoved} · families:
               +{s().familiesCreated} / ~{s().familiesUpdated ?? 0} / -{s().familiesRemoved} ·

@@ -241,7 +241,7 @@ describe("GuestsEditor", () => {
         );
       }
       if (u.endsWith("/changes/apply")) {
-        return Promise.resolve(json({ summary: { importId: "chg_1" } }));
+        return Promise.resolve(json({ summary: { changeId: "chg_1" } }));
       }
       if (u.endsWith("/events")) return Promise.resolve(json(EVENTS));
       if (u.endsWith("/households")) return Promise.resolve(json(HOUSEHOLDS));

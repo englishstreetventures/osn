@@ -161,7 +161,7 @@ describe("ChangeHistory", () => {
   it("reverts via changes/revert: confirms, POSTs the change id, invalidates + reloads", async () => {
     authFetchMock
       .mockResolvedValueOnce(jsonResponse({ imports: [EDITOR_APPLIED], nextCursor: null }))
-      .mockResolvedValueOnce(jsonResponse({ summary: { importId: "chg_editor" } }))
+      .mockResolvedValueOnce(jsonResponse({ summary: { changeId: "chg_editor" } }))
       .mockResolvedValueOnce(
         jsonResponse({
           imports: [{ ...EDITOR_APPLIED, status: "reverted", revertedAt: Date.now() }],

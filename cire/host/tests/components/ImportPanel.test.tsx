@@ -542,7 +542,7 @@ describe("ImportPanel — surfacing import failures", () => {
         new Response(
           JSON.stringify({
             summary: {
-              importId: "chg_1",
+              changeId: "chg_1",
               eventsCreated: 0,
               eventsUpdated: 0,
               eventsRemoved: 0,
@@ -566,6 +566,8 @@ describe("ImportPanel — surfacing import failures", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /apply import/i }));
     await waitFor(() => expect(document.body.textContent).toMatch(/applied/i));
+    // The applied summary renders `summary.changeId` from the apply response.
+    expect(document.body.textContent).toContain("chg_1");
     expect(document.body.textContent).toContain("families: +2 / ~1 / -0");
     expect(document.body.textContent).not.toContain("undefined");
 
@@ -607,7 +609,7 @@ describe("ImportPanel — surfacing import failures", () => {
         new Response(
           JSON.stringify({
             summary: {
-              importId: "chg_1",
+              changeId: "chg_1",
               eventsCreated: 0,
               eventsUpdated: 0,
               eventsRemoved: 0,

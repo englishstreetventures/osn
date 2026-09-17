@@ -223,7 +223,7 @@ export const ImportPlan = Schema.Struct({
 export type ImportPlan = Schema.Schema.Type<typeof ImportPlan>;
 
 export const ImportSummary = Schema.Struct({
-  importId: Schema.String,
+  changeId: Schema.String,
   eventsCreated: Schema.Number,
   eventsUpdated: Schema.Number,
   eventsRemoved: Schema.Number,

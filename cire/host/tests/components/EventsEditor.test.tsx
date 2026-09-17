@@ -618,7 +618,7 @@ describe("EventsEditor", () => {
         );
       }
       if (u.endsWith("/changes/apply"))
-        return Promise.resolve(json({ summary: { importId: "chg_1" } }));
+        return Promise.resolve(json({ summary: { changeId: "chg_1" } }));
       if (u.endsWith("/events"))
         return Promise.resolve(json([{ ...EVENTS[0], name: "Wedding Ceremony" }, EVENTS[1]]));
       if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));
@@ -685,7 +685,7 @@ describe("EventsEditor", () => {
         );
       }
       if (u.endsWith("/changes/apply"))
-        return Promise.resolve(json({ summary: { importId: "chg_1" } }));
+        return Promise.resolve(json({ summary: { changeId: "chg_1" } }));
       if (u.endsWith("/events"))
         return Promise.resolve(json([{ ...EVENTS[0], name: "Wedding Ceremony" }, EVENTS[1]]));
       if (u.endsWith("/guests")) return Promise.resolve(json(GUESTS));

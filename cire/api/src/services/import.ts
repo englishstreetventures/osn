@@ -1111,7 +1111,7 @@ export function applyImport(
     );
 
     return {
-      importId,
+      changeId: importId,
       eventsCreated: plan.eventCreates.length,
       eventsUpdated: plan.eventUpdates.length,
       eventsRemoved: plan.eventRemoves.length,
