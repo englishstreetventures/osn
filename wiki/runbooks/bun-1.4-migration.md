@@ -9,7 +9,7 @@ related:
   - "[[dev-environment]]"
   - "[[devloop-urls]]"
   - "[[commands]]"
-last-reviewed: 2026-09-11
+last-reviewed: 2026-09-17
 ---
 
 # Bun 1.4 migration
@@ -271,9 +271,12 @@ same reason, and is not a candidate either.
   so is the downside: a resolution break there is a failed deploy, not a red PR.
   Isolated linking removes phantom hoisted dependencies, which is stricter and
   therefore what breaks. **Trial it on `build-test` specifically** — that is where
-  the three fussy consumers live (vitest's browser provider, playwright, astro) —
-  and via the `bun install --linker=isolated` CLI flag, since the `bunfig.toml`
-  key is repo-wide and cannot be scoped to one job.
+  the four fussy consumers live (vitest's browser provider, playwright, astro,
+  and `cire/db db:studio`, whose `better-sqlite3` now lives in its own
+  `devDependencies` rather than the resolution it borrowed from `osn/db`,
+  `pulse/db` and `zap/db`) — and via the `bun install --linker=isolated` CLI
+  flag, since the `bunfig.toml` key is repo-wide and cannot be scoped to one
+  job.
 
 ### Test runner
 
