@@ -214,10 +214,19 @@ export function EventCard(props: EventCardProps) {
             {props.event.description}
           </p>
           {/* One act matters on this page: answering. So "Respond" is the only
-              filled button, and "Event Details" stays an outlined one beside it
-              — a real button, but visibly second. Two equal outlines made the
-              guest choose between them; now the choice is made for them. */}
+              filled button, and "Event Details" stays quiet — a real button,
+              but not the one the eye lands on. Emphasis alone carries that:
+              "Event Details" is the one read first, and the fill is what tells
+              the two apart. Two equal outlines made the guest choose between
+              them; now the choice is made for them. */}
           <div class="flex flex-wrap gap-3">
+            <Button
+              variant="quiet"
+              class="min-h-11 flex-1 duration-200 sm:flex-none sm:py-2.5"
+              onClick={() => props.onDetails(props.event)}
+            >
+              Event Details
+            </Button>
             {/* Closed, this drops to the SECONDARY outlined treatment rather
                 than dimming the filled button with an opacity: without the
                 native `disabled` attribute there is no WCAG 1.4.3
@@ -296,13 +305,6 @@ export function EventCard(props: EventCardProps) {
                 </Show>
               </span>
             </button>
-            <Button
-              variant="quiet"
-              class="min-h-11 flex-1 duration-200 sm:flex-none sm:py-2.5"
-              onClick={() => props.onDetails(props.event)}
-            >
-              Event Details
-            </Button>
           </div>
         </div>
 

@@ -157,6 +157,42 @@ describe("InvitePage", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("orders each card's actions Event Details then Respond", async () => {
+    vi.stubGlobal(
+      "fetch",
+      noSession(
+        vi.fn().mockResolvedValue(
+          new Response(JSON.stringify(claim), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    const { getByText, getByPlaceholderText, container } = render(() => (
+      <InvitePage apiUrl="https://api.test" />
+    ));
+
+    fireEvent.input(getByPlaceholderText(/PATEL-JOY/), { target: { value: "SHARMA-JOY-RK97" } });
+    fireEvent.click(getByText("Open Invitation"));
+    await waitFor(() => expect(container.querySelector("[data-event-card]")).toBeTruthy(), {
+      timeout: 2000,
+    });
+
+    // The pack renders the shared `EventCard`, and nothing here applies an
+    // `order-*` class to the pair, so this DOM order is what a guest reads and
+    // what the keyboard walks. Asserted per pack because "both packs agree" is
+    // the claim, and one of them quietly rendering its own row is how that
+    // claim would stop being true.
+    for (const card of container.querySelectorAll("[data-event-card]")) {
+      expect([...card.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
+        "Event Details",
+        "Respond",
+      ]);
+    }
+  });
+
   it("auto-claims from a ?code= deep-link, shows the preview banner, and keeps RSVP interactive as a no-op", async () => {
     const previewClaim: ClaimResult = { ...claim, preview: true };
     const fetchMock = vi.fn().mockResolvedValue(

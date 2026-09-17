@@ -204,6 +204,21 @@ describe("gala InvitePage", () => {
     const cards = container.querySelectorAll("[data-event-card]");
     expect(cards).toHaveLength(2);
 
+    // Each card's two actions, in order. The pack renders the shared
+    // `EventCard` and applies no `order-*` class to the pair, so this DOM order
+    // is what a guest reads and what the keyboard walks. Asserted per pack
+    // because "both packs agree" is the claim, and one of them quietly
+    // rendering its own row is how that claim would stop being true. Gala's
+    // column is wide enough that this row never wraps, so DOM order is the
+    // whole of its story; the painted result is measured against classic's
+    // narrower column in `tests/components/EventCard.actions.browser.test.tsx`.
+    for (const card of cards) {
+      expect([...card.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
+        "Event Details",
+        "Respond",
+      ]);
+    }
+
     // Drain handleClaimed's own async reveal (dynamic import + mocked
     // unlockRevealSequence call) before the next test runs — otherwise it can
     // still be in flight and consume a later test's `mockRejectedValueOnce`

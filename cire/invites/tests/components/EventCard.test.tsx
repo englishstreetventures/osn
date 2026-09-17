@@ -38,7 +38,7 @@ const noop = () => {};
 describe("EventCard", () => {
   afterEach(() => cleanup());
 
-  it("renders the event name, day (from startAt), venue (from address), description and BOTH buttons (Respond first)", () => {
+  it("renders the event name, day (from startAt), venue (from address), description and BOTH buttons (Event Details first)", () => {
     const { getByRole, container } = render(() => (
       <EventCard event={baseEvent} onRespond={noop} onDetails={noop} />
     ));
@@ -49,7 +49,11 @@ describe("EventCard", () => {
     expect(container.textContent).toContain("12 Banksia Lane, Strathfield");
     expect(container.textContent).toContain("An evening of henna");
     const buttons = [...container.querySelectorAll("button")];
-    expect(buttons.map((b) => b.textContent)).toEqual(["Respond", "Event Details"]);
+    // Order, not merely presence. The pair carries no `order-*` class, so this
+    // DOM order is also the visual order and the tab order — which is why the
+    // reorder was done here rather than in CSS.
+    // `EventCard.actions.browser.test.tsx` measures the painted result.
+    expect(buttons.map((b) => b.textContent)).toEqual(["Event Details", "Respond"]);
   });
 
   it("paints the date in the prose gold, not the metal (C-M2 / WCAG 1.4.3)", () => {
