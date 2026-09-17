@@ -6,6 +6,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ModuleSidebar from "../../src/components/ModuleSidebar";
 import { MODULE_NAV } from "../../src/lib/module-nav";
 
+// The Upgrade button mounts a dialog, and the dialog reads `useAuth()` and
+// prices itself. Neither is what this file is about — the nav's job is to OPEN
+// it — so both are stubbed and the dialog's own behaviour is tested next door
+// in UpgradeDialog.test.tsx.
+const authFetch = vi.fn(
+  async () => new Response(JSON.stringify({ upgrades: [] }), { status: 200 }),
+);
+vi.mock("@shared/rp-auth/solid", () => ({ useAuth: () => ({ authFetch }) }));
+vi.mock("@shared/toast", () => ({
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
+}));
+
 /** Every gated entitlement, so the nav's structural tests are about the nav
  *  rather than about the lock. The locked shape has its own describe below. */
 const ENTITLED = ["vendors", "registry"];
@@ -36,7 +48,14 @@ describe("ModuleSidebar", () => {
   };
 
   it("renders every module in workflow order", () => {
-    render(() => <ModuleSidebar active="overview" entitlements={ENTITLED} onSelect={vi.fn()} />);
+    render(() => (
+      <ModuleSidebar
+        weddingId="wed_test"
+        active="overview"
+        entitlements={ENTITLED}
+        onSelect={vi.fn()}
+      />
+    ));
     const labels = within(rail())
       .getAllByRole("button")
       .map((b) => b.textContent);
@@ -54,7 +73,14 @@ describe("ModuleSidebar", () => {
   });
 
   it("marks the active module with aria-current and no others", () => {
-    render(() => <ModuleSidebar active="invite" entitlements={ENTITLED} onSelect={vi.fn()} />);
+    render(() => (
+      <ModuleSidebar
+        weddingId="wed_test"
+        active="invite"
+        entitlements={ENTITLED}
+        onSelect={vi.fn()}
+      />
+    ));
     const marked = within(rail())
       .getAllByRole("button")
       .filter((b) => b.getAttribute("aria-current") === "page");
@@ -64,7 +90,14 @@ describe("ModuleSidebar", () => {
 
   it("opens a sheet listing every module and closes it on a selection", async () => {
     const onSelect = vi.fn();
-    render(() => <ModuleSidebar active="overview" entitlements={ENTITLED} onSelect={onSelect} />);
+    render(() => (
+      <ModuleSidebar
+        weddingId="wed_test"
+        active="overview"
+        entitlements={ENTITLED}
+        onSelect={onSelect}
+      />
+    ));
 
     // The narrow-container surface: a trigger naming the current module, so a
     // guest never has to open the sheet to know where they are. The visible
@@ -98,13 +131,27 @@ describe("ModuleSidebar", () => {
 
   it("reports the selected module up via onSelect", () => {
     const onSelect = vi.fn();
-    render(() => <ModuleSidebar active="overview" entitlements={ENTITLED} onSelect={onSelect} />);
+    render(() => (
+      <ModuleSidebar
+        weddingId="wed_test"
+        active="overview"
+        entitlements={ENTITLED}
+        onSelect={onSelect}
+      />
+    ));
     fireEvent.click(within(rail()).getByRole("button", { name: /Settings/ }));
     expect(onSelect).toHaveBeenCalledWith("settings");
   });
 
   it("is a labelled navigation landmark", () => {
-    render(() => <ModuleSidebar active="overview" entitlements={ENTITLED} onSelect={vi.fn()} />);
+    render(() => (
+      <ModuleSidebar
+        weddingId="wed_test"
+        active="overview"
+        entitlements={ENTITLED}
+        onSelect={vi.fn()}
+      />
+    ));
     expect(rail().tagName).toBe("NAV");
     expect(rail().getAttribute("aria-label")).toBe("Wedding modules");
   });
@@ -143,7 +190,14 @@ describe("ModuleSidebar", () => {
     const lockedRow = () => within(rail()).getByRole("button", { name: /Registry/ });
 
     it("fades the row, names the lock, and drops its native tooltip", () => {
-      render(() => <ModuleSidebar active="overview" entitlements={[]} onSelect={vi.fn()} />);
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          active="overview"
+          entitlements={[]}
+          onSelect={vi.fn()}
+        />
+      ));
       const row = lockedRow();
       // The lock is in the accessible name, so it reaches a screen reader while
       // tabbing rather than only after a three-second dwell.
@@ -164,7 +218,14 @@ describe("ModuleSidebar", () => {
     });
 
     it("reports the card's state on the trigger", () => {
-      render(() => <ModuleSidebar active="overview" entitlements={[]} onSelect={vi.fn()} />);
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          active="overview"
+          entitlements={[]}
+          onSelect={vi.fn()}
+        />
+      ));
       expect(lockedRow().getAttribute("aria-expanded")).toBe("false");
       fireEvent.click(lockedRow());
       expect(lockedRow().getAttribute("aria-expanded")).toBe("true");
@@ -172,7 +233,14 @@ describe("ModuleSidebar", () => {
 
     it("navigates nowhere when clicked, and offers the upgrade instead", async () => {
       const onSelect = vi.fn();
-      render(() => <ModuleSidebar active="overview" entitlements={[]} onSelect={onSelect} />);
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          active="overview"
+          entitlements={[]}
+          onSelect={onSelect}
+        />
+      ));
       fireEvent.click(lockedRow());
       expect(onSelect).not.toHaveBeenCalled();
       // The tap path: the same click that does not navigate opens the offer.
@@ -182,7 +250,14 @@ describe("ModuleSidebar", () => {
 
     it("opens nothing until the pointer has rested for three seconds", async () => {
       vi.useFakeTimers();
-      render(() => <ModuleSidebar active="overview" entitlements={[]} onSelect={vi.fn()} />);
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          active="overview"
+          entitlements={[]}
+          onSelect={vi.fn()}
+        />
+      ));
       fireEvent.pointerEnter(lockedRow(), { pointerType: "mouse" });
 
       // Well past Kobalte's own 700ms default, so this asserts the override took
@@ -194,14 +269,27 @@ describe("ModuleSidebar", () => {
       expect(screen.getByText("Gift registry")).toBeTruthy();
     });
 
-    it("offers an Upgrade button that does nothing", async () => {
-      render(() => <ModuleSidebar active="overview" entitlements={[]} onSelect={vi.fn()} />);
+    it("offers a live Upgrade button that opens the purchase dialog", async () => {
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          active="overview"
+          entitlements={[]}
+          onSelect={vi.fn()}
+        />
+      ));
       fireEvent.click(lockedRow());
       await screen.findByText("Gift registry");
       // Not `/Upgrade/` alone: the locked row's own accessible name says
       // "Upgrade to unlock", so that pattern matches the trigger too.
-      const upgrade = screen.getByRole("button", { name: /coming soon/i });
-      expect((upgrade as HTMLButtonElement).disabled).toBe(true);
+      const upgrade = screen.getByRole("button", { name: /^upgrade$/i });
+      expect((upgrade as HTMLButtonElement).disabled).toBe(false);
+
+      fireEvent.click(upgrade);
+      // The popover is anchored to a row the dialog is about to cover, so it
+      // closes on the way — what survives is the dialog.
+      const dialog = await screen.findByRole("dialog", { name: /upgrade: gift registry/i });
+      expect(dialog).toBeTruthy();
     });
 
     it("opens after a three-second keyboard focus, not on focus alone", async () => {
@@ -210,7 +298,14 @@ describe("ModuleSidebar", () => {
       // `aria-disabled` rather than `disabled`, which would take the row out of
       // the tab order and drop the handler with it.
       vi.useFakeTimers();
-      render(() => <ModuleSidebar active="overview" entitlements={[]} onSelect={vi.fn()} />);
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          active="overview"
+          entitlements={[]}
+          onSelect={vi.fn()}
+        />
+      ));
       fireEvent.focus(lockedRow());
 
       await vi.advanceTimersByTimeAsync(2900);
@@ -227,7 +322,14 @@ describe("ModuleSidebar", () => {
       // both go green, and the broken one pops the card three seconds after the
       // pointer has moved on.
       vi.useFakeTimers();
-      render(() => <ModuleSidebar active="overview" entitlements={[]} onSelect={vi.fn()} />);
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          active="overview"
+          entitlements={[]}
+          onSelect={vi.fn()}
+        />
+      ));
       const row = lockedRow();
       fireEvent.pointerEnter(row, { pointerType: "mouse" });
       await vi.advanceTimersByTimeAsync(2000);
@@ -241,7 +343,14 @@ describe("ModuleSidebar", () => {
       // Kobalte drops touch pointers in both handlers. Asserting it keeps the
       // click path from being read as redundant and quietly removed.
       vi.useFakeTimers();
-      render(() => <ModuleSidebar active="overview" entitlements={[]} onSelect={vi.fn()} />);
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          active="overview"
+          entitlements={[]}
+          onSelect={vi.fn()}
+        />
+      ));
       fireEvent.pointerEnter(lockedRow(), { pointerType: "touch" });
 
       await vi.advanceTimersByTimeAsync(6000);
@@ -253,7 +362,14 @@ describe("ModuleSidebar", () => {
       // are our code rather than Kobalte's. It has to toggle: a touch user has
       // no pointer-leave, so without this the first tap opens a card that never
       // goes away, and on the sheet that card sits over the nav.
-      render(() => <ModuleSidebar active="overview" entitlements={[]} onSelect={vi.fn()} />);
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          active="overview"
+          entitlements={[]}
+          onSelect={vi.fn()}
+        />
+      ));
       fireEvent.click(lockedRow());
       await screen.findByText("Gift registry");
 
@@ -270,7 +386,14 @@ describe("ModuleSidebar", () => {
       // with no dwell at all — invert its `Show` and every rail assertion above
       // still passes while the phone loses its only way in.
       const onSelect = vi.fn();
-      render(() => <ModuleSidebar active="overview" entitlements={[]} onSelect={onSelect} />);
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          active="overview"
+          entitlements={[]}
+          onSelect={onSelect}
+        />
+      ));
       fireEvent.click(
         screen.getByRole("button", { name: /Open wedding navigation, currently Overview/ }),
       );
@@ -294,7 +417,14 @@ describe("ModuleSidebar", () => {
       // then and never revisited, leaving the previous wedding's locks on screen
       // after a wedding switch or a mid-session grant.
       const [held, setHeld] = createSignal<string[]>([]);
-      render(() => <ModuleSidebar active="overview" entitlements={held()} onSelect={vi.fn()} />);
+      render(() => (
+        <ModuleSidebar
+          weddingId="wed_test"
+          active="overview"
+          entitlements={held()}
+          onSelect={vi.fn()}
+        />
+      ));
       expect(lockedRow().getAttribute("aria-label")).toContain("locked");
 
       setHeld(["registry"]);
@@ -305,7 +435,12 @@ describe("ModuleSidebar", () => {
 
     it("locks only the modules whose entitlement is missing", () => {
       render(() => (
-        <ModuleSidebar active="overview" entitlements={["registry"]} onSelect={vi.fn()} />
+        <ModuleSidebar
+          weddingId="wed_test"
+          active="overview"
+          entitlements={["registry"]}
+          onSelect={vi.fn()}
+        />
       ));
       const locked = within(rail())
         .getAllByRole("button")

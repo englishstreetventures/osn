@@ -330,6 +330,7 @@ export default function ModuleShell(props: ModuleShellProps) {
       <div class="flex flex-col gap-5 @2xl/shell:flex-row @2xl/shell:gap-8 @5xl/shell:gap-10">
         <ModuleSidebar
           active={module()}
+          weddingId={props.weddingId}
           entitlements={props.entitlements}
           onSelect={props.onModule}
         />

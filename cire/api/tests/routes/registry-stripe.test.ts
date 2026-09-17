@@ -73,6 +73,13 @@ function stripeStub(
         ? Effect.fail(new StripeError({ reason: "unreachable" }))
         : Effect.succeed({ url: "https://connect.stripe.test/setup/x", expiresAt: 1_800_000_000 });
     },
+    // Upgrade purchases do not touch these route groups; a double that
+    // silently succeeded here would let a test pass against a call it never
+    // meant to make.
+    createPlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+    retrievePlatformCheckoutSession: () =>
+      Effect.fail(new StripeError({ reason: "not used here" })),
+    retrievePrice: () => Effect.fail(new StripeError({ reason: "not used here" })),
     retrieveAccount(accountId) {
       calls.push(`retrieveAccount:${accountId}`);
       return overrides.failRetrieve

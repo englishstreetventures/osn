@@ -5,7 +5,8 @@ related:
   - "[[cire-vendors]]"
   - "[[cire-registry]]"
   - "[[cire-auth]]"
-last-reviewed: 2026-09-14
+  - "[[cire-upgrades]]"
+last-reviewed: 2026-09-17
 ---
 # Entitlements — per-wedding capability gates
 
@@ -98,7 +99,7 @@ The entitlement gate sits **after** the role gate. The role gate already returns
 { "error": "payment_required", "entitlement": "<key>" }
 ```
 
-HTTP status `402`. In the organiser portal a locked module has no page at all, so this response is a backstop rather than something a user normally meets: `isModuleLocked` (`cire/host/src/lib/module-nav.ts`) derives the lock from the wedding's own entitlement set, `ModuleShell` coerces a locked module back to Overview, and the module's nav row stays visible but faded and inert. Resting a pointer on that row for three seconds — or clicking it, which is the only path a touch user has — opens a popover naming the module and offering an Upgrade button that is inert until checkout exists.
+HTTP status `402`. In the organiser portal a locked module has no page at all, so this response is a backstop rather than something a user normally meets: `isModuleLocked` (`cire/host/src/lib/module-nav.ts`) derives the lock from the wedding's own entitlement set, `ModuleShell` coerces a locked module back to Overview, and the module's nav row stays visible but faded and inert. Resting a pointer on that row for three seconds — or clicking it, which is the only path a touch user has — opens a popover naming the module and offering an Upgrade button. That button is live: it opens a dialog that prices the module and starts a Stripe checkout — see [[cire-upgrades]].
 
 A missing `weddingId` in `params` (should not occur after the role gate validates it) degrades to a `402` rather than throwing.
 
@@ -144,14 +145,25 @@ wrangler d1 execute cire-db --remote --command "<printed SQL>"
 
 ---
 
-## Phase-2 payment seam
+## How a wedding gets an entitlement
 
-`grant()` accepts `source: 'purchase'` and a `providerRef` field. A webhook skeleton (`cire/api/src/routes/payment-webhook.ts`) exists but is inert in Phase 1 — all Phase-1 grants use `source: 'comp'`. The `provider_ref` column is the idempotency anchor for Phase-2 event-driven grants. Provider selection is tracked outside this repository.
+Two paths, and only two.
+
+| Path | `source` | Who runs it |
+|---|---|---|
+| Self-serve purchase | `purchase` | The wedding's **owner**, from the portal — see [[cire-upgrades]] |
+| Comp / manual grant | `comp` | An operator, via `cire/api/scripts/grant-entitlement.ts` |
+
+`grant()` is `onConflictDoNothing` on `(wedding_id, entitlement)`, so both paths are idempotent and neither can produce a second row. That is also why the table cannot hold purchase history: a second purchase of a key already held would be swallowed with no record that money moved. The money side lives in `wedding_upgrade_purchases` (migration 0059), and `provider_ref` on the entitlement row carries the Stripe checkout session id that bought it.
+
+> [!note]
+> `premium_templates`, `ai` and the two `capacity_*` keys are **not** purchasable. Only `vendors` and `registry` are sold self-serve; everything else is comp-only. Adding another is a catalogue entry plus a configured Stripe Price, not a schema change.
 
 ---
 
 ## Related
 
 - [[cire-vendors]] — Vendor CRM + Directory; both route groups gate on the `vendors` entitlement
-- [[cire-registry]] — Gift registry; granted to NO wedding, which is how that module ships built but unreachable
+- [[cire-registry]] — Gift registry; purchasable self-serve, and comp-grantable as before
+- [[cire-upgrades]] — the self-serve purchase flow: catalogue, checkout, the platform webhook that grants
 - [[cire-auth]] — role gate middleware; ordering of role vs entitlement vs rate-limit gates

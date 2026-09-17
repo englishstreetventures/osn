@@ -62,6 +62,32 @@ function countGuests(db: Db, weddingId: string): Effect.Effect<number, never, ne
   ).pipe(Effect.map((rows) => (rows[0]?.n as number) ?? 0));
 }
 
+/**
+ * The grant as a STATEMENT, for a caller folding it into a batch.
+ *
+ * Exists so the upgrade settle can commit its grant, its sales row and its
+ * status flip in one D1 round trip instead of three. `grant` runs exactly this,
+ * so the batched form and the standalone one cannot drift.
+ */
+function grantStatement(
+  db: Db,
+  weddingId: string,
+  key: EntitlementKey,
+  opts: { source: "purchase" | "comp"; grantedBy: string; providerRef?: string | null },
+) {
+  return db
+    .insert(weddingEntitlements)
+    .values({
+      weddingId,
+      entitlement: key,
+      source: opts.source,
+      grantedAt: new Date(),
+      grantedBy: opts.grantedBy,
+      providerRef: opts.providerRef ?? null,
+    })
+    .onConflictDoNothing();
+}
+
 export const entitlementService = {
   deriveCap,
 
@@ -110,6 +136,8 @@ export const entitlementService = {
     }).pipe(Effect.withSpan("cire.entitlements.setsForWeddings"));
   },
 
+  grantStatement,
+
   grant(
     weddingId: string,
     key: EntitlementKey,
@@ -117,20 +145,7 @@ export const entitlementService = {
   ): Effect.Effect<void, never, DbService> {
     return Effect.gen(function* () {
       const db = yield* DbService;
-      yield* dbQuery(() =>
-        db
-          .insert(weddingEntitlements)
-          .values({
-            weddingId,
-            entitlement: key,
-            source: opts.source,
-            grantedAt: new Date(),
-            grantedBy: opts.grantedBy,
-            providerRef: opts.providerRef ?? null,
-          })
-          .onConflictDoNothing()
-          .run(),
-      );
+      yield* dbQuery(() => grantStatement(db, weddingId, key, opts).run());
     }).pipe(Effect.withSpan("cire.entitlements.grant"));
   },
 

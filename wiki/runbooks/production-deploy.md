@@ -584,6 +584,36 @@ The row's shape — the columns that carry a trust decision are listed in
 
 ---
 
+### 3.9 Stripe — self-serve upgrades (cire-api)
+
+Separate from the Connect integration that handles gift contributions, and the two must not be confused: gifts are DIRECT charges on a couple's connected account (they are the merchant), while an upgrade is a PLATFORM charge where **cire is the merchant of record**. Two Stripe endpoints, two signing secrets. See `wiki/systems/cire-upgrades.md`.
+
+**One-time, in the Stripe dashboard:**
+
+1. Create a one-off **Price** per purchasable module — `vendors` and `registry`. Use **test-mode** Prices for the dev tier and **live-mode** ones for production: a test id in production fails at checkout.
+2. Add a **second webhook endpoint** pointed at `https://api.cireweddings.com/api/stripe/platform-webhook`, scoped to the **platform account** (not Connect), subscribed to `checkout.session.completed`, `checkout.session.expired` and `checkout.session.async_payment_failed`. Copy its signing secret — it is **not** the same as the Connect endpoint's.
+
+**Then:**
+
+```bash
+# From cire/api/. The Price ids are ordinary vars, not secrets — put them in
+# wrangler.toml under [env.<env>.vars]; named envs inherit no vars, so each
+# tier declares its own.
+#   STRIPE_UPGRADE_PRICE_VENDORS  = "price_..."
+#   STRIPE_UPGRADE_PRICE_REGISTRY = "price_..."
+
+bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
+```
+
+> [!warning]
+> Reusing the Connect endpoint's signing secret for the platform endpoint means **every** delivery to it is refused with a 400 and Stripe retries for days, while nothing grants. The two secrets come from two different dashboard endpoints.
+
+**Fail-closed, per key.** A module with no configured Price is not purchasable: absent from the catalogue and a 404 from checkout. Absent configuration never means free. With `STRIPE_PLATFORM_WEBHOOK_SECRET` unset the endpoint does not exist at all, so a purchase could be paid and never granted — nothing else moves a purchase off `pending`.
+
+**Smoke check after deploy:** as a wedding owner, open a locked module's nav row → Upgrade → pay with a Stripe test card → confirm you land back in the portal with the module open, and that `wedding_entitlements` has a row with `source = 'purchase'`.
+
+---
+
 ## 4. Database migrations
 
 ### 4.1 Apply cire D1 migrations (remote)

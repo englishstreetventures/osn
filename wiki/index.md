@@ -63,6 +63,7 @@ Map of Content for the OSN monorepo knowledge graph. Open this vault in Obsidian
 - [[cire-budget]] — cire budget lines and spend roll-ups
 - [[cire-checklist-tasks]] — the cire planning checklist / tasks module
 - [[cire-entitlements]] — per-wedding capability gates
+- [[cire-upgrades]] — self-serve purchase of a locked module: catalogue, platform Stripe checkout, the webhook that grants
 - [[cire-invite-designs]] — the invite design selector
 - [[cire-registry]] — the gift registry: list, household claims, gift log, one-primary-currency money rule
 - [[cire-rsvp-deadline]] — the "respond by" date and how the invite locks past it

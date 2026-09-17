@@ -7,6 +7,7 @@ import type { Module } from "../lib/dashboard-route";
 import { haptic } from "../lib/haptics";
 import { isModuleLocked, MODULE_NAV, type ModuleDef, moduleDef } from "../lib/module-nav";
 import { createSlidingPill } from "../lib/sliding-pill";
+import UpgradeDialog from "./UpgradeDialog";
 
 /** Shared row shape for both surfaces, so the rail and the sheet read as the
  *  same control at two sizes rather than as two different navs. */
@@ -69,6 +70,9 @@ function LockedRow(props: {
   mod: ModuleDef;
   rowClass: string;
   placement: "right-start" | "bottom-start";
+  /** Opens the upgrade dialog. Lifted to the sidebar so there is ONE dialog
+   *  rather than one per locked row. */
+  onUpgrade: () => void;
   children: JSX.Element;
 }) {
   const [open, setOpen] = createSignal(false);
@@ -120,11 +124,16 @@ function LockedRow(props: {
             variant="quiet"
             size="sm"
             type="button"
-            disabled
-            aria-disabled="true"
+            onClick={() => {
+              // Close the popover first: it is anchored to a row that the
+              // dialog is about to cover, and two layers of overlay on a phone
+              // leaves the card floating over the scrim.
+              setOpen(false);
+              props.onUpgrade();
+            }}
             class="tracking-ui-widest mt-1"
           >
-            Upgrade — coming soon
+            Upgrade
           </Button>
         </HoverCard.Content>
       </HoverCard.Portal>
@@ -159,10 +168,15 @@ function LockedRow(props: {
  */
 export default function ModuleSidebar(props: {
   active: Module;
+  weddingId: string;
   entitlements: readonly string[];
   onSelect: (module: Module) => void;
 }) {
   const [sheetOpen, setSheetOpen] = createSignal(false);
+  // Which locked module's offer is open, or null. One dialog for the whole nav:
+  // every locked row would otherwise mount its own, and each would price itself
+  // on open.
+  const [upgrading, setUpgrading] = createSignal<ModuleDef | null>(null);
 
   const current = () => moduleDef(props.active);
 
@@ -253,7 +267,12 @@ export default function ModuleSidebar(props: {
                   </button>
                 }
               >
-                <LockedRow mod={mod} placement="right-start" rowClass={`${railRow} ${rowLocked}`}>
+                <LockedRow
+                  mod={mod}
+                  placement="right-start"
+                  rowClass={`${railRow} ${rowLocked}`}
+                  onUpgrade={() => setUpgrading(mod)}
+                >
                   <Body />
                 </LockedRow>
               </Show>
@@ -357,6 +376,12 @@ export default function ModuleSidebar(props: {
                           mod={mod}
                           placement="bottom-start"
                           rowClass={`${sheetRow} ${rowLocked}`}
+                          onUpgrade={() => {
+                            // The sheet is a modal; leaving it open behind the
+                            // dialog would trap focus in the wrong layer.
+                            setSheetOpen(false);
+                            setUpgrading(mod);
+                          }}
                         >
                           <Body />
                         </LockedRow>
@@ -369,6 +394,22 @@ export default function ModuleSidebar(props: {
           </Dialog.Portal>
         </Dialog>
       </div>
+
+      {/* One dialog for the whole nav, driven by which row asked for it. Keyed
+          on the module so switching offers remounts rather than reusing a
+          dialog still holding the previous module's submitting state. */}
+      <Show when={upgrading()}>
+        {(mod) => (
+          <UpgradeDialog
+            open
+            weddingId={props.weddingId}
+            entitlement={mod().lock!.entitlement}
+            title={mod().lock!.title}
+            blurb={mod().lock!.blurb}
+            onClose={() => setUpgrading(null)}
+          />
+        )}
+      </Show>
     </>
   );
 }

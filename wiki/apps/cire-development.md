@@ -99,6 +99,14 @@ Platform conventions are in [[testing-patterns]]; the real-Chromium tier is in
   own with `bun run --cwd cire/api test:d1`. Unlike the vitest packages, which
   exclude that tier by path, `@cire/api` runs on `bun test` and so picks it up in
   the package's ordinary `test` script as well — expect workerd to boot there.
+- **Exercising the upgrade checkout locally** needs TWO `stripe listen`
+  forwarders, because there are two endpoints: `--forward-connect-to` for gift
+  events (which happen on a couple's connected account) and `--forward-to` for
+  the platform's own (an upgrade, where cire is the merchant). One `stripe
+  listen` prints ONE signing secret for everything it forwards, so locally
+  `STRIPE_WEBHOOK_SECRET` and `STRIPE_PLATFORM_WEBHOOK_SECRET` carry the same
+  value; deployed tiers have two dashboard endpoints and two different secrets.
+  The full command is in `wiki/systems/cire-upgrades.md`.
 - **Integration tests run against a local D1 via `wrangler dev` — do not mock the
   database.**
 - **`*.browser.test.tsx` runs in real Chromium**, not jsdom, for anything needing

@@ -18,10 +18,10 @@
  * Two of cire's server-to-server routes sidestep this by being mounted BEFORE
  * the guard — a global `onBeforeHandle` only applies to what comes after it —
  * and that is the pattern to prefer: the CSP violation collector and the
- * internal revoke endpoint. A third cannot use it. `POST /api/stripe/webhook`
- * is mounted last on purpose (the fluent chain's inferred type is erased there
- * to stay under TypeScript's instantiation-depth limit, and moving that mount
- * earlier would erase every route's types for Eden), so it needs a path
+ * internal revoke endpoint. The two Stripe webhooks cannot use it. Both are
+ * mounted last on purpose (the fluent chain's inferred type is erased there to
+ * stay under TypeScript's instantiation-depth limit, and moving those mounts
+ * earlier would erase every route's types for Eden), so they need a path
  * exemption instead — see `EXEMPT_PATHS`.
  */
 
@@ -45,9 +45,12 @@ const STATE_CHANGING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  * still gets a 400 from the handler.
  *
  * Exact match, not a prefix: a future `/api/stripe/webhook-x` must not inherit
- * the exemption by being spelled similarly.
+ * the exemption by being spelled similarly. Which is why the platform endpoint
+ * is listed in its own right rather than covered by the Connect one — they are
+ * separate Stripe endpoints with separate signing secrets, and each verifies
+ * its own deliveries.
  */
-const EXEMPT_PATHS = new Set(["/api/stripe/webhook"]);
+const EXEMPT_PATHS = new Set(["/api/stripe/webhook", "/api/stripe/platform-webhook"]);
 
 /** The path of a request URL, without paying for a full `new URL()`. */
 function pathnameOf(url: string): string {

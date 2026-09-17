@@ -53,6 +53,38 @@ export function redirectToLogin(): void {
 }
 
 /**
+ * Leave the app for an external URL.
+ *
+ * A one-line wrapper, and it earns its place for the same reason
+ * `redirectToLogin` lives here: navigation is this module's job, so a component
+ * that hands off to a payment provider has one seam to name rather than
+ * reaching for `window.location` itself. It is also the only form a test can
+ * observe — overriding `window.location` wholesale is what hangs happy-dom.
+ */
+export function navigateTo(url: string): void {
+  // Scheme-checked before assignment. Assigning a `javascript:` URL to
+  // `location.href` from same-origin script EXECUTES it in this origin, so an
+  // unchecked version is a script-execution sink whose safety depends on every
+  // present and future caller having sanitised its input. Today the only caller
+  // passes a Stripe Checkout URL that our API validated as `typeof === "string"`
+  // and nothing more. Refusing here makes the function safe by construction
+  // instead.
+  let parsed: URL;
+  try {
+    // Parsed with NO base, so a relative string is refused rather than
+    // resolved against the current page. This function exists to LEAVE the app
+    // for a payment provider; anything that is not an absolute URL is not that,
+    // and silently navigating somewhere same-origin would hide the mistake.
+    parsed = new URL(url);
+  } catch {
+    return;
+  }
+  // `http:` stays admissible for local dev, where the portal is not on HTTPS.
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return;
+  window.location.href = parsed.href;
+}
+
+/**
  * `Promise.all` for calls whose rejections are not equally important.
  *
  * `Promise.all` adopts whichever rejection settles FIRST, and that is decided

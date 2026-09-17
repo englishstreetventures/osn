@@ -269,6 +269,142 @@ describe("createCheckoutSession", () => {
   });
 });
 
+describe("createPlatformCheckoutSession", () => {
+  const INPUT = {
+    priceId: "price_vendors",
+    successUrl: "https://host.test/?upgrade=upg_1&w=wed_1&m=vendors",
+    cancelUrl: "https://host.test/?w=wed_1&m=vendors",
+    clientReferenceId: "upg_1",
+    metadata: { purchaseId: "upg_1" },
+    idempotencyKey: "cire-upgrade-upg_1",
+  };
+
+  /**
+   * The MIRROR IMAGE of the gift session's own load-bearing test above. There,
+   * a missing `Stripe-Account` silently turns a couple's charge into cire's.
+   * Here, a PRESENT one would take an upgrade cire is owed and pay it into a
+   * couple's bank instead — and the organiser still pays and still gets a
+   * receipt either way, so neither failure announces itself.
+   */
+  it("acts as the platform, never as a connected account", async () => {
+    const { impl, calls } = stubFetch(() => json({ id: "cs_u1", url: "https://pay.test/cs_u1" }));
+    const client = createStripeClient({
+      secretKey: "sk_test",
+      apiBase: "https://stripe.test",
+      fetchImpl: impl,
+    });
+
+    const session = await Effect.runPromise(client.createPlatformCheckoutSession(INPUT));
+
+    expect(session).toEqual({ id: "cs_u1", url: "https://pay.test/cs_u1" });
+    const headers = calls[0]?.init.headers as Headers;
+    expect(headers.get("stripe-account")).toBeNull();
+    expect(headers.get("idempotency-key")).toBe("cire-upgrade-upg_1");
+  });
+
+  it("names a configured Price rather than pricing a line inline", async () => {
+    // The amount lives at Stripe. If this ever sends `price_data` again, a
+    // price change becomes a deploy and the repo starts holding money amounts.
+    const { impl, calls } = stubFetch(() => json({ id: "cs_u1", url: "https://pay.test/cs_u1" }));
+    const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+
+    await Effect.runPromise(client.createPlatformCheckoutSession(INPUT));
+
+    const body = String(calls[0]?.init.body);
+    expect(body).toContain("line_items%5B0%5D%5Bprice%5D=price_vendors");
+    expect(body).not.toContain("price_data");
+    expect(body).toContain("client_reference_id=upg_1");
+  });
+
+  it("restricts payment to card, so no session can complete unpaid", async () => {
+    // A delayed debit completes the session in seconds and settles days later.
+    // Closing the option is what lets the settle path treat `completed` as
+    // "the money moved" rather than granting provisionally.
+    const { impl, calls } = stubFetch(() => json({ id: "cs_u1", url: "https://pay.test/cs_u1" }));
+    const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+
+    await Effect.runPromise(client.createPlatformCheckoutSession(INPUT));
+
+    expect(String(calls[0]?.init.body)).toContain("payment_method_types%5B0%5D=card");
+  });
+
+  it("refuses a 200 that is not a session it can send anyone to", async () => {
+    const { impl } = stubFetch(() => json({ id: "cs_u1" }));
+    const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+    const failure = await Effect.runPromise(
+      Effect.flip(client.createPlatformCheckoutSession(INPUT)),
+    );
+    expect(failure.reason).toBe("unexpected checkout session payload");
+  });
+});
+
+describe("retrievePlatformCheckoutSession", () => {
+  const read = (payload: Record<string, unknown>) => {
+    const { impl } = stubFetch(() => json(payload));
+    const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+    return Effect.runPromise(client.retrievePlatformCheckoutSession("cs_u1"));
+  };
+
+  it("returns an open session with somewhere to pay", async () => {
+    expect(await read({ id: "cs_u1", url: "https://pay.test/cs_u1", status: "open" })).toEqual({
+      status: "open",
+      id: "cs_u1",
+      url: "https://pay.test/cs_u1",
+    });
+  });
+
+  /**
+   * THE DISTINCTION THIS METHOD EXISTS FOR. The gift reader collapses every
+   * non-`open` state to `null`, and for a gift that is right — a second
+   * contribution is a legitimate second gift. For an upgrade, `complete` means
+   * the money has very likely moved and the webhook is merely late, so the
+   * caller must wait. Collapsing it into `expired` mints a second payment page
+   * and charges twice for one entitlement.
+   */
+  it("keeps complete and expired apart", async () => {
+    expect(await read({ id: "cs_u1", status: "complete" })).toEqual({ status: "complete" });
+    expect(await read({ id: "cs_u1", status: "expired" })).toEqual({ status: "expired" });
+  });
+
+  it("treats an open session with no URL left as expired", async () => {
+    expect(await read({ id: "cs_u1", status: "open" })).toEqual({ status: "expired" });
+  });
+
+  it("treats an unrecognised status as expired, never as complete", async () => {
+    // The caller checks `has()` before it ever probes, so a wrong `expired`
+    // costs a second session for an entitlement the wedding does not hold. A
+    // wrong `complete` would park a paying customer forever.
+    expect(await read({ id: "cs_u1", status: "something_new" })).toEqual({ status: "expired" });
+  });
+});
+
+describe("retrievePrice", () => {
+  it("reads the amount from Stripe and upper-cases the currency", async () => {
+    const { impl, calls } = stubFetch(() => json({ unit_amount: 4900, currency: "aud" }));
+    const client = createStripeClient({
+      secretKey: "sk_test",
+      apiBase: "https://stripe.test",
+      fetchImpl: impl,
+    });
+
+    expect(await Effect.runPromise(client.retrievePrice("price_vendors"))).toEqual({
+      unitAmountMinor: 4900,
+      currency: "AUD",
+    });
+    expect(calls[0]?.url).toBe("https://stripe.test/v1/prices/price_vendors");
+  });
+
+  it("fails on a price with no unit amount rather than reading it as free", async () => {
+    // Tiered and metered prices have a null `unit_amount`. Neither is something
+    // an upgrade can be priced with, so a misconfigured Price id is a failure —
+    // treating it as zero would put a free checkout in front of a customer.
+    const { impl } = stubFetch(() => json({ unit_amount: null, currency: "aud" }));
+    const client = createStripeClient({ secretKey: "sk_test", fetchImpl: impl });
+    const failure = await Effect.runPromise(Effect.flip(client.retrievePrice("price_tiered")));
+    expect(failure.reason).toBe("unexpected price payload");
+  });
+});
+
 describe("createStripeClientFromEnv", () => {
   it("is null without a key — a deployment with no Stripe has no payment surface", () => {
     expect(createStripeClientFromEnv({})).toBeNull();

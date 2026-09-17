@@ -3,18 +3,20 @@ title: Cire gift registry
 tags: [system, registry, gifts, money, phase-4, cire]
 related:
   - "[[cire-entitlements]]"
+  - "[[cire-upgrades]]"
   - "[[cire-budget]]"
   - "[[cire-platform-plan]]"
   - "[[cire-consent]]"
   - "[[drag-and-drop]]"
-last-reviewed: 2026-09-14
+last-reviewed: 2026-09-17
 ---
 
 # Gift registry
 
 Phase 4 module. The couple curate a gift list; guest **households** claim from it so nobody buys the same thing twice; the couple work from a gift log afterwards to write thank-yous. Card contributions ride Stripe Connect — and everything below is still usable as an honour-system list with no Stripe account at all.
 
-> **It is locked.** The `registry` entitlement is granted to no wedding, so every route in this page answers `402 payment_required` in production today. See [[cire-entitlements]] for the mechanism and the comp-grant CLI. Nothing here is reachable until someone grants it.
+> [!note]
+> **It is gated, not unreachable.** Every route in this page answers `402 payment_required` until the wedding holds the `registry` entitlement. A host can now buy it themselves — see [[cire-upgrades]] — and an operator can still comp it with `grant-entitlement.ts`. See [[cire-entitlements]] for the gate itself.
 
 ---
 

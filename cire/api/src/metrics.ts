@@ -123,6 +123,15 @@ export const CIRE_METRICS = {
   // a metric attribute (those belong in spans + logs).
   registryItemWrite: "cire.registry.item.write",
   registryGift: "cire.registry.gift",
+  // Self-serve upgrades. `entitlement` is a closed set of capability keys and
+  // never a wedding, purchase or profile id — the whole point of the two
+  // counters is that a spike is visible without anything per-tenant reaching
+  // an attribute. `started` is what an organiser pressed; `settled` is what
+  // Stripe's webhook concluded, and the gap between the two IS the health
+  // signal (money taken with no entitlement granted shows up as started
+  // without settled).
+  upgradeCheckoutStarted: "cire.upgrade.checkout.started",
+  upgradePurchaseSettled: "cire.upgrade.purchase.settled",
   // Link preview — the one outbound fetch a user's input aims. The result
   // attribute is how a spike in refused destinations becomes visible.
   registryLinkPreview: "cire.registry.link_preview",
@@ -308,6 +317,51 @@ type RegistryItemWriteAttrs = { action: RegistryItemAction };
  *  different (and more suspicious) signal than thanking. */
 export type RegistryGiftAction = "thanked" | "unthanked";
 type RegistryGiftAttrs = { action: RegistryGiftAction };
+/** Which capability an upgrade counter is about. Deliberately the full
+ *  entitlement key set rather than only the two sold today, so making another
+ *  purchasable is a catalogue change and not a metrics migration. Bounded and
+ *  closed: this is the only dimension either upgrade counter carries. */
+export type UpgradeEntitlement =
+  | "premium_templates"
+  | "vendors"
+  | "ai"
+  | "capacity_500"
+  | "capacity_1000"
+  | "registry";
+/** How an attempt to start a checkout ended. `reused` and `processing` are the
+ *  two that keep a customer from paying twice and are worth watching apart:
+ *  `reused` handed back a payment page still open, `processing` refused because
+ *  a paid session has not been settled by the webhook yet. A sustained rise in
+ *  `processing` means deliveries are lagging, not that organisers are confused.
+ *  `unconfigured` is a key with no Stripe Price in this deployment. */
+export type UpgradeCheckoutResult =
+  | "ok"
+  | "reused"
+  | "processing"
+  | "already_held"
+  | "unconfigured"
+  | "error";
+type UpgradeCheckoutStartedAttrs = {
+  entitlement: UpgradeEntitlement;
+  result: UpgradeCheckoutResult;
+};
+/** What the webhook concluded about a purchase. `granted` is the only one that
+ *  moved an entitlement; `replayed` is Stripe's ordinary redelivery and is
+ *  expected, not a fault. `unknown` is an event this deployment has no purchase
+ *  row for — on a platform endpoint shared with whatever else the account does,
+ *  that is a normal outcome rather than an error. `unpaid` should be zero while
+ *  sessions are card-only; a non-zero count means that restriction slipped. */
+export type UpgradeSettleOutcome =
+  | "granted"
+  | "replayed"
+  | "unpaid"
+  | "failed"
+  | "expired"
+  | "unknown";
+type UpgradePurchaseSettledAttrs = {
+  entitlement: UpgradeEntitlement;
+  outcome: UpgradeSettleOutcome;
+};
 /** How a link-preview attempt ended. `blocked` is the SSRF guard refusing a
  *  destination — a sustained rise in it is someone probing, not a shop being
  *  slow, which is why it is its own value rather than folded into a failure. */
@@ -478,6 +532,18 @@ const registryGift = createCounter<RegistryGiftAttrs>({
   name: CIRE_METRICS.registryGift,
   description: "Registry gift-log thank-you toggles, by direction",
   unit: "{gift}",
+});
+
+const upgradeCheckoutStarted = createCounter<UpgradeCheckoutStartedAttrs>({
+  name: CIRE_METRICS.upgradeCheckoutStarted,
+  description: "Self-serve upgrade checkouts started, by entitlement and outcome",
+  unit: "{attempt}",
+});
+
+const upgradePurchaseSettled = createCounter<UpgradePurchaseSettledAttrs>({
+  name: CIRE_METRICS.upgradePurchaseSettled,
+  description: "Upgrade purchases settled by the platform webhook, by entitlement and outcome",
+  unit: "{purchase}",
 });
 
 const registryLinkPreview = createCounter<RegistryLinkPreviewAttrs>({
@@ -750,6 +816,16 @@ export const metricRegistryItemWrite = (action: RegistryItemAction): void =>
 
 export const metricRegistryGift = (action: RegistryGiftAction): void =>
   registryGift.inc({ action });
+
+export const metricUpgradeCheckoutStarted = (
+  entitlement: UpgradeEntitlement,
+  result: UpgradeCheckoutResult,
+): void => upgradeCheckoutStarted.inc({ entitlement, result });
+
+export const metricUpgradePurchaseSettled = (
+  entitlement: UpgradeEntitlement,
+  outcome: UpgradeSettleOutcome,
+): void => upgradePurchaseSettled.inc({ entitlement, outcome });
 
 export const metricRegistryLinkPreview = (result: RegistryLinkPreviewResult): void =>
   registryLinkPreview.inc({ result });

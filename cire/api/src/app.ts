@@ -42,7 +42,6 @@ import {
   createOrganiserWeddingCreateRoute,
   createOrganiserWeddingsRoutes,
 } from "./routes/organiser-weddings";
-import { createPaymentWebhookSkeleton } from "./routes/payment-webhook";
 import {
   createRegistryImageRoutes,
   createRegistryImageServeRoutes,
@@ -59,8 +58,10 @@ import {
 } from "./routes/registry-guest";
 import { createRegistryStripeRoutes } from "./routes/registry-stripe";
 import { createRsvpRoutes } from "./routes/rsvp";
+import { createStripePlatformWebhookRoutes } from "./routes/stripe-platform-webhook";
 import { createStripeWebhookRoutes } from "./routes/stripe-webhook";
 import { createTaskReadRoutes, createTaskWriteRoutes } from "./routes/tasks";
+import { createUpgradeRoutes } from "./routes/upgrade";
 import {
   createVendorDirectoryReadRoutes,
   createVendorDirectoryWriteRoutes,
@@ -84,6 +85,8 @@ import type {
 } from "./services/osn-bridge";
 import type { R2Bucket } from "./services/r2-imports";
 import type { StripeClient } from "./services/stripe";
+import { createUpgradeCatalogue, type UpgradePriceConfig } from "./services/upgrade-catalogue";
+import { createUpgradeService } from "./services/upgrades";
 import type { ZapChatClient } from "./services/zap-bridge";
 
 /** Default per-IP rate limiter for the claim endpoint: 5 attempts per minute. */
@@ -228,6 +231,11 @@ const defaultRegistryGuestLimiter = createRateLimiter({ maxRequests: 20, windowM
 // Per-organiser, and sized like the image limiter beside it: an authenticated
 // couple at hand-speed, whose every press costs an outbound Stripe call.
 const defaultRegistryStripeLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
+// Per-organiser, same shape and budget as the Connect limiter above and for the
+// same reason: starting a purchase spends an outbound Stripe call — two when it
+// probes an existing session — against the PLATFORM's quota, so one tenant's
+// credentials must not be able to exhaust it for everyone.
+const defaultUpgradeLimiter = createRateLimiter({ maxRequests: 10, windowMs: 60_000 });
 // Per-IP, like the claim limiter, and sized the same way for the same reason:
 // a NAT'd venue or hotel wifi is ONE address for a whole reception, and the
 // budget has to cover the room rather than a household. Five would have
@@ -303,13 +311,6 @@ export interface AppOptions {
   vendorPortalLimiter?: RateLimiterBackend;
   /** Override the vendor directory browse per-user rate limiter (useful for testing). */
   directoryLimiter?: RateLimiterBackend;
-  /**
-   * Phase-2 seam: mount the inert payment-webhook skeleton only when this is
-   * `true`. Defaults to `false` — the route is NOT exposed unless explicitly
-   * enabled. In Phase 2 the provider implementation replaces the skeleton body;
-   * flipping this flag is the only change needed in production config.
-   */
-  paymentWebhookEnabled?: boolean;
   /** R2 bucket binding for the organiser import flow. */
   r2?: R2Bucket;
   /** R2 bucket binding for invite-builder images (separate from `r2`). */
@@ -472,8 +473,25 @@ export interface AppOptions {
    */
   stripe?: StripeClient | null;
   stripeWebhookSecret?: string | null;
+  /**
+   * Signing secret for the PLATFORM webhook — upgrade purchases, where cire is
+   * the merchant. A DIFFERENT secret from `stripeWebhookSecret`, because they
+   * are different Stripe endpoints: that one is Connect-scoped and hears about
+   * gifts on a couple's account. Absent ⇒ the platform route is not mounted,
+   * for the same reason as the other: nothing could be verified.
+   */
+  stripePlatformWebhookSecret?: string | null;
   /** Country for a newly created connected account (`AU` unless overridden). */
   stripeAccountCountry?: string;
+  /**
+   * Stripe Price ids for the self-serve upgrades, one per purchasable
+   * entitlement. A key absent here is not for sale in this deployment: it never
+   * appears in the catalogue and the checkout route 404s for it. No money
+   * amount is held in this repository — the price is read back from Stripe.
+   */
+  upgradePrices?: UpgradePriceConfig;
+  /** Override the upgrade purchase limiter (useful for testing). */
+  upgradeLimiter?: RateLimiterBackend;
   /** Override the Stripe onboarding limiter (useful for testing). */
   registryStripeLimiter?: RateLimiterBackend;
   /**
@@ -517,7 +535,6 @@ export function createApp(db: Db, options: AppOptions = {}) {
     cspReportLimiter = defaultCspReportLimiter,
     vendorPortalLimiter = defaultVendorPortalLimiter,
     directoryLimiter = defaultDirectoryLimiter,
-    paymentWebhookEnabled = false,
     r2,
     assets,
     images,
@@ -550,8 +567,11 @@ export function createApp(db: Db, options: AppOptions = {}) {
     registryContributeLimiter = defaultRegistryContributeLimiter,
     stripe = null,
     stripeWebhookSecret = null,
+    stripePlatformWebhookSecret = null,
     stripeAccountCountry,
     registryStripeLimiter = defaultRegistryStripeLimiter,
+    upgradeLimiter = defaultUpgradeLimiter,
+    upgradePrices = {},
     registryLinkPreviewOptions,
     // Key-optional default: an inert provider that serves registry defaults with
     // no network, so an app built without GrowthBook config behaves exactly as
@@ -935,7 +955,34 @@ export function createApp(db: Db, options: AppOptions = {}) {
   const withStripeWebhook: AnyElysia = stripeWebhookSecret
     ? rootApp.use(createStripeWebhookRoutes(db, { webhookSecret: stripeWebhookSecret }))
     : rootApp;
-  return paymentWebhookEnabled
-    ? withStripeWebhook.use(createPaymentWebhookSkeleton())
-    : withStripeWebhook;
+  // Self-serve upgrades. Mounted HERE, past the `AnyElysia` widening, rather
+  // than inside the organiser chain above: that chain is already at
+  // TypeScript's instantiation-depth limit (see the comment on `rootApp`), and
+  // one more `.use()` there fails the type-check. Key-optional like the
+  // Connect routes — no Stripe client, no purchase surface.
+  if (!stripe) return withStripeWebhook;
+  // ONE catalogue, shared by the routes and the service. Two would mean two
+  // price caches in the same isolate, so every cached read would be paid for
+  // twice against the platform's Stripe quota.
+  const upgradeCatalogue = createUpgradeCatalogue({ stripe, prices: upgradePrices });
+  const upgrades = createUpgradeService({ stripe, catalogue: upgradeCatalogue });
+  const withUpgradeRoutes: AnyElysia = withStripeWebhook.use(
+    createUpgradeRoutes(db, osnAuthOptions, {
+      catalogue: upgradeCatalogue,
+      upgrades,
+      limiter: upgradeLimiter,
+      organiserOrigin,
+    }),
+  );
+  // The platform endpoint, on its own secret. Without it a purchase can be
+  // started and paid but never granted — nothing else in the system moves a
+  // purchase off `pending`.
+  return stripePlatformWebhookSecret
+    ? withUpgradeRoutes.use(
+        createStripePlatformWebhookRoutes(db, {
+          webhookSecret: stripePlatformWebhookSecret,
+          upgrades,
+        }),
+      )
+    : withUpgradeRoutes;
 }

@@ -75,29 +75,55 @@ ZAP_API_URL = "http://localhost:3002"
 # `wrangler secret put CIRE_INTERNAL_REVOKE_SECRET`. Absent ⇒ the endpoint is
 # disabled (503). The SAME value must be provisioned on the osn-api side.
 
-# ── Stripe Connect, for gift contributions (KEY-OPTIONAL, both halves) ───────
-# The couple are the merchant of record: gifts are DIRECT charges on their own
-# connected account, so the money goes from the guest's card to their bank and
-# cire never holds it. Holding gift funds, even in transit, is money
-# transmission — this is the line that keeps the platform on the right side of
-# it, and the reason the integration is Connect rather than a platform checkout.
+# ── Stripe (KEY-OPTIONAL throughout) ─────────────────────────────────────────
+# TWO relationships with Stripe, and they are opposites. Keeping them apart is
+# the point of everything below.
 #
-# STRIPE_SECRET_KEY UNSET ⇒ the organiser Connect routes are not mounted, so a
-# deployment with no Stripe account has no payment surface at all rather than
-# one that 500s. The portal probes and hides the panel.
-# STRIPE_WEBHOOK_SECRET UNSET ⇒ /api/stripe/webhook does not exist. Nothing else
-# authenticates that endpoint — the signature IS the authentication — so without
-# a signing secret it must not be reachable.
+# GIFTS are Connect. The couple are the merchant of record: a contribution is a
+# DIRECT charge on their own connected account, so the money goes from the
+# guest's card to their bank and cire never holds it. Holding gift funds, even
+# in transit, is money transmission — this is the line that keeps the platform
+# on the right side of it.
+#
+# UPGRADES are a platform checkout. When a host buys a locked module, cire IS
+# the merchant and the charge is the platform's own. That is a different
+# relationship with different obligations, and it is why the two have separate
+# endpoints rather than one route with a branch: a Stripe endpoint is scoped
+# either to the platform or to connected accounts, they carry different signing
+# secrets, and a verifier holds exactly one.
+#
+# STRIPE_SECRET_KEY UNSET ⇒ neither the organiser Connect routes nor the upgrade
+# routes are mounted, so a deployment with no Stripe account has no payment
+# surface at all rather than one that 500s. The portal probes and hides the
+# Connect panel.
+# STRIPE_WEBHOOK_SECRET UNSET ⇒ /api/stripe/webhook does not exist (gifts).
+# STRIPE_PLATFORM_WEBHOOK_SECRET UNSET ⇒ /api/stripe/platform-webhook does not
+# exist (upgrades), so a purchase could be paid and never granted — nothing else
+# moves a purchase off `pending`.
+# Nothing else authenticates either endpoint — the signature IS the
+# authentication — so without a signing secret neither may be reachable.
 #
 #   bunx wrangler secret put STRIPE_SECRET_KEY --env production
 #   bunx wrangler secret put STRIPE_WEBHOOK_SECRET --env production
+#   bunx wrangler secret put STRIPE_PLATFORM_WEBHOOK_SECRET --env production
 #
-# Both are SECRETS, never [vars]: the API key can move money, and the signing
-# secret is what stops anyone else's body being believed.
+# All three are SECRETS, never [vars]: the API key can move money, and a signing
+# secret is what stops anyone else's body being believed. The two webhook
+# secrets come from DIFFERENT endpoints in the Stripe dashboard; reusing one for
+# both means every delivery to the other is refused.
+#
 # STRIPE_ACCOUNT_COUNTRY is an ordinary var (default "AU" in code). Stripe fixes
 # an account's country at creation, so it is a per-deployment default rather
 # than something a couple can change later.
 # STRIPE_ACCOUNT_COUNTRY = "AU"
+#
+# STRIPE_UPGRADE_PRICE_* are ordinary vars too — Price ids, not secrets. A key
+# with no Price id here is NOT FOR SALE in that tier: absent from the catalogue,
+# 404 from the checkout route. Absent configuration never means free. The AMOUNT
+# lives at Stripe and is read back from it, so changing what an upgrade costs is
+# a dashboard change plus a var rather than a deploy, and no price is duplicated
+# here to drift from what customers are charged.
+# Named envs inherit NO vars, so each tier below declares its own.
 
 # ── GrowthBook feature flags (KEY-OPTIONAL) ──────────────────────────────────
 # GROWTHBOOK_CLIENT_KEY UNSET ⇒ @shared/feature-flags serves every flag's coded
@@ -253,6 +279,19 @@ GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
 # network, which is the honest dev posture until a dev GrowthBook environment
 # exists. Set it to test a flag rollout before promoting it to prod.
 
+# Self-serve upgrade prices. UNSET until the Stripe Prices exist, which is why
+# these are commented rather than blank: an empty string reads as unconfigured
+# in code, but a var nobody has filled in looks like an oversight either way.
+# With neither set the upgrade catalogue is empty, every checkout 404s, and the
+# locked nav rows keep offering an upgrade nobody can complete — so setting them
+# is part of turning the feature on, not an optimisation.
+# Create a one-off Price per module in the Stripe dashboard (test-mode Prices
+# for the dev tier, live ones for production — a test id in production fails at
+# checkout) and paste the `price_...` ids here.
+# STRIPE_UPGRADE_PRICE_VENDORS = "price_..."
+# STRIPE_UPGRADE_PRICE_REGISTRY = "price_..."
+
+
 # Mirror of the top-level [triggers] block (named envs do NOT inherit it). Same
 # 04:00 UTC expired-session sweep as production — dev exercising the same cron is
 # the point: a broken scheduled handler surfaces here first.
@@ -375,6 +414,13 @@ GROWTHBOOK_API_HOST = "https://cdn.growthbook.io"
 # first-class organiser who creates their own weddings via
 # POST /api/organiser/weddings, with per-wedding access scoped by
 # weddingOwner()/weddingMember() — there is no global boot gate or seeded owner.
+# Self-serve upgrade prices — LIVE-mode Price ids here, test-mode ones in the
+# dev tier. A test id in production fails at checkout. Unset ⇒ nothing is for
+# sale: the catalogue is empty and every checkout 404s, so the locked modules
+# keep offering an upgrade nobody can complete. Setting these is part of
+# turning the feature on.
+# STRIPE_UPGRADE_PRICE_VENDORS = "price_..."
+# STRIPE_UPGRADE_PRICE_REGISTRY = "price_..."
 
 # Mirror of the top-level [triggers] block — named environments do NOT inherit
 # it, so until this was added the daily expired-session sweep (C-M2/C-M15) was

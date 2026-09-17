@@ -63,6 +63,13 @@ function stripeStub(
     createAccount: () => Effect.fail(new StripeError({ reason: "not used here" })),
     createAccountLink: () => Effect.fail(new StripeError({ reason: "not used here" })),
     retrieveAccount: () => Effect.fail(new StripeError({ reason: "not used here" })),
+    // Upgrade purchases do not touch these route groups; a double that
+    // silently succeeded here would let a test pass against a call it never
+    // meant to make.
+    createPlatformCheckoutSession: () => Effect.fail(new StripeError({ reason: "not used here" })),
+    retrievePlatformCheckoutSession: () =>
+      Effect.fail(new StripeError({ reason: "not used here" })),
+    retrievePrice: () => Effect.fail(new StripeError({ reason: "not used here" })),
     createCheckoutSession(input) {
       sessions.push(input);
       options.onCreate?.();

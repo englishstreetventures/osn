@@ -1,0 +1,192 @@
+{
+  "schema_version": 1,
+  "pr": {
+    "number": 1100,
+    "branch": "claude/cire-upgrade-experience-fnu2u2",
+    "base_sha": "e48feae103cab5e2b76cc67c68bf6c7bcdd00378",
+    "head_sha": "91a95d713d1982bd80f1c4710372e821ccf0d2f0",
+    "generated_at": "2026-09-17T21:18:59.095Z",
+    "merged_at": null,
+    "phase": "at-open"
+  },
+  "issue": {
+    "number": 1039,
+    "type": null,
+    "labels": [
+      "product:cire",
+      "complexity:5"
+    ]
+  },
+  "complexity": {
+    "declared": 5,
+    "method": "confirmed"
+  },
+  "window": {
+    "sessions": 1,
+    "first_ts": "2026-09-14T12:13:19.506Z",
+    "last_ts": "2026-09-17T21:18:56.559Z",
+    "span_seconds": 291937,
+    "active_seconds": 12717,
+    "compactions": 0
+  },
+  "spend": {
+    "usd_equivalent": 166.25286425000024,
+    "tokens": {
+      "input": 2708,
+      "output": 335106,
+      "thinking": 36466,
+      "cache_write_5m": 1189829,
+      "cache_write_1h": 2404765,
+      "cache_read": 238711271
+    },
+    "by_model": {
+      "claude-opus-5": {
+        "tokens": {
+          "input": 1230,
+          "output": 333578,
+          "thinking": 36466,
+          "cache_write_5m": 592023,
+          "cache_write_1h": 2404765,
+          "cache_read": 232231111
+        },
+        "usd_equivalent": 152.20894925000022,
+        "messages": 615
+      },
+      "<synthetic>": {
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "thinking": 0,
+          "cache_write_5m": 0,
+          "cache_write_1h": 0,
+          "cache_read": 0
+        },
+        "usd_equivalent": 0,
+        "messages": 3
+      },
+      "claude-fable-5-1": {
+        "tokens": {
+          "input": 1478,
+          "output": 1528,
+          "thinking": 0,
+          "cache_write_5m": 597806,
+          "cache_write_1h": 0,
+          "cache_read": 6480160
+        },
+        "usd_equivalent": 14.043915,
+        "messages": 49
+      }
+    },
+    "by_actor": {
+      "main": {
+        "tokens": {
+          "input": 910,
+          "output": 331983,
+          "thinking": 36466,
+          "cache_write_5m": 0,
+          "cache_write_1h": 2404765,
+          "cache_read": 208242362
+        },
+        "usd_equivalent": 136.4729560000001,
+        "messages": 457
+      },
+      "subagent": {
+        "tokens": {
+          "input": 1798,
+          "output": 3123,
+          "thinking": 0,
+          "cache_write_5m": 1189829,
+          "cache_write_1h": 0,
+          "cache_read": 30468909
+        },
+        "usd_equivalent": 29.77990824999998,
+        "messages": 210
+      }
+    },
+    "effort": {
+      "high": 664
+    },
+    "unpriced_models": []
+  },
+  "diff": {
+    "files": {
+      "generated": 1,
+      "test": 16,
+      "docs": 10,
+      "config": 4,
+      "source": 28
+    },
+    "loc": {
+      "generated": {
+        "added": 40,
+        "deleted": 0
+      },
+      "test": {
+        "added": 2399,
+        "deleted": 74
+      },
+      "docs": {
+        "added": 270,
+        "deleted": 10
+      },
+      "config": {
+        "added": 3720,
+        "deleted": 15
+      },
+      "source": {
+        "added": 2383,
+        "deleted": 121
+      }
+    },
+    "packages": [
+      "cire/api",
+      "cire/db",
+      "cire/host"
+    ],
+    "touches_migration": true,
+    "commits": 20
+  },
+  "interaction": {
+    "user_turns": 17,
+    "corrective_turns": 16,
+    "tokens_before_first_edit": 3333164,
+    "sessions_with_observed_edit": 1,
+    "tool_calls": {
+      "Bash": 686,
+      "Read": 9,
+      "mcp__github__pull_request_read": 7,
+      "Agent": 6,
+      "Skill": 5,
+      "ToolSearch": 5,
+      "mcp__github__issue_write": 5,
+      "AskUserQuestion": 3,
+      "Write": 3,
+      "SubagentHandback": 2,
+      "mcp__github__get_job_logs": 2,
+      "mcp__github__list_issue_types": 1,
+      "mcp__github__search_issues": 1,
+      "mcp__github__issue_read": 1,
+      "WebFetch": 1,
+      "mcp__github__create_pull_request": 1,
+      "mcp__Claude_Code_Remote__subscribe_pr_activity": 1,
+      "ReadNotifications": 1,
+      "mcp__github__get_check_run": 1,
+      "mcp__Claude_Code_Remote__add_repo": 1
+    },
+    "edit_churn": {
+      "files_edited_3plus": 0,
+      "max_edits_one_file": 1
+    },
+    "skills": {
+      "new-feat": 1,
+      "rate-complexity": 1,
+      "stress-plan": 1,
+      "prep-pr": 1,
+      "retro": 1
+    },
+    "subagents": {
+      "attacker": 3,
+      "general-purpose": 3
+    }
+  }
+}

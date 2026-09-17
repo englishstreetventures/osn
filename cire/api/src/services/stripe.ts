@@ -147,6 +147,55 @@ export interface RetrieveCheckoutSessionInput {
   sessionId: string;
 }
 
+/**
+ * A PLATFORM Checkout Session — cire as the merchant of record, for an upgrade
+ * purchase. The opposite of {@link CreateCheckoutSessionInput}, which is a
+ * DIRECT charge on a couple's connected account for a gift, and the reason this
+ * is a separate input rather than that one widened: it carries no `accountId`
+ * (so no `Stripe-Account` header, so the charge is the platform's), and it
+ * names a Price the deployment configured rather than pricing a line inline.
+ */
+export interface CreatePlatformCheckoutSessionInput {
+  /** A `price_...` from configuration. No money amount is held in this repo. */
+  priceId: string;
+  successUrl: string;
+  cancelUrl: string;
+  /**
+   * Our own purchase id, echoed back untouched on every webhook event. Stripe
+   * treats it as opaque, and — unlike `metadata` — nothing on a connected
+   * account's side can rewrite it, so the settle path reads this first.
+   */
+  clientReferenceId: string;
+  metadata: StripeFormParams;
+  /** Makes a retried create return the FIRST session rather than a second one. */
+  idempotencyKey: string;
+}
+
+/**
+ * What a Checkout Session is doing now, as this product needs to read it.
+ *
+ * `complete` and `expired` are deliberately kept apart, which is why the
+ * platform probe does not reuse {@link StripeClient.retrieveCheckoutSession} —
+ * that one collapses every non-`open` state to `null`. For a gift that is
+ * right: a second contribution is a legitimate second gift, so "not open" just
+ * means "mint a fresh one". For an upgrade the two states need opposite
+ * answers. A `complete` session whose webhook has not landed yet means the
+ * money has very likely moved, so the answer is "wait", not "pay again" —
+ * treating it as dead mints a second payment page and charges twice for one
+ * entitlement. Only `expired` is safe to replace.
+ */
+export type PlatformSessionState =
+  | { status: "open"; id: string; url: string }
+  | { status: "complete" }
+  | { status: "expired" };
+
+/** Enough of a Price to show it. The amount lives at Stripe, never here. */
+export interface StripePrice {
+  unitAmountMinor: number;
+  /** Upper-case ISO, as every currency is at this product's boundary. */
+  currency: string;
+}
+
 /** Everything this product asks Stripe to do. Injected, so tests need no network. */
 export interface StripeClient {
   createAccount(input: CreateAccountInput): Effect.Effect<StripeAccount, StripeError>;
@@ -163,6 +212,19 @@ export interface StripeClient {
   retrieveCheckoutSession(
     input: RetrieveCheckoutSessionInput,
   ): Effect.Effect<StripeCheckoutSession | null, StripeError>;
+  createPlatformCheckoutSession(
+    input: CreatePlatformCheckoutSessionInput,
+  ): Effect.Effect<StripeCheckoutSession, StripeError>;
+  /**
+   * Read a platform session back as a STATE, not a nullable URL — see
+   * {@link PlatformSessionState} for why the distinction is load-bearing here
+   * and not for gifts.
+   */
+  retrievePlatformCheckoutSession(
+    sessionId: string,
+  ): Effect.Effect<PlatformSessionState, StripeError>;
+  /** The configured price of an upgrade, read from Stripe rather than stored. */
+  retrievePrice(priceId: string): Effect.Effect<StripePrice, StripeError>;
 }
 
 export class StripeService extends Context.Service<StripeService, StripeClient>()(
@@ -423,6 +485,80 @@ export function createStripeClient(config: StripeConfig): StripeClient {
           return typeof session.id === "string" && typeof session.url === "string"
             ? { id: session.id, url: session.url }
             : null;
+        }),
+      );
+    },
+
+    createPlatformCheckoutSession(input) {
+      return request(
+        "POST",
+        "/v1/checkout/sessions",
+        {
+          mode: "payment",
+          success_url: input.successUrl,
+          cancel_url: input.cancelUrl,
+          // A configured Price, not an inline `price_data`: the amount lives at
+          // Stripe, so changing what an upgrade costs is a dashboard change and
+          // a var, never a deploy of new source.
+          line_items: { 0: { quantity: 1, price: input.priceId } },
+          // Card only. A delayed debit (BECS here, SEPA in Europe) completes
+          // the session in seconds and settles days later, which would mean a
+          // `completed` event whose money has not moved — an entitlement this
+          // product would have to grant provisionally and claw back. Nothing
+          // about an upgrade needs that, so the option is closed rather than
+          // handled. The settle path still refuses an unpaid session.
+          payment_method_types: { 0: "card" },
+          client_reference_id: input.clientReferenceId,
+          metadata: input.metadata,
+        },
+        input.idempotencyKey,
+        // NO `stripeAccount`. Its absence is what makes this the platform's
+        // charge rather than a couple's.
+      ).pipe(
+        Effect.flatMap((payload) => {
+          const session = payload as { id?: unknown; url?: unknown };
+          return typeof session?.id === "string" && typeof session.url === "string"
+            ? Effect.succeed({ id: session.id, url: session.url })
+            : Effect.fail(new StripeError({ reason: "unexpected checkout session payload" }));
+        }),
+      );
+    },
+
+    retrievePlatformCheckoutSession(sessionId) {
+      return request("GET", `/v1/checkout/sessions/${encodeURIComponent(sessionId)}`).pipe(
+        Effect.map((payload): PlatformSessionState => {
+          const session = payload as { id?: unknown; url?: unknown; status?: unknown };
+          if (session?.status === "open") {
+            return typeof session.id === "string" && typeof session.url === "string"
+              ? { status: "open", id: session.id, url: session.url }
+              : // Open but with no URL left is somewhere nobody can pay, which
+                // is the same practical answer as an expired session.
+                { status: "expired" };
+          }
+          // Anything Stripe does not call `open` or `complete` is over and
+          // replaceable. Defaulting the UNKNOWN case to `expired` rather than
+          // `complete` is deliberate and is the safe direction only because the
+          // caller checks `has()` first: the cost of a wrong `expired` is a
+          // second session for an entitlement the wedding does not hold, while
+          // a wrong `complete` would park a paying customer forever.
+          return session?.status === "complete" ? { status: "complete" } : { status: "expired" };
+        }),
+      );
+    },
+
+    retrievePrice(priceId) {
+      return request("GET", `/v1/prices/${encodeURIComponent(priceId)}`).pipe(
+        Effect.flatMap((payload) => {
+          const price = payload as { unit_amount?: unknown; currency?: unknown };
+          // `unit_amount` is null on a tiered or metered price, which is not
+          // something an upgrade can be priced with — a misconfigured Price id
+          // is a failure, not a zero.
+          return typeof price?.unit_amount === "number" && typeof price.currency === "string"
+            ? Effect.succeed({
+                unitAmountMinor: price.unit_amount,
+                currency: price.currency.toUpperCase(),
+              })
+            : Effect.fail(new StripeError({ reason: "unexpected price payload" }));
         }),
       );
     },

@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 
 import { createRateLimiter } from "@shared/rate-limit";
+import { Elysia } from "elysia";
 
 import { createApp } from "../../src/app";
 import { createDb, seedDb } from "../../src/db/setup";
+import { originGuard } from "../../src/lib/origin-guard";
 import { jsonBody } from "../test-helpers";
 
 // A real app with a configured allowlist so the guard is active. The bootstrap
@@ -166,6 +168,53 @@ describe("the Stripe webhook is exempt (S-C1)", () => {
       new Request("http://localhost/api/claim", {
         method: "POST",
         headers: { "content-type": "application/json", "cf-connecting-ip": CF },
+        body: "{}",
+      }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  /**
+   * The PLATFORM webhook is a second Stripe endpoint with its own signing
+   * secret — upgrade purchases, where cire is the merchant, rather than gifts
+   * on a couple's connected account. It needs its own entry: `EXEMPT_PATHS` is
+   * matched exactly, so the Connect one does not cover it.
+   *
+   * Mounted on a BARE guard rather than asserted against `createApp`. The
+   * obvious test — POST the path on an app built without the platform secret
+   * and expect "not 403" — cannot fail: the route is not mounted, and a global
+   * `onBeforeHandle` never runs for a path the router does not match, so an
+   * unmatched POST 404s identically whether or not the exemption exists. A
+   * stub route at the real path is what makes the guard the thing under test.
+   */
+  it("exempts the platform webhook path", async () => {
+    const guarded = new Elysia()
+      .use(originGuard(["http://localhost:4321"]))
+      .post("/api/stripe/platform-webhook", () => ({ reached: true }))
+      .post("/api/stripe/not-exempt", () => ({ reached: true }));
+
+    const res = await guarded.fetch(
+      new Request("http://localhost/api/stripe/platform-webhook", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await jsonBody(res)).toEqual({ reached: true });
+  });
+
+  it("does not widen the exemption to a neighbouring stripe path", async () => {
+    // The exact-match rule the header calls out: `/api/stripe/webhook-x` must
+    // not inherit an exemption by being spelled similarly.
+    const guarded = new Elysia()
+      .use(originGuard(["http://localhost:4321"]))
+      .post("/api/stripe/not-exempt", () => ({ reached: true }));
+
+    const res = await guarded.fetch(
+      new Request("http://localhost/api/stripe/not-exempt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
         body: "{}",
       }),
     );
