@@ -36,9 +36,9 @@ function Section(props: { label: string; children: JSX.Element }) {
 /**
  * The holistic "everything about this event" view. Opened from an EventCard, it
  * gathers — in one cohesive sheet — when the event runs (timezone-aware), a
- * branded map preview of the venue with an Open-in-Maps action, an Add-to-
- * Calendar control (relocated here from the outer card), the description, the
- * dress code with its colour palette, and the Pinterest inspiration board.
+ * branded map preview naming the venue with an Open-in-Maps action, an
+ * Add-to-Calendar control, the description, the dress code with its colour
+ * palette, and the Pinterest inspiration board.
  *
  * Every section renders only when it has content, so a sparse event collapses
  * gracefully to just its header and timing rather than showing empty shells.

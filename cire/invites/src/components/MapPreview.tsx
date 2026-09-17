@@ -11,7 +11,7 @@ interface MapPreviewProps {
 /**
  * Map preview for a wedding event's "Where" section.
  *
- * Two render paths share one footer (venue line + "Open in Maps" action):
+ * Two render paths share one footer (venue line + an "Open in Maps" icon):
  *
  *  - **Real map** — when `PUBLIC_GOOGLE_MAPS_EMBED_KEY` is configured at build
  *    time AND the event has a venue address AND the guest has allowed
@@ -38,8 +38,8 @@ interface MapPreviewProps {
  *
  * The un-consented fallback is the CSS card rather than the generic "content
  * blocked" placeholder, deliberately: the card is a genuinely useful thing to
- * put where a map goes — it names the venue and still opens the guest's own maps
- * app via the footer link, which is a plain outbound navigation the guest
+ * put where a map goes — it names the venue and the card is itself a link to the
+ * guest's own maps app, which is a plain outbound navigation the guest
  * initiates and so needs no consent. A guest who refuses loses the interactive
  * tiles and nothing else. The cost is that the card gives no hint that a richer
  * map is available; the standing "Privacy choices" control in the site footer
@@ -84,6 +84,10 @@ export function MapPreview(props: MapPreviewProps) {
  * The real Google Maps Embed iframe + the shared footer. The iframe captures
  * pointer events, so (unlike the CSS card) the actionable "open in maps" link
  * lives in the footer rather than wrapping the whole card.
+ *
+ * That link is not a duplicate of Google's own in-frame control. It follows
+ * `resolveMapsUrl`, which prefers the organiser's `mapsUrl` — a pinned entrance
+ * or car park — where Google's control opens a place query for the address.
  */
 function MapEmbed(props: { href: string; venue: string | null; src: string }) {
   const title = () => `Map of ${props.venue ?? "the venue"}`;
@@ -172,9 +176,22 @@ function MapCard(props: { href: string; venue: string | null }) {
 }
 
 /**
- * Shared footer: venue line + the "Open in Maps" affordance. In the CSS-card
- * path the enclosing `<a>` is the link, so the action is a non-interactive
- * `<span>` (`interactive={false}`); in the iframe path it is itself the link.
+ * Shared footer: the venue line and the "Open in Maps" action.
+ *
+ * **The action is an icon, and the words are clipped rather than dropped.** A
+ * `sr-only` span carries "Open in Maps" at every width, so the wording is still
+ * there for a screen reader while the glyph stands in for it on screen. The
+ * words cost the venue address 140px of a 236px row at phone widths, which is
+ * more of the footer than the thing the footer exists to say.
+ *
+ * **It is a link on one path and a decoration on the other**, and the two must
+ * not be flattened into each other. In the iframe path the map captures pointer
+ * events, so this is the only element that can carry the destination — and the
+ * destination is worth carrying, because it is the organiser's own `mapsUrl`
+ * where they set one, which is not the place Google's in-frame control opens.
+ * In the CSS-card path the enclosing `<a>` is already that link, so this is a
+ * non-interactive `<span>`: the visible signal that the card is clickable, never
+ * a second tab stop for one destination.
  */
 function FooterRow(props: { href: string; venue: string | null; interactive?: boolean }) {
   const isLink = () => props.interactive !== false;
@@ -186,7 +203,15 @@ function FooterRow(props: { href: string; venue: string | null; interactive?: bo
         fallback={<span class="font-body text-text-muted text-ui-sm italic">View on map</span>}
       >
         {(line) => (
-          <span class="font-body text-text-muted text-ui-sm min-w-0 flex-1 truncate text-left">
+          // The address wraps rather than being cut off: it is the one thing
+          // this footer exists to say, and an ellipsis in place of the suburb
+          // tells a guest nothing. `wrap-anywhere` gives a single unbreakable
+          // token somewhere to break, so no address can push the row wider than
+          // the card; the three-line cap bounds one of unlimited length, since
+          // nothing between the organiser's input and here constrains it. Three
+          // is what the narrowest column this footer renders in fits, and a full
+          // address with its country needs all of them there.
+          <span class="font-body text-text-muted text-ui-sm line-clamp-3 min-w-0 flex-1 text-left wrap-anywhere">
             {line()}
           </span>
         )}
@@ -194,9 +219,9 @@ function FooterRow(props: { href: string; venue: string | null; interactive?: bo
       <Show
         when={isLink()}
         fallback={
-          <span class="border-gold font-body text-gold-ink group-hover:bg-gold group-hover:text-bg text-ui-xs tracking-ui-wider inline-flex shrink-0 items-center gap-1.5 rounded-sm border px-3.5 py-1.5 uppercase transition-colors duration-200">
-            Open in Maps
+          <span class="border-gold text-gold-ink group-hover:bg-gold group-hover:text-bg inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-sm border transition-colors duration-200">
             <OpenIcon />
+            <span class="sr-only">Open in Maps</span>
           </span>
         }
       >
@@ -204,11 +229,14 @@ function FooterRow(props: { href: string; venue: string | null; interactive?: bo
           href={props.href}
           target="_blank"
           rel="noopener noreferrer"
+          // Names the venue, so it is more specific than the clipped label
+          // inside and wins over it. The label is what names this action in the
+          // card path, where the element carrying it is not a link.
           aria-label={`Open ${props.venue ?? "the venue"} in maps`}
-          class="border-gold font-body text-gold-ink hover:bg-gold hover:text-bg focus-visible:ring-gold/60 text-ui-xs tracking-ui-wider inline-flex shrink-0 items-center gap-1.5 rounded-sm border px-3.5 py-1.5 uppercase transition-colors duration-200 focus:outline-none focus-visible:ring-2"
+          class="border-gold text-gold-ink hover:bg-gold hover:text-bg focus-visible:ring-gold/60 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-sm border transition-colors duration-200 focus:outline-none focus-visible:ring-2"
         >
-          Open in Maps
           <OpenIcon />
+          <span class="sr-only">Open in Maps</span>
         </a>
       </Show>
     </div>
@@ -218,8 +246,8 @@ function FooterRow(props: { href: string; venue: string | null; interactive?: bo
 function OpenIcon() {
   return (
     <svg
-      width="11"
-      height="11"
+      width="16"
+      height="16"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
