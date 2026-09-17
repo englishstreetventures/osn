@@ -1,5 +1,13 @@
 # @osn/pulse
 
+## 0.23.1
+
+### Patch Changes
+
+- Updated dependencies [d326ae3]
+  - @shared/ui@0.1.1
+  - @pulse/api@0.27.12
+
 ## 0.23.0
 
 ### Minor Changes

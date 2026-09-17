@@ -1,5 +1,12 @@
 # @tools/lab
 
+## 0.2.1
+
+### Patch Changes
+
+- Updated dependencies [d326ae3]
+  - @shared/ui@0.1.1
+
 ## 0.2.0
 
 ### Minor Changes

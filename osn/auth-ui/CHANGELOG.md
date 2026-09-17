@@ -1,5 +1,12 @@
 # @osn/ui
 
+## 2.0.1
+
+### Patch Changes
+
+- Updated dependencies [d326ae3]
+  - @shared/ui@0.1.1
+
 ## 2.0.0
 
 ### Major Changes

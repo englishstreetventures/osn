@@ -1,5 +1,13 @@
 # @osn/social
 
+## 0.16.1
+
+### Patch Changes
+
+- Updated dependencies [d326ae3]
+  - @shared/ui@0.1.1
+  - @osn/auth-ui@2.0.1
+
 ## 0.16.0
 
 ### Minor Changes
